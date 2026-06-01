@@ -65,7 +65,7 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
       otp_expires_at: expiresAt.toISOString(),
       otp_attempts: 0,
       updated_at: new Date().toISOString(),
-    },
+    } as any,
     { onConflict: "user_id" }
   );
 
@@ -128,7 +128,7 @@ export async function verifyEmailOtp(
   if (!valid) {
     await service
       .from("user_second_factor")
-      .update({ otp_attempts: (factor.otp_attempts ?? 0) + 1 })
+      .update({ otp_attempts: (factor.otp_attempts ?? 0) + 1 } as any)
       .eq("user_id", user.id);
     return { success: false, error: "Codice non corretto." };
   }
@@ -141,7 +141,7 @@ export async function verifyEmailOtp(
     user_id: user.id,
     session_token_hash: sessionTokenHash,
     expires_at: expiresAt.toISOString(),
-  });
+  } as any);
 
   await service
     .from("user_second_factor")
@@ -150,7 +150,7 @@ export async function verifyEmailOtp(
       otp_expires_at: null,
       otp_attempts: 0,
       verified_at: new Date().toISOString(),
-    })
+    } as any)
     .eq("user_id", user.id);
 
   const cookieStore = await cookies();
