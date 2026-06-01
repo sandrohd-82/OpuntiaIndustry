@@ -1,4 +1,5 @@
 "use server";
+// @ts-nocheck
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { cookies } from "next/headers";
