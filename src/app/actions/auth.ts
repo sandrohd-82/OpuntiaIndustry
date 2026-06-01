@@ -79,9 +79,7 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
   };
   const { error: upsertError } = await service
     .from("user_second_factor")
-    .upsert(otpUpsert as unknown as UserSecondFactorInsert, {
-      onConflict: "user_id",
-    });
+    .upsert(otpUpsert, { onConflict: "user_id" });
 
   if (upsertError) {
     return { success: false, error: "Impossibile generare il codice." };
@@ -147,7 +145,7 @@ export async function verifyEmailOtp(
     };
     await service
       .from("user_second_factor")
-      .update(attemptUpdate as unknown as UserSecondFactorUpdate)
+      .update(attemptUpdate)
       .eq("user_id", user.id);
     return { success: false, error: "Codice non corretto." };
   }
@@ -161,9 +159,7 @@ export async function verifyEmailOtp(
     session_token_hash: sessionTokenHash,
     expires_at: expiresAt.toISOString(),
   };
-  await service
-    .from("auth_sessions_2fa")
-    .insert(sessionInsert as unknown as AuthSession2faInsert);
+  await service.from("auth_sessions_2fa").insert(sessionInsert);
 
   const factorClear: UserSecondFactorUpdate = {
     otp_hash: null,
@@ -173,7 +169,7 @@ export async function verifyEmailOtp(
   };
   await service
     .from("user_second_factor")
-    .update(factorClear as unknown as UserSecondFactorUpdate)
+    .update(factorClear)
     .eq("user_id", user.id);
 
   const cookieStore = await cookies();

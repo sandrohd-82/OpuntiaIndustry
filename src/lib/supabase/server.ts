@@ -28,9 +28,13 @@ export async function createClient() {
   );
 }
 
-/** Client con service role — solo in Route Handlers / Server Actions protette */
+/**
+ * Client service role senza generic Database.
+ * Evita Insert/Row = never in CI quando lo schema custom non viene risolto.
+ * Usare solo in Server Actions / route protette lato server.
+ */
 export function createServiceClient() {
-  return createSupabaseClient<Database>(
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } }

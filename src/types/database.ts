@@ -195,7 +195,9 @@ export interface Database {
         ];
       };
     };
-    Views: Record<string, never>;
+    Views: {
+      [_ in never]: never;
+    };
     Functions: {
       get_user_areas: {
         Args: { p_user_id: string };
