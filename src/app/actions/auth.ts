@@ -108,6 +108,7 @@ export async function verifyEmailOtp(
     .eq("user_id", user.id)
     .single();
 
+  // @ts-expect-error tipizzazione Supabase incompleta in build (factor inferito come never)
   if (fetchError || !factor?.otp_hash || !factor.otp_expires_at) {
     return { success: false, error: "Nessun codice attivo. Richiedine uno nuovo." };
   }
