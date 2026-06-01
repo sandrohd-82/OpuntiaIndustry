@@ -15,6 +15,11 @@ import {
   twoFaSessionExpiresAt,
 } from "@/lib/auth/two-factor";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import type {
+  AuthSession2faInsert,
+  UserSecondFactorInsert,
+  UserSecondFactorUpdate,
+} from "@/types/database";
 
 export type AuthActionResult = {
   success: boolean;
@@ -64,17 +69,19 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
   const expiresAt = otpExpiresAt();
 
   const service = createServiceClient();
-  const { error: upsertError } = await service.from("user_second_factor").upsert(
-    {
-      user_id: user.id,
-      method: "email",
-      otp_hash: otpHash,
-      otp_expires_at: expiresAt.toISOString(),
-      otp_attempts: 0,
-      updated_at: new Date().toISOString(),
-    } as any,
-    { onConflict: "user_id" }
-  );
+  const otpUpsert: UserSecondFactorInsert = {
+    user_id: user.id,
+    method: "email",
+    otp_hash: otpHash,
+    otp_expires_at: expiresAt.toISOString(),
+    otp_attempts: 0,
+    updated_at: new Date().toISOString(),
+  };
+  const { error: upsertError } = await service
+    .from("user_second_factor")
+    .upsert(otpUpsert as unknown as UserSecondFactorInsert, {
+      onConflict: "user_id",
+    });
 
   if (upsertError) {
     return { success: false, error: "Impossibile generare il codice." };
@@ -135,9 +142,12 @@ export async function verifyEmailOtp(
   const valid = hashOtp(otp) === factor.otp_hash;
 
   if (!valid) {
+    const attemptUpdate: UserSecondFactorUpdate = {
+      otp_attempts: (factor.otp_attempts ?? 0) + 1,
+    };
     await service
       .from("user_second_factor")
-      .update({ otp_attempts: (factor.otp_attempts ?? 0) + 1 } as any)
+      .update(attemptUpdate as unknown as UserSecondFactorUpdate)
       .eq("user_id", user.id);
     return { success: false, error: "Codice non corretto." };
   }
@@ -146,20 +156,24 @@ export async function verifyEmailOtp(
   const sessionTokenHash = hashSessionToken(sessionToken);
   const expiresAt = twoFaSessionExpiresAt();
 
-  await service.from("auth_sessions_2fa").insert({
+  const sessionInsert: AuthSession2faInsert = {
     user_id: user.id,
     session_token_hash: sessionTokenHash,
     expires_at: expiresAt.toISOString(),
-  } as any);
+  };
+  await service
+    .from("auth_sessions_2fa")
+    .insert(sessionInsert as unknown as AuthSession2faInsert);
 
+  const factorClear: UserSecondFactorUpdate = {
+    otp_hash: null,
+    otp_expires_at: null,
+    otp_attempts: 0,
+    verified_at: new Date().toISOString(),
+  };
   await service
     .from("user_second_factor")
-    .update({
-      otp_hash: null,
-      otp_expires_at: null,
-      otp_attempts: 0,
-      verified_at: new Date().toISOString(),
-    } as any)
+    .update(factorClear as unknown as UserSecondFactorUpdate)
     .eq("user_id", user.id);
 
   const cookieStore = await cookies();
