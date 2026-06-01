@@ -2,7 +2,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
 import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
 
-const PUBLIC_PATHS = ["/", "/login", "/auth/callback"];
 const AUTH_PATHS = ["/login"];
 const VERIFY_PATH = "/verify-email";
 
@@ -10,9 +9,6 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabaseResponse, user } = await updateSession(request);
 
-  const isPublic = PUBLIC_PATHS.some(
-    (p) => pathname === p || pathname.startsWith("/auth/")
-  );
   const isAuthPage = AUTH_PATHS.includes(pathname);
   const isVerifyPage = pathname === VERIFY_PATH;
   const isAppArea = pathname.startsWith("/app");

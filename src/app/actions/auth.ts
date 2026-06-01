@@ -1,6 +1,4 @@
 "use server";
-// @ts-nocheck
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -21,6 +19,13 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 export type AuthActionResult = {
   success: boolean;
   error?: string;
+};
+
+/** Riga OTP da user_second_factor (cast per tipi Supabase in build CI) */
+type OtpFactorRow = {
+  otp_hash: string | null;
+  otp_expires_at: string | null;
+  otp_attempts: number;
 };
 
 export async function signInWithPassword(
@@ -103,13 +108,14 @@ export async function verifyEmailOtp(
   }
 
   const service = createServiceClient();
-  const { data: factor, error: fetchError } = await service
+  const { data: factorData, error: fetchError } = await service
     .from("user_second_factor")
     .select("otp_hash, otp_expires_at, otp_attempts")
     .eq("user_id", user.id)
     .single();
 
-  // @ts-expect-error tipizzazione Supabase incompleta in build (factor inferito come never)
+  const factor = factorData as OtpFactorRow | null;
+
   if (fetchError || !factor?.otp_hash || !factor.otp_expires_at) {
     return { success: false, error: "Nessun codice attivo. Richiedine uno nuovo." };
   }
