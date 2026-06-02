@@ -25,7 +25,16 @@ export type AuthActionResult = {
   success: boolean;
   error?: string;
   redirectTo?: string;
+  /** Solo se OTP_PREVIEW_FOR_TESTING=true su Vercel (mai in produzione finale) */
+  previewOtp?: string;
 };
+
+function otpPreviewPayload(otp: string): Pick<AuthActionResult, "previewOtp"> {
+  if (process.env.OTP_PREVIEW_FOR_TESTING === "true") {
+    return { previewOtp: otp };
+  }
+  return {};
+}
 
 /** Riga OTP da user_second_factor (cast per tipi Supabase in build CI) */
 type OtpFactorRow = {
@@ -60,7 +69,11 @@ export async function signInWithPassword(
       return otpResult;
     }
 
-    return { success: true, redirectTo: "/verify-email" };
+    return {
+      success: true,
+      redirectTo: "/verify-email",
+      previewOtp: otpResult.previewOtp,
+    };
   } catch (error) {
     console.error("signInWithPassword failed:", error);
     return {
@@ -110,7 +123,7 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
     console.info(`[Industry OTP] ${user.email}: ${otp}`);
 
     // TODO: invio email reale (Resend, SendGrid, Supabase Auth hooks)
-    return { success: true };
+    return { success: true, ...otpPreviewPayload(otp) };
   } catch (error) {
     console.error("sendEmailOtp failed:", error);
     return {

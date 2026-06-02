@@ -17,6 +17,9 @@ export function LoginForm() {
 
   useEffect(() => {
     if (state.success && state.redirectTo) {
+      if (state.previewOtp) {
+        sessionStorage.setItem("industry_otp_preview", state.previewOtp);
+      }
       router.push(state.redirectTo);
     }
   }, [state, router]);

@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   sendEmailOtp,
   verifyEmailOtp,
   type AuthActionResult,
 } from "@/app/actions/auth";
+
+const OTP_PREVIEW_STORAGE_KEY = "industry_otp_preview";
 
 const initialState: AuthActionResult = { success: false };
 
@@ -16,6 +18,9 @@ type Props = {
 
 export function VerifyEmailForm({ redirectTo }: Props) {
   const router = useRouter();
+  const [previewOtp, setPreviewOtp] = useState<string | null>(null);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
   const [state, formAction, pending] = useActionState(
     async (_prev: AuthActionResult, formData: FormData) => {
       formData.set("redirect", redirectTo);
@@ -25,17 +30,49 @@ export function VerifyEmailForm({ redirectTo }: Props) {
   );
 
   useEffect(() => {
+    const stored = sessionStorage.getItem(OTP_PREVIEW_STORAGE_KEY);
+    if (stored) {
+      setPreviewOtp(stored);
+      sessionStorage.removeItem(OTP_PREVIEW_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
     if (state.success && state.redirectTo) {
       router.push(state.redirectTo);
     }
   }, [state, router]);
 
   async function handleResend() {
-    await sendEmailOtp();
+    setResendMessage(null);
+    const result = await sendEmailOtp();
+    if (result.previewOtp) {
+      setPreviewOtp(result.previewOtp);
+      setResendMessage("Nuovo codice generato (modalità test).");
+    } else if (result.success) {
+      setResendMessage(
+        "Codice rigenerato. Controlla la email (se l'invio è attivo)."
+      );
+    } else if (result.error) {
+      setResendMessage(result.error);
+    }
   }
 
   return (
     <div className="space-y-4">
+      {previewOtp && (
+        <div
+          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-center"
+          role="status"
+        >
+          <p className="text-xs font-medium text-blue-900">
+            Codice test (OTP_PREVIEW_FOR_TESTING attivo)
+          </p>
+          <p className="mt-1 font-mono text-2xl tracking-[0.35em] text-blue-950">
+            {previewOtp}
+          </p>
+        </div>
+      )}
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="redirect" value={redirectTo} />
         <div>
@@ -75,10 +112,8 @@ export function VerifyEmailForm({ redirectTo }: Props) {
       >
         Invia di nuovo il codice
       </button>
-      {process.env.NODE_ENV === "development" && (
-        <p className="text-xs text-[var(--muted)]">
-          In sviluppo il codice OTP viene stampato nella console del server.
-        </p>
+      {resendMessage && (
+        <p className="text-center text-xs text-[var(--muted)]">{resendMessage}</p>
       )}
     </div>
   );
