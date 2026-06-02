@@ -33,6 +33,10 @@ export async function createClient() {
  * Usare solo in Server Actions / route protette lato server.
  */
 export function createServiceClient() {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("Missing Supabase service env vars");
+  }
+
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,

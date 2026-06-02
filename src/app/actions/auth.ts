@@ -36,62 +36,87 @@ type OtpFactorRow = {
 export async function signInWithPassword(
   formData: FormData
 ): Promise<AuthActionResult> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
+  try {
+    const email = String(formData.get("email") ?? "").trim();
+    const password = String(formData.get("password") ?? "");
 
-  if (!email || !password) {
-    return { success: false, error: "Email e password sono obbligatori." };
+    if (!email || !password) {
+      return { success: false, error: "Email e password sono obbligatori." };
+    }
+
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      return {
+        success: false,
+        error: `Credenziali non valide. (${error.message})`,
+      };
+    }
+
+    const otpResult = await sendEmailOtp();
+    if (!otpResult.success) {
+      return otpResult;
+    }
+
+    redirect("/verify-email");
+  } catch (error) {
+    console.error("signInWithPassword failed:", error);
+    return {
+      success: false,
+      error:
+        "Errore interno durante il login. Verifica le variabili Vercel (SUPABASE_SERVICE_ROLE_KEY).",
+    };
   }
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (error) {
-    return { success: false, error: "Credenziali non valide." };
-  }
-
-  await sendEmailOtp();
-  redirect("/verify-email");
 }
 
 export async function sendEmailOtp(): Promise<AuthActionResult> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-  if (!user?.email) {
-    return { success: false, error: "Sessione non valida." };
+    if (!user?.email) {
+      return { success: false, error: "Sessione non valida." };
+    }
+
+    const otp = generateEmailOtp();
+    const otpHash = hashOtp(otp);
+    const expiresAt = otpExpiresAt();
+
+    const service = createServiceClient();
+    const otpUpsert: UserSecondFactorInsert = {
+      user_id: user.id,
+      method: "email",
+      otp_hash: otpHash,
+      otp_expires_at: expiresAt.toISOString(),
+      otp_attempts: 0,
+      updated_at: new Date().toISOString(),
+    };
+    const { error: upsertError } = await service
+      .from("user_second_factor")
+      .upsert(otpUpsert, { onConflict: "user_id" });
+
+    if (upsertError) {
+      return { success: false, error: "Impossibile generare il codice." };
+    }
+
+    // Invio email: integrare Resend / Supabase Edge Function in produzione
+    if (process.env.NODE_ENV === "development") {
+      console.info(`[DEV] OTP per ${user.email}: ${otp}`);
+    }
+
+    // TODO: invio email reale (Resend, SendGrid, Supabase Auth hooks)
+    return { success: true };
+  } catch (error) {
+    console.error("sendEmailOtp failed:", error);
+    return {
+      success: false,
+      error:
+        "Errore OTP lato server. Controlla le env su Vercel (URL, ANON KEY, SERVICE ROLE KEY).",
+    };
   }
-
-  const otp = generateEmailOtp();
-  const otpHash = hashOtp(otp);
-  const expiresAt = otpExpiresAt();
-
-  const service = createServiceClient();
-  const otpUpsert: UserSecondFactorInsert = {
-    user_id: user.id,
-    method: "email",
-    otp_hash: otpHash,
-    otp_expires_at: expiresAt.toISOString(),
-    otp_attempts: 0,
-    updated_at: new Date().toISOString(),
-  };
-  const { error: upsertError } = await service
-    .from("user_second_factor")
-    .upsert(otpUpsert, { onConflict: "user_id" });
-
-  if (upsertError) {
-    return { success: false, error: "Impossibile generare il codice." };
-  }
-
-  // Invio email: integrare Resend / Supabase Edge Function in produzione
-  if (process.env.NODE_ENV === "development") {
-    console.info(`[DEV] OTP per ${user.email}: ${otp}`);
-  }
-
-  // TODO: invio email reale (Resend, SendGrid, Supabase Auth hooks)
-  return { success: true };
 }
 
 export async function verifyEmailOtp(
