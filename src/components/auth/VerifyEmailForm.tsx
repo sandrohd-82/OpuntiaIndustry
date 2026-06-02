@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   sendEmailOtp,
   verifyEmailOtp,
@@ -14,6 +15,7 @@ type Props = {
 };
 
 export function VerifyEmailForm({ redirectTo }: Props) {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(
     async (_prev: AuthActionResult, formData: FormData) => {
       formData.set("redirect", redirectTo);
@@ -21,6 +23,12 @@ export function VerifyEmailForm({ redirectTo }: Props) {
     },
     initialState
   );
+
+  useEffect(() => {
+    if (state.success && state.redirectTo) {
+      router.push(state.redirectTo);
+    }
+  }, [state, router]);
 
   async function handleResend() {
     await sendEmailOtp();

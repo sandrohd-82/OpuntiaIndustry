@@ -24,6 +24,7 @@ import type {
 export type AuthActionResult = {
   success: boolean;
   error?: string;
+  redirectTo?: string;
 };
 
 /** Riga OTP da user_second_factor (cast per tipi Supabase in build CI) */
@@ -59,7 +60,7 @@ export async function signInWithPassword(
       return otpResult;
     }
 
-    redirect("/verify-email");
+    return { success: true, redirectTo: "/verify-email" };
   } catch (error) {
     console.error("signInWithPassword failed:", error);
     return {
@@ -207,7 +208,10 @@ export async function verifyEmailOtp(
   });
 
   const redirectTo = String(formData.get("redirect") ?? "/app/dashboard");
-  redirect(redirectTo.startsWith("/app") ? redirectTo : "/app/dashboard");
+  return {
+    success: true,
+    redirectTo: redirectTo.startsWith("/app") ? redirectTo : "/app/dashboard",
+  };
 }
 
 export async function signOut(): Promise<void> {

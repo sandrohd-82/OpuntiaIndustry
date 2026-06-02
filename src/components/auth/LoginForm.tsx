@@ -1,17 +1,25 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { signInWithPassword, type AuthActionResult } from "@/app/actions/auth";
 
 const initialState: AuthActionResult = { success: false };
 
 export function LoginForm() {
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(
     async (_prev: AuthActionResult, formData: FormData) => {
       return signInWithPassword(formData);
     },
     initialState
   );
+
+  useEffect(() => {
+    if (state.success && state.redirectTo) {
+      router.push(state.redirectTo);
+    }
+  }, [state, router]);
 
   return (
     <form action={formAction} className="space-y-4">
