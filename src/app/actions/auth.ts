@@ -106,10 +106,8 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
       };
     }
 
-    // Invio email: integrare Resend / Supabase Edge Function in produzione
-    if (process.env.NODE_ENV === "development") {
-      console.info(`[DEV] OTP per ${user.email}: ${otp}`);
-    }
+    // Invio email reale: TODO (Resend / SMTP Supabase). Intanto log per test su Vercel.
+    console.info(`[Industry OTP] ${user.email}: ${otp}`);
 
     // TODO: invio email reale (Resend, SendGrid, Supabase Auth hooks)
     return { success: true };
