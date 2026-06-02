@@ -100,7 +100,10 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
       .upsert(otpUpsert, { onConflict: "user_id" });
 
     if (upsertError) {
-      return { success: false, error: "Impossibile generare il codice." };
+      return {
+        success: false,
+        error: `Impossibile generare il codice. (${upsertError.message})`,
+      };
     }
 
     // Invio email: integrare Resend / Supabase Edge Function in produzione
