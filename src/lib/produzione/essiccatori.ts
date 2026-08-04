@@ -1,71 +1,94 @@
-export type EssiccatoreStatus = "acceso" | "spento";
+export type EssiccatorePower = "acceso" | "spento";
+
+/** Fase operativa dell'essiccatore */
+export type EssiccatoreFase =
+  | "essiccazione"
+  | "spegnimento"
+  | "raffreddamento"
+  | "partenza"
+  | "girata";
+
+/** Condizione termica dello stato */
+export type EssiccatoreCondizione = "regolare" | "hot" | "cold";
 
 export type Essiccatore = {
   id: string;
   name: string;
-  status: EssiccatoreStatus;
+  power: EssiccatorePower;
   imageSrc: string;
-  /** Dati di esercizio (mock finché non collegati a telemetria/DB) */
-  esercizio: {
-    temperaturaCameraC: number | null;
-    umiditaPercent: number | null;
-    setPointC: number | null;
-    oreCiclo: number | null;
-    caricoKg: number | null;
-    cicloCorrente: string | null;
-    ultimoAggiornamento: string;
-    note: string | null;
-  };
+  fase: EssiccatoreFase;
+  condizione: EssiccatoreCondizione;
+  temperaturaImpostataC: number | null;
+  temperaturaRilevataC: number | null;
+  /** Timestamp di accensione (null se spento) */
+  accesoDal: string | null;
+  prodottoCaricatoKg: number;
 };
+
+export const FASE_LABELS: Record<EssiccatoreFase, string> = {
+  essiccazione: "Essiccazione",
+  spegnimento: "Spegnimento",
+  raffreddamento: "Raffreddamento",
+  partenza: "Partenza",
+  girata: "Girata",
+};
+
+export const CONDIZIONE_LABELS: Record<EssiccatoreCondizione, string> = {
+  regolare: "Regolare",
+  hot: "Hot",
+  cold: "Cold",
+};
+
+const TEMP_TOLERANCE_C = 5;
+
+/** Verde ±5° rispetto all'impostata, rosso sopra, azzurro sotto */
+export function temperaturaTone(
+  impostata: number | null,
+  rilevata: number | null
+): EssiccatoreCondizione | null {
+  if (impostata === null || rilevata === null) return null;
+  const delta = rilevata - impostata;
+  if (delta > TEMP_TOLERANCE_C) return "hot";
+  if (delta < -TEMP_TOLERANCE_C) return "cold";
+  return "regolare";
+}
 
 /** Dati demo — sostituibili con lettura live da backend/sensori */
 export const ESSICCATORI: Essiccatore[] = [
   {
     id: "ess-1",
     name: "Essiccatore 1",
-    status: "acceso",
+    power: "acceso",
     imageSrc: "/essiccatori/essiccatore-1.jpg",
-    esercizio: {
-      temperaturaCameraC: 62.4,
-      umiditaPercent: 28,
-      setPointC: 65,
-      oreCiclo: 14.5,
-      caricoKg: 1850,
-      cicloCorrente: "Essiccazione standard",
-      ultimoAggiornamento: new Date().toISOString(),
-      note: "Ciclo in corso, ventilazione automatica attiva.",
-    },
+    fase: "essiccazione",
+    condizione: "regolare",
+    temperaturaImpostataC: 65,
+    temperaturaRilevataC: 62.4,
+    accesoDal: new Date(Date.now() - 14.5 * 60 * 60 * 1000).toISOString(),
+    prodottoCaricatoKg: 2153,
   },
   {
     id: "ess-2",
     name: "Essiccatore 2",
-    status: "acceso",
+    power: "acceso",
     imageSrc: "/essiccatori/essiccatore-2.jpg",
-    esercizio: {
-      temperaturaCameraC: 58.1,
-      umiditaPercent: 34,
-      setPointC: 60,
-      oreCiclo: 9.2,
-      caricoKg: 1620,
-      cicloCorrente: "Pre-essiccazione",
-      ultimoAggiornamento: new Date().toISOString(),
-      note: null,
-    },
+    fase: "girata",
+    condizione: "hot",
+    temperaturaImpostataC: 60,
+    temperaturaRilevataC: 68.5,
+    accesoDal: new Date(Date.now() - 9.2 * 60 * 60 * 1000).toISOString(),
+    prodottoCaricatoKg: 1840,
   },
   {
     id: "ess-3",
     name: "Essiccatore di Mantenimento",
-    status: "spento",
+    power: "spento",
     imageSrc: "/essiccatori/essiccatore-mantenimento.jpg",
-    esercizio: {
-      temperaturaCameraC: 22.0,
-      umiditaPercent: 48,
-      setPointC: null,
-      oreCiclo: 0,
-      caricoKg: 0,
-      cicloCorrente: null,
-      ultimoAggiornamento: new Date().toISOString(),
-      note: "In standby — disponibile per carico di mantenimento.",
-    },
+    fase: "spegnimento",
+    condizione: "cold",
+    temperaturaImpostataC: 40,
+    temperaturaRilevataC: 22.0,
+    accesoDal: null,
+    prodottoCaricatoKg: 0,
   },
 ];

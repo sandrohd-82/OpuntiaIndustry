@@ -1,30 +1,64 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import type { Essiccatore, EssiccatoreStatus } from "@/lib/produzione/essiccatori";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import {
+  CONDIZIONE_LABELS,
+  FASE_LABELS,
+  temperaturaTone,
+  type Essiccatore,
+  type EssiccatoreCondizione,
+  type EssiccatorePower,
+} from "@/lib/produzione/essiccatori";
 
 type Props = {
   items: Essiccatore[];
 };
 
-function formatNumber(value: number | null, suffix = "") {
-  if (value === null || Number.isNaN(value)) return "—";
-  return `${value.toLocaleString("it-IT")}${suffix}`;
-}
-
-function formatDateTime(iso: string) {
-  try {
-    return new Date(iso).toLocaleString("it-IT", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
-  } catch {
-    return "—";
+function toneClasses(tone: EssiccatoreCondizione | null) {
+  switch (tone) {
+    case "regolare":
+      return "text-emerald-600";
+    case "hot":
+      return "text-red-600";
+    case "cold":
+      return "text-sky-500";
+    default:
+      return "text-[var(--foreground)]";
   }
 }
 
-function OnAirBadge({ status }: { status: EssiccatoreStatus }) {
-  const on = status === "acceso";
+function toneBadgeClasses(tone: EssiccatoreCondizione) {
+  switch (tone) {
+    case "regolare":
+      return "bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-500/35";
+    case "hot":
+      return "bg-red-500/15 text-red-700 ring-1 ring-red-500/35";
+    case "cold":
+      return "bg-sky-500/15 text-sky-700 ring-1 ring-sky-500/35";
+  }
+}
+
+function formatKg(value: number) {
+  return `${value.toLocaleString("it-IT")}kg`;
+}
+
+function formatDuration(accesoDal: string | null, now: number) {
+  if (!accesoDal) return "—";
+  const start = new Date(accesoDal).getTime();
+  if (Number.isNaN(start) || start > now) return "—";
+
+  const totalMinutes = Math.floor((now - start) / 60000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}g ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function OnAirBadge({ power }: { power: EssiccatorePower }) {
+  const on = power === "acceso";
   return (
     <span
       className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
@@ -127,17 +161,48 @@ function PhotoModal({
   );
 }
 
+function ParamRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+        {label}
+      </p>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}
+
 function EssiccatoreCard({
   item,
+  now,
   onOpenPhoto,
 }: {
   item: Essiccatore;
+  now: number;
   onOpenPhoto: (item: Essiccatore) => void;
 }) {
-  const e = item.esercizio;
+  const tempTone = temperaturaTone(
+    item.temperaturaImpostataC,
+    item.temperaturaRilevataC
+  );
+
+  const impostata =
+    item.temperaturaImpostataC === null
+      ? "—"
+      : `${item.temperaturaImpostataC.toLocaleString("it-IT")}°`;
+  const rilevata =
+    item.temperaturaRilevataC === null
+      ? "—"
+      : `${item.temperaturaRilevataC.toLocaleString("it-IT")}°`;
 
   return (
-    <article className="flex min-h-[280px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
+    <article className="flex min-h-[300px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-lg font-semibold">{item.name}</h2>
@@ -151,67 +216,42 @@ function EssiccatoreCard({
             <EyeIcon />
           </button>
         </div>
-        <OnAirBadge status={item.status} />
+        <OnAirBadge power={item.power} />
       </div>
 
-      <dl className="mt-5 grid flex-1 grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3">
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Temperatura
-          </dt>
-          <dd className="mt-1 text-xl font-semibold tabular-nums">
-            {formatNumber(e.temperaturaCameraC, " °C")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Umidità
-          </dt>
-          <dd className="mt-1 text-xl font-semibold tabular-nums">
-            {formatNumber(e.umiditaPercent, " %")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Set-point
-          </dt>
-          <dd className="mt-1 text-xl font-semibold tabular-nums">
-            {formatNumber(e.setPointC, " °C")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Ore ciclo
-          </dt>
-          <dd className="mt-1 text-xl font-semibold tabular-nums">
-            {formatNumber(e.oreCiclo, " h")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Carico
-          </dt>
-          <dd className="mt-1 text-xl font-semibold tabular-nums">
-            {formatNumber(e.caricoKg, " kg")}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">
-            Ciclo
-          </dt>
-          <dd className="mt-1 text-base font-medium">
-            {e.cicloCorrente ?? "Nessun ciclo"}
-          </dd>
-        </div>
-      </dl>
+      <div className="mt-5 grid flex-1 gap-3">
+        <ParamRow label="Stato">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-lg font-semibold">
+              {FASE_LABELS[item.fase]}
+            </span>
+            <span
+              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
+            >
+              {CONDIZIONE_LABELS[item.condizione]}
+            </span>
+          </div>
+        </ParamRow>
 
-      <div className="mt-5 border-t border-[var(--border)] pt-4">
-        <p className="text-xs text-[var(--muted)]">
-          Ultimo aggiornamento: {formatDateTime(e.ultimoAggiornamento)}
-        </p>
-        {e.note && (
-          <p className="mt-2 text-sm text-[var(--foreground)]">{e.note}</p>
-        )}
+        <ParamRow label="Temperatura">
+          <p className={`text-lg font-semibold tabular-nums ${toneClasses(tempTone)}`}>
+            <span className="text-[var(--muted)]">[{impostata}]</span>
+            <span className="mx-2 text-[var(--muted)]">:</span>
+            <span>[{rilevata}]</span>
+          </p>
+        </ParamRow>
+
+        <ParamRow label="Tempo">
+          <p className="text-lg font-semibold tabular-nums">
+            {formatDuration(item.accesoDal, now)}
+          </p>
+        </ParamRow>
+
+        <ParamRow label="Prodotto caricato">
+          <p className="text-lg font-semibold tabular-nums">
+            {formatKg(item.prodottoCaricatoKg)}
+          </p>
+        </ParamRow>
       </div>
     </article>
   );
@@ -219,14 +259,23 @@ function EssiccatoreCard({
 
 export function EssiccatoriBoard({ items }: Props) {
   const [photoItem, setPhotoItem] = useState<Essiccatore | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const list = useMemo(() => items, [items]);
 
   return (
     <>
-      <div className="grid gap-5 xl:grid-cols-3 md:grid-cols-2">
-        {items.map((item) => (
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {list.map((item) => (
           <EssiccatoreCard
             key={item.id}
             item={item}
+            now={now}
             onOpenPhoto={setPhotoItem}
           />
         ))}
