@@ -118,15 +118,7 @@ function EyeIcon() {
   );
 }
 
-function PhotoModal({
-  item,
-  onClose,
-}: {
-  item: Essiccatore;
-  onClose: () => void;
-}) {
-  const titleId = useId();
-
+function useModalChrome(onClose: () => void) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -139,6 +131,59 @@ function PhotoModal({
       document.body.style.overflow = prev;
     };
   }, [onClose]);
+}
+
+const PROCEDURE_SALVATE = [
+  { id: "avvio", label: "Avvio" },
+  { id: "essiccazione", label: "Essiccazione" },
+  { id: "asciugatura-notturna", label: "Asciugatura notturna" },
+  { id: "spegnimento", label: "Spegnimento" },
+] as const;
+
+function ActionOptionBox({
+  title,
+  description,
+  danger,
+  onClick,
+}: {
+  title: string;
+  description?: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full rounded-lg border px-4 py-3 text-left transition-colors ${
+        danger
+          ? "border-red-200 bg-red-50 hover:bg-red-100"
+          : "border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)] hover:bg-slate-50"
+      }`}
+    >
+      <p
+        className={`text-sm font-semibold ${danger ? "text-red-700" : "text-[var(--foreground)]"}`}
+      >
+        {title}
+      </p>
+      {description && (
+        <p className={`mt-1 text-xs ${danger ? "text-red-600/80" : "text-[var(--muted)]"}`}>
+          {description}
+        </p>
+      )}
+    </button>
+  );
+}
+
+function PhotoModal({
+  item,
+  onClose,
+}: {
+  item: Essiccatore;
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  useModalChrome(onClose);
 
   return (
     <div
@@ -170,6 +215,95 @@ function PhotoModal({
             src={item.imageSrc}
             alt={`Foto ${item.name}`}
             className="max-h-[70vh] w-full rounded-lg object-cover"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IntervieniModal({
+  item,
+  onClose,
+  onSelect,
+}: {
+  item: Essiccatore;
+  onClose: () => void;
+  onSelect: (actionLabel: string) => void;
+}) {
+  const titleId = useId();
+  useModalChrome(onClose);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
+          <div>
+            <h2 id={titleId} className="text-lg font-semibold">
+              Intervieni
+            </h2>
+            <p className="text-sm text-[var(--muted)]">{item.name}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
+          >
+            Chiudi
+          </button>
+        </div>
+
+        <div className="space-y-3 p-4">
+          <ActionOptionBox
+            title="Regola ventilazione"
+            description="Modifica la portata e la modalità di ventilazione"
+            onClick={() => onSelect("Regola ventilazione")}
+          />
+          <ActionOptionBox
+            title="Regola temperatura"
+            description="Imposta il set-point di temperatura"
+            onClick={() => onSelect("Regola temperatura")}
+          />
+          <ActionOptionBox
+            title="Attiva processo mescolata"
+            description="Avvia il ciclo di mescolata del prodotto"
+            onClick={() => onSelect("Attiva processo mescolata")}
+          />
+
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+            <p className="text-sm font-semibold">Procedure salvate</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Seleziona una procedura predefinita da eseguire
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {PROCEDURE_SALVATE.map((proc) => (
+                <button
+                  key={proc.id}
+                  type="button"
+                  onClick={() => onSelect(`Procedura: ${proc.label}`)}
+                  className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left text-sm font-medium transition-colors hover:border-[var(--primary)] hover:bg-slate-50"
+                >
+                  {proc.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <ActionOptionBox
+            title="Arresto rapido"
+            description="Interrompe immediatamente il ciclo in corso"
+            danger
+            onClick={() => onSelect("Arresto rapido")}
           />
         </div>
       </div>
@@ -322,8 +456,9 @@ function EssiccatoreCard({
 
 export function EssiccatoriBoard({ items }: Props) {
   const [photoItem, setPhotoItem] = useState<Essiccatore | null>(null);
+  const [intervieniItem, setIntervieniItem] = useState<Essiccatore | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [intervieniMsg, setIntervieniMsg] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -334,12 +469,12 @@ export function EssiccatoriBoard({ items }: Props) {
 
   return (
     <>
-      {intervieniMsg && (
+      {feedback && (
         <p
-          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
           role="status"
         >
-          {intervieniMsg}
+          {feedback}
         </p>
       )}
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
@@ -349,16 +484,22 @@ export function EssiccatoriBoard({ items }: Props) {
             item={item}
             now={now}
             onOpenPhoto={setPhotoItem}
-            onIntervieni={(ess) =>
-              setIntervieniMsg(
-                `Intervento richiesto su ${ess.name}. Funzione in fase di implementazione.`
-              )
-            }
+            onIntervieni={setIntervieniItem}
           />
         ))}
       </div>
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
+      )}
+      {intervieniItem && (
+        <IntervieniModal
+          item={intervieniItem}
+          onClose={() => setIntervieniItem(null)}
+          onSelect={(actionLabel) => {
+            setFeedback(`${intervieniItem.name}: ${actionLabel}`);
+            setIntervieniItem(null);
+          }}
+        />
       )}
     </>
   );
