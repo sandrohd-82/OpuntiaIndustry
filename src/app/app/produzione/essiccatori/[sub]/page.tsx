@@ -4,14 +4,14 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { resolveProduzionePage } from "@/lib/areas/produzione";
 
 type Props = {
-  params: Promise<{ section: string }>;
+  params: Promise<{ sub: string }>;
 };
 
-export default async function ProduzioneSectionPage({ params }: Props) {
+export default async function EssiccatoriSubPage({ params }: Props) {
   await requireAreaAccess("produzione");
 
-  const { section } = await params;
-  const page = resolveProduzionePage([section]);
+  const { sub } = await params;
+  const page = resolveProduzionePage(["essiccatori", sub]);
   if (!page) notFound();
 
   return (
