@@ -20,6 +20,8 @@ export type Essiccatore = {
   condizione: EssiccatoreCondizione;
   temperaturaImpostataC: number | null;
   temperaturaRilevataC: number | null;
+  /** Ultimo aggiornamento temperatura rilevata */
+  temperaturaAggiornataIl: string | null;
   /** Timestamp di accensione (null se spento) */
   accesoDal: string | null;
   prodottoCaricatoKg: number;
@@ -39,6 +41,8 @@ export const CONDIZIONE_LABELS: Record<EssiccatoreCondizione, string> = {
   cold: "Cold",
 };
 
+export const PRODOTTO_STIMA_PERCENT = 7.5;
+
 const TEMP_TOLERANCE_C = 5;
 
 /** Verde ±5° rispetto all'impostata, rosso sopra, azzurro sotto */
@@ -53,6 +57,11 @@ export function temperaturaTone(
   return "regolare";
 }
 
+/** ±7,5% del prodotto caricato */
+export function prodottoStimatoDeltaKg(caricatoKg: number): number {
+  return (caricatoKg * PRODOTTO_STIMA_PERCENT) / 100;
+}
+
 /** Dati demo — sostituibili con lettura live da backend/sensori */
 export const ESSICCATORI: Essiccatore[] = [
   {
@@ -64,7 +73,8 @@ export const ESSICCATORI: Essiccatore[] = [
     condizione: "regolare",
     temperaturaImpostataC: 65,
     temperaturaRilevataC: 62.4,
-    accesoDal: new Date(Date.now() - 14.5 * 60 * 60 * 1000).toISOString(),
+    temperaturaAggiornataIl: new Date().toISOString(),
+    accesoDal: new Date(Date.now() - (16 * 60 + 37) * 60 * 1000).toISOString(),
     prodottoCaricatoKg: 2153,
   },
   {
@@ -76,7 +86,8 @@ export const ESSICCATORI: Essiccatore[] = [
     condizione: "hot",
     temperaturaImpostataC: 60,
     temperaturaRilevataC: 68.5,
-    accesoDal: new Date(Date.now() - 9.2 * 60 * 60 * 1000).toISOString(),
+    temperaturaAggiornataIl: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
+    accesoDal: new Date(Date.now() - (9 * 60 + 12) * 60 * 1000).toISOString(),
     prodottoCaricatoKg: 1840,
   },
   {
@@ -88,6 +99,7 @@ export const ESSICCATORI: Essiccatore[] = [
     condizione: "cold",
     temperaturaImpostataC: 40,
     temperaturaRilevataC: 22.0,
+    temperaturaAggiornataIl: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     accesoDal: null,
     prodottoCaricatoKg: 0,
   },

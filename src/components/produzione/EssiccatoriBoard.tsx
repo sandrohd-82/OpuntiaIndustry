@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import {
   CONDIZIONE_LABELS,
   FASE_LABELS,
+  PRODOTTO_STIMA_PERCENT,
+  prodottoStimatoDeltaKg,
   temperaturaTone,
   type Essiccatore,
   type EssiccatoreCondizione,
@@ -39,7 +41,21 @@ function toneBadgeClasses(tone: EssiccatoreCondizione) {
 }
 
 function formatKg(value: number) {
-  return `${value.toLocaleString("it-IT")}kg`;
+  return `${value.toLocaleString("it-IT", {
+    maximumFractionDigits: 1,
+  })}kg`;
+}
+
+function formatDateTime(iso: string | null) {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("it-IT", {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  } catch {
+    return "—";
+  }
 }
 
 function formatDuration(accesoDal: string | null, now: number) {
@@ -52,8 +68,8 @@ function formatDuration(accesoDal: string | null, now: number) {
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
   const minutes = totalMinutes % 60;
 
-  if (days > 0) return `${days}g ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (days > 0) return `${days}g ${hours} h ${minutes}m`;
+  if (hours > 0) return `${hours} h ${minutes}m`;
   return `${minutes}m`;
 }
 
@@ -161,20 +177,11 @@ function PhotoModal({
   );
 }
 
-function ParamRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function SectionLabel({ children }: { children: string }) {
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-        {label}
-      </p>
-      <div className="mt-1.5">{children}</div>
-    </div>
+    <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+      {children}
+    </p>
   );
 }
 
@@ -182,10 +189,12 @@ function EssiccatoreCard({
   item,
   now,
   onOpenPhoto,
+  onIntervieni,
 }: {
   item: Essiccatore;
   now: number;
   onOpenPhoto: (item: Essiccatore) => void;
+  onIntervieni: (item: Essiccatore) => void;
 }) {
   const tempTone = temperaturaTone(
     item.temperaturaImpostataC,
@@ -201,8 +210,14 @@ function EssiccatoreCard({
       ? "—"
       : `${item.temperaturaRilevataC.toLocaleString("it-IT")}°`;
 
+  const stimaDelta = prodottoStimatoDeltaKg(item.prodottoCaricatoKg);
+  const stimaPercentLabel = PRODOTTO_STIMA_PERCENT.toLocaleString("it-IT", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+
   return (
-    <article className="flex min-h-[300px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
+    <article className="flex min-h-[340px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-lg font-semibold">{item.name}</h2>
@@ -219,40 +234,83 @@ function EssiccatoreCard({
         <OnAirBadge power={item.power} />
       </div>
 
-      <div className="mt-5 grid flex-1 gap-3">
-        <ParamRow label="Stato">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-lg font-semibold">
-              {FASE_LABELS[item.fase]}
-            </span>
+      <div className="mt-5 flex flex-1 flex-col gap-4">
+        {/* Stato */}
+        <section>
+          <SectionLabel>Stato</SectionLabel>
+          <div className="mt-1 flex items-start justify-between gap-3">
+            <p className="text-lg font-semibold">{FASE_LABELS[item.fase]}</p>
             <span
-              className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
+              className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
             >
               {CONDIZIONE_LABELS[item.condizione]}
             </span>
           </div>
-        </ParamRow>
+        </section>
 
-        <ParamRow label="Temperatura">
-          <p className={`text-lg font-semibold tabular-nums ${toneClasses(tempTone)}`}>
-            <span className="text-[var(--muted)]">[{impostata}]</span>
-            <span className="mx-2 text-[var(--muted)]">:</span>
-            <span>[{rilevata}]</span>
-          </p>
-        </ParamRow>
+        {/* Temperatura */}
+        <section>
+          <SectionLabel>Temperatura</SectionLabel>
+          <div className="mt-1 flex items-start justify-between gap-3">
+            <p className="text-base font-medium tabular-nums text-[var(--foreground)]">
+              Imp. {impostata}
+            </p>
+            <div className="text-right">
+              <p
+                className={`text-lg font-semibold tabular-nums leading-tight ${toneClasses(tempTone)}`}
+              >
+                {rilevata}
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">
+                {formatDateTime(item.temperaturaAggiornataIl)}
+              </p>
+            </div>
+          </div>
+        </section>
 
-        <ParamRow label="Tempo">
-          <p className="text-lg font-semibold tabular-nums">
-            {formatDuration(item.accesoDal, now)}
-          </p>
-        </ParamRow>
+        {/* Tempo di esercizio */}
+        <section>
+          <SectionLabel>Tempo di esercizio</SectionLabel>
+          <div className="mt-1 flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-[var(--muted)]">Inizio</p>
+              <p className="text-base font-medium tabular-nums">
+                {formatDateTime(item.accesoDal)}
+              </p>
+            </div>
+            <p className="text-lg font-semibold tabular-nums">
+              {formatDuration(item.accesoDal, now)}
+            </p>
+          </div>
+        </section>
 
-        <ParamRow label="Prodotto caricato">
+        {/* Prodotto caricato */}
+        <section className="flex items-center justify-between gap-3">
+          <SectionLabel>Prodotto caricato</SectionLabel>
           <p className="text-lg font-semibold tabular-nums">
             {formatKg(item.prodottoCaricatoKg)}
           </p>
-        </ParamRow>
+        </section>
+
+        {/* Prodotto stimato */}
+        <section>
+          <SectionLabel>Prodotto stimato</SectionLabel>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <p className="text-base font-medium">± {stimaPercentLabel}%</p>
+            <p className="text-lg font-semibold tabular-nums">
+              {formatKg(stimaDelta)}
+            </p>
+          </div>
+        </section>
       </div>
+
+      <button
+        type="button"
+        onClick={() => onIntervieni(item)}
+        className="mt-5 w-full rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+      >
+        Intervieni
+      </button>
     </article>
   );
 }
@@ -260,6 +318,7 @@ function EssiccatoreCard({
 export function EssiccatoriBoard({ items }: Props) {
   const [photoItem, setPhotoItem] = useState<Essiccatore | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [intervieniMsg, setIntervieniMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -270,6 +329,14 @@ export function EssiccatoriBoard({ items }: Props) {
 
   return (
     <>
+      {intervieniMsg && (
+        <p
+          className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          role="status"
+        >
+          {intervieniMsg}
+        </p>
+      )}
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {list.map((item) => (
           <EssiccatoreCard
@@ -277,6 +344,11 @@ export function EssiccatoriBoard({ items }: Props) {
             item={item}
             now={now}
             onOpenPhoto={setPhotoItem}
+            onIntervieni={(ess) =>
+              setIntervieniMsg(
+                `Intervento richiesto su ${ess.name}. Funzione in fase di implementazione.`
+              )
+            }
           />
         ))}
       </div>
