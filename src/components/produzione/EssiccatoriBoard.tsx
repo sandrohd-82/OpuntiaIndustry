@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import {
   CONDIZIONE_LABELS,
   FASE_LABELS,
@@ -185,6 +185,14 @@ function SectionLabel({ children }: { children: string }) {
   );
 }
 
+function ParamBox({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+      {children}
+    </div>
+  );
+}
+
 function EssiccatoreCard({
   item,
   now,
@@ -234,11 +242,10 @@ function EssiccatoreCard({
         <OnAirBadge power={item.power} />
       </div>
 
-      <div className="mt-5 flex flex-1 flex-col gap-4">
-        {/* Stato */}
-        <section>
+      <div className="mt-5 flex flex-1 flex-col gap-3">
+        <ParamBox>
           <SectionLabel>Stato</SectionLabel>
-          <div className="mt-1 flex items-start justify-between gap-3">
+          <div className="mt-1.5 flex items-start justify-between gap-3">
             <p className="text-lg font-semibold">{FASE_LABELS[item.fase]}</p>
             <span
               className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
@@ -246,12 +253,11 @@ function EssiccatoreCard({
               {CONDIZIONE_LABELS[item.condizione]}
             </span>
           </div>
-        </section>
+        </ParamBox>
 
-        {/* Temperatura */}
-        <section>
+        <ParamBox>
           <SectionLabel>Temperatura</SectionLabel>
-          <div className="mt-1 flex items-start justify-between gap-3">
+          <div className="mt-1.5 flex items-start justify-between gap-3">
             <p className="text-base font-medium tabular-nums text-[var(--foreground)]">
               Imp. {impostata}
             </p>
@@ -266,12 +272,11 @@ function EssiccatoreCard({
               </p>
             </div>
           </div>
-        </section>
+        </ParamBox>
 
-        {/* Tempo di esercizio */}
-        <section>
+        <ParamBox>
           <SectionLabel>Tempo di esercizio</SectionLabel>
-          <div className="mt-1 flex items-start justify-between gap-3">
+          <div className="mt-1.5 flex items-start justify-between gap-3">
             <div>
               <p className="text-sm text-[var(--muted)]">Inizio</p>
               <p className="text-base font-medium tabular-nums">
@@ -282,26 +287,26 @@ function EssiccatoreCard({
               {formatDuration(item.accesoDal, now)}
             </p>
           </div>
-        </section>
+        </ParamBox>
 
-        {/* Prodotto caricato */}
-        <section className="flex items-center justify-between gap-3">
-          <SectionLabel>Prodotto caricato</SectionLabel>
-          <p className="text-lg font-semibold tabular-nums">
-            {formatKg(item.prodottoCaricatoKg)}
-          </p>
-        </section>
+        <ParamBox>
+          <div className="flex items-center justify-between gap-3">
+            <SectionLabel>Prodotto caricato</SectionLabel>
+            <p className="text-lg font-semibold tabular-nums">
+              {formatKg(item.prodottoCaricatoKg)}
+            </p>
+          </div>
+        </ParamBox>
 
-        {/* Prodotto stimato */}
-        <section>
+        <ParamBox>
           <SectionLabel>Prodotto stimato</SectionLabel>
-          <div className="mt-1 flex items-center justify-between gap-3">
+          <div className="mt-1.5 flex items-center justify-between gap-3">
             <p className="text-base font-medium">± {stimaPercentLabel}%</p>
             <p className="text-lg font-semibold tabular-nums">
               {formatKg(stimaDelta)}
             </p>
           </div>
-        </section>
+        </ParamBox>
       </div>
 
       <button
