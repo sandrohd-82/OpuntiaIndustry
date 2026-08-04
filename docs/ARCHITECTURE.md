@@ -8,8 +8,8 @@ Applicazione web **Next.js (App Router)** con backend **Supabase** (PostgreSQL +
 |---------|------------|
 | Frontend | Next.js 15, React 19, Tailwind CSS 4 |
 | Auth | Supabase Auth (email/password) |
-| 2° fattore (fase 1) | OTP via email |
-| 2° fattore (fase 2, futuro) | TOTP app (`user_second_factor.method = 'app'`) |
+| 2° fattore (default) | OTP via email (SMTP Aruba) |
+| 2° fattore (superadmin) | Google Authenticator / TOTP (`method = 'app'`) |
 | Autorizzazione | Ruoli → permessi per area (RLS + controllo server) |
 
 ## Flusso di accesso
@@ -36,14 +36,15 @@ sequenceDiagram
 
 ## Modello dati (Supabase)
 
-- **app_roles** — ruoli applicativi (`admin`, `manager`, `operator`, `viewer`)
+- **app_roles** — ruoli applicativi (`superadmin`, `admin`, `manager`, `operator`, `viewer`)
 - **areas** — moduli del gestionale (slug univoco per URL)
 - **role_area_permissions** — matrice ruolo × area
-- **profiles** — estensione di `auth.users` con `role_id`
-- **user_second_factor** — OTP email o (futuro) secret TOTP
-- **auth_sessions_2fa** — sessioni completate dopo verifica email
+- **profiles** — estensione di `auth.users` con `role_id` (al massimo un `superadmin`)
+- **user_second_factor** — OTP email o secret TOTP cifrato (Google Authenticator)
+- **auth_sessions_2fa** — sessioni completate dopo verifica 2FA
 
-Funzione SQL **`get_user_areas(user_id)`** restituisce le aree visibili in base al ruolo.
+Funzione SQL **`get_user_areas(user_id)`** restituisce le aree visibili in base al ruolo.  
+**`is_superadmin()`** — solo il superadmin può accedere a Impostazioni e configurare TOTP.
 
 ## Struttura cartelle
 
@@ -72,17 +73,16 @@ supabase/migrations/         # schema SQL
 
 | Ruolo | Aree tipiche |
 |-------|----------------|
-| admin | Tutte, incluse impostazioni |
+| superadmin | Tutte, incluse impostazioni + Google Authenticator (unico profilo) |
+| admin | Tutte tranne impostazioni |
 | manager | Tutte tranne impostazioni |
 | operator | Dashboard, commerciale, produzione, magazzino |
 | viewer | Dashboard, commerciale (sola consultazione in fase 2) |
 
 ## Estensioni future
 
-1. **Invio email OTP** — Edge Function Supabase o Resend
-2. **2FA app** — campo `totp_secret_encrypted`, UI enroll, `method = 'app'`
-3. **Permessi CRUD** — colonne `can_create`, `can_update`, `can_delete` su `role_area_permissions`
-4. **Moduli business** — tabelle per ordini, magazzino, ecc. per area
+1. **Permessi CRUD** — colonne `can_create`, `can_update`, `can_delete` su `role_area_permissions`
+2. **Moduli business** — tabelle per ordini, magazzino, ecc. per area
 
 ## Sicurezza
 

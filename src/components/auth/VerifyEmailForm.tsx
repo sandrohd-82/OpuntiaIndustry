@@ -8,8 +8,6 @@ import {
   type AuthActionResult,
 } from "@/app/actions/auth";
 
-const OTP_PREVIEW_STORAGE_KEY = "industry_otp_preview";
-
 const initialState: AuthActionResult = { success: false };
 
 type Props = {
@@ -18,7 +16,6 @@ type Props = {
 
 export function VerifyEmailForm({ redirectTo }: Props) {
   const router = useRouter();
-  const [previewOtp, setPreviewOtp] = useState<string | null>(null);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   const [state, formAction, pending] = useActionState(
@@ -30,14 +27,6 @@ export function VerifyEmailForm({ redirectTo }: Props) {
   );
 
   useEffect(() => {
-    const stored = sessionStorage.getItem(OTP_PREVIEW_STORAGE_KEY);
-    if (stored) {
-      setPreviewOtp(stored);
-      sessionStorage.removeItem(OTP_PREVIEW_STORAGE_KEY);
-    }
-  }, []);
-
-  useEffect(() => {
     if (state.success && state.redirectTo) {
       router.push(state.redirectTo);
     }
@@ -46,13 +35,8 @@ export function VerifyEmailForm({ redirectTo }: Props) {
   async function handleResend() {
     setResendMessage(null);
     const result = await sendEmailOtp();
-    if (result.previewOtp) {
-      setPreviewOtp(result.previewOtp);
-      setResendMessage("Nuovo codice generato (modalità test).");
-    } else if (result.success) {
-      setResendMessage(
-        "Codice rigenerato. Controlla la email (se l'invio è attivo)."
-      );
+    if (result.success) {
+      setResendMessage("Nuovo codice inviato. Controlla la casella email.");
     } else if (result.error) {
       setResendMessage(result.error);
     }
@@ -60,19 +44,6 @@ export function VerifyEmailForm({ redirectTo }: Props) {
 
   return (
     <div className="space-y-4">
-      {previewOtp && (
-        <div
-          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3 text-center"
-          role="status"
-        >
-          <p className="text-xs font-medium text-blue-900">
-            Codice test (OTP_PREVIEW_FOR_TESTING attivo)
-          </p>
-          <p className="mt-1 font-mono text-2xl tracking-[0.35em] text-blue-950">
-            {previewOtp}
-          </p>
-        </div>
-      )}
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="redirect" value={redirectTo} />
         <div>

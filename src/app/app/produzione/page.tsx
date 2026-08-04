@@ -1,7 +1,8 @@
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { redirect } from "next/navigation";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 
 export default async function ProduzionePage() {
-  const { meta } = await requireAreaAccess("produzione");
-  return <AreaPlaceholder title={meta.label} description={meta.description} />;
+  await requireAreaAccess("produzione");
+  redirect(PRODUZIONE_SECTIONS[0].path);
 }

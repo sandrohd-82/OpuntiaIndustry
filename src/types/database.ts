@@ -1,6 +1,11 @@
 export type SecondFactorMethod = "email" | "app";
 
-export type AppRoleCode = "admin" | "manager" | "operator" | "viewer";
+export type AppRoleCode =
+  | "superadmin"
+  | "admin"
+  | "manager"
+  | "operator"
+  | "viewer";
 
 export type AreaSlug =
   | "dashboard"
@@ -204,6 +209,10 @@ export interface Database {
         Returns: UserArea[];
       };
       is_admin: {
+        Args: Record<string, never>;
+        Returns: boolean;
+      };
+      is_superadmin: {
         Args: Record<string, never>;
         Returns: boolean;
       };

@@ -5,7 +5,8 @@ Piattaforma gestionale modulare per area, con accesso riservato agli utenti aute
 ## Funzionalità attuali (struttura)
 
 - Login con Supabase Auth (email/password)
-- Secondo fattore: codice OTP via email (in dev stampato in console server)
+- Secondo fattore: OTP via email SMTP Aruba (default) oppure Google Authenticator (solo superadmin)
+- Ruolo **superadmin** (unico) con area Impostazioni e setup Authenticator
 - Ruoli utente e visibilità aree in base al ruolo
 - Aree placeholder: Dashboard, Commerciale, Produzione, Magazzino, Acquisti, HR, Amministrazione, Impostazioni
 - Schema PostgreSQL con RLS e seed ruoli/permessi
@@ -33,6 +34,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
 SUPABASE_SERVICE_ROLE_KEY=eyJ...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+EMAIL_FROM=support@opuntiaindustry.com
+SMTP_HOST=smtps.aruba.it
+SMTP_PORT=465
+SMTP_USER=support@opuntiaindustry.com
+SMTP_PASS=...
 ```
 
 ### 3. Database Supabase
@@ -47,19 +54,29 @@ npx supabase link --project-ref <tuo-project-ref>
 npx supabase db push
 ```
 
-### 4. Utente di test
+### 4. Superadmin (obbligatorio per Impostazioni / Authenticator)
 
-In Supabase: **Authentication → Users → Add user** (email confermata).
+Assicurati di aver applicato anche la migration  
+`supabase/migrations/20260804160000_superadmin_totp.sql`.
 
-Alla prima registrazione il trigger crea automaticamente `profiles` (ruolo `operator`) e `user_second_factor`.
+In `.env.local` aggiungi:
 
-Per testare come admin, aggiorna il profilo:
-
-```sql
-update public.profiles
-set role_id = (select id from public.app_roles where code = 'admin')
-where email = 'tuo@email.it';
+```env
+SUPERADMIN_EMAIL=tuo@email.it
+SUPERADMIN_PASSWORD=password-sicura
+SUPERADMIN_FULL_NAME=Il Tuo Nome
 ```
+
+Poi:
+
+```bash
+npm run create-superadmin
+```
+
+Lo script crea l’utente Auth (se manca) e lo promuove a **unico** `superadmin`.  
+Dopo il login: **Impostazioni → Configura Google Authenticator**.
+
+Utenti normali (Dashboard Supabase → Add user) restano `operator` con OTP email.
 
 ### 5. Sviluppo
 
@@ -75,7 +92,5 @@ Vedi [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) per flussi auth, modello dati 
 
 ## Prossimi passi suggeriti
 
-1. Configurare invio email OTP (Resend / SMTP Supabase)
-2. Pannello admin per assegnare ruoli agli utenti
-3. Implementare il primo modulo reale (es. Commerciale — anagrafica clienti)
-4. Aggiungere 2FA tramite app (TOTP) quando richiesto
+1. Pannello admin per assegnare ruoli agli utenti
+2. Implementare il primo modulo reale (es. Commerciale — anagrafica clienti)

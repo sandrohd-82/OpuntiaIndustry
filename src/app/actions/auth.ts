@@ -7,6 +7,10 @@ import {
   TWO_FA_SESSION_COOKIE,
 } from "@/lib/auth/constants";
 import {
+  decryptTotpSecret,
+  verifyTotpCode,
+} from "@/lib/auth/totp";
+import {
   generateEmailOtp,
   generateSessionToken,
   hashOtp,
@@ -14,9 +18,11 @@ import {
   otpExpiresAt,
   twoFaSessionExpiresAt,
 } from "@/lib/auth/two-factor";
+import { sendOtpEmail } from "@/lib/email/smtp";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
   AuthSession2faInsert,
+  SecondFactorMethod,
   UserSecondFactorInsert,
   UserSecondFactorUpdate,
 } from "@/types/database";
@@ -25,16 +31,9 @@ export type AuthActionResult = {
   success: boolean;
   error?: string;
   redirectTo?: string;
-  /** Solo se OTP_PREVIEW_FOR_TESTING=true su Vercel (mai in produzione finale) */
-  previewOtp?: string;
+  /** Metodo 2FA attivo dopo login */
+  secondFactorMethod?: SecondFactorMethod;
 };
-
-function otpPreviewPayload(otp: string): Pick<AuthActionResult, "previewOtp"> {
-  if (process.env.OTP_PREVIEW_FOR_TESTING === "true") {
-    return { previewOtp: otp };
-  }
-  return {};
-}
 
 /** Riga OTP da user_second_factor (cast per tipi Supabase in build CI) */
 type OtpFactorRow = {
@@ -64,6 +63,34 @@ export async function signInWithPassword(
       };
     }
 
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { success: false, error: "Sessione non valida dopo il login." };
+    }
+
+    const service = createServiceClient();
+    const { data: factor } = await service
+      .from("user_second_factor")
+      .select("method, totp_secret_encrypted")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    const method: SecondFactorMethod =
+      factor?.method === "app" && factor.totp_secret_encrypted
+        ? "app"
+        : "email";
+
+    if (method === "app") {
+      return {
+        success: true,
+        redirectTo: "/verify-email",
+        secondFactorMethod: "app",
+      };
+    }
+
     const otpResult = await sendEmailOtp();
     if (!otpResult.success) {
       return otpResult;
@@ -72,7 +99,7 @@ export async function signInWithPassword(
     return {
       success: true,
       redirectTo: "/verify-email",
-      previewOtp: otpResult.previewOtp,
+      secondFactorMethod: "email",
     };
   } catch (error) {
     console.error("signInWithPassword failed:", error);
@@ -82,6 +109,34 @@ export async function signInWithPassword(
         "Errore interno durante il login. Verifica le variabili Vercel (SUPABASE_SERVICE_ROLE_KEY).",
     };
   }
+}
+
+async function issueTwoFaSession(userId: string, redirectRaw: string) {
+  const service = createServiceClient();
+  const sessionToken = generateSessionToken();
+  const sessionTokenHash = hashSessionToken(sessionToken);
+  const expiresAt = twoFaSessionExpiresAt();
+
+  const sessionInsert: AuthSession2faInsert = {
+    user_id: userId,
+    session_token_hash: sessionTokenHash,
+    expires_at: expiresAt.toISOString(),
+  };
+  await service.from("auth_sessions_2fa").insert(sessionInsert);
+
+  const cookieStore = await cookies();
+  cookieStore.set(TWO_FA_SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    expires: expiresAt,
+  });
+
+  const redirectTo = redirectRaw.startsWith("/app")
+    ? redirectRaw
+    : "/app/dashboard";
+  return { success: true as const, redirectTo };
 }
 
 export async function sendEmailOtp(): Promise<AuthActionResult> {
@@ -100,9 +155,9 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
     const expiresAt = otpExpiresAt();
 
     const service = createServiceClient();
+    // Non toccare method/totp_secret: se Authenticator è attivo non si passa da qui
     const otpUpsert: UserSecondFactorInsert = {
       user_id: user.id,
-      method: "email",
       otp_hash: otpHash,
       otp_expires_at: expiresAt.toISOString(),
       otp_attempts: 0,
@@ -119,17 +174,24 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
       };
     }
 
-    // Invio email reale: TODO (Resend / SMTP Supabase). Intanto log per test su Vercel.
-    console.info(`[Industry OTP] ${user.email}: ${otp}`);
+    try {
+      await sendOtpEmail(user.email, otp);
+    } catch (mailError) {
+      console.error("sendOtpEmail failed:", mailError);
+      return {
+        success: false,
+        error:
+          "Impossibile inviare l'email con il codice. Verifica SMTP (Aruba) sulle variabili d'ambiente.",
+      };
+    }
 
-    // TODO: invio email reale (Resend, SendGrid, Supabase Auth hooks)
-    return { success: true, ...otpPreviewPayload(otp) };
+    return { success: true };
   } catch (error) {
     console.error("sendEmailOtp failed:", error);
     return {
       success: false,
       error:
-        "Errore OTP lato server. Controlla le env su Vercel (URL, ANON KEY, SERVICE ROLE KEY).",
+        "Errore OTP lato server. Controlla Supabase e le variabili SMTP su Vercel.",
     };
   }
 }
@@ -190,17 +252,6 @@ export async function verifyEmailOtp(
     return { success: false, error: "Codice non corretto." };
   }
 
-  const sessionToken = generateSessionToken();
-  const sessionTokenHash = hashSessionToken(sessionToken);
-  const expiresAt = twoFaSessionExpiresAt();
-
-  const sessionInsert: AuthSession2faInsert = {
-    user_id: user.id,
-    session_token_hash: sessionTokenHash,
-    expires_at: expiresAt.toISOString(),
-  };
-  await service.from("auth_sessions_2fa").insert(sessionInsert);
-
   const factorClear: UserSecondFactorUpdate = {
     otp_hash: null,
     otp_expires_at: null,
@@ -212,20 +263,109 @@ export async function verifyEmailOtp(
     .update(factorClear)
     .eq("user_id", user.id);
 
-  const cookieStore = await cookies();
-  cookieStore.set(TWO_FA_SESSION_COOKIE, sessionToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    expires: expiresAt,
-  });
-
   const redirectTo = String(formData.get("redirect") ?? "/app/dashboard");
-  return {
-    success: true,
-    redirectTo: redirectTo.startsWith("/app") ? redirectTo : "/app/dashboard",
-  };
+  return issueTwoFaSession(user.id, redirectTo);
+}
+
+export async function getSecondFactorMethod(): Promise<SecondFactorMethod> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return "email";
+
+  const service = createServiceClient();
+  const { data } = await service
+    .from("user_second_factor")
+    .select("method, totp_secret_encrypted")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (data?.method === "app" && data.totp_secret_encrypted) {
+    return "app";
+  }
+  return "email";
+}
+
+export async function verifyAppTotp(
+  formData: FormData
+): Promise<AuthActionResult> {
+  const otp = String(formData.get("otp") ?? "").trim();
+
+  if (!/^\d{6}$/.test(otp)) {
+    return {
+      success: false,
+      error: "Inserisci il codice a 6 cifre di Google Authenticator.",
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Sessione scaduta. Accedi di nuovo." };
+  }
+
+  const service = createServiceClient();
+  const { data: factor, error: fetchError } = await service
+    .from("user_second_factor")
+    .select("method, totp_secret_encrypted, otp_attempts")
+    .eq("user_id", user.id)
+    .single();
+
+  if (
+    fetchError ||
+    factor?.method !== "app" ||
+    !factor.totp_secret_encrypted
+  ) {
+    return {
+      success: false,
+      error: "Google Authenticator non attivo per questo account.",
+    };
+  }
+
+  if ((factor.otp_attempts ?? 0) >= EMAIL_OTP_MAX_ATTEMPTS) {
+    return {
+      success: false,
+      error: "Troppi tentativi. Riprova più tardi o contatta un amministratore.",
+    };
+  }
+
+  try {
+    const secret = decryptTotpSecret(factor.totp_secret_encrypted);
+    const valid = verifyTotpCode(secret, otp);
+
+    if (!valid) {
+      const attemptUpdate: UserSecondFactorUpdate = {
+        otp_attempts: (factor.otp_attempts ?? 0) + 1,
+      };
+      await service
+        .from("user_second_factor")
+        .update(attemptUpdate)
+        .eq("user_id", user.id);
+      return { success: false, error: "Codice non corretto." };
+    }
+
+    await service
+      .from("user_second_factor")
+      .update({
+        otp_attempts: 0,
+        verified_at: new Date().toISOString(),
+      } satisfies UserSecondFactorUpdate)
+      .eq("user_id", user.id);
+
+    const redirectTo = String(formData.get("redirect") ?? "/app/dashboard");
+    return issueTwoFaSession(user.id, redirectTo);
+  } catch (error) {
+    console.error("verifyAppTotp failed:", error);
+    return {
+      success: false,
+      error: "Errore durante la verifica Authenticator.",
+    };
+  }
 }
 
 export async function signOut(): Promise<void> {
