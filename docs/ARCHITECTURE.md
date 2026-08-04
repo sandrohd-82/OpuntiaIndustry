@@ -39,7 +39,7 @@ sequenceDiagram
 - **app_roles** — ruoli applicativi (`superadmin`, `admin`, `manager`, `operator`, `viewer`)
 - **areas** — moduli del gestionale (slug univoco per URL)
 - **role_area_permissions** — matrice ruolo × area
-- **profiles** — estensione di `auth.users` con `role_id` (al massimo un `superadmin`)
+- **profiles** — estensione di `auth.users` con `role_id`
 - **user_second_factor** — OTP email o secret TOTP cifrato (Google Authenticator)
 - **auth_sessions_2fa** — sessioni completate dopo verifica 2FA
 
@@ -73,7 +73,7 @@ supabase/migrations/         # schema SQL
 
 | Ruolo | Aree tipiche |
 |-------|----------------|
-| superadmin | Tutte, incluse impostazioni + Google Authenticator (unico profilo) |
+| superadmin | Tutte, incluse impostazioni + Google Authenticator |
 | admin | Tutte tranne impostazioni |
 | manager | Tutte tranne impostazioni |
 | operator | Dashboard, commerciale, produzione, magazzino |
