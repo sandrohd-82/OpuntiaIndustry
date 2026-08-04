@@ -28,16 +28,16 @@ export const PRODUZIONE_SECTIONS: readonly ProduzioneNavItem[] = [
     path: "/app/produzione/essiccatori",
     children: [
       {
+        slug: "gestione",
+        label: "Gestione essiccatori",
+        description: "Stato e dati di esercizio degli essiccatori",
+        path: "/app/produzione/essiccatori/gestione",
+      },
+      {
         slug: "planimetria-piazzale",
         label: "Planimetria Piazzale",
         description: "Planimetria del piazzale essiccatori",
         path: "/app/produzione/essiccatori/planimetria-piazzale",
-      },
-      {
-        slug: "gestione",
-        label: "Gestione essiccatori",
-        description: "Gestione operativa degli essiccatori",
-        path: "/app/produzione/essiccatori/gestione",
       },
       {
         slug: "dati-e-storico",
