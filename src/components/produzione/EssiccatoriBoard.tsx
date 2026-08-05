@@ -24,17 +24,9 @@ import {
   type MescolataCompletata,
 } from "@/lib/produzione/essiccatori";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
-import { ProcedureRunModal } from "@/components/produzione/ProcedureRunModal";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 import type { MescolataState } from "@/lib/produzione/mescolata";
-import {
-  createProcedureRun,
-  PROCEDURE_FASI_DEFAULT,
-  sortProcedureFasi,
-  type ProceduraFase,
-  type ProcedureRunState,
-} from "@/lib/produzione/procedure";
 
 type Props = {
   items: Essiccatore[];
@@ -278,6 +270,18 @@ function useModalChrome(onClose: () => void) {
   }, [onClose]);
 }
 
+type ProceduraSalvata = {
+  id: string;
+  label: string;
+};
+
+const PROCEDURE_SALVATE_DEFAULT: ProceduraSalvata[] = [
+  { id: "avvio", label: "Avvio" },
+  { id: "essiccazione", label: "Essiccazione" },
+  { id: "asciugatura-notturna", label: "Asciugatura notturna" },
+  { id: "spegnimento", label: "Spegnimento" },
+];
+
 function GearIcon() {
   return (
     <svg
@@ -384,37 +388,26 @@ function ProcedureSettingsModal({
   procedures,
   onClose,
   onCreate,
-  onUpdate,
+  onRename,
   onDelete,
 }: {
-  procedures: ProceduraFase[];
+  procedures: ProceduraSalvata[];
   onClose: () => void;
-  onCreate: (fase: Omit<ProceduraFase, "id">) => void;
-  onUpdate: (id: string, patch: Partial<Omit<ProceduraFase, "id">>) => void;
+  onCreate: (label: string) => void;
+  onRename: (id: string, label: string) => void;
   onDelete: (id: string) => void;
 }) {
   const titleId = useId();
   const [newLabel, setNewLabel] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editLabel, setEditLabel] = useState("");
-  const [editOrder, setEditOrder] = useState("1");
-  const [editTemp, setEditTemp] = useState("40");
-  const [editVent, setEditVent] = useState("50");
+  const [editingLabel, setEditingLabel] = useState("");
   useModalChrome(onClose);
-
-  const sorted = sortProcedureFasi(procedures);
 
   function submitCreate(e: FormEvent) {
     e.preventDefault();
     const label = newLabel.trim();
     if (!label) return;
-    const maxOrder = sorted.reduce((m, p) => Math.max(m, p.order), 0);
-    onCreate({
-      order: maxOrder + 1,
-      label,
-      temperaturaC: 40,
-      ventilazionePercent: 50,
-    });
+    onCreate(label);
     setNewLabel("");
   }
 
@@ -437,7 +430,7 @@ function ProcedureSettingsModal({
               Impostazioni procedure
             </h2>
             <p className="text-sm text-[var(--muted)]">
-              Fasi numerate con temperatura e ventilazione
+              Modifica, crea o elimina procedure salvate
             </p>
           </div>
           <button
@@ -451,97 +444,51 @@ function ProcedureSettingsModal({
 
         <div className="space-y-4 p-4">
           <ul className="space-y-2">
-            {sorted.map((proc) => (
+            {procedures.map((proc) => (
               <li
                 key={proc.id}
                 className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
               >
                 {editingId === proc.id ? (
                   <form
-                    className="space-y-2"
+                    className="flex gap-2"
                     onSubmit={(e) => {
                       e.preventDefault();
-                      const label = editLabel.trim();
+                      const label = editingLabel.trim();
                       if (!label) return;
-                      onUpdate(proc.id, {
-                        label,
-                        order: Number(editOrder) || proc.order,
-                        temperaturaC: Number(editTemp) || 0,
-                        ventilazionePercent: Math.min(
-                          100,
-                          Math.max(0, Number(editVent) || 0)
-                        ),
-                      });
+                      onRename(proc.id, label);
                       setEditingId(null);
                     }}
                   >
                     <input
-                      value={editLabel}
-                      onChange={(e) => setEditLabel(e.target.value)}
-                      className="w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
+                      value={editingLabel}
+                      onChange={(e) => setEditingLabel(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
                       autoFocus
                     />
-                    <div className="grid grid-cols-3 gap-2">
-                      <label className="text-xs text-[var(--muted)]">
-                        N°
-                        <input
-                          value={editOrder}
-                          onChange={(e) => setEditOrder(e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                        />
-                      </label>
-                      <label className="text-xs text-[var(--muted)]">
-                        Temp °C
-                        <input
-                          value={editTemp}
-                          onChange={(e) => setEditTemp(e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                        />
-                      </label>
-                      <label className="text-xs text-[var(--muted)]">
-                        Vent %
-                        <input
-                          value={editVent}
-                          onChange={(e) => setEditVent(e.target.value)}
-                          className="mt-0.5 w-full rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
-                        />
-                      </label>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="submit"
-                        className="rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-white"
-                      >
-                        Salva
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs"
-                      >
-                        Annulla
-                      </button>
-                    </div>
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-white"
+                    >
+                      Salva
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs"
+                    >
+                      Annulla
+                    </button>
                   </form>
                 ) : (
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <span className="text-sm font-medium">
-                        {proc.order}) {proc.label}
-                      </span>
-                      <p className="text-xs text-[var(--muted)]">
-                        {proc.temperaturaC}°C · {proc.ventilazionePercent}%
-                      </p>
-                    </div>
+                    <span className="text-sm font-medium">{proc.label}</span>
                     <div className="flex shrink-0 gap-1">
                       <button
                         type="button"
                         onClick={() => {
                           setEditingId(proc.id);
-                          setEditLabel(proc.label);
-                          setEditOrder(String(proc.order));
-                          setEditTemp(String(proc.temperaturaC));
-                          setEditVent(String(proc.ventilazionePercent));
+                          setEditingLabel(proc.label);
                         }}
                         className="rounded-md px-2 py-1 text-xs text-[var(--primary)] hover:bg-slate-100"
                       >
@@ -561,16 +508,13 @@ function ProcedureSettingsModal({
             ))}
           </ul>
 
-          <form
-            onSubmit={submitCreate}
-            className="space-y-2 border-t border-[var(--border)] pt-4"
-          >
-            <p className="text-sm font-semibold">Nuova fase</p>
+          <form onSubmit={submitCreate} className="space-y-2 border-t border-[var(--border)] pt-4">
+            <p className="text-sm font-semibold">Nuova procedura</p>
             <div className="flex gap-2">
               <input
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="Nome fase"
+                placeholder="Nome procedura"
                 className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
               />
               <button
@@ -648,7 +592,6 @@ function IntervieniModal({
   onOpenVentilation,
   onOpenTemperature,
   onOpenMescolata,
-  onOpenProcedures,
   procedures,
   onProceduresChange,
 }: {
@@ -658,9 +601,8 @@ function IntervieniModal({
   onOpenVentilation: () => void;
   onOpenTemperature: () => void;
   onOpenMescolata: () => void;
-  onOpenProcedures: () => void;
-  procedures: ProceduraFase[];
-  onProceduresChange: (next: ProceduraFase[]) => void;
+  procedures: ProceduraSalvata[];
+  onProceduresChange: (next: ProceduraSalvata[]) => void;
 }) {
   const titleId = useId();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -733,7 +675,7 @@ function IntervieniModal({
                 <div>
                   <p className="text-sm font-semibold">Procedure salvate</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    Sequenza fasi numerate: Avvio → Essiccazione → …
+                    Seleziona una procedura predefinita da eseguire
                   </p>
                 </div>
                 <button
@@ -746,21 +688,18 @@ function IntervieniModal({
                   <GearIcon />
                 </button>
               </div>
-              <ul className="mt-3 space-y-1.5 text-xs text-[var(--muted)]">
-                {sortProcedureFasi(procedures).map((proc) => (
-                  <li key={proc.id}>
-                    {proc.order}) {proc.label} — {proc.temperaturaC}°C ·{" "}
-                    {proc.ventilazionePercent}%
-                  </li>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {procedures.map((proc) => (
+                  <button
+                    key={proc.id}
+                    type="button"
+                    onClick={() => onSelect(`Procedura: ${proc.label}`)}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left text-sm font-medium transition-colors hover:border-[var(--primary)] hover:bg-slate-50"
+                  >
+                    {proc.label}
+                  </button>
                 ))}
-              </ul>
-              <button
-                type="button"
-                onClick={onOpenProcedures}
-                className="mt-3 w-full rounded-lg border border-[var(--primary)] bg-[var(--card)] px-3 py-2.5 text-sm font-semibold text-[var(--primary)] transition-colors hover:bg-slate-50"
-              >
-                Apri sequenza procedure
-              </button>
+              </div>
             </div>
 
             <ActionOptionBox
@@ -777,18 +716,18 @@ function IntervieniModal({
         <ProcedureSettingsModal
           procedures={procedures}
           onClose={() => setSettingsOpen(false)}
-          onCreate={(fase) => {
+          onCreate={(label) => {
             onProceduresChange([
               ...procedures,
               {
                 id: `proc-${Date.now()}`,
-                ...fase,
+                label,
               },
             ]);
           }}
-          onUpdate={(id, patch) => {
+          onRename={(id, label) => {
             onProceduresChange(
-              procedures.map((p) => (p.id === id ? { ...p, ...patch } : p))
+              procedures.map((p) => (p.id === id ? { ...p, label } : p))
             );
           }}
           onDelete={(id) => {
@@ -1009,40 +948,11 @@ export function EssiccatoriBoard({ items }: Props) {
   const [mescolataById, setMescolataById] = useState<
     Record<string, MescolataState>
   >({});
-  const [procedures, setProcedures] = useState<ProceduraFase[]>(
-    PROCEDURE_FASI_DEFAULT
+  const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
+    PROCEDURE_SALVATE_DEFAULT
   );
-  const [procedureItem, setProcedureItem] = useState<Essiccatore | null>(null);
-  const [procedureRunById, setProcedureRunById] = useState<
-    Record<string, ProcedureRunState>
-  >({});
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
-
-  function openProcedureRun(item: Essiccatore) {
-    const sorted = sortProcedureFasi(procedures);
-    const existing = procedureRunById[item.id];
-    if (!existing) {
-      const run = createProcedureRun(item.id, sorted);
-      const first = sorted[0];
-      setProcedureRunById((prev) => ({ ...prev, [item.id]: run }));
-      if (first) {
-        setLocalItems((prev) =>
-          prev.map((ess) =>
-            ess.id === item.id
-              ? {
-                  ...ess,
-                  temperaturaImpostataC: first.temperaturaC,
-                  ventilazionePercent: first.ventilazionePercent,
-                }
-              : ess
-          )
-        );
-      }
-    }
-    setProcedureItem(item);
-    setIntervieniItem(null);
-  }
 
   useEffect(() => {
     setLocalItems(items);
@@ -1146,8 +1056,7 @@ export function EssiccatoriBoard({ items }: Props) {
       {intervieniItem &&
         !ventilationItem &&
         !temperatureItem &&
-        !confirmMescolataItem &&
-        !procedureItem && (
+        !confirmMescolataItem && (
           <IntervieniModal
             item={intervieniItem}
             procedures={procedures}
@@ -1156,50 +1065,12 @@ export function EssiccatoriBoard({ items }: Props) {
             onOpenVentilation={() => setVentilationItem(intervieniItem)}
             onOpenTemperature={() => setTemperatureItem(intervieniItem)}
             onOpenMescolata={() => setConfirmMescolataItem(intervieniItem)}
-            onOpenProcedures={() => openProcedureRun(intervieniItem)}
             onSelect={(actionLabel) => {
               setFeedback(`${intervieniItem.name}: ${actionLabel}`);
               setIntervieniItem(null);
             }}
           />
         )}
-      {procedureItem && procedureRunById[procedureItem.id] && (
-        <ProcedureRunModal
-          item={
-            localItems.find((e) => e.id === procedureItem.id) ?? procedureItem
-          }
-          procedures={procedures}
-          run={procedureRunById[procedureItem.id]}
-          onClose={() => setProcedureItem(null)}
-          onRunChange={(next) =>
-            setProcedureRunById((prev) => ({
-              ...prev,
-              [procedureItem.id]: next,
-            }))
-          }
-          onApplyTargets={({ temperaturaC, ventilazionePercent }) => {
-            setLocalItems((prev) =>
-              prev.map((ess) =>
-                ess.id === procedureItem.id
-                  ? {
-                      ...ess,
-                      temperaturaImpostataC: temperaturaC,
-                      ventilazionePercent,
-                    }
-                  : ess
-              )
-            );
-            const fase = sortProcedureFasi(procedures).find(
-              (f) =>
-                f.temperaturaC === temperaturaC &&
-                f.ventilazionePercent === ventilazionePercent
-            );
-            setFeedback(
-              `${procedureItem.name}: fase ${fase ? `${fase.order}) ${fase.label}` : "aggiornata"}`
-            );
-          }}
-        />
-      )}
       {confirmMescolataItem && (
         <ConfirmMescolataModal
           item={confirmMescolataItem}
