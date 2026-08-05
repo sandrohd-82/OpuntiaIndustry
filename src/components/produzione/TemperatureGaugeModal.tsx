@@ -163,18 +163,8 @@ export function TemperatureGaugeModal({
             {/* Asta assolutamente centrale al box */}
             <div
               ref={trackRef}
-              role="slider"
-              aria-valuemin={MIN_C}
-              aria-valuemax={MAX_C}
-              aria-valuenow={value}
-              aria-label="Temperatura"
-              className="absolute left-1/2 top-0 -translate-x-1/2 cursor-grab touch-none select-none"
+              className="absolute left-1/2 top-0 -translate-x-1/2"
               style={{ width: TRACK_W, height: TRACK_H }}
-              onPointerDown={(e) => {
-                dragging.current = true;
-                e.currentTarget.setPointerCapture(e.pointerId);
-                updateFromPointer(e.clientY);
-              }}
             >
               <div
                 className="absolute inset-0 overflow-hidden rounded-full shadow-inner"
@@ -190,31 +180,47 @@ export function TemperatureGaugeModal({
               </div>
             </div>
 
-            {/* Fuoco centrale sull'asta + gradi a destra che lo seguono */}
-            <div
-              className="pointer-events-none absolute left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center"
-              style={{ bottom: `${ratio * 100}%` }}
+            {/* Fiamma centrale sull'asta = maniglia di trascinamento */}
+            <button
+              type="button"
+              role="slider"
+              aria-valuemin={MIN_C}
+              aria-valuemax={MAX_C}
+              aria-valuenow={value}
+              aria-label="Regola temperatura"
+              className="absolute left-1/2 z-10 flex h-12 w-12 -translate-x-1/2 translate-y-1/2 cursor-grab touch-none items-center justify-center rounded-full border-2 bg-white shadow-md active:cursor-grabbing"
+              style={{
+                bottom: `${ratio * 100}%`,
+                borderColor: fireColor,
+              }}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                dragging.current = true;
+                e.currentTarget.setPointerCapture(e.pointerId);
+                updateFromPointer(e.clientY);
+              }}
             >
-              <div
-                className="flex h-12 w-12 items-center justify-center rounded-full border-2 bg-white shadow-md"
-                style={{ borderColor: fireColor }}
-              >
-                <FaFire
-                  size={26}
-                  style={{
-                    color: fireColor,
-                    animation: `fuoco-flicker ${flickerDuration} ease-in-out infinite`,
-                    filter: `drop-shadow(0 0 ${4 + ratio * 8}px ${fireColor})`,
-                  }}
-                />
-              </div>
-              <p
-                className="ml-3 text-2xl font-bold tabular-nums tracking-tight"
-                style={{ color: fireColor }}
-              >
-                {value}°C
-              </p>
-            </div>
+              <FaFire
+                size={26}
+                style={{
+                  color: fireColor,
+                  animation: `fuoco-flicker ${flickerDuration} ease-in-out infinite`,
+                  filter: `drop-shadow(0 0 ${4 + ratio * 8}px ${fireColor})`,
+                }}
+              />
+            </button>
+
+            {/* Gradi live a destra dell'asta, margine 15px, seguono la fiamma */}
+            <p
+              className="pointer-events-none absolute z-10 translate-y-1/2 text-2xl font-bold tabular-nums tracking-tight"
+              style={{
+                bottom: `${ratio * 100}%`,
+                left: `calc(50% + ${TRACK_W / 2}px + 15px)`,
+                color: fireColor,
+              }}
+            >
+              {value}°C
+            </p>
           </div>
 
           <div className="mt-6 flex gap-2">
