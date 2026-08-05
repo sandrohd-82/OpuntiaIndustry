@@ -56,6 +56,8 @@ export function ProcedureTransitionModal({
   const [confirmed, setConfirmed] = useState(false);
   const [done, setDone] = useState(false);
   const finishedRef = useRef(false);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   const progress = useElapsedProgress(
     PROCEDURE_TRANSITION_MS,
     confirmed && !done
@@ -65,9 +67,13 @@ export function ProcedureTransitionModal({
     if (!confirmed || progress < 1 || finishedRef.current) return;
     finishedRef.current = true;
     setDone(true);
-    const t = window.setTimeout(() => onDone(), 900);
+  }, [confirmed, progress]);
+
+  useEffect(() => {
+    if (!done) return;
+    const t = window.setTimeout(() => onDoneRef.current(), 2000);
     return () => window.clearTimeout(t);
-  }, [confirmed, progress, onDone]);
+  }, [done]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
