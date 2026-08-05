@@ -47,6 +47,8 @@ export type Essiccatore = {
   accesoDal: string | null;
   /** Totale prodotto caricato (kg), parte da 0 */
   prodottoCaricatoKg: number;
+  /** Obiettivo kg prodotto fresco da raggiungere (impostato in Avvio) */
+  prodottoObiettivoKg: number | null;
   /** Storico movimenti prodotto */
   prodottoMovimenti: ProdottoMovimento[];
   /** Ventilazione impostata (0–100%) */
@@ -107,6 +109,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],
@@ -123,6 +126,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],
@@ -139,6 +143,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],

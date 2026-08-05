@@ -38,6 +38,7 @@ import {
   type ProcedureRunState,
 } from "@/lib/produzione/procedure";
 import {
+  FaBullseye,
   FaCheck,
   FaFan,
   FaFire,
@@ -775,6 +776,22 @@ function IntervieniModal({
                               {proc.ventilazionePercent}%
                             </span>
                           </div>
+                          {(isActive || isDone) &&
+                            proc.id === "avvio" &&
+                            item.prodottoObiettivoKg != null && (
+                              <p
+                                className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium ${
+                                  isDone ? "text-slate-400" : "text-rose-600"
+                                }`}
+                              >
+                                <FaBullseye size={12} aria-hidden />
+                                Obiettivo{" "}
+                                {item.prodottoObiettivoKg.toLocaleString(
+                                  "it-IT"
+                                )}{" "}
+                                kg fresco
+                              </p>
+                            )}
                           {isActive && startedAt && (
                             <p className="mt-1.5 text-[11px] text-emerald-700">
                               Partenza: {formatProcedureClock(startedAt)}
@@ -895,14 +912,22 @@ function ProdottoCaricatoBox({
         >
           <FaWeightScale size={18} />
         </button>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="text-lg font-semibold tabular-nums text-[var(--foreground)]"
-          aria-expanded={open}
-        >
-          {formatKg(item.prodottoCaricatoKg)}
-        </button>
+        <div className="flex flex-col items-end">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="text-lg font-semibold tabular-nums text-[var(--foreground)]"
+            aria-expanded={open}
+          >
+            {formatKg(item.prodottoCaricatoKg)}
+          </button>
+          {item.prodottoObiettivoKg != null && (
+            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-rose-600">
+              <FaBullseye size={10} aria-hidden />
+              obj. {item.prodottoObiettivoKg.toLocaleString("it-IT")} kg
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -1202,7 +1227,10 @@ export function EssiccatoriBoard({ items }: Props) {
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  function completeProcedureSwitch(target: ProceduraSalvata) {
+  function completeProcedureSwitch(
+    target: ProceduraSalvata,
+    result?: { prodottoObiettivoKg?: number }
+  ) {
     if (!intervieniItem) return;
     const essId = intervieniItem.id;
     const nowIso = new Date().toISOString();
@@ -1231,14 +1259,24 @@ export function EssiccatoriBoard({ items }: Props) {
       };
     });
     setLocalItems((prev) =>
-      prev.map((ess) =>
-        ess.id === essId
-          ? applyProceduraToEssiccatore(ess, target, nowIso)
-          : ess
-      )
+      prev.map((ess) => {
+        if (ess.id !== essId) return ess;
+        const applied = applyProceduraToEssiccatore(ess, target, nowIso);
+        if (result?.prodottoObiettivoKg != null) {
+          return {
+            ...applied,
+            prodottoObiettivoKg: result.prodottoObiettivoKg,
+          };
+        }
+        return applied;
+      })
     );
     setPendingProcedure(null);
-    setFeedback(`${intervieniItem.name}: procedura ${target.label}`);
+    setFeedback(
+      result?.prodottoObiettivoKg != null
+        ? `${intervieniItem.name}: Avvio — obiettivo ${result.prodottoObiettivoKg.toLocaleString("it-IT")} kg`
+        : `${intervieniItem.name}: procedura ${target.label}`
+    );
   }
 
   useEffect(() => {
@@ -1425,8 +1463,16 @@ export function EssiccatoriBoard({ items }: Props) {
               intervieniItem
             ).ventilazionePercent
           }
+          initialObiettivoKg={
+            (
+              localItems.find((e) => e.id === intervieniItem.id) ??
+              intervieniItem
+            ).prodottoObiettivoKg
+          }
           onCancel={() => setPendingProcedure(null)}
-          onDone={() => completeProcedureSwitch(pendingProcedure)}
+          onDone={(result) =>
+            completeProcedureSwitch(pendingProcedure, result)
+          }
         />
       )}
       {confirmMescolataItem && (

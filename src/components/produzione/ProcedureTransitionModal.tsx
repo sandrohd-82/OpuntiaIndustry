@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { FaCheck, FaFan, FaFire } from "react-icons/fa6";
+import { FaBullseye, FaCheck, FaFan, FaFire } from "react-icons/fa6";
 import { lerpColor } from "@/lib/produzione/mescolata";
 import {
   PROCEDURE_TRANSITION_MS,
   type ProceduraSalvata,
 } from "@/lib/produzione/procedure";
+
+export type ProcedureTransitionResult = {
+  prodottoObiettivoKg?: number;
+};
 
 type Props = {
   itemName: string;
@@ -14,8 +18,9 @@ type Props = {
   target: ProceduraSalvata;
   fromTemp: number;
   fromVent: number;
+  initialObiettivoKg?: number | null;
   onCancel: () => void;
-  onDone: () => void;
+  onDone: (result?: ProcedureTransitionResult) => void;
 };
 
 function useElapsedProgress(durationMs: number, active: boolean) {
@@ -43,25 +48,44 @@ function useElapsedProgress(durationMs: number, active: boolean) {
   return progress;
 }
 
+function isAvvioProcedure(proc: ProceduraSalvata) {
+  return (
+    proc.id === "avvio" || proc.label.trim().toLowerCase() === "avvio"
+  );
+}
+
 export function ProcedureTransitionModal({
   itemName,
   fromLabel,
   target,
   fromTemp,
   fromVent,
+  initialObiettivoKg,
   onCancel,
   onDone,
 }: Props) {
   const titleId = useId();
+  const requiresObiettivo = isAvvioProcedure(target);
+  const [obiettivoInput, setObiettivoInput] = useState(
+    initialObiettivoKg && initialObiettivoKg > 0
+      ? String(initialObiettivoKg)
+      : ""
+  );
   const [confirmed, setConfirmed] = useState(false);
   const [done, setDone] = useState(false);
   const finishedRef = useRef(false);
+  const resultRef = useRef<ProcedureTransitionResult | undefined>(undefined);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const progress = useElapsedProgress(
     PROCEDURE_TRANSITION_MS,
     confirmed && !done
   );
+
+  const obiettivoKg = Number(obiettivoInput.replace(",", "."));
+  const obiettivoOk =
+    !requiresObiettivo ||
+    (Number.isFinite(obiettivoKg) && obiettivoKg > 0);
 
   useEffect(() => {
     if (!confirmed || progress < 1 || finishedRef.current) return;
@@ -71,7 +95,7 @@ export function ProcedureTransitionModal({
 
   useEffect(() => {
     if (!done) return;
-    const t = window.setTimeout(() => onDoneRef.current(), 2000);
+    const t = window.setTimeout(() => onDoneRef.current(resultRef.current), 2000);
     return () => window.clearTimeout(t);
   }, [done]);
 
@@ -96,6 +120,16 @@ export function ProcedureTransitionModal({
   const liveVent = Math.round(
     fromVent + (target.ventilazionePercent - fromVent) * progress
   );
+
+  function handleConfirm() {
+    if (!obiettivoOk) return;
+    if (requiresObiettivo) {
+      resultRef.current = { prodottoObiettivoKg: obiettivoKg };
+    } else {
+      resultRef.current = undefined;
+    }
+    setConfirmed(true);
+  }
 
   return (
     <div
@@ -134,6 +168,34 @@ export function ProcedureTransitionModal({
           {target.temperaturaC <= 0 ? " (bruciatore spento)" : ""}
         </p>
 
+        {!confirmed && requiresObiettivo && (
+          <label className="mt-4 block rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-3">
+            <span className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+              <FaBullseye className="text-rose-500" size={18} aria-hidden />
+              Obiettivo prodotto fresco
+            </span>
+            <span className="mb-2 block text-xs text-emerald-800/80">
+              Indica i kg di prodotto fresco da raggiungere
+            </span>
+            <div className="flex items-center gap-2">
+              <FaBullseye className="shrink-0 text-rose-500" size={20} />
+              <input
+                type="number"
+                min={0.1}
+                step={0.1}
+                inputMode="decimal"
+                value={obiettivoInput}
+                onChange={(e) => setObiettivoInput(e.target.value)}
+                placeholder="es. 2000"
+                className="min-w-0 flex-1 rounded-lg border border-emerald-300 bg-white px-3 py-2.5 text-base font-semibold tabular-nums outline-none focus:border-emerald-500"
+              />
+              <span className="shrink-0 text-sm font-medium text-emerald-900">
+                kg
+              </span>
+            </div>
+          </label>
+        )}
+
         {!confirmed && (
           <div className="mt-5 flex gap-2">
             <button
@@ -145,8 +207,9 @@ export function ProcedureTransitionModal({
             </button>
             <button
               type="button"
-              onClick={() => setConfirmed(true)}
-              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              onClick={handleConfirm}
+              disabled={!obiettivoOk}
+              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-40"
             >
               Conferma
             </button>
@@ -155,6 +218,14 @@ export function ProcedureTransitionModal({
 
         {confirmed && !done && (
           <div className="mt-6 flex flex-col items-center text-center">
+            {requiresObiettivo && resultRef.current?.prodottoObiettivoKg != null && (
+              <p className="mb-4 inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-800">
+                <FaBullseye className="text-rose-500" size={16} />
+                Obiettivo{" "}
+                {resultRef.current.prodottoObiettivoKg.toLocaleString("it-IT")}{" "}
+                kg
+              </p>
+            )}
             <div className="flex items-center justify-center gap-10">
               <div className="flex flex-col items-center">
                 <p className="mb-2 text-sm font-semibold tabular-nums text-orange-600">
