@@ -11,23 +11,53 @@ type Props = {
 };
 
 const SVG_W = 320;
-const SVG_H = 200;
+const SVG_H = 280;
 const CX = 160;
-const CY = 170;
-const R = 120;
-const TRACK_WIDTH = 14;
+const CY = 150;
+const R = 118;
+const TRACK_WIDTH = 16;
 
-/** 0% = sinistra (π), 100% = destra (0), arco aperto in basso */
-function percentToAngle(percent: number) {
-  const p = Math.min(100, Math.max(0, percent));
-  return Math.PI * (1 - p / 100);
+/** Ore orologio → radianti da ore 12 in senso orario */
+const START_HOUR = 7; // 0%
+const END_HOUR = 5; // 100%
+const START_DEG = START_HOUR * 30; // 210°
+const ARC_SPAN_DEG = ((END_HOUR + 12 - START_HOUR) % 12) * 30; // 300°
+
+function degToRad(deg: number) {
+  return (deg * Math.PI) / 180;
 }
 
-function angleToPoint(angle: number, radius = R) {
+/** Punto su orologio: 12 in alto, senso orario */
+function clockPoint(clockDeg: number, radius = R) {
+  const rad = degToRad(clockDeg);
   return {
-    x: CX + radius * Math.cos(angle),
-    y: CY - radius * Math.sin(angle),
+    x: CX + radius * Math.sin(rad),
+    y: CY - radius * Math.cos(rad),
   };
+}
+
+function percentToClockDeg(percent: number) {
+  const p = Math.min(100, Math.max(0, percent));
+  return START_DEG + (p / 100) * ARC_SPAN_DEG;
+}
+
+function clockDegToPercent(clockDeg: number) {
+  // Normalizza nel percorso orario 7→5 (210° … 510°)
+  let deg = ((clockDeg % 360) + 360) % 360;
+  let along: number;
+
+  if (deg >= START_DEG) {
+    along = deg - START_DEG;
+  } else if (deg <= END_HOUR * 30) {
+    along = 360 - START_DEG + deg;
+  } else {
+    // Zona gap in basso (tra le 5 e le 7): snap al più vicino
+    const midGap = (END_HOUR * 30 + START_DEG) / 2; // 180°
+    along = deg < midGap ? ARC_SPAN_DEG : 0;
+  }
+
+  along = Math.min(ARC_SPAN_DEG, Math.max(0, along));
+  return Math.round((along / ARC_SPAN_DEG) * 100);
 }
 
 function pointToPercent(clientX: number, clientY: number, svg: SVGSVGElement) {
@@ -35,19 +65,26 @@ function pointToPercent(clientX: number, clientY: number, svg: SVGSVGElement) {
   const x = ((clientX - rect.left) / rect.width) * SVG_W;
   const y = ((clientY - rect.top) / rect.height) * SVG_H;
   const dx = x - CX;
-  const dy = CY - y;
-  let angle = Math.atan2(dy, dx);
-  if (angle < 0) angle = 0;
-  if (angle > Math.PI) angle = Math.PI;
-  return Math.round((1 - angle / Math.PI) * 100);
+  const dy = y - CY;
+  // Angolo da ore 12, senso orario (gradi)
+  let clockDeg = (Math.atan2(dx, -dy) * 180) / Math.PI;
+  if (clockDeg < 0) clockDeg += 360;
+  return clockDegToPercent(clockDeg);
 }
 
-function describeArc(startPercent: number, endPercent: number, radius: number) {
-  const start = angleToPoint(percentToAngle(startPercent), radius);
-  const end = angleToPoint(percentToAngle(endPercent), radius);
-  const largeArc = endPercent - startPercent > 50 ? 1 : 0;
-  // sweep 0 = arco superiore (semicerchio aperto in basso)
-  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 0 ${end.x} ${end.y}`;
+function describeClockArc(
+  startPercent: number,
+  endPercent: number,
+  radius: number
+) {
+  const startDeg = percentToClockDeg(startPercent);
+  const endDeg = percentToClockDeg(endPercent);
+  const start = clockPoint(startDeg, radius);
+  const end = clockPoint(endDeg, radius);
+  const delta = endDeg - startDeg;
+  const largeArc = delta > 180 ? 1 : 0;
+  // sweep 1 = senso orario in SVG (y verso il basso)
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`;
 }
 
 export function VentilationGaugeModal({
@@ -98,9 +135,9 @@ export function VentilationGaugeModal({
     };
   }, [updateFromPointer]);
 
-  const knob = angleToPoint(percentToAngle(value));
-  const leftLabel = angleToPoint(percentToAngle(0), R + 28);
-  const rightLabel = angleToPoint(percentToAngle(100), R + 28);
+  const knob = clockPoint(percentToClockDeg(value));
+  const leftLabel = clockPoint(percentToClockDeg(0), R + 26);
+  const rightLabel = clockPoint(percentToClockDeg(100), R + 26);
 
   return (
     <div
@@ -148,31 +185,42 @@ export function VentilationGaugeModal({
                 updateFromPointer(e.clientX, e.clientY);
               }}
             >
-              {/* Track */}
+              {/* Arco “tramonto” grigio: dalle 7:00 alle 5:00 in senso orario */}
               <path
-                d={describeArc(0, 100, R)}
+                d={describeClockArc(0, 100, R)}
                 fill="none"
-                stroke="var(--border)"
+                stroke="#94a3b8"
                 strokeWidth={TRACK_WIDTH}
                 strokeLinecap="round"
+                opacity={0.55}
               />
-              {/* Active arc */}
+              <path
+                d={describeClockArc(0, 100, R)}
+                fill="none"
+                stroke="#64748b"
+                strokeWidth={TRACK_WIDTH - 6}
+                strokeLinecap="round"
+                opacity={0.9}
+              />
+
+              {/* Progresso attivo */}
               {value > 0 && (
                 <path
-                  d={describeArc(0, value, R)}
+                  d={describeClockArc(0, value, R)}
                   fill="none"
                   stroke="var(--primary)"
-                  strokeWidth={TRACK_WIDTH}
+                  strokeWidth={TRACK_WIDTH - 2}
                   strokeLinecap="round"
                 />
               )}
 
-              {/* End ticks */}
               <text
                 x={leftLabel.x}
                 y={leftLabel.y + 4}
                 textAnchor="middle"
-                className="fill-[var(--muted)] text-[11px]"
+                fill="#64748b"
+                fontSize="12"
+                fontWeight="600"
               >
                 0%
               </text>
@@ -180,12 +228,13 @@ export function VentilationGaugeModal({
                 x={rightLabel.x}
                 y={rightLabel.y + 4}
                 textAnchor="middle"
-                className="fill-[var(--muted)] text-[11px]"
+                fill="#64748b"
+                fontSize="12"
+                fontWeight="600"
               >
                 100%
               </text>
 
-              {/* Knob */}
               <circle
                 cx={knob.x}
                 cy={knob.y}
@@ -198,8 +247,7 @@ export function VentilationGaugeModal({
               <circle cx={knob.x} cy={knob.y} r={5} fill="var(--primary)" />
             </svg>
 
-            {/* Center readout: attuale sopra, live al centro */}
-            <div className="pointer-events-none absolute inset-x-0 top-[42%] flex -translate-y-1/2 flex-col items-center">
+            <div className="pointer-events-none absolute inset-x-0 top-[46%] flex -translate-y-1/2 flex-col items-center">
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Impostata
               </p>
@@ -212,7 +260,7 @@ export function VentilationGaugeModal({
             </div>
           </div>
 
-          <div className="mt-2 flex gap-2">
+          <div className="mt-1 flex gap-2">
             <button
               type="button"
               onClick={onClose}
