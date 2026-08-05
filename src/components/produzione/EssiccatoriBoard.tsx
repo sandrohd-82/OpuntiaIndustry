@@ -29,6 +29,7 @@ import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeM
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 import type { MescolataState } from "@/lib/produzione/mescolata";
 import {
+  applyProceduraToEssiccatore,
   formatElapsedBadge,
   formatProcedureClock,
   PROCEDURE_SALVATE_DEFAULT,
@@ -1112,11 +1113,7 @@ export function EssiccatoriBoard({ items }: Props) {
     setLocalItems((prev) =>
       prev.map((ess) =>
         ess.id === essId
-          ? {
-              ...ess,
-              temperaturaImpostataC: target.temperaturaC,
-              ventilazionePercent: target.ventilazionePercent,
-            }
+          ? applyProceduraToEssiccatore(ess, target, nowIso)
           : ess
       )
     );
@@ -1129,7 +1126,7 @@ export function EssiccatoriBoard({ items }: Props) {
   }, [items]);
 
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
   }, []);
 

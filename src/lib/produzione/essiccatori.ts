@@ -3,7 +3,9 @@ export type EssiccatorePower = "acceso" | "spento";
 /** Fase operativa dell'essiccatore */
 export type EssiccatoreFase =
   | "spento"
+  | "avvio"
   | "essiccazione"
+  | "asciugatura_notturna"
   | "spegnimento"
   | "raffreddamento"
   | "partenza"
@@ -44,7 +46,9 @@ export type Essiccatore = {
 
 export const FASE_LABELS: Record<EssiccatoreFase, string> = {
   spento: "Spento",
+  avvio: "Avvio",
   essiccazione: "Essiccazione",
+  asciugatura_notturna: "Asciugatura notturna",
   spegnimento: "Spegnimento",
   raffreddamento: "Raffreddamento",
   partenza: "Partenza",
