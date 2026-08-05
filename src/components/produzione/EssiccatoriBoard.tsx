@@ -23,7 +23,9 @@ import {
   type EssiccatorePower,
   type MescolataCompletata,
 } from "@/lib/produzione/essiccatori";
+import { AssociaFoglioModal } from "@/components/produzione/AssociaFoglioModal";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
+import { PartenzaForzataModal } from "@/components/produzione/PartenzaForzataModal";
 import { ProcedureTransitionModal } from "@/components/produzione/ProcedureTransitionModal";
 import { ProdottoCalcolatriceModal } from "@/components/produzione/ProdottoCalcolatriceModal";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
@@ -41,6 +43,7 @@ import {
   FaBullseye,
   FaCheck,
   FaFan,
+  FaFilePen,
   FaFire,
   FaPowerOff,
   FaWeightScale,
@@ -1029,6 +1032,8 @@ function EssiccatoreCard({
   onOpenPhoto,
   onIntervieni,
   onOpenProdotto,
+  onAssociaFoglio,
+  onPartenzaForzata,
 }: {
   item: Essiccatore;
   now: number;
@@ -1043,17 +1048,22 @@ function EssiccatoreCard({
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
   onOpenProdotto: (item: Essiccatore) => void;
+  onAssociaFoglio: (item: Essiccatore) => void;
+  onPartenzaForzata: (item: Essiccatore) => void;
 }) {
   const off = item.power === "spento";
+  const locked = off && !item.foglioLavorazioneId;
   const tempTone = off
     ? null
     : temperaturaTone(item.temperaturaImpostataC, item.temperaturaRilevataC);
 
   const impostata = off
     ? "--°"
-    : item.temperaturaImpostataC === null
-      ? "—"
-      : `${item.temperaturaImpostataC.toLocaleString("it-IT")}°`;
+    : item.partenzaForzata && item.bruciatorePercent != null
+      ? `${Math.round(item.bruciatorePercent)}% bruc.`
+      : item.temperaturaImpostataC === null
+        ? "—"
+        : `${item.temperaturaImpostataC.toLocaleString("it-IT")}°`;
   const rilevata =
     item.temperaturaRilevataC === null
       ? "—"
@@ -1199,7 +1209,7 @@ function EssiccatoreCard({
       <button
         type="button"
         onClick={() => onIntervieni(item)}
-        disabled={busy}
+        disabled={busy || locked}
         className="mt-5 w-full rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
       >
         Intervieni
@@ -1221,6 +1231,26 @@ function EssiccatoreCard({
             onMescolataComplete(endedAt, esitoTone, motivoNota);
           }}
         />
+      )}
+
+      {locked && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/55 px-5 text-center backdrop-blur-[1px]">
+          <FaFilePen size={42} className="text-white" aria-hidden />
+          <button
+            type="button"
+            onClick={() => onAssociaFoglio(item)}
+            className="mt-3 text-base font-semibold text-white underline-offset-4 hover:underline"
+          >
+            Associa foglio lavorazione
+          </button>
+          <button
+            type="button"
+            onClick={() => onPartenzaForzata(item)}
+            className="mt-4 text-xs font-medium text-white/80 underline underline-offset-2 hover:text-white"
+          >
+            Partenza forzata per manutenzione
+          </button>
+        </div>
       )}
     </article>
   );
@@ -1250,6 +1280,10 @@ export function EssiccatoriBoard({ items }: Props) {
   const [pendingProcedure, setPendingProcedure] =
     useState<ProceduraSalvata | null>(null);
   const [prodottoItem, setProdottoItem] = useState<Essiccatore | null>(null);
+  const [associaFoglioItem, setAssociaFoglioItem] =
+    useState<Essiccatore | null>(null);
+  const [partenzaForzataItem, setPartenzaForzataItem] =
+    useState<Essiccatore | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -1399,11 +1433,68 @@ export function EssiccatoriBoard({ items }: Props) {
             onOpenPhoto={setPhotoItem}
             onIntervieni={setIntervieniItem}
             onOpenProdotto={setProdottoItem}
+            onAssociaFoglio={setAssociaFoglioItem}
+            onPartenzaForzata={setPartenzaForzataItem}
           />
         ))}
       </div>
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
+      )}
+      {associaFoglioItem && (
+        <AssociaFoglioModal
+          essiccatoreName={associaFoglioItem.name}
+          onClose={() => setAssociaFoglioItem(null)}
+          onAssociate={(foglio) => {
+            setLocalItems((prev) =>
+              prev.map((ess) =>
+                ess.id === associaFoglioItem.id
+                  ? {
+                      ...ess,
+                      foglioLavorazioneId: foglio.id,
+                      foglioLavorazioneLabel: foglio.label,
+                    }
+                  : ess
+              )
+            );
+            setFeedback(
+              `${associaFoglioItem.name}: associato ${foglio.label}`
+            );
+            setAssociaFoglioItem(null);
+          }}
+        />
+      )}
+      {partenzaForzataItem && (
+        <PartenzaForzataModal
+          essiccatoreName={partenzaForzataItem.name}
+          onClose={() => setPartenzaForzataItem(null)}
+          onConfirm={({ bruciatorePercent, ventilazionePercent }) => {
+            const nowIso = new Date().toISOString();
+            setLocalItems((prev) =>
+              prev.map((ess) =>
+                ess.id === partenzaForzataItem.id
+                  ? {
+                      ...ess,
+                      power: "acceso",
+                      fase: "partenza",
+                      condizione: "regolare",
+                      partenzaForzata: true,
+                      bruciatorePercent,
+                      ventilazionePercent,
+                      temperaturaImpostataC: null,
+                      temperaturaRilevataC: null,
+                      temperaturaAggiornataIl: nowIso,
+                      accesoDal: nowIso,
+                    }
+                  : ess
+              )
+            );
+            setFeedback(
+              `${partenzaForzataItem.name}: partenza forzata (bruc. ${bruciatorePercent}% · vent. ${ventilazionePercent}%)`
+            );
+            setPartenzaForzataItem(null);
+          }}
+        />
       )}
       {prodottoItem && (
         <ProdottoCalcolatriceModal

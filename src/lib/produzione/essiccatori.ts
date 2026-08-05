@@ -53,6 +53,16 @@ export type Essiccatore = {
   prodottoMovimenti: ProdottoMovimento[];
   /** Ventilazione impostata (0–100%) */
   ventilazionePercent: number;
+  /**
+   * Potenza bruciatore (0–100%) — usata in partenza forzata/manutenzione
+   * al posto della temperatura impostata.
+   */
+  bruciatorePercent: number | null;
+  /** true se avviato in partenza forzata per manutenzione */
+  partenzaForzata: boolean;
+  /** Foglio di lavorazione associato (null = non avviabile in produzione) */
+  foglioLavorazioneId: string | null;
+  foglioLavorazioneLabel: string | null;
   /** Storico mescolate completate (una pala per ciascuna) */
   mescolateCompletate: MescolataCompletata[];
 };
@@ -112,6 +122,10 @@ export const ESSICCATORI: Essiccatore[] = [
     prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
+    bruciatorePercent: null,
+    partenzaForzata: false,
+    foglioLavorazioneId: null,
+    foglioLavorazioneLabel: null,
     mescolateCompletate: [],
   },
   {
@@ -129,6 +143,10 @@ export const ESSICCATORI: Essiccatore[] = [
     prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
+    bruciatorePercent: null,
+    partenzaForzata: false,
+    foglioLavorazioneId: null,
+    foglioLavorazioneLabel: null,
     mescolateCompletate: [],
   },
   {
@@ -146,6 +164,10 @@ export const ESSICCATORI: Essiccatore[] = [
     prodottoObiettivoKg: null,
     prodottoMovimenti: [],
     ventilazionePercent: 0,
+    bruciatorePercent: null,
+    partenzaForzata: false,
+    foglioLavorazioneId: null,
+    foglioLavorazioneLabel: null,
     mescolateCompletate: [],
   },
 ];

@@ -134,6 +134,8 @@ export function applyProceduraToEssiccatore(
     temperaturaRilevataC: tempRilevata,
     temperaturaAggiornataIl: atIso,
     ventilazionePercent: proc.ventilazionePercent,
+    bruciatorePercent: null,
+    partenzaForzata: false,
     accesoDal: wasOff ? atIso : ess.accesoDal,
   };
 }
