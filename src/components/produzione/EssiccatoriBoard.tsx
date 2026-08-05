@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   CONDIZIONE_LABELS,
   FASE_LABELS,
@@ -133,12 +140,37 @@ function useModalChrome(onClose: () => void) {
   }, [onClose]);
 }
 
-const PROCEDURE_SALVATE = [
+type ProceduraSalvata = {
+  id: string;
+  label: string;
+};
+
+const PROCEDURE_SALVATE_DEFAULT: ProceduraSalvata[] = [
   { id: "avvio", label: "Avvio" },
   { id: "essiccazione", label: "Essiccazione" },
   { id: "asciugatura-notturna", label: "Asciugatura notturna" },
   { id: "spegnimento", label: "Spegnimento" },
-] as const;
+];
+
+function GearIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-5 w-5"
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+      />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
 
 function ActionOptionBox({
   title,
@@ -222,21 +254,36 @@ function PhotoModal({
   );
 }
 
-function IntervieniModal({
-  item,
+function ProcedureSettingsModal({
+  procedures,
   onClose,
-  onSelect,
+  onCreate,
+  onRename,
+  onDelete,
 }: {
-  item: Essiccatore;
+  procedures: ProceduraSalvata[];
   onClose: () => void;
-  onSelect: (actionLabel: string) => void;
+  onCreate: (label: string) => void;
+  onRename: (id: string, label: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const titleId = useId();
+  const [newLabel, setNewLabel] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingLabel, setEditingLabel] = useState("");
   useModalChrome(onClose);
+
+  function submitCreate(e: FormEvent) {
+    e.preventDefault();
+    const label = newLabel.trim();
+    if (!label) return;
+    onCreate(label);
+    setNewLabel("");
+  }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
       onClick={onClose}
     >
@@ -244,15 +291,17 @@ function IntervieniModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
           <div>
             <h2 id={titleId} className="text-lg font-semibold">
-              Intervieni
+              Impostazioni procedure
             </h2>
-            <p className="text-sm text-[var(--muted)]">{item.name}</p>
+            <p className="text-sm text-[var(--muted)]">
+              Modifica, crea o elimina procedure salvate
+            </p>
           </div>
           <button
             type="button"
@@ -263,51 +312,240 @@ function IntervieniModal({
           </button>
         </div>
 
-        <div className="space-y-3 p-4">
-          <ActionOptionBox
-            title="Regola ventilazione"
-            description="Modifica la portata e la modalità di ventilazione"
-            onClick={() => onSelect("Regola ventilazione")}
-          />
-          <ActionOptionBox
-            title="Regola temperatura"
-            description="Imposta il set-point di temperatura"
-            onClick={() => onSelect("Regola temperatura")}
-          />
-          <ActionOptionBox
-            title="Attiva processo mescolata"
-            description="Avvia il ciclo di mescolata del prodotto"
-            onClick={() => onSelect("Attiva processo mescolata")}
-          />
+        <div className="space-y-4 p-4">
+          <ul className="space-y-2">
+            {procedures.map((proc) => (
+              <li
+                key={proc.id}
+                className="rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 py-2"
+              >
+                {editingId === proc.id ? (
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const label = editingLabel.trim();
+                      if (!label) return;
+                      onRename(proc.id, label);
+                      setEditingId(null);
+                    }}
+                  >
+                    <input
+                      value={editingLabel}
+                      onChange={(e) => setEditingLabel(e.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-lg bg-[var(--primary)] px-2.5 py-1.5 text-xs font-medium text-white"
+                    >
+                      Salva
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(null)}
+                      className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs"
+                    >
+                      Annulla
+                    </button>
+                  </form>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium">{proc.label}</span>
+                    <div className="flex shrink-0 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(proc.id);
+                          setEditingLabel(proc.label);
+                        }}
+                        className="rounded-md px-2 py-1 text-xs text-[var(--primary)] hover:bg-slate-100"
+                      >
+                        Modifica
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(proc.id)}
+                        className="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      >
+                        Elimina
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
 
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
-            <p className="text-sm font-semibold">Procedure salvate</p>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Seleziona una procedura predefinita da eseguire
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {PROCEDURE_SALVATE.map((proc) => (
-                <button
-                  key={proc.id}
-                  type="button"
-                  onClick={() => onSelect(`Procedura: ${proc.label}`)}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left text-sm font-medium transition-colors hover:border-[var(--primary)] hover:bg-slate-50"
-                >
-                  {proc.label}
-                </button>
-              ))}
+          <form onSubmit={submitCreate} className="space-y-2 border-t border-[var(--border)] pt-4">
+            <p className="text-sm font-semibold">Nuova procedura</p>
+            <div className="flex gap-2">
+              <input
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Nome procedura"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+              />
+              <button
+                type="submit"
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                Crea
+              </button>
             </div>
-          </div>
-
-          <ActionOptionBox
-            title="Arresto rapido"
-            description="Interrompe immediatamente il ciclo in corso"
-            danger
-            onClick={() => onSelect("Arresto rapido")}
-          />
+          </form>
         </div>
       </div>
     </div>
+  );
+}
+
+function IntervieniModal({
+  item,
+  onClose,
+  onSelect,
+  procedures,
+  onProceduresChange,
+}: {
+  item: Essiccatore;
+  onClose: () => void;
+  onSelect: (actionLabel: string) => void;
+  procedures: ProceduraSalvata[];
+  onProceduresChange: (next: ProceduraSalvata[]) => void;
+}) {
+  const titleId = useId();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (settingsOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose, settingsOpen]);
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
+        role="presentation"
+        onClick={() => {
+          if (!settingsOpen) onClose();
+        }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-4 py-3">
+            <div>
+              <h2 id={titleId} className="text-lg font-semibold">
+                Intervieni
+              </h2>
+              <p className="text-sm text-[var(--muted)]">{item.name}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
+            >
+              Chiudi
+            </button>
+          </div>
+
+          <div className="space-y-3 p-4">
+            <ActionOptionBox
+              title="Regola ventilazione"
+              description="Modifica la portata e la modalità di ventilazione"
+              onClick={() => onSelect("Regola ventilazione")}
+            />
+            <ActionOptionBox
+              title="Regola temperatura"
+              description="Imposta il set-point di temperatura"
+              onClick={() => onSelect("Regola temperatura")}
+            />
+            <ActionOptionBox
+              title="Attiva processo mescolata"
+              description="Avvia il ciclo di mescolata del prodotto"
+              onClick={() => onSelect("Attiva processo mescolata")}
+            />
+
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">Procedure salvate</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Seleziona una procedura predefinita da eseguire
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(true)}
+                  className="inline-flex shrink-0 rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-slate-100 hover:text-[var(--foreground)]"
+                  title="Impostazioni procedure salvate"
+                  aria-label="Impostazioni procedure salvate"
+                >
+                  <GearIcon />
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {procedures.map((proc) => (
+                  <button
+                    key={proc.id}
+                    type="button"
+                    onClick={() => onSelect(`Procedura: ${proc.label}`)}
+                    className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left text-sm font-medium transition-colors hover:border-[var(--primary)] hover:bg-slate-50"
+                  >
+                    {proc.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <ActionOptionBox
+              title="Arresto rapido"
+              description="Interrompe immediatamente il ciclo in corso"
+              danger
+              onClick={() => onSelect("Arresto rapido")}
+            />
+          </div>
+        </div>
+      </div>
+
+      {settingsOpen && (
+        <ProcedureSettingsModal
+          procedures={procedures}
+          onClose={() => setSettingsOpen(false)}
+          onCreate={(label) => {
+            onProceduresChange([
+              ...procedures,
+              {
+                id: `proc-${Date.now()}`,
+                label,
+              },
+            ]);
+          }}
+          onRename={(id, label) => {
+            onProceduresChange(
+              procedures.map((p) => (p.id === id ? { ...p, label } : p))
+            );
+          }}
+          onDelete={(id) => {
+            onProceduresChange(procedures.filter((p) => p.id !== id));
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -457,6 +695,9 @@ function EssiccatoreCard({
 export function EssiccatoriBoard({ items }: Props) {
   const [photoItem, setPhotoItem] = useState<Essiccatore | null>(null);
   const [intervieniItem, setIntervieniItem] = useState<Essiccatore | null>(null);
+  const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
+    PROCEDURE_SALVATE_DEFAULT
+  );
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -494,6 +735,8 @@ export function EssiccatoriBoard({ items }: Props) {
       {intervieniItem && (
         <IntervieniModal
           item={intervieniItem}
+          procedures={procedures}
+          onProceduresChange={setProcedures}
           onClose={() => setIntervieniItem(null)}
           onSelect={(actionLabel) => {
             setFeedback(`${intervieniItem.name}: ${actionLabel}`);
