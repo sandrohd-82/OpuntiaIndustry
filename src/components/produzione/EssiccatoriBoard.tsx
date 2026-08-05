@@ -3,12 +3,14 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type FormEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { LuShovel } from "react-icons/lu";
 import {
   CONDIZIONE_LABELS,
@@ -100,15 +102,43 @@ function formatDuration(accesoDal: string | null, now: number) {
 
 function MescolataPalaBadge({ mescolata }: { mescolata: MescolataCompletata }) {
   const [open, setOpen] = useState(false);
+  const [tipPos, setTipPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
   const rootRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const hasNota =
     mescolata.esitoTone === "troppo_lungo" &&
     Boolean(mescolata.motivoNota?.trim());
 
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) {
+      setTipPos(null);
+      return;
+    }
+    function update() {
+      const rect = btnRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setTipPos({
+        top: rect.top,
+        left: rect.left + rect.width / 2,
+      });
+    }
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onPointerDown(e: PointerEvent) {
-      if (rootRef.current?.contains(e.target as Node)) return;
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || tipRef.current?.contains(t)) return;
       setOpen(false);
     }
     document.addEventListener("pointerdown", onPointerDown);
@@ -132,33 +162,46 @@ function MescolataPalaBadge({ mescolata }: { mescolata: MescolataCompletata }) {
         <LuShovel size={22} className={iconClass} aria-hidden />
         {hasNota && (
           <button
+            ref={btnRef}
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setOpen((v) => !v);
             }}
-            className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white hover:bg-slate-900"
+            className="absolute -right-[13px] -top-[13px] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white hover:bg-slate-900"
             aria-label="Mostra nota mescolata"
             aria-expanded={open}
           >
             i
           </button>
         )}
-        {open && hasNota && (
-          <div
-            role="tooltip"
-            className="absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs leading-snug text-white shadow-lg"
-          >
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
-              Nota ritardo
-            </p>
-            <p className="whitespace-pre-wrap">{mescolata.motivoNota}</p>
-            <span
-              className="absolute left-1/2 top-full -mt-px h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
-              aria-hidden
-            />
-          </div>
-        )}
+        {open &&
+          hasNota &&
+          tipPos &&
+          createPortal(
+            <div
+              ref={tipRef}
+              role="tooltip"
+              className="w-52 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs leading-snug text-white shadow-lg"
+              style={{
+                position: "fixed",
+                top: tipPos.top - 8,
+                left: tipPos.left,
+                transform: "translate(-50%, -100%)",
+                zIndex: 9999,
+              }}
+            >
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+                Nota ritardo
+              </p>
+              <p className="whitespace-pre-wrap">{mescolata.motivoNota}</p>
+              <span
+                className="absolute left-1/2 top-full -mt-px h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
+                aria-hidden
+              />
+            </div>,
+            document.body
+          )}
       </div>
       <span className="mt-0.5 text-[10px] font-medium tabular-nums">
         {formatTimeOnly(mescolata.endedAt)}
