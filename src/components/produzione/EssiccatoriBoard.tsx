@@ -37,7 +37,13 @@ import {
   type ProceduraSalvata,
   type ProcedureRunState,
 } from "@/lib/produzione/procedure";
-import { FaFan, FaFire, FaPowerOff, FaWeightScale } from "react-icons/fa6";
+import {
+  FaCheck,
+  FaFan,
+  FaFire,
+  FaPowerOff,
+  FaWeightScale,
+} from "react-icons/fa6";
 
 type Props = {
   items: Essiccatore[];
@@ -787,9 +793,12 @@ function IntervieniModal({
                           </span>
                         )}
                         {isDone && (
-                          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                            Disattivo
-                          </span>
+                          <FaCheck
+                            size={22}
+                            className="shrink-0 text-emerald-500"
+                            title="Completata"
+                            aria-label="Procedura completata"
+                          />
                         )}
                       </div>
                     </button>
