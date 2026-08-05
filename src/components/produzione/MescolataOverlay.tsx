@@ -224,14 +224,11 @@ export function MescolataOverlay({
   const fireOnColor = lerpColor([56, 189, 248], [239, 68, 68], burnOnProgress);
   const fanOffColor = lerpColor([56, 189, 248], [148, 163, 184], fanOffProgress);
   const fanOnColor = lerpColor([148, 163, 184], [56, 189, 248], fanOnProgress);
-  // Abbassamento: 100% → 0% entro l'80% dell'attesa, poi resta ferma fino alla fine
-  const FAN_OFF_STOP_AT = 0.8;
-  const fanOffSpeed =
-    fanOffProgress >= FAN_OFF_STOP_AT
-      ? 0
-      : 1 - fanOffProgress / FAN_OFF_STOP_AT;
+  // Spegnimento ventola: rallentamento lento 100% → 0% (non legato al tick preciso)
+  const FAN_OFF_EASE = Math.min(1, fanOffProgress * 1.15);
+  const fanOffSpeed = Math.max(0, 1 - FAN_OFF_EASE);
   const fanOffSpin =
-    fanOffSpeed <= 0 ? null : `${(0.1 / fanOffSpeed).toFixed(3)}s`;
+    fanOffSpeed <= 0.03 ? null : `${(0.18 / fanOffSpeed).toFixed(3)}s`;
   // Riavvio: da ferma (0%) a massima (100%)
   const fanOnSpeed = Math.max(0, fanOnProgress);
   const fanOnSpin =
@@ -372,7 +369,7 @@ export function MescolataOverlay({
                 }
                 className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >
-                Continua
+                Avvia ripartenza
               </button>
             </>
           )}
