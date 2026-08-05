@@ -18,6 +18,7 @@ import {
   type EssiccatoreCondizione,
   type EssiccatorePower,
 } from "@/lib/produzione/essiccatori";
+import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 
 type Props = {
@@ -407,6 +408,7 @@ function IntervieniModal({
   onClose,
   onSelect,
   onOpenVentilation,
+  onOpenTemperature,
   procedures,
   onProceduresChange,
 }: {
@@ -414,6 +416,7 @@ function IntervieniModal({
   onClose: () => void;
   onSelect: (actionLabel: string) => void;
   onOpenVentilation: () => void;
+  onOpenTemperature: () => void;
   procedures: ProceduraSalvata[];
   onProceduresChange: (next: ProceduraSalvata[]) => void;
 }) {
@@ -475,7 +478,7 @@ function IntervieniModal({
             <ActionOptionBox
               title="Regola temperatura"
               description="Imposta il set-point di temperatura"
-              onClick={() => onSelect("Regola temperatura")}
+              onClick={onOpenTemperature}
             />
             <ActionOptionBox
               title="Attiva processo mescolata"
@@ -711,6 +714,9 @@ export function EssiccatoriBoard({ items }: Props) {
   const [ventilationItem, setVentilationItem] = useState<Essiccatore | null>(
     null
   );
+  const [temperatureItem, setTemperatureItem] = useState<Essiccatore | null>(
+    null
+  );
   const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
     PROCEDURE_SALVATE_DEFAULT
   );
@@ -752,13 +758,14 @@ export function EssiccatoriBoard({ items }: Props) {
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
       )}
-      {intervieniItem && !ventilationItem && (
+      {intervieniItem && !ventilationItem && !temperatureItem && (
         <IntervieniModal
           item={intervieniItem}
           procedures={procedures}
           onProceduresChange={setProcedures}
           onClose={() => setIntervieniItem(null)}
           onOpenVentilation={() => setVentilationItem(intervieniItem)}
+          onOpenTemperature={() => setTemperatureItem(intervieniItem)}
           onSelect={(actionLabel) => {
             setFeedback(`${intervieniItem.name}: ${actionLabel}`);
             setIntervieniItem(null);
@@ -782,6 +789,27 @@ export function EssiccatoriBoard({ items }: Props) {
               `${ventilationItem.name}: ventilazione impostata a ${percent}%`
             );
             setVentilationItem(null);
+            setIntervieniItem(null);
+          }}
+        />
+      )}
+      {temperatureItem && (
+        <TemperatureGaugeModal
+          essiccatoreName={temperatureItem.name}
+          currentTempC={temperatureItem.temperaturaImpostataC}
+          onClose={() => setTemperatureItem(null)}
+          onApply={(tempC) => {
+            setLocalItems((prev) =>
+              prev.map((ess) =>
+                ess.id === temperatureItem.id
+                  ? { ...ess, temperaturaImpostataC: tempC }
+                  : ess
+              )
+            );
+            setFeedback(
+              `${temperatureItem.name}: temperatura impostata a ${tempC}°C`
+            );
+            setTemperatureItem(null);
             setIntervieniItem(null);
           }}
         />
