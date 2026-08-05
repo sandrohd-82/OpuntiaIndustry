@@ -6,9 +6,6 @@ import type {
 
 export const PROCEDURE_TRANSITION_MS = 15_000;
 
-/** Kg prodotto demo all'avvio se ancora non caricato */
-const PRODOTTO_DEFAULT_KG = 2000;
-
 export type ProceduraSalvata = {
   id: string;
   label: string;
@@ -138,9 +135,5 @@ export function applyProceduraToEssiccatore(
     temperaturaAggiornataIl: atIso,
     ventilazionePercent: proc.ventilazionePercent,
     accesoDal: wasOff ? atIso : ess.accesoDal,
-    prodottoCaricatoKg:
-      ess.prodottoCaricatoKg > 0
-        ? ess.prodottoCaricatoKg
-        : PRODOTTO_DEFAULT_KG,
   };
 }

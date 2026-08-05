@@ -24,6 +24,14 @@ export type MescolataCompletata = {
   motivoNota: string | null;
 };
 
+export type ProdottoMovimento = {
+  id: string;
+  /** Quantità con segno (+ carico / − scarico) */
+  deltaKg: number;
+  /** Timestamp registrazione */
+  at: string;
+};
+
 export type Essiccatore = {
   id: string;
   name: string;
@@ -37,7 +45,10 @@ export type Essiccatore = {
   temperaturaAggiornataIl: string | null;
   /** Timestamp di accensione (null se spento) */
   accesoDal: string | null;
+  /** Totale prodotto caricato (kg), parte da 0 */
   prodottoCaricatoKg: number;
+  /** Storico movimenti prodotto */
+  prodottoMovimenti: ProdottoMovimento[];
   /** Ventilazione impostata (0–100%) */
   ventilazionePercent: number;
   /** Storico mescolate completate (una pala per ciascuna) */
@@ -96,6 +107,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],
   },
@@ -111,6 +123,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],
   },
@@ -126,6 +139,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    prodottoMovimenti: [],
     ventilazionePercent: 0,
     mescolateCompletate: [],
   },

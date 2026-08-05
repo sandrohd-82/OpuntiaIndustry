@@ -25,6 +25,7 @@ import {
 } from "@/lib/produzione/essiccatori";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
 import { ProcedureTransitionModal } from "@/components/produzione/ProcedureTransitionModal";
+import { ProdottoCalcolatriceModal } from "@/components/produzione/ProdottoCalcolatriceModal";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 import type { MescolataState } from "@/lib/produzione/mescolata";
@@ -36,7 +37,7 @@ import {
   type ProceduraSalvata,
   type ProcedureRunState,
 } from "@/lib/produzione/procedure";
-import { FaFan, FaFire, FaPowerOff } from "react-icons/fa6";
+import { FaFan, FaFire, FaPlus, FaPowerOff } from "react-icons/fa6";
 
 type Props = {
   items: Essiccatore[];
@@ -852,6 +853,110 @@ function ParamBox({ children }: { children: ReactNode }) {
   );
 }
 
+function ProdottoCaricatoBox({
+  item,
+  busy,
+  onOpenCalcolatrice,
+}: {
+  item: Essiccatore;
+  busy: boolean;
+  onOpenCalcolatrice: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const movimenti = [...item.prodottoMovimenti].reverse();
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--background)]">
+      <div className="flex items-center gap-2 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+          aria-expanded={open}
+        >
+          <SectionLabel>Prodotto caricato</SectionLabel>
+          <span className="flex items-center gap-2">
+            <span className="text-lg font-semibold tabular-nums">
+              {formatKg(item.prodottoCaricatoKg)}
+            </span>
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className={`h-4 w-4 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
+              aria-hidden
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenCalcolatrice();
+          }}
+          disabled={busy}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] disabled:opacity-40"
+          title="Aggiungi o sottrai prodotto"
+          aria-label="Aggiungi o sottrai prodotto"
+        >
+          <FaPlus size={14} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="border-t border-[var(--border)] px-3 pb-3 pt-2">
+          {movimenti.length === 0 ? (
+            <p className="px-1 py-2 text-xs text-[var(--muted)]">
+              Nessuna quantità registrata
+            </p>
+          ) : (
+            <div className="max-h-40 overflow-y-auto rounded-md border border-[var(--border)]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-slate-100 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+                  <tr>
+                    <th className="px-2 py-1.5 font-medium">Ora</th>
+                    <th className="px-2 py-1.5 text-right font-medium">
+                      Quantità
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movimenti.map((m) => (
+                    <tr
+                      key={m.id}
+                      className="border-t border-[var(--border)]"
+                    >
+                      <td className="px-2 py-1.5 tabular-nums text-[var(--muted)]">
+                        {formatDateTime(m.at)}
+                      </td>
+                      <td
+                        className={`px-2 py-1.5 text-right font-semibold tabular-nums ${
+                          m.deltaKg >= 0 ? "text-emerald-700" : "text-red-600"
+                        }`}
+                      >
+                        {m.deltaKg >= 0 ? "+" : ""}
+                        {m.deltaKg.toLocaleString("it-IT", {
+                          maximumFractionDigits: 1,
+                        })}{" "}
+                        kg
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EssiccatoreCard({
   item,
   now,
@@ -861,6 +966,7 @@ function EssiccatoreCard({
   onMescolataComplete,
   onOpenPhoto,
   onIntervieni,
+  onOpenProdotto,
 }: {
   item: Essiccatore;
   now: number;
@@ -874,6 +980,7 @@ function EssiccatoreCard({
   ) => void;
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
+  onOpenProdotto: (item: Essiccatore) => void;
 }) {
   const off = item.power === "spento";
   const tempTone = off
@@ -1004,23 +1111,18 @@ function EssiccatoreCard({
           </div>
         </ParamBox>
 
-        <ParamBox>
-          <div className="flex items-center justify-between gap-3">
-            <SectionLabel>Prodotto caricato</SectionLabel>
-            <p className="text-lg font-semibold tabular-nums">
-              {off ? "---- kg" : formatKg(item.prodottoCaricatoKg)}
-            </p>
-          </div>
-        </ParamBox>
+        <ProdottoCaricatoBox
+          item={item}
+          busy={busy}
+          onOpenCalcolatrice={() => onOpenProdotto(item)}
+        />
 
         <ParamBox>
           <SectionLabel>Prodotto stimato</SectionLabel>
           <div className="mt-1.5 flex items-center justify-between gap-3">
-            <p className="text-base font-medium">
-              {off ? "± —%" : `± ${stimaPercentLabel}%`}
-            </p>
+            <p className="text-base font-medium">± {stimaPercentLabel}%</p>
             <p className="text-lg font-semibold tabular-nums">
-              {off ? "---- kg" : formatKg(stimaDelta)}
+              {formatKg(stimaDelta)}
             </p>
           </div>
         </ParamBox>
@@ -1079,6 +1181,7 @@ export function EssiccatoriBoard({ items }: Props) {
   >({});
   const [pendingProcedure, setPendingProcedure] =
     useState<ProceduraSalvata | null>(null);
+  const [prodottoItem, setProdottoItem] = useState<Essiccatore | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -1214,11 +1317,48 @@ export function EssiccatoriBoard({ items }: Props) {
             }}
             onOpenPhoto={setPhotoItem}
             onIntervieni={setIntervieniItem}
+            onOpenProdotto={setProdottoItem}
           />
         ))}
       </div>
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
+      )}
+      {prodottoItem && (
+        <ProdottoCalcolatriceModal
+          essiccatoreName={prodottoItem.name}
+          currentKg={
+            (
+              localItems.find((e) => e.id === prodottoItem.id) ?? prodottoItem
+            ).prodottoCaricatoKg
+          }
+          onClose={() => setProdottoItem(null)}
+          onConfirm={(deltaKg) => {
+            const at = new Date().toISOString();
+            setLocalItems((prev) =>
+              prev.map((ess) => {
+                if (ess.id !== prodottoItem.id) return ess;
+                const nextTotal = Math.max(0, ess.prodottoCaricatoKg + deltaKg);
+                return {
+                  ...ess,
+                  prodottoCaricatoKg: nextTotal,
+                  prodottoMovimenti: [
+                    ...ess.prodottoMovimenti,
+                    {
+                      id: `prod-${Date.now()}`,
+                      deltaKg,
+                      at,
+                    },
+                  ],
+                };
+              })
+            );
+            setFeedback(
+              `${prodottoItem.name}: prodotto ${deltaKg >= 0 ? "+" : ""}${deltaKg.toLocaleString("it-IT")} kg`
+            );
+            setProdottoItem(null);
+          }}
+        />
       )}
       {intervieniItem &&
         !ventilationItem &&
