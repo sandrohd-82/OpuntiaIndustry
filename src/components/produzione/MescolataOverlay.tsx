@@ -187,8 +187,9 @@ export function MescolataOverlay({
   const fireOnColor = lerpColor([56, 189, 248], [239, 68, 68], burnOnProgress);
   const fanOffColor = lerpColor([56, 189, 248], [148, 163, 184], fanOffProgress);
   const fanOnColor = lerpColor([148, 163, 184], [56, 189, 248], fanOnProgress);
-  const fanOffSpin = `${Math.max(0.4, 2.4 - fanOffProgress * 2)}s`;
-  const fanOnSpin = `${Math.max(0.4, 2.4 - fanOnProgress * 2)}s`;
+  // Spegnimento: dal massimo (giro veloce) a ferma; riavvio: da ferma al massimo
+  const fanOffSpin = `${0.28 + fanOffProgress * 3.2}s`;
+  const fanOnSpin = `${3.5 - fanOnProgress * 3.2}s`;
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-xl bg-slate-950/75 p-4 text-white backdrop-blur-[2px]">
@@ -232,7 +233,7 @@ export function MescolataOverlay({
               style={{
                 color: fanOffColor,
                 animation:
-                  fanOffProgress < 1
+                  fanOffProgress < 0.98
                     ? `ventilazione-spin ${fanOffSpin} linear infinite`
                     : undefined,
               }}
