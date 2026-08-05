@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -18,6 +19,7 @@ import {
   type Essiccatore,
   type EssiccatoreCondizione,
   type EssiccatorePower,
+  type MescolataCompletata,
 } from "@/lib/produzione/essiccatori";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
@@ -94,6 +96,75 @@ function formatDuration(accesoDal: string | null, now: number) {
   if (days > 0) return `${days}g ${hours} h ${minutes}m`;
   if (hours > 0) return `${hours} h ${minutes}m`;
   return `${minutes}m`;
+}
+
+function MescolataPalaBadge({ mescolata }: { mescolata: MescolataCompletata }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const hasNota =
+    mescolata.esitoTone === "troppo_lungo" &&
+    Boolean(mescolata.motivoNota?.trim());
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (rootRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  const iconClass =
+    mescolata.esitoTone === "perfetto"
+      ? "text-emerald-600"
+      : mescolata.esitoTone === "sopra_media"
+        ? "text-amber-500"
+        : "text-red-600";
+
+  return (
+    <div
+      ref={rootRef}
+      className="relative flex flex-col items-center text-[var(--muted)]"
+      title={`Mescolata terminata alle ${formatDateTime(mescolata.endedAt)}`}
+    >
+      <div className="relative">
+        <LuShovel size={22} className={iconClass} aria-hidden />
+        {hasNota && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
+            className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white hover:bg-slate-900"
+            aria-label="Mostra nota mescolata"
+            aria-expanded={open}
+          >
+            i
+          </button>
+        )}
+        {open && hasNota && (
+          <div
+            role="tooltip"
+            className="absolute bottom-full left-1/2 z-30 mb-2 w-52 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs leading-snug text-white shadow-lg"
+          >
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+              Nota ritardo
+            </p>
+            <p className="whitespace-pre-wrap">{mescolata.motivoNota}</p>
+            <span
+              className="absolute left-1/2 top-full -mt-px h-2 w-2 -translate-x-1/2 rotate-45 bg-slate-900"
+              aria-hidden
+            />
+          </div>
+        )}
+      </div>
+      <span className="mt-0.5 text-[10px] font-medium tabular-nums">
+        {formatTimeOnly(mescolata.endedAt)}
+      </span>
+    </div>
+  );
 }
 
 function OnAirBadge({ power }: { power: EssiccatorePower }) {
@@ -658,7 +729,8 @@ function EssiccatoreCard({
   onMescolataRestore: (snapshot: MescolataState["snapshot"]) => void;
   onMescolataComplete: (
     endedAt: string,
-    esitoTone: NonNullable<MescolataState["esitoTone"]>
+    esitoTone: NonNullable<MescolataState["esitoTone"]>,
+    motivoNota: string | null
   ) => void;
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
@@ -707,26 +779,7 @@ function EssiccatoreCard({
       {item.mescolateCompletate.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-3">
           {item.mescolateCompletate.map((m) => (
-            <div
-              key={m.id}
-              className="flex flex-col items-center text-[var(--muted)]"
-              title={`Mescolata terminata alle ${formatDateTime(m.endedAt)}`}
-            >
-              <LuShovel
-                size={22}
-                className={
-                  m.esitoTone === "perfetto"
-                    ? "text-emerald-600"
-                    : m.esitoTone === "sopra_media"
-                      ? "text-amber-500"
-                      : "text-red-600"
-                }
-                aria-hidden
-              />
-              <span className="mt-0.5 text-[10px] font-medium tabular-nums">
-                {formatTimeOnly(m.endedAt)}
-              </span>
-            </div>
+            <MescolataPalaBadge key={m.id} mescolata={m} />
           ))}
         </div>
       )}
@@ -825,7 +878,11 @@ function EssiccatoreCard({
             const endedAt =
               mescolata.mescolataEndedAt ?? new Date().toISOString();
             const esitoTone = mescolata.esitoTone ?? "perfetto";
-            onMescolataComplete(endedAt, esitoTone);
+            const motivoNota =
+              esitoTone === "troppo_lungo" && mescolata.motivoNota.trim()
+                ? mescolata.motivoNota.trim()
+                : null;
+            onMescolataComplete(endedAt, esitoTone, motivoNota);
           }}
         />
       )}
@@ -919,7 +976,7 @@ export function EssiccatoriBoard({ items }: Props) {
                 )
               );
             }}
-            onMescolataComplete={(endedAt, esitoTone) => {
+            onMescolataComplete={(endedAt, esitoTone, motivoNota) => {
               setLocalItems((prev) =>
                 prev.map((ess) =>
                   ess.id === item.id
@@ -931,6 +988,7 @@ export function EssiccatoriBoard({ items }: Props) {
                             id: `mesc-${Date.now()}`,
                             endedAt,
                             esitoTone,
+                            motivoNota,
                           },
                         ],
                       }

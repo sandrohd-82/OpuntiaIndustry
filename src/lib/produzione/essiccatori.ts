@@ -17,6 +17,8 @@ export type MescolataCompletata = {
   endedAt: string;
   /** Esito tempo impiegato: verde / giallo / rosso */
   esitoTone: "perfetto" | "sopra_media" | "troppo_lungo";
+  /** Nota obbligatoria se esito rosso (troppo lungo) */
+  motivoNota: string | null;
 };
 
 export type Essiccatore = {
