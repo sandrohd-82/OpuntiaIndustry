@@ -22,6 +22,12 @@ export function isNavBranch(item: ProduzioneNavItem): item is NavBranch {
 /** Sottosezioni del modulo Produzione (menu laterale) */
 export const PRODUZIONE_SECTIONS: readonly ProduzioneNavItem[] = [
   {
+    slug: "foglio-lavorazione",
+    label: "Foglio Lavorazione",
+    description: "Foglio di lavorazione della produzione",
+    path: "/app/produzione/foglio-lavorazione",
+  },
+  {
     slug: "essiccatori",
     label: "Essiccatori",
     description: "Gestione e monitoraggio essiccatori",
