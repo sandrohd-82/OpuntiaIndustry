@@ -650,6 +650,15 @@ function EssiccatoreCard({
         </ParamBox>
 
         <ParamBox>
+          <div className="flex items-center justify-between gap-3">
+            <SectionLabel>Ventilazione</SectionLabel>
+            <p className="text-lg font-semibold tabular-nums">
+              {Math.round(item.ventilazionePercent)}%
+            </p>
+          </div>
+        </ParamBox>
+
+        <ParamBox>
           <SectionLabel>Tempo di esercizio</SectionLabel>
           <div className="mt-1.5 flex items-start justify-between gap-3">
             <div>
