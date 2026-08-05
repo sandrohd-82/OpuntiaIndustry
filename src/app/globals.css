@@ -57,3 +57,27 @@ body {
     transform: scale(0.97) translateY(0) rotate(-1deg);
   }
 }
+
+@keyframes pala-scoop {
+  0%,
+  100% {
+    transform: rotate(-18deg) translateY(0);
+  }
+  50% {
+    transform: rotate(18deg) translateY(-6px);
+  }
+}
+
+@keyframes check-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.4;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}

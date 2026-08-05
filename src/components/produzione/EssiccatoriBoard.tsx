@@ -18,8 +18,10 @@ import {
   type EssiccatoreCondizione,
   type EssiccatorePower,
 } from "@/lib/produzione/essiccatori";
+import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
+import type { MescolataState } from "@/lib/produzione/mescolata";
 
 type Props = {
   items: Essiccatore[];
@@ -403,12 +405,67 @@ function ProcedureSettingsModal({
   );
 }
 
+function ConfirmMescolataModal({
+  item,
+  onClose,
+  onConfirm,
+}: {
+  item: Essiccatore;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const titleId = useId();
+  useModalChrome(onClose);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id={titleId} className="text-lg font-semibold">
+          Conferma mescolata
+        </h2>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Avviare il processo di mescolata su <strong>{item.name}</strong>?
+          Verranno spenti temporaneamente bruciatore e ventilazione, poi
+          ripristinati agli stati attuali.
+        </p>
+        <div className="mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            Conferma
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IntervieniModal({
   item,
   onClose,
   onSelect,
   onOpenVentilation,
   onOpenTemperature,
+  onOpenMescolata,
   procedures,
   onProceduresChange,
 }: {
@@ -417,6 +474,7 @@ function IntervieniModal({
   onSelect: (actionLabel: string) => void;
   onOpenVentilation: () => void;
   onOpenTemperature: () => void;
+  onOpenMescolata: () => void;
   procedures: ProceduraSalvata[];
   onProceduresChange: (next: ProceduraSalvata[]) => void;
 }) {
@@ -483,7 +541,7 @@ function IntervieniModal({
             <ActionOptionBox
               title="Attiva processo mescolata"
               description="Avvia il ciclo di mescolata del prodotto"
-              onClick={() => onSelect("Attiva processo mescolata")}
+              onClick={onOpenMescolata}
             />
 
             <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-3">
@@ -574,11 +632,19 @@ function ParamBox({ children }: { children: ReactNode }) {
 function EssiccatoreCard({
   item,
   now,
+  mescolata,
+  onMescolataChange,
+  onMescolataRestore,
+  onMescolataComplete,
   onOpenPhoto,
   onIntervieni,
 }: {
   item: Essiccatore;
   now: number;
+  mescolata: MescolataState | null;
+  onMescolataChange: (next: MescolataState) => void;
+  onMescolataRestore: (snapshot: MescolataState["snapshot"]) => void;
+  onMescolataComplete: () => void;
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
 }) {
@@ -602,15 +668,18 @@ function EssiccatoreCard({
     maximumFractionDigits: 1,
   });
 
+  const busy = Boolean(mescolata);
+
   return (
-    <article className="flex min-h-[340px] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
+    <article className="relative flex min-h-[340px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-lg font-semibold">{item.name}</h2>
           <button
             type="button"
             onClick={() => onOpenPhoto(item)}
-            className="inline-flex shrink-0 rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-slate-100 hover:text-[var(--foreground)]"
+            disabled={busy}
+            className="inline-flex shrink-0 rounded-md p-1.5 text-[var(--muted)] transition-colors hover:bg-slate-100 hover:text-[var(--foreground)] disabled:opacity-40"
             title={`Vedi foto ${item.name}`}
             aria-label={`Vedi foto ${item.name}`}
           >
@@ -699,10 +768,20 @@ function EssiccatoreCard({
       <button
         type="button"
         onClick={() => onIntervieni(item)}
-        className="mt-5 w-full rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+        disabled={busy}
+        className="mt-5 w-full rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
       >
         Intervieni
       </button>
+
+      {mescolata && (
+        <MescolataOverlay
+          state={mescolata}
+          onChange={onMescolataChange}
+          onRestoreSnapshot={onMescolataRestore}
+          onComplete={onMescolataComplete}
+        />
+      )}
     </article>
   );
 }
@@ -717,6 +796,11 @@ export function EssiccatoriBoard({ items }: Props) {
   const [temperatureItem, setTemperatureItem] = useState<Essiccatore | null>(
     null
   );
+  const [confirmMescolataItem, setConfirmMescolataItem] =
+    useState<Essiccatore | null>(null);
+  const [mescolataById, setMescolataById] = useState<
+    Record<string, MescolataState>
+  >({});
   const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
     PROCEDURE_SALVATE_DEFAULT
   );
@@ -734,6 +818,27 @@ export function EssiccatoriBoard({ items }: Props) {
 
   const list = useMemo(() => localItems, [localItems]);
 
+  function startMescolata(item: Essiccatore) {
+    const state: MescolataState = {
+      essiccatoreId: item.id,
+      step: "spegnimento_bruciatore",
+      startedAt: new Date().toISOString(),
+      snapshot: {
+        ventilazionePercent: item.ventilazionePercent,
+        temperaturaImpostataC: item.temperaturaImpostataC,
+      },
+      mescolataStartedAt: null,
+      mescolataEndedAt: null,
+      durataMescolataSec: null,
+      esitoTone: null,
+      motivoNota: "",
+    };
+    setMescolataById((prev) => ({ ...prev, [item.id]: state }));
+    setConfirmMescolataItem(null);
+    setIntervieniItem(null);
+    setFeedback(`${item.name}: processo di mescolata avviato`);
+  }
+
   return (
     <>
       {feedback && (
@@ -750,6 +855,31 @@ export function EssiccatoriBoard({ items }: Props) {
             key={item.id}
             item={item}
             now={now}
+            mescolata={mescolataById[item.id] ?? null}
+            onMescolataChange={(next) =>
+              setMescolataById((prev) => ({ ...prev, [item.id]: next }))
+            }
+            onMescolataRestore={(snapshot) => {
+              setLocalItems((prev) =>
+                prev.map((ess) =>
+                  ess.id === item.id
+                    ? {
+                        ...ess,
+                        ventilazionePercent: snapshot.ventilazionePercent,
+                        temperaturaImpostataC: snapshot.temperaturaImpostataC,
+                      }
+                    : ess
+                )
+              );
+            }}
+            onMescolataComplete={() => {
+              setMescolataById((prev) => {
+                const copy = { ...prev };
+                delete copy[item.id];
+                return copy;
+              });
+              setFeedback(`${item.name}: mescolata completata`);
+            }}
             onOpenPhoto={setPhotoItem}
             onIntervieni={setIntervieniItem}
           />
@@ -758,18 +888,29 @@ export function EssiccatoriBoard({ items }: Props) {
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
       )}
-      {intervieniItem && !ventilationItem && !temperatureItem && (
-        <IntervieniModal
-          item={intervieniItem}
-          procedures={procedures}
-          onProceduresChange={setProcedures}
-          onClose={() => setIntervieniItem(null)}
-          onOpenVentilation={() => setVentilationItem(intervieniItem)}
-          onOpenTemperature={() => setTemperatureItem(intervieniItem)}
-          onSelect={(actionLabel) => {
-            setFeedback(`${intervieniItem.name}: ${actionLabel}`);
-            setIntervieniItem(null);
-          }}
+      {intervieniItem &&
+        !ventilationItem &&
+        !temperatureItem &&
+        !confirmMescolataItem && (
+          <IntervieniModal
+            item={intervieniItem}
+            procedures={procedures}
+            onProceduresChange={setProcedures}
+            onClose={() => setIntervieniItem(null)}
+            onOpenVentilation={() => setVentilationItem(intervieniItem)}
+            onOpenTemperature={() => setTemperatureItem(intervieniItem)}
+            onOpenMescolata={() => setConfirmMescolataItem(intervieniItem)}
+            onSelect={(actionLabel) => {
+              setFeedback(`${intervieniItem.name}: ${actionLabel}`);
+              setIntervieniItem(null);
+            }}
+          />
+        )}
+      {confirmMescolataItem && (
+        <ConfirmMescolataModal
+          item={confirmMescolataItem}
+          onClose={() => setConfirmMescolataItem(null)}
+          onConfirm={() => startMescolata(confirmMescolataItem)}
         />
       )}
       {ventilationItem && (
