@@ -1077,7 +1077,13 @@ function EssiccatoreCard({
   );
 
   return (
-    <article className="relative flex min-h-[340px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
+    <article
+      className={`relative flex min-h-[340px] flex-col overflow-hidden rounded-xl border p-5 shadow-sm ${
+        off
+          ? "border-[var(--border)] bg-[var(--card)]"
+          : "border-emerald-200/60 bg-emerald-500/[0.06]"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-lg font-semibold">{item.name}</h2>
