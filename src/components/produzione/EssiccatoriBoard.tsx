@@ -24,9 +24,18 @@ import {
   type MescolataCompletata,
 } from "@/lib/produzione/essiccatori";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
+import { ProcedureTransitionModal } from "@/components/produzione/ProcedureTransitionModal";
 import { TemperatureGaugeModal } from "@/components/produzione/TemperatureGaugeModal";
 import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 import type { MescolataState } from "@/lib/produzione/mescolata";
+import {
+  formatElapsedBadge,
+  formatProcedureClock,
+  PROCEDURE_SALVATE_DEFAULT,
+  type ProceduraSalvata,
+  type ProcedureRunState,
+} from "@/lib/produzione/procedure";
+import { FaFan, FaFire } from "react-icons/fa6";
 
 type Props = {
   items: Essiccatore[];
@@ -269,18 +278,6 @@ function useModalChrome(onClose: () => void) {
     };
   }, [onClose]);
 }
-
-type ProceduraSalvata = {
-  id: string;
-  label: string;
-};
-
-const PROCEDURE_SALVATE_DEFAULT: ProceduraSalvata[] = [
-  { id: "avvio", label: "Avvio" },
-  { id: "essiccazione", label: "Essiccazione" },
-  { id: "asciugatura-notturna", label: "Asciugatura notturna" },
-  { id: "spegnimento", label: "Spegnimento" },
-];
 
 function GearIcon() {
   return (
@@ -594,6 +591,9 @@ function IntervieniModal({
   onOpenMescolata,
   procedures,
   onProceduresChange,
+  procedureRun,
+  onRequestProcedure,
+  transitionOpen,
 }: {
   item: Essiccatore;
   onClose: () => void;
@@ -603,12 +603,21 @@ function IntervieniModal({
   onOpenMescolata: () => void;
   procedures: ProceduraSalvata[];
   onProceduresChange: (next: ProceduraSalvata[]) => void;
+  procedureRun: ProcedureRunState | null;
+  onRequestProcedure: (proc: ProceduraSalvata) => void;
+  transitionOpen: boolean;
 }) {
   const titleId = useId();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tick, setTick] = useState(() => Date.now());
 
   useEffect(() => {
-    if (settingsOpen) return;
+    const id = window.setInterval(() => setTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (settingsOpen || transitionOpen) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
@@ -619,7 +628,7 @@ function IntervieniModal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, settingsOpen]);
+  }, [onClose, settingsOpen, transitionOpen]);
 
   return (
     <>
@@ -627,7 +636,7 @@ function IntervieniModal({
         className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"
         role="presentation"
         onClick={() => {
-          if (!settingsOpen) onClose();
+          if (!settingsOpen && !transitionOpen) onClose();
         }}
       >
         <div
@@ -689,16 +698,101 @@ function IntervieniModal({
                 </button>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {procedures.map((proc) => (
-                  <button
-                    key={proc.id}
-                    type="button"
-                    onClick={() => onSelect(`Procedura: ${proc.label}`)}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2.5 text-left text-sm font-medium transition-colors hover:border-[var(--primary)] hover:bg-slate-50"
-                  >
-                    {proc.label}
-                  </button>
-                ))}
+                {procedures.map((proc) => {
+                  const record = procedureRun?.byId[proc.id] ?? null;
+                  const isActive = procedureRun?.activeId === proc.id;
+                  const isDone = Boolean(record?.endedAt) && !isActive;
+                  const startedAt = record?.startedAt ?? null;
+
+                  return (
+                    <button
+                      key={proc.id}
+                      type="button"
+                      disabled={isActive || transitionOpen}
+                      onClick={() => onRequestProcedure(proc)}
+                      className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                        isActive
+                          ? "border-emerald-400 bg-emerald-50 ring-1 ring-emerald-400/40"
+                          : isDone
+                            ? "border-slate-200 bg-slate-100 hover:border-slate-300"
+                            : "border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] hover:bg-slate-50"
+                      } disabled:cursor-default`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className={`text-sm font-medium ${
+                              isActive
+                                ? "text-emerald-800"
+                                : isDone
+                                  ? "text-slate-400"
+                                  : "text-[var(--foreground)]"
+                            }`}
+                          >
+                            {proc.label}
+                          </p>
+                          <div
+                            className={`mt-1.5 flex flex-wrap items-center gap-3 text-xs ${
+                              isDone ? "text-slate-400" : "text-[var(--muted)]"
+                            }`}
+                          >
+                            <span className="inline-flex items-center gap-1">
+                              <FaFire
+                                className={
+                                  isActive
+                                    ? "text-orange-500"
+                                    : isDone
+                                      ? "text-slate-400"
+                                      : "text-orange-400"
+                                }
+                                size={12}
+                                aria-hidden
+                              />
+                              {proc.temperaturaC <= 0
+                                ? "0°C"
+                                : `${proc.temperaturaC}°C`}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <FaFan
+                                className={
+                                  isActive
+                                    ? "text-sky-500"
+                                    : isDone
+                                      ? "text-slate-400"
+                                      : "text-sky-400"
+                                }
+                                size={12}
+                                aria-hidden
+                              />
+                              {proc.ventilazionePercent}%
+                            </span>
+                          </div>
+                          {isActive && startedAt && (
+                            <p className="mt-1.5 text-[11px] text-emerald-700">
+                              Partenza: {formatProcedureClock(startedAt)}
+                            </p>
+                          )}
+                          {isDone && (
+                            <p className="mt-1.5 text-[11px] text-slate-400">
+                              {formatProcedureClock(startedAt)} →{" "}
+                              {formatProcedureClock(record?.endedAt ?? null)}
+                            </p>
+                          )}
+                        </div>
+                        {isActive && startedAt && (
+                          <span className="inline-flex min-w-[4.5rem] shrink-0 items-center justify-center rounded-lg bg-emerald-600 px-2.5 py-2 text-sm font-bold tabular-nums text-white shadow-sm">
+                            {formatElapsedBadge(startedAt, tick)}
+                          </span>
+                        )}
+                        {isDone && (
+                          <span className="shrink-0 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            Disattivo
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -722,6 +816,8 @@ function IntervieniModal({
               {
                 id: `proc-${Date.now()}`,
                 label,
+                temperaturaC: 40,
+                ventilazionePercent: 50,
               },
             ]);
           }}
@@ -951,8 +1047,56 @@ export function EssiccatoriBoard({ items }: Props) {
   const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
     PROCEDURE_SALVATE_DEFAULT
   );
+  const [procedureRunById, setProcedureRunById] = useState<
+    Record<string, ProcedureRunState>
+  >({});
+  const [pendingProcedure, setPendingProcedure] =
+    useState<ProceduraSalvata | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  function completeProcedureSwitch(target: ProceduraSalvata) {
+    if (!intervieniItem) return;
+    const essId = intervieniItem.id;
+    const nowIso = new Date().toISOString();
+    setProcedureRunById((prev) => {
+      const current = prev[essId] ?? { activeId: null, byId: {} };
+      const nextById = { ...current.byId };
+      if (current.activeId && current.activeId !== target.id) {
+        const prevRec = nextById[current.activeId];
+        if (prevRec) {
+          nextById[current.activeId] = {
+            ...prevRec,
+            endedAt: nowIso,
+          };
+        }
+      }
+      nextById[target.id] = {
+        startedAt: nowIso,
+        endedAt: null,
+      };
+      return {
+        ...prev,
+        [essId]: {
+          activeId: target.id,
+          byId: nextById,
+        },
+      };
+    });
+    setLocalItems((prev) =>
+      prev.map((ess) =>
+        ess.id === essId
+          ? {
+              ...ess,
+              temperaturaImpostataC: target.temperaturaC,
+              ventilazionePercent: target.ventilazionePercent,
+            }
+          : ess
+      )
+    );
+    setPendingProcedure(null);
+    setFeedback(`${intervieniItem.name}: procedura ${target.label}`);
+  }
 
   useEffect(() => {
     setLocalItems(items);
@@ -1058,19 +1202,53 @@ export function EssiccatoriBoard({ items }: Props) {
         !temperatureItem &&
         !confirmMescolataItem && (
           <IntervieniModal
-            item={intervieniItem}
+            item={
+              localItems.find((e) => e.id === intervieniItem.id) ??
+              intervieniItem
+            }
             procedures={procedures}
             onProceduresChange={setProcedures}
-            onClose={() => setIntervieniItem(null)}
+            procedureRun={procedureRunById[intervieniItem.id] ?? null}
+            transitionOpen={Boolean(pendingProcedure)}
+            onClose={() => {
+              if (pendingProcedure) return;
+              setIntervieniItem(null);
+            }}
             onOpenVentilation={() => setVentilationItem(intervieniItem)}
             onOpenTemperature={() => setTemperatureItem(intervieniItem)}
             onOpenMescolata={() => setConfirmMescolataItem(intervieniItem)}
+            onRequestProcedure={(proc) => setPendingProcedure(proc)}
             onSelect={(actionLabel) => {
               setFeedback(`${intervieniItem.name}: ${actionLabel}`);
               setIntervieniItem(null);
             }}
           />
         )}
+      {intervieniItem && pendingProcedure && (
+        <ProcedureTransitionModal
+          itemName={intervieniItem.name}
+          fromLabel={
+            procedures.find(
+              (p) => p.id === procedureRunById[intervieniItem.id]?.activeId
+            )?.label ?? null
+          }
+          target={pendingProcedure}
+          fromTemp={
+            (
+              localItems.find((e) => e.id === intervieniItem.id) ??
+              intervieniItem
+            ).temperaturaImpostataC ?? 0
+          }
+          fromVent={
+            (
+              localItems.find((e) => e.id === intervieniItem.id) ??
+              intervieniItem
+            ).ventilazionePercent
+          }
+          onCancel={() => setPendingProcedure(null)}
+          onDone={() => completeProcedureSwitch(pendingProcedure)}
+        />
+      )}
       {confirmMescolataItem && (
         <ConfirmMescolataModal
           item={confirmMescolataItem}
