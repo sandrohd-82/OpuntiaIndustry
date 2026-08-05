@@ -43,7 +43,7 @@ function percentToClockDeg(percent: number) {
 
 function clockDegToPercent(clockDeg: number) {
   // Normalizza nel percorso orario 7→5 (210° … 510°)
-  let deg = ((clockDeg % 360) + 360) % 360;
+  const deg = ((clockDeg % 360) + 360) % 360;
   let along: number;
 
   if (deg >= START_DEG) {
