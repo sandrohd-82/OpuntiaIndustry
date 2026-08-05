@@ -224,14 +224,20 @@ export function MescolataOverlay({
   const fireOnColor = lerpColor([56, 189, 248], [239, 68, 68], burnOnProgress);
   const fanOffColor = lerpColor([56, 189, 248], [148, 163, 184], fanOffProgress);
   const fanOnColor = lerpColor([148, 163, 184], [56, 189, 248], fanOnProgress);
-  // Abbassamento: velocità 100% → 0% sul tempo di attesa (duration ∝ 1/speed)
-  const fanOffSpeed = Math.max(0, 1 - fanOffProgress);
+  // Abbassamento: 100% → 0% entro l'80% dell'attesa, poi resta ferma fino alla fine
+  const FAN_OFF_STOP_AT = 0.8;
+  const fanOffSpeed =
+    fanOffProgress >= FAN_OFF_STOP_AT
+      ? 0
+      : 1 - fanOffProgress / FAN_OFF_STOP_AT;
   const fanOffSpin =
-    fanOffSpeed < 0.01 ? null : `${(0.12 / fanOffSpeed).toFixed(3)}s`;
-  // Riavvio: velocità 0% → 100%
+    fanOffSpeed <= 0 ? null : `${(0.1 / fanOffSpeed).toFixed(3)}s`;
+  // Riavvio: da ferma (0%) a massima (100%)
   const fanOnSpeed = Math.max(0, fanOnProgress);
   const fanOnSpin =
-    fanOnSpeed < 0.01 ? null : `${(0.12 / Math.max(fanOnSpeed, 0.05)).toFixed(3)}s`;
+    fanOnSpeed <= 0
+      ? null
+      : `${(0.1 / Math.max(fanOnSpeed, 0.05)).toFixed(3)}s`;
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-xl bg-slate-950/75 p-4 text-white backdrop-blur-[2px]">
