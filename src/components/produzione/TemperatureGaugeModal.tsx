@@ -24,11 +24,31 @@ function tempToRatio(tempC: number) {
   return (clampTemp(tempC) - MIN_C) / (MAX_C - MIN_C);
 }
 
+/** Gradiente giallo (40°) → rosso (80°) */
+function tempToFireColor(tempC: number) {
+  const t = tempToRatio(tempC);
+  // #facc15 → #f59e0b → #ef4444 → #b91c1c
+  const stops = [
+    { t: 0, r: 250, g: 204, b: 21 },
+    { t: 0.35, r: 245, g: 158, b: 11 },
+    { t: 0.7, r: 239, g: 68, b: 68 },
+    { t: 1, r: 185, g: 28, b: 28 },
+  ];
+
+  let i = 0;
+  while (i < stops.length - 2 && t > stops[i + 1].t) i += 1;
+  const a = stops[i];
+  const b = stops[i + 1];
+  const local = (t - a.t) / (b.t - a.t || 1);
+  const r = Math.round(a.r + (b.r - a.r) * local);
+  const g = Math.round(a.g + (b.g - a.g) * local);
+  const bl = Math.round(a.b + (b.b - a.b) * local);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
 function clientYToTemp(clientY: number, trackTop: number, trackHeight: number) {
-  // Basso = 40°C, alto = 80°C
   const y = Math.min(trackHeight, Math.max(0, clientY - trackTop));
-  const ratioFromTop = y / trackHeight;
-  const ratioFromBottom = 1 - ratioFromTop;
+  const ratioFromBottom = 1 - y / trackHeight;
   return clampTemp(MIN_C + ratioFromBottom * (MAX_C - MIN_C));
 }
 
@@ -81,8 +101,10 @@ export function TemperatureGaugeModal({
   }, [updateFromPointer]);
 
   const ratio = tempToRatio(value);
-  const fireBottomPercent = ratio * 100;
-  const currentLabel = currentTempC === null ? "—" : `${clampTemp(currentTempC)}°C`;
+  const fireColor = tempToFireColor(value);
+  const flickerDuration = `${Math.max(0.28, 1.1 - ratio * 0.75)}s`;
+  const currentLabel =
+    currentTempC === null ? "—" : `${clampTemp(currentTempC)}°C`;
 
   return (
     <div
@@ -121,18 +143,24 @@ export function TemperatureGaugeModal({
             <p className="text-sm font-semibold text-[var(--muted)]">
               {currentLabel}
             </p>
-            <p className="mt-1 text-4xl font-bold tabular-nums tracking-tight">
-              {value}°C
-            </p>
           </div>
 
-          <div className="flex items-center justify-center gap-4">
-            <div className="flex h-[260px] flex-col justify-between py-1 text-xs font-semibold text-[var(--muted)]">
+          {/* Stage a larghezza piena: asta centrata, testi fuori dal flusso */}
+          <div
+            className="relative mx-auto w-full"
+            style={{ height: TRACK_H }}
+          >
+            {/* Scale a sinistra (assolute, non spostano l'asta) */}
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 flex flex-col justify-between py-0.5 text-xs font-semibold text-[var(--muted)]"
+              style={{ right: "calc(50% + 28px)" }}
+            >
               <span>80°C</span>
               <span>60°C</span>
               <span>40°C</span>
             </div>
 
+            {/* Asta assolutamente centrale al box */}
             <div
               ref={trackRef}
               role="slider"
@@ -140,48 +168,52 @@ export function TemperatureGaugeModal({
               aria-valuemax={MAX_C}
               aria-valuenow={value}
               aria-label="Temperatura"
-              className="relative cursor-grab touch-none select-none"
-              style={{ width: TRACK_W + 40, height: TRACK_H }}
+              className="absolute left-1/2 top-0 -translate-x-1/2 cursor-grab touch-none select-none"
+              style={{ width: TRACK_W, height: TRACK_H }}
               onPointerDown={(e) => {
                 dragging.current = true;
                 e.currentTarget.setPointerCapture(e.pointerId);
                 updateFromPointer(e.clientY);
               }}
             >
-              {/* Asta con gradiente giallo → rosso (basso → alto) */}
               <div
-                className="absolute left-1/2 top-0 -translate-x-1/2 overflow-hidden rounded-full shadow-inner"
+                className="absolute inset-0 overflow-hidden rounded-full shadow-inner"
                 style={{
-                  width: TRACK_W,
-                  height: TRACK_H,
                   background:
                     "linear-gradient(to top, #facc15 0%, #f59e0b 35%, #ef4444 70%, #b91c1c 100%)",
                 }}
               >
-                {/* Parte non attiva sopra il cursore (grigia attenuata) */}
                 <div
                   className="absolute inset-x-0 top-0 bg-slate-200/70"
                   style={{ height: `${(1 - ratio) * 100}%` }}
                 />
               </div>
+            </div>
 
-              {/* Icona fuoco come cursore */}
+            {/* Fuoco centrale sull'asta + gradi a destra che lo seguono */}
+            <div
+              className="pointer-events-none absolute left-1/2 z-10 flex -translate-x-1/2 translate-y-1/2 items-center"
+              style={{ bottom: `${ratio * 100}%` }}
+            >
               <div
-                className="pointer-events-none absolute left-1/2 flex h-12 w-12 -translate-x-1/2 translate-y-1/2 items-center justify-center rounded-full border-2 border-orange-500 bg-white shadow-md"
-                style={{ bottom: `${fireBottomPercent}%` }}
-                aria-hidden
+                className="flex h-12 w-12 items-center justify-center rounded-full border-2 bg-white shadow-md"
+                style={{ borderColor: fireColor }}
               >
                 <FaFire
-                  size={24}
-                  className="text-orange-500"
+                  size={26}
                   style={{
-                    filter:
-                      value >= 70
-                        ? "drop-shadow(0 0 6px rgba(239,68,68,0.7))"
-                        : undefined,
+                    color: fireColor,
+                    animation: `fuoco-flicker ${flickerDuration} ease-in-out infinite`,
+                    filter: `drop-shadow(0 0 ${4 + ratio * 8}px ${fireColor})`,
                   }}
                 />
               </div>
+              <p
+                className="ml-3 text-2xl font-bold tabular-nums tracking-tight"
+                style={{ color: fireColor }}
+              >
+                {value}°C
+              </p>
             </div>
           </div>
 
