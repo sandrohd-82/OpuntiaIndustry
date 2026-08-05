@@ -950,7 +950,7 @@ function ProdottoCaricatoBox({
 
       {open && (
         <div className="border-t border-[var(--border)] px-3 pb-3 pt-2">
-          {movimenti.length === 0 ? (
+          {movimenti.length === 0 && item.prodottoObiettivoKg == null ? (
             <p className="px-1 py-2 text-xs text-[var(--muted)]">
               Nessuna quantità registrata
             </p>
@@ -987,6 +987,28 @@ function ProdottoCaricatoBox({
                       </td>
                     </tr>
                   ))}
+                  {item.prodottoObiettivoKg != null && (
+                    <tr className="border-t-2 border-[var(--border)] bg-rose-50/60">
+                      <td className="px-2 py-1.5 font-semibold text-rose-700">
+                        Quantità mancante
+                      </td>
+                      <td
+                        className={`px-2 py-1.5 text-right font-bold tabular-nums ${
+                          item.prodottoObiettivoKg - item.prodottoCaricatoKg > 0
+                            ? "text-rose-700"
+                            : "text-emerald-700"
+                        }`}
+                      >
+                        {Math.max(
+                          0,
+                          item.prodottoObiettivoKg - item.prodottoCaricatoKg
+                        ).toLocaleString("it-IT", {
+                          maximumFractionDigits: 1,
+                        })}{" "}
+                        kg
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
