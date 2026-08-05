@@ -224,9 +224,14 @@ export function MescolataOverlay({
   const fireOnColor = lerpColor([56, 189, 248], [239, 68, 68], burnOnProgress);
   const fanOffColor = lerpColor([56, 189, 248], [148, 163, 184], fanOffProgress);
   const fanOnColor = lerpColor([148, 163, 184], [56, 189, 248], fanOnProgress);
-  // Spegnimento: dal massimo (giro veloce) a ferma; riavvio: da ferma al massimo
-  const fanOffSpin = `${0.28 + fanOffProgress * 3.2}s`;
-  const fanOnSpin = `${3.5 - fanOnProgress * 3.2}s`;
+  // Abbassamento: velocità 100% → 0% sul tempo di attesa (duration ∝ 1/speed)
+  const fanOffSpeed = Math.max(0, 1 - fanOffProgress);
+  const fanOffSpin =
+    fanOffSpeed < 0.01 ? null : `${(0.12 / fanOffSpeed).toFixed(3)}s`;
+  // Riavvio: velocità 0% → 100%
+  const fanOnSpeed = Math.max(0, fanOnProgress);
+  const fanOnSpin =
+    fanOnSpeed < 0.01 ? null : `${(0.12 / Math.max(fanOnSpeed, 0.05)).toFixed(3)}s`;
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-xl bg-slate-950/75 p-4 text-white backdrop-blur-[2px]">
@@ -279,17 +284,17 @@ export function MescolataOverlay({
               size={88}
               style={{
                 color: fanOffColor,
-                animation:
-                  fanOffProgress < 0.98
-                    ? `ventilazione-spin ${fanOffSpin} linear infinite`
-                    : undefined,
+                animation: fanOffSpin
+                  ? `ventilazione-spin ${fanOffSpin} linear infinite`
+                  : undefined,
               }}
             />
             <p className="mt-3 text-sm text-slate-200">
               Abbassamento ventilazione in corso…
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Test: {Math.round(fanOffProgress * 10)}s / 10s
+              Velocità {Math.round(fanOffSpeed * 100)}% · Test:{" "}
+              {Math.round(fanOffProgress * 10)}s / 10s
             </p>
           </>
         )}
@@ -385,7 +390,9 @@ export function MescolataOverlay({
                   size={72}
                   style={{
                     color: fanOnColor,
-                    animation: `ventilazione-spin ${fanOnSpin} linear infinite`,
+                    animation: fanOnSpin
+                      ? `ventilazione-spin ${fanOnSpin} linear infinite`
+                      : undefined,
                   }}
                 />
                 <p className="mt-2 text-xs text-slate-300">Ventilazione</p>
