@@ -656,7 +656,10 @@ function EssiccatoreCard({
   mescolata: MescolataState | null;
   onMescolataChange: (next: MescolataState) => void;
   onMescolataRestore: (snapshot: MescolataState["snapshot"]) => void;
-  onMescolataComplete: (endedAt: string) => void;
+  onMescolataComplete: (
+    endedAt: string,
+    esitoTone: NonNullable<MescolataState["esitoTone"]>
+  ) => void;
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
 }) {
@@ -709,7 +712,17 @@ function EssiccatoreCard({
               className="flex flex-col items-center text-[var(--muted)]"
               title={`Mescolata terminata alle ${formatDateTime(m.endedAt)}`}
             >
-              <LuShovel size={22} className="text-amber-700" aria-hidden />
+              <LuShovel
+                size={22}
+                className={
+                  m.esitoTone === "perfetto"
+                    ? "text-emerald-600"
+                    : m.esitoTone === "sopra_media"
+                      ? "text-amber-500"
+                      : "text-red-600"
+                }
+                aria-hidden
+              />
               <span className="mt-0.5 text-[10px] font-medium tabular-nums">
                 {formatTimeOnly(m.endedAt)}
               </span>
@@ -811,7 +824,8 @@ function EssiccatoreCard({
           onComplete={() => {
             const endedAt =
               mescolata.mescolataEndedAt ?? new Date().toISOString();
-            onMescolataComplete(endedAt);
+            const esitoTone = mescolata.esitoTone ?? "perfetto";
+            onMescolataComplete(endedAt, esitoTone);
           }}
         />
       )}
@@ -905,7 +919,7 @@ export function EssiccatoriBoard({ items }: Props) {
                 )
               );
             }}
-            onMescolataComplete={(endedAt) => {
+            onMescolataComplete={(endedAt, esitoTone) => {
               setLocalItems((prev) =>
                 prev.map((ess) =>
                   ess.id === item.id
@@ -916,6 +930,7 @@ export function EssiccatoriBoard({ items }: Props) {
                           {
                             id: `mesc-${Date.now()}`,
                             endedAt,
+                            esitoTone,
                           },
                         ],
                       }

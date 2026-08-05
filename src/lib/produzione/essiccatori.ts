@@ -15,6 +15,8 @@ export type MescolataCompletata = {
   id: string;
   /** Timestamp fine processo mescolata */
   endedAt: string;
+  /** Esito tempo impiegato: verde / giallo / rosso */
+  esitoTone: "perfetto" | "sopra_media" | "troppo_lungo";
 };
 
 export type Essiccatore = {
