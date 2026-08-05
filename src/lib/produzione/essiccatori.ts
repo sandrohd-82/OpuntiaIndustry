@@ -25,6 +25,8 @@ export type Essiccatore = {
   /** Timestamp di accensione (null se spento) */
   accesoDal: string | null;
   prodottoCaricatoKg: number;
+  /** Ventilazione impostata (0–100%) */
+  ventilazionePercent: number;
 };
 
 export const FASE_LABELS: Record<EssiccatoreFase, string> = {
@@ -76,6 +78,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: new Date().toISOString(),
     accesoDal: new Date(Date.now() - (16 * 60 + 37) * 60 * 1000).toISOString(),
     prodottoCaricatoKg: 2153,
+    ventilazionePercent: 72,
   },
   {
     id: "ess-2",
@@ -89,6 +92,7 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
     accesoDal: new Date(Date.now() - (9 * 60 + 12) * 60 * 1000).toISOString(),
     prodottoCaricatoKg: 1840,
+    ventilazionePercent: 55,
   },
   {
     id: "ess-3",
@@ -102,5 +106,6 @@ export const ESSICCATORI: Essiccatore[] = [
     temperaturaAggiornataIl: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
     accesoDal: null,
     prodottoCaricatoKg: 0,
+    ventilazionePercent: 0,
   },
 ];

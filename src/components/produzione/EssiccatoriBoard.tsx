@@ -18,6 +18,7 @@ import {
   type EssiccatoreCondizione,
   type EssiccatorePower,
 } from "@/lib/produzione/essiccatori";
+import { VentilationGaugeModal } from "@/components/produzione/VentilationGaugeModal";
 
 type Props = {
   items: Essiccatore[];
@@ -405,12 +406,14 @@ function IntervieniModal({
   item,
   onClose,
   onSelect,
+  onOpenVentilation,
   procedures,
   onProceduresChange,
 }: {
   item: Essiccatore;
   onClose: () => void;
   onSelect: (actionLabel: string) => void;
+  onOpenVentilation: () => void;
   procedures: ProceduraSalvata[];
   onProceduresChange: (next: ProceduraSalvata[]) => void;
 }) {
@@ -467,7 +470,7 @@ function IntervieniModal({
             <ActionOptionBox
               title="Regola ventilazione"
               description="Modifica la portata e la modalità di ventilazione"
-              onClick={() => onSelect("Regola ventilazione")}
+              onClick={onOpenVentilation}
             />
             <ActionOptionBox
               title="Regola temperatura"
@@ -693,8 +696,12 @@ function EssiccatoreCard({
 }
 
 export function EssiccatoriBoard({ items }: Props) {
+  const [localItems, setLocalItems] = useState(items);
   const [photoItem, setPhotoItem] = useState<Essiccatore | null>(null);
   const [intervieniItem, setIntervieniItem] = useState<Essiccatore | null>(null);
+  const [ventilationItem, setVentilationItem] = useState<Essiccatore | null>(
+    null
+  );
   const [procedures, setProcedures] = useState<ProceduraSalvata[]>(
     PROCEDURE_SALVATE_DEFAULT
   );
@@ -702,11 +709,15 @@ export function EssiccatoriBoard({ items }: Props) {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   useEffect(() => {
+    setLocalItems(items);
+  }, [items]);
+
+  useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
 
-  const list = useMemo(() => items, [items]);
+  const list = useMemo(() => localItems, [localItems]);
 
   return (
     <>
@@ -732,14 +743,36 @@ export function EssiccatoriBoard({ items }: Props) {
       {photoItem && (
         <PhotoModal item={photoItem} onClose={() => setPhotoItem(null)} />
       )}
-      {intervieniItem && (
+      {intervieniItem && !ventilationItem && (
         <IntervieniModal
           item={intervieniItem}
           procedures={procedures}
           onProceduresChange={setProcedures}
           onClose={() => setIntervieniItem(null)}
+          onOpenVentilation={() => setVentilationItem(intervieniItem)}
           onSelect={(actionLabel) => {
             setFeedback(`${intervieniItem.name}: ${actionLabel}`);
+            setIntervieniItem(null);
+          }}
+        />
+      )}
+      {ventilationItem && (
+        <VentilationGaugeModal
+          essiccatoreName={ventilationItem.name}
+          currentPercent={ventilationItem.ventilazionePercent}
+          onClose={() => setVentilationItem(null)}
+          onApply={(percent) => {
+            setLocalItems((prev) =>
+              prev.map((ess) =>
+                ess.id === ventilationItem.id
+                  ? { ...ess, ventilazionePercent: percent }
+                  : ess
+              )
+            );
+            setFeedback(
+              `${ventilationItem.name}: ventilazione impostata a ${percent}%`
+            );
+            setVentilationItem(null);
             setIntervieniItem(null);
           }}
         />
