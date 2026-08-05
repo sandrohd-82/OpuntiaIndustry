@@ -168,7 +168,7 @@ function MescolataPalaBadge({ mescolata }: { mescolata: MescolataCompletata }) {
               e.stopPropagation();
               setOpen((v) => !v);
             }}
-            className="absolute -right-[13px] -top-[13px] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white hover:bg-slate-900"
+            className="absolute -right-[13px] -top-[9px] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-slate-700 text-[9px] font-bold leading-none text-white shadow-sm ring-1 ring-white hover:bg-slate-900"
             aria-label="Mostra nota mescolata"
             aria-expanded={open}
           >
