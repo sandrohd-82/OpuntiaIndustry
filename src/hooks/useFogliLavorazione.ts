@@ -6,6 +6,7 @@ import {
   isFoglioAperto,
   loadFogliFromStorage,
   saveFogliToStorage,
+  type CreateFoglioInput,
   type FoglioLavorazione,
 } from "@/lib/produzione/fogli-lavorazione";
 
@@ -38,11 +39,7 @@ export function useFogliLavorazione() {
 
   const fogliAperti = fogli.filter(isFoglioAperto);
 
-  function createFoglio(input: {
-    prodotto: string;
-    descrizione?: string;
-    note?: string;
-  }) {
+  function createFoglio(input: Omit<CreateFoglioInput, "existing">) {
     const foglio = createFoglioLavorazione({ ...input, existing: fogli });
     persist([foglio, ...fogli]);
     return foglio;

@@ -1,21 +1,19 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState } from "react";
 import { FaFilePen } from "react-icons/fa6";
+import { NuovoFoglioModal } from "@/components/produzione/NuovoFoglioModal";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
 import { formatFoglioRange } from "@/lib/produzione/fogli-lavorazione";
 
 type Props = {
-  /** Apre subito il form di creazione (es. da query ?nuovo=1) */
+  /** Apre subito la modale di creazione (es. da query ?nuovo=1) */
   startCreate?: boolean;
 };
 
 export function FogliLavorazioneBoard({ startCreate = false }: Props) {
   const { fogli, createFoglio, closeFoglio, ready } = useFogliLavorazione();
   const [creating, setCreating] = useState(startCreate);
-  const [prodotto, setProdotto] = useState("");
-  const [descrizione, setDescrizione] = useState("");
-  const [note, setNote] = useState("");
   const [filter, setFilter] = useState<"tutti" | "aperti" | "chiusi">("aperti");
 
   const list = useMemo(() => {
@@ -23,17 +21,6 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
     if (filter === "chiusi") return fogli.filter((f) => f.stato === "chiuso");
     return fogli;
   }, [fogli, filter]);
-
-  function submitCreate(e: FormEvent) {
-    e.preventDefault();
-    if (!prodotto.trim()) return;
-    createFoglio({ prodotto, descrizione, note });
-    setProdotto("");
-    setDescrizione("");
-    setNote("");
-    setCreating(false);
-    setFilter("aperti");
-  }
 
   if (!ready) {
     return (
@@ -59,65 +46,6 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
           Crea nuovo foglio di lavoro
         </button>
       </div>
-
-      {creating && (
-        <form
-          onSubmit={submitCreate}
-          className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm"
-        >
-          <h2 className="text-base font-semibold">Nuovo foglio di lavorazione</h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Verrà generato un codice FL-AAAA-NNN con fine prevista a +24 ore.
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Prodotto / lotto</span>
-              <input
-                value={prodotto}
-                onChange={(e) => setProdotto(e.target.value)}
-                required
-                placeholder="es. Fichi d’India — lotto A"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                autoFocus
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Descrizione</span>
-              <input
-                value={descrizione}
-                onChange={(e) => setDescrizione(e.target.value)}
-                placeholder="Opzionale"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Note</span>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={3}
-                placeholder="Note operative…"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-          </div>
-          <div className="mt-4 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setCreating(false)}
-              className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              Annulla
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-            >
-              Crea foglio
-            </button>
-          </div>
-        </form>
-      )}
 
       <div className="flex gap-2">
         {(
@@ -181,15 +109,30 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
                   {foglio.stato === "aperto" ? "Aperto" : "Chiuso"}
                 </span>
               </div>
-              <p className="mt-3 text-sm">{foglio.descrizione}</p>
-              <p className="mt-2 text-xs tabular-nums text-[var(--muted)]">
+              <dl className="mt-3 space-y-1 text-xs text-[var(--muted)]">
+                <div className="flex justify-between gap-2">
+                  <dt>Motivo</dt>
+                  <dd className="font-medium text-[var(--foreground)]">
+                    {foglio.motivo === "magazzino" ? "Magazzino" : "Ordine"}
+                    {foglio.ordineLabel ? ` · ${foglio.ordineLabel}` : ""}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>Lotto</dt>
+                  <dd className="font-medium text-[var(--foreground)]">
+                    {foglio.lottoLabel}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>Prodotto uscita</dt>
+                  <dd className="text-right font-medium text-[var(--foreground)]">
+                    {foglio.codiceProdottoUscita}
+                  </dd>
+                </div>
+              </dl>
+              <p className="mt-3 text-xs tabular-nums text-[var(--muted)]">
                 Durata prevista: {formatFoglioRange(foglio)}
               </p>
-              {foglio.note && (
-                <p className="mt-2 text-xs text-[var(--muted)]">
-                  Note: {foglio.note}
-                </p>
-              )}
               {foglio.stato === "aperto" && (
                 <button
                   type="button"
@@ -211,6 +154,17 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
             </li>
           ))}
         </ul>
+      )}
+
+      {creating && (
+        <NuovoFoglioModal
+          onClose={() => setCreating(false)}
+          onCreate={(values) => {
+            createFoglio(values);
+            setCreating(false);
+            setFilter("aperti");
+          }}
+        />
       )}
     </div>
   );
