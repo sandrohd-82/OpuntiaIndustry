@@ -89,7 +89,9 @@ export function MescolataOverlay({
   onComplete,
 }: Props) {
   const [checkPop, setCheckPop] = useState(false);
+  const [palaLiveSec, setPalaLiveSec] = useState(0);
   const advancedRef = useRef<string | null>(null);
+  const palaStartedMsRef = useRef<number | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -121,7 +123,7 @@ export function MescolataOverlay({
     });
   }, [burnOffProgress, state.step, onChange]);
 
-  // Step 2 → 3
+  // Step 2 → 3 (solo cambio step; il cronometro parte quando appare la pala)
   useEffect(() => {
     if (state.step !== "abbassamento_ventilazione" || fanOffProgress < 1) return;
     if (advancedRef.current === "abbassamento_ventilazione") return;
@@ -129,9 +131,38 @@ export function MescolataOverlay({
     onChange({
       ...stateRef.current,
       step: "mescolata",
-      mescolataStartedAt: new Date().toISOString(),
+      mescolataStartedAt: null,
     });
   }, [fanOffProgress, state.step, onChange]);
+
+  // Cronometro mescolata: parte solo quando è visibile lo step pala
+  useEffect(() => {
+    if (state.step !== "mescolata") {
+      if (state.step !== "esito_mescolata") {
+        palaStartedMsRef.current = null;
+        setPalaLiveSec(0);
+      }
+      return;
+    }
+
+    if (palaStartedMsRef.current === null) {
+      const startedMs = Date.now();
+      palaStartedMsRef.current = startedMs;
+      onChange({
+        ...stateRef.current,
+        step: "mescolata",
+        mescolataStartedAt: new Date(startedMs).toISOString(),
+      });
+    }
+
+    const id = window.setInterval(() => {
+      const started = palaStartedMsRef.current;
+      if (started == null) return;
+      setPalaLiveSec((Date.now() - started) / 1000);
+    }, 200);
+
+    return () => window.clearInterval(id);
+  }, [state.step, onChange]);
 
   // Step 4 complete when both reverse animations done
   useEffect(() => {
@@ -161,15 +192,21 @@ export function MescolataOverlay({
             : 4;
 
   function finishMescolata() {
-    if (!state.mescolataStartedAt) return;
+    const startedMs =
+      palaStartedMsRef.current ??
+      (state.mescolataStartedAt
+        ? new Date(state.mescolataStartedAt).getTime()
+        : null);
+    if (startedMs == null) return;
+
     const ended = new Date();
-    const started = new Date(state.mescolataStartedAt);
-    const sec = (ended.getTime() - started.getTime()) / 1000;
+    const sec = (ended.getTime() - startedMs) / 1000;
     const { tone } = evaluateMescolataDuration(sec);
     setCheckPop(true);
     onChange({
-      ...state,
+      ...stateRef.current,
       step: "esito_mescolata",
+      mescolataStartedAt: new Date(startedMs).toISOString(),
       mescolataEndedAt: ended.toISOString(),
       durataMescolataSec: sec,
       esitoTone: tone,
@@ -259,6 +296,9 @@ export function MescolataOverlay({
             </p>
             <p className="mt-1 text-xs text-slate-400">
               Attesa conferma di fine attività
+            </p>
+            <p className="mt-3 text-2xl font-bold tabular-nums text-amber-200">
+              {formatDurationSec(palaLiveSec)}
             </p>
             <button
               type="button"
