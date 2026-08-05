@@ -8,6 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { LuShovel } from "react-icons/lu";
 import {
   CONDIZIONE_LABELS,
   FASE_LABELS,
@@ -63,6 +64,17 @@ function formatDateTime(iso: string | null) {
     return new Date(iso).toLocaleString("it-IT", {
       dateStyle: "short",
       timeStyle: "short",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function formatTimeOnly(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString("it-IT", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
     return "—";
@@ -644,7 +656,7 @@ function EssiccatoreCard({
   mescolata: MescolataState | null;
   onMescolataChange: (next: MescolataState) => void;
   onMescolataRestore: (snapshot: MescolataState["snapshot"]) => void;
-  onMescolataComplete: () => void;
+  onMescolataComplete: (endedAt: string) => void;
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
 }) {
@@ -688,6 +700,23 @@ function EssiccatoreCard({
         </div>
         <OnAirBadge power={item.power} />
       </div>
+
+      {item.mescolateCompletate.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-3">
+          {item.mescolateCompletate.map((m) => (
+            <div
+              key={m.id}
+              className="flex flex-col items-center text-[var(--muted)]"
+              title={`Mescolata terminata alle ${formatDateTime(m.endedAt)}`}
+            >
+              <LuShovel size={22} className="text-amber-700" aria-hidden />
+              <span className="mt-0.5 text-[10px] font-medium tabular-nums">
+                {formatTimeOnly(m.endedAt)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="mt-5 flex flex-1 flex-col gap-3">
         <ParamBox>
@@ -779,7 +808,11 @@ function EssiccatoreCard({
           state={mescolata}
           onChange={onMescolataChange}
           onRestoreSnapshot={onMescolataRestore}
-          onComplete={onMescolataComplete}
+          onComplete={() => {
+            const endedAt =
+              mescolata.mescolataEndedAt ?? new Date().toISOString();
+            onMescolataComplete(endedAt);
+          }}
         />
       )}
     </article>
@@ -872,7 +905,23 @@ export function EssiccatoriBoard({ items }: Props) {
                 )
               );
             }}
-            onMescolataComplete={() => {
+            onMescolataComplete={(endedAt) => {
+              setLocalItems((prev) =>
+                prev.map((ess) =>
+                  ess.id === item.id
+                    ? {
+                        ...ess,
+                        mescolateCompletate: [
+                          ...ess.mescolateCompletate,
+                          {
+                            id: `mesc-${Date.now()}`,
+                            endedAt,
+                          },
+                        ],
+                      }
+                    : ess
+                )
+              );
               setMescolataById((prev) => {
                 const copy = { ...prev };
                 delete copy[item.id];
