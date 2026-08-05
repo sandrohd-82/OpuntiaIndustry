@@ -246,14 +246,24 @@ export function MescolataOverlay({
       <div className="mt-4 flex min-h-0 flex-1 flex-col items-center justify-center text-center">
         {state.step === "spegnimento_bruciatore" && (
           <>
-            <FaFire
-              size={88}
+            <div
+              className="flex h-[88px] w-[88px] items-center justify-center"
               style={{
-                color: fireOffColor,
-                filter: `drop-shadow(0 0 12px ${fireOffColor})`,
-                animation: "fuoco-flicker 0.7s ease-in-out infinite",
+                // Solo spegnimento bruciatore: icona da 100% a 10%
+                transform: `scale(${1 - burnOffProgress * 0.9})`,
+                transformOrigin: "center center",
               }}
-            />
+              aria-hidden
+            >
+              <FaFire
+                size={88}
+                style={{
+                  color: fireOffColor,
+                  filter: `drop-shadow(0 0 12px ${fireOffColor})`,
+                  animation: "fuoco-flicker 0.7s ease-in-out infinite",
+                }}
+              />
+            </div>
             <p className="mt-3 text-sm text-slate-200">
               Spegnimento bruciatore in corso…
             </p>
