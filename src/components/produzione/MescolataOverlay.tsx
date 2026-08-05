@@ -378,6 +378,11 @@ export function MescolataOverlay({
           <>
             <div className="flex items-center justify-center gap-8">
               <div className="flex flex-col items-center">
+                <p className="mb-2 text-sm font-semibold tabular-nums text-orange-200">
+                  {state.snapshot.temperaturaImpostataC === null
+                    ? "—"
+                    : `${state.snapshot.temperaturaImpostataC.toLocaleString("it-IT")}°C`}
+                </p>
                 <FaFire
                   size={72}
                   style={{
@@ -389,6 +394,9 @@ export function MescolataOverlay({
                 <p className="mt-2 text-xs text-slate-300">Bruciatore</p>
               </div>
               <div className="flex flex-col items-center">
+                <p className="mb-2 text-sm font-semibold tabular-nums text-sky-200">
+                  {Math.round(state.snapshot.ventilazionePercent)}%
+                </p>
                 <FaFan
                   size={72}
                   style={{
