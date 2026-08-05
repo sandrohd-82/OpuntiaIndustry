@@ -2,6 +2,7 @@ export type EssiccatorePower = "acceso" | "spento";
 
 /** Fase operativa dell'essiccatore */
 export type EssiccatoreFase =
+  | "spento"
   | "essiccazione"
   | "spegnimento"
   | "raffreddamento"
@@ -42,6 +43,7 @@ export type Essiccatore = {
 };
 
 export const FASE_LABELS: Record<EssiccatoreFase, string> = {
+  spento: "Spento",
   essiccazione: "Essiccazione",
   spegnimento: "Spegnimento",
   raffreddamento: "Raffreddamento",
@@ -76,36 +78,36 @@ export function prodottoStimatoDeltaKg(caricatoKg: number): number {
   return (caricatoKg * PRODOTTO_STIMA_PERCENT) / 100;
 }
 
-/** Dati demo — sostituibili con lettura live da backend/sensori */
+/** Dati demo — spenti finché non collegati ad azioni salvate in DB */
 export const ESSICCATORI: Essiccatore[] = [
   {
     id: "ess-1",
     name: "Essiccatore 1",
-    power: "acceso",
+    power: "spento",
     imageSrc: "/essiccatori/essiccatore-1.jpg",
-    fase: "essiccazione",
+    fase: "spento",
     condizione: "regolare",
-    temperaturaImpostataC: 65,
-    temperaturaRilevataC: 62.4,
-    temperaturaAggiornataIl: new Date().toISOString(),
-    accesoDal: new Date(Date.now() - (16 * 60 + 37) * 60 * 1000).toISOString(),
-    prodottoCaricatoKg: 2153,
-    ventilazionePercent: 72,
+    temperaturaImpostataC: null,
+    temperaturaRilevataC: null,
+    temperaturaAggiornataIl: null,
+    accesoDal: null,
+    prodottoCaricatoKg: 0,
+    ventilazionePercent: 0,
     mescolateCompletate: [],
   },
   {
     id: "ess-2",
     name: "Essiccatore 2",
-    power: "acceso",
+    power: "spento",
     imageSrc: "/essiccatori/essiccatore-2.jpg",
-    fase: "girata",
-    condizione: "hot",
-    temperaturaImpostataC: 60,
-    temperaturaRilevataC: 68.5,
-    temperaturaAggiornataIl: new Date(Date.now() - 3 * 60 * 1000).toISOString(),
-    accesoDal: new Date(Date.now() - (9 * 60 + 12) * 60 * 1000).toISOString(),
-    prodottoCaricatoKg: 1840,
-    ventilazionePercent: 55,
+    fase: "spento",
+    condizione: "regolare",
+    temperaturaImpostataC: null,
+    temperaturaRilevataC: null,
+    temperaturaAggiornataIl: null,
+    accesoDal: null,
+    prodottoCaricatoKg: 0,
+    ventilazionePercent: 0,
     mescolateCompletate: [],
   },
   {
@@ -113,11 +115,11 @@ export const ESSICCATORI: Essiccatore[] = [
     name: "Essiccatore di Mantenimento",
     power: "spento",
     imageSrc: "/essiccatori/essiccatore-mantenimento.jpg",
-    fase: "spegnimento",
-    condizione: "cold",
-    temperaturaImpostataC: 40,
-    temperaturaRilevataC: 22.0,
-    temperaturaAggiornataIl: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    fase: "spento",
+    condizione: "regolare",
+    temperaturaImpostataC: null,
+    temperaturaRilevataC: null,
+    temperaturaAggiornataIl: null,
     accesoDal: null,
     prodottoCaricatoKg: 0,
     ventilazionePercent: 0,

@@ -35,7 +35,7 @@ import {
   type ProceduraSalvata,
   type ProcedureRunState,
 } from "@/lib/produzione/procedure";
-import { FaFan, FaFire } from "react-icons/fa6";
+import { FaFan, FaFire, FaPowerOff } from "react-icons/fa6";
 
 type Props = {
   items: Essiccatore[];
@@ -874,13 +874,14 @@ function EssiccatoreCard({
   onOpenPhoto: (item: Essiccatore) => void;
   onIntervieni: (item: Essiccatore) => void;
 }) {
-  const tempTone = temperaturaTone(
-    item.temperaturaImpostataC,
-    item.temperaturaRilevataC
-  );
+  const off = item.power === "spento";
+  const tempTone = off
+    ? null
+    : temperaturaTone(item.temperaturaImpostataC, item.temperaturaRilevataC);
 
-  const impostata =
-    item.temperaturaImpostataC === null
+  const impostata = off
+    ? "--°"
+    : item.temperaturaImpostataC === null
       ? "—"
       : `${item.temperaturaImpostataC.toLocaleString("it-IT")}°`;
   const rilevata =
@@ -895,6 +896,15 @@ function EssiccatoreCard({
   });
 
   const busy = Boolean(mescolata);
+
+  const spentoIcon = (
+    <FaPowerOff
+      size={22}
+      className="text-slate-400"
+      title="Spento"
+      aria-label="Spento"
+    />
+  );
 
   return (
     <article className="relative flex min-h-[340px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-sm">
@@ -927,12 +937,18 @@ function EssiccatoreCard({
         <ParamBox>
           <SectionLabel>Stato</SectionLabel>
           <div className="mt-1.5 flex items-start justify-between gap-3">
-            <p className="text-lg font-semibold">{FASE_LABELS[item.fase]}</p>
-            <span
-              className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
-            >
-              {CONDIZIONE_LABELS[item.condizione]}
-            </span>
+            <p className="text-lg font-semibold">
+              {off ? "Spento" : FASE_LABELS[item.fase]}
+            </p>
+            {off ? (
+              spentoIcon
+            ) : (
+              <span
+                className={`inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneBadgeClasses(item.condizione)}`}
+              >
+                {CONDIZIONE_LABELS[item.condizione]}
+              </span>
+            )}
           </div>
         </ParamBox>
 
@@ -942,25 +958,31 @@ function EssiccatoreCard({
             <p className="text-base font-medium tabular-nums text-[var(--foreground)]">
               Imp. {impostata}
             </p>
-            <div className="text-right">
-              <p
-                className={`text-lg font-semibold tabular-nums leading-tight ${toneClasses(tempTone)}`}
-              >
-                {rilevata}
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">
-                {formatDateTime(item.temperaturaAggiornataIl)}
-              </p>
-            </div>
+            {!off && (
+              <div className="text-right">
+                <p
+                  className={`text-lg font-semibold tabular-nums leading-tight ${toneClasses(tempTone)}`}
+                >
+                  {rilevata}
+                </p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">
+                  {formatDateTime(item.temperaturaAggiornataIl)}
+                </p>
+              </div>
+            )}
           </div>
         </ParamBox>
 
         <ParamBox>
           <div className="flex items-center justify-between gap-3">
             <SectionLabel>Ventilazione</SectionLabel>
-            <p className="text-lg font-semibold tabular-nums">
-              {Math.round(item.ventilazionePercent)}%
-            </p>
+            {off ? (
+              spentoIcon
+            ) : (
+              <p className="text-lg font-semibold tabular-nums">
+                {Math.round(item.ventilazionePercent)}%
+              </p>
+            )}
           </div>
         </ParamBox>
 
@@ -970,12 +992,14 @@ function EssiccatoreCard({
             <div>
               <p className="text-sm text-[var(--muted)]">Inizio</p>
               <p className="text-base font-medium tabular-nums">
-                {formatDateTime(item.accesoDal)}
+                {off ? "--/--/--, --:--" : formatDateTime(item.accesoDal)}
               </p>
             </div>
-            <p className="text-lg font-semibold tabular-nums">
-              {formatDuration(item.accesoDal, now)}
-            </p>
+            {!off && (
+              <p className="text-lg font-semibold tabular-nums">
+                {formatDuration(item.accesoDal, now)}
+              </p>
+            )}
           </div>
         </ParamBox>
 
@@ -983,7 +1007,7 @@ function EssiccatoreCard({
           <div className="flex items-center justify-between gap-3">
             <SectionLabel>Prodotto caricato</SectionLabel>
             <p className="text-lg font-semibold tabular-nums">
-              {formatKg(item.prodottoCaricatoKg)}
+              {off ? "---- kg" : formatKg(item.prodottoCaricatoKg)}
             </p>
           </div>
         </ParamBox>
@@ -991,9 +1015,11 @@ function EssiccatoreCard({
         <ParamBox>
           <SectionLabel>Prodotto stimato</SectionLabel>
           <div className="mt-1.5 flex items-center justify-between gap-3">
-            <p className="text-base font-medium">± {stimaPercentLabel}%</p>
+            <p className="text-base font-medium">
+              {off ? "± —%" : `± ${stimaPercentLabel}%`}
+            </p>
             <p className="text-lg font-semibold tabular-nums">
-              {formatKg(stimaDelta)}
+              {off ? "---- kg" : formatKg(stimaDelta)}
             </p>
           </div>
         </ParamBox>
