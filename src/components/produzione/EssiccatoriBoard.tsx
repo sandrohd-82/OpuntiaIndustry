@@ -37,7 +37,7 @@ import {
   type ProceduraSalvata,
   type ProcedureRunState,
 } from "@/lib/produzione/procedure";
-import { FaFan, FaFire, FaPlus, FaPowerOff } from "react-icons/fa6";
+import { FaFan, FaFire, FaPowerOff, FaWeightScale } from "react-icons/fa6";
 
 type Props = {
   items: Essiccatore[];
@@ -871,40 +871,48 @@ function ProdottoCaricatoBox({
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+          className="min-w-0 flex-1 text-left"
           aria-expanded={open}
         >
           <SectionLabel>Prodotto caricato</SectionLabel>
-          <span className="flex items-center gap-2">
-            <span className="text-lg font-semibold tabular-nums">
-              {formatKg(item.prodottoCaricatoKg)}
-            </span>
-            <svg
-              viewBox="0 0 20 20"
-              fill="currentColor"
-              className={`h-4 w-4 text-[var(--muted)] transition-transform ${open ? "rotate-180" : ""}`}
-              aria-hidden
-            >
-              <path
-                fillRule="evenodd"
-                d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
-                clipRule="evenodd"
-              />
-            </svg>
-          </span>
         </button>
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenCalcolatrice();
-          }}
+          onClick={onOpenCalcolatrice}
           disabled={busy}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] disabled:opacity-40"
-          title="Aggiungi o sottrai prodotto"
-          aria-label="Aggiungi o sottrai prodotto"
+          className="inline-flex shrink-0 items-center justify-center rounded-md p-1 text-[var(--muted)] transition-colors hover:bg-slate-100 hover:text-[var(--foreground)] disabled:opacity-40"
+          title="Registra quantità prodotto"
+          aria-label="Registra quantità prodotto"
         >
-          <FaPlus size={14} />
+          <FaWeightScale size={18} />
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-lg font-semibold tabular-nums text-[var(--foreground)]"
+          aria-expanded={open}
+        >
+          {formatKg(item.prodottoCaricatoKg)}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex shrink-0 items-center justify-center rounded-md p-1 text-[var(--muted)] hover:bg-slate-100"
+          aria-label={open ? "Chiudi storico prodotto" : "Apri storico prodotto"}
+          aria-expanded={open}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`}
+            aria-hidden
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
         </button>
       </div>
 
