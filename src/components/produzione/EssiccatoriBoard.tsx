@@ -901,6 +901,12 @@ function ProdottoCaricatoBox({
           aria-expanded={open}
         >
           <SectionLabel>Prodotto caricato</SectionLabel>
+          {item.prodottoObiettivoKg != null && (
+            <span className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-medium text-rose-600">
+              <FaBullseye size={12} aria-hidden />
+              Obiettivo {item.prodottoObiettivoKg.toLocaleString("it-IT")} kg
+            </span>
+          )}
         </button>
         <button
           type="button"
@@ -912,22 +918,14 @@ function ProdottoCaricatoBox({
         >
           <FaWeightScale size={18} />
         </button>
-        <div className="flex flex-col items-end">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="text-lg font-semibold tabular-nums text-[var(--foreground)]"
-            aria-expanded={open}
-          >
-            {formatKg(item.prodottoCaricatoKg)}
-          </button>
-          {item.prodottoObiettivoKg != null && (
-            <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-medium text-rose-600">
-              <FaBullseye size={10} aria-hidden />
-              obj. {item.prodottoObiettivoKg.toLocaleString("it-IT")} kg
-            </span>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-lg font-semibold tabular-nums text-[var(--foreground)]"
+          aria-expanded={open}
+        >
+          {formatKg(item.prodottoCaricatoKg)}
+        </button>
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
