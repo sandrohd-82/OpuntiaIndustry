@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { FaFan } from "react-icons/fa6";
 
 type Props = {
   essiccatoreName: string;
@@ -235,17 +236,35 @@ export function VentilationGaugeModal({
                 100%
               </text>
 
+              {/* Area di hit trasparente sotto la ventola */}
               <circle
                 cx={knob.x}
                 cy={knob.y}
-                r={16}
-                fill="white"
-                stroke="var(--primary)"
-                strokeWidth={3}
+                r={22}
+                fill="transparent"
                 className="cursor-grab"
               />
-              <circle cx={knob.x} cy={knob.y} r={5} fill="var(--primary)" />
             </svg>
+
+            <div
+              className="pointer-events-none absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-[var(--primary)] bg-white shadow-md"
+              style={{
+                left: `${(knob.x / SVG_W) * 100}%`,
+                top: `${(knob.y / SVG_H) * 100}%`,
+              }}
+              aria-hidden
+            >
+              <FaFan
+                className="text-[var(--primary)]"
+                size={22}
+                style={{
+                  animation:
+                    value > 0
+                      ? `ventilazione-spin ${Math.max(0.35, 2.2 - value / 55)}s linear infinite`
+                      : undefined,
+                }}
+              />
+            </div>
 
             <div className="pointer-events-none absolute inset-x-0 top-[46%] flex -translate-y-1/2 flex-col items-center">
               <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
