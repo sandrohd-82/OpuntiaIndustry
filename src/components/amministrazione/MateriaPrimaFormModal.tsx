@@ -127,7 +127,7 @@ export function MateriaPrimaFormModal({
           {isEdit ? "Modifica materia prima" : "Nuova materia prima"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Codice alfanumerico (minuscole, maiuscole e cifre), usato nei tag
+          Codice con lettere, cifre e caratteri - _ /, usato nei tag
           “Fornitore di”.
         </p>
 
@@ -143,7 +143,7 @@ export function MateriaPrimaFormModal({
               autoFocus
               spellCheck={false}
               autoCapitalize="off"
-              placeholder="Es. Mp01a"
+              placeholder="Es. Mp-01/a"
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
             />
           </label>

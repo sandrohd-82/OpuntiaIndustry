@@ -1,7 +1,7 @@
 import type { MateriaPrimaRow } from "@/types/database";
 
-/** Codice interno: lettere (a–z, A–Z) e cifre, case-sensitive. */
-export const CODICE_MATERIA_PRIMA_RE = /^[A-Za-z0-9]+$/;
+/** Codice interno: lettere (a–z, A–Z), cifre e - _ /, case-sensitive. */
+export const CODICE_MATERIA_PRIMA_RE = /^[A-Za-z0-9\-_\/]+$/;
 
 export type MateriaPrima = {
   id: string;
@@ -26,7 +26,7 @@ export type MateriaPrimaInput = {
 };
 
 export function sanitizeCodiceMateriaPrima(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, "");
+  return value.replace(/[^A-Za-z0-9\-_\/]/g, "");
 }
 
 export function isValidCodiceMateriaPrima(codice: string): boolean {

@@ -76,7 +76,7 @@ export async function createMateriaPrimaAction(
     return {
       success: false,
       error:
-        "Il codice deve essere alfanumerico (lettere minuscole/maiuscole e cifre).",
+        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
     };
   }
 
@@ -146,7 +146,7 @@ export async function updateMateriaPrimaAction(
     return {
       success: false,
       error:
-        "Il codice deve essere alfanumerico (lettere minuscole/maiuscole e cifre).",
+        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
     };
   }
 
