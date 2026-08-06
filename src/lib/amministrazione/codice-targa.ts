@@ -1,7 +1,10 @@
 const HEX_ALPHABET = "0123456789ABCDEF";
 const MAX_CODES = 16 ** 3; // 4096
 
-export function formatCodiceTarga(index: number): string {
+/** Prefisso targa: F = Fornitori, C = Clienti */
+export type TargaPrefix = "F" | "C";
+
+export function formatCodiceTargaBody(index: number): string {
   if (index < 0 || index >= MAX_CODES) {
     throw new Error("Indice codice targa fuori range");
   }
@@ -14,23 +17,44 @@ export function formatCodiceTarga(index: number): string {
   return out;
 }
 
-export function parseCodiceTarga(code: string): number | null {
-  const normalized = code.trim().toUpperCase();
-  if (!/^[0-9A-F]{3}$/.test(normalized)) return null;
-  return Number.parseInt(normalized, 16);
+export function formatCodiceTarga(prefix: TargaPrefix, index: number): string {
+  return `${prefix}${formatCodiceTargaBody(index)}`;
 }
 
-/** Primo codice esadecimale libero in ordine sequenziale 001 → FFF. */
-export function nextSequentialCodiceTarga(used: Iterable<string>): string {
+export function isValidCodiceTarga(
+  code: string,
+  prefix: TargaPrefix
+): boolean {
+  const normalized = code.trim().toUpperCase();
+  if (!new RegExp(`^${prefix}[0-9A-F]{3}$`).test(normalized)) return false;
+  return normalized.slice(1) !== "000";
+}
+
+export function parseCodiceTarga(
+  code: string,
+  prefix: TargaPrefix
+): number | null {
+  const normalized = code.trim().toUpperCase();
+  if (!isValidCodiceTarga(normalized, prefix)) return null;
+  return Number.parseInt(normalized.slice(1), 16);
+}
+
+/**
+ * Primo codice libero sequenziale esadecimale:
+ * Fornitori → F001…FFFF | Clienti → C001…CFFF
+ */
+export function nextSequentialCodiceTarga(
+  prefix: TargaPrefix,
+  used: Iterable<string>
+): string {
   const taken = new Set(
     [...used].map((c) => c.trim().toUpperCase()).filter(Boolean)
   );
 
-  // Parte da 001 (salta 000)
   for (let i = 1; i < MAX_CODES; i++) {
-    const candidate = formatCodiceTarga(i);
+    const candidate = formatCodiceTarga(prefix, i);
     if (!taken.has(candidate)) return candidate;
   }
 
-  throw new Error("Nessun codice targa disponibile");
+  throw new Error(`Nessun codice targa disponibile per il prefisso ${prefix}`);
 }

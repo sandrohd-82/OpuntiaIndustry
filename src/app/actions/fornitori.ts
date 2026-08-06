@@ -1,7 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
+import {
+  isValidCodiceTarga,
+  nextSequentialCodiceTarga,
+} from "@/lib/amministrazione/codice-targa";
 import {
   mapFornitoreRow,
   normalizeFornitoreInput,
@@ -31,7 +34,7 @@ export async function previewNextCodiceTargaAction(): Promise<
     const used = await loadUsedCodiciTarga();
     return {
       success: true,
-      codiceTarga: nextSequentialCodiceTarga(used),
+      codiceTarga: nextSequentialCodiceTarga("F", used),
     };
   } catch (e) {
     return {
@@ -81,8 +84,8 @@ export async function createFornitoreAction(
   let codiceTarga = normalized.codiceTarga;
   try {
     const used = await loadUsedCodiciTarga();
-    if (!codiceTarga || used.includes(codiceTarga)) {
-      codiceTarga = nextSequentialCodiceTarga(used);
+    if (!codiceTarga || !isValidCodiceTarga(codiceTarga, "F") || used.includes(codiceTarga)) {
+      codiceTarga = nextSequentialCodiceTarga("F", used);
     }
   } catch (e) {
     return {
@@ -122,7 +125,7 @@ export async function createFornitoreAction(
         const used = await loadUsedCodiciTarga();
         const retryInsert: FornitoreInsert = {
           ...insert,
-          codice_targa: nextSequentialCodiceTarga(used),
+          codice_targa: nextSequentialCodiceTarga("F", used),
         };
         const retry = await supabase
           .from("fornitori")
@@ -168,10 +171,10 @@ export async function updateFornitoreAction(
   }
 
   const codiceTarga = normalized.codiceTarga;
-  if (!codiceTarga || codiceTarga === "000") {
+  if (!codiceTarga || !isValidCodiceTarga(codiceTarga, "F")) {
     return {
       success: false,
-      error: "Il codice azienda deve essere esadecimale valido (001–FFF).",
+      error: "Il codice fornitore deve essere nel formato F001–FFFF.",
     };
   }
 

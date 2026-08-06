@@ -109,8 +109,8 @@ export function FornitoreFormModal({
     e.preventDefault();
     const codice = codiceTarga.trim().toUpperCase();
     if (!ragioneSociale.trim() || !partitaIva.trim() || saving) return;
-    if (!/^[0-9A-F]{3}$/.test(codice) || codice === "000") {
-      setCodiceError("Il codice deve essere esadecimale a 3 caratteri (001–FFF).");
+    if (!/^F[0-9A-F]{3}$/.test(codice) || codice === "F000") {
+      setCodiceError("Il codice fornitore deve essere F + 3 esadecimali (F001–FFFF).");
       return;
     }
     setSaving(true);
@@ -158,25 +158,25 @@ export function FornitoreFormModal({
             <input
               value={codiceLoading ? "" : codiceTarga}
               onChange={(e) => {
-                setCodiceTarga(
-                  e.target.value
-                    .toUpperCase()
-                    .replace(/[^0-9A-F]/g, "")
-                    .slice(0, 3)
-                );
+                const body = e.target.value
+                  .toUpperCase()
+                  .replace(/[^0-9A-F]/g, "")
+                  .replace(/^F+/, "")
+                  .slice(0, 3);
+                setCodiceTarga(`F${body}`);
                 setCodiceError(null);
               }}
               disabled={codiceLoading}
               required
-              maxLength={3}
-              placeholder={codiceLoading ? "…" : "001"}
+              maxLength={4}
+              placeholder={codiceLoading ? "…" : "F001"}
               className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-2xl font-semibold tracking-[0.2em] outline-none focus:border-[var(--primary)] disabled:bg-slate-100"
             />
           </label>
           <p className="mt-1 text-xs text-[var(--muted)]">
             {isEdit
-              ? "Codice esadecimale modificabile (001–FFF)."
-              : "Anteprima sequenziale: associato al salvataggio, comunque modificabile."}
+              ? "Targa fornitore modificabile (F001–FFFF)."
+              : "Anteprima sequenziale con prefisso F: associata al salvataggio, comunque modificabile."}
           </p>
           {codiceError && (
             <p className="mt-1 text-xs text-red-600">{codiceError}</p>
@@ -303,7 +303,7 @@ export function FornitoreFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || codiceLoading || codiceTarga.length !== 3}
+              disabled={saving || codiceLoading || codiceTarga.length !== 4}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving

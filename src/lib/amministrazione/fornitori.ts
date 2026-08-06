@@ -53,7 +53,9 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
   const codice = input.codiceTarga?.trim().toUpperCase();
   return {
     codiceTarga:
-      codice && /^[0-9A-F]{3}$/.test(codice) ? codice : undefined,
+      codice && /^F[0-9A-F]{3}$/.test(codice) && codice !== "F000"
+        ? codice
+        : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
     partitaIva: input.partitaIva.trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
