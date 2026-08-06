@@ -113,9 +113,78 @@ export interface AuthSession2faUpdate {
   created_at?: string;
 }
 
+export interface FornitoreRow {
+  id: string;
+  codice_targa: string;
+  ragione_sociale: string;
+  partita_iva: string;
+  sede_amm_nazione: string;
+  sede_amm_provincia: string;
+  sede_amm_citta: string;
+  sede_amm_cap: string;
+  sede_amm_indirizzo: string;
+  sede_mag_nazione: string;
+  sede_mag_provincia: string;
+  sede_mag_citta: string;
+  sede_mag_cap: string;
+  sede_mag_indirizzo: string;
+  prodotti_acquistati: string[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FornitoreInsert {
+  id?: string;
+  codice_targa?: string;
+  ragione_sociale: string;
+  partita_iva: string;
+  sede_amm_nazione: string;
+  sede_amm_provincia: string;
+  sede_amm_citta: string;
+  sede_amm_cap: string;
+  sede_amm_indirizzo: string;
+  sede_mag_nazione: string;
+  sede_mag_provincia: string;
+  sede_mag_citta: string;
+  sede_mag_cap: string;
+  sede_mag_indirizzo: string;
+  prodotti_acquistati?: string[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface FornitoreUpdate {
+  id?: string;
+  codice_targa?: string;
+  ragione_sociale?: string;
+  partita_iva?: string;
+  sede_amm_nazione?: string;
+  sede_amm_provincia?: string;
+  sede_amm_citta?: string;
+  sede_amm_cap?: string;
+  sede_amm_indirizzo?: string;
+  sede_mag_nazione?: string;
+  sede_mag_provincia?: string;
+  sede_mag_citta?: string;
+  sede_mag_cap?: string;
+  sede_mag_indirizzo?: string;
+  prodotti_acquistati?: string[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
+      fornitori: {
+        Row: FornitoreRow;
+        Insert: FornitoreInsert;
+        Update: FornitoreUpdate;
+        Relationships: [];
+      };
       user_second_factor: {
         Row: UserSecondFactor;
         Insert: UserSecondFactorInsert;

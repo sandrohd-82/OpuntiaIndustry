@@ -2,42 +2,40 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  createFornitore,
-  loadFornitori,
-  saveFornitori,
-  type Fornitore,
-  type FornitoreInput,
-} from "@/lib/amministrazione/fornitori";
+  createFornitoreAction,
+  listFornitoriAction,
+} from "@/app/actions/fornitori";
+import type { Fornitore, FornitoreInput } from "@/lib/amministrazione/fornitori";
 
 export function useFornitori() {
   const [fornitori, setFornitori] = useState<Fornitore[]>([]);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
-    setFornitori(loadFornitori());
+  const refresh = useCallback(async () => {
+    const result = await listFornitoriAction();
+    if (result.success) {
+      setFornitori(result.fornitori);
+      setError(null);
+    } else {
+      setError(result.error);
+    }
   }, []);
 
   useEffect(() => {
-    refresh();
-    setReady(true);
-    function onUpdate() {
-      refresh();
-    }
-    window.addEventListener("opuntia-fornitori-updated", onUpdate);
-    window.addEventListener("storage", onUpdate);
-    return () => {
-      window.removeEventListener("opuntia-fornitori-updated", onUpdate);
-      window.removeEventListener("storage", onUpdate);
-    };
+    void refresh().finally(() => setReady(true));
   }, [refresh]);
 
-  function addFornitore(input: FornitoreInput) {
-    const fornitore = createFornitore(input);
-    const next = [fornitore, ...fornitori];
-    setFornitori(next);
-    saveFornitori(next);
-    return fornitore;
+  async function addFornitore(input: FornitoreInput) {
+    const result = await createFornitoreAction(input);
+    if (!result.success) {
+      setError(result.error);
+      return null;
+    }
+    setFornitori((prev) => [result.fornitore, ...prev]);
+    setError(null);
+    return result.fornitore;
   }
 
-  return { fornitori, ready, addFornitore, refresh };
+  return { fornitori, ready, error, addFornitore, refresh };
 }

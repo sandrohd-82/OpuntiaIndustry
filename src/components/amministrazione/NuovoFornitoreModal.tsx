@@ -2,83 +2,16 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { FaPlus, FaXmark } from "react-icons/fa6";
+import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import {
   emptySede,
   type FornitoreInput,
-  type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
 
 type Props = {
   onClose: () => void;
-  onCreate: (values: FornitoreInput) => void;
+  onCreate: (values: FornitoreInput) => void | Promise<void>;
 };
-
-function SedeFields({
-  title,
-  value,
-  onChange,
-}: {
-  title: string;
-  value: SedeFornitore;
-  onChange: (next: SedeFornitore) => void;
-}) {
-  function set<K extends keyof SedeFornitore>(key: K, v: string) {
-    onChange({ ...value, [key]: v });
-  }
-
-  return (
-    <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-      <legend className="px-1 text-sm font-semibold">{title}</legend>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Nazione</span>
-          <input
-            value={value.nazione}
-            onChange={(e) => set("nazione", e.target.value)}
-            required
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Provincia</span>
-          <input
-            value={value.provincia}
-            onChange={(e) => set("provincia", e.target.value)}
-            required
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Città</span>
-          <input
-            value={value.citta}
-            onChange={(e) => set("citta", e.target.value)}
-            required
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">CAP</span>
-          <input
-            value={value.cap}
-            onChange={(e) => set("cap", e.target.value)}
-            required
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Indirizzo</span>
-          <input
-            value={value.indirizzo}
-            onChange={(e) => set("indirizzo", e.target.value)}
-            required
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
-        </label>
-      </div>
-    </fieldset>
-  );
-}
 
 export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
   const titleId = useId();
@@ -114,10 +47,10 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
     setNuovoProdotto("");
   }
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (!ragioneSociale.trim() || !partitaIva.trim()) return;
-    onCreate({
+    await onCreate({
       ragioneSociale: ragioneSociale.trim(),
       partitaIva: partitaIva.trim(),
       sedeAmministrativa,
@@ -169,7 +102,7 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
             </label>
           </div>
 
-          <SedeFields
+          <AddressSedeFields
             title="Sede Amministrativa"
             value={sedeAmministrativa}
             onChange={(next) => {
@@ -193,7 +126,7 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
           </label>
 
           {!stessaSede && (
-            <SedeFields
+            <AddressSedeFields
               title="Sede Magazzino"
               value={sedeMagazzino}
               onChange={setSedeMagazzino}

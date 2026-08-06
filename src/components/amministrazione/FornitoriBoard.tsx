@@ -32,6 +32,9 @@ function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
   return (
     <>
       <tr className="border-t border-[var(--border)]">
+        <td className="px-4 py-3 font-mono text-sm font-semibold tracking-wider">
+          {fornitore.codiceTarga}
+        </td>
         <td className="px-4 py-3 font-semibold">{fornitore.ragioneSociale}</td>
         <td className="px-4 py-3 tabular-nums">{fornitore.partitaIva}</td>
         <td className="px-4 py-3 text-[var(--muted)]">
@@ -57,7 +60,7 @@ function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
       </tr>
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
-          <td colSpan={6} className="px-4 py-4">
+          <td colSpan={7} className="px-4 py-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <SedeDetail
                 title="Sede Amministrativa"
@@ -95,8 +98,9 @@ function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
 }
 
 export function FornitoriBoard() {
-  const { fornitori, ready, addFornitore } = useFornitori();
+  const { fornitori, ready, error, addFornitore } = useFornitori();
   const [creating, setCreating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   if (!ready) {
     return (
@@ -112,13 +116,22 @@ export function FornitoriBoard() {
         </p>
         <button
           type="button"
-          onClick={() => setCreating(true)}
+          onClick={() => {
+            setSaveError(null);
+            setCreating(true);
+          }}
           className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
         >
           <FaPlus size={14} />
           Nuovo fornitore
         </button>
       </div>
+
+      {(error || saveError) && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {saveError || error}
+        </p>
+      )}
 
       {fornitori.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
@@ -139,6 +152,7 @@ export function FornitoriBoard() {
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
+                <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
@@ -159,9 +173,14 @@ export function FornitoriBoard() {
       {creating && (
         <NuovoFornitoreModal
           onClose={() => setCreating(false)}
-          onCreate={(values) => {
-            addFornitore(values);
-            setCreating(false);
+          onCreate={async (values) => {
+            const created = await addFornitore(values);
+            if (created) {
+              setSaveError(null);
+              setCreating(false);
+            } else {
+              setSaveError("Salvataggio non riuscito. Riprova.");
+            }
           }}
         />
       )}

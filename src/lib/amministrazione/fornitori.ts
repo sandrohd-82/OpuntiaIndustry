@@ -1,3 +1,5 @@
+import type { FornitoreRow } from "@/types/database";
+
 export type SedeFornitore = {
   nazione: string;
   provincia: string;
@@ -8,6 +10,7 @@ export type SedeFornitore = {
 
 export type Fornitore = {
   id: string;
+  codiceTarga: string;
   ragioneSociale: string;
   partitaIva: string;
   sedeAmministrativa: SedeFornitore;
@@ -24,8 +27,6 @@ export type FornitoreInput = {
   prodottiAcquistati: string[];
 };
 
-export const FORNITORI_STORAGE_KEY = "opuntia.fornitori.v1";
-
 export function emptySede(): SedeFornitore {
   return {
     nazione: "",
@@ -36,7 +37,7 @@ export function emptySede(): SedeFornitore {
   };
 }
 
-function normalizeSede(sede: SedeFornitore): SedeFornitore {
+export function normalizeSede(sede: SedeFornitore): SedeFornitore {
   return {
     nazione: sede.nazione.trim(),
     provincia: sede.provincia.trim(),
@@ -46,27 +47,8 @@ function normalizeSede(sede: SedeFornitore): SedeFornitore {
   };
 }
 
-export function loadFornitori(): Fornitore[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(FORNITORI_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Fornitore[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveFornitori(fornitori: Fornitore[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(FORNITORI_STORAGE_KEY, JSON.stringify(fornitori));
-  window.dispatchEvent(new Event("opuntia-fornitori-updated"));
-}
-
-export function createFornitore(input: FornitoreInput): Fornitore {
+export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
   return {
-    id: `forn-${Date.now()}`,
     ragioneSociale: input.ragioneSociale.trim(),
     partitaIva: input.partitaIva.trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
@@ -74,7 +56,31 @@ export function createFornitore(input: FornitoreInput): Fornitore {
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
-    createdAt: new Date().toISOString(),
+  };
+}
+
+export function mapFornitoreRow(row: FornitoreRow): Fornitore {
+  return {
+    id: row.id,
+    codiceTarga: row.codice_targa,
+    ragioneSociale: row.ragione_sociale,
+    partitaIva: row.partita_iva,
+    sedeAmministrativa: {
+      nazione: row.sede_amm_nazione,
+      provincia: row.sede_amm_provincia,
+      citta: row.sede_amm_citta,
+      cap: row.sede_amm_cap,
+      indirizzo: row.sede_amm_indirizzo,
+    },
+    sedeMagazzino: {
+      nazione: row.sede_mag_nazione,
+      provincia: row.sede_mag_provincia,
+      citta: row.sede_mag_citta,
+      cap: row.sede_mag_cap,
+      indirizzo: row.sede_mag_indirizzo,
+    },
+    prodottiAcquistati: row.prodotti_acquistati ?? [],
+    createdAt: row.created_at,
   };
 }
 
