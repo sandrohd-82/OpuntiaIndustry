@@ -20,6 +20,8 @@ export type Fornitore = {
 };
 
 export type FornitoreInput = {
+  /** Anteprima mostrata in modale; associata in DB solo al salvataggio. */
+  codiceTarga?: string;
   ragioneSociale: string;
   partitaIva: string;
   sedeAmministrativa: SedeFornitore;
@@ -48,7 +50,10 @@ export function normalizeSede(sede: SedeFornitore): SedeFornitore {
 }
 
 export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
+  const codice = input.codiceTarga?.trim().toUpperCase();
   return {
+    codiceTarga:
+      codice && /^[0-9A-F]{3}$/.test(codice) ? codice : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
     partitaIva: input.partitaIva.trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),

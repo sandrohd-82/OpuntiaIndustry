@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { FaPlus, FaXmark } from "react-icons/fa6";
+import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import {
   emptySede,
@@ -15,6 +16,8 @@ type Props = {
 
 export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
   const titleId = useId();
+  const [codiceTarga, setCodiceTarga] = useState<string | null>(null);
+  const [codiceError, setCodiceError] = useState<string | null>(null);
   const [ragioneSociale, setRagioneSociale] = useState("");
   const [partitaIva, setPartitaIva] = useState("");
   const [sedeAmministrativa, setSedeAmministrativa] = useState(emptySede);
@@ -22,6 +25,7 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
   const [stessaSede, setStessaSede] = useState(false);
   const [prodotti, setProdotti] = useState<string[]>([]);
   const [nuovoProdotto, setNuovoProdotto] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -36,6 +40,24 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
     };
   }, [onClose]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await previewNextCodiceTargaAction();
+      if (cancelled) return;
+      if (result.success) {
+        setCodiceTarga(result.codiceTarga);
+        setCodiceError(null);
+      } else {
+        setCodiceTarga(null);
+        setCodiceError(result.error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function addProdotto() {
     const name = nuovoProdotto.trim();
     if (!name) return;
@@ -49,14 +71,20 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!ragioneSociale.trim() || !partitaIva.trim()) return;
-    await onCreate({
-      ragioneSociale: ragioneSociale.trim(),
-      partitaIva: partitaIva.trim(),
-      sedeAmministrativa,
-      sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
-      prodottiAcquistati: prodotti,
-    });
+    if (!ragioneSociale.trim() || !partitaIva.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onCreate({
+        codiceTarga: codiceTarga ?? undefined,
+        ragioneSociale: ragioneSociale.trim(),
+        partitaIva: partitaIva.trim(),
+        sedeAmministrativa,
+        sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+        prodottiAcquistati: prodotti,
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -78,6 +106,21 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
         <p className="mt-1 text-sm text-[var(--muted)]">
           Compila i dati anagrafici e i prodotti acquistati.
         </p>
+
+        <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Codice azienda
+          </p>
+          <p className="mt-1 font-mono text-2xl font-semibold tracking-[0.2em]">
+            {codiceTarga ?? (codiceError ? "—" : "…")}
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Anteprima sequenziale: verrà associato solo al salvataggio.
+          </p>
+          {codiceError && (
+            <p className="mt-1 text-xs text-red-600">{codiceError}</p>
+          )}
+        </div>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -199,9 +242,10 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              disabled={saving || !codiceTarga}
+              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
-              Salva fornitore
+              {saving ? "Salvataggio…" : "Salva fornitore"}
             </button>
           </div>
         </form>

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
   mapFornitoreRow,
   normalizeFornitoreInput,
@@ -13,6 +14,32 @@ import type { FornitoreInsert, FornitoreRow } from "@/types/database";
 export type FornitoriActionResult =
   | { success: true; fornitore: Fornitore }
   | { success: false; error: string };
+
+async function loadUsedCodiciTarga(): Promise<string[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("fornitori").select("codice_targa");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => String(row.codice_targa));
+}
+
+export async function previewNextCodiceTargaAction(): Promise<
+  | { success: true; codiceTarga: string }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  try {
+    const used = await loadUsedCodiciTarga();
+    return {
+      success: true,
+      codiceTarga: nextSequentialCodiceTarga(used),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Anteprima codice non disponibile.",
+    };
+  }
+}
 
 export async function listFornitoriAction(): Promise<
   | { success: true; fornitori: Fornitore[] }
@@ -51,7 +78,21 @@ export async function createFornitoreAction(
     };
   }
 
+  let codiceTarga = normalized.codiceTarga;
+  try {
+    const used = await loadUsedCodiciTarga();
+    if (!codiceTarga || used.includes(codiceTarga)) {
+      codiceTarga = nextSequentialCodiceTarga(used);
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Generazione codice targa fallita.",
+    };
+  }
+
   const insert: FornitoreInsert = {
+    codice_targa: codiceTarga,
     ragione_sociale: normalized.ragioneSociale,
     partita_iva: normalized.partitaIva,
     sede_amm_nazione: normalized.sedeAmministrativa.nazione,
@@ -75,6 +116,30 @@ export async function createFornitoreAction(
     .single();
 
   if (error || !data) {
+    // Collisione concorrente: riprova con il prossimo codice libero
+    if (error?.code === "23505") {
+      try {
+        const used = await loadUsedCodiciTarga();
+        const retryInsert: FornitoreInsert = {
+          ...insert,
+          codice_targa: nextSequentialCodiceTarga(used),
+        };
+        const retry = await supabase
+          .from("fornitori")
+          .insert(retryInsert)
+          .select("*")
+          .single();
+        if (!retry.error && retry.data) {
+          return {
+            success: true,
+            fornitore: mapFornitoreRow(retry.data as FornitoreRow),
+          };
+        }
+      } catch {
+        // fall through
+      }
+    }
+
     return {
       success: false,
       error: error?.message ?? "Salvataggio fornitore non riuscito.",
