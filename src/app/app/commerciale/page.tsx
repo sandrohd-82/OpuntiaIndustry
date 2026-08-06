@@ -1,7 +1,8 @@
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { redirect } from "next/navigation";
+import { getFirstCommercialePath } from "@/lib/areas/commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
 export default async function CommercialePage() {
-  const { meta } = await requireAreaAccess("commerciale");
-  return <AreaPlaceholder title={meta.label} description={meta.description} />;
+  await requireAreaAccess("commerciale");
+  redirect(getFirstCommercialePath());
 }

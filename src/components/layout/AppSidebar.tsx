@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
+import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
 import { areaPathFromSlug } from "@/lib/areas/config";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
@@ -178,6 +179,15 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
           next.add("dipendenti");
         }
       }
+      if (pathname.startsWith("/app/commerciale")) {
+        next.add("commerciale");
+        if (pathname.startsWith("/app/commerciale/clienti-con-storico")) {
+          next.add("clienti-con-storico");
+        }
+        if (pathname.startsWith("/app/commerciale/clienti-contattati")) {
+          next.add("clienti-contattati");
+        }
+      }
       return next;
     });
   }, [pathname]);
@@ -212,7 +222,9 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
                 ? PRODUZIONE_SECTIONS
                 : area.slug === "amministrazione"
                   ? AMMINISTRAZIONE_SECTIONS
-                  : null;
+                  : area.slug === "commerciale"
+                    ? COMMERCIALE_SECTIONS
+                    : null;
 
             if (treeSections) {
               const open = openKeys.has(area.slug);

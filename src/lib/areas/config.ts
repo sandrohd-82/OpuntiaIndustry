@@ -13,7 +13,7 @@ export const AREA_ROUTES: Record<
   commerciale: {
     path: "/app/commerciale",
     label: "Commerciale",
-    description: "Clienti, ordini e offerte",
+    description: "Clienti con storico e clienti contattati",
   },
   produzione: {
     path: "/app/produzione",
