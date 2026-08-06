@@ -176,6 +176,10 @@ export interface FornitoreUpdate {
   updated_at?: string;
 }
 
+export type ClienteRow = FornitoreRow;
+export type ClienteInsert = FornitoreInsert;
+export type ClienteUpdate = FornitoreUpdate;
+
 export interface Database {
   public: {
     Tables: {
@@ -183,6 +187,12 @@ export interface Database {
         Row: FornitoreRow;
         Insert: FornitoreInsert;
         Update: FornitoreUpdate;
+        Relationships: [];
+      };
+      clienti: {
+        Row: ClienteRow;
+        Insert: ClienteInsert;
+        Update: ClienteUpdate;
         Relationships: [];
       };
       user_second_factor: {

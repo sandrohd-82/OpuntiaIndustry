@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
@@ -34,6 +35,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title="Fornitori" subtitle={page.description} />
         <div className="p-6">
           <FornitoriBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "clienti") {
+    return (
+      <>
+        <AppHeader title="Clienti" subtitle={page.description} />
+        <div className="p-6">
+          <ClientiBoard />
         </div>
       </>
     );
