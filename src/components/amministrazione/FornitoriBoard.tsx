@@ -94,12 +94,12 @@ function FornitoreRow({
                 sede={fornitore.sedeAmministrativa}
               />
               <SedeDetail
-                title="Sede Magazzino"
+                title="Sede ritiro"
                 sede={fornitore.sedeMagazzino}
               />
               <div className="sm:col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Prodotti Acquistati
+                  Fornitore di
                 </p>
                 {fornitore.prodottiAcquistati.length === 0 ? (
                   <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
@@ -108,7 +108,7 @@ function FornitoreRow({
                     {fornitore.prodottiAcquistati.map((p) => (
                       <li
                         key={p}
-                        className="rounded-md bg-white px-2.5 py-1 text-sm ring-1 ring-[var(--border)]"
+                        className="rounded-full bg-white px-2.5 py-1 font-mono text-xs font-semibold tracking-wide ring-1 ring-[var(--border)]"
                       >
                         {p}
                       </li>
@@ -186,8 +186,8 @@ export function FornitoriBoard() {
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
-                <th className="px-4 py-3 font-medium">Sede Mag.</th>
-                <th className="px-4 py-3 font-medium">Prodotti</th>
+                <th className="px-4 py-3 font-medium">Sede ritiro</th>
+                <th className="px-4 py-3 font-medium">Fornitore di</th>
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
             </thead>

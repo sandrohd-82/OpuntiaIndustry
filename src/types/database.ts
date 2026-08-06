@@ -180,6 +180,36 @@ export type ClienteRow = FornitoreRow;
 export type ClienteInsert = FornitoreInsert;
 export type ClienteUpdate = FornitoreUpdate;
 
+export interface MateriaPrimaRow {
+  id: string;
+  codice: string;
+  nome: string;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MateriaPrimaInsert {
+  id?: string;
+  codice: string;
+  nome: string;
+  note?: string;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface MateriaPrimaUpdate {
+  id?: string;
+  codice?: string;
+  nome?: string;
+  note?: string;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -193,6 +223,12 @@ export interface Database {
         Row: ClienteRow;
         Insert: ClienteInsert;
         Update: ClienteUpdate;
+        Relationships: [];
+      };
+      materie_prime: {
+        Row: MateriaPrimaRow;
+        Insert: MateriaPrimaInsert;
+        Update: MateriaPrimaUpdate;
         Relationships: [];
       };
       user_second_factor: {

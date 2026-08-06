@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
+import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -46,6 +48,25 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title="Clienti" subtitle={page.description} />
         <div className="p-6">
           <ClientiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "materia-prima") {
+    return (
+      <>
+        <AppHeader title="Materia prima" subtitle={page.description} />
+        <div className="p-6">
+          <Suspense
+            fallback={
+              <p className="text-sm text-[var(--muted)]">
+                Caricamento materie prime…
+              </p>
+            }
+          >
+            <MateriePrimeBoard />
+          </Suspense>
         </div>
       </>
     );

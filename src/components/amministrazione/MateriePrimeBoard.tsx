@@ -1,0 +1,144 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { FaPen, FaPlus } from "react-icons/fa6";
+import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
+import { useMateriePrime } from "@/hooks/useMateriePrime";
+import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
+
+export function MateriePrimeBoard() {
+  const searchParams = useSearchParams();
+  const { materie, ready, error, addMateria, updateMateria } = useMateriePrime();
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<MateriaPrima | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("nuovo") === "1") {
+      setCreating(true);
+    }
+  }, [searchParams]);
+
+  if (!ready) {
+    return (
+      <p className="text-sm text-[var(--muted)]">Caricamento materie prime…</p>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[var(--muted)]">
+          Elenco materie prime con codice interno. I codici vengono usati come
+          tag in Schede → Fornitori (“Fornitore di”).
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setSaveError(null);
+            setCreating(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+        >
+          <FaPlus size={14} />
+          Nuova materia prima
+        </button>
+      </div>
+
+      {(error || saveError) && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {saveError || error}
+        </p>
+      )}
+
+      {materie.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
+          <p className="text-sm font-medium">Nessuna materia prima</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Aggiungi il primo codice interno per usarlo nei fornitori.
+          </p>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            Nuova materia prima
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-3 font-medium">Codice</th>
+                <th className="px-4 py-3 font-medium">Nome</th>
+                <th className="px-4 py-3 font-medium">Note</th>
+                <th className="px-4 py-3 text-right font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {materie.map((m) => (
+                <tr key={m.id} className="border-t border-[var(--border)]">
+                  <td className="px-4 py-3 font-mono text-xs font-semibold tracking-wide">
+                    {m.codice}
+                  </td>
+                  <td className="px-4 py-3 font-medium">{m.nome}</td>
+                  <td className="max-w-[280px] truncate px-4 py-3 text-[var(--muted)]">
+                    {m.note || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveError(null);
+                        setEditing(m);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+                    >
+                      <FaPen size={11} />
+                      Modifica
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {creating && (
+        <MateriaPrimaFormModal
+          mode="create"
+          onClose={() => setCreating(false)}
+          onSave={async (values) => {
+            const created = await addMateria(values);
+            if (created) {
+              setSaveError(null);
+              setCreating(false);
+            } else {
+              setSaveError("Salvataggio non riuscito. Riprova.");
+            }
+          }}
+        />
+      )}
+
+      {editing && (
+        <MateriaPrimaFormModal
+          mode="edit"
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (values) => {
+            const updated = await updateMateria(editing.id, values);
+            if (updated) {
+              setSaveError(null);
+              setEditing(null);
+            } else {
+              setSaveError("Aggiornamento non riuscito. Riprova.");
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
