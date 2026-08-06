@@ -1,21 +1,40 @@
 type Props = {
   code: string;
+  /** Prefisso fisso (es. Mp). Se omesso, usa la prima lettera uppercased (F/C). */
+  fixedPrefix?: string;
   size?: "md" | "lg";
   loading?: boolean;
 };
 
 /**
- * Targa non modificabile: lettera prefisso più bombata e colore leggermente diverso.
+ * Targa / codice con prefisso più bombato e colore leggermente diverso.
  */
-export function CodiceTargaBadge({ code, size = "md", loading = false }: Props) {
-  const normalized = code.trim().toUpperCase();
-  const prefix = normalized.charAt(0) || "F";
-  const body = normalized.slice(1) || (loading ? "…" : "–––");
+export function CodiceTargaBadge({
+  code,
+  fixedPrefix,
+  size = "md",
+  loading = false,
+}: Props) {
+  const trimmed = code.trim();
+  const prefix = fixedPrefix
+    ? fixedPrefix
+    : trimmed.charAt(0).toUpperCase() || "F";
+  const rawBody = fixedPrefix
+    ? trimmed.startsWith(fixedPrefix)
+      ? trimmed.slice(fixedPrefix.length)
+      : trimmed
+    : trimmed.slice(1).toUpperCase();
+  const body = rawBody || (loading ? "…" : "–––");
+  const ariaCode = fixedPrefix
+    ? `${prefix}${rawBody}`
+    : `${prefix}${rawBody}`.toUpperCase();
 
   const prefixColor =
     prefix === "C"
       ? "text-sky-700"
-      : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
+      : prefix === "Mp"
+        ? "text-emerald-800"
+        : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
 
   const sizeClasses =
     size === "lg"
@@ -33,7 +52,7 @@ export function CodiceTargaBadge({ code, size = "md", loading = false }: Props) 
   return (
     <span
       className={`inline-flex items-baseline font-mono tracking-[0.18em] ${sizeClasses.wrap}`}
-      aria-label={`Targa ${normalized || "in caricamento"}`}
+      aria-label={`Codice ${ariaCode || "in caricamento"}`}
     >
       <span
         className={`${sizeClasses.prefix} ${prefixColor} scale-110`}

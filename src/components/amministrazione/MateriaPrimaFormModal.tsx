@@ -4,7 +4,10 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { listFornitoriAction } from "@/app/actions/fornitori";
 import type { Fornitore } from "@/lib/amministrazione/fornitori";
 import {
-  sanitizeCodiceMateriaPrima,
+  CODICE_MATERIA_PRIMA_PREFIX,
+  composeCodiceMateriaPrima,
+  sanitizeCodiceMateriaPrimaBody,
+  stripCodiceMateriaPrimaPrefix,
   type MateriaPrima,
   type MateriaPrimaInput,
 } from "@/lib/amministrazione/materie-prime";
@@ -26,7 +29,9 @@ export function MateriaPrimaFormModal({
 }: Props) {
   const titleId = useId();
   const isEdit = mode === "edit";
-  const [codice, setCodice] = useState(initial?.codice ?? "");
+  const [codiceBody, setCodiceBody] = useState(
+    initial ? stripCodiceMateriaPrimaPrefix(initial.codice) : ""
+  );
   const [nome, setNome] = useState(initial?.nome ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [tipologia, setTipologia] = useState<Tipologia | null>(
@@ -94,12 +99,13 @@ export function MateriaPrimaFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!codice.trim() || !nome.trim() || !tipologia || saving) return;
+    const body = sanitizeCodiceMateriaPrimaBody(codiceBody);
+    if (!body || !nome.trim() || !tipologia || saving) return;
     if (isBio && !fornitoreBioId) return;
     setSaving(true);
     try {
       await onSave({
-        codice: sanitizeCodiceMateriaPrima(codice.trim()),
+        codice: composeCodiceMateriaPrima(body),
         nome: nome.trim(),
         note: note.trim(),
         isBio,
@@ -127,25 +133,33 @@ export function MateriaPrimaFormModal({
           {isEdit ? "Modifica materia prima" : "Nuova materia prima"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Codice con lettere, cifre e caratteri - _ /, usato nei tag
-          “Fornitore di”.
+          Il prefisso Mp è fisso. Dopo puoi usare lettere, cifre e - _ /.
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Codice interno</span>
-            <input
-              value={codice}
-              onChange={(e) =>
-                setCodice(sanitizeCodiceMateriaPrima(e.target.value))
-              }
-              required
-              autoFocus
-              spellCheck={false}
-              autoCapitalize="off"
-              placeholder="Es. Mp-01/a"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
-            />
+            <div className="flex overflow-hidden rounded-lg border border-[var(--border)] focus-within:border-[var(--primary)]">
+              <span
+                className="inline-flex select-none items-center bg-slate-100 px-3 font-mono text-base font-black tracking-wide text-emerald-800"
+                title="Prefisso fisso"
+              >
+                {CODICE_MATERIA_PRIMA_PREFIX}
+              </span>
+              <input
+                value={codiceBody}
+                onChange={(e) =>
+                  setCodiceBody(sanitizeCodiceMateriaPrimaBody(e.target.value))
+                }
+                required
+                autoFocus
+                spellCheck={false}
+                autoCapitalize="off"
+                placeholder="-01/a"
+                aria-label="Parte codice dopo Mp"
+                className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 font-mono outline-none"
+              />
+            </div>
           </label>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Nome</span>

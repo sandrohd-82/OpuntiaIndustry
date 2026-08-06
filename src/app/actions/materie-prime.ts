@@ -76,7 +76,7 @@ export async function createMateriaPrimaAction(
     return {
       success: false,
       error:
-        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
+        "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
 
@@ -146,7 +146,7 @@ export async function updateMateriaPrimaAction(
     return {
       success: false,
       error:
-        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
+        "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
 

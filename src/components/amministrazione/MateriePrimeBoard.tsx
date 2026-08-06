@@ -3,9 +3,13 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FaPen, FaPlus } from "react-icons/fa6";
+import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { useMateriePrime } from "@/hooks/useMateriePrime";
-import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
+import {
+  CODICE_MATERIA_PRIMA_PREFIX,
+  type MateriaPrima,
+} from "@/lib/amministrazione/materie-prime";
 
 export function MateriePrimeBoard() {
   const searchParams = useSearchParams();
@@ -81,8 +85,12 @@ export function MateriePrimeBoard() {
             <tbody>
               {materie.map((m) => (
                 <tr key={m.id} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3 font-mono text-xs font-semibold tracking-wide">
-                    {m.codice}
+                  <td className="px-4 py-3">
+                    <CodiceTargaBadge
+                      code={m.codice}
+                      fixedPrefix={CODICE_MATERIA_PRIMA_PREFIX}
+                      size="md"
+                    />
                   </td>
                   <td className="px-4 py-3 font-medium">{m.nome}</td>
                   <td className="px-4 py-3 text-xs">
