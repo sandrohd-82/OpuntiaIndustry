@@ -151,3 +151,75 @@ export async function createFornitoreAction(
     fornitore: mapFornitoreRow(data as FornitoreRow),
   };
 }
+
+export async function updateFornitoreAction(
+  id: string,
+  input: FornitoreInput
+): Promise<FornitoriActionResult> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const normalized = normalizeFornitoreInput(input);
+  if (!normalized.ragioneSociale || !normalized.partitaIva) {
+    return {
+      success: false,
+      error: "Ragione sociale e P. IVA sono obbligatorie.",
+    };
+  }
+
+  const codiceTarga = normalized.codiceTarga;
+  if (!codiceTarga || codiceTarga === "000") {
+    return {
+      success: false,
+      error: "Il codice azienda deve essere esadecimale valido (001–FFF).",
+    };
+  }
+
+  const { data: collision } = await supabase
+    .from("fornitori")
+    .select("id")
+    .eq("codice_targa", codiceTarga)
+    .neq("id", id)
+    .maybeSingle();
+
+  if (collision) {
+    return {
+      success: false,
+      error: `Il codice ${codiceTarga} è già usato da un’altra scheda.`,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("fornitori")
+    .update({
+      codice_targa: codiceTarga,
+      ragione_sociale: normalized.ragioneSociale,
+      partita_iva: normalized.partitaIva,
+      sede_amm_nazione: normalized.sedeAmministrativa.nazione,
+      sede_amm_provincia: normalized.sedeAmministrativa.provincia,
+      sede_amm_citta: normalized.sedeAmministrativa.citta,
+      sede_amm_cap: normalized.sedeAmministrativa.cap,
+      sede_amm_indirizzo: normalized.sedeAmministrativa.indirizzo,
+      sede_mag_nazione: normalized.sedeMagazzino.nazione,
+      sede_mag_provincia: normalized.sedeMagazzino.provincia,
+      sede_mag_citta: normalized.sedeMagazzino.citta,
+      sede_mag_cap: normalized.sedeMagazzino.cap,
+      sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
+      prodotti_acquistati: normalized.prodottiAcquistati,
+    })
+    .eq("id", id)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message ?? "Aggiornamento scheda non riuscito.",
+    };
+  }
+
+  return {
+    success: true,
+    fornitore: mapFornitoreRow(data as FornitoreRow),
+  };
+}

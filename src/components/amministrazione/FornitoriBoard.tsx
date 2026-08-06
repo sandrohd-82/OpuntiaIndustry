@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { FaChevronDown, FaChevronUp, FaPlus } from "react-icons/fa6";
-import { NuovoFornitoreModal } from "@/components/amministrazione/NuovoFornitoreModal";
+import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
+import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
   formatSedeBreve,
@@ -26,7 +26,13 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
   );
 }
 
-function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
+function FornitoreRow({
+  fornitore,
+  onEdit,
+}: {
+  fornitore: Fornitore;
+  onEdit: (fornitore: Fornitore) => void;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -47,20 +53,40 @@ function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
           {fornitore.prodottiAcquistati.length}
         </td>
         <td className="px-4 py-3 text-right">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
-            aria-expanded={open}
-          >
-            {open ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
-            Dettaglio
-          </button>
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onEdit(fornitore)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+            >
+              <FaPen size={11} />
+              Modifica
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--muted)] hover:bg-slate-50"
+              aria-expanded={open}
+            >
+              {open ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+              Dettaglio
+            </button>
+          </div>
         </td>
       </tr>
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={7} className="px-4 py-4">
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => onEdit(fornitore)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                <FaPen size={11} />
+                Modifica scheda
+              </button>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <SedeDetail
                 title="Sede Amministrativa"
@@ -98,8 +124,10 @@ function FornitoreRow({ fornitore }: { fornitore: Fornitore }) {
 }
 
 export function FornitoriBoard() {
-  const { fornitori, ready, error, addFornitore } = useFornitori();
+  const { fornitori, ready, error, addFornitore, updateFornitore } =
+    useFornitori();
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<Fornitore | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   if (!ready) {
@@ -112,7 +140,8 @@ export function FornitoriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco fornitori registrati. Puoi inserirne altri in qualsiasi momento.
+          Elenco fornitori registrati. Ogni scheda è modificabile in ogni sua
+          parte dopo il salvataggio.
         </p>
         <button
           type="button"
@@ -163,7 +192,14 @@ export function FornitoriBoard() {
             </thead>
             <tbody>
               {fornitori.map((fornitore) => (
-                <FornitoreRow key={fornitore.id} fornitore={fornitore} />
+                <FornitoreRow
+                  key={fornitore.id}
+                  fornitore={fornitore}
+                  onEdit={(item) => {
+                    setSaveError(null);
+                    setEditing(item);
+                  }}
+                />
               ))}
             </tbody>
           </table>
@@ -171,15 +207,33 @@ export function FornitoriBoard() {
       )}
 
       {creating && (
-        <NuovoFornitoreModal
+        <FornitoreFormModal
+          mode="create"
           onClose={() => setCreating(false)}
-          onCreate={async (values) => {
+          onSave={async (values) => {
             const created = await addFornitore(values);
             if (created) {
               setSaveError(null);
               setCreating(false);
             } else {
               setSaveError("Salvataggio non riuscito. Riprova.");
+            }
+          }}
+        />
+      )}
+
+      {editing && (
+        <FornitoreFormModal
+          mode="edit"
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (values) => {
+            const updated = await updateFornitore(editing.id, values);
+            if (updated) {
+              setSaveError(null);
+              setEditing(null);
+            } else {
+              setSaveError("Aggiornamento non riuscito. Controlla i dati e riprova.");
             }
           }}
         />
