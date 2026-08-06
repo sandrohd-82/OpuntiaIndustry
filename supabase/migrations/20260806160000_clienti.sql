@@ -1,6 +1,7 @@
 -- Schede clienti: stessa struttura dei fornitori, targa C001–CFFF
+-- Idempotente: sicuro se la tabella è già stata creata.
 
-create table public.clienti (
+create table if not exists public.clienti (
   id uuid primary key default gen_random_uuid(),
   codice_targa text not null unique,
   ragione_sociale text not null,
@@ -18,21 +19,45 @@ create table public.clienti (
   prodotti_acquistati text[] not null default '{}',
   created_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint clienti_codice_targa_hex
-    check (codice_targa ~ '^C[0-9A-F]{3}$' and codice_targa <> 'C000'),
-  constraint clienti_ragione_sociale_len check (char_length(trim(ragione_sociale)) >= 1),
-  constraint clienti_partita_iva_len check (char_length(trim(partita_iva)) >= 1)
+  updated_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'clienti_codice_targa_hex'
+  ) then
+    alter table public.clienti
+      add constraint clienti_codice_targa_hex
+      check (codice_targa ~ '^C[0-9A-F]{3}$' and codice_targa <> 'C000');
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'clienti_ragione_sociale_len'
+  ) then
+    alter table public.clienti
+      add constraint clienti_ragione_sociale_len
+      check (char_length(trim(ragione_sociale)) >= 1);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'clienti_partita_iva_len'
+  ) then
+    alter table public.clienti
+      add constraint clienti_partita_iva_len
+      check (char_length(trim(partita_iva)) >= 1);
+  end if;
+end $$;
 
 comment on table public.clienti is 'Anagrafica clienti (Amministrazione → Schede)';
 comment on column public.clienti.codice_targa is
   'Targa cliente: C + 3 esadecimali (C001–CFFF), assegnata al salvataggio';
 
-create index clienti_ragione_sociale_idx on public.clienti (ragione_sociale);
-create index clienti_partita_iva_idx on public.clienti (partita_iva);
-create index clienti_created_at_idx on public.clienti (created_at desc);
+create index if not exists clienti_ragione_sociale_idx on public.clienti (ragione_sociale);
+create index if not exists clienti_partita_iva_idx on public.clienti (partita_iva);
+create index if not exists clienti_created_at_idx on public.clienti (created_at desc);
 
+drop trigger if exists clienti_updated_at on public.clienti;
 create trigger clienti_updated_at
   before update on public.clienti
   for each row execute function public.set_updated_at();
@@ -86,22 +111,26 @@ begin
 end;
 $$;
 
+drop trigger if exists clienti_codice_targa_bi on public.clienti;
 create trigger clienti_codice_targa_bi
   before insert on public.clienti
   for each row execute function public.clienti_set_codice_targa();
 
 alter table public.clienti enable row level security;
 
+drop policy if exists "clienti_select_amministrazione" on public.clienti;
 create policy "clienti_select_amministrazione"
   on public.clienti for select
   to authenticated
   using (public.has_area_access('amministrazione') or public.is_superadmin());
 
+drop policy if exists "clienti_insert_amministrazione" on public.clienti;
 create policy "clienti_insert_amministrazione"
   on public.clienti for insert
   to authenticated
   with check (public.has_area_access('amministrazione') or public.is_superadmin());
 
+drop policy if exists "clienti_update_amministrazione" on public.clienti;
 create policy "clienti_update_amministrazione"
   on public.clienti for update
   to authenticated
