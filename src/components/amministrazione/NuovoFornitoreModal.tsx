@@ -128,7 +128,7 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 p-4 sm:items-center"
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
       role="presentation"
       onClick={onClose}
     >
@@ -136,7 +136,7 @@ export function NuovoFornitoreModal({ onClose, onCreate }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="my-4 w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
