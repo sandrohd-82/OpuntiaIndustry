@@ -115,11 +115,13 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   function selectPaese(paese: PaeseSuggestion) {
     const caps = paese.caps?.length ? paese.caps : paese.cap ? [paese.cap] : [];
     setCapOptions(caps);
+    // Per le frazioni salviamo il nome località (es. Pistrino);
+    // comune madre resta nel label del suggerimento e in provincia/CAP.
     onChange({
       ...value,
       citta: paese.citta,
-      provincia: paese.provincia,
-      nazione: paese.nazione,
+      provincia: paese.provincia || value.provincia,
+      nazione: paese.nazione || value.nazione || "Italia",
       cap: paese.cap || value.cap,
     });
     setCittaQuery(paese.citta);
@@ -175,8 +177,8 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">{title}</legend>
       <p className="text-xs text-[var(--muted)]">
-        Parti dal paese: i suggerimenti compilano gli altri campi, ma tutto resta
-        modificabile.
+        Parti dal paese o dalla frazione: i suggerimenti compilano gli altri
+        campi, ma tutto resta modificabile.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -193,7 +195,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               if (cittaQuery.trim().length >= 2) setShowPaesi(true);
             }}
             required
-            placeholder="Inizia a scrivere il paese…"
+            placeholder="Paese o frazione, es. Pistrino…"
             aria-autocomplete="list"
             aria-controls={cittaListId}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"

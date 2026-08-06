@@ -1,3 +1,5 @@
+export type PaeseKind = "comune" | "frazione";
+
 export type PaeseSuggestion = {
   id: string;
   cap: string;
@@ -9,6 +11,9 @@ export type PaeseSuggestion = {
   siglaProvincia: string;
   nazione: string;
   label: string;
+  kind?: PaeseKind;
+  /** Comune di appartenenza quando è una frazione. */
+  comune?: string;
 };
 
 export type StreetSuggestion = {

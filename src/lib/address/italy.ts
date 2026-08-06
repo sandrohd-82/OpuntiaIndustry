@@ -58,6 +58,8 @@ export function searchPaesiByName(query: string, limit = 12): PaeseSuggestion[] 
       siglaProvincia: comune.siglaProvincia,
       nazione: "Italia",
       label: `${comune.nome} (${comune.siglaProvincia})${capHint}`,
+      kind: "comune",
+      comune: comune.nome,
     });
   }
 
