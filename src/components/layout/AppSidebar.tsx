@@ -110,7 +110,8 @@ function NavTree({
       {sections.map((item) => {
         if (isNavBranch(item)) {
           const open = openKeys.has(item.slug);
-          const active = pathMatches(pathname, item.path);
+          // Come le altre aree: non evidenziare il ramo padre quando è attiva una sotto-voce
+          const active = pathname === item.path;
           return (
             <li key={item.slug}>
               <BranchButton

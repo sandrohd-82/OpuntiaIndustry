@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveCommercialePage } from "@/lib/areas/commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
@@ -15,6 +15,9 @@ export default async function CommercialeSubPage({ params }: Props) {
   if (!page) notFound();
 
   return (
-    <AreaPlaceholder title={page.label} description={page.description} />
+    <>
+      <AppHeader title={page.label} subtitle={page.description} />
+      <div className="p-6" />
+    </>
   );
 }
