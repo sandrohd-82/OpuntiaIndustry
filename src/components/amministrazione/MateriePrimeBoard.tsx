@@ -73,7 +73,7 @@ export function MateriePrimeBoard() {
               <tr>
                 <th className="px-4 py-3 font-medium">Codice</th>
                 <th className="px-4 py-3 font-medium">Nome</th>
-                <th className="px-4 py-3 font-medium">Bio</th>
+                <th className="px-4 py-3 font-medium">Tipologia</th>
                 <th className="px-4 py-3 font-medium">Note</th>
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
@@ -88,11 +88,13 @@ export function MateriePrimeBoard() {
                   <td className="px-4 py-3 text-xs">
                     {m.isBio ? (
                       <span className="font-medium text-emerald-700">
-                        Sì
+                        Prodotto bio
                         {m.bioCodice ? ` · ${m.bioCodice}` : ""}
                       </span>
                     ) : (
-                      <span className="text-[var(--muted)]">No</span>
+                      <span className="text-[var(--muted)]">
+                        Prodotto convenzionale
+                      </span>
                     )}
                   </td>
                   <td className="max-w-[280px] truncate px-4 py-3 text-[var(--muted)]">
