@@ -220,13 +220,19 @@ export function FornitoreFormModal({
             />
           )}
 
-          <FornitoreDiTags value={prodotti} onChange={setProdotti} />
+          <FornitoreDiTags
+            value={prodotti}
+            onChange={setProdotti}
+            bioCertificato={bioCertificato}
+            bioCodice={bioCodice}
+          />
 
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-medium">Bio</legend>
             <p className="text-xs text-[var(--muted)]">
-              Certificato e codice bio del fornitore: le materie prime Bio
-              associate erediteranno questi valori.
+              Carica qui certificato e codice bio. Quando selezioni una materia
+              prima biologica in “Fornitore di”, vengono applicati
+              automaticamente.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">

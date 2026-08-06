@@ -11,9 +11,17 @@ const MATERIA_PRIMA_PATH = "/app/amministrazione/schede/materia-prima?nuovo=1";
 type Props = {
   value: string[];
   onChange: (codes: string[]) => void;
+  /** Certificato bio della scheda fornitore (usato se si selezionano materie bio). */
+  bioCertificato?: string;
+  bioCodice?: string;
 };
 
-export function FornitoreDiTags({ value, onChange }: Props) {
+export function FornitoreDiTags({
+  value,
+  onChange,
+  bioCertificato = "",
+  bioCodice = "",
+}: Props) {
   const [materie, setMaterie] = useState<MateriaPrima[]>([]);
   const [ready, setReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -36,11 +44,18 @@ export function FornitoreDiTags({ value, onChange }: Props) {
 
   const selected = useMemo(() => {
     const byCode = new Map(materie.map((m) => [m.codice, m]));
-    return value.map((code) => ({
-      code,
-      nome: byCode.get(code)?.nome,
-    }));
+    return value.map((code) => {
+      const m = byCode.get(code);
+      return {
+        code,
+        nome: m?.nome,
+        isBio: Boolean(m?.isBio),
+      };
+    });
   }, [value, materie]);
+
+  const hasBioSelected = selected.some((item) => item.isBio);
+  const certLoaded = Boolean(bioCertificato.trim() || bioCodice.trim());
 
   const available = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -68,8 +83,8 @@ export function FornitoreDiTags({ value, onChange }: Props) {
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">Fornitore di</legend>
       <p className="text-xs text-[var(--muted)]">
-        Seleziona i codici interni delle materie prime. Non inserire nomi per
-        esteso.
+        Seleziona i codici interni delle materie prime. Per le materie bio viene
+        usato il certificato caricato in questa scheda.
       </p>
 
       <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-2 py-2">
@@ -83,6 +98,11 @@ export function FornitoreDiTags({ value, onChange }: Props) {
               title={item.nome || item.code}
             >
               {item.code}
+              {item.isBio && (
+                <span className="rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Bio
+                </span>
+              )}
               <button
                 type="button"
                 aria-label={`Rimuovi ${item.code}`}
@@ -95,6 +115,33 @@ export function FornitoreDiTags({ value, onChange }: Props) {
           ))
         )}
       </div>
+
+      {hasBioSelected && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2.5 text-xs">
+          {certLoaded ? (
+            <div className="space-y-1">
+              <p className="font-medium text-emerald-900">
+                Certificato bio applicato alle materie selezionate
+              </p>
+              {bioCertificato.trim() && (
+                <p className="text-emerald-900/90">
+                  Certificato: {bioCertificato.trim()}
+                </p>
+              )}
+              {bioCodice.trim() && (
+                <p className="text-emerald-900/90">
+                  Codice bio: {bioCodice.trim()}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-amber-800">
+              Hai selezionato materie bio: carica certificato e codice bio in
+              questa scheda per associarli.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -165,8 +212,13 @@ export function FornitoreDiTags({ value, onChange }: Props) {
                         onClick={() => addCode(m.codice)}
                         className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                       >
-                        <span className="font-mono text-xs font-semibold tracking-wide">
+                        <span className="flex items-center gap-2 font-mono text-xs font-semibold tracking-wide">
                           {m.codice}
+                          {m.isBio && (
+                            <span className="rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
+                              Bio
+                            </span>
+                          )}
                         </span>
                         <span className="truncate text-[var(--muted)]">
                           {m.nome}

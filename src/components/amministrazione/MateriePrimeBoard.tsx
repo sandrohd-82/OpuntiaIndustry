@@ -97,7 +97,6 @@ export function MateriePrimeBoard() {
                     {m.isBio ? (
                       <span className="font-medium text-emerald-700">
                         Prodotto bio
-                        {m.bioCodice ? ` · ${m.bioCodice}` : ""}
                       </span>
                     ) : (
                       <span className="text-[var(--muted)]">

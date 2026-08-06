@@ -1,8 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
-import { listFornitoriAction } from "@/app/actions/fornitori";
-import type { Fornitore } from "@/lib/amministrazione/fornitori";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import {
   CODICE_MATERIA_PRIMA_PREFIX,
   composeCodiceMateriaPrima,
@@ -37,15 +35,7 @@ export function MateriaPrimaFormModal({
   const [tipologia, setTipologia] = useState<Tipologia | null>(
     initial ? (initial.isBio ? "bio" : "convenzionale") : null
   );
-  const [fornitoreBioId, setFornitoreBioId] = useState(
-    initial?.fornitoreBioId ?? ""
-  );
-  const [fornitori, setFornitori] = useState<Fornitore[]>([]);
-  const [fornitoriLoading, setFornitoriLoading] = useState(false);
-  const [fornitoriError, setFornitoriError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const isBio = tipologia === "bio";
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -60,56 +50,17 @@ export function MateriaPrimaFormModal({
     };
   }, [onClose]);
 
-  useEffect(() => {
-    if (!isBio) return;
-    let cancelled = false;
-    void (async () => {
-      setFornitoriLoading(true);
-      const result = await listFornitoriAction();
-      if (cancelled) return;
-      if (result.success) {
-        setFornitori(result.fornitori);
-        setFornitoriError(null);
-      } else {
-        setFornitori([]);
-        setFornitoriError(result.error);
-      }
-      setFornitoriLoading(false);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isBio]);
-
-  const selectedFornitore = useMemo(
-    () => fornitori.find((f) => f.id === fornitoreBioId) ?? null,
-    [fornitori, fornitoreBioId]
-  );
-
-  const bioCertificato =
-    selectedFornitore?.bioCertificato ??
-    (isEdit && initial?.fornitoreBioId === fornitoreBioId
-      ? initial.bioCertificato
-      : "");
-  const bioCodice =
-    selectedFornitore?.bioCodice ??
-    (isEdit && initial?.fornitoreBioId === fornitoreBioId
-      ? initial.bioCodice
-      : "");
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     const body = sanitizeCodiceMateriaPrimaBody(codiceBody);
     if (!body || !nome.trim() || !tipologia || saving) return;
-    if (isBio && !fornitoreBioId) return;
     setSaving(true);
     try {
       await onSave({
         codice: composeCodiceMateriaPrima(body),
         nome: nome.trim(),
         note: note.trim(),
-        isBio,
-        fornitoreBioId: isBio ? fornitoreBioId : null,
+        isBio: tipologia === "bio",
       });
     } finally {
       setSaving(false);
@@ -133,7 +84,8 @@ export function MateriaPrimaFormModal({
           {isEdit ? "Modifica materia prima" : "Nuova materia prima"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Il prefisso Mp è fisso. Dopo puoi usare lettere, cifre e - _ /.
+          Il prefisso Mp è fisso. Certificato e codice bio si gestiscono nella
+          scheda fornitore.
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
@@ -186,9 +138,7 @@ export function MateriaPrimaFormModal({
               <input
                 type="checkbox"
                 checked={tipologia === "bio"}
-                onChange={() => {
-                  setTipologia("bio");
-                }}
+                onChange={() => setTipologia("bio")}
                 className="rounded border-[var(--border)]"
               />
               Prodotto bio
@@ -197,66 +147,12 @@ export function MateriaPrimaFormModal({
               <input
                 type="checkbox"
                 checked={tipologia === "convenzionale"}
-                onChange={() => {
-                  setTipologia("convenzionale");
-                  setFornitoreBioId("");
-                }}
+                onChange={() => setTipologia("convenzionale")}
                 className="rounded border-[var(--border)]"
               />
               Prodotto convenzionale
             </label>
           </div>
-
-          {isBio && (
-            <div className="space-y-3">
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">
-                  Fornitore di riferimento
-                </span>
-                <select
-                  value={fornitoreBioId}
-                  onChange={(e) => setFornitoreBioId(e.target.value)}
-                  required
-                  disabled={fornitoriLoading}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:opacity-60"
-                >
-                  <option value="">
-                    {fornitoriLoading
-                      ? "Caricamento fornitori…"
-                      : "Seleziona fornitore"}
-                  </option>
-                  {fornitori.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.codiceTarga} — {f.ragioneSociale}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {fornitoriError && (
-                <p className="text-xs text-red-600">{fornitoriError}</p>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">Certificato</span>
-                  <input
-                    value={bioCertificato}
-                    readOnly
-                    placeholder="Dal fornitore selezionato"
-                    className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-[var(--muted)] outline-none"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">Codice bio</span>
-                  <input
-                    value={bioCodice}
-                    readOnly
-                    placeholder="Dal fornitore selezionato"
-                    className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-[var(--muted)] outline-none"
-                  />
-                </label>
-              </div>
-            </div>
-          )}
 
           <div className="flex gap-2 pt-1">
             <button
@@ -268,9 +164,7 @@ export function MateriaPrimaFormModal({
             </button>
             <button
               type="submit"
-              disabled={
-                saving || !tipologia || (isBio && !fornitoreBioId)
-              }
+              disabled={saving || !tipologia}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving ? "Salvataggio…" : isEdit ? "Salva modifiche" : "Salva"}

@@ -14,9 +14,6 @@ export type MateriaPrima = {
   nome: string;
   note: string;
   isBio: boolean;
-  fornitoreBioId: string | null;
-  bioCertificato: string;
-  bioCodice: string;
   createdAt: string;
 };
 
@@ -25,14 +22,10 @@ export type MateriaPrimaInput = {
   nome: string;
   note?: string;
   isBio?: boolean;
-  fornitoreBioId?: string | null;
-  bioCertificato?: string;
-  bioCodice?: string;
 };
 
 export function sanitizeCodiceMateriaPrimaBody(value: string): string {
   let body = value.replace(BODY_RE, "");
-  // Evita che l'utente ridigiti il prefisso nel corpo
   while (body.startsWith(CODICE_MATERIA_PRIMA_PREFIX)) {
     body = body.slice(CODICE_MATERIA_PRIMA_PREFIX.length);
   }
@@ -43,9 +36,7 @@ export function sanitizeCodiceMateriaPrimaBody(value: string): string {
 }
 
 export function composeCodiceMateriaPrima(body: string): string {
-  return (
-    CODICE_MATERIA_PRIMA_PREFIX + sanitizeCodiceMateriaPrimaBody(body)
-  );
+  return CODICE_MATERIA_PRIMA_PREFIX + sanitizeCodiceMateriaPrimaBody(body);
 }
 
 export function stripCodiceMateriaPrimaPrefix(codice: string): string {
@@ -58,7 +49,6 @@ export function stripCodiceMateriaPrimaPrefix(codice: string): string {
   return codice;
 }
 
-/** Normalizza un codice completo forzando il prefisso Mp. */
 export function sanitizeCodiceMateriaPrima(value: string): string {
   return composeCodiceMateriaPrima(stripCodiceMateriaPrimaPrefix(value.trim()));
 }
@@ -70,15 +60,11 @@ export function isValidCodiceMateriaPrima(codice: string): boolean {
 export function normalizeMateriaPrimaInput(
   input: MateriaPrimaInput
 ): MateriaPrimaInput {
-  const isBio = Boolean(input.isBio);
   return {
     codice: sanitizeCodiceMateriaPrima(input.codice),
     nome: input.nome.trim(),
     note: input.note?.trim() ?? "",
-    isBio,
-    fornitoreBioId: isBio ? input.fornitoreBioId ?? null : null,
-    bioCertificato: isBio ? (input.bioCertificato?.trim() ?? "") : "",
-    bioCodice: isBio ? (input.bioCodice?.trim() ?? "") : "",
+    isBio: Boolean(input.isBio),
   };
 }
 
@@ -89,9 +75,6 @@ export function mapMateriaPrimaRow(row: MateriaPrimaRow): MateriaPrima {
     nome: row.nome,
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
-    fornitoreBioId: row.fornitore_bio_id,
-    bioCertificato: row.bio_certificato ?? "",
-    bioCodice: row.bio_codice ?? "",
     createdAt: row.created_at,
   };
 }
