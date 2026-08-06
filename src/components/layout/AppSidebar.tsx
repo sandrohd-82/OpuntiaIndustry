@@ -176,6 +176,9 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
         if (pathname.startsWith("/app/amministrazione/fatture")) {
           next.add("fatture");
         }
+        if (pathname.startsWith("/app/amministrazione/schede")) {
+          next.add("schede");
+        }
         if (pathname.startsWith("/app/amministrazione/dipendenti")) {
           next.add("dipendenti");
         }

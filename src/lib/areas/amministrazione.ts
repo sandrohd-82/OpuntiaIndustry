@@ -47,6 +47,38 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "schede",
+    label: "Schede",
+    description: "Anagrafiche e schede di riferimento",
+    path: "/app/amministrazione/schede",
+    children: [
+      {
+        slug: "fornitori",
+        label: "Fornitori",
+        description: "Schede fornitori",
+        path: "/app/amministrazione/schede/fornitori",
+      },
+      {
+        slug: "materia-prima",
+        label: "Materia prima",
+        description: "Schede materia prima",
+        path: "/app/amministrazione/schede/materia-prima",
+      },
+      {
+        slug: "prodotti-propri",
+        label: "Prodotti propri",
+        description: "Schede prodotti propri",
+        path: "/app/amministrazione/schede/prodotti-propri",
+      },
+      {
+        slug: "clienti",
+        label: "Clienti",
+        description: "Schede clienti",
+        path: "/app/amministrazione/schede/clienti",
+      },
+    ],
+  },
+  {
     slug: "dipendenti",
     label: "Dipendenti",
     description: "Personale, turni, ore e buste paga",

@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
+import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
@@ -13,6 +15,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   const { section, sub } = await params;
   const page = resolveAmministrazionePage([section, sub]);
   if (!page) notFound();
+
+  if (section === "ordini" && sub === "ricevuti") {
+    return (
+      <>
+        <AppHeader title="Ordini ricevuti" subtitle={page.description} />
+        <div className="p-6">
+          <OrdiniRicevutiBoard />
+        </div>
+      </>
+    );
+  }
 
   return (
     <AreaPlaceholder title={page.label} description={page.description} />
