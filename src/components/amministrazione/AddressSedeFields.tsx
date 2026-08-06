@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import {
+  joinStreetAndCivico,
+  splitStreetAndCivico,
+} from "@/lib/address/street";
 import type {
   PaeseSuggestion,
   StreetSuggestion,
@@ -138,8 +142,8 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   }
 
   useEffect(() => {
-    const query = value.indirizzo.trim();
-    if (value.cap.length !== 5 || query.length < 3 || !value.citta) {
+    const { street } = splitStreetAndCivico(value.indirizzo);
+    if (value.cap.length !== 5 || street.length < 3 || !value.citta) {
       setStreets([]);
       setShowStreets(false);
       setStreetLoading(false);
@@ -155,7 +159,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       try {
         const params = new URLSearchParams({
           cap: value.cap,
-          q: query,
+          q: value.indirizzo,
           citta: value.citta,
         });
         const res = await fetch(`/api/address/streets?${params}`, {
@@ -313,7 +317,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
         </label>
 
         <label className="relative block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Indirizzo (via)</span>
+          <span className="mb-1 block font-medium">Indirizzo (via e civico)</span>
           <input
             value={value.indirizzo}
             onChange={(e) => {
@@ -327,9 +331,12 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
             disabled={!locationFilled}
             placeholder={
               locationFilled
-                ? "Inizia a scrivere la via…"
+                ? "Es. via Roma 12 — maiuscole/minuscole indifferenti"
                 : "Prima seleziona CAP e paese"
             }
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             aria-autocomplete="list"
             aria-controls={viaListId}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50 disabled:text-[var(--muted)]"
@@ -339,18 +346,27 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           )}
           {showStreets &&
             locationFilled &&
-            value.indirizzo.trim().length >= 3 && (
+            splitStreetAndCivico(value.indirizzo).street.trim().length >= 3 && (
               <div id={viaListId}>
                 <SuggestionList
                   items={streets}
                   onSelect={(street) => {
-                    setField("indirizzo", street.indirizzo);
+                    const { civico } = splitStreetAndCivico(value.indirizzo);
+                    const { street: selectedStreet, civico: selectedCivico } =
+                      splitStreetAndCivico(street.indirizzo);
+                    setField(
+                      "indirizzo",
+                      joinStreetAndCivico(
+                        selectedStreet,
+                        selectedCivico || civico
+                      )
+                    );
                     setShowStreets(false);
                   }}
                   emptyLabel={
                     streetLoading
                       ? undefined
-                      : "Nessuna via trovata per questo CAP. Puoi digitare l’indirizzo manualmente."
+                      : "Nessuna via trovata. Puoi scrivere via e numero civico manualmente."
                   }
                 />
               </div>
