@@ -20,13 +20,14 @@ export function parseCodiceTarga(code: string): number | null {
   return Number.parseInt(normalized, 16);
 }
 
-/** Primo codice esadecimale libero in ordine sequenziale 000 → FFF. */
+/** Primo codice esadecimale libero in ordine sequenziale 001 → FFF. */
 export function nextSequentialCodiceTarga(used: Iterable<string>): string {
   const taken = new Set(
     [...used].map((c) => c.trim().toUpperCase()).filter(Boolean)
   );
 
-  for (let i = 0; i < MAX_CODES; i++) {
+  // Parte da 001 (salta 000)
+  for (let i = 1; i < MAX_CODES; i++) {
     const candidate = formatCodiceTarga(i);
     if (!taken.has(candidate)) return candidate;
   }
