@@ -1,21 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { areaPathFromSlug } from "@/lib/areas/config";
-import {
-  isNavBranch,
-  PRODUZIONE_SECTIONS,
-  type ProduzioneNavItem,
-} from "@/lib/areas/produzione";
-import type { UserArea } from "@/types/database";
+import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
+import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
+import type { AreaSlug, UserArea } from "@/types/database";
 
 type Props = {
   areas: UserArea[];
   userName: string;
   roleName: string;
 };
+
+/** Ordine menu: Amministrazione subito sotto Dashboard */
+const SIDEBAR_AREA_ORDER: AreaSlug[] = [
+  "dashboard",
+  "amministrazione",
+  "commerciale",
+  "produzione",
+  "magazzino",
+  "acquisti",
+  "hr",
+  "impostazioni",
+];
+
+function sortAreasForSidebar(areas: UserArea[]) {
+  const rank = new Map(SIDEBAR_AREA_ORDER.map((slug, i) => [slug, i]));
+  return [...areas].sort((a, b) => {
+    const ra = rank.get(a.slug) ?? 1000 + a.sort_order;
+    const rb = rank.get(b.slug) ?? 1000 + b.sort_order;
+    return ra - rb;
+  });
+}
 
 function Chevron({ open }: { open: boolean }) {
   return (
@@ -74,18 +93,20 @@ function BranchButton({
   );
 }
 
-function ProduzioneTree({
+function NavTree({
+  sections,
   pathname,
   openKeys,
   toggle,
 }: {
+  sections: readonly NavItem[];
   pathname: string;
   openKeys: Set<string>;
   toggle: (key: string) => void;
 }) {
   return (
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
-      {PRODUZIONE_SECTIONS.map((item: ProduzioneNavItem) => {
+      {sections.map((item) => {
         if (isNavBranch(item)) {
           const open = openKeys.has(item.slug);
           const active = pathMatches(pathname, item.path);
@@ -133,9 +154,9 @@ function ProduzioneTree({
 
 export function AppSidebar({ areas, userName, roleName }: Props) {
   const pathname = usePathname();
+  const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
 
-  // Apre solo i rami del percorso corrente (il resto resta compresso)
   useEffect(() => {
     setOpenKeys((prev) => {
       const next = new Set(prev);
@@ -143,6 +164,18 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
         next.add("produzione");
         if (pathname.startsWith("/app/produzione/essiccatori")) {
           next.add("essiccatori");
+        }
+      }
+      if (pathname.startsWith("/app/amministrazione")) {
+        next.add("amministrazione");
+        if (pathname.startsWith("/app/amministrazione/ordini")) {
+          next.add("ordini");
+        }
+        if (pathname.startsWith("/app/amministrazione/fatture")) {
+          next.add("fatture");
+        }
+        if (pathname.startsWith("/app/amministrazione/dipendenti")) {
+          next.add("dipendenti");
         }
       }
       return next;
@@ -171,23 +204,29 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
       </div>
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-0.5">
-          {areas.map((area) => {
+          {sortedAreas.map((area) => {
             const href = areaPathFromSlug(area.slug);
-            const hasChildren = area.slug === "produzione";
             const active = pathMatches(pathname, href);
+            const treeSections =
+              area.slug === "produzione"
+                ? PRODUZIONE_SECTIONS
+                : area.slug === "amministrazione"
+                  ? AMMINISTRAZIONE_SECTIONS
+                  : null;
 
-            if (hasChildren) {
-              const open = openKeys.has("produzione");
+            if (treeSections) {
+              const open = openKeys.has(area.slug);
               return (
                 <li key={area.area_id}>
                   <BranchButton
                     label={area.name}
                     open={open}
                     active={active}
-                    onToggle={() => toggle("produzione")}
+                    onToggle={() => toggle(area.slug)}
                   />
                   {open && (
-                    <ProduzioneTree
+                    <NavTree
+                      sections={treeSections}
                       pathname={pathname}
                       openKeys={openKeys}
                       toggle={toggle}

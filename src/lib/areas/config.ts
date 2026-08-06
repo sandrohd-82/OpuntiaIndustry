@@ -38,7 +38,7 @@ export const AREA_ROUTES: Record<
   amministrazione: {
     path: "/app/amministrazione",
     label: "Amministrazione",
-    description: "Fatturazione e contabilità",
+    description: "Ordini, fatture e dipendenti",
   },
   impostazioni: {
     path: "/app/impostazioni",

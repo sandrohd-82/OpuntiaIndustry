@@ -1,26 +1,15 @@
-export type NavLeaf = {
-  slug: string;
-  label: string;
-  description: string;
-  path: string;
-};
+import {
+  firstNavLeafPath,
+  isNavBranch,
+  resolveNavPage,
+  type NavItem,
+} from "@/lib/areas/nav-tree";
 
-export type NavBranch = {
-  slug: string;
-  label: string;
-  description: string;
-  path: string;
-  children: readonly NavLeaf[];
-};
-
-export type ProduzioneNavItem = NavLeaf | NavBranch;
-
-export function isNavBranch(item: ProduzioneNavItem): item is NavBranch {
-  return "children" in item && Array.isArray(item.children);
-}
+export type { NavBranch, NavLeaf, NavItem as ProduzioneNavItem } from "@/lib/areas/nav-tree";
+export { isNavBranch };
 
 /** Sottosezioni del modulo Produzione (menu laterale) */
-export const PRODUZIONE_SECTIONS: readonly ProduzioneNavItem[] = [
+export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "fogli-lavorazione",
     label: "Fogli Lavorazione",
@@ -86,30 +75,10 @@ export const PRODUZIONE_SECTIONS: readonly ProduzioneNavItem[] = [
 ] as const;
 
 export function getFirstProduzionePath(): string {
-  const first = PRODUZIONE_SECTIONS[0];
-  if (isNavBranch(first)) {
-    return first.children[0]?.path ?? first.path;
-  }
-  return first.path;
+  return firstNavLeafPath(PRODUZIONE_SECTIONS);
 }
 
 /** Risolve una pagina foglia da path relativo sotto /app/produzione */
-export function resolveProduzionePage(
-  segments: string[]
-): { label: string; description: string } | null {
-  if (segments.length === 0) return null;
-
-  const [first, second] = segments;
-  const section = PRODUZIONE_SECTIONS.find((item) => item.slug === first);
-  if (!section) return null;
-
-  if (isNavBranch(section)) {
-    if (!second) return null;
-    const child = section.children.find((item) => item.slug === second);
-    if (!child || segments.length > 2) return null;
-    return { label: child.label, description: child.description };
-  }
-
-  if (segments.length > 1) return null;
-  return { label: section.label, description: section.description };
+export function resolveProduzionePage(segments: string[]) {
+  return resolveNavPage(PRODUZIONE_SECTIONS, segments);
 }
