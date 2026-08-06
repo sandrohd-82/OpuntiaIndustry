@@ -1,13 +1,15 @@
 -- Targhe fornitori: prefisso F + 3 hex (F001 → FFFF)
 
--- Migra eventuali codici legacy a 3 caratteri → Fxxx
+-- 1) Rimuovi vincolo legacy a 3 caratteri
+alter table public.fornitori
+  drop constraint if exists fornitori_codice_targa_hex;
+
+-- 2) Migra eventuali codici legacy a 3 caratteri → Fxxx
 update public.fornitori
 set codice_targa = 'F' || upper(codice_targa)
 where codice_targa ~ '^[0-9A-Fa-f]{3}$';
 
-alter table public.fornitori
-  drop constraint if exists fornitori_codice_targa_hex;
-
+-- 3) Nuovo vincolo F + 3 hex (esclude F000)
 alter table public.fornitori
   add constraint fornitori_codice_targa_hex
   check (codice_targa ~ '^F[0-9A-F]{3}$' and codice_targa <> 'F000');
