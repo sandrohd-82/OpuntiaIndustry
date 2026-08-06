@@ -4,6 +4,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { FaPlus, FaXmark } from "react-icons/fa6";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import {
   emptySede,
   type Fornitore,
@@ -146,37 +147,25 @@ export function FornitoreFormModal({
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {isEdit
-            ? "Tutti i campi della scheda sono modificabili, incluso il codice."
+            ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
             : "Compila i dati anagrafici e i prodotti acquistati."}
         </p>
 
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3">
-          <label className="block text-sm">
-            <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-              Codice azienda
-            </span>
-            <input
-              value={codiceLoading ? "" : codiceTarga}
-              onChange={(e) => {
-                const body = e.target.value
-                  .toUpperCase()
-                  .replace(/[^0-9A-F]/g, "")
-                  .replace(/^F+/, "")
-                  .slice(0, 3);
-                setCodiceTarga(`F${body}`);
-                setCodiceError(null);
-              }}
-              disabled={codiceLoading}
-              required
-              maxLength={4}
-              placeholder={codiceLoading ? "…" : "F001"}
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-2xl font-semibold tracking-[0.2em] outline-none focus:border-[var(--primary)] disabled:bg-slate-100"
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Codice azienda
+          </p>
+          <div className="mt-2">
+            <CodiceTargaBadge
+              code={codiceTarga}
+              size="lg"
+              loading={codiceLoading}
             />
-          </label>
-          <p className="mt-1 text-xs text-[var(--muted)]">
+          </div>
+          <p className="mt-2 text-xs text-[var(--muted)]">
             {isEdit
-              ? "Targa fornitore modificabile (F001–FFFF)."
-              : "Anteprima sequenziale con prefisso F: associata al salvataggio, comunque modificabile."}
+              ? "Targa assegnata in modo permanente: non modificabile."
+              : "Anteprima sequenziale: verrà associata solo al salvataggio e non sarà più modificabile."}
           </p>
           {codiceError && (
             <p className="mt-1 text-xs text-red-600">{codiceError}</p>

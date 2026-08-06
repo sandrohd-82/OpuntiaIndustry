@@ -170,32 +170,10 @@ export async function updateFornitoreAction(
     };
   }
 
-  const codiceTarga = normalized.codiceTarga;
-  if (!codiceTarga || !isValidCodiceTarga(codiceTarga, "F")) {
-    return {
-      success: false,
-      error: "Il codice fornitore deve essere nel formato F001–FFFF.",
-    };
-  }
-
-  const { data: collision } = await supabase
-    .from("fornitori")
-    .select("id")
-    .eq("codice_targa", codiceTarga)
-    .neq("id", id)
-    .maybeSingle();
-
-  if (collision) {
-    return {
-      success: false,
-      error: `Il codice ${codiceTarga} è già usato da un’altra scheda.`,
-    };
-  }
-
+  // La targa non è mai modificabile dopo l'assegnazione
   const { data, error } = await supabase
     .from("fornitori")
     .update({
-      codice_targa: codiceTarga,
       ragione_sociale: normalized.ragioneSociale,
       partita_iva: normalized.partitaIva,
       sede_amm_nazione: normalized.sedeAmministrativa.nazione,

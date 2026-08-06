@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
+import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
@@ -38,8 +39,8 @@ function FornitoreRow({
   return (
     <>
       <tr className="border-t border-[var(--border)]">
-        <td className="px-4 py-3 font-mono text-sm font-semibold tracking-wider">
-          {fornitore.codiceTarga}
+        <td className="px-4 py-3">
+          <CodiceTargaBadge code={fornitore.codiceTarga} />
         </td>
         <td className="px-4 py-3 font-semibold">{fornitore.ragioneSociale}</td>
         <td className="px-4 py-3 tabular-nums">{fornitore.partitaIva}</td>
