@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import {
+  isValidCodiceMateriaPrima,
   mapMateriaPrimaRow,
   normalizeMateriaPrimaInput,
   type MateriaPrima,
@@ -71,6 +72,14 @@ export async function createMateriaPrimaAction(
     return { success: false, error: "Codice e nome sono obbligatori." };
   }
 
+  if (!isValidCodiceMateriaPrima(normalized.codice)) {
+    return {
+      success: false,
+      error:
+        "Il codice deve essere alfanumerico (lettere minuscole/maiuscole e cifre).",
+    };
+  }
+
   if (normalized.isBio && !normalized.fornitoreBioId) {
     return {
       success: false,
@@ -131,6 +140,14 @@ export async function updateMateriaPrimaAction(
 
   if (!normalized.codice || !normalized.nome) {
     return { success: false, error: "Codice e nome sono obbligatori." };
+  }
+
+  if (!isValidCodiceMateriaPrima(normalized.codice)) {
+    return {
+      success: false,
+      error:
+        "Il codice deve essere alfanumerico (lettere minuscole/maiuscole e cifre).",
+    };
   }
 
   if (normalized.isBio && !normalized.fornitoreBioId) {

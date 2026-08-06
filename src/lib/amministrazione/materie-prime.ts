@@ -1,5 +1,8 @@
 import type { MateriaPrimaRow } from "@/types/database";
 
+/** Codice interno: lettere (a–z, A–Z) e cifre, case-sensitive. */
+export const CODICE_MATERIA_PRIMA_RE = /^[A-Za-z0-9]+$/;
+
 export type MateriaPrima = {
   id: string;
   codice: string;
@@ -22,12 +25,20 @@ export type MateriaPrimaInput = {
   bioCodice?: string;
 };
 
+export function sanitizeCodiceMateriaPrima(value: string): string {
+  return value.replace(/[^A-Za-z0-9]/g, "");
+}
+
+export function isValidCodiceMateriaPrima(codice: string): boolean {
+  return CODICE_MATERIA_PRIMA_RE.test(codice) && codice.length >= 1;
+}
+
 export function normalizeMateriaPrimaInput(
   input: MateriaPrimaInput
 ): MateriaPrimaInput {
   const isBio = Boolean(input.isBio);
   return {
-    codice: input.codice.trim().toUpperCase(),
+    codice: sanitizeCodiceMateriaPrima(input.codice.trim()),
     nome: input.nome.trim(),
     note: input.note?.trim() ?? "",
     isBio,

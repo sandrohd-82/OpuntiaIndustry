@@ -3,9 +3,10 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { listFornitoriAction } from "@/app/actions/fornitori";
 import type { Fornitore } from "@/lib/amministrazione/fornitori";
-import type {
-  MateriaPrima,
-  MateriaPrimaInput,
+import {
+  sanitizeCodiceMateriaPrima,
+  type MateriaPrima,
+  type MateriaPrimaInput,
 } from "@/lib/amministrazione/materie-prime";
 
 type Props = {
@@ -92,7 +93,7 @@ export function MateriaPrimaFormModal({
     setSaving(true);
     try {
       await onSave({
-        codice: codice.trim().toUpperCase(),
+        codice: sanitizeCodiceMateriaPrima(codice.trim()),
         nome: nome.trim(),
         note: note.trim(),
         isBio,
@@ -120,7 +121,8 @@ export function MateriaPrimaFormModal({
           {isEdit ? "Modifica materia prima" : "Nuova materia prima"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Il codice interno verrà usato nei tag “Fornitore di”.
+          Codice alfanumerico (minuscole, maiuscole e cifre), usato nei tag
+          “Fornitore di”.
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
@@ -129,11 +131,13 @@ export function MateriaPrimaFormModal({
             <input
               value={codice}
               onChange={(e) =>
-                setCodice(e.target.value.toUpperCase().replace(/\s+/g, ""))
+                setCodice(sanitizeCodiceMateriaPrima(e.target.value))
               }
               required
               autoFocus
-              placeholder="Es. MP01"
+              spellCheck={false}
+              autoCapitalize="off"
+              placeholder="Es. Mp01a"
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
             />
           </label>
