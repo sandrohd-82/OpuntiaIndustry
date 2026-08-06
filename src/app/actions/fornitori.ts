@@ -109,6 +109,8 @@ export async function createFornitoreAction(
     sede_mag_cap: normalized.sedeMagazzino.cap,
     sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
     prodotti_acquistati: normalized.prodottiAcquistati,
+    bio_certificato: normalized.bioCertificato ?? "",
+    bio_codice: normalized.bioCodice ?? "",
     created_by: auth.userId,
   };
 
@@ -187,6 +189,8 @@ export async function updateFornitoreAction(
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       prodotti_acquistati: normalized.prodottiAcquistati,
+      bio_certificato: normalized.bioCertificato ?? "",
+      bio_codice: normalized.bioCodice ?? "",
     })
     .eq("id", id)
     .select("*")

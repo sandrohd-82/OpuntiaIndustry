@@ -129,6 +129,8 @@ export interface FornitoreRow {
   sede_mag_cap: string;
   sede_mag_indirizzo: string;
   prodotti_acquistati: string[];
+  bio_certificato: string;
+  bio_codice: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -150,6 +152,8 @@ export interface FornitoreInsert {
   sede_mag_cap: string;
   sede_mag_indirizzo: string;
   prodotti_acquistati?: string[];
+  bio_certificato?: string;
+  bio_codice?: string;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -171,6 +175,8 @@ export interface FornitoreUpdate {
   sede_mag_cap?: string;
   sede_mag_indirizzo?: string;
   prodotti_acquistati?: string[];
+  bio_certificato?: string;
+  bio_codice?: string;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -185,6 +191,10 @@ export interface MateriaPrimaRow {
   codice: string;
   nome: string;
   note: string;
+  is_bio: boolean;
+  fornitore_bio_id: string | null;
+  bio_certificato: string;
+  bio_codice: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -195,6 +205,10 @@ export interface MateriaPrimaInsert {
   codice: string;
   nome: string;
   note?: string;
+  is_bio?: boolean;
+  fornitore_bio_id?: string | null;
+  bio_certificato?: string;
+  bio_codice?: string;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -205,6 +219,10 @@ export interface MateriaPrimaUpdate {
   codice?: string;
   nome?: string;
   note?: string;
+  is_bio?: boolean;
+  fornitore_bio_id?: string | null;
+  bio_certificato?: string;
+  bio_codice?: string;
   created_by?: string | null;
   created_at?: string;
   updated_at?: string;

@@ -58,6 +58,10 @@ export function FornitoreFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
+  const [bioCertificato, setBioCertificato] = useState(
+    initial?.bioCertificato ?? ""
+  );
+  const [bioCodice, setBioCodice] = useState(initial?.bioCodice ?? "");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -111,6 +115,8 @@ export function FornitoreFormModal({
         sedeAmministrativa,
         sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
         prodottiAcquistati: prodotti,
+        bioCertificato: bioCertificato.trim(),
+        bioCodice: bioCodice.trim(),
       });
     } finally {
       setSaving(false);
@@ -215,6 +221,34 @@ export function FornitoreFormModal({
           )}
 
           <FornitoreDiTags value={prodotti} onChange={setProdotti} />
+
+          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+            <legend className="px-1 text-sm font-medium">Bio</legend>
+            <p className="text-xs text-[var(--muted)]">
+              Certificato e codice bio del fornitore: le materie prime Bio
+              associate erediteranno questi valori.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Certificato</span>
+                <input
+                  value={bioCertificato}
+                  onChange={(e) => setBioCertificato(e.target.value)}
+                  placeholder="Es. organismo di controllo"
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Codice bio</span>
+                <input
+                  value={bioCodice}
+                  onChange={(e) => setBioCodice(e.target.value)}
+                  placeholder="Es. IT-BIO-xxx"
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+            </div>
+          </fieldset>
 
           <div className="flex gap-2 pt-1">
             <button

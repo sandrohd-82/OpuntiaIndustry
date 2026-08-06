@@ -16,6 +16,8 @@ export type Fornitore = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
+  bioCertificato: string;
+  bioCodice: string;
   createdAt: string;
 };
 
@@ -27,6 +29,8 @@ export type FornitoreInput = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
+  bioCertificato?: string;
+  bioCodice?: string;
 };
 
 export function emptySede(): SedeFornitore {
@@ -63,6 +67,8 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
+    bioCertificato: input.bioCertificato?.trim() ?? "",
+    bioCodice: input.bioCodice?.trim() ?? "",
   };
 }
 
@@ -87,6 +93,8 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
       indirizzo: row.sede_mag_indirizzo,
     },
     prodottiAcquistati: row.prodotti_acquistati ?? [],
+    bioCertificato: row.bio_certificato ?? "",
+    bioCodice: row.bio_codice ?? "",
     createdAt: row.created_at,
   };
 }

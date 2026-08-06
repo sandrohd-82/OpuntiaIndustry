@@ -14,6 +14,32 @@ export type MateriePrimeActionResult =
   | { success: true; materia: MateriaPrima }
   | { success: false; error: string };
 
+async function resolveBioFromFornitore(
+  fornitoreId: string | null | undefined,
+  isBio: boolean
+): Promise<{ bioCertificato: string; bioCodice: string; fornitoreBioId: string | null }> {
+  if (!isBio || !fornitoreId) {
+    return { bioCertificato: "", bioCodice: "", fornitoreBioId: null };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("id, bio_certificato, bio_codice")
+    .eq("id", fornitoreId)
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error("Fornitore bio non trovato.");
+  }
+
+  return {
+    fornitoreBioId: data.id as string,
+    bioCertificato: String(data.bio_certificato ?? ""),
+    bioCodice: String(data.bio_codice ?? ""),
+  };
+}
+
 export async function listMateriePrimeAction(): Promise<
   | { success: true; materie: MateriaPrima[] }
   | { success: false; error: string }
@@ -45,10 +71,34 @@ export async function createMateriaPrimaAction(
     return { success: false, error: "Codice e nome sono obbligatori." };
   }
 
+  if (normalized.isBio && !normalized.fornitoreBioId) {
+    return {
+      success: false,
+      error: "Per una materia Bio seleziona il fornitore di riferimento.",
+    };
+  }
+
+  let bio;
+  try {
+    bio = await resolveBioFromFornitore(
+      normalized.fornitoreBioId,
+      Boolean(normalized.isBio)
+    );
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Errore dati bio fornitore.",
+    };
+  }
+
   const insert: MateriaPrimaInsert = {
     codice: normalized.codice,
     nome: normalized.nome,
     note: normalized.note ?? "",
+    is_bio: Boolean(normalized.isBio),
+    fornitore_bio_id: bio.fornitoreBioId,
+    bio_certificato: bio.bioCertificato,
+    bio_codice: bio.bioCodice,
     created_by: auth.userId,
   };
 
@@ -83,12 +133,36 @@ export async function updateMateriaPrimaAction(
     return { success: false, error: "Codice e nome sono obbligatori." };
   }
 
+  if (normalized.isBio && !normalized.fornitoreBioId) {
+    return {
+      success: false,
+      error: "Per una materia Bio seleziona il fornitore di riferimento.",
+    };
+  }
+
+  let bio;
+  try {
+    bio = await resolveBioFromFornitore(
+      normalized.fornitoreBioId,
+      Boolean(normalized.isBio)
+    );
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Errore dati bio fornitore.",
+    };
+  }
+
   const { data, error } = await supabase
     .from("materie_prime")
     .update({
       codice: normalized.codice,
       nome: normalized.nome,
       note: normalized.note ?? "",
+      is_bio: Boolean(normalized.isBio),
+      fornitore_bio_id: bio.fornitoreBioId,
+      bio_certificato: bio.bioCertificato,
+      bio_codice: bio.bioCodice,
     })
     .eq("id", id)
     .select("*")
