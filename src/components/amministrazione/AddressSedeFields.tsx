@@ -50,10 +50,12 @@ function SuggestionList<T extends { id: string; label: string }>({
 
 export function AddressSedeFields({ title, value, onChange }: Props) {
   const capListId = useId();
+  const cittaListId = useId();
   const viaListId = useId();
   const [paesi, setPaesi] = useState<PaeseSuggestion[]>([]);
   const [showPaesi, setShowPaesi] = useState(false);
   const [paesiLoading, setPaesiLoading] = useState(false);
+  const [cittaQuery, setCittaQuery] = useState("");
   const [streets, setStreets] = useState<StreetSuggestion[]>([]);
   const [showStreets, setShowStreets] = useState(false);
   const [streetLoading, setStreetLoading] = useState(false);
@@ -74,6 +76,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       citta: "",
       indirizzo: "",
     });
+    setCittaQuery("");
     setPaesi([]);
     setShowPaesi(false);
     setStreets([]);
@@ -95,7 +98,9 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       setPaesiLoading(true);
 
       try {
-        const res = await fetch(`/api/address/paesi?cap=${value.cap}`, {
+        const params = new URLSearchParams({ cap: value.cap });
+        if (cittaQuery.trim()) params.set("q", cittaQuery.trim());
+        const res = await fetch(`/api/address/paesi?${params}`, {
           signal: controller.signal,
         });
         const data = (await res.json()) as { suggestions?: PaeseSuggestion[] };
@@ -117,16 +122,18 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       window.clearTimeout(timer);
       paeseAbort.current?.abort();
     };
-  }, [value.cap]);
+  }, [value.cap, cittaQuery]);
 
   function selectPaese(paese: PaeseSuggestion) {
     onChange({
       ...value,
-      cap: paese.cap,
+      // conserva il CAP digitato dall'utente
+      cap: value.cap || paese.cap,
       nazione: paese.nazione,
       provincia: paese.provincia,
       citta: paese.citta,
     });
+    setCittaQuery(paese.citta);
     setShowPaesi(false);
   }
 
@@ -197,7 +204,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
             aria-controls={capListId}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
-          {paesiLoading && (
+          {paesiLoading && !locationFilled && (
             <p className="mt-1 text-xs text-[var(--muted)]">Ricerca paesi…</p>
           )}
           {showPaesi && !locationFilled && (
@@ -215,7 +222,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           )}
           {value.cap.length === 5 && !locationFilled && paesi.length > 0 && (
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Seleziona il paese dal suggerimento per compilare gli altri campi.
+              Seleziona il paese corretto (possono esserci più opzioni nella zona).
             </p>
           )}
         </label>
@@ -240,15 +247,69 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
             className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 outline-none"
           />
         </label>
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Città / Paese</span>
+
+        <label className="relative block text-sm sm:col-span-2">
+          <span className="mb-1 flex items-center justify-between gap-2 font-medium">
+            <span>Città / Paese</span>
+            {locationFilled && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCittaQuery(value.citta);
+                  setShowPaesi(true);
+                }}
+                className="text-xs font-medium text-[var(--primary)] hover:underline"
+              >
+                Cambia
+              </button>
+            )}
+          </span>
           <input
-            value={value.citta}
-            readOnly
-            required
-            placeholder="Autocompilata dal suggerimento"
-            className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 outline-none"
+            value={locationFilled && !showPaesi ? value.citta : cittaQuery}
+            onChange={(e) => {
+              const next = e.target.value;
+              setCittaQuery(next);
+              setShowPaesi(true);
+              if (locationFilled) {
+                onChange({
+                  ...value,
+                  citta: "",
+                  provincia: "",
+                  nazione: "",
+                  indirizzo: "",
+                });
+              }
+            }}
+            onFocus={() => {
+              if (value.cap.length === 5) {
+                setCittaQuery(value.citta || cittaQuery);
+                setShowPaesi(true);
+              }
+            }}
+            required={!locationFilled}
+            disabled={value.cap.length !== 5}
+            placeholder={
+              value.cap.length === 5
+                ? "Cerca o seleziona il paese…"
+                : "Prima inserisci il CAP"
+            }
+            aria-autocomplete="list"
+            aria-controls={cittaListId}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50 disabled:text-[var(--muted)]"
           />
+          {showPaesi && value.cap.length === 5 && (
+            <div id={cittaListId}>
+              <SuggestionList
+                items={paesi}
+                onSelect={selectPaese}
+                emptyLabel={
+                  !paesiLoading
+                    ? "Nessun paese trovato. Prova a scrivere il nome."
+                    : undefined
+                }
+              />
+            </div>
+          )}
         </label>
 
         <label className="relative block text-sm sm:col-span-2">
