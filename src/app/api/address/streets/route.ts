@@ -66,7 +66,7 @@ export async function GET(request: Request) {
   const { street, civico } = splitStreetAndCivico(q);
   const streetQuery = normalizeStreetQuery(street);
 
-  if (!/^\d{5}$/.test(cap) || streetQuery.length < 3) {
+  if (streetQuery.length < 3 || (!citta && !/^\d{5}$/.test(cap))) {
     return NextResponse.json({ suggestions: [] as StreetSuggestion[] });
   }
 
@@ -76,10 +76,9 @@ export async function GET(request: Request) {
     limit: "8",
     countrycodes: "it",
     "accept-language": "it",
-    postalcode: cap,
-    // Nominatim tratta la via senza distinzione maiuscole/minuscole
     street: streetQuery,
   });
+  if (/^\d{5}$/.test(cap)) structured.set("postalcode", cap);
   if (citta) structured.set("city", citta.toLocaleLowerCase("it-IT"));
 
   const freeText = new URLSearchParams({
@@ -104,16 +103,37 @@ export async function GET(request: Request) {
     const road = roadName(item);
     if (!road) continue;
 
-    // Filtra per CAP se presente; altrimenti accetta risultati nella stessa città
-    if (item.address?.postcode && item.address.postcode !== cap) continue;
-
-    const normalizedRoad = normalizeStreetQuery(road);
-    if (!normalizedRoad.includes(streetQuery) && !streetQuery.includes(normalizedRoad)) {
-      // accetta comunque se la query è prefisso di "via …"
-      const withoutPrefix = streetQuery.replace(/^(via|viale|corso|piazza|piazzale|vicolo|largo)\s+/i, "");
-      if (withoutPrefix.length >= 3 && !normalizedRoad.includes(withoutPrefix)) {
+    if (
+      /^\d{5}$/.test(cap) &&
+      item.address?.postcode &&
+      item.address.postcode !== cap
+    ) {
+      // CAP diverso: tieni comunque se la città coincide
+      const placeCity = (
+        item.address.city ||
+        item.address.town ||
+        item.address.village ||
+        item.address.municipality ||
+        ""
+      ).toLocaleLowerCase("it-IT");
+      if (
+        !citta ||
+        !placeCity.includes(citta.toLocaleLowerCase("it-IT"))
+      ) {
         continue;
       }
+    }
+
+    const normalizedRoad = normalizeStreetQuery(road);
+    const withoutPrefix = streetQuery.replace(
+      /^(via|viale|corso|piazza|piazzale|vicolo|largo)\s+/i,
+      ""
+    );
+    if (
+      !normalizedRoad.includes(streetQuery) &&
+      !(withoutPrefix.length >= 3 && normalizedRoad.includes(withoutPrefix))
+    ) {
+      continue;
     }
 
     const indirizzo = buildIndirizzo(item, civico);

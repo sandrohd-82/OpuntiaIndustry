@@ -53,13 +53,13 @@ function SuggestionList<T extends { id: string; label: string }>({
 }
 
 export function AddressSedeFields({ title, value, onChange }: Props) {
-  const capListId = useId();
   const cittaListId = useId();
   const viaListId = useId();
   const [paesi, setPaesi] = useState<PaeseSuggestion[]>([]);
   const [showPaesi, setShowPaesi] = useState(false);
   const [paesiLoading, setPaesiLoading] = useState(false);
-  const [cittaQuery, setCittaQuery] = useState("");
+  const [cittaQuery, setCittaQuery] = useState(value.citta);
+  const [capOptions, setCapOptions] = useState<string[]>([]);
   const [streets, setStreets] = useState<StreetSuggestion[]>([]);
   const [showStreets, setShowStreets] = useState(false);
   const [streetLoading, setStreetLoading] = useState(false);
@@ -70,31 +70,20 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
     onChange({ ...value, [key]: v });
   }
 
-  function onCapChange(raw: string) {
-    const cap = raw.replace(/\D/g, "").slice(0, 5);
-    onChange({
-      ...value,
-      cap,
-      nazione: "",
-      provincia: "",
-      citta: "",
-      indirizzo: "",
-    });
-    setCittaQuery("");
-    setPaesi([]);
-    setShowPaesi(false);
-    setStreets([]);
-    setShowStreets(false);
-  }
+  useEffect(() => {
+    setCittaQuery(value.citta);
+  }, [value.citta]);
 
   useEffect(() => {
-    if (value.cap.length !== 5) {
+    const q = cittaQuery.trim();
+    if (q.length < 2) {
       setPaesi([]);
       setShowPaesi(false);
       setPaesiLoading(false);
       return;
     }
 
+    // Se la query coincide già con la città selezionata e non stiamo cercando, non forzare il menu
     const timer = window.setTimeout(async () => {
       paeseAbort.current?.abort();
       const controller = new AbortController();
@@ -102,40 +91,36 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       setPaesiLoading(true);
 
       try {
-        const params = new URLSearchParams({ cap: value.cap });
-        if (cittaQuery.trim()) params.set("q", cittaQuery.trim());
-        const res = await fetch(`/api/address/paesi?${params}`, {
-          signal: controller.signal,
-        });
+        const res = await fetch(
+          `/api/address/paesi?q=${encodeURIComponent(q)}`,
+          { signal: controller.signal }
+        );
         const data = (await res.json()) as { suggestions?: PaeseSuggestion[] };
         if (!controller.signal.aborted) {
           setPaesi(data.suggestions ?? []);
-          setShowPaesi(true);
         }
       } catch {
-        if (!controller.signal.aborted) {
-          setPaesi([]);
-          setShowPaesi(false);
-        }
+        if (!controller.signal.aborted) setPaesi([]);
       } finally {
         if (!controller.signal.aborted) setPaesiLoading(false);
       }
-    }, 150);
+    }, 180);
 
     return () => {
       window.clearTimeout(timer);
       paeseAbort.current?.abort();
     };
-  }, [value.cap, cittaQuery]);
+  }, [cittaQuery]);
 
   function selectPaese(paese: PaeseSuggestion) {
+    const caps = paese.caps?.length ? paese.caps : paese.cap ? [paese.cap] : [];
+    setCapOptions(caps);
     onChange({
       ...value,
-      // conserva il CAP digitato dall'utente
-      cap: value.cap || paese.cap,
-      nazione: paese.nazione,
-      provincia: paese.provincia,
       citta: paese.citta,
+      provincia: paese.provincia,
+      nazione: paese.nazione,
+      cap: paese.cap || value.cap,
     });
     setCittaQuery(paese.citta);
     setShowPaesi(false);
@@ -143,7 +128,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
 
   useEffect(() => {
     const { street } = splitStreetAndCivico(value.indirizzo);
-    if (value.cap.length !== 5 || street.length < 3 || !value.citta) {
+    if (street.length < 3 || !value.citta.trim()) {
       setStreets([]);
       setShowStreets(false);
       setStreetLoading(false);
@@ -158,10 +143,10 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
 
       try {
         const params = new URLSearchParams({
-          cap: value.cap,
           q: value.indirizzo,
           citta: value.citta,
         });
+        if (value.cap.trim()) params.set("cap", value.cap.trim());
         const res = await fetch(`/api/address/streets?${params}`, {
           signal: controller.signal,
         });
@@ -186,48 +171,48 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
     };
   }, [value.indirizzo, value.cap, value.citta]);
 
-  const locationFilled = Boolean(value.citta && value.provincia && value.nazione);
-
   return (
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">{title}</legend>
+      <p className="text-xs text-[var(--muted)]">
+        Parti dal paese: i suggerimenti compilano gli altri campi, ma tutto resta
+        modificabile.
+      </p>
+
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="relative block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">CAP</span>
+          <span className="mb-1 block font-medium">Città / Paese</span>
           <input
-            value={value.cap}
-            onChange={(e) => onCapChange(e.target.value)}
-            onFocus={() => {
-              if (value.cap.length === 5 && paesi.length > 0) setShowPaesi(true);
+            value={cittaQuery}
+            onChange={(e) => {
+              setCittaQuery(e.target.value);
+              setShowPaesi(true);
+              setField("citta", e.target.value);
             }}
-            inputMode="numeric"
-            autoComplete="postal-code"
+            onFocus={() => {
+              if (cittaQuery.trim().length >= 2) setShowPaesi(true);
+            }}
             required
-            placeholder="Inserisci il CAP"
+            placeholder="Inizia a scrivere il paese…"
             aria-autocomplete="list"
-            aria-controls={capListId}
+            aria-controls={cittaListId}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
-          {paesiLoading && !locationFilled && (
+          {paesiLoading && showPaesi && (
             <p className="mt-1 text-xs text-[var(--muted)]">Ricerca paesi…</p>
           )}
-          {showPaesi && !locationFilled && (
-            <div id={capListId}>
+          {showPaesi && cittaQuery.trim().length >= 2 && (
+            <div id={cittaListId}>
               <SuggestionList
                 items={paesi}
                 onSelect={selectPaese}
                 emptyLabel={
-                  value.cap.length === 5 && !paesiLoading
-                    ? "Nessun paese trovato per questo CAP."
+                  !paesiLoading
+                    ? "Nessun paese trovato. Puoi lasciare il testo digitato."
                     : undefined
                 }
               />
             </div>
-          )}
-          {value.cap.length === 5 && !locationFilled && paesi.length > 0 && (
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Seleziona il paese corretto (possono esserci più opzioni nella zona).
-            </p>
           )}
         </label>
 
@@ -235,83 +220,52 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           <span className="mb-1 block font-medium">Nazione</span>
           <input
             value={value.nazione}
-            readOnly
+            onChange={(e) => setField("nazione", e.target.value)}
             required
-            placeholder="Autocompilata"
-            className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 outline-none"
+            placeholder="Es. Italia"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
         </label>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Provincia</span>
           <input
             value={value.provincia}
-            readOnly
+            onChange={(e) => setField("provincia", e.target.value)}
             required
-            placeholder="Autocompilata"
-            className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 outline-none"
+            placeholder="Es. Arezzo"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
         </label>
 
-        <label className="relative block text-sm sm:col-span-2">
-          <span className="mb-1 flex items-center justify-between gap-2 font-medium">
-            <span>Città / Paese</span>
-            {locationFilled && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCittaQuery(value.citta);
-                  setShowPaesi(true);
-                }}
-                className="text-xs font-medium text-[var(--primary)] hover:underline"
-              >
-                Cambia
-              </button>
-            )}
-          </span>
+        <label className="block text-sm sm:col-span-2">
+          <span className="mb-1 block font-medium">CAP</span>
           <input
-            value={locationFilled && !showPaesi ? value.citta : cittaQuery}
-            onChange={(e) => {
-              const next = e.target.value;
-              setCittaQuery(next);
-              setShowPaesi(true);
-              if (locationFilled) {
-                onChange({
-                  ...value,
-                  citta: "",
-                  provincia: "",
-                  nazione: "",
-                  indirizzo: "",
-                });
-              }
-            }}
-            onFocus={() => {
-              if (value.cap.length === 5) {
-                setCittaQuery(value.citta || cittaQuery);
-                setShowPaesi(true);
-              }
-            }}
-            required={!locationFilled}
-            disabled={value.cap.length !== 5}
-            placeholder={
-              value.cap.length === 5
-                ? "Cerca o seleziona il paese…"
-                : "Prima inserisci il CAP"
+            value={value.cap}
+            onChange={(e) =>
+              setField("cap", e.target.value.replace(/\D/g, "").slice(0, 5))
             }
-            aria-autocomplete="list"
-            aria-controls={cittaListId}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50 disabled:text-[var(--muted)]"
+            inputMode="numeric"
+            autoComplete="postal-code"
+            required
+            placeholder="Modificabile liberamente"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
-          {showPaesi && value.cap.length === 5 && (
-            <div id={cittaListId}>
-              <SuggestionList
-                items={paesi}
-                onSelect={selectPaese}
-                emptyLabel={
-                  !paesiLoading
-                    ? "Nessun paese trovato. Prova a scrivere il nome."
-                    : undefined
-                }
-              />
+          {capOptions.length > 1 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {capOptions.map((cap) => (
+                <button
+                  key={cap}
+                  type="button"
+                  onClick={() => setField("cap", cap)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
+                    value.cap === cap
+                      ? "bg-[var(--primary)] text-white ring-[var(--primary)]"
+                      : "bg-white text-slate-700 ring-[var(--border)] hover:bg-slate-50"
+                  }`}
+                >
+                  {cap}
+                </button>
+              ))}
             </div>
           )}
         </label>
@@ -328,24 +282,18 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               if (streets.length > 0) setShowStreets(true);
             }}
             required
-            disabled={!locationFilled}
-            placeholder={
-              locationFilled
-                ? "Es. via Roma 12 — maiuscole/minuscole indifferenti"
-                : "Prima seleziona CAP e paese"
-            }
+            placeholder="Es. via Roma 12"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
             aria-autocomplete="list"
             aria-controls={viaListId}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50 disabled:text-[var(--muted)]"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
           {streetLoading && (
             <p className="mt-1 text-xs text-[var(--muted)]">Ricerca vie…</p>
           )}
           {showStreets &&
-            locationFilled &&
             splitStreetAndCivico(value.indirizzo).street.trim().length >= 3 && (
               <div id={viaListId}>
                 <SuggestionList
@@ -366,7 +314,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
                   emptyLabel={
                     streetLoading
                       ? undefined
-                      : "Nessuna via trovata. Puoi scrivere via e numero civico manualmente."
+                      : "Nessuna via trovata. Puoi scrivere via e civico manualmente."
                   }
                 />
               </div>

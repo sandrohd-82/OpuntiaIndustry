@@ -1,6 +1,8 @@
 export type PaeseSuggestion = {
   id: string;
   cap: string;
+  /** Eventuali CAP multipli del comune (solo suggerimento). */
+  caps?: string[];
   paese: string;
   citta: string;
   provincia: string;
