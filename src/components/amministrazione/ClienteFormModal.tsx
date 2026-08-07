@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -12,11 +13,15 @@ import {
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 
+const PRODOTTI_PROPRI_NUOVO_PATH =
+  "/app/amministrazione/schede/prodotti-propri?nuovo=1";
+
 type Props = {
   mode: "create" | "edit";
   initial?: Cliente | null;
   onClose: () => void;
-  onSave: (values: ClienteInput) => void | Promise<void>;
+  /** Restituisce true se il salvataggio è andato a buon fine. */
+  onSave: (values: ClienteInput) => boolean | Promise<boolean>;
 };
 
 function sameSede(a: SedeCliente, b: SedeCliente) {
@@ -35,6 +40,7 @@ export function ClienteFormModal({
   onClose,
   onSave,
 }: Props) {
+  const router = useRouter();
   const titleId = useId();
   const isEdit = mode === "edit";
   const [codiceTarga, setCodiceTarga] = useState(initial?.codiceTarga ?? "");
@@ -59,6 +65,53 @@ export function ClienteFormModal({
     initial?.prodottiAcquistati ?? []
   );
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function buildValues(): ClienteInput | null {
+    const codice = codiceTarga.trim().toUpperCase();
+    if (!ragioneSociale.trim() || !partitaIva.trim()) {
+      setFormError("Compila ragione sociale e partita IVA prima di continuare.");
+      return null;
+    }
+    if (
+      !sedeAmministrativa.nazione.trim() ||
+      !sedeAmministrativa.provincia.trim() ||
+      !sedeAmministrativa.citta.trim() ||
+      !sedeAmministrativa.cap.trim() ||
+      !sedeAmministrativa.indirizzo.trim()
+    ) {
+      setFormError("Completa la sede amministrativa prima di continuare.");
+      return null;
+    }
+    if (
+      !stessaSede &&
+      (!sedeMagazzino.nazione.trim() ||
+        !sedeMagazzino.provincia.trim() ||
+        !sedeMagazzino.citta.trim() ||
+        !sedeMagazzino.cap.trim() ||
+        !sedeMagazzino.indirizzo.trim())
+    ) {
+      setFormError("Completa la sede magazzino prima di continuare.");
+      return null;
+    }
+    if (!/^C[0-9A-F]{3}$/.test(codice) || codice === "C000") {
+      setCodiceError(
+        "Il codice cliente deve essere C + 3 esadecimali (C001–CFFF)."
+      );
+      setFormError("Codice cliente non valido.");
+      return null;
+    }
+    setFormError(null);
+    setCodiceError(null);
+    return {
+      codiceTarga: codice,
+      ragioneSociale: ragioneSociale.trim(),
+      partitaIva: partitaIva.trim(),
+      sedeAmministrativa,
+      sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+      prodottiAcquistati: prodotti,
+    };
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -94,27 +147,33 @@ export function ClienteFormModal({
     };
   }, [isEdit]);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim() || saving) return;
-    if (!/^C[0-9A-F]{3}$/.test(codice) || codice === "C000") {
-      setCodiceError("Il codice cliente deve essere C + 3 esadecimali (C001–CFFF).");
-      return;
-    }
+  async function persist(values: ClienteInput): Promise<boolean> {
     setSaving(true);
     try {
-      await onSave({
-        codiceTarga: codice,
-        ragioneSociale: ragioneSociale.trim(),
-        partitaIva: partitaIva.trim(),
-        sedeAmministrativa,
-        sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
-        prodottiAcquistati: prodotti,
-      });
+      return Boolean(await onSave(values));
     } finally {
       setSaving(false);
     }
+  }
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (saving || codiceLoading) return;
+    const values = buildValues();
+    if (!values) return;
+    await persist(values);
+  }
+
+  async function saveAndOpenNuovoProdotto() {
+    if (saving || codiceLoading) return;
+    const values = buildValues();
+    if (!values) return;
+    const ok = await persist(values);
+    if (!ok) {
+      setFormError("Salvataggio non riuscito. Controlla i dati e riprova.");
+      return;
+    }
+    router.push(PRODOTTI_PROPRI_NUOVO_PATH);
   }
 
   return (
@@ -214,13 +273,25 @@ export function ClienteFormModal({
             />
           )}
 
-          <ProdottiAcquistatiTags value={prodotti} onChange={setProdotti} />
+          <ProdottiAcquistatiTags
+            value={prodotti}
+            onChange={setProdotti}
+            onNuovoProdotto={saveAndOpenNuovoProdotto}
+            nuovoProdottoBusy={saving}
+          />
+
+          {formError && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {formError}
+            </p>
+          )}
 
           <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
+              disabled={saving}
+              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
             >
               Annulla
             </button>

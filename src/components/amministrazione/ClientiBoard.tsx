@@ -240,9 +240,10 @@ export function ClientiBoard() {
             if (created) {
               setSaveError(null);
               setCreating(false);
-            } else {
-              setSaveError("Salvataggio non riuscito. Riprova.");
+              return true;
             }
+            setSaveError("Salvataggio non riuscito. Riprova.");
+            return false;
           }}
         />
       )}
@@ -257,11 +258,12 @@ export function ClientiBoard() {
             if (updated) {
               setSaveError(null);
               setEditing(null);
-            } else {
-              setSaveError(
-                "Aggiornamento non riuscito. Controlla i dati e riprova."
-              );
+              return true;
             }
+            setSaveError(
+              "Aggiornamento non riuscito. Controlla i dati e riprova."
+            );
+            return false;
           }}
         />
       )}
