@@ -130,14 +130,15 @@ export function MateriePrimeBoard() {
       {creating && (
         <MateriaPrimaFormModal
           mode="create"
+          catalog={materie}
           onClose={() => setCreating(false)}
           onSave={async (values) => {
             const created = await addMateria(values);
-            if (created) {
+            if (created.success) {
               setSaveError(null);
               setCreating(false);
             } else {
-              setSaveError("Salvataggio non riuscito. Controlla i dati e riprova.");
+              setSaveError(created.error);
             }
           }}
         />
@@ -147,14 +148,15 @@ export function MateriePrimeBoard() {
         <MateriaPrimaFormModal
           mode="edit"
           initial={editing}
+          catalog={materie}
           onClose={() => setEditing(null)}
           onSave={async (values) => {
             const updated = await updateMateria(editing.id, values);
-            if (updated) {
+            if (updated.success) {
               setSaveError(null);
               setEditing(null);
             } else {
-              setSaveError("Aggiornamento non riuscito. Controlla i dati e riprova.");
+              setSaveError(updated.error);
             }
           }}
         />

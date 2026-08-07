@@ -5,6 +5,7 @@ import {
   isValidCodiceMateriaPrima,
   mapMateriaPrimaRow,
   normalizeMateriaPrimaInput,
+  normalizeNomeMateriaPrima,
   type MateriaPrima,
   type MateriaPrimaInput,
 } from "@/lib/amministrazione/materie-prime";
@@ -14,6 +15,40 @@ import type { MateriaPrimaInsert, MateriaPrimaRow } from "@/types/database";
 export type MateriePrimeActionResult =
   | { success: true; materia: MateriaPrima }
   | { success: false; error: string };
+
+async function assertCodiceAndNomeUnici(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  codice: string,
+  nome: string,
+  excludeId?: string
+): Promise<string | null> {
+  let codiceQuery = supabase
+    .from("materie_prime")
+    .select("id, codice")
+    .eq("codice", codice);
+  if (excludeId) codiceQuery = codiceQuery.neq("id", excludeId);
+  const { data: byCodice, error: codiceError } = await codiceQuery.maybeSingle();
+  if (codiceError) return codiceError.message;
+  if (byCodice) {
+    return `Il codice ${codice} esiste già. La targa deve essere univoca.`;
+  }
+
+  const nomeNorm = normalizeNomeMateriaPrima(nome);
+  const { data: rows, error: nomeError } = await supabase
+    .from("materie_prime")
+    .select("id, nome, codice");
+  if (nomeError) return nomeError.message;
+
+  const duplicateNome = ((rows ?? []) as Array<{ id: string; nome: string; codice: string }>)
+    .filter((row) => !excludeId || row.id !== excludeId)
+    .find((row) => normalizeNomeMateriaPrima(row.nome) === nomeNorm);
+
+  if (duplicateNome) {
+    return `Esiste già una materia con lo stesso nome (${duplicateNome.codice} — ${duplicateNome.nome}).`;
+  }
+
+  return null;
+}
 
 export async function listMateriePrimeAction(): Promise<
   | { success: true; materie: MateriaPrima[] }
@@ -53,6 +88,13 @@ export async function createMateriaPrimaAction(
         "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
+
+  const uniquenessError = await assertCodiceAndNomeUnici(
+    supabase,
+    normalized.codice,
+    normalized.nome
+  );
+  if (uniquenessError) return { success: false, error: uniquenessError };
 
   const insert: MateriaPrimaInsert = {
     codice: normalized.codice,
@@ -103,6 +145,14 @@ export async function updateMateriaPrimaAction(
         "Il codice deve iniziare con Mp, seguito da lettere, cifre o - _ /.",
     };
   }
+
+  const uniquenessError = await assertCodiceAndNomeUnici(
+    supabase,
+    normalized.codice,
+    normalized.nome,
+    id
+  );
+  if (uniquenessError) return { success: false, error: uniquenessError };
 
   const { data, error } = await supabase
     .from("materie_prime")

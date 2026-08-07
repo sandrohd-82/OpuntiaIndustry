@@ -30,24 +30,29 @@ export function useMateriePrime() {
     void refresh().finally(() => setReady(true));
   }, [refresh]);
 
-  async function addMateria(input: MateriaPrimaInput) {
+  async function addMateria(
+    input: MateriaPrimaInput
+  ): Promise<{ success: true; materia: MateriaPrima } | { success: false; error: string }> {
     const result = await createMateriaPrimaAction(input);
     if (!result.success) {
       setError(result.error);
-      return null;
+      return { success: false, error: result.error };
     }
     setMaterie((prev) =>
       [...prev, result.materia].sort((a, b) => a.codice.localeCompare(b.codice))
     );
     setError(null);
-    return result.materia;
+    return { success: true, materia: result.materia };
   }
 
-  async function updateMateria(id: string, input: MateriaPrimaInput) {
+  async function updateMateria(
+    id: string,
+    input: MateriaPrimaInput
+  ): Promise<{ success: true; materia: MateriaPrima } | { success: false; error: string }> {
     const result = await updateMateriaPrimaAction(id, input);
     if (!result.success) {
       setError(result.error);
-      return null;
+      return { success: false, error: result.error };
     }
     setMaterie((prev) =>
       prev
@@ -55,7 +60,7 @@ export function useMateriePrime() {
         .sort((a, b) => a.codice.localeCompare(b.codice))
     );
     setError(null);
-    return result.materia;
+    return { success: true, materia: result.materia };
   }
 
   return { materie, ready, error, addMateria, updateMateria, refresh };
