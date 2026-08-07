@@ -130,6 +130,7 @@ export interface FornitoreRow {
   sede_mag_indirizzo: string;
   prodotti_acquistati: string[];
   bio_certificato: string;
+  bio_certificato_path: string;
   bio_codice: string;
   created_by: string | null;
   created_at: string;
@@ -153,6 +154,7 @@ export interface FornitoreInsert {
   sede_mag_indirizzo: string;
   prodotti_acquistati?: string[];
   bio_certificato?: string;
+  bio_certificato_path?: string;
   bio_codice?: string;
   created_by?: string | null;
   created_at?: string;
@@ -176,6 +178,7 @@ export interface FornitoreUpdate {
   sede_mag_indirizzo?: string;
   prodotti_acquistati?: string[];
   bio_certificato?: string;
+  bio_certificato_path?: string;
   bio_codice?: string;
   created_by?: string | null;
   created_at?: string;

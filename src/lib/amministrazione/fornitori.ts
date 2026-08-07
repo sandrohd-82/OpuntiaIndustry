@@ -1,5 +1,7 @@
 import type { FornitoreRow } from "@/types/database";
 
+export const FORNITORI_BIO_BUCKET = "fornitori-bio";
+
 export type SedeFornitore = {
   nazione: string;
   provincia: string;
@@ -16,7 +18,8 @@ export type Fornitore = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
-  bioCertificato: string;
+  /** Path Storage del PDF certificato bio. */
+  bioCertificatoPath: string;
   bioCodice: string;
   createdAt: string;
 };
@@ -29,8 +32,10 @@ export type FornitoreInput = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
-  bioCertificato?: string;
+  bioCertificatoPath?: string;
   bioCodice?: string;
+  /** Se true, rimuove il PDF bio esistente (senza sostituirlo). */
+  removeBioCertificato?: boolean;
 };
 
 export function emptySede(): SedeFornitore {
@@ -67,8 +72,9 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
-    bioCertificato: input.bioCertificato?.trim() ?? "",
+    bioCertificatoPath: input.bioCertificatoPath?.trim() ?? "",
     bioCodice: input.bioCodice?.trim() ?? "",
+    removeBioCertificato: Boolean(input.removeBioCertificato),
   };
 }
 
@@ -93,7 +99,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
       indirizzo: row.sede_mag_indirizzo,
     },
     prodottiAcquistati: row.prodotti_acquistati ?? [],
-    bioCertificato: row.bio_certificato ?? "",
+    bioCertificatoPath: row.bio_certificato_path ?? "",
     bioCodice: row.bio_codice ?? "",
     createdAt: row.created_at,
   };
@@ -102,4 +108,8 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
 export function formatSedeBreve(sede: SedeFornitore): string {
   const parts = [sede.citta, sede.provincia, sede.nazione].filter(Boolean);
   return parts.length ? parts.join(", ") : "—";
+}
+
+export function bioCertificatoStoragePath(fornitoreId: string): string {
+  return `${fornitoreId}/certificato-bio.pdf`;
 }

@@ -9,7 +9,7 @@ type Props = {
   codes: string[];
   /** Se passato, evita un fetch per ogni lista. */
   materie?: MateriaPrima[];
-  bioCertificato?: string;
+  bioCertificatoPath?: string;
   bioCodice?: string;
   removable?: boolean;
   onRemove?: (code: string) => void;
@@ -19,7 +19,7 @@ type Props = {
 export function MateriaPrimaTagList({
   codes,
   materie: materieProp,
-  bioCertificato = "",
+  bioCertificatoPath = "",
   bioCodice = "",
   removable = false,
   onRemove,
@@ -59,8 +59,9 @@ export function MateriaPrimaTagList({
             code={code}
             materia={byCode.get(code) ?? null}
             bioContext={{
-              certificato: bioCertificato,
+              certificatoPath: bioCertificatoPath,
               codice: bioCodice,
+              hasPdf: Boolean(bioCertificatoPath),
             }}
             removable={removable}
             onRemove={onRemove ? () => onRemove(code) : undefined}

@@ -19,8 +19,9 @@ import {
 } from "@/lib/amministrazione/materie-prime";
 
 type BioContext = {
-  certificato?: string;
+  certificatoPath?: string;
   codice?: string;
+  hasPdf?: boolean;
 };
 
 type Props = {
@@ -48,7 +49,7 @@ function SchedaContent({
   bioContext?: BioContext;
 }) {
   const isBio = Boolean(materia?.isBio);
-  const cert = bioContext?.certificato?.trim() ?? "";
+  const hasPdf = Boolean(bioContext?.hasPdf || bioContext?.certificatoPath);
   const bioCodice = bioContext?.codice?.trim() ?? "";
 
   return (
@@ -98,18 +99,18 @@ function SchedaContent({
           </p>
         </div>
       ) : null}
-      {isBio && (cert || bioCodice) ? (
+      {isBio && (hasPdf || bioCodice) ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs">
           <p className="font-medium text-emerald-900">
             Certificato fornitore
           </p>
-          {cert ? (
-            <p className="mt-1 text-emerald-900/90">Certificato: {cert}</p>
-          ) : null}
           {bioCodice ? (
-            <p className="mt-0.5 text-emerald-900/90">
+            <p className="mt-1 text-emerald-900/90">
               Codice bio: {bioCodice}
             </p>
+          ) : null}
+          {hasPdf ? (
+            <p className="mt-0.5 text-emerald-900/90">PDF certificato caricato</p>
           ) : null}
         </div>
       ) : null}

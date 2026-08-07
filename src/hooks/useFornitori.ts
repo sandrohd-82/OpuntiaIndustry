@@ -8,6 +8,13 @@ import {
 } from "@/app/actions/fornitori";
 import type { Fornitore, FornitoreInput } from "@/lib/amministrazione/fornitori";
 
+function toFormData(input: FornitoreInput, bioPdf?: File | null) {
+  const fd = new FormData();
+  fd.set("input", JSON.stringify(input));
+  if (bioPdf) fd.set("bioPdf", bioPdf);
+  return fd;
+}
+
 export function useFornitori() {
   const [fornitori, setFornitori] = useState<Fornitore[]>([]);
   const [ready, setReady] = useState(false);
@@ -27,8 +34,8 @@ export function useFornitori() {
     void refresh().finally(() => setReady(true));
   }, [refresh]);
 
-  async function addFornitore(input: FornitoreInput) {
-    const result = await createFornitoreAction(input);
+  async function addFornitore(input: FornitoreInput, bioPdf?: File | null) {
+    const result = await createFornitoreAction(toFormData(input, bioPdf));
     if (!result.success) {
       setError(result.error);
       return null;
@@ -38,8 +45,12 @@ export function useFornitori() {
     return result.fornitore;
   }
 
-  async function updateFornitore(id: string, input: FornitoreInput) {
-    const result = await updateFornitoreAction(id, input);
+  async function updateFornitore(
+    id: string,
+    input: FornitoreInput,
+    bioPdf?: File | null
+  ) {
+    const result = await updateFornitoreAction(id, toFormData(input, bioPdf));
     if (!result.success) {
       setError(result.error);
       return null;

@@ -59,7 +59,7 @@ function FornitoreRow({
           <MateriaPrimaTagList
             codes={fornitore.prodottiAcquistati}
             materie={materie}
-            bioCertificato={fornitore.bioCertificato}
+            bioCertificatoPath={fornitore.bioCertificatoPath}
             bioCodice={fornitore.bioCodice}
             emptyLabel="—"
           />
@@ -115,7 +115,7 @@ function FornitoreRow({
                 <MateriaPrimaTagList
                   codes={fornitore.prodottiAcquistati}
                   materie={materie}
-                  bioCertificato={fornitore.bioCertificato}
+                  bioCertificatoPath={fornitore.bioCertificatoPath}
                   bioCodice={fornitore.bioCodice}
                   emptyLabel="Nessuno"
                 />
@@ -229,13 +229,13 @@ export function FornitoriBoard() {
         <FornitoreFormModal
           mode="create"
           onClose={() => setCreating(false)}
-          onSave={async (values) => {
-            const created = await addFornitore(values);
+          onSave={async (values, bioPdf) => {
+            const created = await addFornitore(values, bioPdf);
             if (created) {
               setSaveError(null);
               setCreating(false);
             } else {
-              setSaveError("Salvataggio non riuscito. Riprova.");
+              setSaveError(error || "Salvataggio non riuscito. Riprova.");
             }
           }}
         />
@@ -246,13 +246,15 @@ export function FornitoriBoard() {
           mode="edit"
           initial={editing}
           onClose={() => setEditing(null)}
-          onSave={async (values) => {
-            const updated = await updateFornitore(editing.id, values);
+          onSave={async (values, bioPdf) => {
+            const updated = await updateFornitore(editing.id, values, bioPdf);
             if (updated) {
               setSaveError(null);
               setEditing(null);
             } else {
-              setSaveError("Aggiornamento non riuscito. Controlla i dati e riprova.");
+              setSaveError(
+                error || "Aggiornamento non riuscito. Controlla i dati e riprova."
+              );
             }
           }}
         />

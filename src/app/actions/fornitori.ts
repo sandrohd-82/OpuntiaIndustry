@@ -6,6 +6,8 @@ import {
   nextSequentialCodiceTarga,
 } from "@/lib/amministrazione/codice-targa";
 import {
+  FORNITORI_BIO_BUCKET,
+  bioCertificatoStoragePath,
   mapFornitoreRow,
   normalizeFornitoreInput,
   type Fornitore,
@@ -18,11 +20,59 @@ export type FornitoriActionResult =
   | { success: true; fornitore: Fornitore }
   | { success: false; error: string };
 
+const MAX_BIO_PDF_BYTES = 10 * 1024 * 1024;
+
 async function loadUsedCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("fornitori").select("codice_targa");
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => String(row.codice_targa));
+}
+
+function parseFornitoreFormData(formData: FormData): {
+  input: FornitoreInput;
+  bioPdf: File | null;
+} {
+  const raw = formData.get("input");
+  if (typeof raw !== "string") {
+    throw new Error("Dati fornitore mancanti.");
+  }
+  const input = JSON.parse(raw) as FornitoreInput;
+  const file = formData.get("bioPdf");
+  const bioPdf = file instanceof File && file.size > 0 ? file : null;
+  return { input, bioPdf };
+}
+
+async function uploadBioPdf(
+  fornitoreId: string,
+  file: File
+): Promise<{ path: string } | { error: string }> {
+  if (file.type !== "application/pdf") {
+    return { error: "Il certificato bio deve essere un file PDF." };
+  }
+  if (file.size > MAX_BIO_PDF_BYTES) {
+    return { error: "Il PDF non può superare 10 MB." };
+  }
+
+  const supabase = await createClient();
+  const path = bioCertificatoStoragePath(fornitoreId);
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error } = await supabase.storage
+    .from(FORNITORI_BIO_BUCKET)
+    .upload(path, buffer, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (error) return { error: error.message };
+  return { path };
+}
+
+async function removeBioPdf(path: string): Promise<void> {
+  if (!path) return;
+  const supabase = await createClient();
+  await supabase.storage.from(FORNITORI_BIO_BUCKET).remove([path]);
 }
 
 export async function previewNextCodiceTargaAction(): Promise<
@@ -67,11 +117,45 @@ export async function listFornitoriAction(): Promise<
   };
 }
 
+export async function getBioCertificatoSignedUrlAction(
+  path: string
+): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  await requireAreaAccess("amministrazione");
+  if (!path.trim()) {
+    return { success: false, error: "Nessun certificato caricato." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(FORNITORI_BIO_BUCKET)
+    .createSignedUrl(path, 60 * 30);
+
+  if (error || !data?.signedUrl) {
+    return {
+      success: false,
+      error: error?.message ?? "Impossibile aprire il certificato.",
+    };
+  }
+
+  return { success: true, url: data.signedUrl };
+}
+
 export async function createFornitoreAction(
-  input: FornitoreInput
+  formData: FormData
 ): Promise<FornitoriActionResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+
+  let input: FornitoreInput;
+  let bioPdf: File | null;
+  try {
+    ({ input, bioPdf } = parseFornitoreFormData(formData));
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Dati non validi.",
+    };
+  }
 
   const normalized = normalizeFornitoreInput(input);
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
@@ -84,7 +168,11 @@ export async function createFornitoreAction(
   let codiceTarga = normalized.codiceTarga;
   try {
     const used = await loadUsedCodiciTarga();
-    if (!codiceTarga || !isValidCodiceTarga(codiceTarga, "F") || used.includes(codiceTarga)) {
+    if (
+      !codiceTarga ||
+      !isValidCodiceTarga(codiceTarga, "F") ||
+      used.includes(codiceTarga)
+    ) {
       codiceTarga = nextSequentialCodiceTarga("F", used);
     }
   } catch (e) {
@@ -109,7 +197,8 @@ export async function createFornitoreAction(
     sede_mag_cap: normalized.sedeMagazzino.cap,
     sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
     prodotti_acquistati: normalized.prodottiAcquistati,
-    bio_certificato: normalized.bioCertificato ?? "",
+    bio_certificato: "",
+    bio_certificato_path: "",
     bio_codice: normalized.bioCodice ?? "",
     created_by: auth.userId,
   };
@@ -120,49 +209,77 @@ export async function createFornitoreAction(
     .select("*")
     .single();
 
-  if (error || !data) {
-    // Collisione concorrente: riprova con il prossimo codice libero
+  let row = data as FornitoreRow | null;
+  if (error || !row) {
     if (error?.code === "23505") {
       try {
         const used = await loadUsedCodiciTarga();
-        const retryInsert: FornitoreInsert = {
-          ...insert,
-          codice_targa: nextSequentialCodiceTarga("F", used),
-        };
         const retry = await supabase
           .from("fornitori")
-          .insert(retryInsert)
+          .insert({
+            ...insert,
+            codice_targa: nextSequentialCodiceTarga("F", used),
+          })
           .select("*")
           .single();
         if (!retry.error && retry.data) {
-          return {
-            success: true,
-            fornitore: mapFornitoreRow(retry.data as FornitoreRow),
-          };
+          row = retry.data as FornitoreRow;
         }
       } catch {
         // fall through
       }
     }
+    if (!row) {
+      return {
+        success: false,
+        error: error?.message ?? "Salvataggio fornitore non riuscito.",
+      };
+    }
+  }
 
-    return {
-      success: false,
-      error: error?.message ?? "Salvataggio fornitore non riuscito.",
-    };
+  if (bioPdf) {
+    const uploaded = await uploadBioPdf(row.id, bioPdf);
+    if ("error" in uploaded) {
+      return { success: false, error: uploaded.error };
+    }
+    const { data: updated, error: updateError } = await supabase
+      .from("fornitori")
+      .update({ bio_certificato_path: uploaded.path })
+      .eq("id", row.id)
+      .select("*")
+      .single();
+    if (updateError || !updated) {
+      return {
+        success: false,
+        error: updateError?.message ?? "PDF salvato ma path non aggiornato.",
+      };
+    }
+    row = updated as FornitoreRow;
   }
 
   return {
     success: true,
-    fornitore: mapFornitoreRow(data as FornitoreRow),
+    fornitore: mapFornitoreRow(row),
   };
 }
 
 export async function updateFornitoreAction(
   id: string,
-  input: FornitoreInput
+  formData: FormData
 ): Promise<FornitoriActionResult> {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+
+  let input: FornitoreInput;
+  let bioPdf: File | null;
+  try {
+    ({ input, bioPdf } = parseFornitoreFormData(formData));
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Dati non validi.",
+    };
+  }
 
   const normalized = normalizeFornitoreInput(input);
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
@@ -172,7 +289,31 @@ export async function updateFornitoreAction(
     };
   }
 
-  // La targa non è mai modificabile dopo l'assegnazione
+  const { data: existing, error: existingError } = await supabase
+    .from("fornitori")
+    .select("bio_certificato_path")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (existingError) {
+    return { success: false, error: existingError.message };
+  }
+
+  let nextPath = String(existing?.bio_certificato_path ?? "");
+
+  if (normalized.removeBioCertificato && nextPath) {
+    await removeBioPdf(nextPath);
+    nextPath = "";
+  }
+
+  if (bioPdf) {
+    const uploaded = await uploadBioPdf(id, bioPdf);
+    if ("error" in uploaded) {
+      return { success: false, error: uploaded.error };
+    }
+    nextPath = uploaded.path;
+  }
+
   const { data, error } = await supabase
     .from("fornitori")
     .update({
@@ -189,7 +330,8 @@ export async function updateFornitoreAction(
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       prodotti_acquistati: normalized.prodottiAcquistati,
-      bio_certificato: normalized.bioCertificato ?? "",
+      bio_certificato: "",
+      bio_certificato_path: nextPath,
       bio_codice: normalized.bioCodice ?? "",
     })
     .eq("id", id)

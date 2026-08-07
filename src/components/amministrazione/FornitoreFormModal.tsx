@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
 import {
@@ -16,7 +17,10 @@ type Props = {
   mode: "create" | "edit";
   initial?: Fornitore | null;
   onClose: () => void;
-  onSave: (values: FornitoreInput) => void | Promise<void>;
+  onSave: (
+    values: FornitoreInput,
+    bioPdf?: File | null
+  ) => void | Promise<void>;
 };
 
 function sameSede(a: SedeFornitore, b: SedeFornitore) {
@@ -58,10 +62,9 @@ export function FornitoreFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
-  const [bioCertificato, setBioCertificato] = useState(
-    initial?.bioCertificato ?? ""
-  );
   const [bioCodice, setBioCodice] = useState(initial?.bioCodice ?? "");
+  const [bioPdf, setBioPdf] = useState<File | null>(null);
+  const [removeBioPdf, setRemoveBioPdf] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -108,16 +111,20 @@ export function FornitoreFormModal({
     }
     setSaving(true);
     try {
-      await onSave({
-        codiceTarga: codice,
-        ragioneSociale: ragioneSociale.trim(),
-        partitaIva: partitaIva.trim(),
-        sedeAmministrativa,
-        sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
-        prodottiAcquistati: prodotti,
-        bioCertificato: bioCertificato.trim(),
-        bioCodice: bioCodice.trim(),
-      });
+      await onSave(
+        {
+          codiceTarga: codice,
+          ragioneSociale: ragioneSociale.trim(),
+          partitaIva: partitaIva.trim(),
+          sedeAmministrativa,
+          sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+          prodottiAcquistati: prodotti,
+          bioCertificatoPath: initial?.bioCertificatoPath ?? "",
+          bioCodice: bioCodice.trim(),
+          removeBioCertificato: removeBioPdf && !bioPdf,
+        },
+        bioPdf
+      );
     } finally {
       setSaving(false);
     }
@@ -223,37 +230,38 @@ export function FornitoreFormModal({
           <FornitoreDiTags
             value={prodotti}
             onChange={setProdotti}
-            bioCertificato={bioCertificato}
+            bioCertificatoPath={
+              removeBioPdf && !bioPdf
+                ? ""
+                : initial?.bioCertificatoPath || (bioPdf ? "__local__" : "")
+            }
             bioCodice={bioCodice}
+            hasLocalBioPdf={Boolean(bioPdf)}
           />
 
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-medium">Bio</legend>
             <p className="text-xs text-[var(--muted)]">
-              Carica qui certificato e codice bio. Quando selezioni una materia
-              prima biologica in “Fornitore di”, vengono applicati
-              automaticamente.
+              Inserisci il codice bio e carica il PDF del certificato. Quando
+              selezioni una materia prima biologica in “Fornitore di”, vengono
+              applicati automaticamente.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">Certificato</span>
-                <input
-                  value={bioCertificato}
-                  onChange={(e) => setBioCertificato(e.target.value)}
-                  placeholder="Es. organismo di controllo"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">Codice bio</span>
-                <input
-                  value={bioCodice}
-                  onChange={(e) => setBioCodice(e.target.value)}
-                  placeholder="Es. IT-BIO-xxx"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              </label>
-            </div>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Codice bio</span>
+              <input
+                value={bioCodice}
+                onChange={(e) => setBioCodice(e.target.value)}
+                placeholder="Es. IT-BIO-xxx"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <BioCertificatoPdfField
+              existingPath={initial?.bioCertificatoPath ?? ""}
+              file={bioPdf}
+              onFileChange={setBioPdf}
+              markedForRemoval={removeBioPdf}
+              onMarkedForRemovalChange={setRemoveBioPdf}
+            />
           </fieldset>
 
           <div className="flex gap-2 pt-1">

@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { FaPlus } from "react-icons/fa6";
+import {
+  getBioCertificatoSignedUrlAction,
+} from "@/app/actions/fornitori";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
 import { MateriaPrimaProductTag } from "@/components/amministrazione/MateriaPrimaProductTag";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
@@ -12,15 +15,17 @@ const MATERIA_PRIMA_PATH = "/app/amministrazione/schede/materia-prima?nuovo=1";
 type Props = {
   value: string[];
   onChange: (codes: string[]) => void;
-  bioCertificato?: string;
+  bioCertificatoPath?: string;
   bioCodice?: string;
+  hasLocalBioPdf?: boolean;
 };
 
 export function FornitoreDiTags({
   value,
   onChange,
-  bioCertificato = "",
+  bioCertificatoPath = "",
   bioCodice = "",
+  hasLocalBioPdf = false,
 }: Props) {
   const [materie, setMaterie] = useState<MateriaPrima[]>([]);
   const [ready, setReady] = useState(false);
@@ -58,7 +63,10 @@ export function FornitoreDiTags({
   );
 
   const hasBioSelected = selected.some((item) => item.isBio);
-  const certLoaded = Boolean(bioCertificato.trim() || bioCodice.trim());
+  const hasPdf =
+    hasLocalBioPdf ||
+    (Boolean(bioCertificatoPath) && bioCertificatoPath !== "__local__");
+  const certLoaded = Boolean(hasPdf || bioCodice.trim());
 
   const available = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -82,12 +90,18 @@ export function FornitoreDiTags({
     onChange(value.filter((c) => c !== code));
   }
 
+  async function openCertificato() {
+    if (!bioCertificatoPath || bioCertificatoPath === "__local__") return;
+    const result = await getBioCertificatoSignedUrlAction(bioCertificatoPath);
+    if (result.success) window.open(result.url, "_blank", "noopener,noreferrer");
+  }
+
   return (
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">Fornitore di</legend>
       <p className="text-xs text-[var(--muted)]">
         Passa sopra o clicca un tag per aprire la scheda prodotto. Per le
-        materie bio viene usato il certificato di questa scheda.
+        materie bio viene usato il certificato PDF di questa scheda.
       </p>
 
       <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-2 py-2">
@@ -100,8 +114,12 @@ export function FornitoreDiTags({
               code={item.code}
               materia={item.materia}
               bioContext={{
-                certificato: bioCertificato,
                 codice: bioCodice,
+                hasPdf,
+                certificatoPath:
+                  bioCertificatoPath === "__local__"
+                    ? ""
+                    : bioCertificatoPath,
               }}
               removable
               onRemove={() => removeCode(item.code)}
@@ -117,21 +135,32 @@ export function FornitoreDiTags({
               <p className="font-medium text-emerald-900">
                 Certificato bio applicato alle materie selezionate
               </p>
-              {bioCertificato.trim() && (
-                <p className="text-emerald-900/90">
-                  Certificato: {bioCertificato.trim()}
-                </p>
-              )}
               {bioCodice.trim() && (
                 <p className="text-emerald-900/90">
                   Codice bio: {bioCodice.trim()}
                 </p>
               )}
+              {hasPdf && (
+                <p className="text-emerald-900/90">
+                  PDF certificato:{" "}
+                  {hasLocalBioPdf || bioCertificatoPath === "__local__" ? (
+                    "in caricamento (anteprima locale)"
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void openCertificato()}
+                      className="font-medium text-[var(--primary)] hover:underline"
+                    >
+                      apri PDF
+                    </button>
+                  )}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-amber-800">
-              Hai selezionato materie bio: carica certificato e codice bio in
-              questa scheda per associarli.
+              Hai selezionato materie bio: inserisci codice bio e carica il PDF
+              certificato in questa scheda.
             </p>
           )}
         </div>
