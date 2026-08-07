@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { FaChevronDown } from "react-icons/fa6";
 import {
   joinStreetAndCivico,
   splitStreetAndCivico,
@@ -67,6 +68,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   const [paesiLoading, setPaesiLoading] = useState(false);
   const [cittaQuery, setCittaQuery] = useState(value.citta);
   const [capOptions, setCapOptions] = useState<string[]>([]);
+  const [showCapPicker, setShowCapPicker] = useState(false);
   const [streets, setStreets] = useState<StreetSuggestion[]>([]);
   const [showStreets, setShowStreets] = useState(false);
   const [streetLoading, setStreetLoading] = useState(false);
@@ -132,6 +134,8 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   function selectPaese(paese: PaeseSuggestion) {
     const caps = paese.caps?.length ? paese.caps : paese.cap ? [paese.cap] : [];
     setCapOptions(caps);
+    // Con più CAP: apri il selettore; con uno solo resta chiuso.
+    setShowCapPicker(caps.length > 1);
     skipPaesiFetch.current = true;
     // Per le frazioni salviamo il nome località (es. Pistrino);
     // comune madre resta nel label del suggerimento e in provincia/CAP.
@@ -140,11 +144,17 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       citta: paese.citta,
       provincia: paese.provincia || value.provincia,
       nazione: paese.nazione || value.nazione || "Italia",
-      cap: paese.cap || value.cap,
+      // Con più CAP non precompilare: l'utente sceglie dall'elenco.
+      cap: caps.length === 1 ? caps[0] : "",
     });
     setCittaQuery(paese.citta);
     setPaesi([]);
     setShowPaesi(false);
+  }
+
+  function selectCap(cap: string) {
+    setField("cap", cap);
+    setShowCapPicker(false);
   }
 
   useEffect(() => {
@@ -235,6 +245,8 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               skipPaesiFetch.current = false;
               setCittaQuery(e.target.value);
               setShowPaesi(true);
+              setCapOptions([]);
+              setShowCapPicker(false);
               setField("citta", e.target.value);
             }}
             onFocus={() => {
@@ -291,39 +303,80 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           />
         </label>
 
-        <label className="block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">CAP</span>
-          <input
-            value={value.cap}
-            onChange={(e) =>
-              setField("cap", e.target.value.replace(/\D/g, "").slice(0, 5))
-            }
-            inputMode="numeric"
-            autoComplete="postal-code"
-            required
-            placeholder="Modificabile liberamente"
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-          />
+        <div className="sm:col-span-2">
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">CAP</span>
+            <input
+              value={value.cap}
+              onChange={(e) =>
+                setField("cap", e.target.value.replace(/\D/g, "").slice(0, 5))
+              }
+              inputMode="numeric"
+              autoComplete="postal-code"
+              required
+              placeholder={
+                capOptions.length > 1
+                  ? "Seleziona un CAP dall’elenco"
+                  : "Modificabile liberamente"
+              }
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            />
+          </label>
+
           {capOptions.length > 1 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {capOptions.map((cap) => (
+            <div className="mt-2">
+              {!showCapPicker ? (
                 <button
-                  key={cap}
                   type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setField("cap", cap)}
-                  className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
-                    value.cap === cap
-                      ? "bg-[var(--primary)] text-white ring-[var(--primary)]"
-                      : "bg-white text-slate-700 ring-[var(--border)] hover:bg-slate-50"
-                  }`}
+                  onClick={() => setShowCapPicker(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  aria-expanded={false}
                 >
-                  {cap}
+                  <span>
+                    {value.cap
+                      ? `CAP selezionato: ${value.cap}`
+                      : "Scegli CAP"}
+                  </span>
+                  <FaChevronDown size={11} className="text-[var(--muted)]" />
                 </button>
-              ))}
+              ) : (
+                <div className="rounded-lg border border-[var(--border)] bg-slate-50/80 p-2.5">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-[var(--muted)]">
+                      Seleziona un CAP ({capOptions.length} disponibili)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCapPicker(false)}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-[var(--primary)] hover:underline"
+                      aria-expanded={true}
+                    >
+                      Chiudi
+                      <FaChevronDown size={11} className="rotate-180" />
+                    </button>
+                  </div>
+                  <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto">
+                    {capOptions.map((cap) => (
+                      <button
+                        key={cap}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => selectCap(cap)}
+                        className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
+                          value.cap === cap
+                            ? "bg-[var(--primary)] text-white ring-[var(--primary)]"
+                            : "bg-white text-slate-700 ring-[var(--border)] hover:bg-slate-50"
+                        }`}
+                      >
+                        {cap}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </label>
+        </div>
 
         <div className="relative sm:col-span-2">
           <label htmlFor={viaInputId} className="mb-1 block text-sm font-medium">
