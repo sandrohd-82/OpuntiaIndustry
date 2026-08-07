@@ -1,12 +1,9 @@
 import type { ProdottoProprioRow } from "@/types/database";
 
-/** Prefisso fisso del codice interno (come F per i fornitori). */
-export const CODICE_PRODOTTO_PROPRIO_PREFIX = "Pp";
+/** Targa completamente libera: lettere, cifre e - _ / (case-sensitive). */
+export const CODICE_PRODOTTO_PROPRIO_RE = /^[A-Za-z0-9\-_\/]+$/;
 
-/** Codice completo: Pp + corpo (lettere, cifre, - _ /), case-sensitive. */
-export const CODICE_PRODOTTO_PROPRIO_RE = /^Pp[A-Za-z0-9\-_\/]+$/;
-
-const BODY_RE = /[^A-Za-z0-9\-_\/]/g;
+const CODICE_CHARS_RE = /[^A-Za-z0-9\-_\/]/g;
 
 export type ProdottoProprio = {
   id: string;
@@ -24,37 +21,12 @@ export type ProdottoProprioInput = {
   isBio?: boolean;
 };
 
-export function sanitizeCodiceProdottoProprioBody(value: string): string {
-  let body = value.replace(BODY_RE, "");
-  while (body.startsWith(CODICE_PRODOTTO_PROPRIO_PREFIX)) {
-    body = body.slice(CODICE_PRODOTTO_PROPRIO_PREFIX.length);
-  }
-  if (body.length >= 2 && body.slice(0, 2).toLowerCase() === "pp") {
-    body = body.slice(2);
-  }
-  return body;
-}
-
-export function composeCodiceProdottoProprio(body: string): string {
-  return CODICE_PRODOTTO_PROPRIO_PREFIX + sanitizeCodiceProdottoProprioBody(body);
-}
-
-export function stripCodiceProdottoProprioPrefix(codice: string): string {
-  if (codice.startsWith(CODICE_PRODOTTO_PROPRIO_PREFIX)) {
-    return codice.slice(CODICE_PRODOTTO_PROPRIO_PREFIX.length);
-  }
-  if (codice.length >= 2 && codice.slice(0, 2).toLowerCase() === "pp") {
-    return codice.slice(2);
-  }
-  return codice;
-}
-
 export function sanitizeCodiceProdottoProprio(value: string): string {
-  return composeCodiceProdottoProprio(stripCodiceProdottoProprioPrefix(value.trim()));
+  return value.replace(CODICE_CHARS_RE, "").trim();
 }
 
 export function isValidCodiceProdottoProprio(codice: string): boolean {
-  return CODICE_PRODOTTO_PROPRIO_RE.test(codice);
+  return CODICE_PRODOTTO_PROPRIO_RE.test(codice) && codice.length >= 1;
 }
 
 export function normalizeProdottoProprioInput(
@@ -220,41 +192,11 @@ export function findProdottoProprioByNomeExact(
   );
 }
 
-/** Parti della targa secondo leggenda: Pp + iniziali + B|C + /dettaglio. */
-export type CodiceProdottoProprioParts = {
-  prefix: string;
-  iniziali: string;
-  tipologiaCodice: "B" | "C" | null;
-  dettaglio: string;
-};
-
-export function parseCodiceProdottoProprioParts(
-  codice: string
-): CodiceProdottoProprioParts {
-  const body = stripCodiceProdottoProprioPrefix(codice.trim());
-  const match = body.match(/^([A-Za-z0-9\-_]*?)([BC])(?:\/(.*))?$/);
-  if (match) {
-    return {
-      prefix: CODICE_PRODOTTO_PROPRIO_PREFIX,
-      iniziali: match[1] ?? "",
-      tipologiaCodice: (match[2] as "B" | "C") ?? null,
-      dettaglio: match[3] ?? "",
-    };
-  }
-  return {
-    prefix: CODICE_PRODOTTO_PROPRIO_PREFIX,
-    iniziali: body,
-    tipologiaCodice: null,
-    dettaglio: "",
-  };
-}
-
 export type ProdottiPropriTextField = "nome" | "note" | "entrambi";
 
 export type ProdottiPropriFilters = {
-  iniziali: string;
-  tipologiaCodice: "" | "B" | "C";
-  dettaglio: string;
+  /** Ricerca libera sulla targa/codice. */
+  codice: string;
   textQuery: string;
   textField: ProdottiPropriTextField;
   showBio: boolean;
@@ -263,9 +205,7 @@ export type ProdottiPropriFilters = {
 
 export function emptyProdottiPropriFilters(): ProdottiPropriFilters {
   return {
-    iniziali: "",
-    tipologiaCodice: "",
-    dettaglio: "",
+    codice: "",
     textQuery: "",
     textField: "nome",
     showBio: true,
@@ -275,9 +215,7 @@ export function emptyProdottiPropriFilters(): ProdottiPropriFilters {
 
 export function hasActiveProdottiPropriFilters(filters: ProdottiPropriFilters): boolean {
   return (
-    Boolean(filters.iniziali.trim()) ||
-    Boolean(filters.tipologiaCodice) ||
-    Boolean(filters.dettaglio.trim()) ||
+    Boolean(filters.codice.trim()) ||
     Boolean(filters.textQuery.trim()) ||
     !filters.showBio ||
     !filters.showConvenzionale
@@ -288,10 +226,8 @@ export function filterProdottiPropri(
   prodotti: ProdottoProprio[],
   filters: ProdottiPropriFilters
 ): ProdottoProprio[] {
-  const inizialiQ = filters.iniziali.trim().toLowerCase();
-  const dettaglioQ = filters.dettaglio.trim().toLowerCase();
+  const codiceQ = filters.codice.trim().toLowerCase();
   const textQ = normalizeNomeProdottoProprio(filters.textQuery);
-  const tipoCode = filters.tipologiaCodice;
 
   return prodotti.filter((m) => {
     if (filters.showBio !== filters.showConvenzionale) {
@@ -301,15 +237,7 @@ export function filterProdottiPropri(
       return false;
     }
 
-    const parts = parseCodiceProdottoProprioParts(m.codice);
-
-    if (inizialiQ && !parts.iniziali.toLowerCase().includes(inizialiQ)) {
-      return false;
-    }
-    if (tipoCode && parts.tipologiaCodice !== tipoCode) {
-      return false;
-    }
-    if (dettaglioQ && !parts.dettaglio.toLowerCase().includes(dettaglioQ)) {
+    if (codiceQ && !m.codice.toLowerCase().includes(codiceQ)) {
       return false;
     }
 

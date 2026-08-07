@@ -27,9 +27,7 @@ export function ProdottiPropriFiltersPanel({
   }
 
   const active =
-    Boolean(value.iniziali.trim()) ||
-    Boolean(value.tipologiaCodice) ||
-    Boolean(value.dettaglio.trim()) ||
+    Boolean(value.codice.trim()) ||
     Boolean(value.textQuery.trim()) ||
     !value.showBio ||
     !value.showConvenzionale;
@@ -69,60 +67,21 @@ export function ProdottiPropriFiltersPanel({
       </div>
 
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Filtra per parti della targa (leggenda Pp + iniziali + B/C + /dettaglio)
-        oppure per testo e tipologia.
+        Filtra per targa (libera), testo e tipologia bio/convenzionale.
       </p>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            Iniziali prodotto
+            Targa / codice
           </span>
           <input
-            value={value.iniziali}
-            onChange={(e) => patch({ iniziali: e.target.value })}
-            placeholder="Es. Cl"
+            value={value.codice}
+            onChange={(e) => patch({ codice: e.target.value })}
+            placeholder="Parte del codice…"
             spellCheck={false}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
           />
-          <span className="mt-1 block text-[11px] text-[var(--muted)]">
-            Prime lettere prodotto (es. Cladodi → Cl)
-          </span>
-        </label>
-
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            B / C in targa
-          </span>
-          <select
-            value={value.tipologiaCodice}
-            onChange={(e) =>
-              patch({
-                tipologiaCodice: e.target.value as "" | "B" | "C",
-              })
-            }
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
-          >
-            <option value="">Tutti</option>
-            <option value="B">B — Biologico</option>
-            <option value="C">C — Convenzionale</option>
-          </select>
-        </label>
-
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            Età / dettaglio
-          </span>
-          <input
-            value={value.dettaglio}
-            onChange={(e) => patch({ dettaglio: e.target.value })}
-            placeholder="Es. 12"
-            spellCheck={false}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
-          />
-          <span className="mt-1 block text-[11px] text-[var(--muted)]">
-            Parte dopo “/” (mesi o altro)
-          </span>
         </label>
 
         <div className="block text-sm">

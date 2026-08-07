@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
-import { FaChevronDown, FaCopy } from "react-icons/fa6";
+import { FaCopy } from "react-icons/fa6";
 import {
-  CODICE_PRODOTTO_PROPRIO_PREFIX,
-  composeCodiceProdottoProprio,
   findProdottoProprioByCodice,
   findProdottoProprioByNomeExact,
   findSimilarProdottiPropri,
-  sanitizeCodiceProdottoProprioBody,
-  stripCodiceProdottoProprioPrefix,
+  sanitizeCodiceProdottoProprio,
   type ProdottoProprio,
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
@@ -25,17 +22,6 @@ type Props = {
   onSave: (values: ProdottoProprioInput) => void | Promise<void>;
 };
 
-const LEGGENDA_PARTI = [
-  { pezzo: "Pp", significato: "prodotto proprio (prefisso fisso)" },
-  {
-    pezzo: "Cl",
-    significato: "Prime 2 consonanti del prodotto (es. Cladodi → Cl)",
-  },
-  { pezzo: "B / C", significato: "Biologico oppure Convenzionale" },
-  { pezzo: "/", significato: "Separatore se presente età o altro dettaglio" },
-  { pezzo: "12", significato: "Età o altro dettaglio" },
-] as const;
-
 export function ProdottoProprioFormModal({
   mode,
   initial,
@@ -44,19 +30,15 @@ export function ProdottoProprioFormModal({
   onSave,
 }: Props) {
   const titleId = useId();
-  const leggendaId = useId();
   const isEdit = mode === "edit";
   const excludeId = initial?.id ?? null;
 
-  const [codiceBody, setCodiceBody] = useState(
-    initial ? stripCodiceProdottoProprioPrefix(initial.codice) : ""
-  );
+  const [codice, setCodice] = useState(initial?.codice ?? "");
   const [nome, setNome] = useState(initial?.nome ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [tipologia, setTipologia] = useState<Tipologia | null>(
     initial ? (initial.isBio ? "bio" : "convenzionale") : null
   );
-  const [leggendaOpen, setLeggendaOpen] = useState(false);
   const [modelloOpen, setModelloOpen] = useState(false);
   const [modelloQuery, setModelloQuery] = useState("");
   const [modelloUsato, setModelloUsato] = useState<string | null>(null);
@@ -83,10 +65,10 @@ export function ProdottoProprioFormModal({
     };
   }, [onClose, modelloOpen]);
 
-  const codiceCompleto = useMemo(() => {
-    const body = sanitizeCodiceProdottoProprioBody(codiceBody);
-    return body ? composeCodiceProdottoProprio(body) : "";
-  }, [codiceBody]);
+  const codiceCompleto = useMemo(
+    () => sanitizeCodiceProdottoProprio(codice),
+    [codice]
+  );
 
   const codiceDuplicato = useMemo(() => {
     if (!codiceCompleto) return null;
@@ -127,7 +109,7 @@ export function ProdottoProprioFormModal({
     setNome(m.nome);
     setNote(m.note);
     setTipologia(m.isBio ? "bio" : "convenzionale");
-    setCodiceBody("");
+    if (!isEdit) setCodice("");
     setModelloUsato(`${m.codice} — ${m.nome}`);
     setAckSimili(false);
     setFormError(null);
@@ -137,8 +119,8 @@ export function ProdottoProprioFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const body = sanitizeCodiceProdottoProprioBody(codiceBody);
-    if (!body || !nome.trim() || !tipologia || saving) return;
+    const codiceClean = sanitizeCodiceProdottoProprio(codice);
+    if (!codiceClean || !nome.trim() || !tipologia || saving) return;
 
     if (codiceDuplicato) {
       setFormError(
@@ -163,7 +145,7 @@ export function ProdottoProprioFormModal({
     setFormError(null);
     try {
       await onSave({
-        codice: composeCodiceProdottoProprio(body),
+        codice: codiceClean,
         nome: nome.trim(),
         note: note.trim(),
         isBio: tipologia === "bio",
@@ -174,7 +156,7 @@ export function ProdottoProprioFormModal({
   }
 
   const canSubmit =
-    Boolean(sanitizeCodiceProdottoProprioBody(codiceBody)) &&
+    Boolean(sanitizeCodiceProdottoProprio(codice)) &&
     Boolean(nome.trim()) &&
     Boolean(tipologia) &&
     !codiceDuplicato &&
@@ -199,11 +181,12 @@ export function ProdottoProprioFormModal({
           {isEdit ? "Modifica prodotto proprio" : "Nuovo prodotto proprio"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          prefisso Pp fisso. Esempio:{" "}
-          <span className="font-mono font-medium text-slate-700">PpClB/12</span>
+          Targa completamente modificabile (lettere, cifre,{" "}
+          <span className="font-mono">- _ /</span>). Controllo anti-duplicato
+          sul nome.
         </p>
 
-        {!isEdit && catalog.length > 0 && (
+        {catalog.length > 0 && (
           <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50/80 p-3">
             <button
               type="button"
@@ -211,12 +194,14 @@ export function ProdottoProprioFormModal({
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
             >
               <FaCopy size={13} />
-              Copia da un’altra prodotto proprio
+              Copia da un altro prodotto proprio
             </button>
             {modelloUsato && (
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Modello: <span className="font-medium">{modelloUsato}</span>
-                . Inserisci un nuovo codice univoco.
+                {isEdit
+                  ? ". Nome, note e tipologia aggiornati; la targa resta modificabile."
+                  : ". Inserisci un nuovo codice univoco."}
               </p>
             )}
           </div>
@@ -225,37 +210,25 @@ export function ProdottoProprioFormModal({
         <form onSubmit={submit} className="mt-5 space-y-4">
           <div className="space-y-2">
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Codice interno</span>
-              <div
-                className={`flex overflow-hidden rounded-lg border focus-within:border-[var(--primary)] ${
+              <span className="mb-1 block font-medium">Codice interno (targa)</span>
+              <input
+                value={codice}
+                onChange={(e) => {
+                  setCodice(sanitizeCodiceProdottoProprio(e.target.value));
+                  setFormError(null);
+                }}
+                required
+                autoFocus
+                spellCheck={false}
+                autoCapitalize="off"
+                placeholder="Es. ClB/12 oppure PP-01"
+                aria-label="Codice interno targa"
+                className={`w-full rounded-lg border px-3 py-2 font-mono outline-none focus:border-[var(--primary)] ${
                   codiceDuplicato
                     ? "border-red-400"
                     : "border-[var(--border)]"
                 }`}
-              >
-                <span
-                  className="inline-flex select-none items-center bg-slate-100 px-3 font-mono text-base font-black tracking-wide text-emerald-800"
-                  title="Prefisso fisso"
-                >
-                  {CODICE_PRODOTTO_PROPRIO_PREFIX}
-                </span>
-                <input
-                  value={codiceBody}
-                  onChange={(e) => {
-                    setCodiceBody(
-                      sanitizeCodiceProdottoProprioBody(e.target.value)
-                    );
-                    setFormError(null);
-                  }}
-                  required
-                  autoFocus
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  placeholder="ClB/12"
-                  aria-label="Parte codice dopo Pp"
-                  className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 font-mono outline-none"
-                />
-              </div>
+              />
             </label>
             {codiceDuplicato ? (
               <p className="text-xs text-red-600">
@@ -265,50 +238,6 @@ export function ProdottoProprioFormModal({
             ) : codiceCompleto ? (
               <p className="text-xs text-emerald-700">Targa disponibile</p>
             ) : null}
-
-            <div className="rounded-lg border border-[var(--border)] bg-slate-50/80">
-              <button
-                type="button"
-                onClick={() => setLeggendaOpen((open) => !open)}
-                aria-expanded={leggendaOpen}
-                aria-controls={leggendaId}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm font-medium text-[var(--primary)] hover:bg-slate-100/80"
-              >
-                Suggerisci leggenda
-                <FaChevronDown
-                  size={12}
-                  className={`shrink-0 transition-transform ${leggendaOpen ? "rotate-180" : ""}`}
-                />
-              </button>
-              {leggendaOpen && (
-                <div
-                  id={leggendaId}
-                  className="space-y-2 border-t border-[var(--border)] px-3 py-3"
-                >
-                  <p className="text-xs text-[var(--muted)]">
-                    Struttura del codice — es.{" "}
-                    <span className="font-mono font-semibold text-slate-700">
-                      PpClB/12
-                    </span>
-                  </p>
-                  <ul className="space-y-1.5">
-                    {LEGGENDA_PARTI.map((voce) => (
-                      <li
-                        key={voce.pezzo}
-                        className="flex gap-2 text-xs leading-snug"
-                      >
-                        <span className="w-10 shrink-0 font-mono font-semibold text-slate-800">
-                          {voce.pezzo}
-                        </span>
-                        <span className="text-[var(--muted)]">
-                          {voce.significato}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="space-y-2">
@@ -377,9 +306,9 @@ export function ProdottoProprioFormModal({
                         setAckSimili(e.target.checked);
                         setFormError(null);
                       }}
-                      className="mt-0.5 rounded border-[var(--border)]"
+                      className="rounded border-[var(--border)]"
                     />
-                    Confermo che non è un duplicato di queste prodotti simili
+                    Confermo che non è un duplicato di questi prodotti simili
                   </label>
                 )}
               </div>

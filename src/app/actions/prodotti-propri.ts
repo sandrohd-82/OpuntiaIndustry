@@ -90,7 +90,7 @@ export async function createProdottoProprioAction(
     return {
       success: false,
       error:
-        "Il codice deve iniziare con Pp, seguito da lettere, cifre o - _ /.",
+        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
     };
   }
 
@@ -147,7 +147,7 @@ export async function updateProdottoProprioAction(
     return {
       success: false,
       error:
-        "Il codice deve iniziare con Pp, seguito da lettere, cifre o - _ /.",
+        "Il codice può contenere lettere, cifre e i caratteri - _ /.",
     };
   }
 

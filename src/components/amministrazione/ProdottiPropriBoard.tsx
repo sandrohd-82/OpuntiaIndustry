@@ -3,12 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
-import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
-  CODICE_PRODOTTO_PROPRIO_PREFIX,
   emptyProdottiPropriFilters,
   filterProdottiPropri,
   hasActiveProdottiPropriFilters,
@@ -49,8 +47,8 @@ export function ProdottiPropriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco prodotti propri con codice interno (prefisso Pp), filtri e
-          controllo anti-duplicato come per le materie prime.
+          Elenco prodotti propri con targa libera, filtri e controllo
+          anti-duplicato sul nome.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {prodotti.length > 0 && (
@@ -147,11 +145,9 @@ export function ProdottiPropriBoard() {
               {filtered.map((m) => (
                 <tr key={m.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3">
-                    <CodiceTargaBadge
-                      code={m.codice}
-                      fixedPrefix={CODICE_PRODOTTO_PROPRIO_PREFIX}
-                      size="md"
-                    />
+                    <span className="font-mono text-sm font-semibold tracking-wide text-slate-800">
+                      {m.codice}
+                    </span>
                   </td>
                   <td className="px-4 py-3 font-medium">{m.nome}</td>
                   <td className="px-4 py-3 text-xs">
