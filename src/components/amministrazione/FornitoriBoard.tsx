@@ -204,7 +204,7 @@ export function FornitoriBoard() {
                 <th className="px-4 py-3 font-medium">P. IVA</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
                 <th className="px-4 py-3 font-medium">Sede ritiro</th>
-                <th className="px-4 py-3 font-medium">Fornitore di</th>
+                <th className="px-4 py-3 font-medium">Prodotti</th>
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
             </thead>

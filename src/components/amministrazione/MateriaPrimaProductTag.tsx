@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { FaXmark } from "react-icons/fa6";
@@ -37,6 +36,7 @@ type AnchorRect = {
   left: number;
   bottom: number;
   width: number;
+  height: number;
 };
 
 function SchedaContent({
@@ -53,9 +53,9 @@ function SchedaContent({
   const bioCodice = bioContext?.codice?.trim() ?? "";
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           Codice
         </p>
         <div className="mt-1">
@@ -66,18 +66,18 @@ function SchedaContent({
         </div>
       </div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           Nome
         </p>
-        <p className="mt-1 text-sm font-medium">
+        <p className="mt-0.5 text-sm font-medium">
           {materia?.nome || "Scheda non trovata"}
         </p>
       </div>
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
           Tipologia
         </p>
-        <p className="mt-1 text-sm">
+        <p className="mt-0.5 text-sm">
           {materia ? (
             isBio ? (
               <span className="font-medium text-emerald-700">Prodotto bio</span>
@@ -91,23 +91,19 @@ function SchedaContent({
       </div>
       {materia?.note ? (
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
             Note
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+          <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">
             {materia.note}
           </p>
         </div>
       ) : null}
       {isBio && (hasPdf || bioCodice) ? (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs">
-          <p className="font-medium text-emerald-900">
-            Certificato fornitore
-          </p>
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-2 text-xs">
+          <p className="font-medium text-emerald-900">Certificato fornitore</p>
           {bioCodice ? (
-            <p className="mt-1 text-emerald-900/90">
-              Codice bio: {bioCodice}
-            </p>
+            <p className="mt-1 text-emerald-900/90">Codice bio: {bioCodice}</p>
           ) : null}
           {hasPdf ? (
             <p className="mt-0.5 text-emerald-900/90">PDF certificato caricato</p>
@@ -118,103 +114,52 @@ function SchedaContent({
   );
 }
 
-function SchedaDialog({
-  open,
-  onClose,
-  titleId,
-  children,
-}: {
-  open: boolean;
-  onClose: () => void;
-  titleId: string;
-  children: ReactNode;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/50 p-4"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h3 id={titleId} className="text-base font-semibold">
-            Scheda materia prima
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Chiudi"
-            className="rounded-md p-1 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-900"
-          >
-            <FaXmark size={14} />
-          </button>
-        </div>
-        {children}
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-5 w-full rounded-lg border border-[var(--border)] py-2 text-sm font-medium hover:bg-slate-50"
-        >
-          Chiudi
-        </button>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-function HoverSchedaPortal({
+function FumettoPortal({
   open,
   anchor,
-  onEnter,
-  onLeave,
+  titleId,
+  onClose,
+  ignoreRoot,
   children,
 }: {
   open: boolean;
   anchor: AnchorRect | null;
-  onEnter: () => void;
-  onLeave: () => void;
-  children: ReactNode;
+  titleId: string;
+  onClose: () => void;
+  /** Elemento ancora (targa): i click qui non chiudono il fumetto. */
+  ignoreRoot: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [style, setStyle] = useState<CSSProperties>({});
+  const [placeAbove, setPlaceAbove] = useState(false);
+  const [caretLeft, setCaretLeft] = useState(24);
 
   useLayoutEffect(() => {
     if (!open || !anchor) return;
 
-    const gap = 8;
+    const gap = 10;
     const width = 288;
     const viewportPad = 8;
-    const panelHeight = panelRef.current?.offsetHeight ?? 220;
+    const panelHeight = panelRef.current?.offsetHeight ?? 240;
 
-    let left = anchor.left;
+    let left = anchor.left + anchor.width / 2 - width / 2;
     left = Math.min(left, window.innerWidth - width - viewportPad);
     left = Math.max(viewportPad, left);
 
     const spaceBelow = window.innerHeight - anchor.bottom - gap;
-    const placeAbove = spaceBelow < panelHeight && anchor.top > panelHeight + gap;
+    const above =
+      spaceBelow < panelHeight && anchor.top > panelHeight + gap;
 
-    const top = placeAbove
+    const top = above
       ? Math.max(viewportPad, anchor.top - panelHeight - gap)
       : Math.min(anchor.bottom + gap, window.innerHeight - viewportPad - 40);
 
+    const anchorCenter = anchor.left + anchor.width / 2;
+    const caret = Math.min(width - 28, Math.max(20, anchorCenter - left));
+
+    setPlaceAbove(above);
+    setCaretLeft(caret);
     setStyle({
       position: "fixed",
       top,
@@ -224,20 +169,65 @@ function HoverSchedaPortal({
     });
   }, [open, anchor]);
 
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    function onPointerDown(e: MouseEvent | TouchEvent) {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (ignoreRoot.current?.contains(target)) return;
+      onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [open, onClose, ignoreRoot]);
+
   if (!open || !anchor || typeof document === "undefined") return null;
 
   return createPortal(
     <div
       ref={panelRef}
-      role="tooltip"
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby={titleId}
       style={style}
-      className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-2xl"
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
+      className="rounded-2xl border border-slate-300 bg-white p-3.5 shadow-[0_12px_40px_rgba(15,23,42,0.18)]"
     >
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-        Scheda prodotto
-      </p>
+      {/* Coda del fumetto */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute h-3 w-3 rotate-45 border-slate-300 bg-white ${
+          placeAbove
+            ? "bottom-[-6px] border-b border-r"
+            : "top-[-6px] border-l border-t"
+        }`}
+        style={{ left: caretLeft }}
+      />
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <h3
+          id={titleId}
+          className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]"
+        >
+          Scheda prodotto
+        </h3>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Chiudi"
+          className="rounded-md p-0.5 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-900"
+        >
+          <FaXmark size={12} />
+        </button>
+      </div>
       {children}
     </div>,
     document.body
@@ -253,10 +243,8 @@ export function MateriaPrimaProductTag({
 }: Props) {
   const titleId = useId();
   const wrapRef = useRef<HTMLSpanElement | null>(null);
-  const [hoverOpen, setHoverOpen] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
-  const closeHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateAnchor = useCallback(() => {
     const el = wrapRef.current;
@@ -267,25 +255,14 @@ export function MateriaPrimaProductTag({
       left: rect.left,
       bottom: rect.bottom,
       width: rect.width,
+      height: rect.height,
     });
   }, []);
 
-  const clearHoverTimer = useCallback(() => {
-    if (closeHoverTimer.current) {
-      clearTimeout(closeHoverTimer.current);
-      closeHoverTimer.current = null;
-    }
-  }, []);
-
-  const scheduleHoverClose = useCallback(() => {
-    clearHoverTimer();
-    closeHoverTimer.current = setTimeout(() => setHoverOpen(false), 140);
-  }, [clearHoverTimer]);
-
-  useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
+  const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
-    if (!hoverOpen) return;
+    if (!open) return;
     function onScrollOrResize() {
       updateAnchor();
     }
@@ -295,32 +272,24 @@ export function MateriaPrimaProductTag({
       window.removeEventListener("scroll", onScrollOrResize, true);
       window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [hoverOpen, updateAnchor]);
+  }, [open, updateAnchor]);
 
   return (
     <>
-      <span
-        ref={wrapRef}
-        className="relative inline-flex"
-        onMouseEnter={() => {
-          clearHoverTimer();
-          updateAnchor();
-          setHoverOpen(true);
-        }}
-        onMouseLeave={scheduleHoverClose}
-      >
+      <span ref={wrapRef} className="relative inline-flex items-center gap-0.5">
         <button
           type="button"
-          onClick={() => setDialogOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 font-mono text-xs font-semibold tracking-wide ring-1 ring-[var(--border)] transition hover:bg-slate-50 hover:ring-slate-300"
+          onClick={(e) => {
+            e.stopPropagation();
+            updateAnchor();
+            setOpen((v) => !v);
+          }}
+          className="font-mono text-xs font-semibold tracking-wide text-slate-800 underline decoration-slate-300 underline-offset-2 transition hover:text-[var(--primary)] hover:decoration-[var(--primary)]"
+          aria-expanded={open}
           aria-haspopup="dialog"
+          title="Dettagli prodotto"
         >
           {code}
-          {materia?.isBio ? (
-            <span className="rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-              Bio
-            </span>
-          ) : null}
         </button>
         {removable && onRemove ? (
           <button
@@ -330,33 +299,22 @@ export function MateriaPrimaProductTag({
               e.stopPropagation();
               onRemove();
             }}
-            className="-ml-1 inline-flex items-center rounded-full p-1 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-900"
+            className="inline-flex items-center rounded-full p-1 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-900"
           >
             <FaXmark size={11} />
           </button>
         ) : null}
       </span>
 
-      <HoverSchedaPortal
-        open={hoverOpen && !dialogOpen}
+      <FumettoPortal
+        open={open}
         anchor={anchor}
-        onEnter={clearHoverTimer}
-        onLeave={scheduleHoverClose}
-      >
-        <SchedaContent
-          code={code}
-          materia={materia}
-          bioContext={bioContext}
-        />
-      </HoverSchedaPortal>
-
-      <SchedaDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
         titleId={titleId}
+        onClose={close}
+        ignoreRoot={wrapRef}
       >
         <SchedaContent code={code} materia={materia} bioContext={bioContext} />
-      </SchedaDialog>
+      </FumettoPortal>
     </>
   );
 }

@@ -5,12 +5,14 @@ import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { useClienti } from "@/hooks/useClienti";
 import {
   formatSedeBreve,
   type Cliente,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
   return (
@@ -31,11 +33,11 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
 function ClienteRow({
   cliente,
   onEdit,
-  prodottoLabels,
+  prodottiByCode,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
-  prodottoLabels: Map<string, string>;
+  prodottiByCode: Map<string, ProdottoProprio>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -53,8 +55,21 @@ function ClienteRow({
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(cliente.sedeMagazzino)}
         </td>
-        <td className="px-4 py-3 tabular-nums">
-          {cliente.prodottiAcquistati.length}
+        <td className="max-w-[240px] px-4 py-3">
+          {cliente.prodottiAcquistati.length === 0 ? (
+            <span className="text-[var(--muted)]">—</span>
+          ) : (
+            <ul className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {cliente.prodottiAcquistati.map((code) => (
+                <li key={code}>
+                  <ProdottoProprioProductTag
+                    code={code}
+                    prodotto={prodottiByCode.get(code) ?? null}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
@@ -107,25 +122,15 @@ function ClienteRow({
                 {cliente.prodottiAcquistati.length === 0 ? (
                   <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
                 ) : (
-                  <ul className="mt-2 flex flex-wrap gap-2">
-                    {cliente.prodottiAcquistati.map((code) => {
-                      const nome = prodottoLabels.get(code);
-                      return (
-                        <li
-                          key={code}
-                          className="rounded-md bg-white px-2.5 py-1 text-sm ring-1 ring-[var(--border)]"
-                        >
-                          <span className="font-mono text-xs font-semibold tracking-wide">
-                            {code}
-                          </span>
-                          {nome ? (
-                            <span className="ml-1.5 text-[var(--muted)]">
-                              {nome}
-                            </span>
-                          ) : null}
-                        </li>
-                      );
-                    })}
+                  <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    {cliente.prodottiAcquistati.map((code) => (
+                      <li key={code}>
+                        <ProdottoProprioProductTag
+                          code={code}
+                          prodotto={prodottiByCode.get(code) ?? null}
+                        />
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>
@@ -142,17 +147,15 @@ export function ClientiBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [prodottoLabels, setProdottoLabels] = useState<Map<string, string>>(
-    () => new Map()
-  );
+  const [prodottiByCode, setProdottiByCode] = useState<
+    Map<string, ProdottoProprio>
+  >(() => new Map());
 
   useEffect(() => {
     void (async () => {
       const result = await listProdottiPropriAction();
       if (!result.success) return;
-      setProdottoLabels(
-        new Map(result.prodotti.map((p) => [p.codice, p.nome]))
-      );
+      setProdottiByCode(new Map(result.prodotti.map((p) => [p.codice, p])));
     })();
   }, [clienti]);
 
@@ -219,7 +222,7 @@ export function ClientiBoard() {
                 <ClienteRow
                   key={cliente.id}
                   cliente={cliente}
-                  prodottoLabels={prodottoLabels}
+                  prodottiByCode={prodottiByCode}
                   onEdit={(item) => {
                     setSaveError(null);
                     setEditing(item);
