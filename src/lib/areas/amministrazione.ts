@@ -9,7 +9,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "ordini",
     label: "Ordini",
-    description: "Gestione ordini ricevuti ed evasi",
+    description: "Gestione ordini ricevuti, evasi e storico",
     path: "/app/amministrazione/ordini",
     children: [
       {
@@ -23,6 +23,12 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         label: "Evasi",
         description: "Ordini già evasi",
         path: "/app/amministrazione/ordini/evasi",
+      },
+      {
+        slug: "storico",
+        label: "Storico",
+        description: "Storico completo degli ordini",
+        path: "/app/amministrazione/ordini/storico",
       },
     ],
   },
@@ -109,6 +115,12 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/amministrazione/dipendenti/buste-paga",
       },
     ],
+  },
+  {
+    slug: "grafici",
+    label: "Grafici",
+    description: "Grafici e report di amministrazione",
+    path: "/app/amministrazione/grafici",
   },
 ] as const;
 
