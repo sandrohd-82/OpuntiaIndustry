@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
+import { FaFilePdf, FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
@@ -13,6 +13,7 @@ import {
   type ProdottoProprio,
   type ProdottiPropriFilters,
 } from "@/lib/amministrazione/prodotti-propri";
+import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-pdf";
 
 export function ProdottiPropriBoard() {
   const searchParams = useSearchParams();
@@ -67,6 +68,26 @@ export function ProdottiPropriBoard() {
               {filtersActive && !filtersOpen ? (
                 <span className="rounded-full bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
                   ON
+                </span>
+              ) : null}
+            </button>
+          )}
+          {filtered.length > 0 && (
+            <button
+              type="button"
+              onClick={() => exportProdottiPropriPdf(filtered, filters)}
+              title={
+                filtersActive
+                  ? `Esporta PDF dei ${filtered.length} prodotti filtrati`
+                  : `Esporta PDF dell’elenco completo (${filtered.length})`
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              <FaFilePdf size={14} className="text-red-600" />
+              Esporta PDF
+              {filtersActive ? (
+                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                  {filtered.length}
                 </span>
               ) : null}
             </button>
