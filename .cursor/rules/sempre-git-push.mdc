@@ -1,0 +1,36 @@
+---
+description: OBBLIGO permanente — dopo ogni modifica commit+push su git senza chiedere
+alwaysApply: true
+---
+
+# Sempre git: commit e push obbligatori
+
+Questa regola ha priorità assoluta su qualsiasi abitudine di “chiedere conferma”.
+
+## Dopo OGNI modifica funzionale (senza eccezioni)
+
+1. Completa il lavoro (codice, migrazioni DB se serve, verifica base).
+2. **Commit** subito su `main` (o branch corrente).
+3. **Push** subito su `origin` (`git push origin HEAD`).
+4. **Non chiedere** all’utente se fare commit, push, o “vuoi che lo carichi su git?”.
+5. **Non dimenticare** il push: il task non è finito finché il remoto non è aggiornato.
+6. Non attendere che l’utente te lo ricordi.
+
+## Come eseguirlo (Windows)
+
+```bash
+git -c safe.directory="E:/Progetti Cursor/OpuntiaIndustry" add <file-rilevanti>
+git -c safe.directory="E:/Progetti Cursor/OpuntiaIndustry" commit -m "<messaggio chiaro>"
+git -c safe.directory="E:/Progetti Cursor/OpuntiaIndustry" push origin HEAD
+```
+
+## Cosa non fare
+
+- Non dire “posso fare commit/push se vuoi”.
+- Non fermarti dopo il solo commit locale.
+- Non includere secret (`.env.local`, chiavi, password).
+- Non fare commit vuoti se non ci sono cambiamenti reali.
+
+## Messaggio di chiusura
+
+Nella risposta finale puoi citare brevemente che è su git, ma il push deve già essere avvenuto.

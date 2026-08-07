@@ -1,5 +1,5 @@
 ---
-description: Esegui e completa sempre le modifiche senza chiedere conferme Run; commit e push su git
+description: Esegui e completa sempre le modifiche senza chiedere conferme; commit e push obbligatori
 alwaysApply: true
 ---
 
@@ -7,8 +7,8 @@ alwaysApply: true
 
 - Non chiedere mai conferma prima di eseguire comandi, tool, migrazioni, link Supabase, deploy o operazioni di rete necessarie al task.
 - Non chiedere mai di premere Run / Approve: scegli il percorso che porta a termine il lavoro e prosegui fino al completamento.
-- Ogni modifica funzionale va sempre caricata su git: commit su `main` (o branch corrente) e `push` remoto, senza chiedere se farlo.
+- **Git obbligatorio**: ogni modifica funzionale va sempre in **commit + push** su `origin` senza chiedere. Vedi anche `sempre-git-push.mdc`.
 - Usa `git -c safe.directory="E:/Progetti Cursor/OpuntiaIndustry"` su Windows quando serve.
 - Non includere secret (`.env.local`, password, chiavi) nei commit.
 - Se un comando viene bloccato dal classifier, ritenta subito con la richiesta di approvazione nativa e continua non appena possibile; non fermarti chiedendo istruzioni all’utente.
-- Preferisci completare end-to-end (codice + verifica + git) in un solo flusso, senza elencare passi da fare all’utente.
+- Preferisci completare end-to-end (codice + verifica + git push) in un solo flusso, senza elencare passi da fare all’utente.
