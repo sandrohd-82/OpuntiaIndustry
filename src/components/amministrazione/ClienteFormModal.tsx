@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -47,6 +47,16 @@ function isSedeFilled(sede: SedeCliente): boolean {
   );
 }
 
+function isSedeEmpty(sede: SedeCliente): boolean {
+  return !(
+    sede.nazione.trim() ||
+    sede.provincia.trim() ||
+    sede.citta.trim() ||
+    sede.cap.trim() ||
+    sede.indirizzo.trim()
+  );
+}
+
 export function ClienteFormModal({
   mode,
   initial,
@@ -69,10 +79,18 @@ export function ClienteFormModal({
   const [sedeMagazzino, setSedeMagazzino] = useState(
     initial?.sedeMagazzino ?? emptySede()
   );
-  const [stessaSede, setStessaSede] = useState(
-    initial
-      ? sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
-      : false
+  const initialStessaSede = Boolean(
+    initial &&
+      !isSedeEmpty(initial.sedeMagazzino) &&
+      sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
+  );
+  const [stessaSede, setStessaSede] = useState(initialStessaSede);
+  const [magazzinoOpen, setMagazzinoOpen] = useState(
+    Boolean(
+      initial &&
+        (!isSedeEmpty(initial.sedeMagazzino) ||
+          sameSede(initial.sedeAmministrativa, initial.sedeMagazzino))
+    )
   );
   const [consegneEnabled, setConsegneEnabled] = useState(
     Boolean(initial?.consegneAltraAzienda?.length)
@@ -115,8 +133,15 @@ export function ClienteFormModal({
       setFormError("Completa la sede amministrativa prima di continuare.");
       return null;
     }
-    if (!stessaSede && !isSedeFilled(sedeMagazzino)) {
-      setFormError("Completa la sede magazzino prima di continuare.");
+    if (
+      magazzinoOpen &&
+      !stessaSede &&
+      !isSedeEmpty(sedeMagazzino) &&
+      !isSedeFilled(sedeMagazzino)
+    ) {
+      setFormError(
+        "Completa tutti i campi della sede magazzino, oppure chiudila / azzerala."
+      );
       return null;
     }
     if (consegneEnabled) {
@@ -156,7 +181,11 @@ export function ClienteFormModal({
       ragioneSociale: ragioneSociale.trim(),
       partitaIva: partitaIva.trim(),
       sedeAmministrativa,
-      sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+      sedeMagazzino: !magazzinoOpen
+        ? emptySede()
+        : stessaSede
+          ? sedeAmministrativa
+          : sedeMagazzino,
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
     };
@@ -296,31 +325,68 @@ export function ClienteFormModal({
             value={sedeAmministrativa}
             onChange={(next) => {
               setSedeAmministrativa(next);
-              if (stessaSede) setSedeMagazzino(next);
+              if (magazzinoOpen && stessaSede) setSedeMagazzino(next);
             }}
           />
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={stessaSede}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setStessaSede(checked);
-                if (checked) setSedeMagazzino(sedeAmministrativa);
-              }}
-              className="rounded border-[var(--border)]"
-            />
-            Sede magazzino uguale alla sede amministrativa
-          </label>
+          <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Sede Magazzino</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setMagazzinoOpen((open) => {
+                    const next = !open;
+                    if (!next) {
+                      setStessaSede(false);
+                      setSedeMagazzino(emptySede());
+                    }
+                    return next;
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                aria-expanded={magazzinoOpen}
+              >
+                {magazzinoOpen ? "Chiudi" : "Apri"}
+                <FaChevronDown
+                  size={11}
+                  className={`text-[var(--muted)] transition-transform ${
+                    magazzinoOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-[var(--muted)]">
+              Opzionale: puoi lasciarla chiusa se non serve.
+            </p>
 
-          {!stessaSede && (
-            <AddressSedeFields
-              title="Sede Magazzino"
-              value={sedeMagazzino}
-              onChange={setSedeMagazzino}
-            />
-          )}
+            {magazzinoOpen && (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={stessaSede}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setStessaSede(checked);
+                      if (checked) setSedeMagazzino(sedeAmministrativa);
+                    }}
+                    className="rounded border-[var(--border)]"
+                  />
+                  Uguale alla sede amministrativa
+                </label>
+
+                {!stessaSede && (
+                  <AddressSedeFields
+                    title="Indirizzo magazzino"
+                    value={sedeMagazzino}
+                    onChange={setSedeMagazzino}
+                    requiredFields={false}
+                  />
+                )}
+              </div>
+            )}
+          </div>
 
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-semibold">

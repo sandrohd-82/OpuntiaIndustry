@@ -16,6 +16,8 @@ type Props = {
   title: string;
   value: SedeFornitore;
   onChange: (next: SedeFornitore) => void;
+  /** Se false, i campi non sono obbligatori (es. sede magazzino opzionale). */
+  requiredFields?: boolean;
 };
 
 function SuggestionList<T extends { id: string; label: string }>({
@@ -58,7 +60,12 @@ function SuggestionList<T extends { id: string; label: string }>({
   );
 }
 
-export function AddressSedeFields({ title, value, onChange }: Props) {
+export function AddressSedeFields({
+  title,
+  value,
+  onChange,
+  requiredFields = true,
+}: Props) {
   const cittaInputId = useId();
   const viaInputId = useId();
   const cittaListId = useId();
@@ -258,7 +265,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               // Ritardo: lascia completare mousedown sulla lista
               window.setTimeout(() => setShowPaesi(false), 120);
             }}
-            required
+            required={requiredFields}
             placeholder="Paese o frazione, es. Pistrino…"
             aria-autocomplete="list"
             aria-controls={cittaListId}
@@ -287,7 +294,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           <input
             value={value.nazione}
             onChange={(e) => setField("nazione", e.target.value)}
-            required
+            required={requiredFields}
             placeholder="Es. Italia"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
@@ -297,7 +304,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           <input
             value={value.provincia}
             onChange={(e) => setField("provincia", e.target.value)}
-            required
+            required={requiredFields}
             placeholder="Es. Arezzo"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
@@ -313,7 +320,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               }
               inputMode="numeric"
               autoComplete="postal-code"
-              required
+              required={requiredFields}
               placeholder={
                 capOptions.length > 1
                   ? "Seleziona un CAP dall’elenco"
@@ -396,7 +403,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
             onBlur={() => {
               window.setTimeout(() => setShowStreets(false), 120);
             }}
-            required
+            required={requiredFields}
             placeholder="Es. via Roma 12"
             autoCapitalize="off"
             autoCorrect="off"

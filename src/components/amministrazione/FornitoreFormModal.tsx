@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { FaChevronDown } from "react-icons/fa6";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
@@ -33,6 +34,16 @@ function sameSede(a: SedeFornitore, b: SedeFornitore) {
   );
 }
 
+function isSedeEmpty(sede: SedeFornitore): boolean {
+  return !(
+    sede.nazione.trim() ||
+    sede.provincia.trim() ||
+    sede.citta.trim() ||
+    sede.cap.trim() ||
+    sede.indirizzo.trim()
+  );
+}
+
 export function FornitoreFormModal({
   mode,
   initial,
@@ -54,10 +65,18 @@ export function FornitoreFormModal({
   const [sedeMagazzino, setSedeMagazzino] = useState(
     initial?.sedeMagazzino ?? emptySede()
   );
-  const [stessaSede, setStessaSede] = useState(
-    initial
-      ? sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
-      : false
+  const initialStessaSede = Boolean(
+    initial &&
+      !isSedeEmpty(initial.sedeMagazzino) &&
+      sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
+  );
+  const [stessaSede, setStessaSede] = useState(initialStessaSede);
+  const [ritiroOpen, setRitiroOpen] = useState(
+    Boolean(
+      initial &&
+        (!isSedeEmpty(initial.sedeMagazzino) ||
+          sameSede(initial.sedeAmministrativa, initial.sedeMagazzino))
+    )
   );
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
@@ -117,7 +136,11 @@ export function FornitoreFormModal({
           ragioneSociale: ragioneSociale.trim(),
           partitaIva: partitaIva.trim(),
           sedeAmministrativa,
-          sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+          sedeMagazzino: !ritiroOpen
+            ? emptySede()
+            : stessaSede
+              ? sedeAmministrativa
+              : sedeMagazzino,
           prodottiAcquistati: prodotti,
           bioCertificatoPath: initial?.bioCertificatoPath ?? "",
           bioCodice: bioCodice.trim(),
@@ -201,31 +224,68 @@ export function FornitoreFormModal({
             value={sedeAmministrativa}
             onChange={(next) => {
               setSedeAmministrativa(next);
-              if (stessaSede) setSedeMagazzino(next);
+              if (ritiroOpen && stessaSede) setSedeMagazzino(next);
             }}
           />
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={stessaSede}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setStessaSede(checked);
-                if (checked) setSedeMagazzino(sedeAmministrativa);
-              }}
-              className="rounded border-[var(--border)]"
-            />
-            Sede ritiro uguale alla sede amministrativa
-          </label>
+          <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Sede ritiro</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setRitiroOpen((open) => {
+                    const next = !open;
+                    if (!next) {
+                      setStessaSede(false);
+                      setSedeMagazzino(emptySede());
+                    }
+                    return next;
+                  });
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                aria-expanded={ritiroOpen}
+              >
+                {ritiroOpen ? "Chiudi" : "Apri"}
+                <FaChevronDown
+                  size={11}
+                  className={`text-[var(--muted)] transition-transform ${
+                    ritiroOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-[var(--muted)]">
+              Opzionale: puoi lasciarla chiusa se non serve.
+            </p>
 
-          {!stessaSede && (
-            <AddressSedeFields
-              title="Sede ritiro"
-              value={sedeMagazzino}
-              onChange={setSedeMagazzino}
-            />
-          )}
+            {ritiroOpen && (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={stessaSede}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setStessaSede(checked);
+                      if (checked) setSedeMagazzino(sedeAmministrativa);
+                    }}
+                    className="rounded border-[var(--border)]"
+                  />
+                  Uguale alla sede amministrativa
+                </label>
+
+                {!stessaSede && (
+                  <AddressSedeFields
+                    title="Indirizzo ritiro"
+                    value={sedeMagazzino}
+                    onChange={setSedeMagazzino}
+                    requiredFields={false}
+                  />
+                )}
+              </div>
+            )}
+          </div>
 
           <FornitoreDiTags
             value={prodotti}
