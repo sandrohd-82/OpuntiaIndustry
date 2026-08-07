@@ -34,7 +34,9 @@ export function CodiceTargaBadge({
       ? "text-sky-700"
       : prefix === "Mp"
         ? "text-emerald-800"
-        : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
+        : prefix === "Pp"
+          ? "text-violet-800"
+          : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
 
   const sizeClasses =
     size === "lg"

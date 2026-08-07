@@ -231,6 +231,39 @@ export interface MateriaPrimaUpdate {
   updated_at?: string;
 }
 
+export interface ProdottoProprioRow {
+  id: string;
+  codice: string;
+  nome: string;
+  note: string;
+  is_bio: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProdottoProprioInsert {
+  id?: string;
+  codice: string;
+  nome: string;
+  note?: string;
+  is_bio?: boolean;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ProdottoProprioUpdate {
+  id?: string;
+  codice?: string;
+  nome?: string;
+  note?: string;
+  is_bio?: boolean;
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -250,6 +283,12 @@ export interface Database {
         Row: MateriaPrimaRow;
         Insert: MateriaPrimaInsert;
         Update: MateriaPrimaUpdate;
+        Relationships: [];
+      };
+      prodotti_propri: {
+        Row: ProdottoProprioRow;
+        Insert: ProdottoProprioInsert;
+        Update: ProdottoProprioUpdate;
         Relationships: [];
       };
       user_second_factor: {

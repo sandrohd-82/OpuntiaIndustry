@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
+import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -66,6 +67,25 @@ export default async function AmministrazioneSubPage({ params }: Props) {
             }
           >
             <MateriePrimeBoard />
+          </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "prodotti-propri") {
+    return (
+      <>
+        <AppHeader title="Prodotti propri" subtitle={page.description} />
+        <div className="p-6">
+          <Suspense
+            fallback={
+              <p className="text-sm text-[var(--muted)]">
+                Caricamento prodotti propri…
+              </p>
+            }
+          >
+            <ProdottiPropriBoard />
           </Suspense>
         </div>
       </>
