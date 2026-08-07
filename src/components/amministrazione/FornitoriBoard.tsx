@@ -48,12 +48,14 @@ function FornitoreRow({
   fornitore,
   onEdit,
   materie,
+  selectMode,
   selected,
   onToggleSelect,
 }: {
   fornitore: Fornitore;
   onEdit: (fornitore: Fornitore) => void;
   materie: MateriaPrima[];
+  selectMode: boolean;
   selected: boolean;
   onToggleSelect: (id: string) => void;
 }) {
@@ -62,15 +64,17 @@ function FornitoreRow({
   return (
     <>
       <tr className="border-t border-[var(--border)]">
-        <td className="px-3 py-3">
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => onToggleSelect(fornitore.id)}
-            aria-label={`Seleziona ${fornitore.ragioneSociale}`}
-            className="rounded border-[var(--border)]"
-          />
-        </td>
+        {selectMode ? (
+          <td className="px-3 py-3">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(fornitore.id)}
+              aria-label={`Seleziona ${fornitore.ragioneSociale}`}
+              className="rounded border-[var(--border)]"
+            />
+          </td>
+        ) : null}
         <td className="px-4 py-3">
           <CodiceTargaBadge code={fornitore.codiceTarga} />
         </td>
@@ -166,9 +170,15 @@ export function FornitoriBoard() {
   const [filters, setFilters] = useState<FornitoriFilters>(
     emptyFornitoriFilters()
   );
+  const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filtersActive = hasActiveFornitoriFilters(filters);
+
+  function exitPdfSelectMode() {
+    setPdfSelectMode(false);
+    setSelectedIds(new Set());
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -222,11 +232,16 @@ export function FornitoriBoard() {
   }
 
   function handleExportPdf() {
-    if (selectedVisible.length > 0) {
-      exportFornitoriPdf(selectedVisible, filters, { selectionMode: true });
+    if (!pdfSelectMode) {
+      setPdfSelectMode(true);
       return;
     }
-    exportFornitoriPdf(filtered, filters, { selectionMode: false });
+    if (selectedVisible.length > 0) {
+      exportFornitoriPdf(selectedVisible, filters, { selectionMode: true });
+    } else {
+      exportFornitoriPdf(filtered, filters, { selectionMode: false });
+    }
+    exitPdfSelectMode();
   }
 
   if (!ready) {
@@ -239,7 +254,7 @@ export function FornitoriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco fornitori con filtri, selezione e export PDF.
+          Elenco fornitori con filtri e export PDF.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {fornitori.length > 0 && (
@@ -263,26 +278,43 @@ export function FornitoriBoard() {
             </button>
           )}
           {filtered.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExportPdf}
-              title={
-                selectedVisible.length > 0
-                  ? `Esporta PDF di ${selectedVisible.length} selezionati`
-                  : filtersActive
-                    ? `Esporta PDF dei ${filtered.length} filtrati`
-                    : `Esporta PDF completo (${filtered.length})`
-              }
-              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
-            >
-              <FaFilePdf size={14} className="text-red-600" />
-              Esporta PDF
-              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                {selectedVisible.length > 0
-                  ? selectedVisible.length
-                  : filtered.length}
-              </span>
-            </button>
+            <>
+              {pdfSelectMode ? (
+                <button
+                  type="button"
+                  onClick={exitPdfSelectMode}
+                  className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Annulla
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                title={
+                  !pdfSelectMode
+                    ? "Mostra le checkbox per scegliere cosa esportare"
+                    : selectedVisible.length > 0
+                      ? `Esporta PDF di ${selectedVisible.length} selezionati`
+                      : filtersActive
+                        ? `Esporta PDF dei ${filtered.length} filtrati`
+                        : `Esporta PDF completo (${filtered.length})`
+                }
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                  pdfSelectMode
+                    ? "border-red-300 bg-red-50 text-red-800 hover:bg-red-100"
+                    : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+                }`}
+              >
+                <FaFilePdf size={14} className="text-red-600" />
+                {pdfSelectMode ? "Conferma PDF" : "Esporta PDF"}
+                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                  {pdfSelectMode && selectedVisible.length > 0
+                    ? selectedVisible.length
+                    : filtered.length}
+                </span>
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -314,6 +346,7 @@ export function FornitoriBoard() {
           totalCount={fornitori.length}
           onCollapse={() => setFiltersOpen(false)}
           onPickSuggestion={(id) => {
+            setPdfSelectMode(true);
             setSelectedIds(new Set([id]));
           }}
         />
@@ -349,32 +382,38 @@ export function FornitoriBoard() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          {selectedVisible.length > 0 && (
+          {pdfSelectMode && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-slate-50 px-4 py-2 text-xs">
               <span className="font-medium text-slate-700">
-                {selectedVisible.length} selezionati nell’elenco visibile
+                {selectedVisible.length > 0
+                  ? `${selectedVisible.length} selezionati — Conferma PDF per esportarli`
+                  : "Seleziona i fornitori da esportare, oppure Conferma PDF per esportare tutti i visibili"}
               </span>
-              <button
-                type="button"
-                onClick={() => setSelectedIds(new Set())}
-                className="font-medium text-[var(--primary)] hover:underline"
-              >
-                Deseleziona tutti
-              </button>
+              {selectedVisible.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="font-medium text-[var(--primary)] hover:underline"
+                >
+                  Deseleziona tutti
+                </button>
+              ) : null}
             </div>
           )}
           <table className="w-full min-w-[780px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
-                <th className="px-3 py-3 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleSelectAllVisible}
-                    aria-label="Seleziona tutti i fornitori visibili"
-                    className="rounded border-[var(--border)]"
-                  />
-                </th>
+                {pdfSelectMode ? (
+                  <th className="px-3 py-3 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Seleziona tutti i fornitori visibili"
+                      className="rounded border-[var(--border)]"
+                    />
+                  </th>
+                ) : null}
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
@@ -390,6 +429,7 @@ export function FornitoriBoard() {
                   key={fornitore.id}
                   fornitore={fornitore}
                   materie={materie}
+                  selectMode={pdfSelectMode}
                   selected={selectedIds.has(fornitore.id)}
                   onToggleSelect={toggleSelect}
                   onEdit={(item) => {
