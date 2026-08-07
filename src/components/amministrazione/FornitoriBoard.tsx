@@ -1,17 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
+import { useEffect, useMemo, useState } from "react";
+import {
+  FaChevronDown,
+  FaChevronUp,
+  FaFilePdf,
+  FaMagnifyingGlass,
+  FaPen,
+  FaPlus,
+} from "react-icons/fa6";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
+import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
 import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
+  emptyFornitoriFilters,
+  filterFornitori,
   formatSedeBreve,
+  hasActiveFornitoriFilters,
+  uniqueFornitoriCitta,
   type Fornitore,
+  type FornitoriFilters,
   type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
+import { exportFornitoriPdf } from "@/lib/amministrazione/fornitori-pdf";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
@@ -34,16 +48,29 @@ function FornitoreRow({
   fornitore,
   onEdit,
   materie,
+  selected,
+  onToggleSelect,
 }: {
   fornitore: Fornitore;
   onEdit: (fornitore: Fornitore) => void;
   materie: MateriaPrima[];
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
       <tr className="border-t border-[var(--border)]">
+        <td className="px-3 py-3">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(fornitore.id)}
+            aria-label={`Seleziona ${fornitore.ragioneSociale}`}
+            className="rounded border-[var(--border)]"
+          />
+        </td>
         <td className="px-4 py-3">
           <CodiceTargaBadge code={fornitore.codiceTarga} />
         </td>
@@ -88,7 +115,7 @@ function FornitoreRow({
       </tr>
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
-          <td colSpan={7} className="px-4 py-4">
+          <td colSpan={8} className="px-4 py-4">
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
@@ -135,6 +162,13 @@ export function FornitoriBoard() {
   const [editing, setEditing] = useState<Fornitore | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [materie, setMaterie] = useState<MateriaPrima[]>([]);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<FornitoriFilters>(
+    emptyFornitoriFilters()
+  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const filtersActive = hasActiveFornitoriFilters(filters);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,6 +182,53 @@ export function FornitoriBoard() {
     };
   }, []);
 
+  const filtered = useMemo(
+    () => filterFornitori(fornitori, filters),
+    [fornitori, filters]
+  );
+
+  const cittaOptions = useMemo(
+    () => uniqueFornitoriCitta(fornitori),
+    [fornitori]
+  );
+
+  const selectedVisible = useMemo(
+    () => filtered.filter((f) => selectedIds.has(f.id)),
+    [filtered, selectedIds]
+  );
+
+  const allVisibleSelected =
+    filtered.length > 0 && selectedVisible.length === filtered.length;
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        for (const f of filtered) next.delete(f.id);
+      } else {
+        for (const f of filtered) next.add(f.id);
+      }
+      return next;
+    });
+  }
+
+  function handleExportPdf() {
+    if (selectedVisible.length > 0) {
+      exportFornitoriPdf(selectedVisible, filters, { selectionMode: true });
+      return;
+    }
+    exportFornitoriPdf(filtered, filters, { selectionMode: false });
+  }
+
   if (!ready) {
     return (
       <p className="text-sm text-[var(--muted)]">Caricamento fornitori…</p>
@@ -158,26 +239,84 @@ export function FornitoriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco fornitori registrati. Ogni scheda è modificabile in ogni sua
-          parte dopo il salvataggio.
+          Elenco fornitori con filtri, selezione e export PDF.
         </p>
-        <button
-          type="button"
-          onClick={() => {
-            setSaveError(null);
-            setCreating(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-        >
-          <FaPlus size={14} />
-          Nuovo fornitore
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {fornitori.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                filtersOpen || filtersActive
+                  ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                  : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              <FaMagnifyingGlass size={14} />
+              Ricerca
+              {filtersActive && !filtersOpen ? (
+                <span className="rounded-full bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  ON
+                </span>
+              ) : null}
+            </button>
+          )}
+          {filtered.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExportPdf}
+              title={
+                selectedVisible.length > 0
+                  ? `Esporta PDF di ${selectedVisible.length} selezionati`
+                  : filtersActive
+                    ? `Esporta PDF dei ${filtered.length} filtrati`
+                    : `Esporta PDF completo (${filtered.length})`
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              <FaFilePdf size={14} className="text-red-600" />
+              Esporta PDF
+              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                {selectedVisible.length > 0
+                  ? selectedVisible.length
+                  : filtered.length}
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSaveError(null);
+              setCreating(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            <FaPlus size={14} />
+            Nuovo fornitore
+          </button>
+        </div>
       </div>
 
       {(error || saveError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {saveError || error}
         </p>
+      )}
+
+      {fornitori.length > 0 && filtersOpen && (
+        <FornitoriFiltersPanel
+          value={filters}
+          onChange={setFilters}
+          fornitori={fornitori}
+          cittaOptions={cittaOptions}
+          resultCount={filtered.length}
+          totalCount={fornitori.length}
+          onCollapse={() => setFiltersOpen(false)}
+          onPickSuggestion={(id) => {
+            setSelectedIds(new Set([id]));
+          }}
+        />
       )}
 
       {fornitori.length === 0 ? (
@@ -194,11 +333,48 @@ export function FornitoriBoard() {
             Nuovo fornitore
           </button>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">
+          <p className="text-sm font-medium">Nessun risultato con questi filtri</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Modifica i criteri oppure azzera i filtri.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilters(emptyFornitoriFilters())}
+            className="mt-4 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
+          >
+            Azzera filtri
+          </button>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          {selectedVisible.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-slate-50 px-4 py-2 text-xs">
+              <span className="font-medium text-slate-700">
+                {selectedVisible.length} selezionati nell’elenco visibile
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedIds(new Set())}
+                className="font-medium text-[var(--primary)] hover:underline"
+              >
+                Deseleziona tutti
+              </button>
+            </div>
+          )}
+          <table className="w-full min-w-[780px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
+                <th className="px-3 py-3 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Seleziona tutti i fornitori visibili"
+                    className="rounded border-[var(--border)]"
+                  />
+                </th>
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
@@ -209,11 +385,13 @@ export function FornitoriBoard() {
               </tr>
             </thead>
             <tbody>
-              {fornitori.map((fornitore) => (
+              {filtered.map((fornitore) => (
                 <FornitoreRow
                   key={fornitore.id}
                   fornitore={fornitore}
                   materie={materie}
+                  selected={selectedIds.has(fornitore.id)}
+                  onToggleSelect={toggleSelect}
                   onEdit={(item) => {
                     setSaveError(null);
                     setEditing(item);
@@ -253,7 +431,8 @@ export function FornitoriBoard() {
               setEditing(null);
             } else {
               setSaveError(
-                error || "Aggiornamento non riuscito. Controlla i dati e riprova."
+                error ||
+                  "Aggiornamento non riuscito. Controlla i dati e riprova."
               );
             }
           }}

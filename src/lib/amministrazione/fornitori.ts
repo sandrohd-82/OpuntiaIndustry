@@ -113,3 +113,149 @@ export function formatSedeBreve(sede: SedeFornitore): string {
 export function bioCertificatoStoragePath(fornitoreId: string): string {
   return `${fornitoreId}/certificato-bio.pdf`;
 }
+
+/** Proxy volume acquisto: n. prodotti/materie collegati al fornitore. */
+export type FornitoriVolumeFilter = "" | "0" | "1-3" | "4+";
+
+export type FornitoriFilters = {
+  letter: string;
+  citta: string;
+  query: string;
+  volume: FornitoriVolumeFilter;
+};
+
+export function emptyFornitoriFilters(): FornitoriFilters {
+  return {
+    letter: "",
+    citta: "",
+    query: "",
+    volume: "",
+  };
+}
+
+export function hasActiveFornitoriFilters(filters: FornitoriFilters): boolean {
+  return (
+    Boolean(filters.letter) ||
+    Boolean(filters.citta.trim()) ||
+    Boolean(filters.query.trim()) ||
+    Boolean(filters.volume)
+  );
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export function volumeAcquistoOf(fornitore: Fornitore): number {
+  return fornitore.prodottiAcquistati.length;
+}
+
+function matchesVolume(
+  count: number,
+  volume: FornitoriVolumeFilter
+): boolean {
+  if (!volume) return true;
+  if (volume === "0") return count === 0;
+  if (volume === "1-3") return count >= 1 && count <= 3;
+  if (volume === "4+") return count >= 4;
+  return true;
+}
+
+export function filterFornitori(
+  fornitori: Fornitore[],
+  filters: FornitoriFilters
+): Fornitore[] {
+  const letter = filters.letter.trim().toUpperCase();
+  const cittaQ = normalizeSearch(filters.citta);
+  const q = normalizeSearch(filters.query);
+
+  return fornitori.filter((f) => {
+    if (letter) {
+      const initial = normalizeSearch(f.ragioneSociale).charAt(0).toUpperCase();
+      if (initial !== letter) return false;
+    }
+
+    if (cittaQ) {
+      const cittaAmm = normalizeSearch(f.sedeAmministrativa.citta);
+      const cittaMag = normalizeSearch(f.sedeMagazzino.citta);
+      if (!cittaAmm.includes(cittaQ) && !cittaMag.includes(cittaQ)) {
+        return false;
+      }
+    }
+
+    if (q) {
+      const haystack = [
+        f.ragioneSociale,
+        f.partitaIva,
+        f.codiceTarga,
+        f.sedeAmministrativa.citta,
+        f.sedeAmministrativa.provincia,
+        f.sedeMagazzino.citta,
+        f.bioCodice,
+        ...f.prodottiAcquistati,
+      ]
+        .map(normalizeSearch)
+        .join(" ");
+      if (!haystack.includes(q)) return false;
+    }
+
+    if (!matchesVolume(volumeAcquistoOf(f), filters.volume)) return false;
+
+    return true;
+  });
+}
+
+export function uniqueFornitoriCitta(fornitori: Fornitore[]): string[] {
+  const set = new Set<string>();
+  for (const f of fornitori) {
+    const a = f.sedeAmministrativa.citta.trim();
+    const m = f.sedeMagazzino.citta.trim();
+    if (a) set.add(a);
+    if (m) set.add(m);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "it"));
+}
+
+export type FornitoreSuggestion = {
+  id: string;
+  label: string;
+  meta: string;
+};
+
+/** Suggerimenti istantanei mentre si digita. */
+export function suggestFornitori(
+  fornitori: Fornitore[],
+  query: string,
+  limit = 8
+): FornitoreSuggestion[] {
+  const q = normalizeSearch(query);
+  if (q.length < 1) return [];
+
+  return fornitori
+    .map((f) => {
+      const fields = [
+        f.ragioneSociale,
+        f.codiceTarga,
+        f.partitaIva,
+        f.sedeAmministrativa.citta,
+        f.sedeMagazzino.citta,
+      ];
+      const hit = fields.find((field) => normalizeSearch(field).includes(q));
+      if (!hit) return null;
+      return {
+        id: f.id,
+        label: f.ragioneSociale,
+        meta: [f.codiceTarga, f.sedeAmministrativa.citta || "—"]
+          .filter(Boolean)
+          .join(" · "),
+      } satisfies FornitoreSuggestion;
+    })
+    .filter((item): item is FornitoreSuggestion => Boolean(item))
+    .slice(0, limit);
+}
+
+export const FORNITORI_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
