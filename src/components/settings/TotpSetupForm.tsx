@@ -75,9 +75,8 @@ export function TotpSetupForm({ initiallyEnabled }: Props) {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6">
         <h2 className="text-lg font-semibold">Google Authenticator</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Configurazione riservata al superadmin. Dopo l&apos;attivazione, al
-          login userai il codice a 6 cifre dell&apos;app al posto dell&apos;OTP
-          email.
+          Dopo l&apos;attivazione, al login userai il codice a 6 cifre
+          dell&apos;app al posto dell&apos;OTP email.
         </p>
 
         <p className="mt-4 text-sm">

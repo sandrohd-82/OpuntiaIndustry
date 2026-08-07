@@ -3,12 +3,12 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { TotpSetupForm } from "@/components/settings/TotpSetupForm";
 import { getTotpStatus } from "@/app/actions/totp";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { isSuperadminProfile } from "@/lib/auth/roles";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 
 export default async function ImpostazioniPage() {
   const { auth, meta } = await requireAreaAccess("impostazioni");
 
-  if (!isSuperadminProfile(auth.profile)) {
+  if (!isAdminLikeProfile(auth.profile)) {
     notFound();
   }
 

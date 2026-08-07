@@ -8,6 +8,10 @@ export function isSuperadminProfile(profile: Profile): boolean {
   return getProfileRoleCode(profile) === "superadmin";
 }
 
+/**
+ * Admin e superadmin condividono le stesse azioni del gestionale.
+ * Distinzioni fine-grained verranno definite a fine progetto.
+ */
 export function isAdminLikeProfile(profile: Profile): boolean {
   const code = getProfileRoleCode(profile);
   return code === "superadmin" || code === "admin";

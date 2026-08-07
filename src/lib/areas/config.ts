@@ -43,7 +43,7 @@ export const AREA_ROUTES: Record<
   impostazioni: {
     path: "/app/impostazioni",
     label: "Impostazioni",
-    description: "Configurazione sistema e Google Authenticator (solo superadmin)",
+    description: "Configurazione sistema e Google Authenticator",
   },
 };
 

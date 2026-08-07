@@ -9,7 +9,7 @@ Applicazione web **Next.js (App Router)** con backend **Supabase** (PostgreSQL +
 | Frontend | Next.js 15, React 19, Tailwind CSS 4 |
 | Auth | Supabase Auth (email/password) |
 | 2° fattore (default) | OTP via email (SMTP Aruba) |
-| 2° fattore (superadmin) | Google Authenticator / TOTP (`method = 'app'`) |
+| 2° fattore (admin/superadmin) | Google Authenticator / TOTP (`method = 'app'`) |
 | Autorizzazione | Ruoli → permessi per area (RLS + controllo server) |
 
 ## Flusso di accesso
@@ -44,7 +44,7 @@ sequenceDiagram
 - **auth_sessions_2fa** — sessioni completate dopo verifica 2FA
 
 Funzione SQL **`get_user_areas(user_id)`** restituisce le aree visibili in base al ruolo.  
-**`is_superadmin()`** — solo il superadmin può accedere a Impostazioni e configurare TOTP.
+**`is_superadmin()` / admin** — per ora admin e superadmin hanno le stesse azioni nel gestionale (incluse Impostazioni e TOTP); i ruoli fine-grained arriveranno a fine progetto.
 
 ## Struttura cartelle
 
@@ -73,8 +73,8 @@ supabase/migrations/         # schema SQL
 
 | Ruolo | Aree tipiche |
 |-------|----------------|
-| superadmin | Tutte, incluse impostazioni + Google Authenticator |
-| admin | Tutte tranne impostazioni |
+| superadmin | Tutte le aree (identico ad admin per ora) |
+| admin | Tutte le aree (identico a superadmin per ora) |
 | manager | Tutte tranne impostazioni |
 | operator | Dashboard, commerciale, produzione, magazzino |
 | viewer | Dashboard, commerciale (sola consultazione in fase 2) |

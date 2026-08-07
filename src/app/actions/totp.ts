@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { isSuperadminProfile } from "@/lib/auth/roles";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { getProfile } from "@/lib/auth/session";
 import {
   decryptTotpSecret,
@@ -21,7 +21,7 @@ export type TotpActionResult = {
   enabled?: boolean;
 };
 
-async function requireSuperadmin() {
+async function requireAdminLike() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -32,9 +32,9 @@ async function requireSuperadmin() {
   }
 
   const profile = await getProfile(user.id);
-  if (!profile || !isSuperadminProfile(profile)) {
+  if (!profile || !isAdminLikeProfile(profile)) {
     return {
-      error: "Solo il superadmin può configurare Google Authenticator." as const,
+      error: "Solo admin e superadmin possono configurare Google Authenticator." as const,
       user: null,
       profile: null,
     };
@@ -44,7 +44,7 @@ async function requireSuperadmin() {
 }
 
 export async function getTotpStatus(): Promise<TotpActionResult> {
-  const gate = await requireSuperadmin();
+  const gate = await requireAdminLike();
   if (gate.error || !gate.user) {
     return { success: false, error: gate.error ?? "Accesso negato." };
   }
@@ -65,7 +65,7 @@ export async function getTotpStatus(): Promise<TotpActionResult> {
 /** Avvia enrollment: genera secret e lo salva cifrato (metodo resta email fino a conferma) */
 export async function startTotpEnrollment(): Promise<TotpActionResult> {
   try {
-    const gate = await requireSuperadmin();
+    const gate = await requireAdminLike();
     if (gate.error || !gate.user?.email) {
       return { success: false, error: gate.error ?? "Accesso negato." };
     }
@@ -118,7 +118,7 @@ export async function confirmTotpEnrollment(
   formData: FormData
 ): Promise<TotpActionResult> {
   try {
-    const gate = await requireSuperadmin();
+    const gate = await requireAdminLike();
     if (gate.error || !gate.user) {
       return { success: false, error: gate.error ?? "Accesso negato." };
     }
@@ -178,7 +178,7 @@ export async function confirmTotpEnrollment(
 /** Disattiva Google Authenticator e torna a OTP email */
 export async function disableTotp(): Promise<TotpActionResult> {
   try {
-    const gate = await requireSuperadmin();
+    const gate = await requireAdminLike();
     if (gate.error || !gate.user) {
       return { success: false, error: gate.error ?? "Accesso negato." };
     }
