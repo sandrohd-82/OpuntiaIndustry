@@ -41,7 +41,12 @@ function SuggestionList<T extends { id: string; label: string }>({
         <li key={item.id}>
           <button
             type="button"
-            onClick={() => onSelect(item)}
+            // mousedown + preventDefault: evita blur dell'input e il doppio click
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onSelect(item);
+            }}
             className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
           >
             {item.label}
@@ -53,6 +58,8 @@ function SuggestionList<T extends { id: string; label: string }>({
 }
 
 export function AddressSedeFields({ title, value, onChange }: Props) {
+  const cittaInputId = useId();
+  const viaInputId = useId();
   const cittaListId = useId();
   const viaListId = useId();
   const [paesi, setPaesi] = useState<PaeseSuggestion[]>([]);
@@ -65,6 +72,9 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   const [streetLoading, setStreetLoading] = useState(false);
   const paeseAbort = useRef<AbortController | null>(null);
   const streetAbort = useRef<AbortController | null>(null);
+  /** Dopo una selezione da lista, non riaprire subito i suggerimenti. */
+  const skipPaesiFetch = useRef(false);
+  const skipStreetFetch = useRef(false);
 
   function setField<K extends keyof SedeFornitore>(key: K, v: string) {
     onChange({ ...value, [key]: v });
@@ -75,6 +85,14 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   }, [value.citta]);
 
   useEffect(() => {
+    if (skipPaesiFetch.current) {
+      skipPaesiFetch.current = false;
+      setPaesi([]);
+      setShowPaesi(false);
+      setPaesiLoading(false);
+      return;
+    }
+
     const q = cittaQuery.trim();
     if (q.length < 2) {
       setPaesi([]);
@@ -83,7 +101,6 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       return;
     }
 
-    // Se la query coincide già con la città selezionata e non stiamo cercando, non forzare il menu
     const timer = window.setTimeout(async () => {
       paeseAbort.current?.abort();
       const controller = new AbortController();
@@ -115,6 +132,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
   function selectPaese(paese: PaeseSuggestion) {
     const caps = paese.caps?.length ? paese.caps : paese.cap ? [paese.cap] : [];
     setCapOptions(caps);
+    skipPaesiFetch.current = true;
     // Per le frazioni salviamo il nome località (es. Pistrino);
     // comune madre resta nel label del suggerimento e in provincia/CAP.
     onChange({
@@ -125,10 +143,19 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       cap: paese.cap || value.cap,
     });
     setCittaQuery(paese.citta);
+    setPaesi([]);
     setShowPaesi(false);
   }
 
   useEffect(() => {
+    if (skipStreetFetch.current) {
+      skipStreetFetch.current = false;
+      setStreets([]);
+      setShowStreets(false);
+      setStreetLoading(false);
+      return;
+    }
+
     const { street } = splitStreetAndCivico(value.indirizzo);
     if (street.length < 3 || !value.citta.trim()) {
       setStreets([]);
@@ -173,6 +200,21 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
     };
   }, [value.indirizzo, value.cap, value.citta]);
 
+  function selectStreet(street: StreetSuggestion) {
+    const { civico } = splitStreetAndCivico(value.indirizzo);
+    const { street: selectedStreet, civico: selectedCivico } =
+      splitStreetAndCivico(street.indirizzo);
+    skipStreetFetch.current = true;
+    streetAbort.current?.abort();
+    setField(
+      "indirizzo",
+      joinStreetAndCivico(selectedStreet, selectedCivico || civico)
+    );
+    setStreets([]);
+    setShowStreets(false);
+    setStreetLoading(false);
+  }
+
   return (
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">{title}</legend>
@@ -182,23 +224,33 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="relative block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Città / Paese</span>
+        <div className="relative sm:col-span-2">
+          <label htmlFor={cittaInputId} className="mb-1 block text-sm font-medium">
+            Città / Paese
+          </label>
           <input
+            id={cittaInputId}
             value={cittaQuery}
             onChange={(e) => {
+              skipPaesiFetch.current = false;
               setCittaQuery(e.target.value);
               setShowPaesi(true);
               setField("citta", e.target.value);
             }}
             onFocus={() => {
-              if (cittaQuery.trim().length >= 2) setShowPaesi(true);
+              if (cittaQuery.trim().length >= 2 && paesi.length > 0) {
+                setShowPaesi(true);
+              }
+            }}
+            onBlur={() => {
+              // Ritardo: lascia completare mousedown sulla lista
+              window.setTimeout(() => setShowPaesi(false), 120);
             }}
             required
             placeholder="Paese o frazione, es. Pistrino…"
             aria-autocomplete="list"
             aria-controls={cittaListId}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           />
           {paesiLoading && showPaesi && (
             <p className="mt-1 text-xs text-[var(--muted)]">Ricerca paesi…</p>
@@ -216,7 +268,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               />
             </div>
           )}
-        </label>
+        </div>
 
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Nazione</span>
@@ -258,6 +310,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
                 <button
                   key={cap}
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setField("cap", cap)}
                   className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
                     value.cap === cap
@@ -272,16 +325,23 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
           )}
         </label>
 
-        <label className="relative block text-sm sm:col-span-2">
-          <span className="mb-1 block font-medium">Indirizzo (via e civico)</span>
+        <div className="relative sm:col-span-2">
+          <label htmlFor={viaInputId} className="mb-1 block text-sm font-medium">
+            Indirizzo (via e civico)
+          </label>
           <input
+            id={viaInputId}
             value={value.indirizzo}
             onChange={(e) => {
+              skipStreetFetch.current = false;
               setField("indirizzo", e.target.value);
               setShowStreets(true);
             }}
             onFocus={() => {
               if (streets.length > 0) setShowStreets(true);
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setShowStreets(false), 120);
             }}
             required
             placeholder="Es. via Roma 12"
@@ -290,9 +350,9 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
             spellCheck={false}
             aria-autocomplete="list"
             aria-controls={viaListId}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           />
-          {streetLoading && (
+          {streetLoading && showStreets && (
             <p className="mt-1 text-xs text-[var(--muted)]">Ricerca vie…</p>
           )}
           {showStreets &&
@@ -300,19 +360,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
               <div id={viaListId}>
                 <SuggestionList
                   items={streets}
-                  onSelect={(street) => {
-                    const { civico } = splitStreetAndCivico(value.indirizzo);
-                    const { street: selectedStreet, civico: selectedCivico } =
-                      splitStreetAndCivico(street.indirizzo);
-                    setField(
-                      "indirizzo",
-                      joinStreetAndCivico(
-                        selectedStreet,
-                        selectedCivico || civico
-                      )
-                    );
-                    setShowStreets(false);
-                  }}
+                  onSelect={selectStreet}
                   emptyLabel={
                     streetLoading
                       ? undefined
@@ -321,7 +369,7 @@ export function AddressSedeFields({ title, value, onChange }: Props) {
                 />
               </div>
             )}
-        </label>
+        </div>
       </div>
     </fieldset>
   );
