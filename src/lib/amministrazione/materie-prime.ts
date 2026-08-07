@@ -214,3 +214,108 @@ export function findMateriaPrimaByNomeExact(
     ) ?? null
   );
 }
+
+/** Parti della targa secondo leggenda: Mp + iniziali + B|C + /dettaglio. */
+export type CodiceMateriaPrimaParts = {
+  prefix: string;
+  iniziali: string;
+  tipologiaCodice: "B" | "C" | null;
+  dettaglio: string;
+};
+
+export function parseCodiceMateriaPrimaParts(
+  codice: string
+): CodiceMateriaPrimaParts {
+  const body = stripCodiceMateriaPrimaPrefix(codice.trim());
+  const match = body.match(/^([A-Za-z0-9\-_]*?)([BC])(?:\/(.*))?$/);
+  if (match) {
+    return {
+      prefix: CODICE_MATERIA_PRIMA_PREFIX,
+      iniziali: match[1] ?? "",
+      tipologiaCodice: (match[2] as "B" | "C") ?? null,
+      dettaglio: match[3] ?? "",
+    };
+  }
+  return {
+    prefix: CODICE_MATERIA_PRIMA_PREFIX,
+    iniziali: body,
+    tipologiaCodice: null,
+    dettaglio: "",
+  };
+}
+
+export type MateriePrimeTextField = "nome" | "note" | "entrambi";
+
+export type MateriePrimeFilters = {
+  iniziali: string;
+  tipologiaCodice: "" | "B" | "C";
+  dettaglio: string;
+  textQuery: string;
+  textField: MateriePrimeTextField;
+  showBio: boolean;
+  showConvenzionale: boolean;
+};
+
+export function emptyMateriePrimeFilters(): MateriePrimeFilters {
+  return {
+    iniziali: "",
+    tipologiaCodice: "",
+    dettaglio: "",
+    textQuery: "",
+    textField: "nome",
+    showBio: true,
+    showConvenzionale: true,
+  };
+}
+
+export function hasActiveMateriePrimeFilters(filters: MateriePrimeFilters): boolean {
+  return (
+    Boolean(filters.iniziali.trim()) ||
+    Boolean(filters.tipologiaCodice) ||
+    Boolean(filters.dettaglio.trim()) ||
+    Boolean(filters.textQuery.trim()) ||
+    !filters.showBio ||
+    !filters.showConvenzionale
+  );
+}
+
+export function filterMateriePrime(
+  materie: MateriaPrima[],
+  filters: MateriePrimeFilters
+): MateriaPrima[] {
+  const inizialiQ = filters.iniziali.trim().toLowerCase();
+  const dettaglioQ = filters.dettaglio.trim().toLowerCase();
+  const textQ = normalizeNomeMateriaPrima(filters.textQuery);
+  const tipoCode = filters.tipologiaCodice;
+
+  return materie.filter((m) => {
+    if (filters.showBio !== filters.showConvenzionale) {
+      if (filters.showBio && !m.isBio) return false;
+      if (filters.showConvenzionale && m.isBio) return false;
+    } else if (!filters.showBio && !filters.showConvenzionale) {
+      return false;
+    }
+
+    const parts = parseCodiceMateriaPrimaParts(m.codice);
+
+    if (inizialiQ && !parts.iniziali.toLowerCase().includes(inizialiQ)) {
+      return false;
+    }
+    if (tipoCode && parts.tipologiaCodice !== tipoCode) {
+      return false;
+    }
+    if (dettaglioQ && !parts.dettaglio.toLowerCase().includes(dettaglioQ)) {
+      return false;
+    }
+
+    if (textQ) {
+      const nomeHit = normalizeNomeMateriaPrima(m.nome).includes(textQ);
+      const noteHit = normalizeNomeMateriaPrima(m.note).includes(textQ);
+      if (filters.textField === "nome" && !nomeHit) return false;
+      if (filters.textField === "note" && !noteHit) return false;
+      if (filters.textField === "entrambi" && !nomeHit && !noteHit) return false;
+    }
+
+    return true;
+  });
+}

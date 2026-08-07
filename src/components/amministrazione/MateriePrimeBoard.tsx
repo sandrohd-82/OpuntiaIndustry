@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { FaPen, FaPlus } from "react-icons/fa6";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
+import { MateriePrimeFiltersPanel } from "@/components/amministrazione/MateriePrimeFiltersPanel";
 import { useMateriePrime } from "@/hooks/useMateriePrime";
 import {
   CODICE_MATERIA_PRIMA_PREFIX,
+  emptyMateriePrimeFilters,
+  filterMateriePrime,
   type MateriaPrima,
+  type MateriePrimeFilters,
 } from "@/lib/amministrazione/materie-prime";
 
 export function MateriePrimeBoard() {
@@ -17,12 +21,20 @@ export function MateriePrimeBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<MateriePrimeFilters>(
+    emptyMateriePrimeFilters()
+  );
 
   useEffect(() => {
     if (searchParams.get("nuovo") === "1") {
       setCreating(true);
     }
   }, [searchParams]);
+
+  const filtered = useMemo(
+    () => filterMateriePrime(materie, filters),
+    [materie, filters]
+  );
 
   if (!ready) {
     return (
@@ -56,6 +68,15 @@ export function MateriePrimeBoard() {
         </p>
       )}
 
+      {materie.length > 0 && (
+        <MateriePrimeFiltersPanel
+          value={filters}
+          onChange={setFilters}
+          resultCount={filtered.length}
+          totalCount={materie.length}
+        />
+      )}
+
       {materie.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
           <p className="text-sm font-medium">Nessuna materia prima</p>
@@ -68,6 +89,20 @@ export function MateriePrimeBoard() {
             className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
           >
             Nuova materia prima
+          </button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">
+          <p className="text-sm font-medium">Nessun risultato con questi filtri</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Modifica i criteri oppure azzera i filtri.
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilters(emptyMateriePrimeFilters())}
+            className="mt-4 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
+          >
+            Azzera filtri
           </button>
         </div>
       ) : (
@@ -83,7 +118,7 @@ export function MateriePrimeBoard() {
               </tr>
             </thead>
             <tbody>
-              {materie.map((m) => (
+              {filtered.map((m) => (
                 <tr key={m.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3">
                     <CodiceTargaBadge
