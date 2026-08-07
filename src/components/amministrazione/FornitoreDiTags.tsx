@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { FaPlus, FaXmark } from "react-icons/fa6";
+import { FaPlus } from "react-icons/fa6";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
+import { MateriaPrimaProductTag } from "@/components/amministrazione/MateriaPrimaProductTag";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 
 const MATERIA_PRIMA_PATH = "/app/amministrazione/schede/materia-prima?nuovo=1";
@@ -11,7 +12,6 @@ const MATERIA_PRIMA_PATH = "/app/amministrazione/schede/materia-prima?nuovo=1";
 type Props = {
   value: string[];
   onChange: (codes: string[]) => void;
-  /** Certificato bio della scheda fornitore (usato se si selezionano materie bio). */
   bioCertificato?: string;
   bioCodice?: string;
 };
@@ -42,17 +42,20 @@ export function FornitoreDiTags({
     void refresh();
   }, [pickerOpen]);
 
-  const selected = useMemo(() => {
-    const byCode = new Map(materie.map((m) => [m.codice, m]));
-    return value.map((code) => {
-      const m = byCode.get(code);
-      return {
+  const byCode = useMemo(
+    () => new Map(materie.map((m) => [m.codice, m])),
+    [materie]
+  );
+
+  const selected = useMemo(
+    () =>
+      value.map((code) => ({
         code,
-        nome: m?.nome,
-        isBio: Boolean(m?.isBio),
-      };
-    });
-  }, [value, materie]);
+        materia: byCode.get(code) ?? null,
+        isBio: Boolean(byCode.get(code)?.isBio),
+      })),
+    [value, byCode]
+  );
 
   const hasBioSelected = selected.some((item) => item.isBio);
   const certLoaded = Boolean(bioCertificato.trim() || bioCodice.trim());
@@ -83,8 +86,8 @@ export function FornitoreDiTags({
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
       <legend className="px-1 text-sm font-semibold">Fornitore di</legend>
       <p className="text-xs text-[var(--muted)]">
-        Seleziona i codici interni delle materie prime. Per le materie bio viene
-        usato il certificato caricato in questa scheda.
+        Passa sopra o clicca un tag per aprire la scheda prodotto. Per le
+        materie bio viene usato il certificato di questa scheda.
       </p>
 
       <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-2 py-2">
@@ -92,26 +95,17 @@ export function FornitoreDiTags({
           <span className="px-1 text-sm text-[var(--muted)]">Nessun codice</span>
         ) : (
           selected.map((item) => (
-            <span
+            <MateriaPrimaProductTag
               key={item.code}
-              className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 font-mono text-xs font-semibold tracking-wide ring-1 ring-[var(--border)]"
-              title={item.nome || item.code}
-            >
-              {item.code}
-              {item.isBio && (
-                <span className="rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                  Bio
-                </span>
-              )}
-              <button
-                type="button"
-                aria-label={`Rimuovi ${item.code}`}
-                onClick={() => removeCode(item.code)}
-                className="text-[var(--muted)] hover:text-slate-900"
-              >
-                <FaXmark size={11} />
-              </button>
-            </span>
+              code={item.code}
+              materia={item.materia}
+              bioContext={{
+                certificato: bioCertificato,
+                codice: bioCodice,
+              }}
+              removable
+              onRemove={() => removeCode(item.code)}
+            />
           ))
         )}
       </div>

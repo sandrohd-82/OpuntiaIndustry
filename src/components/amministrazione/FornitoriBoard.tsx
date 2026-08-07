@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
+import { listMateriePrimeAction } from "@/app/actions/materie-prime";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
+import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
   formatSedeBreve,
   type Fornitore,
   type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
+import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
   return (
@@ -30,9 +33,11 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
 function FornitoreRow({
   fornitore,
   onEdit,
+  materie,
 }: {
   fornitore: Fornitore;
   onEdit: (fornitore: Fornitore) => void;
+  materie: MateriaPrima[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -50,8 +55,14 @@ function FornitoreRow({
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(fornitore.sedeMagazzino)}
         </td>
-        <td className="px-4 py-3 tabular-nums">
-          {fornitore.prodottiAcquistati.length}
+        <td className="max-w-[240px] px-4 py-3">
+          <MateriaPrimaTagList
+            codes={fornitore.prodottiAcquistati}
+            materie={materie}
+            bioCertificato={fornitore.bioCertificato}
+            bioCodice={fornitore.bioCodice}
+            emptyLabel="—"
+          />
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
@@ -98,23 +109,16 @@ function FornitoreRow({
                 sede={fornitore.sedeMagazzino}
               />
               <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Fornitore di
                 </p>
-                {fornitore.prodottiAcquistati.length === 0 ? (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
-                ) : (
-                  <ul className="mt-2 flex flex-wrap gap-2">
-                    {fornitore.prodottiAcquistati.map((p) => (
-                      <li
-                        key={p}
-                        className="rounded-full bg-white px-2.5 py-1 font-mono text-xs font-semibold tracking-wide ring-1 ring-[var(--border)]"
-                      >
-                        {p}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <MateriaPrimaTagList
+                  codes={fornitore.prodottiAcquistati}
+                  materie={materie}
+                  bioCertificato={fornitore.bioCertificato}
+                  bioCodice={fornitore.bioCodice}
+                  emptyLabel="Nessuno"
+                />
               </div>
             </div>
           </td>
@@ -130,6 +134,19 @@ export function FornitoriBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Fornitore | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [materie, setMaterie] = useState<MateriaPrima[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const result = await listMateriePrimeAction();
+      if (cancelled || !result.success) return;
+      setMaterie(result.materie);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!ready) {
     return (
@@ -196,6 +213,7 @@ export function FornitoriBoard() {
                 <FornitoreRow
                   key={fornitore.id}
                   fornitore={fornitore}
+                  materie={materie}
                   onEdit={(item) => {
                     setSaveError(null);
                     setEditing(item);
