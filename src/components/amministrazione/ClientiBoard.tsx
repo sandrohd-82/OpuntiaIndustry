@@ -117,6 +117,35 @@ function ClienteRow({
               />
               <div className="sm:col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Consegne presso altre aziende
+                </p>
+                {cliente.consegneAltraAzienda.length === 0 ? (
+                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuna</p>
+                ) : (
+                  <ul className="mt-2 space-y-3">
+                    {cliente.consegneAltraAzienda.map((consegna, index) => (
+                      <li
+                        key={`${consegna.ragioneSociale}-${index}`}
+                        className="rounded-lg border border-[var(--border)] bg-white px-3 py-2.5"
+                      >
+                        <p className="text-sm font-semibold">
+                          {consegna.ragioneSociale}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--muted)]">
+                          {consegna.indirizzo || "—"}
+                          <br />
+                          {[consegna.cap, consegna.citta, consegna.provincia]
+                            .filter(Boolean)
+                            .join(" ")}
+                          {consegna.nazione ? ` — ${consegna.nazione}` : ""}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Prodotti Acquistati
                 </p>
                 {cliente.prodottiAcquistati.length === 0 ? (

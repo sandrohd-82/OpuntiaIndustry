@@ -185,9 +185,80 @@ export interface FornitoreUpdate {
   updated_at?: string;
 }
 
-export type ClienteRow = FornitoreRow;
-export type ClienteInsert = FornitoreInsert;
-export type ClienteUpdate = FornitoreUpdate;
+export type ClienteConsegnaAltraAziendaRow = {
+  ragione_sociale: string;
+  nazione: string;
+  provincia: string;
+  citta: string;
+  cap: string;
+  indirizzo: string;
+};
+
+export interface ClienteRow {
+  id: string;
+  codice_targa: string;
+  ragione_sociale: string;
+  partita_iva: string;
+  sede_amm_nazione: string;
+  sede_amm_provincia: string;
+  sede_amm_citta: string;
+  sede_amm_cap: string;
+  sede_amm_indirizzo: string;
+  sede_mag_nazione: string;
+  sede_mag_provincia: string;
+  sede_mag_citta: string;
+  sede_mag_cap: string;
+  sede_mag_indirizzo: string;
+  prodotti_acquistati: string[];
+  consegne_altra_azienda: ClienteConsegnaAltraAziendaRow[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClienteInsert {
+  id?: string;
+  codice_targa?: string;
+  ragione_sociale: string;
+  partita_iva: string;
+  sede_amm_nazione: string;
+  sede_amm_provincia: string;
+  sede_amm_citta: string;
+  sede_amm_cap: string;
+  sede_amm_indirizzo: string;
+  sede_mag_nazione: string;
+  sede_mag_provincia: string;
+  sede_mag_citta: string;
+  sede_mag_cap: string;
+  sede_mag_indirizzo: string;
+  prodotti_acquistati?: string[];
+  consegne_altra_azienda?: ClienteConsegnaAltraAziendaRow[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClienteUpdate {
+  id?: string;
+  codice_targa?: string;
+  ragione_sociale?: string;
+  partita_iva?: string;
+  sede_amm_nazione?: string;
+  sede_amm_provincia?: string;
+  sede_amm_citta?: string;
+  sede_amm_cap?: string;
+  sede_amm_indirizzo?: string;
+  sede_mag_nazione?: string;
+  sede_mag_provincia?: string;
+  sede_mag_citta?: string;
+  sede_mag_cap?: string;
+  sede_mag_indirizzo?: string;
+  prodotti_acquistati?: string[];
+  consegne_altra_azienda?: ClienteConsegnaAltraAziendaRow[];
+  created_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
 
 export interface MateriaPrimaRow {
   id: string;

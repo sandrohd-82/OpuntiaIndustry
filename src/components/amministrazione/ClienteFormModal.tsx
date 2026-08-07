@@ -2,14 +2,17 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { FaPlus, FaTrash } from "react-icons/fa6";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import {
+  emptyConsegnaAltraAzienda,
   emptySede,
   type Cliente,
   type ClienteInput,
+  type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 
@@ -31,6 +34,16 @@ function sameSede(a: SedeCliente, b: SedeCliente) {
     a.citta === b.citta &&
     a.cap === b.cap &&
     a.indirizzo === b.indirizzo
+  );
+}
+
+function isSedeFilled(sede: SedeCliente): boolean {
+  return Boolean(
+    sede.nazione.trim() &&
+      sede.provincia.trim() &&
+      sede.citta.trim() &&
+      sede.cap.trim() &&
+      sede.indirizzo.trim()
   );
 }
 
@@ -61,11 +74,36 @@ export function ClienteFormModal({
       ? sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
       : false
   );
+  const [consegneEnabled, setConsegneEnabled] = useState(
+    Boolean(initial?.consegneAltraAzienda?.length)
+  );
+  const [consegne, setConsegne] = useState<ConsegnaAltraAzienda[]>(
+    initial?.consegneAltraAzienda?.length
+      ? initial.consegneAltraAzienda
+      : []
+  );
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  function updateConsegna(index: number, next: ConsegnaAltraAzienda) {
+    setConsegne((prev) => prev.map((item, i) => (i === index ? next : item)));
+  }
+
+  function addConsegna() {
+    setConsegneEnabled(true);
+    setConsegne((prev) => [...prev, emptyConsegnaAltraAzienda()]);
+  }
+
+  function removeConsegna(index: number) {
+    setConsegne((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      if (next.length === 0) setConsegneEnabled(false);
+      return next;
+    });
+  }
 
   function buildValues(): ClienteInput | null {
     const codice = codiceTarga.trim().toUpperCase();
@@ -73,26 +111,36 @@ export function ClienteFormModal({
       setFormError("Compila ragione sociale e partita IVA prima di continuare.");
       return null;
     }
-    if (
-      !sedeAmministrativa.nazione.trim() ||
-      !sedeAmministrativa.provincia.trim() ||
-      !sedeAmministrativa.citta.trim() ||
-      !sedeAmministrativa.cap.trim() ||
-      !sedeAmministrativa.indirizzo.trim()
-    ) {
+    if (!isSedeFilled(sedeAmministrativa)) {
       setFormError("Completa la sede amministrativa prima di continuare.");
       return null;
     }
-    if (
-      !stessaSede &&
-      (!sedeMagazzino.nazione.trim() ||
-        !sedeMagazzino.provincia.trim() ||
-        !sedeMagazzino.citta.trim() ||
-        !sedeMagazzino.cap.trim() ||
-        !sedeMagazzino.indirizzo.trim())
-    ) {
+    if (!stessaSede && !isSedeFilled(sedeMagazzino)) {
       setFormError("Completa la sede magazzino prima di continuare.");
       return null;
+    }
+    if (consegneEnabled) {
+      if (consegne.length === 0) {
+        setFormError(
+          "Aggiungi almeno una consegna presso altra azienda, oppure disattiva l’opzione."
+        );
+        return null;
+      }
+      for (let i = 0; i < consegne.length; i++) {
+        const c = consegne[i];
+        if (!c.ragioneSociale.trim()) {
+          setFormError(
+            `Inserisci la ragione sociale della consegna #${i + 1}.`
+          );
+          return null;
+        }
+        if (!isSedeFilled(c)) {
+          setFormError(
+            `Completa l’indirizzo della consegna #${i + 1} presso altra azienda.`
+          );
+          return null;
+        }
+      }
     }
     if (!/^C[0-9A-F]{3}$/.test(codice) || codice === "C000") {
       setCodiceError(
@@ -109,6 +157,7 @@ export function ClienteFormModal({
       partitaIva: partitaIva.trim(),
       sedeAmministrativa,
       sedeMagazzino: stessaSede ? sedeAmministrativa : sedeMagazzino,
+      consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
     };
   }
@@ -272,6 +321,95 @@ export function ClienteFormModal({
               onChange={setSedeMagazzino}
             />
           )}
+
+          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+            <legend className="px-1 text-sm font-semibold">
+              Consegne presso altre aziende
+            </legend>
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={consegneEnabled}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setConsegneEnabled(checked);
+                  if (checked && consegne.length === 0) {
+                    setConsegne([emptyConsegnaAltraAzienda()]);
+                  }
+                  if (!checked) setConsegne([]);
+                }}
+                className="mt-0.5 rounded border-[var(--border)]"
+              />
+              <span>
+                Attiva consegne presso altra azienda
+                <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                  Stesso form indirizzo, con ragione sociale. Puoi aggiungerne
+                  più di una; la sede magazzino resta comunque disponibile.
+                </span>
+              </span>
+            </label>
+
+            {consegneEnabled && (
+              <div className="space-y-4">
+                {consegne.map((consegna, index) => (
+                  <div
+                    key={`consegna-${index}`}
+                    className="space-y-3 rounded-lg border border-dashed border-[var(--border)] bg-slate-50/50 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium">
+                        Consegna #{index + 1}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => removeConsegna(index)}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                      >
+                        <FaTrash size={11} />
+                        Rimuovi
+                      </button>
+                    </div>
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        Ragione sociale
+                      </span>
+                      <input
+                        value={consegna.ragioneSociale}
+                        onChange={(e) =>
+                          updateConsegna(index, {
+                            ...consegna,
+                            ragioneSociale: e.target.value,
+                          })
+                        }
+                        required={consegneEnabled}
+                        placeholder="Azienda presso cui consegnare"
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+                      />
+                    </label>
+                    <AddressSedeFields
+                      title="Indirizzo di consegna"
+                      value={consegna}
+                      onChange={(next) =>
+                        updateConsegna(index, {
+                          ...next,
+                          ragioneSociale: consegna.ragioneSociale,
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addConsegna}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                >
+                  <FaPlus size={12} />
+                  Aggiungi indirizzo di consegna
+                </button>
+              </div>
+            )}
+          </fieldset>
 
           <ProdottiAcquistatiTags
             value={prodotti}

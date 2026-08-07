@@ -1,4 +1,7 @@
-import type { ClienteRow } from "@/types/database";
+import type {
+  ClienteConsegnaAltraAziendaRow,
+  ClienteRow,
+} from "@/types/database";
 import {
   emptySede,
   formatSedeBreve,
@@ -8,6 +11,10 @@ import {
 
 export type SedeCliente = SedeFornitore;
 
+export type ConsegnaAltraAzienda = SedeCliente & {
+  ragioneSociale: string;
+};
+
 export type Cliente = {
   id: string;
   codiceTarga: string;
@@ -15,6 +22,7 @@ export type Cliente = {
   partitaIva: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
+  consegneAltraAzienda: ConsegnaAltraAzienda[];
   prodottiAcquistati: string[];
   createdAt: string;
 };
@@ -25,10 +33,38 @@ export type ClienteInput = {
   partitaIva: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
+  consegneAltraAzienda: ConsegnaAltraAzienda[];
   prodottiAcquistati: string[];
 };
 
 export { emptySede, formatSedeBreve };
+
+export function emptyConsegnaAltraAzienda(): ConsegnaAltraAzienda {
+  return {
+    ragioneSociale: "",
+    ...emptySede(),
+  };
+}
+
+export function normalizeConsegnaAltraAzienda(
+  item: ConsegnaAltraAzienda
+): ConsegnaAltraAzienda {
+  return {
+    ragioneSociale: item.ragioneSociale.trim(),
+    ...normalizeSede(item),
+  };
+}
+
+function isConsegnaComplete(item: ConsegnaAltraAzienda): boolean {
+  return Boolean(
+    item.ragioneSociale.trim() &&
+      item.nazione.trim() &&
+      item.provincia.trim() &&
+      item.citta.trim() &&
+      item.cap.trim() &&
+      item.indirizzo.trim()
+  );
+}
 
 export function normalizeClienteInput(input: ClienteInput): ClienteInput {
   const codice = input.codiceTarga?.trim().toUpperCase();
@@ -41,13 +77,47 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     partitaIva: input.partitaIva.trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
+    consegneAltraAzienda: (input.consegneAltraAzienda ?? [])
+      .map(normalizeConsegnaAltraAzienda)
+      .filter(isConsegnaComplete),
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
   };
 }
 
+export function consegneToDb(
+  items: ConsegnaAltraAzienda[]
+): ClienteConsegnaAltraAziendaRow[] {
+  return items.map((item) => ({
+    ragione_sociale: item.ragioneSociale,
+    nazione: item.nazione,
+    provincia: item.provincia,
+    citta: item.citta,
+    cap: item.cap,
+    indirizzo: item.indirizzo,
+  }));
+}
+
+function mapConsegnaRow(
+  row: ClienteConsegnaAltraAziendaRow | Record<string, unknown>
+): ConsegnaAltraAzienda {
+  const r = row as ClienteConsegnaAltraAziendaRow;
+  return {
+    ragioneSociale: String(r.ragione_sociale ?? ""),
+    nazione: String(r.nazione ?? ""),
+    provincia: String(r.provincia ?? ""),
+    citta: String(r.citta ?? ""),
+    cap: String(r.cap ?? ""),
+    indirizzo: String(r.indirizzo ?? ""),
+  };
+}
+
 export function mapClienteRow(row: ClienteRow): Cliente {
+  const rawConsegne = Array.isArray(row.consegne_altra_azienda)
+    ? row.consegne_altra_azienda
+    : [];
+
   return {
     id: row.id,
     codiceTarga: row.codice_targa,
@@ -67,6 +137,7 @@ export function mapClienteRow(row: ClienteRow): Cliente {
       cap: row.sede_mag_cap,
       indirizzo: row.sede_mag_indirizzo,
     },
+    consegneAltraAzienda: rawConsegne.map(mapConsegnaRow),
     prodottiAcquistati: row.prodotti_acquistati ?? [],
     createdAt: row.created_at,
   };

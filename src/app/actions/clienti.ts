@@ -6,6 +6,7 @@ import {
   nextSequentialCodiceTarga,
 } from "@/lib/amministrazione/codice-targa";
 import {
+  consegneToDb,
   mapClienteRow,
   normalizeClienteInput,
   type Cliente,
@@ -113,6 +114,7 @@ export async function createClienteAction(
     sede_mag_cap: normalized.sedeMagazzino.cap,
     sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
     prodotti_acquistati: normalized.prodottiAcquistati,
+    consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
     created_by: auth.userId,
   };
 
@@ -189,6 +191,7 @@ export async function updateClienteAction(
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       prodotti_acquistati: normalized.prodottiAcquistati,
+      consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
     })
     .eq("id", id)
     .select("*")
