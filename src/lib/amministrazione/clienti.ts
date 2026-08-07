@@ -142,3 +142,162 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     createdAt: row.created_at,
   };
 }
+
+/** Proxy volume acquisto: n. prodotti propri collegati al cliente. */
+export type ClientiVolumeFilter = "" | "0" | "1-3" | "4+";
+
+export type ClientiFilters = {
+  letter: string;
+  citta: string;
+  query: string;
+  volume: ClientiVolumeFilter;
+};
+
+export function emptyClientiFilters(): ClientiFilters {
+  return {
+    letter: "",
+    citta: "",
+    query: "",
+    volume: "",
+  };
+}
+
+export function hasActiveClientiFilters(filters: ClientiFilters): boolean {
+  return (
+    Boolean(filters.letter) ||
+    Boolean(filters.citta.trim()) ||
+    Boolean(filters.query.trim()) ||
+    Boolean(filters.volume)
+  );
+}
+
+function normalizeSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+export function volumeAcquistoClienteOf(cliente: Cliente): number {
+  return cliente.prodottiAcquistati.length;
+}
+
+function matchesVolume(count: number, volume: ClientiVolumeFilter): boolean {
+  if (!volume) return true;
+  if (volume === "0") return count === 0;
+  if (volume === "1-3") return count >= 1 && count <= 3;
+  if (volume === "4+") return count >= 4;
+  return true;
+}
+
+export function filterClienti(
+  clienti: Cliente[],
+  filters: ClientiFilters
+): Cliente[] {
+  const letter = filters.letter.trim().toUpperCase();
+  const cittaQ = normalizeSearch(filters.citta);
+  const q = normalizeSearch(filters.query);
+
+  return clienti.filter((c) => {
+    if (letter) {
+      const initial = normalizeSearch(c.ragioneSociale).charAt(0).toUpperCase();
+      if (initial !== letter) return false;
+    }
+
+    if (cittaQ) {
+      const cittaAmm = normalizeSearch(c.sedeAmministrativa.citta);
+      const cittaMag = normalizeSearch(c.sedeMagazzino.citta);
+      const cittaConsegne = c.consegneAltraAzienda.some((consegna) =>
+        normalizeSearch(consegna.citta).includes(cittaQ)
+      );
+      if (
+        !cittaAmm.includes(cittaQ) &&
+        !cittaMag.includes(cittaQ) &&
+        !cittaConsegne
+      ) {
+        return false;
+      }
+    }
+
+    if (q) {
+      const haystack = [
+        c.ragioneSociale,
+        c.partitaIva,
+        c.codiceTarga,
+        c.sedeAmministrativa.citta,
+        c.sedeAmministrativa.provincia,
+        c.sedeMagazzino.citta,
+        ...c.consegneAltraAzienda.flatMap((consegna) => [
+          consegna.ragioneSociale,
+          consegna.citta,
+        ]),
+        ...c.prodottiAcquistati,
+      ]
+        .map(normalizeSearch)
+        .join(" ");
+      if (!haystack.includes(q)) return false;
+    }
+
+    if (!matchesVolume(volumeAcquistoClienteOf(c), filters.volume)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function uniqueClientiCitta(clienti: Cliente[]): string[] {
+  const set = new Set<string>();
+  for (const c of clienti) {
+    const a = c.sedeAmministrativa.citta.trim();
+    const m = c.sedeMagazzino.citta.trim();
+    if (a) set.add(a);
+    if (m) set.add(m);
+    for (const consegna of c.consegneAltraAzienda) {
+      const citta = consegna.citta.trim();
+      if (citta) set.add(citta);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "it"));
+}
+
+export type ClienteSuggestion = {
+  id: string;
+  label: string;
+  meta: string;
+};
+
+export function suggestClienti(
+  clienti: Cliente[],
+  query: string,
+  limit = 8
+): ClienteSuggestion[] {
+  const q = normalizeSearch(query);
+  if (q.length < 1) return [];
+
+  return clienti
+    .map((c) => {
+      const fields = [
+        c.ragioneSociale,
+        c.codiceTarga,
+        c.partitaIva,
+        c.sedeAmministrativa.citta,
+        c.sedeMagazzino.citta,
+        ...c.consegneAltraAzienda.map((x) => x.ragioneSociale),
+      ];
+      const hit = fields.find((field) => normalizeSearch(field).includes(q));
+      if (!hit) return null;
+      return {
+        id: c.id,
+        label: c.ragioneSociale,
+        meta: [c.codiceTarga, c.sedeAmministrativa.citta || "—"]
+          .filter(Boolean)
+          .join(" · "),
+      } satisfies ClienteSuggestion;
+    })
+    .filter((item): item is ClienteSuggestion => Boolean(item))
+    .slice(0, limit);
+}
+
+export const CLIENTI_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
