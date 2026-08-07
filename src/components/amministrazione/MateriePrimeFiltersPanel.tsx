@@ -1,6 +1,6 @@
 "use client";
 
-import { FaFilter, FaXmark } from "react-icons/fa6";
+import { FaChevronUp, FaFilter, FaXmark } from "react-icons/fa6";
 import type {
   MateriePrimeFilters,
   MateriePrimeTextField,
@@ -12,6 +12,7 @@ type Props = {
   onChange: (next: MateriePrimeFilters) => void;
   resultCount: number;
   totalCount: number;
+  onCollapse?: () => void;
 };
 
 export function MateriePrimeFiltersPanel({
@@ -19,6 +20,7 @@ export function MateriePrimeFiltersPanel({
   onChange,
   resultCount,
   totalCount,
+  onCollapse,
 }: Props) {
   function patch(partial: Partial<MateriePrimeFilters>) {
     onChange({ ...value, ...partial });
@@ -51,6 +53,16 @@ export function MateriePrimeFiltersPanel({
             >
               <FaXmark size={11} />
               Azzera
+            </button>
+          )}
+          {onCollapse && (
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-50"
+            >
+              <FaChevronUp size={11} />
+              Chiudi
             </button>
           )}
         </div>

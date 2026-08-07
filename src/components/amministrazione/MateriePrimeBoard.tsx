@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaPen, FaPlus } from "react-icons/fa6";
+import { FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { MateriePrimeFiltersPanel } from "@/components/amministrazione/MateriePrimeFiltersPanel";
@@ -11,6 +11,7 @@ import {
   CODICE_MATERIA_PRIMA_PREFIX,
   emptyMateriePrimeFilters,
   filterMateriePrime,
+  hasActiveMateriePrimeFilters,
   type MateriaPrima,
   type MateriePrimeFilters,
 } from "@/lib/amministrazione/materie-prime";
@@ -21,9 +22,11 @@ export function MateriePrimeBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<MateriePrimeFilters>(
     emptyMateriePrimeFilters()
   );
+  const filtersActive = hasActiveMateriePrimeFilters(filters);
 
   useEffect(() => {
     if (searchParams.get("nuovo") === "1") {
@@ -49,17 +52,39 @@ export function MateriePrimeBoard() {
           Elenco materie prime con codice interno. I codici vengono usati come
           tag in Schede → Fornitori (“Fornitore di”).
         </p>
-        <button
-          type="button"
-          onClick={() => {
-            setSaveError(null);
-            setCreating(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-        >
-          <FaPlus size={14} />
-          Nuova materia prima
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {materie.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                filtersOpen || filtersActive
+                  ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                  : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              <FaMagnifyingGlass size={14} />
+              Ricerca
+              {filtersActive && !filtersOpen ? (
+                <span className="rounded-full bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  ON
+                </span>
+              ) : null}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSaveError(null);
+              setCreating(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            <FaPlus size={14} />
+            Nuova materia prima
+          </button>
+        </div>
       </div>
 
       {(error || saveError) && (
@@ -68,12 +93,13 @@ export function MateriePrimeBoard() {
         </p>
       )}
 
-      {materie.length > 0 && (
+      {materie.length > 0 && filtersOpen && (
         <MateriePrimeFiltersPanel
           value={filters}
           onChange={setFilters}
           resultCount={filtered.length}
           totalCount={materie.length}
+          onCollapse={() => setFiltersOpen(false)}
         />
       )}
 
