@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaPen, FaPlus } from "react-icons/fa6";
+import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { useClienti } from "@/hooks/useClienti";
@@ -30,9 +31,11 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
 function ClienteRow({
   cliente,
   onEdit,
+  prodottoLabels,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
+  prodottoLabels: Map<string, string>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -105,14 +108,24 @@ function ClienteRow({
                   <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
                 ) : (
                   <ul className="mt-2 flex flex-wrap gap-2">
-                    {cliente.prodottiAcquistati.map((p) => (
-                      <li
-                        key={p}
-                        className="rounded-md bg-white px-2.5 py-1 text-sm ring-1 ring-[var(--border)]"
-                      >
-                        {p}
-                      </li>
-                    ))}
+                    {cliente.prodottiAcquistati.map((code) => {
+                      const nome = prodottoLabels.get(code);
+                      return (
+                        <li
+                          key={code}
+                          className="rounded-md bg-white px-2.5 py-1 text-sm ring-1 ring-[var(--border)]"
+                        >
+                          <span className="font-mono text-xs font-semibold tracking-wide">
+                            {code}
+                          </span>
+                          {nome ? (
+                            <span className="ml-1.5 text-[var(--muted)]">
+                              {nome}
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
@@ -129,6 +142,19 @@ export function ClientiBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [prodottoLabels, setProdottoLabels] = useState<Map<string, string>>(
+    () => new Map()
+  );
+
+  useEffect(() => {
+    void (async () => {
+      const result = await listProdottiPropriAction();
+      if (!result.success) return;
+      setProdottoLabels(
+        new Map(result.prodotti.map((p) => [p.codice, p.nome]))
+      );
+    })();
+  }, [clienti]);
 
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">Caricamento clienti…</p>;
@@ -193,6 +219,7 @@ export function ClientiBoard() {
                 <ClienteRow
                   key={cliente.id}
                   cliente={cliente}
+                  prodottoLabels={prodottoLabels}
                   onEdit={(item) => {
                     setSaveError(null);
                     setEditing(item);

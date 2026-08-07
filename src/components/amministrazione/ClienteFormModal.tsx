@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { FaPlus, FaXmark } from "react-icons/fa6";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import {
   emptySede,
   type Cliente,
@@ -58,7 +58,6 @@ export function ClienteFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
-  const [nuovoProdotto, setNuovoProdotto] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -94,17 +93,6 @@ export function ClienteFormModal({
       cancelled = true;
     };
   }, [isEdit]);
-
-  function addProdotto() {
-    const name = nuovoProdotto.trim();
-    if (!name) return;
-    if (prodotti.some((p) => p.toLowerCase() === name.toLowerCase())) {
-      setNuovoProdotto("");
-      return;
-    }
-    setProdotti((prev) => [...prev, name]);
-    setNuovoProdotto("");
-  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -226,61 +214,7 @@ export function ClienteFormModal({
             />
           )}
 
-          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-            <legend className="px-1 text-sm font-semibold">
-              Prodotti Acquistati
-            </legend>
-            <div className="flex gap-2">
-              <input
-                value={nuovoProdotto}
-                onChange={(e) => setNuovoProdotto(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addProdotto();
-                  }
-                }}
-                placeholder="Nome prodotto"
-                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-              <button
-                type="button"
-                onClick={addProdotto}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50"
-              >
-                <FaPlus size={12} />
-                Aggiungi
-              </button>
-            </div>
-            {prodotti.length === 0 ? (
-              <p className="text-xs text-[var(--muted)]">
-                Nessun prodotto aggiunto. Puoi aggiungerli ora o in seguito.
-              </p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {prodotti.map((prodotto) => (
-                  <li
-                    key={prodotto}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2.5 py-1 text-sm"
-                  >
-                    {prodotto}
-                    <button
-                      type="button"
-                      aria-label={`Rimuovi ${prodotto}`}
-                      onClick={() =>
-                        setProdotti((prev) =>
-                          prev.filter((p) => p !== prodotto)
-                        )
-                      }
-                      className="text-[var(--muted)] hover:text-slate-900"
-                    >
-                      <FaXmark size={12} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </fieldset>
+          <ProdottiAcquistatiTags value={prodotti} onChange={setProdotti} />
 
           <div className="flex gap-2 pt-1">
             <button
