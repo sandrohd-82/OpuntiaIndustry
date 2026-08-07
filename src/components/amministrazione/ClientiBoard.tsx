@@ -13,6 +13,7 @@ import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { useClienti } from "@/hooks/useClienti";
 import {
@@ -26,6 +27,7 @@ import {
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import { exportClientiPdf } from "@/lib/amministrazione/clienti-pdf";
+import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
@@ -213,12 +215,14 @@ export function ClientiBoard() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ClientiFilters>(emptyClientiFilters());
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
+  const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filtersActive = hasActiveClientiFilters(filters);
 
   function exitPdfSelectMode() {
     setPdfSelectMode(false);
+    setPdfDetailOpen(false);
     setSelectedIds(new Set());
   }
 
@@ -271,11 +275,15 @@ export function ClientiBoard() {
       setPdfSelectMode(true);
       return;
     }
-    if (selectedVisible.length > 0) {
-      exportClientiPdf(selectedVisible, filters, { selectionMode: true });
-    } else {
-      exportClientiPdf(filtered, filters, { selectionMode: false });
-    }
+    setPdfDetailOpen(true);
+  }
+
+  function confirmExportPdf(detailLevel: PdfDetailLevel) {
+    const rows = selectedVisible.length > 0 ? selectedVisible : filtered;
+    exportClientiPdf(rows, filters, {
+      selectionMode: selectedVisible.length > 0,
+      detailLevel,
+    });
     exitPdfSelectMode();
   }
 
@@ -510,6 +518,27 @@ export function ClientiBoard() {
             );
             return false;
           }}
+        />
+      )}
+
+      {pdfDetailOpen && (
+        <PdfExportDetailModal
+          entityLabel={
+            selectedVisible.length > 0
+              ? selectedVisible.length === 1
+                ? "cliente selezionato"
+                : "clienti selezionati"
+              : filtered.length === 1
+                ? "cliente"
+                : "clienti"
+          }
+          count={
+            selectedVisible.length > 0
+              ? selectedVisible.length
+              : filtered.length
+          }
+          onClose={() => setPdfDetailOpen(false)}
+          onChoose={confirmExportPdf}
         />
       )}
     </div>

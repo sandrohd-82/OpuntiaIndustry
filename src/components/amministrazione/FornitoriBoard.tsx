@@ -14,6 +14,7 @@ import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge"
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
 import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
+import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
   emptyFornitoriFilters,
@@ -27,6 +28,7 @@ import {
 } from "@/lib/amministrazione/fornitori";
 import { exportFornitoriPdf } from "@/lib/amministrazione/fornitori-pdf";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
+import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
   return (
@@ -171,12 +173,14 @@ export function FornitoriBoard() {
     emptyFornitoriFilters()
   );
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
+  const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const filtersActive = hasActiveFornitoriFilters(filters);
 
   function exitPdfSelectMode() {
     setPdfSelectMode(false);
+    setPdfDetailOpen(false);
     setSelectedIds(new Set());
   }
 
@@ -236,11 +240,15 @@ export function FornitoriBoard() {
       setPdfSelectMode(true);
       return;
     }
-    if (selectedVisible.length > 0) {
-      exportFornitoriPdf(selectedVisible, filters, { selectionMode: true });
-    } else {
-      exportFornitoriPdf(filtered, filters, { selectionMode: false });
-    }
+    setPdfDetailOpen(true);
+  }
+
+  function confirmExportPdf(detailLevel: PdfDetailLevel) {
+    const rows = selectedVisible.length > 0 ? selectedVisible : filtered;
+    exportFornitoriPdf(rows, filters, {
+      selectionMode: selectedVisible.length > 0,
+      detailLevel,
+    });
     exitPdfSelectMode();
   }
 
@@ -476,6 +484,27 @@ export function FornitoriBoard() {
               );
             }
           }}
+        />
+      )}
+
+      {pdfDetailOpen && (
+        <PdfExportDetailModal
+          entityLabel={
+            selectedVisible.length > 0
+              ? selectedVisible.length === 1
+                ? "fornitore selezionato"
+                : "fornitori selezionati"
+              : filtered.length === 1
+                ? "fornitore"
+                : "fornitori"
+          }
+          count={
+            selectedVisible.length > 0
+              ? selectedVisible.length
+              : filtered.length
+          }
+          onClose={() => setPdfDetailOpen(false)}
+          onChoose={confirmExportPdf}
         />
       )}
     </div>
