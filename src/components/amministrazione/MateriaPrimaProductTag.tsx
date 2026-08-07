@@ -4,10 +4,13 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { FaXmark } from "react-icons/fa6";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import {
@@ -26,6 +29,13 @@ type Props = {
   bioContext?: BioContext;
   removable?: boolean;
   onRemove?: () => void;
+};
+
+type AnchorRect = {
+  top: number;
+  left: number;
+  bottom: number;
+  width: number;
 };
 
 function SchedaContent({
@@ -127,11 +137,11 @@ function SchedaDialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/50 p-4"
       role="presentation"
       onClick={onClose}
     >
@@ -164,7 +174,72 @@ function SchedaDialog({
           Chiudi
         </button>
       </div>
-    </div>
+    </div>,
+    document.body
+  );
+}
+
+function HoverSchedaPortal({
+  open,
+  anchor,
+  onEnter,
+  onLeave,
+  children,
+}: {
+  open: boolean;
+  anchor: AnchorRect | null;
+  onEnter: () => void;
+  onLeave: () => void;
+  children: ReactNode;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const [style, setStyle] = useState<CSSProperties>({});
+
+  useLayoutEffect(() => {
+    if (!open || !anchor) return;
+
+    const gap = 8;
+    const width = 288;
+    const viewportPad = 8;
+    const panelHeight = panelRef.current?.offsetHeight ?? 220;
+
+    let left = anchor.left;
+    left = Math.min(left, window.innerWidth - width - viewportPad);
+    left = Math.max(viewportPad, left);
+
+    const spaceBelow = window.innerHeight - anchor.bottom - gap;
+    const placeAbove = spaceBelow < panelHeight && anchor.top > panelHeight + gap;
+
+    const top = placeAbove
+      ? Math.max(viewportPad, anchor.top - panelHeight - gap)
+      : Math.min(anchor.bottom + gap, window.innerHeight - viewportPad - 40);
+
+    setStyle({
+      position: "fixed",
+      top,
+      left,
+      width,
+      zIndex: 300,
+    });
+  }, [open, anchor]);
+
+  if (!open || !anchor || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      ref={panelRef}
+      role="tooltip"
+      style={style}
+      className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-2xl"
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+    >
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+        Scheda prodotto
+      </p>
+      {children}
+    </div>,
+    document.body
   );
 }
 
@@ -179,7 +254,20 @@ export function MateriaPrimaProductTag({
   const wrapRef = useRef<HTMLSpanElement | null>(null);
   const [hoverOpen, setHoverOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [anchor, setAnchor] = useState<AnchorRect | null>(null);
   const closeHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updateAnchor = useCallback(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setAnchor({
+      top: rect.top,
+      left: rect.left,
+      bottom: rect.bottom,
+      width: rect.width,
+    });
+  }, []);
 
   const clearHoverTimer = useCallback(() => {
     if (closeHoverTimer.current) {
@@ -190,10 +278,23 @@ export function MateriaPrimaProductTag({
 
   const scheduleHoverClose = useCallback(() => {
     clearHoverTimer();
-    closeHoverTimer.current = setTimeout(() => setHoverOpen(false), 120);
+    closeHoverTimer.current = setTimeout(() => setHoverOpen(false), 140);
   }, [clearHoverTimer]);
 
   useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
+
+  useEffect(() => {
+    if (!hoverOpen) return;
+    function onScrollOrResize() {
+      updateAnchor();
+    }
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [hoverOpen, updateAnchor]);
 
   return (
     <>
@@ -202,6 +303,7 @@ export function MateriaPrimaProductTag({
         className="relative inline-flex"
         onMouseEnter={() => {
           clearHoverTimer();
+          updateAnchor();
           setHoverOpen(true);
         }}
         onMouseLeave={scheduleHoverClose}
@@ -232,25 +334,20 @@ export function MateriaPrimaProductTag({
             <FaXmark size={11} />
           </button>
         ) : null}
-
-        {hoverOpen && !dialogOpen ? (
-          <div
-            role="tooltip"
-            className="absolute left-0 top-full z-[75] mt-1.5 w-72 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 shadow-lg"
-            onMouseEnter={clearHoverTimer}
-            onMouseLeave={scheduleHoverClose}
-          >
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Scheda prodotto
-            </p>
-            <SchedaContent
-              code={code}
-              materia={materia}
-              bioContext={bioContext}
-            />
-          </div>
-        ) : null}
       </span>
+
+      <HoverSchedaPortal
+        open={hoverOpen && !dialogOpen}
+        anchor={anchor}
+        onEnter={clearHoverTimer}
+        onLeave={scheduleHoverClose}
+      >
+        <SchedaContent
+          code={code}
+          materia={materia}
+          bioContext={bioContext}
+        />
+      </HoverSchedaPortal>
 
       <SchedaDialog
         open={dialogOpen}
