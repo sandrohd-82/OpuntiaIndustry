@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FaPlus } from "react-icons/fa6";
+import { FaFilePdf, FaPlus } from "react-icons/fa6";
 import { NuovoOrdineModal } from "@/components/amministrazione/NuovoOrdineModal";
 import { useOrdiniRicevuti } from "@/hooks/useOrdiniRicevuti";
 
@@ -59,14 +59,16 @@ export function OrdiniRicevutiBoard() {
           </button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
-                <th className="px-4 py-3 font-medium">Numero</th>
+                <th className="px-4 py-3 font-medium">N. interno</th>
+                <th className="px-4 py-3 font-medium">N. cliente</th>
                 <th className="px-4 py-3 font-medium">Cliente</th>
                 <th className="px-4 py-3 font-medium">Data</th>
-                <th className="px-4 py-3 text-right font-medium">Importo</th>
+                <th className="px-4 py-3 text-right font-medium">Totale</th>
+                <th className="px-4 py-3 font-medium">Doc.</th>
                 <th className="px-4 py-3 font-medium">Note</th>
               </tr>
             </thead>
@@ -77,7 +79,10 @@ export function OrdiniRicevutiBoard() {
                   className="border-t border-[var(--border)]"
                 >
                   <td className="px-4 py-3 font-semibold tabular-nums">
-                    {ordine.numero}
+                    {ordine.numeroInterno || ordine.numero}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
+                    {ordine.numeroCliente || "—"}
                   </td>
                   <td className="px-4 py-3">{ordine.cliente}</td>
                   <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
@@ -85,6 +90,20 @@ export function OrdiniRicevutiBoard() {
                   </td>
                   <td className="px-4 py-3 text-right font-medium tabular-nums">
                     {formatEuro(ordine.importoEuro)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {ordine.documentoOrdineCliente ? (
+                      <a
+                        href={ordine.documentoOrdineCliente.dataUrl}
+                        download={ordine.documentoOrdineCliente.name}
+                        className="inline-flex items-center gap-1 text-red-600 hover:underline"
+                        title={ordine.documentoOrdineCliente.name}
+                      >
+                        <FaFilePdf size={14} />
+                      </a>
+                    ) : (
+                      <span className="text-[var(--muted)]">—</span>
+                    )}
                   </td>
                   <td className="max-w-[220px] truncate px-4 py-3 text-[var(--muted)]">
                     {ordine.note || "—"}

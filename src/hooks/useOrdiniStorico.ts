@@ -5,6 +5,7 @@ import {
   createOrdineStoricoManuale,
   loadOrdiniStorico,
   saveOrdiniStorico,
+  type OrdineDettaglioInput,
   type OrdineStorico,
 } from "@/lib/amministrazione/ordini";
 
@@ -36,15 +37,9 @@ export function useOrdiniStorico() {
     };
   }, [refresh]);
 
-  function addOrdineStorico(input: {
-    cliente: string;
-    clienteId?: string;
-    dataOrdine: string;
-    dataConsegna: string;
-    importoEuro: number;
-    note?: string;
-    numero?: string;
-  }) {
+  function addOrdineStorico(
+    input: OrdineDettaglioInput & { dataConsegna: string }
+  ) {
     const ordine = createOrdineStoricoManuale({
       ...input,
       existing: ordini,

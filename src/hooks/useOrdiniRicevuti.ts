@@ -5,6 +5,7 @@ import {
   createOrdineRicevuto,
   loadOrdiniRicevuti,
   saveOrdiniRicevuti,
+  type OrdineDettaglioInput,
   type OrdineRicevuto,
 } from "@/lib/amministrazione/ordini";
 
@@ -30,13 +31,7 @@ export function useOrdiniRicevuti() {
     };
   }, [refresh]);
 
-  function addOrdine(input: {
-    cliente: string;
-    clienteId?: string;
-    dataOrdine: string;
-    importoEuro: number;
-    note?: string;
-  }) {
+  function addOrdine(input: OrdineDettaglioInput) {
     const ordine = createOrdineRicevuto({ ...input, existing: ordini });
     const next = [ordine, ...ordini];
     setOrdini(next);

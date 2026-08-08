@@ -1,21 +1,24 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import {
+  OrdineDettaglioFields,
+  useOrdineDettaglioState,
+} from "@/components/amministrazione/OrdineDettaglioFields";
+import {
+  loadOrdiniStorico,
+  readFileAsDocumentoCliente,
+  type OrdineDettaglioInput,
+} from "@/lib/amministrazione/ordini";
 
-export type AggiungiOrdineStoricoValues = {
-  clienteId: string;
-  cliente: string;
-  dataOrdine: string;
+export type AggiungiOrdineStoricoValues = OrdineDettaglioInput & {
   dataConsegna: string;
-  importoEuro: number;
-  note: string;
-  numero?: string;
 };
 
 type Props = {
   onClose: () => void;
-  onCreate: (values: AggiungiOrdineStoricoValues) => void;
+  onCreate: (values: AggiungiOrdineStoricoValues) => void | Promise<void>;
 };
 
 function todayInputValue() {
@@ -24,16 +27,27 @@ function todayInputValue() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function suggestNumeroStorico(): string {
+  const year = new Date().getFullYear();
+  const existing = loadOrdiniStorico();
+  const prefix = `STO-${year}-`;
+  const seq =
+    existing.filter((o) => (o.numeroInterno || o.numero).startsWith(prefix))
+      .length + 1;
+  return `${prefix}${String(seq).padStart(3, "0")}`;
+}
+
 export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
   const titleId = useId();
+  const suggested = useMemo(() => suggestNumeroStorico(), []);
+  const dettaglio = useOrdineDettaglioState(suggested);
   const [clienteId, setClienteId] = useState("");
   const [clienteNome, setClienteNome] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue);
   const [dataConsegna, setDataConsegna] = useState(todayInputValue);
-  const [importo, setImporto] = useState("");
   const [note, setNote] = useState("");
-  const [numero, setNumero] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -50,37 +64,63 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
     };
   }, [onClose]);
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
-    const importoEuro = Number(importo.replace(",", "."));
-    if (!clienteId || !clienteNome.trim() || !dataOrdine || !dataConsegna) {
+
+    if (!clienteId || !clienteNome.trim()) {
       setFormError("Seleziona un cliente dall’anagrafica.");
       return;
     }
-    if (!Number.isFinite(importoEuro)) return;
+    if (!dettaglio.numeroInterno.trim()) {
+      setFormError("Inserisci il numero ordine interno.");
+      return;
+    }
+    if (!dataOrdine || !dataConsegna) return;
     if (dataConsegna < dataOrdine) {
       setFormError(
         "La data di consegna non può essere precedente alla data ordine."
       );
       return;
     }
-    onCreate({
-      clienteId,
-      cliente: clienteNome.trim(),
-      dataOrdine,
-      dataConsegna,
-      importoEuro,
-      note: note.trim(),
-      numero: numero.trim() || undefined,
-    });
+    const righeValide = dettaglio.righe.filter(
+      (r) => r.prodottoId && r.quantita > 0
+    );
+    if (righeValide.length === 0) {
+      setFormError("Aggiungi almeno una riga prodotto valida.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      let documento = dettaglio.documentoEsistente;
+      if (dettaglio.documentoFile) {
+        documento = await readFileAsDocumentoCliente(dettaglio.documentoFile);
+      }
+      await onCreate({
+        clienteId,
+        cliente: clienteNome.trim(),
+        dataOrdine,
+        dataConsegna,
+        numeroInterno: dettaglio.numeroInterno.trim(),
+        numeroCliente: dettaglio.numeroCliente.trim() || undefined,
+        documentoOrdineCliente: documento,
+        righe: dettaglio.righe,
+        trasporto: dettaglio.trasporto,
+        note: note.trim(),
+      });
+    } catch {
+      setFormError("Salvataggio non riuscito. Riprova.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
+      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
       onClick={() => {
         if (document.querySelector("[data-cliente-modal-root='true']")) return;
@@ -91,7 +131,7 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-full max-w-4xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
@@ -101,7 +141,7 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
           Inserisci un ordine già ricevuto, processato e consegnato in passato.
         </p>
 
-        <form onSubmit={submit} className="mt-5 space-y-4">
+        <form onSubmit={submit} className="mt-5 space-y-5">
           <div className="block text-sm">
             <span className="mb-1 block font-medium">Cliente</span>
             <ClienteSelectField
@@ -137,40 +177,29 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
             </label>
           </div>
 
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Importo (€)</span>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={importo}
-              onChange={(e) => setImporto(e.target.value)}
-              required
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-            />
-          </label>
-
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">
-              Numero ordine{" "}
-              <span className="font-normal text-[var(--muted)]">
-                (opzionale)
-              </span>
-            </span>
-            <input
-              value={numero}
-              onChange={(e) => setNumero(e.target.value)}
-              placeholder="Generato automaticamente se vuoto"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-            />
-          </label>
+          <OrdineDettaglioFields
+            numeroInterno={dettaglio.numeroInterno}
+            onNumeroInternoChange={dettaglio.setNumeroInterno}
+            numeroCliente={dettaglio.numeroCliente}
+            onNumeroClienteChange={dettaglio.setNumeroCliente}
+            documentoFile={dettaglio.documentoFile}
+            documentoEsistente={dettaglio.documentoEsistente}
+            onDocumentoFileChange={dettaglio.setDocumentoFile}
+            onDocumentoEsistenteClear={() =>
+              dettaglio.setDocumentoEsistente(null)
+            }
+            righe={dettaglio.righe}
+            onRigheChange={dettaglio.setRighe}
+            trasporto={dettaglio.trasporto}
+            onTrasportoChange={dettaglio.setTrasporto}
+          />
 
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Note</span>
             <textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              rows={3}
+              rows={2}
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
             />
           </label>
@@ -185,15 +214,17 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
+              disabled={saving}
+              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
             >
               Annulla
             </button>
             <button
               type="submit"
-              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              disabled={saving}
+              className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
-              Salva nello storico
+              {saving ? "Salvataggio…" : "Salva nello storico"}
             </button>
           </div>
         </form>
