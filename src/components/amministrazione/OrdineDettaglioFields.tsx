@@ -11,11 +11,86 @@ import {
   totaleOrdine,
   totaleRiga,
   totaleTrasporto,
-  type OrdineDocumentoCliente,
+  type OrdineAllegato,
   type OrdineRigaProdotto,
   type OrdineTrasporto,
 } from "@/lib/amministrazione/ordini";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
+
+function AllegatoUpload({
+  label,
+  inputId,
+  file,
+  esistente,
+  onFileChange,
+  onEsistenteClear,
+  error,
+}: {
+  label: string;
+  inputId: string;
+  file: File | null;
+  esistente: OrdineAllegato | null;
+  onFileChange: (file: File | null) => void;
+  onEsistenteClear: () => void;
+  error?: string | null;
+}) {
+  const has = Boolean(file || esistente);
+  return (
+    <div className="mt-2 space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <label
+          htmlFor={inputId}
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+          title={label}
+        >
+          <FaUpload size={11} />
+          {has ? "Sostituisci" : "Carica"}
+        </label>
+        <input
+          id={inputId}
+          type="file"
+          accept="application/pdf,image/*"
+          className="sr-only"
+          onChange={(e) => {
+            const next = e.target.files?.[0] ?? null;
+            e.target.value = "";
+            if (!next) return;
+            onEsistenteClear();
+            onFileChange(next);
+          }}
+        />
+        {file ? (
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-slate-700">
+            <FaFilePdf className="shrink-0 text-red-600" />
+            <span className="truncate">{file.name}</span>
+            <button
+              type="button"
+              onClick={() => onFileChange(null)}
+              className="shrink-0 text-[var(--primary)] hover:underline"
+            >
+              Rimuovi
+            </button>
+          </span>
+        ) : esistente ? (
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-slate-700">
+            <FaFilePdf className="shrink-0 text-red-600" />
+            <span className="truncate">{esistente.name}</span>
+            <button
+              type="button"
+              onClick={onEsistenteClear}
+              className="shrink-0 text-[var(--primary)] hover:underline"
+            >
+              Rimuovi
+            </button>
+          </span>
+        ) : (
+          <span className="text-xs text-[var(--muted)]">{label}</span>
+        )}
+      </div>
+      {error ? <p className="text-xs text-red-600">{error}</p> : null}
+    </div>
+  );
+}
 
 function NumeroInternoInfo() {
   const [open, setOpen] = useState(false);
@@ -100,10 +175,14 @@ type Props = {
   numeroInterno: string;
   numeroCliente: string;
   onNumeroClienteChange: (value: string) => void;
-  documentoFile: File | null;
-  documentoEsistente: OrdineDocumentoCliente | null;
-  onDocumentoFileChange: (file: File | null) => void;
-  onDocumentoEsistenteClear: () => void;
+  offertaFile: File | null;
+  offertaEsistente: OrdineAllegato | null;
+  onOffertaFileChange: (file: File | null) => void;
+  onOffertaEsistenteClear: () => void;
+  ordineClienteFile: File | null;
+  ordineClienteEsistente: OrdineAllegato | null;
+  onOrdineClienteFileChange: (file: File | null) => void;
+  onOrdineClienteEsistenteClear: () => void;
   righe: OrdineRigaProdotto[];
   onRigheChange: (righe: OrdineRigaProdotto[]) => void;
   trasporto: OrdineTrasporto;
@@ -114,19 +193,23 @@ export function OrdineDettaglioFields({
   numeroInterno,
   numeroCliente,
   onNumeroClienteChange,
-  documentoFile,
-  documentoEsistente,
-  onDocumentoFileChange,
-  onDocumentoEsistenteClear,
+  offertaFile,
+  offertaEsistente,
+  onOffertaFileChange,
+  onOffertaEsistenteClear,
+  ordineClienteFile,
+  ordineClienteEsistente,
+  onOrdineClienteFileChange,
+  onOrdineClienteEsistenteClear,
   righe,
   onRigheChange,
   trasporto,
   onTrasportoChange,
 }: Props) {
-  const docInputId = useId();
+  const offertaInputId = useId();
+  const ordineClienteInputId = useId();
   const [prodotti, setProdotti] = useState<ProdottoProprio[]>([]);
   const [prodottiReady, setProdottiReady] = useState(false);
-  const [docError, setDocError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,34 +233,15 @@ export function OrdineDettaglioFields({
   );
 
   const totale = totaleOrdine(righe, trasporto);
-  const hasDocumento = Boolean(documentoFile || documentoEsistente);
 
   function patchRiga(id: string, patch: Partial<OrdineRigaProdotto>) {
     onRigheChange(righe.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
-  function onPickDocumento(files: FileList | null) {
-    const next = files?.[0] ?? null;
-    if (!next) return;
-    const okTypes = [
-      "application/pdf",
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
-    if (!okTypes.includes(next.type) && !next.name.toLowerCase().endsWith(".pdf")) {
-      setDocError("Allegare un PDF o un’immagine dell’ordine cliente.");
-      return;
-    }
-    setDocError(null);
-    onDocumentoEsistenteClear();
-    onDocumentoFileChange(next);
-  }
-
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="block text-sm">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="block text-sm">
           <span className="mb-1 flex items-center font-medium">
             N. ordine interno
             <NumeroInternoInfo />
@@ -189,10 +253,19 @@ export function OrdineDettaglioFields({
             placeholder="Seleziona cliente e data ordine"
             className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm outline-none"
           />
-        </label>
-        <label className="block text-sm">
+          <AllegatoUpload
+            label="Offerta interna inviata al cliente"
+            inputId={offertaInputId}
+            file={offertaFile}
+            esistente={offertaEsistente}
+            onFileChange={onOffertaFileChange}
+            onEsistenteClear={onOffertaEsistenteClear}
+          />
+        </div>
+
+        <div className="block text-sm">
           <span className="mb-1 block font-medium">
-            N. ordine cliente{" "}
+            N. ordine del cliente{" "}
             <span className="font-normal text-[var(--muted)]">(opzionale)</span>
           </span>
           <input
@@ -201,61 +274,15 @@ export function OrdineDettaglioFields({
             placeholder="Riferimento ordine del cliente"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
-        </label>
-      </div>
-
-      <div className="block text-sm">
-        <span className="mb-1 block font-medium">
-          Documento ordine cliente{" "}
-          <span className="font-normal text-[var(--muted)]">(opzionale)</span>
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <label
-            htmlFor={docInputId}
-            className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50"
-          >
-            <FaUpload size={12} />
-            {hasDocumento ? "Sostituisci file" : "Allega documento"}
-          </label>
-          <input
-            id={docInputId}
-            type="file"
-            accept="application/pdf,image/*"
-            className="sr-only"
-            onChange={(e) => {
-              onPickDocumento(e.target.files);
-              e.target.value = "";
-            }}
+          <AllegatoUpload
+            label="Ordine inviato dal cliente"
+            inputId={ordineClienteInputId}
+            file={ordineClienteFile}
+            esistente={ordineClienteEsistente}
+            onFileChange={onOrdineClienteFileChange}
+            onEsistenteClear={onOrdineClienteEsistenteClear}
           />
-          {documentoFile ? (
-            <span className="inline-flex items-center gap-2 text-xs text-slate-700">
-              <FaFilePdf className="text-red-600" />
-              {documentoFile.name}
-              <button
-                type="button"
-                onClick={() => onDocumentoFileChange(null)}
-                className="text-[var(--primary)] hover:underline"
-              >
-                Rimuovi
-              </button>
-            </span>
-          ) : documentoEsistente ? (
-            <span className="inline-flex items-center gap-2 text-xs text-slate-700">
-              <FaFilePdf className="text-red-600" />
-              {documentoEsistente.name}
-              <button
-                type="button"
-                onClick={onDocumentoEsistenteClear}
-                className="text-[var(--primary)] hover:underline"
-              >
-                Rimuovi
-              </button>
-            </span>
-          ) : (
-            <span className="text-xs text-[var(--muted)]">Nessun allegato</span>
-          )}
         </div>
-        {docError ? <p className="mt-1 text-xs text-red-600">{docError}</p> : null}
       </div>
 
       <div className="space-y-3">
@@ -492,9 +519,12 @@ export function OrdineDettaglioFields({
 export function useOrdineDettaglioState() {
   const [numeroInterno, setNumeroInterno] = useState("");
   const [numeroCliente, setNumeroCliente] = useState("");
-  const [documentoFile, setDocumentoFile] = useState<File | null>(null);
-  const [documentoEsistente, setDocumentoEsistente] =
-    useState<OrdineDocumentoCliente | null>(null);
+  const [offertaFile, setOffertaFile] = useState<File | null>(null);
+  const [offertaEsistente, setOffertaEsistente] =
+    useState<OrdineAllegato | null>(null);
+  const [ordineClienteFile, setOrdineClienteFile] = useState<File | null>(null);
+  const [ordineClienteEsistente, setOrdineClienteEsistente] =
+    useState<OrdineAllegato | null>(null);
   const [righe, setRighe] = useState<OrdineRigaProdotto[]>(() => [
     newRigaProdotto(),
   ]);
@@ -505,10 +535,14 @@ export function useOrdineDettaglioState() {
     setNumeroInterno,
     numeroCliente,
     setNumeroCliente,
-    documentoFile,
-    setDocumentoFile,
-    documentoEsistente,
-    setDocumentoEsistente,
+    offertaFile,
+    setOffertaFile,
+    offertaEsistente,
+    setOffertaEsistente,
+    ordineClienteFile,
+    setOrdineClienteFile,
+    ordineClienteEsistente,
+    setOrdineClienteEsistente,
     righe,
     setRighe,
     trasporto,

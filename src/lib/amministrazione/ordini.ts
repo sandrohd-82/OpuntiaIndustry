@@ -1,8 +1,11 @@
-export type OrdineDocumentoCliente = {
+export type OrdineAllegato = {
   name: string;
   mimeType: string;
   dataUrl: string;
 };
+
+/** @deprecated alias — usare OrdineAllegato */
+export type OrdineDocumentoCliente = OrdineAllegato;
 
 export type OrdineRigaProdotto = {
   id: string;
@@ -28,7 +31,10 @@ export type OrdineRicevuto = {
   numero: string;
   /** Numero ordine del cliente (opzionale). */
   numeroCliente: string;
-  documentoOrdineCliente: OrdineDocumentoCliente | null;
+  /** Offerta interna inviata al cliente. */
+  documentoOffertaInterna: OrdineAllegato | null;
+  /** Ordine inviato dal cliente. */
+  documentoOrdineCliente: OrdineAllegato | null;
   /** Ragione sociale (snapshot al momento del salvataggio). */
   cliente: string;
   /** Collegamento all’anagrafica clienti. */
@@ -51,7 +57,8 @@ export type OrdineStorico = {
   /** Alias legacy — uguale a numeroInterno. */
   numero: string;
   numeroCliente: string;
-  documentoOrdineCliente: OrdineDocumentoCliente | null;
+  documentoOffertaInterna: OrdineAllegato | null;
+  documentoOrdineCliente: OrdineAllegato | null;
   cliente: string;
   clienteId?: string;
   dataOrdine: string;
@@ -123,9 +130,7 @@ function asFinite(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function normalizeDocumento(
-  raw: unknown
-): OrdineDocumentoCliente | null {
+function normalizeDocumento(raw: unknown): OrdineAllegato | null {
   if (!raw || typeof raw !== "object") return null;
   const d = raw as Record<string, unknown>;
   const name = String(d.name ?? "").trim();
@@ -171,6 +176,7 @@ function normalizeOrdineBase(raw: Record<string, unknown>) {
     numeroInterno,
     numero: numeroInterno,
     numeroCliente: String(raw.numeroCliente ?? "").trim(),
+    documentoOffertaInterna: normalizeDocumento(raw.documentoOffertaInterna),
     documentoOrdineCliente: normalizeDocumento(raw.documentoOrdineCliente),
     cliente: String(raw.cliente ?? "").trim(),
     clienteId: String(raw.clienteId ?? "").trim() || undefined,
@@ -336,7 +342,8 @@ export type OrdineDettaglioInput = {
   dataOrdine: string;
   numeroInterno?: string;
   numeroCliente?: string;
-  documentoOrdineCliente?: OrdineDocumentoCliente | null;
+  documentoOffertaInterna?: OrdineAllegato | null;
+  documentoOrdineCliente?: OrdineAllegato | null;
   righe: OrdineRigaProdotto[];
   trasporto: OrdineTrasporto;
   note?: string;
@@ -363,6 +370,7 @@ export function createOrdineRicevuto(input: {
     numeroInterno,
     numero: numeroInterno,
     numeroCliente: input.numeroCliente?.trim() ?? "",
+    documentoOffertaInterna: input.documentoOffertaInterna ?? null,
     documentoOrdineCliente: input.documentoOrdineCliente ?? null,
     cliente: input.cliente.trim(),
     clienteId: input.clienteId?.trim() || undefined,
@@ -397,6 +405,7 @@ export function createOrdineStoricoManuale(input: {
     numeroInterno,
     numero: numeroInterno,
     numeroCliente: input.numeroCliente?.trim() ?? "",
+    documentoOffertaInterna: input.documentoOffertaInterna ?? null,
     documentoOrdineCliente: input.documentoOrdineCliente ?? null,
     cliente: input.cliente.trim(),
     clienteId: input.clienteId?.trim() || undefined,
@@ -424,6 +433,7 @@ export function archiveOrdineToStorico(
     numeroInterno: ordine.numeroInterno || ordine.numero,
     numero: ordine.numeroInterno || ordine.numero,
     numeroCliente: ordine.numeroCliente ?? "",
+    documentoOffertaInterna: ordine.documentoOffertaInterna ?? null,
     documentoOrdineCliente: ordine.documentoOrdineCliente ?? null,
     cliente: ordine.cliente,
     clienteId: ordine.clienteId,
@@ -441,7 +451,7 @@ export function archiveOrdineToStorico(
 
 export function readFileAsDocumentoCliente(
   file: File
-): Promise<OrdineDocumentoCliente> {
+): Promise<OrdineAllegato> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {

@@ -64,11 +64,12 @@ export function OrdiniRicevutiBoard() {
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">N. interno</th>
-                <th className="px-4 py-3 font-medium">N. cliente</th>
+                <th className="px-4 py-3 font-medium">N. del cliente</th>
                 <th className="px-4 py-3 font-medium">Cliente</th>
                 <th className="px-4 py-3 font-medium">Data</th>
                 <th className="px-4 py-3 text-right font-medium">Totale</th>
-                <th className="px-4 py-3 font-medium">Doc.</th>
+                <th className="px-4 py-3 font-medium">Offerta</th>
+                <th className="px-4 py-3 font-medium">Ord. cl.</th>
                 <th className="px-4 py-3 font-medium">Note</th>
               </tr>
             </thead>
@@ -90,6 +91,20 @@ export function OrdiniRicevutiBoard() {
                   </td>
                   <td className="px-4 py-3 text-right font-medium tabular-nums">
                     {formatEuro(ordine.importoEuro)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {ordine.documentoOffertaInterna ? (
+                      <a
+                        href={ordine.documentoOffertaInterna.dataUrl}
+                        download={ordine.documentoOffertaInterna.name}
+                        className="inline-flex items-center gap-1 text-red-600 hover:underline"
+                        title={ordine.documentoOffertaInterna.name}
+                      >
+                        <FaFilePdf size={14} />
+                      </a>
+                    ) : (
+                      <span className="text-[var(--muted)]">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {ordine.documentoOrdineCliente ? (

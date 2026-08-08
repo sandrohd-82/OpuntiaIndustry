@@ -102,9 +102,17 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
 
     setSaving(true);
     try {
-      let documento = dettaglio.documentoEsistente;
-      if (dettaglio.documentoFile) {
-        documento = await readFileAsDocumentoCliente(dettaglio.documentoFile);
+      let documentoOfferta = dettaglio.offertaEsistente;
+      if (dettaglio.offertaFile) {
+        documentoOfferta = await readFileAsDocumentoCliente(
+          dettaglio.offertaFile
+        );
+      }
+      let documentoOrdine = dettaglio.ordineClienteEsistente;
+      if (dettaglio.ordineClienteFile) {
+        documentoOrdine = await readFileAsDocumentoCliente(
+          dettaglio.ordineClienteFile
+        );
       }
       await onCreate({
         clienteId,
@@ -114,7 +122,8 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
         dataConsegna,
         numeroInterno,
         numeroCliente: dettaglio.numeroCliente.trim() || undefined,
-        documentoOrdineCliente: documento,
+        documentoOffertaInterna: documentoOfferta,
+        documentoOrdineCliente: documentoOrdine,
         righe: dettaglio.righe,
         trasporto: dettaglio.trasporto,
         note: note.trim(),
@@ -190,11 +199,15 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
             numeroInterno={dettaglio.numeroInterno}
             numeroCliente={dettaglio.numeroCliente}
             onNumeroClienteChange={dettaglio.setNumeroCliente}
-            documentoFile={dettaglio.documentoFile}
-            documentoEsistente={dettaglio.documentoEsistente}
-            onDocumentoFileChange={dettaglio.setDocumentoFile}
-            onDocumentoEsistenteClear={() =>
-              dettaglio.setDocumentoEsistente(null)
+            offertaFile={dettaglio.offertaFile}
+            offertaEsistente={dettaglio.offertaEsistente}
+            onOffertaFileChange={dettaglio.setOffertaFile}
+            onOffertaEsistenteClear={() => dettaglio.setOffertaEsistente(null)}
+            ordineClienteFile={dettaglio.ordineClienteFile}
+            ordineClienteEsistente={dettaglio.ordineClienteEsistente}
+            onOrdineClienteFileChange={dettaglio.setOrdineClienteFile}
+            onOrdineClienteEsistenteClear={() =>
+              dettaglio.setOrdineClienteEsistente(null)
             }
             righe={dettaglio.righe}
             onRigheChange={dettaglio.setRighe}
