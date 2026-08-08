@@ -27,7 +27,8 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
       {
         slug: "storico",
         label: "Storico",
-        description: "Storico completo degli ordini",
+        description:
+          "Ordini conclusi e consegnati; qui arriveranno anche dopo la chiusura automatica",
         path: "/app/amministrazione/ordini/storico",
       },
     ],

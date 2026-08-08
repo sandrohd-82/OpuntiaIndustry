@@ -5,6 +5,7 @@ import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
+import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
@@ -27,6 +28,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title="Ordini ricevuti" subtitle={page.description} />
         <div className="p-6">
           <OrdiniRicevutiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "storico") {
+    return (
+      <>
+        <AppHeader title="Storico ordini" subtitle={page.description} />
+        <div className="p-6">
+          <OrdiniStoricoBoard />
         </div>
       </>
     );
