@@ -335,6 +335,145 @@ export interface ProdottoProprioUpdate {
   updated_at?: string;
 }
 
+export type OrdineStato = "ricevuto" | "evaso" | "storico";
+export type OrdineOrigineStorico = "manuale" | "chiusura";
+export type OrdineDocumentoStato =
+  | "bozza"
+  | "registrato"
+  | "approvato"
+  | "chiuso";
+
+export interface OrdineRow {
+  id: string;
+  numero_interno: string;
+  numero_cliente: string;
+  cliente_id: string | null;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_ordine: string;
+  data_consegna: string | null;
+  stato: OrdineStato;
+  origine_storico: OrdineOrigineStorico | null;
+  source_ordine_id: string | null;
+  trasporto_azienda: string;
+  trasporto_imponibile: number;
+  trasporto_iva_percentuale: number;
+  importo_euro: number;
+  note: string;
+  offerta_storage_path: string;
+  offerta_file_name: string;
+  ordine_cliente_storage_path: string;
+  ordine_cliente_file_name: string;
+  versione: number;
+  documento_stato: OrdineDocumentoStato;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface OrdineInsert {
+  id?: string;
+  numero_interno: string;
+  numero_cliente?: string;
+  cliente_id?: string | null;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_ordine: string;
+  data_consegna?: string | null;
+  stato: OrdineStato;
+  origine_storico?: OrdineOrigineStorico | null;
+  source_ordine_id?: string | null;
+  trasporto_azienda?: string;
+  trasporto_imponibile?: number;
+  trasporto_iva_percentuale?: number;
+  importo_euro?: number;
+  note?: string;
+  offerta_storage_path?: string;
+  offerta_file_name?: string;
+  ordine_cliente_storage_path?: string;
+  ordine_cliente_file_name?: string;
+  versione?: number;
+  documento_stato?: OrdineDocumentoStato;
+  created_by?: string | null;
+  updated_by?: string | null;
+}
+
+export interface OrdineUpdate {
+  numero_interno?: string;
+  numero_cliente?: string;
+  cliente_id?: string | null;
+  cliente_ragione_sociale?: string;
+  cliente_codice_targa?: string;
+  data_ordine?: string;
+  data_consegna?: string | null;
+  stato?: OrdineStato;
+  origine_storico?: OrdineOrigineStorico | null;
+  trasporto_azienda?: string;
+  trasporto_imponibile?: number;
+  trasporto_iva_percentuale?: number;
+  importo_euro?: number;
+  note?: string;
+  offerta_storage_path?: string;
+  offerta_file_name?: string;
+  ordine_cliente_storage_path?: string;
+  ordine_cliente_file_name?: string;
+  versione?: number;
+  documento_stato?: OrdineDocumentoStato;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
+export interface OrdineRigaRow {
+  id: string;
+  ordine_id: string;
+  prodotto_id: string | null;
+  prodotto_codice: string;
+  prodotto_nome: string;
+  quantita: number;
+  prezzo_unitario: number;
+  iva_percentuale: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrdineRigaInsert {
+  id?: string;
+  ordine_id: string;
+  prodotto_id?: string | null;
+  prodotto_codice?: string;
+  prodotto_nome?: string;
+  quantita?: number;
+  prezzo_unitario?: number;
+  iva_percentuale?: number;
+  sort_order?: number;
+}
+
+export interface AuditLogRow {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  actor_id: string | null;
+  summary: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogInsert {
+  id?: string;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  actor_id?: string | null;
+  summary?: string;
+  payload?: Record<string, unknown>;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -360,6 +499,24 @@ export interface Database {
         Row: ProdottoProprioRow;
         Insert: ProdottoProprioInsert;
         Update: ProdottoProprioUpdate;
+        Relationships: [];
+      };
+      ordini: {
+        Row: OrdineRow;
+        Insert: OrdineInsert;
+        Update: OrdineUpdate;
+        Relationships: [];
+      };
+      ordini_righe: {
+        Row: OrdineRigaRow;
+        Insert: OrdineRigaInsert;
+        Update: Partial<OrdineRigaInsert>;
+        Relationships: [];
+      };
+      audit_log: {
+        Row: AuditLogRow;
+        Insert: AuditLogInsert;
+        Update: never;
         Relationships: [];
       };
       user_second_factor: {

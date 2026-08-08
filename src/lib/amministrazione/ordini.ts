@@ -1,11 +1,14 @@
-export type OrdineAllegato = {
-  name: string;
-  mimeType: string;
-  dataUrl: string;
-};
+import { z } from "zod";
+import type {
+  OrdineRigaRow,
+  OrdineRow,
+  OrdineStato,
+} from "@/types/database";
 
-/** @deprecated alias — usare OrdineAllegato */
-export type OrdineDocumentoCliente = OrdineAllegato;
+export type OrdineAllegatoMeta = {
+  storagePath: string;
+  fileName: string;
+};
 
 export type OrdineRigaProdotto = {
   id: string;
@@ -23,59 +26,44 @@ export type OrdineTrasporto = {
   ivaPercentuale: number;
 };
 
-export type OrdineRicevuto = {
-  id: string;
-  /** Numero ordine interno. */
-  numeroInterno: string;
-  /** Alias legacy — uguale a numeroInterno. */
-  numero: string;
-  /** Numero ordine del cliente (opzionale). */
-  numeroCliente: string;
-  /** Offerta interna inviata al cliente. */
-  documentoOffertaInterna: OrdineAllegato | null;
-  /** Ordine inviato dal cliente. */
-  documentoOrdineCliente: OrdineAllegato | null;
-  /** Ragione sociale (snapshot al momento del salvataggio). */
-  cliente: string;
-  /** Collegamento all’anagrafica clienti. */
-  clienteId?: string;
-  dataOrdine: string;
-  righe: OrdineRigaProdotto[];
-  trasporto: OrdineTrasporto;
-  /** Totale complessivo (prodotti + trasporto, IVA inclusa). */
-  importoEuro: number;
-  note: string;
-  createdAt: string;
-};
+export type OrdineOrigineStorico = "manuale" | "chiusura";
+export type OrdineDocumentoStato =
+  | "bozza"
+  | "registrato"
+  | "approvato"
+  | "chiuso";
 
-/** Origine nello storico: inserimento manuale o chiusura automatica (futura). */
-export type OrdineStoricoOrigine = "manuale" | "chiusura";
-
-export type OrdineStorico = {
+export type Ordine = {
   id: string;
   numeroInterno: string;
-  /** Alias legacy — uguale a numeroInterno. */
+  /** Alias UI legacy */
   numero: string;
   numeroCliente: string;
-  documentoOffertaInterna: OrdineAllegato | null;
-  documentoOrdineCliente: OrdineAllegato | null;
+  clienteId: string | null;
   cliente: string;
-  clienteId?: string;
+  clienteCodiceTarga: string;
   dataOrdine: string;
-  dataConsegna: string;
-  righe: OrdineRigaProdotto[];
+  dataConsegna: string | null;
+  stato: OrdineStato;
+  origineStorico: OrdineOrigineStorico | null;
+  sourceOrdineId: string | null;
   trasporto: OrdineTrasporto;
   importoEuro: number;
   note: string;
-  origine: OrdineStoricoOrigine;
+  offerta: OrdineAllegatoMeta | null;
+  ordineClienteDoc: OrdineAllegatoMeta | null;
+  versione: number;
+  documentoStato: OrdineDocumentoStato;
+  righe: OrdineRigaProdotto[];
   createdAt: string;
-  sourceOrdineId?: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+  deletedAt: string | null;
 };
-
-export const ORDINI_RICEVUTI_STORAGE_KEY = "opuntia.ordini-ricevuti.v1";
-export const ORDINI_STORICO_STORAGE_KEY = "opuntia.ordini-storico.v1";
 
 export const IVA_PERCENTUALI_COMUNI = [4, 5, 10, 22] as const;
+export const ORDINI_ALLEGATI_BUCKET = "ordini-allegati";
 
 export function emptyTrasporto(): OrdineTrasporto {
   return { azienda: "", imponibile: 0, ivaPercentuale: 22 };
@@ -91,6 +79,10 @@ export function newRigaProdotto(): OrdineRigaProdotto {
     prezzoUnitario: 0,
     ivaPercentuale: 22,
   };
+}
+
+export function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
 export function imponibileRiga(riga: OrdineRigaProdotto): number {
@@ -121,158 +113,6 @@ export function totaleOrdine(
   return roundMoney(prodotti + totaleTrasporto(trasporto));
 }
 
-export function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function asFinite(value: unknown, fallback = 0): number {
-  const n = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function normalizeDocumento(raw: unknown): OrdineAllegato | null {
-  if (!raw || typeof raw !== "object") return null;
-  const d = raw as Record<string, unknown>;
-  const name = String(d.name ?? "").trim();
-  const mimeType = String(d.mimeType ?? "").trim();
-  const dataUrl = String(d.dataUrl ?? "").trim();
-  if (!name || !dataUrl) return null;
-  return { name, mimeType: mimeType || "application/pdf", dataUrl };
-}
-
-function normalizeRiga(raw: unknown): OrdineRigaProdotto | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  return {
-    id: String(r.id ?? `riga-${Date.now()}`),
-    prodottoId: String(r.prodottoId ?? ""),
-    prodottoCodice: String(r.prodottoCodice ?? ""),
-    prodottoNome: String(r.prodottoNome ?? ""),
-    quantita: asFinite(r.quantita, 0),
-    prezzoUnitario: asFinite(r.prezzoUnitario, 0),
-    ivaPercentuale: asFinite(r.ivaPercentuale, 22),
-  };
-}
-
-function normalizeTrasporto(raw: unknown): OrdineTrasporto {
-  if (!raw || typeof raw !== "object") return emptyTrasporto();
-  const t = raw as Record<string, unknown>;
-  return {
-    azienda: String(t.azienda ?? "").trim(),
-    imponibile: asFinite(t.imponibile, 0),
-    ivaPercentuale: asFinite(t.ivaPercentuale, 22),
-  };
-}
-
-function normalizeOrdineBase(raw: Record<string, unknown>) {
-  const numeroInterno = String(raw.numeroInterno ?? raw.numero ?? "").trim();
-  const righeRaw = Array.isArray(raw.righe) ? raw.righe : [];
-  const righe = righeRaw
-    .map(normalizeRiga)
-    .filter((r): r is OrdineRigaProdotto => Boolean(r));
-  const trasporto = normalizeTrasporto(raw.trasporto);
-  const importoStored = asFinite(raw.importoEuro, NaN);
-  return {
-    numeroInterno,
-    numero: numeroInterno,
-    numeroCliente: String(raw.numeroCliente ?? "").trim(),
-    documentoOffertaInterna: normalizeDocumento(raw.documentoOffertaInterna),
-    documentoOrdineCliente: normalizeDocumento(raw.documentoOrdineCliente),
-    cliente: String(raw.cliente ?? "").trim(),
-    clienteId: String(raw.clienteId ?? "").trim() || undefined,
-    dataOrdine: String(raw.dataOrdine ?? ""),
-    righe,
-    trasporto,
-    importoEuro: Number.isFinite(importoStored)
-      ? importoStored
-      : totaleOrdine(righe, trasporto),
-    note: String(raw.note ?? "").trim(),
-    createdAt: String(raw.createdAt ?? new Date().toISOString()),
-  };
-}
-
-export function normalizeOrdineRicevuto(raw: unknown): OrdineRicevuto | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const base = normalizeOrdineBase(r);
-  if (!base.numeroInterno && !base.cliente) return null;
-  return {
-    id: String(r.id ?? `ord-${Date.now()}`),
-    ...base,
-  };
-}
-
-export function normalizeOrdineStorico(raw: unknown): OrdineStorico | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const base = normalizeOrdineBase(r);
-  if (!base.numeroInterno && !base.cliente) return null;
-  const origine = r.origine === "chiusura" ? "chiusura" : "manuale";
-  return {
-    id: String(r.id ?? `sto-${Date.now()}`),
-    ...base,
-    dataConsegna: String(r.dataConsegna ?? base.dataOrdine),
-    origine,
-    sourceOrdineId: String(r.sourceOrdineId ?? "").trim() || undefined,
-  };
-}
-
-export function loadOrdiniRicevuti(): OrdineRicevuto[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(ORDINI_RICEVUTI_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeOrdineRicevuto)
-      .filter((o): o is OrdineRicevuto => Boolean(o));
-  } catch {
-    return [];
-  }
-}
-
-export function saveOrdiniRicevuti(ordini: OrdineRicevuto[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    ORDINI_RICEVUTI_STORAGE_KEY,
-    JSON.stringify(ordini)
-  );
-  window.dispatchEvent(new Event("opuntia-ordini-ricevuti-updated"));
-}
-
-export function loadOrdiniStorico(): OrdineStorico[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(ORDINI_STORICO_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map(normalizeOrdineStorico)
-      .filter((o): o is OrdineStorico => Boolean(o));
-  } catch {
-    return [];
-  }
-}
-
-export function saveOrdiniStorico(ordini: OrdineStorico[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    ORDINI_STORICO_STORAGE_KEY,
-    JSON.stringify(ordini)
-  );
-  window.dispatchEvent(new Event("opuntia-ordini-storico-updated"));
-}
-
-/**
- * Formato: Or-AA-TARGA/N
- * Es. Or-26-C003/391
- * - Or = Ordine
- * - AA = anno a 2 cifre dalla data ordine
- * - TARGA = identificativo cliente (es. C003)
- * - N = progressivo ordini di quel cliente (tutti gli anni)
- */
 export function year2FromDataOrdine(dataOrdine: string): string {
   const y = dataOrdine?.slice(0, 4);
   if (y && /^\d{4}$/.test(y)) return y.slice(2);
@@ -290,178 +130,103 @@ export function buildNumeroInternoOrdine(input: {
   return `Or-${aa}-${targa}/${seq}`;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export function fraseConfermaEliminazione(numeroInterno: string): string {
+  return `Elimina ${numeroInterno.trim()}`;
 }
 
-/** Progressivo massimo già usato per quel cliente (ricevuti + storico). */
-export function maxProgressivoOrdiniCliente(input: {
-  clienteId?: string;
-  codiceTargaCliente: string;
-}): number {
-  const targa = input.codiceTargaCliente.trim().toUpperCase();
-  const re = targa
-    ? new RegExp(`^Or-\\d{2}-${escapeRegExp(targa)}/(\\d+)$`, "i")
-    : null;
-  let countById = 0;
-  let maxParsed = 0;
+const rigaSchema = z.object({
+  id: z.string().optional(),
+  prodottoId: z.string().min(1, "Prodotto obbligatorio"),
+  prodottoCodice: z.string(),
+  prodottoNome: z.string(),
+  quantita: z.number().positive("Quantità deve essere > 0"),
+  prezzoUnitario: z.number().min(0),
+  ivaPercentuale: z.number().min(0),
+});
 
-  for (const o of [...loadOrdiniRicevuti(), ...loadOrdiniStorico()]) {
-    if (input.clienteId && o.clienteId === input.clienteId) {
-      countById += 1;
-    }
-    if (!re) continue;
-    const m = (o.numeroInterno || o.numero).match(re);
-    if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
-  }
+export const ordineInputSchema = z.object({
+  clienteId: z.string().uuid("Cliente non valido"),
+  cliente: z.string().trim().min(1),
+  codiceTargaCliente: z.string().regex(/^C[0-9A-F]{3}$/, "Targa cliente non valida"),
+  dataOrdine: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  dataConsegna: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  numeroInterno: z.string().trim().min(3).optional(),
+  numeroCliente: z.string().optional(),
+  stato: z.enum(["ricevuto", "evaso", "storico"]),
+  origineStorico: z.enum(["manuale", "chiusura"]).nullable().optional(),
+  note: z.string().optional(),
+  trasporto: z.object({
+    azienda: z.string(),
+    imponibile: z.number().min(0),
+    ivaPercentuale: z.number().min(0),
+  }),
+  righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga prodotto"),
+});
 
-  return Math.max(countById, maxParsed);
+export type OrdineInput = z.infer<typeof ordineInputSchema>;
+
+function allegatoFromRow(
+  path: string,
+  name: string
+): OrdineAllegatoMeta | null {
+  if (!path?.trim()) return null;
+  return { storagePath: path, fileName: name || path.split("/").pop() || "file" };
 }
 
-export function nextNumeroInternoOrdine(input: {
-  dataOrdine: string;
-  codiceTargaCliente: string;
-  clienteId?: string;
-}): string {
-  const seq =
-    maxProgressivoOrdiniCliente({
-      clienteId: input.clienteId,
-      codiceTargaCliente: input.codiceTargaCliente,
-    }) + 1;
-  return buildNumeroInternoOrdine({
-    dataOrdine: input.dataOrdine,
-    codiceTargaCliente: input.codiceTargaCliente,
-    seq,
-  });
-}
-
-export type OrdineDettaglioInput = {
-  cliente: string;
-  clienteId?: string;
-  codiceTargaCliente?: string;
-  dataOrdine: string;
-  numeroInterno?: string;
-  numeroCliente?: string;
-  documentoOffertaInterna?: OrdineAllegato | null;
-  documentoOrdineCliente?: OrdineAllegato | null;
-  righe: OrdineRigaProdotto[];
-  trasporto: OrdineTrasporto;
-  note?: string;
-};
-
-export function createOrdineRicevuto(input: {
-  existing: OrdineRicevuto[];
-} & OrdineDettaglioInput): OrdineRicevuto {
-  const numeroInterno =
-    input.numeroInterno?.trim() ||
-    nextNumeroInternoOrdine({
-      dataOrdine: input.dataOrdine,
-      codiceTargaCliente: input.codiceTargaCliente ?? "",
-      clienteId: input.clienteId,
-    });
-  const trasporto = {
-    azienda: input.trasporto.azienda.trim(),
-    imponibile: asFinite(input.trasporto.imponibile),
-    ivaPercentuale: asFinite(input.trasporto.ivaPercentuale, 22),
-  };
-  const righe = input.righe.filter((r) => r.prodottoId && r.quantita > 0);
+export function mapOrdineRigaRow(row: OrdineRigaRow): OrdineRigaProdotto {
   return {
-    id: `ord-${Date.now()}`,
-    numeroInterno,
-    numero: numeroInterno,
-    numeroCliente: input.numeroCliente?.trim() ?? "",
-    documentoOffertaInterna: input.documentoOffertaInterna ?? null,
-    documentoOrdineCliente: input.documentoOrdineCliente ?? null,
-    cliente: input.cliente.trim(),
-    clienteId: input.clienteId?.trim() || undefined,
-    dataOrdine: input.dataOrdine,
-    righe,
-    trasporto,
-    importoEuro: totaleOrdine(righe, trasporto),
-    note: input.note?.trim() ?? "",
-    createdAt: new Date().toISOString(),
+    id: row.id,
+    prodottoId: row.prodotto_id ?? "",
+    prodottoCodice: row.prodotto_codice,
+    prodottoNome: row.prodotto_nome,
+    quantita: Number(row.quantita),
+    prezzoUnitario: Number(row.prezzo_unitario),
+    ivaPercentuale: Number(row.iva_percentuale),
   };
 }
 
-export function createOrdineStoricoManuale(input: {
-  existing: OrdineStorico[];
-  dataConsegna: string;
-} & OrdineDettaglioInput): OrdineStorico {
-  const numeroInterno =
-    input.numeroInterno?.trim() ||
-    nextNumeroInternoOrdine({
-      dataOrdine: input.dataOrdine,
-      codiceTargaCliente: input.codiceTargaCliente ?? "",
-      clienteId: input.clienteId,
-    });
-  const trasporto = {
-    azienda: input.trasporto.azienda.trim(),
-    imponibile: asFinite(input.trasporto.imponibile),
-    ivaPercentuale: asFinite(input.trasporto.ivaPercentuale, 22),
-  };
-  const righe = input.righe.filter((r) => r.prodottoId && r.quantita > 0);
+export function mapOrdineRow(
+  row: OrdineRow,
+  righe: OrdineRigaRow[] = []
+): Ordine {
   return {
-    id: `sto-${Date.now()}`,
-    numeroInterno,
-    numero: numeroInterno,
-    numeroCliente: input.numeroCliente?.trim() ?? "",
-    documentoOffertaInterna: input.documentoOffertaInterna ?? null,
-    documentoOrdineCliente: input.documentoOrdineCliente ?? null,
-    cliente: input.cliente.trim(),
-    clienteId: input.clienteId?.trim() || undefined,
-    dataOrdine: input.dataOrdine,
-    dataConsegna: input.dataConsegna,
-    righe,
-    trasporto,
-    importoEuro: totaleOrdine(righe, trasporto),
-    note: input.note?.trim() ?? "",
-    origine: "manuale",
-    createdAt: new Date().toISOString(),
+    id: row.id,
+    numeroInterno: row.numero_interno,
+    numero: row.numero_interno,
+    numeroCliente: row.numero_cliente ?? "",
+    clienteId: row.cliente_id,
+    cliente: row.cliente_ragione_sociale,
+    clienteCodiceTarga: row.cliente_codice_targa,
+    dataOrdine: row.data_ordine,
+    dataConsegna: row.data_consegna,
+    stato: row.stato,
+    origineStorico: row.origine_storico,
+    sourceOrdineId: row.source_ordine_id,
+    trasporto: {
+      azienda: row.trasporto_azienda,
+      imponibile: Number(row.trasporto_imponibile),
+      ivaPercentuale: Number(row.trasporto_iva_percentuale),
+    },
+    importoEuro: Number(row.importo_euro),
+    note: row.note ?? "",
+    offerta: allegatoFromRow(row.offerta_storage_path, row.offerta_file_name),
+    ordineClienteDoc: allegatoFromRow(
+      row.ordine_cliente_storage_path,
+      row.ordine_cliente_file_name
+    ),
+    versione: row.versione,
+    documentoStato: row.documento_stato,
+    righe: [...righe]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map(mapOrdineRigaRow),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by,
+    updatedBy: row.updated_by,
+    deletedAt: row.deleted_at,
   };
-}
-
-/**
- * Archivia un ordine operativo nello storico (usata dalla chiusura automatica futura).
- * Non rimuove l’ordine dalla lista operativa: lo fa il chiamante.
- */
-export function archiveOrdineToStorico(
-  ordine: OrdineRicevuto,
-  dataConsegna: string
-): OrdineStorico {
-  return {
-    id: `sto-${Date.now()}-${ordine.id}`,
-    numeroInterno: ordine.numeroInterno || ordine.numero,
-    numero: ordine.numeroInterno || ordine.numero,
-    numeroCliente: ordine.numeroCliente ?? "",
-    documentoOffertaInterna: ordine.documentoOffertaInterna ?? null,
-    documentoOrdineCliente: ordine.documentoOrdineCliente ?? null,
-    cliente: ordine.cliente,
-    clienteId: ordine.clienteId,
-    dataOrdine: ordine.dataOrdine,
-    dataConsegna,
-    righe: ordine.righe ?? [],
-    trasporto: ordine.trasporto ?? emptyTrasporto(),
-    importoEuro: ordine.importoEuro,
-    note: ordine.note,
-    origine: "chiusura",
-    createdAt: new Date().toISOString(),
-    sourceOrdineId: ordine.id,
-  };
-}
-
-export function readFileAsDocumentoCliente(
-  file: File
-): Promise<OrdineAllegato> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      resolve({
-        name: file.name,
-        mimeType: file.type || "application/pdf",
-        dataUrl: String(reader.result ?? ""),
-      });
-    };
-    reader.onerror = () => reject(new Error("Lettura file non riuscita."));
-    reader.readAsDataURL(file);
-  });
 }

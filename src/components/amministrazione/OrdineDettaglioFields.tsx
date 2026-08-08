@@ -11,7 +11,7 @@ import {
   totaleOrdine,
   totaleRiga,
   totaleTrasporto,
-  type OrdineAllegato,
+  type OrdineAllegatoMeta,
   type OrdineRigaProdotto,
   type OrdineTrasporto,
 } from "@/lib/amministrazione/ordini";
@@ -29,7 +29,7 @@ function AllegatoUpload({
   label: string;
   inputId: string;
   file: File | null;
-  esistente: OrdineAllegato | null;
+  esistente: OrdineAllegatoMeta | null;
   onFileChange: (file: File | null) => void;
   onEsistenteClear: () => void;
   error?: string | null;
@@ -74,7 +74,7 @@ function AllegatoUpload({
         ) : esistente ? (
           <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 text-xs text-slate-700">
             <FaFilePdf className="shrink-0 text-red-600" />
-            <span className="truncate">{esistente.name}</span>
+            <span className="truncate">{esistente.fileName}</span>
             <button
               type="button"
               onClick={onEsistenteClear}
@@ -176,11 +176,11 @@ type Props = {
   numeroCliente: string;
   onNumeroClienteChange: (value: string) => void;
   offertaFile: File | null;
-  offertaEsistente: OrdineAllegato | null;
+  offertaEsistente: OrdineAllegatoMeta | null;
   onOffertaFileChange: (file: File | null) => void;
   onOffertaEsistenteClear: () => void;
   ordineClienteFile: File | null;
-  ordineClienteEsistente: OrdineAllegato | null;
+  ordineClienteEsistente: OrdineAllegatoMeta | null;
   onOrdineClienteFileChange: (file: File | null) => void;
   onOrdineClienteEsistenteClear: () => void;
   righe: OrdineRigaProdotto[];
@@ -521,10 +521,10 @@ export function useOrdineDettaglioState() {
   const [numeroCliente, setNumeroCliente] = useState("");
   const [offertaFile, setOffertaFile] = useState<File | null>(null);
   const [offertaEsistente, setOffertaEsistente] =
-    useState<OrdineAllegato | null>(null);
+    useState<OrdineAllegatoMeta | null>(null);
   const [ordineClienteFile, setOrdineClienteFile] = useState<File | null>(null);
   const [ordineClienteEsistente, setOrdineClienteEsistente] =
-    useState<OrdineAllegato | null>(null);
+    useState<OrdineAllegatoMeta | null>(null);
   const [righe, setRighe] = useState<OrdineRigaProdotto[]>(() => [
     newRigaProdotto(),
   ]);

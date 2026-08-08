@@ -1,9 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { FaFilePdf, FaPlus } from "react-icons/fa6";
-import { AggiungiOrdineStoricoModal } from "@/components/amministrazione/AggiungiOrdineStoricoModal";
-import { useOrdiniStorico } from "@/hooks/useOrdiniStorico";
+import {
+  FaEye,
+  FaFilePdf,
+  FaPen,
+  FaPlus,
+  FaTrash,
+} from "react-icons/fa6";
+import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { OrdineDettaglioViewModal } from "@/components/amministrazione/OrdineDettaglioViewModal";
+import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
+import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
+import { useOrdini } from "@/hooks/useOrdini";
+import { fraseConfermaEliminazione, type Ordine } from "@/lib/amministrazione/ordini";
 
 function formatEuro(value: number) {
   return value.toLocaleString("it-IT", {
@@ -12,7 +22,8 @@ function formatEuro(value: number) {
   });
 }
 
-function formatDate(isoDate: string) {
+function formatDate(isoDate: string | null) {
+  if (!isoDate) return "—";
   try {
     return new Date(isoDate).toLocaleDateString("it-IT");
   } catch {
@@ -20,13 +31,40 @@ function formatDate(isoDate: string) {
   }
 }
 
-function origineLabel(origine: "manuale" | "chiusura") {
-  return origine === "manuale" ? "Inserito" : "Chiusura";
+function AllegatoIcon({
+  path,
+  fileName,
+}: {
+  path: string;
+  fileName: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={fileName}
+      className="inline-flex text-red-600 hover:opacity-80"
+      onClick={() => {
+        void (async () => {
+          const result = await getOrdineAllegatoSignedUrlAction(path);
+          if (result.success) {
+            window.open(result.url, "_blank", "noopener,noreferrer");
+          }
+        })();
+      }}
+    >
+      <FaFilePdf size={14} />
+    </button>
+  );
 }
 
 export function OrdiniStoricoBoard() {
-  const { ordini, ready, addOrdineStorico } = useOrdiniStorico();
+  const { ordini, ready, error, removeOrdine, upsertLocal } =
+    useOrdini("storico");
   const [creating, setCreating] = useState(false);
+  const [viewing, setViewing] = useState<Ordine | null>(null);
+  const [editing, setEditing] = useState<Ordine | null>(null);
+  const [deleting, setDeleting] = useState<Ordine | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (!ready) {
     return (
@@ -38,8 +76,8 @@ export function OrdiniStoricoBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Ordini già conclusi. In futuro arriveranno qui in automatico dopo la
-          chiusura; puoi anche inserire ordini passati.
+          Ordini conclusi su database con audit ISO 9001. Puoi visualizzare,
+          modificare o eliminare (soft delete con doppia conferma).
         </p>
         <button
           type="button"
@@ -51,12 +89,18 @@ export function OrdiniStoricoBoard() {
         </button>
       </div>
 
+      {(error || actionError) && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {actionError || error}
+        </p>
+      )}
+
       {ordini.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
           <p className="text-sm font-medium">Nessun ordine nello storico</p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Inserisci un ordine già consegnato in passato, oppure attendi le
-            chiusure automatiche.
+            Inserisci un ordine già consegnato, oppure attendi le chiusure
+            automatiche.
           </p>
           <button
             type="button"
@@ -69,7 +113,7 @@ export function OrdiniStoricoBoard() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          <table className="w-full min-w-[980px] text-left text-sm">
+          <table className="w-full min-w-[1100px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">N. interno</th>
@@ -80,17 +124,15 @@ export function OrdiniStoricoBoard() {
                 <th className="px-4 py-3 text-right font-medium">Totale</th>
                 <th className="px-4 py-3 font-medium">Offerta</th>
                 <th className="px-4 py-3 font-medium">Ord. cl.</th>
-                <th className="px-4 py-3 font-medium">Origine</th>
+                <th className="px-4 py-3 font-medium">v</th>
+                <th className="px-4 py-3 text-right font-medium">Azioni</th>
               </tr>
             </thead>
             <tbody>
               {ordini.map((ordine) => (
-                <tr
-                  key={ordine.id}
-                  className="border-t border-[var(--border)]"
-                >
+                <tr key={ordine.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3 font-semibold tabular-nums">
-                    {ordine.numeroInterno || ordine.numero}
+                    {ordine.numeroInterno}
                   </td>
                   <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
                     {ordine.numeroCliente || "—"}
@@ -106,43 +148,55 @@ export function OrdiniStoricoBoard() {
                     {formatEuro(ordine.importoEuro)}
                   </td>
                   <td className="px-4 py-3">
-                    {ordine.documentoOffertaInterna ? (
-                      <a
-                        href={ordine.documentoOffertaInterna.dataUrl}
-                        download={ordine.documentoOffertaInterna.name}
-                        className="inline-flex items-center gap-1 text-red-600 hover:underline"
-                        title={ordine.documentoOffertaInterna.name}
-                      >
-                        <FaFilePdf size={14} />
-                      </a>
+                    {ordine.offerta ? (
+                      <AllegatoIcon
+                        path={ordine.offerta.storagePath}
+                        fileName={ordine.offerta.fileName}
+                      />
                     ) : (
                       <span className="text-[var(--muted)]">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    {ordine.documentoOrdineCliente ? (
-                      <a
-                        href={ordine.documentoOrdineCliente.dataUrl}
-                        download={ordine.documentoOrdineCliente.name}
-                        className="inline-flex items-center gap-1 text-red-600 hover:underline"
-                        title={ordine.documentoOrdineCliente.name}
-                      >
-                        <FaFilePdf size={14} />
-                      </a>
+                    {ordine.ordineClienteDoc ? (
+                      <AllegatoIcon
+                        path={ordine.ordineClienteDoc.storagePath}
+                        fileName={ordine.ordineClienteDoc.fileName}
+                      />
                     ) : (
                       <span className="text-[var(--muted)]">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
+                    {ordine.versione}
+                  </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                        ordine.origine === "manuale"
-                          ? "bg-slate-100 text-slate-700"
-                          : "bg-teal-50 text-teal-800"
-                      }`}
-                    >
-                      {origineLabel(ordine.origine)}
-                    </span>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        title="Dettagli"
+                        onClick={() => setViewing(ordine)}
+                        className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                      >
+                        <FaEye size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Modifica"
+                        onClick={() => setEditing(ordine)}
+                        className="rounded-lg p-2 text-slate-600 hover:bg-slate-100"
+                      >
+                        <FaPen size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Elimina"
+                        onClick={() => setDeleting(ordine)}
+                        className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                      >
+                        <FaTrash size={14} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -152,11 +206,55 @@ export function OrdiniStoricoBoard() {
       )}
 
       {creating && (
-        <AggiungiOrdineStoricoModal
+        <OrdineFormModal
+          mode="create"
+          stato="storico"
           onClose={() => setCreating(false)}
-          onCreate={(values) => {
-            addOrdineStorico(values);
+          onSaved={(ordine) => {
+            upsertLocal(ordine);
             setCreating(false);
+          }}
+        />
+      )}
+
+      {viewing && (
+        <OrdineDettaglioViewModal
+          ordine={viewing}
+          onClose={() => setViewing(null)}
+          onEdit={() => {
+            setEditing(viewing);
+            setViewing(null);
+          }}
+        />
+      )}
+
+      {editing && (
+        <OrdineFormModal
+          mode="edit"
+          stato="storico"
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(ordine) => {
+            upsertLocal(ordine);
+            setEditing(null);
+          }}
+        />
+      )}
+
+      {deleting && (
+        <OrdineEliminaConfirmModal
+          numeroInterno={deleting.numeroInterno}
+          onClose={() => setDeleting(null)}
+          onConfirm={async () => {
+            setActionError(null);
+            const ok = await removeOrdine(
+              deleting.id,
+              fraseConfermaEliminazione(deleting.numeroInterno)
+            );
+            if (!ok) {
+              throw new Error("Eliminazione non riuscita");
+            }
+            setDeleting(null);
           }}
         />
       )}
