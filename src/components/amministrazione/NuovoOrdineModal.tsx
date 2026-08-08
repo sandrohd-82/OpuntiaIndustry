@@ -34,7 +34,7 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      if (document.querySelector('[data-elevated="true"]')) return;
+      if (document.querySelector("[data-cliente-modal-root='true']")) return;
       onClose();
     }
     document.addEventListener("keydown", onKey);
@@ -48,6 +48,8 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
+    if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
     const importoEuro = Number(importo.replace(",", "."));
     if (!clienteId || !clienteNome.trim()) {
@@ -69,7 +71,7 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
       onClick={() => {
-        if (document.querySelector('[data-elevated="true"]')) return;
+        if (document.querySelector("[data-cliente-modal-root='true']")) return;
         onClose();
       }}
     >

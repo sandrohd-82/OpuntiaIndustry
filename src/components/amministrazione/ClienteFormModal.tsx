@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
@@ -239,10 +240,14 @@ export function ClienteFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     if (saving || codiceLoading) return;
     const values = buildValues();
     if (!values) return;
-    await persist(values);
+    const ok = await persist(values);
+    if (!ok) {
+      setFormError("Salvataggio non riuscito. Controlla i dati e riprova.");
+    }
   }
 
   async function saveAndOpenNuovoProdotto() {
@@ -257,13 +262,14 @@ export function ClienteFormModal({
     router.push(PRODOTTI_PROPRI_NUOVO_PATH);
   }
 
-  return (
+  const dialog = (
     <div
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
         elevated ? "z-[70]" : "z-[60]"
       }`}
       role="presentation"
       onClick={onClose}
+      data-cliente-modal-root="true"
     >
       <div
         role="dialog"
@@ -303,7 +309,11 @@ export function ClienteFormModal({
           )}
         </div>
 
-        <form onSubmit={submit} className="mt-5 space-y-4">
+        <form
+          onSubmit={submit}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-5 space-y-4"
+        >
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">R. Sociale</span>
@@ -521,4 +531,7 @@ export function ClienteFormModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(dialog, document.body);
 }

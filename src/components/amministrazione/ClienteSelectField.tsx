@@ -95,15 +95,20 @@ export function ClienteSelectField({
           elevated
           onClose={() => setCreating(false)}
           onSave={async (values) => {
-            const created = await addCliente(values);
-            if (!created) {
+            try {
+              const created = await addCliente(values);
+              if (!created) {
+                setSaveError("Salvataggio cliente non riuscito. Riprova.");
+                return false;
+              }
+              setSaveError(null);
+              onChange(created);
+              setCreating(false);
+              return true;
+            } catch {
               setSaveError("Salvataggio cliente non riuscito. Riprova.");
               return false;
             }
-            setSaveError(null);
-            onChange(created);
-            setCreating(false);
-            return true;
           }}
         />
       )}
