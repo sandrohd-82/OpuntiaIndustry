@@ -1,7 +1,10 @@
 export type OrdineRicevuto = {
   id: string;
   numero: string;
+  /** Ragione sociale (snapshot al momento del salvataggio). */
   cliente: string;
+  /** Collegamento all’anagrafica clienti. */
+  clienteId?: string;
   dataOrdine: string;
   importoEuro: number;
   note: string;
@@ -14,7 +17,10 @@ export type OrdineStoricoOrigine = "manuale" | "chiusura";
 export type OrdineStorico = {
   id: string;
   numero: string;
+  /** Ragione sociale (snapshot al momento del salvataggio). */
   cliente: string;
+  /** Collegamento all’anagrafica clienti. */
+  clienteId?: string;
   dataOrdine: string;
   /** Data di consegna / conclusione dell’ordine. */
   dataConsegna: string;
@@ -52,6 +58,7 @@ export function saveOrdiniRicevuti(ordini: OrdineRicevuto[]) {
 
 export function createOrdineRicevuto(input: {
   cliente: string;
+  clienteId?: string;
   dataOrdine: string;
   importoEuro: number;
   note?: string;
@@ -65,6 +72,7 @@ export function createOrdineRicevuto(input: {
     id: `ord-${Date.now()}`,
     numero: `ORD-${year}-${String(seq).padStart(3, "0")}`,
     cliente: input.cliente.trim(),
+    clienteId: input.clienteId?.trim() || undefined,
     dataOrdine: input.dataOrdine,
     importoEuro: input.importoEuro,
     note: input.note?.trim() ?? "",
@@ -103,6 +111,7 @@ function nextStoricoNumero(existing: OrdineStorico[], year: number): string {
 /** Inserimento manuale di un ordine già concluso in passato. */
 export function createOrdineStoricoManuale(input: {
   cliente: string;
+  clienteId?: string;
   dataOrdine: string;
   dataConsegna: string;
   importoEuro: number;
@@ -117,6 +126,7 @@ export function createOrdineStoricoManuale(input: {
     id: `sto-${Date.now()}`,
     numero,
     cliente: input.cliente.trim(),
+    clienteId: input.clienteId?.trim() || undefined,
     dataOrdine: input.dataOrdine,
     dataConsegna: input.dataConsegna,
     importoEuro: input.importoEuro,
@@ -138,6 +148,7 @@ export function archiveOrdineToStorico(
     id: `sto-${Date.now()}-${ordine.id}`,
     numero: ordine.numero,
     cliente: ordine.cliente,
+    clienteId: ordine.clienteId,
     dataOrdine: ordine.dataOrdine,
     dataConsegna,
     importoEuro: ordine.importoEuro,

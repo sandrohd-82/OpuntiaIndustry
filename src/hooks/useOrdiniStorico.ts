@@ -38,6 +38,7 @@ export function useOrdiniStorico() {
 
   function addOrdineStorico(input: {
     cliente: string;
+    clienteId?: string;
     dataOrdine: string;
     dataConsegna: string;
     importoEuro: number;

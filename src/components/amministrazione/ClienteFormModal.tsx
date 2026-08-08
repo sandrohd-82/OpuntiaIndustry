@@ -25,6 +25,8 @@ type Props = {
   onClose: () => void;
   /** Restituisce true se il salvataggio è andato a buon fine. */
   onSave: (values: ClienteInput) => boolean | Promise<boolean>;
+  /** Sopra un’altra modale (es. ordine storico). */
+  elevated?: boolean;
 };
 
 function sameSede(a: SedeCliente, b: SedeCliente) {
@@ -62,6 +64,7 @@ export function ClienteFormModal({
   initial,
   onClose,
   onSave,
+  elevated = false,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
@@ -256,7 +259,9 @@ export function ClienteFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
+      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
+        elevated ? "z-[70]" : "z-[60]"
+      }`}
       role="presentation"
       onClick={onClose}
     >
@@ -264,6 +269,7 @@ export function ClienteFormModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        data-elevated={elevated ? "true" : undefined}
         className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >

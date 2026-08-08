@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 
 export type NuovoOrdineValues = {
+  clienteId: string;
   cliente: string;
   dataOrdine: string;
   importoEuro: number;
@@ -22,14 +24,18 @@ function todayInputValue() {
 
 export function NuovoOrdineModal({ onClose, onCreate }: Props) {
   const titleId = useId();
-  const [cliente, setCliente] = useState("");
+  const [clienteId, setClienteId] = useState("");
+  const [clienteNome, setClienteNome] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue);
   const [importo, setImporto] = useState("");
   const [note, setNote] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[data-elevated="true"]')) return;
+      onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -42,10 +48,16 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    setFormError(null);
     const importoEuro = Number(importo.replace(",", "."));
-    if (!cliente.trim() || !dataOrdine || !Number.isFinite(importoEuro)) return;
+    if (!clienteId || !clienteNome.trim()) {
+      setFormError("Seleziona un cliente dall’anagrafica.");
+      return;
+    }
+    if (!dataOrdine || !Number.isFinite(importoEuro)) return;
     onCreate({
-      cliente: cliente.trim(),
+      clienteId,
+      cliente: clienteNome.trim(),
       dataOrdine,
       importoEuro,
       note: note.trim(),
@@ -56,7 +68,10 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
-      onClick={onClose}
+      onClick={() => {
+        if (document.querySelector('[data-elevated="true"]')) return;
+        onClose();
+      }}
     >
       <div
         role="dialog"
@@ -73,16 +88,17 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
-          <label className="block text-sm">
+          <div className="block text-sm">
             <span className="mb-1 block font-medium">Cliente</span>
-            <input
-              value={cliente}
-              onChange={(e) => setCliente(e.target.value)}
-              required
+            <ClienteSelectField
+              value={clienteId}
               autoFocus
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              onChange={(cliente) => {
+                setClienteId(cliente?.id ?? "");
+                setClienteNome(cliente?.ragioneSociale ?? "");
+              }}
             />
-          </label>
+          </div>
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Data ordine</span>
             <input
@@ -114,6 +130,12 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
             />
           </label>
+
+          {formError && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {formError}
+            </p>
+          )}
 
           <div className="flex gap-2 pt-1">
             <button

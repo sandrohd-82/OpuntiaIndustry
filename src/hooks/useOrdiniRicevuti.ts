@@ -32,6 +32,7 @@ export function useOrdiniRicevuti() {
 
   function addOrdine(input: {
     cliente: string;
+    clienteId?: string;
     dataOrdine: string;
     importoEuro: number;
     note?: string;

@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
+import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 
 export type AggiungiOrdineStoricoValues = {
+  clienteId: string;
   cliente: string;
   dataOrdine: string;
   dataConsegna: string;
@@ -24,7 +26,8 @@ function todayInputValue() {
 
 export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
   const titleId = useId();
-  const [cliente, setCliente] = useState("");
+  const [clienteId, setClienteId] = useState("");
+  const [clienteNome, setClienteNome] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue);
   const [dataConsegna, setDataConsegna] = useState(todayInputValue);
   const [importo, setImporto] = useState("");
@@ -34,7 +37,9 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[data-elevated="true"]')) return;
+      onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -49,7 +54,10 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
     e.preventDefault();
     setFormError(null);
     const importoEuro = Number(importo.replace(",", "."));
-    if (!cliente.trim() || !dataOrdine || !dataConsegna) return;
+    if (!clienteId || !clienteNome.trim() || !dataOrdine || !dataConsegna) {
+      setFormError("Seleziona un cliente dall’anagrafica.");
+      return;
+    }
     if (!Number.isFinite(importoEuro)) return;
     if (dataConsegna < dataOrdine) {
       setFormError(
@@ -58,7 +66,8 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
       return;
     }
     onCreate({
-      cliente: cliente.trim(),
+      clienteId,
+      cliente: clienteNome.trim(),
       dataOrdine,
       dataConsegna,
       importoEuro,
@@ -71,7 +80,10 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
-      onClick={onClose}
+      onClick={() => {
+        if (document.querySelector('[data-elevated="true"]')) return;
+        onClose();
+      }}
     >
       <div
         role="dialog"
@@ -88,16 +100,17 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
         </p>
 
         <form onSubmit={submit} className="mt-5 space-y-4">
-          <label className="block text-sm">
+          <div className="block text-sm">
             <span className="mb-1 block font-medium">Cliente</span>
-            <input
-              value={cliente}
-              onChange={(e) => setCliente(e.target.value)}
-              required
+            <ClienteSelectField
+              value={clienteId}
               autoFocus
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              onChange={(cliente) => {
+                setClienteId(cliente?.id ?? "");
+                setClienteNome(cliente?.ragioneSociale ?? "");
+              }}
             />
-          </label>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-sm">
