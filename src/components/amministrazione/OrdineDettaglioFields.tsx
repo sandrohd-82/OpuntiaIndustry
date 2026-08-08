@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FaPlus, FaTrash, FaFilePdf, FaUpload } from "react-icons/fa6";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import {
@@ -17,6 +17,73 @@ import {
 } from "@/lib/amministrazione/ordini";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
+function NumeroInternoInfo() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={rootRef} className="relative ml-1 inline-flex align-middle">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="Legenda numero ordine interno"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold italic leading-none text-slate-700 hover:bg-slate-300"
+      >
+        i
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-1/2 top-full z-30 mt-2 w-72 -translate-x-1/2 rounded-2xl border border-[var(--border)] bg-white px-3 py-2.5 text-left text-xs leading-relaxed text-slate-700 shadow-lg"
+        >
+          <span
+            className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-[var(--border)] bg-white"
+            aria-hidden
+          />
+          <span className="relative block font-semibold text-slate-900">
+            Formato: Or-AA-TARGA/N
+          </span>
+          <ul className="relative mt-1.5 list-disc space-y-1 pl-4">
+            <li>
+              <strong>Or</strong> = Ordine
+            </li>
+            <li>
+              <strong>AA</strong> = anno a 2 cifre dalla data ordine (es. 26)
+            </li>
+            <li>
+              <strong>TARGA</strong> = identificativo cliente (es. C003)
+            </li>
+            <li>
+              <strong>N</strong> = progressivo ordini di quel cliente (non legato
+              ad altre aziende; se ne ha fatti 390, il prossimo è 391)
+            </li>
+          </ul>
+          <p className="relative mt-2 font-medium text-[var(--primary)]">
+            Esempio: Or-26-C003/391
+          </p>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function formatEuro(value: number) {
   return value.toLocaleString("it-IT", {
     style: "currency",
@@ -31,7 +98,6 @@ function parseNum(value: string): number {
 
 type Props = {
   numeroInterno: string;
-  onNumeroInternoChange: (value: string) => void;
   numeroCliente: string;
   onNumeroClienteChange: (value: string) => void;
   documentoFile: File | null;
@@ -46,7 +112,6 @@ type Props = {
 
 export function OrdineDettaglioFields({
   numeroInterno,
-  onNumeroInternoChange,
   numeroCliente,
   onNumeroClienteChange,
   documentoFile,
@@ -113,13 +178,16 @@ export function OrdineDettaglioFields({
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium">N. ordine interno</span>
+          <span className="mb-1 flex items-center font-medium">
+            N. ordine interno
+            <NumeroInternoInfo />
+          </span>
           <input
             value={numeroInterno}
-            onChange={(e) => onNumeroInternoChange(e.target.value)}
+            readOnly
             required
-            placeholder="Es. STO-2026-001"
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+            placeholder="Seleziona cliente e data ordine"
+            className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm outline-none"
           />
         </label>
         <label className="block text-sm">
@@ -421,8 +489,8 @@ export function OrdineDettaglioFields({
   );
 }
 
-export function useOrdineDettaglioState(suggestedNumeroInterno: string) {
-  const [numeroInterno, setNumeroInterno] = useState(suggestedNumeroInterno);
+export function useOrdineDettaglioState() {
+  const [numeroInterno, setNumeroInterno] = useState("");
   const [numeroCliente, setNumeroCliente] = useState("");
   const [documentoFile, setDocumentoFile] = useState<File | null>(null);
   const [documentoEsistente, setDocumentoEsistente] =

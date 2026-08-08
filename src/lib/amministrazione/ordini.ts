@@ -259,20 +259,80 @@ export function saveOrdiniStorico(ordini: OrdineStorico[]) {
   window.dispatchEvent(new Event("opuntia-ordini-storico-updated"));
 }
 
-function nextNumeroInterno(
-  prefix: "ORD" | "STO",
-  existingNumeri: string[],
-  year: number
-): string {
-  const fullPrefix = `${prefix}-${year}-`;
+/**
+ * Formato: Or-AA-TARGA/N
+ * Es. Or-26-C003/391
+ * - Or = Ordine
+ * - AA = anno a 2 cifre dalla data ordine
+ * - TARGA = identificativo cliente (es. C003)
+ * - N = progressivo ordini di quel cliente (tutti gli anni)
+ */
+export function year2FromDataOrdine(dataOrdine: string): string {
+  const y = dataOrdine?.slice(0, 4);
+  if (y && /^\d{4}$/.test(y)) return y.slice(2);
+  return String(new Date().getFullYear()).slice(-2);
+}
+
+export function buildNumeroInternoOrdine(input: {
+  dataOrdine: string;
+  codiceTargaCliente: string;
+  seq: number;
+}): string {
+  const aa = year2FromDataOrdine(input.dataOrdine);
+  const targa = input.codiceTargaCliente.trim().toUpperCase() || "C000";
+  const seq = Math.max(1, Math.floor(input.seq));
+  return `Or-${aa}-${targa}/${seq}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Progressivo massimo già usato per quel cliente (ricevuti + storico). */
+export function maxProgressivoOrdiniCliente(input: {
+  clienteId?: string;
+  codiceTargaCliente: string;
+}): number {
+  const targa = input.codiceTargaCliente.trim().toUpperCase();
+  const re = targa
+    ? new RegExp(`^Or-\\d{2}-${escapeRegExp(targa)}/(\\d+)$`, "i")
+    : null;
+  let countById = 0;
+  let maxParsed = 0;
+
+  for (const o of [...loadOrdiniRicevuti(), ...loadOrdiniStorico()]) {
+    if (input.clienteId && o.clienteId === input.clienteId) {
+      countById += 1;
+    }
+    if (!re) continue;
+    const m = (o.numeroInterno || o.numero).match(re);
+    if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
+  }
+
+  return Math.max(countById, maxParsed);
+}
+
+export function nextNumeroInternoOrdine(input: {
+  dataOrdine: string;
+  codiceTargaCliente: string;
+  clienteId?: string;
+}): string {
   const seq =
-    existingNumeri.filter((n) => n.startsWith(fullPrefix)).length + 1;
-  return `${fullPrefix}${String(seq).padStart(3, "0")}`;
+    maxProgressivoOrdiniCliente({
+      clienteId: input.clienteId,
+      codiceTargaCliente: input.codiceTargaCliente,
+    }) + 1;
+  return buildNumeroInternoOrdine({
+    dataOrdine: input.dataOrdine,
+    codiceTargaCliente: input.codiceTargaCliente,
+    seq,
+  });
 }
 
 export type OrdineDettaglioInput = {
   cliente: string;
   clienteId?: string;
+  codiceTargaCliente?: string;
   dataOrdine: string;
   numeroInterno?: string;
   numeroCliente?: string;
@@ -285,14 +345,13 @@ export type OrdineDettaglioInput = {
 export function createOrdineRicevuto(input: {
   existing: OrdineRicevuto[];
 } & OrdineDettaglioInput): OrdineRicevuto {
-  const year = new Date().getFullYear();
   const numeroInterno =
     input.numeroInterno?.trim() ||
-    nextNumeroInterno(
-      "ORD",
-      input.existing.map((o) => o.numeroInterno || o.numero),
-      year
-    );
+    nextNumeroInternoOrdine({
+      dataOrdine: input.dataOrdine,
+      codiceTargaCliente: input.codiceTargaCliente ?? "",
+      clienteId: input.clienteId,
+    });
   const trasporto = {
     azienda: input.trasporto.azienda.trim(),
     imponibile: asFinite(input.trasporto.imponibile),
@@ -320,14 +379,13 @@ export function createOrdineStoricoManuale(input: {
   existing: OrdineStorico[];
   dataConsegna: string;
 } & OrdineDettaglioInput): OrdineStorico {
-  const year = new Date(input.dataOrdine || Date.now()).getFullYear();
   const numeroInterno =
     input.numeroInterno?.trim() ||
-    nextNumeroInterno(
-      "STO",
-      input.existing.map((o) => o.numeroInterno || o.numero),
-      year
-    );
+    nextNumeroInternoOrdine({
+      dataOrdine: input.dataOrdine,
+      codiceTargaCliente: input.codiceTargaCliente ?? "",
+      clienteId: input.clienteId,
+    });
   const trasporto = {
     azienda: input.trasporto.azienda.trim(),
     imponibile: asFinite(input.trasporto.imponibile),

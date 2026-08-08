@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import {
   OrdineDettaglioFields,
   useOrdineDettaglioState,
 } from "@/components/amministrazione/OrdineDettaglioFields";
 import {
-  loadOrdiniRicevuti,
+  nextNumeroInternoOrdine,
   readFileAsDocumentoCliente,
   type OrdineDettaglioInput,
 } from "@/lib/amministrazione/ordini";
@@ -25,26 +25,31 @@ function todayInputValue() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function suggestNumeroRicevuto(): string {
-  const year = new Date().getFullYear();
-  const existing = loadOrdiniRicevuti();
-  const prefix = `ORD-${year}-`;
-  const seq =
-    existing.filter((o) => (o.numeroInterno || o.numero).startsWith(prefix))
-      .length + 1;
-  return `${prefix}${String(seq).padStart(3, "0")}`;
-}
-
 export function NuovoOrdineModal({ onClose, onCreate }: Props) {
   const titleId = useId();
-  const suggested = useMemo(() => suggestNumeroRicevuto(), []);
-  const dettaglio = useOrdineDettaglioState(suggested);
+  const dettaglio = useOrdineDettaglioState();
   const [clienteId, setClienteId] = useState("");
   const [clienteNome, setClienteNome] = useState("");
+  const [clienteTarga, setClienteTarga] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue);
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!clienteId || !clienteTarga || !dataOrdine) {
+      dettaglio.setNumeroInterno("");
+      return;
+    }
+    dettaglio.setNumeroInterno(
+      nextNumeroInternoOrdine({
+        dataOrdine,
+        codiceTargaCliente: clienteTarga,
+        clienteId,
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only when keys change
+  }, [clienteId, clienteTarga, dataOrdine]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -67,12 +72,8 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
     if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
 
-    if (!clienteId || !clienteNome.trim()) {
+    if (!clienteId || !clienteNome.trim() || !clienteTarga) {
       setFormError("Seleziona un cliente dall’anagrafica.");
-      return;
-    }
-    if (!dettaglio.numeroInterno.trim()) {
-      setFormError("Inserisci il numero ordine interno.");
       return;
     }
     if (!dataOrdine) return;
@@ -84,6 +85,12 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
       return;
     }
 
+    const numeroInterno = nextNumeroInternoOrdine({
+      dataOrdine,
+      codiceTargaCliente: clienteTarga,
+      clienteId,
+    });
+
     setSaving(true);
     try {
       let documento = dettaglio.documentoEsistente;
@@ -93,8 +100,9 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
       await onCreate({
         clienteId,
         cliente: clienteNome.trim(),
+        codiceTargaCliente: clienteTarga,
         dataOrdine,
-        numeroInterno: dettaglio.numeroInterno.trim(),
+        numeroInterno,
         numeroCliente: dettaglio.numeroCliente.trim() || undefined,
         documentoOrdineCliente: documento,
         righe: dettaglio.righe,
@@ -140,6 +148,7 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
               onChange={(cliente) => {
                 setClienteId(cliente?.id ?? "");
                 setClienteNome(cliente?.ragioneSociale ?? "");
+                setClienteTarga(cliente?.codiceTarga ?? "");
               }}
             />
           </div>
@@ -157,7 +166,6 @@ export function NuovoOrdineModal({ onClose, onCreate }: Props) {
 
           <OrdineDettaglioFields
             numeroInterno={dettaglio.numeroInterno}
-            onNumeroInternoChange={dettaglio.setNumeroInterno}
             numeroCliente={dettaglio.numeroCliente}
             onNumeroClienteChange={dettaglio.setNumeroCliente}
             documentoFile={dettaglio.documentoFile}

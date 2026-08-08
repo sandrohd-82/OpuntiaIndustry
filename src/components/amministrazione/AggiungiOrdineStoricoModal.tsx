@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import {
   OrdineDettaglioFields,
   useOrdineDettaglioState,
 } from "@/components/amministrazione/OrdineDettaglioFields";
 import {
-  loadOrdiniStorico,
+  nextNumeroInternoOrdine,
   readFileAsDocumentoCliente,
   type OrdineDettaglioInput,
 } from "@/lib/amministrazione/ordini";
@@ -27,27 +27,32 @@ function todayInputValue() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function suggestNumeroStorico(): string {
-  const year = new Date().getFullYear();
-  const existing = loadOrdiniStorico();
-  const prefix = `STO-${year}-`;
-  const seq =
-    existing.filter((o) => (o.numeroInterno || o.numero).startsWith(prefix))
-      .length + 1;
-  return `${prefix}${String(seq).padStart(3, "0")}`;
-}
-
 export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
   const titleId = useId();
-  const suggested = useMemo(() => suggestNumeroStorico(), []);
-  const dettaglio = useOrdineDettaglioState(suggested);
+  const dettaglio = useOrdineDettaglioState();
   const [clienteId, setClienteId] = useState("");
   const [clienteNome, setClienteNome] = useState("");
+  const [clienteTarga, setClienteTarga] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue);
   const [dataConsegna, setDataConsegna] = useState(todayInputValue);
   const [note, setNote] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!clienteId || !clienteTarga || !dataOrdine) {
+      dettaglio.setNumeroInterno("");
+      return;
+    }
+    dettaglio.setNumeroInterno(
+      nextNumeroInternoOrdine({
+        dataOrdine,
+        codiceTargaCliente: clienteTarga,
+        clienteId,
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync only when keys change
+  }, [clienteId, clienteTarga, dataOrdine]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -70,12 +75,8 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
     if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
 
-    if (!clienteId || !clienteNome.trim()) {
+    if (!clienteId || !clienteNome.trim() || !clienteTarga) {
       setFormError("Seleziona un cliente dall’anagrafica.");
-      return;
-    }
-    if (!dettaglio.numeroInterno.trim()) {
-      setFormError("Inserisci il numero ordine interno.");
       return;
     }
     if (!dataOrdine || !dataConsegna) return;
@@ -93,6 +94,12 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
       return;
     }
 
+    const numeroInterno = nextNumeroInternoOrdine({
+      dataOrdine,
+      codiceTargaCliente: clienteTarga,
+      clienteId,
+    });
+
     setSaving(true);
     try {
       let documento = dettaglio.documentoEsistente;
@@ -102,9 +109,10 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
       await onCreate({
         clienteId,
         cliente: clienteNome.trim(),
+        codiceTargaCliente: clienteTarga,
         dataOrdine,
         dataConsegna,
-        numeroInterno: dettaglio.numeroInterno.trim(),
+        numeroInterno,
         numeroCliente: dettaglio.numeroCliente.trim() || undefined,
         documentoOrdineCliente: documento,
         righe: dettaglio.righe,
@@ -150,6 +158,7 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
               onChange={(cliente) => {
                 setClienteId(cliente?.id ?? "");
                 setClienteNome(cliente?.ragioneSociale ?? "");
+                setClienteTarga(cliente?.codiceTarga ?? "");
               }}
             />
           </div>
@@ -179,7 +188,6 @@ export function AggiungiOrdineStoricoModal({ onClose, onCreate }: Props) {
 
           <OrdineDettaglioFields
             numeroInterno={dettaglio.numeroInterno}
-            onNumeroInternoChange={dettaglio.setNumeroInterno}
             numeroCliente={dettaglio.numeroCliente}
             onNumeroClienteChange={dettaglio.setNumeroCliente}
             documentoFile={dettaglio.documentoFile}
