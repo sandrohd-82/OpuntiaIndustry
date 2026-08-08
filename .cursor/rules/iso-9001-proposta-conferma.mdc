@@ -1,0 +1,38 @@
+---
+description: ISO 9001 — proposta in italiano e conferma obbligatoria prima del codice
+alwaysApply: true
+---
+
+# ISO 9001: proposta → conferma → implementazione
+
+Questa regola ha priorità su “esegui subito senza chiedere” quando il lavoro tocca qualità, dati, sicurezza o tracciabilità.
+
+## Da ora e per tutto il progetto
+
+1. **Prima di scrivere codice** su elementi soggetti a ISO 9001 (tabelle, CRUD, eliminazioni, documenti, ordini, produzione, fatture, lotti, approvazioni, RLS, audit):
+   - Descrivi in **italiano** cosa serve fare.
+   - Elenca i requisiti di qualità (chi/quando, soft delete, audit log, stati/versioni, approvazioni).
+   - Proponi struttura DB, sicurezza/RLS e, se serve, config `.env.local` / Vercel.
+   - Offri **varianti** chiare (“Opzione A / B / C”) e chiedi conferma: *“Vuoi che lo faccia? Quale opzione?”*
+2. **Non implementare** finché l’utente non conferma esplicitamente (es. “sì”, “procedi”, “opzione B”).
+3. Dopo la conferma: implementa end-to-end, commit e push come da regole git del progetto.
+4. **Niente codice provvisorio** senza tracciabilità: ogni nuova risorsa nasce audit-ready.
+5. Se il comando sembra “solo UI” ma tocca dati operativi, applicalo comunque a questo flusso.
+
+## Campi minimi di qualità (default)
+
+- Audit: `created_at`, `updated_at`, `created_by`, `updated_by`
+- Soft delete: `deleted_at` (+ opzionale `deleted_by`) — mai delete fisico su dati operativi
+- Documenti/processi: versione + stato (Bozza / Approvato / Chiuso) dove pertinente
+- Operazioni critiche: riga in audit log immutabile
+- RBAC + RLS Supabase + validazione input (Zod)
+
+## Forma della risposta di proposta
+
+Usa questo schema (in italiano, senza dump di codice):
+
+1. **Cosa serve**
+2. **Requisiti ISO / qualità**
+3. **Opzioni** (A/B/C se ci sono alternative)
+4. **Config** (env / RLS) se rilevante
+5. **Domanda di conferma**
