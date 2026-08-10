@@ -112,15 +112,39 @@ function NavTree({
           const open = openKeys.has(item.slug);
           // Come le altre aree: non evidenziare il ramo padre quando è attiva una sotto-voce
           const active = pathname === item.path;
+          const hubLink = item.slug === "grafici";
           return (
             <li key={item.slug}>
-              <BranchButton
-                label={item.label}
-                open={open}
-                active={active}
-                nested
-                onToggle={() => toggle(item.slug)}
-              />
+              {hubLink ? (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => toggle(item.slug)}
+                    aria-expanded={open}
+                    aria-label={`${open ? "Chiudi" : "Apri"} ${item.label}`}
+                    className={itemClass(active, true).replace(
+                      "w-full",
+                      "shrink-0 px-2"
+                    )}
+                  >
+                    <Chevron open={open} />
+                  </button>
+                  <Link
+                    href={item.path}
+                    className={`${itemClass(active, true)} flex-1`}
+                  >
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                </div>
+              ) : (
+                <BranchButton
+                  label={item.label}
+                  open={open}
+                  active={active}
+                  nested
+                  onToggle={() => toggle(item.slug)}
+                />
+              )}
               {open && (
                 <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
                   {item.children.map((child) => (
@@ -181,6 +205,9 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
         }
         if (pathname.startsWith("/app/amministrazione/dipendenti")) {
           next.add("dipendenti");
+        }
+        if (pathname.startsWith("/app/amministrazione/grafici")) {
+          next.add("grafici");
         }
       }
       if (pathname.startsWith("/app/commerciale")) {

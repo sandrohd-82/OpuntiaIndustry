@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
+import { GraficiHomeBoard } from "@/components/amministrazione/grafici/GraficiHomeBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
 import {
   AMMINISTRAZIONE_SECTIONS,
   resolveAmministrazionePage,
@@ -17,6 +19,20 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
   const { section } = await params;
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
+
+  // Grafici: hub anno corrente (non redirect alla prima sottovoce)
+  if (section === "grafici") {
+    const page = resolveAmministrazionePage([section]);
+    if (!page) notFound();
+    return (
+      <>
+        <AppHeader title="Grafici" subtitle={page.description} />
+        <div className="p-6">
+          <GraficiHomeBoard />
+        </div>
+      </>
+    );
+  }
 
   if (isNavBranch(item)) {
     const first = item.children[0];

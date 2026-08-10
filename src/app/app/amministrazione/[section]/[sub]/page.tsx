@@ -2,6 +2,10 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
+import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
+import { GraficiMateriaPrimaBoard } from "@/components/amministrazione/grafici/GraficiMateriaPrimaBoard";
+import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/GraficiOrdiniBoard";
+import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
@@ -99,6 +103,50 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           >
             <ProdottiPropriBoard />
           </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (section === "grafici" && sub === "produttivita") {
+    return (
+      <>
+        <AppHeader title="Produttività" subtitle={page.description} />
+        <div className="p-6">
+          <GraficiProduttivitaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "grafici" && sub === "ordini") {
+    return (
+      <>
+        <AppHeader title="Grafici ordini" subtitle={page.description} />
+        <div className="p-6">
+          <GraficiOrdiniBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "grafici" && sub === "materia-prima") {
+    return (
+      <>
+        <AppHeader title="Grafici materia prima" subtitle={page.description} />
+        <div className="p-6">
+          <GraficiMateriaPrimaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "grafici" && sub === "incassi") {
+    return (
+      <>
+        <AppHeader title="Incassi" subtitle={page.description} />
+        <div className="p-6">
+          <GraficiIncassiBoard />
         </div>
       </>
     );

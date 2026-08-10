@@ -39,7 +39,10 @@ export function resolveNavPage(
   if (!section) return null;
 
   if (isNavBranch(section)) {
-    if (!second) return null;
+    if (!second) {
+      // Hub del ramo (es. Grafici): pagina del branch senza sottovoce
+      return { label: section.label, description: section.description };
+    }
     const child = section.children.find((item) => item.slug === second);
     if (!child || segments.length > 2) return null;
     return { label: child.label, description: child.description };

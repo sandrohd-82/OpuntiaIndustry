@@ -120,8 +120,39 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "grafici",
     label: "Grafici",
-    description: "Grafici e report di amministrazione",
+    description:
+      "Panoramica e report dell’anno in corso: produttività, ordini, materia prima, incassi",
     path: "/app/amministrazione/grafici",
+    children: [
+      {
+        slug: "produttivita",
+        label: "Produttività",
+        description:
+          "Quantità di prodotto finito generato (filtro prodotti propri)",
+        path: "/app/amministrazione/grafici/produttivita",
+      },
+      {
+        slug: "ordini",
+        label: "Ordini",
+        description:
+          "Quantità ordinata (somma righe prodotto, non numero progressivo ordini)",
+        path: "/app/amministrazione/grafici/ordini",
+      },
+      {
+        slug: "materia-prima",
+        label: "Materia prima",
+        description:
+          "Quantità di materia prima in ingresso (filtro per materia prima)",
+        path: "/app/amministrazione/grafici/materia-prima",
+      },
+      {
+        slug: "incassi",
+        label: "Incassi",
+        description:
+          "Ordini pagati: importi per azienda, mese e anno",
+        path: "/app/amministrazione/grafici/incassi",
+      },
+    ],
   },
 ] as const;
 
