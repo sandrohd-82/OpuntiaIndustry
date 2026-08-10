@@ -258,3 +258,113 @@ export async function fetchReceivedInvoices(
     normalizeReceivedDocument
   );
 }
+
+export type FicEntityKind = "supplier" | "client";
+
+export type FicEntityNormalized = {
+  ficId: number;
+  kind: FicEntityKind;
+  name: string;
+  vat: string;
+  email: string;
+  pec: string;
+  phone: string;
+  sdi: string;
+  country: string;
+  province: string;
+  city: string;
+  postalCode: string;
+  street: string;
+  shippingAddress: string;
+};
+
+function asText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : value != null ? String(value).trim() : "";
+}
+
+export function normalizeFicEntity(
+  raw: unknown,
+  kind: FicEntityKind
+): FicEntityNormalized | null {
+  const doc = asRecord(raw);
+  const ficId = asNumber(doc.id);
+  if (!ficId) return null;
+  const name = asText(doc.name);
+  if (!name) return null;
+  return {
+    ficId,
+    kind,
+    name,
+    vat: asText(doc.vat_number) || asText(doc.tax_code),
+    email: asText(doc.email),
+    pec: asText(doc.certified_email),
+    phone: asText(doc.phone),
+    sdi: asText(doc.ei_code),
+    country: asText(doc.country) || "Italia",
+    province: asText(doc.address_province),
+    city: asText(doc.address_city),
+    postalCode: asText(doc.address_postal_code),
+    street: asText(doc.address_street),
+    shippingAddress: asText(doc.shipping_address),
+  };
+}
+
+/** Arricchisce da entity presente in documenti fattura (campi spesso parziali). */
+export function enrichEntityFromInvoiceRaw(
+  base: FicEntityNormalized,
+  invoiceRaw: Record<string, unknown>
+): FicEntityNormalized {
+  const entity = asRecord(invoiceRaw.entity);
+  const fill = (current: string, next: unknown) =>
+    current.trim() ? current : asText(next);
+  return {
+    ...base,
+    name: fill(base.name, entity.name),
+    vat: fill(base.vat, entity.vat_number ?? entity.tax_code),
+    email: fill(base.email, entity.email),
+    pec: fill(base.pec, entity.certified_email),
+    phone: fill(base.phone, entity.phone),
+    sdi: fill(base.sdi, entity.ei_code),
+    country: fill(base.country, entity.country) || "Italia",
+    province: fill(base.province, entity.address_province ?? entity.province),
+    city: fill(base.city, entity.address_city ?? entity.city),
+    postalCode: fill(
+      base.postalCode,
+      entity.address_postal_code ?? entity.postal_code
+    ),
+    street: fill(base.street, entity.address_street ?? entity.address),
+    shippingAddress: fill(base.shippingAddress, entity.shipping_address),
+  };
+}
+
+async function listAllEntities(
+  path: string,
+  kind: FicEntityKind
+): Promise<FicEntityNormalized[]> {
+  const out: FicEntityNormalized[] = [];
+  let page = 1;
+  let lastPage = 1;
+  do {
+    const res = await ficGet<FicListResponse>(path, {
+      fieldset: "detailed",
+      sort: "name",
+      page,
+      per_page: 100,
+    });
+    lastPage = Number(res.last_page ?? 1) || 1;
+    for (const item of res.data ?? []) {
+      const n = normalizeFicEntity(item, kind);
+      if (n) out.push(n);
+    }
+    page += 1;
+  } while (page <= lastPage && page <= 50);
+  return out;
+}
+
+export async function fetchFicSuppliers(): Promise<FicEntityNormalized[]> {
+  return listAllEntities("/entities/suppliers", "supplier");
+}
+
+export async function fetchFicClients(): Promise<FicEntityNormalized[]> {
+  return listAllEntities("/entities/clients", "client");
+}

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  FaArrowsRotate,
   FaChevronDown,
   FaChevronUp,
   FaFilePdf,
@@ -10,7 +11,9 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
+import { startFicSyncClientiAction } from "@/app/actions/fic-anagrafiche";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
+import { AnagraficaSyncReviewModal } from "@/components/amministrazione/AnagraficaSyncReviewModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -29,6 +32,7 @@ import {
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import { exportClientiPdf } from "@/lib/amministrazione/clienti-pdf";
+import type { AnagraficaSyncReviewItem } from "@/lib/amministrazione/fic-anagrafiche";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
@@ -217,8 +221,15 @@ function ClienteRow({
 }
 
 export function ClientiBoard() {
-  const { clienti, ready, error, addCliente, updateCliente, removeCliente } =
-    useClienti();
+  const {
+    clienti,
+    ready,
+    error,
+    addCliente,
+    updateCliente,
+    removeCliente,
+    refresh,
+  } = useClienti();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState<Cliente | null>(null);
@@ -231,6 +242,10 @@ export function ClientiBoard() {
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [syncItems, setSyncItems] = useState<AnagraficaSyncReviewItem[] | null>(
+    null
+  );
+  const [syncPending, startSyncTransition] = useTransition();
 
   const filtersActive = hasActiveClientiFilters(filters);
 
@@ -238,6 +253,18 @@ export function ClientiBoard() {
     setPdfSelectMode(false);
     setPdfDetailOpen(false);
     setSelectedIds(new Set());
+  }
+
+  function handleSync() {
+    setSaveError(null);
+    startSyncTransition(async () => {
+      const result = await startFicSyncClientiAction();
+      if (!result.success) {
+        setSaveError(result.error);
+        return;
+      }
+      setSyncItems(result.items);
+    });
   }
 
   useEffect(() => {
@@ -373,6 +400,15 @@ export function ClientiBoard() {
           )}
           <button
             type="button"
+            onClick={handleSync}
+            disabled={syncPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <FaArrowsRotate size={14} className={syncPending ? "animate-spin" : ""} />
+            {syncPending ? "Preparazione sync…" : "Sincronizza"}
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setSaveError(null);
               setCreating(true);
@@ -385,11 +421,28 @@ export function ClientiBoard() {
         </div>
       </div>
 
+      {syncItems && syncItems.length === 0 ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Nessun cliente nuovo o da aggiornare da Fatture in Cloud.
+        </p>
+      ) : null}
+
       {(error || saveError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {saveError || error}
         </p>
       )}
+
+      {syncItems && syncItems.length > 0 ? (
+        <AnagraficaSyncReviewModal
+          items={syncItems}
+          onClose={() => setSyncItems(null)}
+          onFinished={() => {
+            setSyncItems(null);
+            void refresh();
+          }}
+        />
+      ) : null}
 
       {clienti.length > 0 && filtersOpen && (
         <ClientiFiltersPanel

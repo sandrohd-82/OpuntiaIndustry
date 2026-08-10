@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  FaArrowsRotate,
   FaChevronDown,
   FaChevronUp,
   FaFilePdf,
@@ -10,7 +11,9 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
+import { startFicSyncFornitoriAction } from "@/app/actions/fic-anagrafiche";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
+import { AnagraficaSyncReviewModal } from "@/components/amministrazione/AnagraficaSyncReviewModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
@@ -18,6 +21,7 @@ import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTa
 import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useFornitori } from "@/hooks/useFornitori";
+import type { AnagraficaSyncReviewItem } from "@/lib/amministrazione/fic-anagrafiche";
 import {
   emptyFornitoriFilters,
   filterFornitori,
@@ -181,6 +185,7 @@ export function FornitoriBoard() {
     addFornitore,
     updateFornitore,
     removeFornitore,
+    refresh,
   } = useFornitori();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Fornitore | null>(null);
@@ -194,8 +199,29 @@ export function FornitoriBoard() {
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [syncItems, setSyncItems] = useState<AnagraficaSyncReviewItem[] | null>(
+    null
+  );
+  const [syncPending, startSyncTransition] = useTransition();
 
   const filtersActive = hasActiveFornitoriFilters(filters);
+
+  function handleSync() {
+    setSaveError(null);
+    startSyncTransition(async () => {
+      const result = await startFicSyncFornitoriAction();
+      if (!result.success) {
+        setSaveError(result.error);
+        return;
+      }
+      if (result.items.length === 0) {
+        setSaveError(null);
+        setSyncItems([]);
+        return;
+      }
+      setSyncItems(result.items);
+    });
+  }
 
   function exitPdfSelectMode() {
     setPdfSelectMode(false);
@@ -345,6 +371,15 @@ export function FornitoriBoard() {
           )}
           <button
             type="button"
+            onClick={handleSync}
+            disabled={syncPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <FaArrowsRotate size={14} className={syncPending ? "animate-spin" : ""} />
+            {syncPending ? "Preparazione sync…" : "Sincronizza"}
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setSaveError(null);
               setCreating(true);
@@ -357,11 +392,28 @@ export function FornitoriBoard() {
         </div>
       </div>
 
+      {syncItems && syncItems.length === 0 ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          Nessun fornitore nuovo o da aggiornare da Fatture in Cloud.
+        </p>
+      ) : null}
+
       {(error || saveError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {saveError || error}
         </p>
       )}
+
+      {syncItems && syncItems.length > 0 ? (
+        <AnagraficaSyncReviewModal
+          items={syncItems}
+          onClose={() => setSyncItems(null)}
+          onFinished={() => {
+            setSyncItems(null);
+            void refresh();
+          }}
+        />
+      ) : null}
 
       {fornitori.length > 0 && filtersOpen && (
         <FornitoriFiltersPanel

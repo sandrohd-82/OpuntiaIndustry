@@ -20,6 +20,10 @@ export type Cliente = {
   codiceTarga: string;
   ragioneSociale: string;
   partitaIva: string;
+  email: string;
+  pec: string;
+  sdiCode: string;
+  telefono: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -31,6 +35,10 @@ export type ClienteInput = {
   codiceTarga?: string;
   ragioneSociale: string;
   partitaIva: string;
+  email?: string;
+  pec?: string;
+  sdiCode?: string;
+  telefono?: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -75,6 +83,10 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
         : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
     partitaIva: input.partitaIva.trim(),
+    email: (input.email ?? "").trim(),
+    pec: (input.pec ?? "").trim(),
+    sdiCode: (input.sdiCode ?? "").trim(),
+    telefono: (input.telefono ?? "").trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
     consegneAltraAzienda: (input.consegneAltraAzienda ?? [])
@@ -123,6 +135,10 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     codiceTarga: row.codice_targa,
     ragioneSociale: row.ragione_sociale,
     partitaIva: row.partita_iva,
+    email: row.email ?? "",
+    pec: row.pec ?? "",
+    sdiCode: row.sdi_code ?? "",
+    telefono: row.telefono ?? "",
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,

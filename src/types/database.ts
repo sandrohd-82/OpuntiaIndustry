@@ -121,6 +121,10 @@ export interface FornitoreRow {
   codice_targa: string;
   ragione_sociale: string;
   partita_iva: string;
+  email: string;
+  pec: string;
+  sdi_code: string;
+  telefono: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -148,6 +152,10 @@ export interface FornitoreInsert {
   codice_targa?: string;
   ragione_sociale: string;
   partita_iva: string;
+  email?: string;
+  pec?: string;
+  sdi_code?: string;
+  telefono?: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -175,6 +183,10 @@ export interface FornitoreUpdate {
   codice_targa?: string;
   ragione_sociale?: string;
   partita_iva?: string;
+  email?: string;
+  pec?: string;
+  sdi_code?: string;
+  telefono?: string;
   sede_amm_nazione?: string;
   sede_amm_provincia?: string;
   sede_amm_citta?: string;
@@ -211,6 +223,10 @@ export interface ClienteRow {
   codice_targa: string;
   ragione_sociale: string;
   partita_iva: string;
+  email: string;
+  pec: string;
+  sdi_code: string;
+  telefono: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -236,6 +252,10 @@ export interface ClienteInsert {
   codice_targa?: string;
   ragione_sociale: string;
   partita_iva: string;
+  email?: string;
+  pec?: string;
+  sdi_code?: string;
+  telefono?: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -261,6 +281,10 @@ export interface ClienteUpdate {
   codice_targa?: string;
   ragione_sociale?: string;
   partita_iva?: string;
+  email?: string;
+  pec?: string;
+  sdi_code?: string;
+  telefono?: string;
   sede_amm_nazione?: string;
   sede_amm_provincia?: string;
   sede_amm_citta?: string;
@@ -621,6 +645,29 @@ export type FicSyncLogUpdate = Partial<
   >
 >;
 
+export type FicImportEntityKind = "supplier" | "client";
+
+export interface FicImportDiscardedRow {
+  id: string;
+  entity_kind: FicImportEntityKind;
+  fic_entity_id: number;
+  entity_name: string;
+  vat_number: string;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface FicImportDiscardedInsert {
+  id?: string;
+  entity_kind: FicImportEntityKind;
+  fic_entity_id: number;
+  entity_name?: string;
+  vat_number?: string;
+  note?: string;
+  created_by?: string | null;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -676,6 +723,12 @@ export interface Database {
         Row: FicSyncLogRow;
         Insert: FicSyncLogInsert;
         Update: FicSyncLogUpdate;
+        Relationships: [];
+      };
+      fic_import_discarded: {
+        Row: FicImportDiscardedRow;
+        Insert: FicImportDiscardedInsert;
+        Update: never;
         Relationships: [];
       };
       user_second_factor: {

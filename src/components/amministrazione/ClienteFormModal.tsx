@@ -77,6 +77,10 @@ export function ClienteFormModal({
     initial?.ragioneSociale ?? ""
   );
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [pec, setPec] = useState(initial?.pec ?? "");
+  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
+  const [telefono, setTelefono] = useState(initial?.telefono ?? "");
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -184,6 +188,10 @@ export function ClienteFormModal({
       codiceTarga: codice,
       ragioneSociale: ragioneSociale.trim(),
       partitaIva: partitaIva.trim(),
+      email: email.trim(),
+      pec: pec.trim(),
+      sdiCode: sdiCode.trim(),
+      telefono: telefono.trim(),
       sedeAmministrativa,
       sedeMagazzino: !magazzinoOpen
         ? emptySede()
@@ -331,6 +339,40 @@ export function ClienteFormModal({
                 value={partitaIva}
                 onChange={(e) => setPartitaIva(e.target.value)}
                 required
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Mail</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Telefono</span>
+              <input
+                value={telefono}
+                onChange={(e) => setTelefono(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">PEC</span>
+              <input
+                type="email"
+                value={pec}
+                onChange={(e) => setPec(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">SDI</span>
+              <input
+                value={sdiCode}
+                onChange={(e) => setSdiCode(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>

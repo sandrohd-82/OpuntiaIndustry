@@ -15,6 +15,10 @@ export type Fornitore = {
   codiceTarga: string;
   ragioneSociale: string;
   partitaIva: string;
+  email: string;
+  pec: string;
+  sdiCode: string;
+  telefono: string;
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
@@ -29,6 +33,10 @@ export type FornitoreInput = {
   codiceTarga?: string;
   ragioneSociale: string;
   partitaIva: string;
+  email?: string;
+  pec?: string;
+  sdiCode?: string;
+  telefono?: string;
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
@@ -67,6 +75,10 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
         : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
     partitaIva: input.partitaIva.trim(),
+    email: (input.email ?? "").trim(),
+    pec: (input.pec ?? "").trim(),
+    sdiCode: (input.sdiCode ?? "").trim(),
+    telefono: (input.telefono ?? "").trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
     prodottiAcquistati: input.prodottiAcquistati
@@ -84,6 +96,10 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     codiceTarga: row.codice_targa,
     ragioneSociale: row.ragione_sociale,
     partitaIva: row.partita_iva,
+    email: row.email ?? "",
+    pec: row.pec ?? "",
+    sdiCode: row.sdi_code ?? "",
+    telefono: row.telefono ?? "",
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,
