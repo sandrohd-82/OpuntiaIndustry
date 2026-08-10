@@ -8,6 +8,7 @@ import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/Grafici
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
+import { FattureBoard } from "@/components/amministrazione/FattureBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
@@ -147,6 +148,28 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title="Incassi" subtitle={page.description} />
         <div className="p-6">
           <GraficiIncassiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fatture" && sub === "inviate") {
+    return (
+      <>
+        <AppHeader title="Fatture inviate" subtitle={page.description} />
+        <div className="p-6">
+          <FattureBoard type="issued" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fatture" && sub === "ricevute") {
+    return (
+      <>
+        <AppHeader title="Fatture ricevute" subtitle={page.description} />
+        <div className="p-6">
+          <FattureBoard type="received" />
         </div>
       </>
     );

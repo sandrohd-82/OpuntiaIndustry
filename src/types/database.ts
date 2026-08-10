@@ -536,6 +536,91 @@ export interface AuditLogInsert {
   payload?: Record<string, unknown>;
 }
 
+export type FicInvoiceKind = "issued" | "received";
+export type FicPaymentStatus = "paid" | "not_paid" | "partially_paid";
+export type FicSyncLogStatus = "running" | "success" | "error";
+
+export interface FicInvoiceRow {
+  id: string;
+  fic_id: number;
+  type: FicInvoiceKind;
+  number: string;
+  entity_name: string;
+  entity_vat: string;
+  amount_gross: number;
+  date: string | null;
+  due_date: string | null;
+  status: FicPaymentStatus;
+  raw_data: Record<string, unknown>;
+  last_synced_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface FicInvoiceInsert {
+  id?: string;
+  fic_id: number;
+  type: FicInvoiceKind;
+  number?: string;
+  entity_name?: string;
+  entity_vat?: string;
+  amount_gross?: number;
+  date?: string | null;
+  due_date?: string | null;
+  status?: FicPaymentStatus;
+  raw_data?: Record<string, unknown>;
+  last_synced_at?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
+export type FicInvoiceUpdate = Partial<FicInvoiceInsert>;
+
+export interface FicSyncLogRow {
+  id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: FicSyncLogStatus;
+  documents_fetched: number;
+  documents_upserted: number;
+  since_at: string | null;
+  error_message: string;
+  details: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface FicSyncLogInsert {
+  id?: string;
+  started_at?: string;
+  finished_at?: string | null;
+  status?: FicSyncLogStatus;
+  documents_fetched?: number;
+  documents_upserted?: number;
+  since_at?: string | null;
+  error_message?: string;
+  details?: Record<string, unknown>;
+  created_by?: string | null;
+}
+
+export type FicSyncLogUpdate = Partial<
+  Pick<
+    FicSyncLogRow,
+    | "finished_at"
+    | "status"
+    | "documents_fetched"
+    | "documents_upserted"
+    | "error_message"
+    | "details"
+  >
+>;
+
 export interface Database {
   public: {
     Tables: {
@@ -579,6 +664,18 @@ export interface Database {
         Row: AuditLogRow;
         Insert: AuditLogInsert;
         Update: never;
+        Relationships: [];
+      };
+      fic_invoices: {
+        Row: FicInvoiceRow;
+        Insert: FicInvoiceInsert;
+        Update: FicInvoiceUpdate;
+        Relationships: [];
+      };
+      fic_sync_logs: {
+        Row: FicSyncLogRow;
+        Insert: FicSyncLogInsert;
+        Update: FicSyncLogUpdate;
         Relationships: [];
       };
       user_second_factor: {
