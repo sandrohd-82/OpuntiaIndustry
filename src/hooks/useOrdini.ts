@@ -27,15 +27,18 @@ export function useOrdini(stato: OrdineStato) {
     void refresh().finally(() => setReady(true));
   }, [refresh]);
 
-  async function removeOrdine(id: string, confermaTestuale: string) {
+  async function removeOrdine(
+    id: string,
+    confermaTestuale: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
     const result = await softDeleteOrdineAction({ id, confermaTestuale });
     if (!result.success) {
       setError(result.error);
-      return false;
+      return { success: false, error: result.error };
     }
     setOrdini((prev) => prev.filter((o) => o.id !== id));
     setError(null);
-    return true;
+    return { success: true };
   }
 
   function upsertLocal(ordine: Ordine) {
