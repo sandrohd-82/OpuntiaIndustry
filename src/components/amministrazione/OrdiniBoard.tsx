@@ -16,11 +16,12 @@ import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
 import { useOrdini } from "@/hooks/useOrdini";
 import {
   fraseConfermaEliminazione,
+  labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
 import type { OrdineStato } from "@/types/database";
 
-const COL_COUNT = 10;
+const COL_COUNT = 12;
 
 function formatEuro(value: number) {
   return value.toLocaleString("it-IT", {
@@ -96,6 +97,16 @@ function OrdineTableRow({
         </td>
         <td className="px-4 py-3 text-right font-medium tabular-nums">
           {formatEuro(ordine.importoEuro)}
+        </td>
+        <td className="px-4 py-3 text-[var(--muted)]">
+          {labelTipoPagamento(ordine.tipoPagamento)}
+        </td>
+        <td className="px-4 py-3">
+          {ordine.pagato ? (
+            <span className="font-medium text-emerald-700">Sì</span>
+          ) : (
+            <span className="text-amber-700">No</span>
+          )}
         </td>
         <td className="px-4 py-3">
           {ordine.offerta ? (
@@ -239,6 +250,8 @@ export function OrdiniBoard({
                 <th className="px-4 py-3 font-medium">Data ordine</th>
                 <th className="px-4 py-3 font-medium">Data consegna</th>
                 <th className="px-4 py-3 text-right font-medium">Totale</th>
+                <th className="px-4 py-3 font-medium">Pagamento</th>
+                <th className="px-4 py-3 font-medium">Pagato</th>
                 <th className="px-4 py-3 font-medium">Offerta</th>
                 <th className="px-4 py-3 font-medium">Ord. cl.</th>
                 <th className="px-4 py-3 font-medium">v</th>

@@ -11,7 +11,12 @@ import {
   OrdineDettaglioFields,
   useOrdineDettaglioState,
 } from "@/components/amministrazione/OrdineDettaglioFields";
-import type { Ordine } from "@/lib/amministrazione/ordini";
+import { OrdinePagamentoFields } from "@/components/amministrazione/OrdinePagamentoFields";
+import type {
+  Ordine,
+  OrdineAllegatoMeta,
+  OrdineTipoPagamento,
+} from "@/lib/amministrazione/ordini";
 import type { OrdineStato } from "@/types/database";
 
 type Props = {
@@ -51,10 +56,24 @@ export function OrdineFormModal({
     initial?.dataConsegna ?? todayInputValue()
   );
   const [note, setNote] = useState(initial?.note ?? "");
+  const [tipoPagamento, setTipoPagamento] = useState<OrdineTipoPagamento>(
+    initial?.tipoPagamento ?? "alla_consegna"
+  );
+  const [pagato, setPagato] = useState(initial?.pagato ?? false);
+  const [dataPagamento, setDataPagamento] = useState(
+    initial?.dataPagamento ?? ""
+  );
+  const [noteRateizzazione, setNoteRateizzazione] = useState(
+    initial?.noteRateizzazione ?? ""
+  );
+  const [ricevutaFile, setRicevutaFile] = useState<File | null>(null);
+  const [ricevutaEsistente, setRicevutaEsistente] =
+    useState<OrdineAllegatoMeta | null>(initial?.ricevutaPagamento ?? null);
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [removeOfferta, setRemoveOfferta] = useState(false);
   const [removeOrdineCliente, setRemoveOrdineCliente] = useState(false);
+  const [removeRicevuta, setRemoveRicevuta] = useState(false);
 
   useEffect(() => {
     if (mode !== "edit" || !initial) return;
@@ -66,6 +85,13 @@ export function OrdineFormModal({
     dettaglio.setTrasporto(initial.trasporto);
     dettaglio.setOffertaEsistente(initial.offerta);
     dettaglio.setOrdineClienteEsistente(initial.ordineClienteDoc);
+    setTipoPagamento(initial.tipoPagamento);
+    setPagato(initial.pagato);
+    setDataPagamento(initial.dataPagamento ?? "");
+    setNoteRateizzazione(initial.noteRateizzazione ?? "");
+    setRicevutaEsistente(initial.ricevutaPagamento);
+    setRicevutaFile(null);
+    setRemoveRicevuta(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, initial?.id]);
 
@@ -134,6 +160,10 @@ export function OrdineFormModal({
       setFormError("Aggiungi almeno una riga prodotto valida.");
       return;
     }
+    if (pagato && !dataPagamento) {
+      setFormError("Se l’ordine è pagato, indica la data pagamento.");
+      return;
+    }
 
     const payload = {
       clienteId,
@@ -149,6 +179,10 @@ export function OrdineFormModal({
       stato,
       origineStorico: stato === "storico" ? ("manuale" as const) : null,
       note: note.trim(),
+      tipoPagamento,
+      pagato,
+      dataPagamento: dataPagamento || null,
+      noteRateizzazione: noteRateizzazione.trim(),
       trasporto: dettaglio.trasporto,
       righe: righeValide,
     };
@@ -159,8 +193,10 @@ export function OrdineFormModal({
     if (dettaglio.ordineClienteFile) {
       fd.set("ordineClienteFile", dettaglio.ordineClienteFile);
     }
+    if (ricevutaFile) fd.set("ricevutaPagamentoFile", ricevutaFile);
     if (removeOfferta) fd.set("removeOfferta", "1");
     if (removeOrdineCliente) fd.set("removeOrdineCliente", "1");
+    if (removeRicevuta) fd.set("removeRicevutaPagamento", "1");
 
     setSaving(true);
     try {
@@ -289,6 +325,27 @@ export function OrdineFormModal({
             onRigheChange={dettaglio.setRighe}
             trasporto={dettaglio.trasporto}
             onTrasportoChange={dettaglio.setTrasporto}
+          />
+
+          <OrdinePagamentoFields
+            tipoPagamento={tipoPagamento}
+            onTipoPagamentoChange={setTipoPagamento}
+            pagato={pagato}
+            onPagatoChange={setPagato}
+            dataPagamento={dataPagamento}
+            onDataPagamentoChange={setDataPagamento}
+            noteRateizzazione={noteRateizzazione}
+            onNoteRateizzazioneChange={setNoteRateizzazione}
+            ricevutaFile={ricevutaFile}
+            ricevutaEsistente={removeRicevuta ? null : ricevutaEsistente}
+            onRicevutaFileChange={(f) => {
+              setRicevutaFile(f);
+              if (f) setRemoveRicevuta(false);
+            }}
+            onRicevutaEsistenteClear={() => {
+              setRicevutaEsistente(null);
+              setRemoveRicevuta(true);
+            }}
           />
 
           <label className="block text-sm">

@@ -4,7 +4,9 @@ import { useState } from "react";
 import { FaFilePdf } from "react-icons/fa6";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
 import {
+  formatOperatoreQuando,
   imponibileRiga,
+  labelTipoPagamento,
   totaleRiga,
   totaleTrasporto,
   type Ordine,
@@ -137,7 +139,51 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                 : "—"}
           </dd>
         </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Tipo pagamento
+          </dt>
+          <dd className="mt-0.5">
+            {labelTipoPagamento(ordine.tipoPagamento)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+            Pagato
+          </dt>
+          <dd className="mt-0.5">
+            {ordine.pagato ? (
+              <span className="font-medium text-emerald-700">Sì</span>
+            ) : (
+              <span className="font-medium text-amber-700">No</span>
+            )}
+            {ordine.dataPagamento
+              ? ` · ${formatDate(ordine.dataPagamento)}`
+              : null}
+          </dd>
+        </div>
+        {ordine.tipoPagamento === "dilazionato" && ordine.noteRateizzazione ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <dt className="text-xs font-medium uppercase text-[var(--muted)]">
+              Piano rateizzazione
+            </dt>
+            <dd className="mt-0.5 whitespace-pre-wrap">
+              {ordine.noteRateizzazione}
+            </dd>
+          </div>
+        ) : null}
       </dl>
+
+      <div className="rounded-xl border border-[var(--border)] bg-white p-3 text-xs text-[var(--muted)]">
+        <p>
+          <span className="font-medium text-slate-700">Creato da: </span>
+          {formatOperatoreQuando(ordine.createdByLabel, ordine.createdAt)}
+        </p>
+        <p className="mt-1">
+          <span className="font-medium text-slate-700">Ultima modifica: </span>
+          {formatOperatoreQuando(ordine.updatedByLabel, ordine.updatedAt)}
+        </p>
+      </div>
 
       <div className="flex flex-col gap-1">
         {ordine.offerta ? (
@@ -158,6 +204,17 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
         ) : (
           <p className="text-xs text-[var(--muted)]">
             Nessun ordine cliente allegato
+          </p>
+        )}
+        {ordine.ricevutaPagamento ? (
+          <AllegatoLink
+            label="Ricevuta pagamento"
+            path={ordine.ricevutaPagamento.storagePath}
+            fileName={ordine.ricevutaPagamento.fileName}
+          />
+        ) : (
+          <p className="text-xs text-[var(--muted)]">
+            Nessuna ricevuta di pagamento allegata
           </p>
         )}
       </div>

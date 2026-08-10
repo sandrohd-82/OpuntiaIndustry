@@ -33,6 +33,26 @@ async function writeAudit(input: AuditLogInsert) {
   }
 }
 
+async function resolveOperatorLabels(
+  userIds: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter((id): id is string => Boolean(id)))];
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, email, full_name")
+    .in("id", ids);
+
+  for (const p of data ?? []) {
+    const label = String(p.full_name ?? "").trim() || String(p.email ?? "").trim();
+    if (label) map.set(String(p.id), label);
+  }
+  return map;
+}
+
 async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
   const supabase = await createClient();
   const { data: row, error } = await supabase
@@ -48,7 +68,12 @@ async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
     .eq("ordine_id", id)
     .order("sort_order", { ascending: true });
 
-  return mapOrdineRow(row as OrdineRow, (righe ?? []) as OrdineRigaRow[]);
+  const typed = row as OrdineRow;
+  const labels = await resolveOperatorLabels([
+    typed.created_by,
+    typed.updated_by,
+  ]);
+  return mapOrdineRow(typed, (righe ?? []) as OrdineRigaRow[], labels);
 }
 
 async function nextSeqForCliente(
@@ -80,7 +105,7 @@ async function nextSeqForCliente(
 
 async function uploadAllegato(
   ordineId: string,
-  kind: "offerta" | "ordine-cliente",
+  kind: "offerta" | "ordine-cliente" | "ricevuta-pagamento",
   file: File
 ): Promise<{ path: string; name: string } | { error: string }> {
   const supabase = await createClient();
@@ -155,10 +180,15 @@ export async function listOrdiniAction(
     }
   }
 
+  const rows = (data ?? []) as OrdineRow[];
+  const labels = await resolveOperatorLabels(
+    rows.flatMap((r) => [r.created_by, r.updated_by])
+  );
+
   return {
     success: true,
-    ordini: ((data ?? []) as OrdineRow[]).map((row) =>
-      mapOrdineRow(row, righeByOrdine.get(row.id) ?? [])
+    ordini: rows.map((row) =>
+      mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels)
     ),
   };
 }
@@ -279,6 +309,12 @@ export async function createOrdineAction(
       trasporto_iva_percentuale: input.trasporto.ivaPercentuale,
       importo_euro: importo,
       note: input.note?.trim() ?? "",
+      tipo_pagamento: input.tipoPagamento,
+      pagato: input.pagato,
+      data_pagamento: input.pagato
+        ? (input.dataPagamento ?? null)
+        : (input.dataPagamento ?? null),
+      note_rateizzazione: input.noteRateizzazione?.trim() ?? "",
       documento_stato: "registrato",
       versione: 1,
       created_by: auth.userId,
@@ -301,6 +337,7 @@ export async function createOrdineAction(
 
     const offertaFile = formData.get("offertaFile");
     const ordineClienteFile = formData.get("ordineClienteFile");
+    const ricevutaFile = formData.get("ricevutaPagamentoFile");
     const patch: Record<string, string> = {};
 
     if (offertaFile instanceof File && offertaFile.size > 0) {
@@ -315,8 +352,21 @@ export async function createOrdineAction(
       patch.ordine_cliente_storage_path = up.path;
       patch.ordine_cliente_file_name = up.name;
     }
+    if (ricevutaFile instanceof File && ricevutaFile.size > 0) {
+      const up = await uploadAllegato(
+        row.id,
+        "ricevuta-pagamento",
+        ricevutaFile
+      );
+      if ("error" in up) return { success: false, error: up.error };
+      patch.ricevuta_pagamento_storage_path = up.path;
+      patch.ricevuta_pagamento_file_name = up.name;
+    }
     if (Object.keys(patch).length > 0) {
-      await supabase.from("ordini").update(patch).eq("id", row.id);
+      await supabase
+        .from("ordini")
+        .update({ ...patch, updated_by: auth.userId })
+        .eq("id", row.id);
     }
 
     await writeAudit({
@@ -325,7 +375,12 @@ export async function createOrdineAction(
       action: "create",
       actor_id: auth.userId,
       summary: `Creato ordine ${numeroInterno} (${input.stato})`,
-      payload: { stato: input.stato, numero_interno: numeroInterno },
+      payload: {
+        stato: input.stato,
+        numero_interno: numeroInterno,
+        tipo_pagamento: input.tipoPagamento,
+        pagato: input.pagato,
+      },
     });
 
     const ordine = await loadOrdineWithRighe(row.id);
@@ -384,11 +439,14 @@ export async function updateOrdineAction(
   const importo = totaleOrdine(righeCalc, input.trasporto);
   const removeOfferta = formData.get("removeOfferta") === "1";
   const removeOrdineCliente = formData.get("removeOrdineCliente") === "1";
+  const removeRicevuta = formData.get("removeRicevutaPagamento") === "1";
 
   let offertaPath = existing.offerta?.storagePath ?? "";
   let offertaName = existing.offerta?.fileName ?? "";
   let ordineClientePath = existing.ordineClienteDoc?.storagePath ?? "";
   let ordineClienteName = existing.ordineClienteDoc?.fileName ?? "";
+  let ricevutaPath = existing.ricevutaPagamento?.storagePath ?? "";
+  let ricevutaName = existing.ricevutaPagamento?.fileName ?? "";
 
   if (removeOfferta) {
     offertaPath = "";
@@ -397,6 +455,10 @@ export async function updateOrdineAction(
   if (removeOrdineCliente) {
     ordineClientePath = "";
     ordineClienteName = "";
+  }
+  if (removeRicevuta) {
+    ricevutaPath = "";
+    ricevutaName = "";
   }
 
   const offertaFile = formData.get("offertaFile");
@@ -412,6 +474,13 @@ export async function updateOrdineAction(
     if ("error" in up) return { success: false, error: up.error };
     ordineClientePath = up.path;
     ordineClienteName = up.name;
+  }
+  const ricevutaFile = formData.get("ricevutaPagamentoFile");
+  if (ricevutaFile instanceof File && ricevutaFile.size > 0) {
+    const up = await uploadAllegato(id, "ricevuta-pagamento", ricevutaFile);
+    if ("error" in up) return { success: false, error: up.error };
+    ricevutaPath = up.path;
+    ricevutaName = up.name;
   }
 
   const { error } = await supabase
@@ -433,6 +502,12 @@ export async function updateOrdineAction(
       trasporto_iva_percentuale: input.trasporto.ivaPercentuale,
       importo_euro: importo,
       note: input.note?.trim() ?? "",
+      tipo_pagamento: input.tipoPagamento,
+      pagato: input.pagato,
+      data_pagamento: input.dataPagamento ?? null,
+      note_rateizzazione: input.noteRateizzazione?.trim() ?? "",
+      ricevuta_pagamento_storage_path: ricevutaPath,
+      ricevuta_pagamento_file_name: ricevutaName,
       offerta_storage_path: offertaPath,
       offerta_file_name: offertaName,
       ordine_cliente_storage_path: ordineClientePath,
@@ -457,6 +532,8 @@ export async function updateOrdineAction(
     payload: {
       versione: existing.versione + 1,
       numero_interno: existing.numeroInterno,
+      tipo_pagamento: input.tipoPagamento,
+      pagato: input.pagato,
     },
   });
 

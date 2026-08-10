@@ -33,6 +33,28 @@ export type OrdineDocumentoStato =
   | "approvato"
   | "chiuso";
 
+export type OrdineTipoPagamento =
+  | "anticipato"
+  | "alla_consegna"
+  | "posticipato"
+  | "dilazionato";
+
+export const ORDINE_TIPI_PAGAMENTO: {
+  value: OrdineTipoPagamento;
+  label: string;
+}[] = [
+  { value: "anticipato", label: "Anticipato" },
+  { value: "alla_consegna", label: "Alla consegna" },
+  { value: "posticipato", label: "Posticipato" },
+  { value: "dilazionato", label: "Dilazionato" },
+];
+
+export function labelTipoPagamento(value: OrdineTipoPagamento): string {
+  return (
+    ORDINE_TIPI_PAGAMENTO.find((t) => t.value === value)?.label ?? value
+  );
+}
+
 export type Ordine = {
   id: string;
   numeroInterno: string;
@@ -50,6 +72,11 @@ export type Ordine = {
   trasporto: OrdineTrasporto;
   importoEuro: number;
   note: string;
+  tipoPagamento: OrdineTipoPagamento;
+  pagato: boolean;
+  dataPagamento: string | null;
+  noteRateizzazione: string;
+  ricevutaPagamento: OrdineAllegatoMeta | null;
   offerta: OrdineAllegatoMeta | null;
   ordineClienteDoc: OrdineAllegatoMeta | null;
   versione: number;
@@ -59,6 +86,8 @@ export type Ordine = {
   updatedAt: string;
   createdBy: string | null;
   updatedBy: string | null;
+  createdByLabel: string | null;
+  updatedByLabel: string | null;
   deletedAt: string | null;
 };
 
@@ -144,28 +173,53 @@ const rigaSchema = z.object({
   ivaPercentuale: z.number().min(0),
 });
 
-export const ordineInputSchema = z.object({
-  clienteId: z.string().uuid("Cliente non valido"),
-  cliente: z.string().trim().min(1),
-  codiceTargaCliente: z.string().regex(/^C[0-9A-F]{3}$/, "Targa cliente non valida"),
-  dataOrdine: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  dataConsegna: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable()
-    .optional(),
-  numeroInterno: z.string().trim().min(3).optional(),
-  numeroCliente: z.string().optional(),
-  stato: z.enum(["ricevuto", "evaso", "storico"]),
-  origineStorico: z.enum(["manuale", "chiusura"]).nullable().optional(),
-  note: z.string().optional(),
-  trasporto: z.object({
-    azienda: z.string(),
-    imponibile: z.number().min(0),
-    ivaPercentuale: z.number().min(0),
-  }),
-  righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga prodotto"),
-});
+export const ordineInputSchema = z
+  .object({
+    clienteId: z.string().uuid("Cliente non valido"),
+    cliente: z.string().trim().min(1),
+    codiceTargaCliente: z
+      .string()
+      .regex(/^C[0-9A-F]{3}$/, "Targa cliente non valida"),
+    dataOrdine: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dataConsegna: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    numeroInterno: z.string().trim().min(3).optional(),
+    numeroCliente: z.string().optional(),
+    stato: z.enum(["ricevuto", "evaso", "storico"]),
+    origineStorico: z.enum(["manuale", "chiusura"]).nullable().optional(),
+    note: z.string().optional(),
+    tipoPagamento: z.enum([
+      "anticipato",
+      "alla_consegna",
+      "posticipato",
+      "dilazionato",
+    ]),
+    pagato: z.boolean(),
+    dataPagamento: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    noteRateizzazione: z.string().optional(),
+    trasporto: z.object({
+      azienda: z.string(),
+      imponibile: z.number().min(0),
+      ivaPercentuale: z.number().min(0),
+    }),
+    righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga prodotto"),
+  })
+  .superRefine((val, ctx) => {
+    if (val.pagato && !val.dataPagamento) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Se l’ordine è pagato, indica la data pagamento.",
+        path: ["dataPagamento"],
+      });
+    }
+  });
 
 export type OrdineInput = z.infer<typeof ordineInputSchema>;
 
@@ -191,8 +245,10 @@ export function mapOrdineRigaRow(row: OrdineRigaRow): OrdineRigaProdotto {
 
 export function mapOrdineRow(
   row: OrdineRow,
-  righe: OrdineRigaRow[] = []
+  righe: OrdineRigaRow[] = [],
+  operatorLabels: Map<string, string> = new Map()
 ): Ordine {
+  const tipo = (row.tipo_pagamento ?? "alla_consegna") as OrdineTipoPagamento;
   return {
     id: row.id,
     numeroInterno: row.numero_interno,
@@ -213,6 +269,14 @@ export function mapOrdineRow(
     },
     importoEuro: Number(row.importo_euro),
     note: row.note ?? "",
+    tipoPagamento: tipo,
+    pagato: Boolean(row.pagato),
+    dataPagamento: row.data_pagamento,
+    noteRateizzazione: row.note_rateizzazione ?? "",
+    ricevutaPagamento: allegatoFromRow(
+      row.ricevuta_pagamento_storage_path,
+      row.ricevuta_pagamento_file_name
+    ),
     offerta: allegatoFromRow(row.offerta_storage_path, row.offerta_file_name),
     ordineClienteDoc: allegatoFromRow(
       row.ordine_cliente_storage_path,
@@ -227,6 +291,26 @@ export function mapOrdineRow(
     updatedAt: row.updated_at,
     createdBy: row.created_by,
     updatedBy: row.updated_by,
+    createdByLabel: row.created_by
+      ? (operatorLabels.get(row.created_by) ?? null)
+      : null,
+    updatedByLabel: row.updated_by
+      ? (operatorLabels.get(row.updated_by) ?? null)
+      : null,
     deletedAt: row.deleted_at,
   };
+}
+
+export function formatOperatoreQuando(
+  label: string | null | undefined,
+  isoDate: string | null | undefined
+): string {
+  const when = isoDate
+    ? new Date(isoDate).toLocaleString("it-IT", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "—";
+  const who = label?.trim() || "Operatore non registrato";
+  return `${who} · ${when}`;
 }

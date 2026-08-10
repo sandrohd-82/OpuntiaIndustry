@@ -378,6 +378,11 @@ export type OrdineDocumentoStato =
   | "registrato"
   | "approvato"
   | "chiuso";
+export type OrdineTipoPagamento =
+  | "anticipato"
+  | "alla_consegna"
+  | "posticipato"
+  | "dilazionato";
 
 export interface OrdineRow {
   id: string;
@@ -396,6 +401,12 @@ export interface OrdineRow {
   trasporto_iva_percentuale: number;
   importo_euro: number;
   note: string;
+  tipo_pagamento: OrdineTipoPagamento;
+  pagato: boolean;
+  data_pagamento: string | null;
+  note_rateizzazione: string;
+  ricevuta_pagamento_storage_path: string;
+  ricevuta_pagamento_file_name: string;
   offerta_storage_path: string;
   offerta_file_name: string;
   ordine_cliente_storage_path: string;
@@ -427,6 +438,12 @@ export interface OrdineInsert {
   trasporto_iva_percentuale?: number;
   importo_euro?: number;
   note?: string;
+  tipo_pagamento?: OrdineTipoPagamento;
+  pagato?: boolean;
+  data_pagamento?: string | null;
+  note_rateizzazione?: string;
+  ricevuta_pagamento_storage_path?: string;
+  ricevuta_pagamento_file_name?: string;
   offerta_storage_path?: string;
   offerta_file_name?: string;
   ordine_cliente_storage_path?: string;
@@ -452,6 +469,12 @@ export interface OrdineUpdate {
   trasporto_iva_percentuale?: number;
   importo_euro?: number;
   note?: string;
+  tipo_pagamento?: OrdineTipoPagamento;
+  pagato?: boolean;
+  data_pagamento?: string | null;
+  note_rateizzazione?: string;
+  ricevuta_pagamento_storage_path?: string;
+  ricevuta_pagamento_file_name?: string;
   offerta_storage_path?: string;
   offerta_file_name?: string;
   ordine_cliente_storage_path?: string;
