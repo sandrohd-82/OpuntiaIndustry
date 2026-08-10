@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createMateriaPrimaAction,
   listMateriePrimeAction,
+  softDeleteMateriaPrimaAction,
   updateMateriaPrimaAction,
 } from "@/app/actions/materie-prime";
 import type {
@@ -63,5 +64,27 @@ export function useMateriePrime() {
     return { success: true, materia: result.materia };
   }
 
-  return { materie, ready, error, addMateria, updateMateria, refresh };
+  async function removeMateria(
+    id: string,
+    confermaTestuale: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    const result = await softDeleteMateriaPrimaAction({ id, confermaTestuale });
+    if (!result.success) {
+      setError(result.error);
+      return { success: false, error: result.error };
+    }
+    setMaterie((prev) => prev.filter((item) => item.id !== id));
+    setError(null);
+    return { success: true };
+  }
+
+  return {
+    materie,
+    ready,
+    error,
+    addMateria,
+    updateMateria,
+    removeMateria,
+    refresh,
+  };
 }

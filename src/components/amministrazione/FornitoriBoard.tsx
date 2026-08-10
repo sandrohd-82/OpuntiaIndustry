@@ -8,6 +8,7 @@ import {
   FaMagnifyingGlass,
   FaPen,
   FaPlus,
+  FaTrash,
 } from "react-icons/fa6";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -15,6 +16,7 @@ import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormMo
 import { FornitoriFiltersPanel } from "@/components/amministrazione/FornitoriFiltersPanel";
 import { MateriaPrimaTagList } from "@/components/amministrazione/MateriaPrimaTagList";
 import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import {
   emptyFornitoriFilters,
@@ -49,6 +51,7 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
 function FornitoreRow({
   fornitore,
   onEdit,
+  onDelete,
   materie,
   selectMode,
   selected,
@@ -56,6 +59,7 @@ function FornitoreRow({
 }: {
   fornitore: Fornitore;
   onEdit: (fornitore: Fornitore) => void;
+  onDelete: (fornitore: Fornitore) => void;
   materie: MateriaPrima[];
   selectMode: boolean;
   selected: boolean;
@@ -106,6 +110,14 @@ function FornitoreRow({
             >
               <FaPen size={11} />
               Modifica
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(fornitore)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+            >
+              <FaTrash size={11} />
+              Elimina
             </button>
             <button
               type="button"
@@ -162,10 +174,17 @@ function FornitoreRow({
 }
 
 export function FornitoriBoard() {
-  const { fornitori, ready, error, addFornitore, updateFornitore } =
-    useFornitori();
+  const {
+    fornitori,
+    ready,
+    error,
+    addFornitore,
+    updateFornitore,
+    removeFornitore,
+  } = useFornitori();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Fornitore | null>(null);
+  const [deleting, setDeleting] = useState<Fornitore | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [materie, setMaterie] = useState<MateriaPrima[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -444,6 +463,10 @@ export function FornitoriBoard() {
                     setSaveError(null);
                     setEditing(item);
                   }}
+                  onDelete={(item) => {
+                    setSaveError(null);
+                    setDeleting(item);
+                  }}
                 />
               ))}
             </tbody>
@@ -483,6 +506,24 @@ export function FornitoriBoard() {
                   "Aggiornamento non riuscito. Controlla i dati e riprova."
               );
             }
+          }}
+        />
+      )}
+
+      {deleting && (
+        <SoftDeleteConfirmModal
+          entityLabel="fornitore"
+          confirmCode={deleting.codiceTarga}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await removeFornitore(
+              deleting.id,
+              confermaTestuale
+            );
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setDeleting(null);
           }}
         />
       )}

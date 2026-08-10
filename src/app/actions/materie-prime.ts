@@ -9,6 +9,8 @@ import {
   type MateriaPrima,
   type MateriaPrimaInput,
 } from "@/lib/amministrazione/materie-prime";
+import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { MateriaPrimaInsert, MateriaPrimaRow } from "@/types/database";
 
@@ -60,6 +62,7 @@ export async function listMateriePrimeAction(): Promise<
   const { data, error } = await supabase
     .from("materie_prime")
     .select("*")
+    .is("deleted_at", null)
     .order("codice", { ascending: true });
 
   if (error) return { success: false, error: error.message };
@@ -105,6 +108,7 @@ export async function createMateriaPrimaAction(
     bio_certificato: "",
     bio_codice: "",
     created_by: auth.userId,
+    updated_by: auth.userId,
   };
 
   const { data, error } = await supabase
@@ -123,14 +127,24 @@ export async function createMateriaPrimaAction(
     };
   }
 
-  return { success: true, materia: mapMateriaPrimaRow(data as MateriaPrimaRow) };
+  const row = data as MateriaPrimaRow;
+  await writeAuditLog({
+    entity_type: "materie_prime",
+    entity_id: row.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata materia prima ${row.codice}`,
+    payload: { codice: row.codice, nome: row.nome },
+  });
+
+  return { success: true, materia: mapMateriaPrimaRow(row) };
 }
 
 export async function updateMateriaPrimaAction(
   id: string,
   input: MateriaPrimaInput
 ): Promise<MateriePrimeActionResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const normalized = normalizeMateriaPrimaInput(input);
 
@@ -164,8 +178,10 @@ export async function updateMateriaPrimaAction(
       fornitore_bio_id: null,
       bio_certificato: "",
       bio_codice: "",
+      updated_by: auth.userId,
     })
     .eq("id", id)
+    .is("deleted_at", null)
     .select("*")
     .single();
 
@@ -179,5 +195,70 @@ export async function updateMateriaPrimaAction(
     };
   }
 
-  return { success: true, materia: mapMateriaPrimaRow(data as MateriaPrimaRow) };
+  const row = data as MateriaPrimaRow;
+  await writeAuditLog({
+    entity_type: "materie_prime",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornata materia prima ${row.codice}`,
+    payload: { codice: row.codice, nome: row.nome },
+  });
+
+  return { success: true, materia: mapMateriaPrimaRow(row) };
+}
+
+export async function softDeleteMateriaPrimaAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const { data: existing, error: loadError } = await supabase
+    .from("materie_prime")
+    .select("id, codice, nome, deleted_at")
+    .eq("id", input.id)
+    .maybeSingle();
+
+  if (loadError) return { success: false, error: loadError.message };
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Materia prima non trovata." };
+  }
+
+  const codice = String(existing.codice);
+  const expected = fraseConfermaSoftDelete(codice);
+  if (input.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("materie_prime")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "materie_prime",
+    entity_id: input.id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Soft delete materia prima ${codice}`,
+    payload: {
+      codice,
+      nome: existing.nome,
+      conferma: expected,
+    },
+  });
+
+  return { success: true };
 }

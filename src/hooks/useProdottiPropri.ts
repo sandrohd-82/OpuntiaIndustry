@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createProdottoProprioAction,
   listProdottiPropriAction,
+  softDeleteProdottoProprioAction,
   updateProdottoProprioAction,
 } from "@/app/actions/prodotti-propri";
 import type {
@@ -71,5 +72,30 @@ export function useProdottiPropri() {
     return { success: true, prodotto: result.prodotto };
   }
 
-  return { prodotti, ready, error, addProdotto, updateProdotto, refresh };
+  async function removeProdotto(
+    id: string,
+    confermaTestuale: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    const result = await softDeleteProdottoProprioAction({
+      id,
+      confermaTestuale,
+    });
+    if (!result.success) {
+      setError(result.error);
+      return { success: false, error: result.error };
+    }
+    setProdotti((prev) => prev.filter((item) => item.id !== id));
+    setError(null);
+    return { success: true };
+  }
+
+  return {
+    prodotti,
+    ready,
+    error,
+    addProdotto,
+    updateProdotto,
+    removeProdotto,
+    refresh,
+  };
 }

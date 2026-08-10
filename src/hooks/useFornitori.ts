@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createFornitoreAction,
   listFornitoriAction,
+  softDeleteFornitoreAction,
   updateFornitoreAction,
 } from "@/app/actions/fornitori";
 import type { Fornitore, FornitoreInput } from "@/lib/amministrazione/fornitori";
@@ -62,5 +63,27 @@ export function useFornitori() {
     return result.fornitore;
   }
 
-  return { fornitori, ready, error, addFornitore, updateFornitore, refresh };
+  async function removeFornitore(
+    id: string,
+    confermaTestuale: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    const result = await softDeleteFornitoreAction({ id, confermaTestuale });
+    if (!result.success) {
+      setError(result.error);
+      return { success: false, error: result.error };
+    }
+    setFornitori((prev) => prev.filter((item) => item.id !== id));
+    setError(null);
+    return { success: true };
+  }
+
+  return {
+    fornitori,
+    ready,
+    error,
+    addFornitore,
+    updateFornitore,
+    removeFornitore,
+    refresh,
+  };
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createClienteAction,
   listClientiAction,
+  softDeleteClienteAction,
   updateClienteAction,
 } from "@/app/actions/clienti";
 import type { Cliente, ClienteInput } from "@/lib/amministrazione/clienti";
@@ -51,5 +52,27 @@ export function useClienti() {
     return result.cliente;
   }
 
-  return { clienti, ready, error, addCliente, updateCliente, refresh };
+  async function removeCliente(
+    id: string,
+    confermaTestuale: string
+  ): Promise<{ success: true } | { success: false; error: string }> {
+    const result = await softDeleteClienteAction({ id, confermaTestuale });
+    if (!result.success) {
+      setError(result.error);
+      return { success: false, error: result.error };
+    }
+    setClienti((prev) => prev.filter((item) => item.id !== id));
+    setError(null);
+    return { success: true };
+  }
+
+  return {
+    clienti,
+    ready,
+    error,
+    addCliente,
+    updateCliente,
+    removeCliente,
+    refresh,
+  };
 }

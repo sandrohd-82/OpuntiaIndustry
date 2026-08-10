@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
+import { FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { MateriePrimeFiltersPanel } from "@/components/amministrazione/MateriePrimeFiltersPanel";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useMateriePrime } from "@/hooks/useMateriePrime";
 import {
   CODICE_MATERIA_PRIMA_PREFIX,
@@ -18,9 +19,17 @@ import {
 
 export function MateriePrimeBoard() {
   const searchParams = useSearchParams();
-  const { materie, ready, error, addMateria, updateMateria } = useMateriePrime();
+  const {
+    materie,
+    ready,
+    error,
+    addMateria,
+    updateMateria,
+    removeMateria,
+  } = useMateriePrime();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
+  const [deleting, setDeleting] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<MateriePrimeFilters>(
@@ -169,17 +178,30 @@ export function MateriePrimeBoard() {
                     {m.note || "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSaveError(null);
-                        setEditing(m);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
-                    >
-                      <FaPen size={11} />
-                      Modifica
-                    </button>
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveError(null);
+                          setEditing(m);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+                      >
+                        <FaPen size={11} />
+                        Modifica
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveError(null);
+                          setDeleting(m);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                      >
+                        <FaTrash size={11} />
+                        Elimina
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -219,6 +241,21 @@ export function MateriePrimeBoard() {
             } else {
               setSaveError(updated.error);
             }
+          }}
+        />
+      )}
+
+      {deleting && (
+        <SoftDeleteConfirmModal
+          entityLabel="materia prima"
+          confirmCode={deleting.codice}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await removeMateria(deleting.id, confermaTestuale);
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setDeleting(null);
           }}
         />
       )}

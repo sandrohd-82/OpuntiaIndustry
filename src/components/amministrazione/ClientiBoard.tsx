@@ -8,6 +8,7 @@ import {
   FaMagnifyingGlass,
   FaPen,
   FaPlus,
+  FaTrash,
 } from "react-icons/fa6";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
@@ -15,6 +16,7 @@ import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFilters
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useClienti } from "@/hooks/useClienti";
 import {
   emptyClientiFilters,
@@ -49,6 +51,7 @@ function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
 function ClienteRow({
   cliente,
   onEdit,
+  onDelete,
   prodottiByCode,
   selectMode,
   selected,
@@ -56,6 +59,7 @@ function ClienteRow({
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
+  onDelete: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
   selected: boolean;
@@ -113,6 +117,14 @@ function ClienteRow({
             >
               <FaPen size={11} />
               Modifica
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(cliente)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+            >
+              <FaTrash size={11} />
+              Elimina
             </button>
             <button
               type="button"
@@ -205,9 +217,11 @@ function ClienteRow({
 }
 
 export function ClientiBoard() {
-  const { clienti, ready, error, addCliente, updateCliente } = useClienti();
+  const { clienti, ready, error, addCliente, updateCliente, removeCliente } =
+    useClienti();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
+  const [deleting, setDeleting] = useState<Cliente | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prodottiByCode, setProdottiByCode] = useState<
     Map<string, ProdottoProprio>
@@ -477,6 +491,10 @@ export function ClientiBoard() {
                     setSaveError(null);
                     setEditing(item);
                   }}
+                  onDelete={(item) => {
+                    setSaveError(null);
+                    setDeleting(item);
+                  }}
                 />
               ))}
             </tbody>
@@ -517,6 +535,21 @@ export function ClientiBoard() {
               "Aggiornamento non riuscito. Controlla i dati e riprova."
             );
             return false;
+          }}
+        />
+      )}
+
+      {deleting && (
+        <SoftDeleteConfirmModal
+          entityLabel="cliente"
+          confirmCode={deleting.codiceTarga}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await removeCliente(deleting.id, confermaTestuale);
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setDeleting(null);
           }}
         />
       )}

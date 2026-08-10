@@ -2,9 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaFilePdf, FaMagnifyingGlass, FaPen, FaPlus } from "react-icons/fa6";
+import {
+  FaFilePdf,
+  FaMagnifyingGlass,
+  FaPen,
+  FaPlus,
+  FaTrash,
+} from "react-icons/fa6";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   emptyProdottiPropriFilters,
@@ -17,9 +24,17 @@ import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-p
 
 export function ProdottiPropriBoard() {
   const searchParams = useSearchParams();
-  const { prodotti, ready, error, addProdotto, updateProdotto } = useProdottiPropri();
+  const {
+    prodotti,
+    ready,
+    error,
+    addProdotto,
+    updateProdotto,
+    removeProdotto,
+  } = useProdottiPropri();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProdottoProprio | null>(null);
+  const [deleting, setDeleting] = useState<ProdottoProprio | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ProdottiPropriFilters>(
@@ -186,17 +201,30 @@ export function ProdottiPropriBoard() {
                     {m.note || "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSaveError(null);
-                        setEditing(m);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
-                    >
-                      <FaPen size={11} />
-                      Modifica
-                    </button>
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveError(null);
+                          setEditing(m);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
+                      >
+                        <FaPen size={11} />
+                        Modifica
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveError(null);
+                          setDeleting(m);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                      >
+                        <FaTrash size={11} />
+                        Elimina
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -236,6 +264,21 @@ export function ProdottiPropriBoard() {
             } else {
               setSaveError(updated.error);
             }
+          }}
+        />
+      )}
+
+      {deleting && (
+        <SoftDeleteConfirmModal
+          entityLabel="prodotto"
+          confirmCode={deleting.codice}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await removeProdotto(deleting.id, confermaTestuale);
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setDeleting(null);
           }}
         />
       )}

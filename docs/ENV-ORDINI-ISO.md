@@ -9,15 +9,22 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=
 
 Nessuna nuova variabile obbligatoria: gli allegati usano il client Supabase autenticato e il bucket `ordini-allegati` creato dalla migrazione.
 
-## Migrazione da applicare
+## Migrazioni da applicare
 
 ```bash
 npx supabase db push
 ```
 
-oppure applicare manualmente:
+oppure applicare manualmente in Supabase Dashboard → SQL Editor (nell’ordine):
 
-`supabase/migrations/20260808160000_ordini_iso9001.sql`
+1. `supabase/migrations/20260808160000_ordini_iso9001.sql` (fase 1 — ordini)
+2. `supabase/migrations/20260810120000_schede_iso9001_soft_delete.sql` (fase 2 — schede anagrafiche)
+
+### Fase 2 — schede
+
+Soft delete + `updated_by` su `clienti`, `fornitori`, `materie_prime`, `prodotti_propri`.  
+Eliminazione UI con doppia conferma e frase `Elimina [codice/targa]`.  
+Create/update/soft-delete scrivono su `audit_log`.
 
 ## Storage
 

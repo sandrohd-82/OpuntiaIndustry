@@ -9,6 +9,8 @@ import {
   type ProdottoProprio,
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
+import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   ProdottoProprioInsert,
@@ -65,6 +67,7 @@ export async function listProdottiPropriAction(): Promise<
   const { data, error } = await supabase
     .from("prodotti_propri")
     .select("*")
+    .is("deleted_at", null)
     .order("codice", { ascending: true });
 
   if (error) return { success: false, error: error.message };
@@ -107,6 +110,7 @@ export async function createProdottoProprioAction(
     note: normalized.note ?? "",
     is_bio: Boolean(normalized.isBio),
     created_by: auth.userId,
+    updated_by: auth.userId,
   };
 
   const { data, error } = await supabase
@@ -125,9 +129,19 @@ export async function createProdottoProprioAction(
     };
   }
 
+  const row = data as ProdottoProprioRow;
+  await writeAuditLog({
+    entity_type: "prodotti_propri",
+    entity_id: row.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creato prodotto proprio ${row.codice}`,
+    payload: { codice: row.codice, nome: row.nome },
+  });
+
   return {
     success: true,
-    prodotto: mapProdottoProprioRow(data as ProdottoProprioRow),
+    prodotto: mapProdottoProprioRow(row),
   };
 }
 
@@ -135,7 +149,7 @@ export async function updateProdottoProprioAction(
   id: string,
   input: ProdottoProprioInput
 ): Promise<ProdottiPropriActionResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const normalized = normalizeProdottoProprioInput(input);
 
@@ -166,8 +180,10 @@ export async function updateProdottoProprioAction(
       nome: normalized.nome,
       note: normalized.note ?? "",
       is_bio: Boolean(normalized.isBio),
+      updated_by: auth.userId,
     })
     .eq("id", id)
+    .is("deleted_at", null)
     .select("*")
     .single();
 
@@ -181,8 +197,73 @@ export async function updateProdottoProprioAction(
     };
   }
 
+  const row = data as ProdottoProprioRow;
+  await writeAuditLog({
+    entity_type: "prodotti_propri",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornato prodotto proprio ${row.codice}`,
+    payload: { codice: row.codice, nome: row.nome },
+  });
+
   return {
     success: true,
-    prodotto: mapProdottoProprioRow(data as ProdottoProprioRow),
+    prodotto: mapProdottoProprioRow(row),
   };
+}
+
+export async function softDeleteProdottoProprioAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const { data: existing, error: loadError } = await supabase
+    .from("prodotti_propri")
+    .select("id, codice, nome, deleted_at")
+    .eq("id", input.id)
+    .maybeSingle();
+
+  if (loadError) return { success: false, error: loadError.message };
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Prodotto non trovato." };
+  }
+
+  const codice = String(existing.codice);
+  const expected = fraseConfermaSoftDelete(codice);
+  if (input.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("prodotti_propri")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "prodotti_propri",
+    entity_id: input.id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Soft delete prodotto proprio ${codice}`,
+    payload: {
+      codice,
+      nome: existing.nome,
+      conferma: expected,
+    },
+  });
+
+  return { success: true };
 }

@@ -13,6 +13,8 @@ import {
   type Fornitore,
   type FornitoreInput,
 } from "@/lib/amministrazione/fornitori";
+import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
 
@@ -104,6 +106,7 @@ export async function listFornitoriAction(): Promise<
   const { data, error } = await supabase
     .from("fornitori")
     .select("*")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -201,6 +204,7 @@ export async function createFornitoreAction(
     bio_certificato_path: "",
     bio_codice: normalized.bioCodice ?? "",
     created_by: auth.userId,
+    updated_by: auth.userId,
   };
 
   const { data, error } = await supabase
@@ -257,6 +261,18 @@ export async function createFornitoreAction(
     row = updated as FornitoreRow;
   }
 
+  await writeAuditLog({
+    entity_type: "fornitori",
+    entity_id: row.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata scheda fornitore ${row.codice_targa}`,
+    payload: {
+      codice_targa: row.codice_targa,
+      ragione_sociale: row.ragione_sociale,
+    },
+  });
+
   return {
     success: true,
     fornitore: mapFornitoreRow(row),
@@ -267,7 +283,7 @@ export async function updateFornitoreAction(
   id: string,
   formData: FormData
 ): Promise<FornitoriActionResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
   let input: FornitoreInput;
@@ -291,15 +307,18 @@ export async function updateFornitoreAction(
 
   const { data: existing, error: existingError } = await supabase
     .from("fornitori")
-    .select("bio_certificato_path")
+    .select("bio_certificato_path, deleted_at")
     .eq("id", id)
     .maybeSingle();
 
   if (existingError) {
     return { success: false, error: existingError.message };
   }
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Fornitore non trovato." };
+  }
 
-  let nextPath = String(existing?.bio_certificato_path ?? "");
+  let nextPath = String(existing.bio_certificato_path ?? "");
 
   if (normalized.removeBioCertificato && nextPath) {
     await removeBioPdf(nextPath);
@@ -333,8 +352,10 @@ export async function updateFornitoreAction(
       bio_certificato: "",
       bio_certificato_path: nextPath,
       bio_codice: normalized.bioCodice ?? "",
+      updated_by: auth.userId,
     })
     .eq("id", id)
+    .is("deleted_at", null)
     .select("*")
     .single();
 
@@ -345,8 +366,76 @@ export async function updateFornitoreAction(
     };
   }
 
+  const row = data as FornitoreRow;
+  await writeAuditLog({
+    entity_type: "fornitori",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornata scheda fornitore ${row.codice_targa}`,
+    payload: {
+      codice_targa: row.codice_targa,
+      ragione_sociale: row.ragione_sociale,
+    },
+  });
+
   return {
     success: true,
-    fornitore: mapFornitoreRow(data as FornitoreRow),
+    fornitore: mapFornitoreRow(row),
   };
+}
+
+export async function softDeleteFornitoreAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const { data: existing, error: loadError } = await supabase
+    .from("fornitori")
+    .select("id, codice_targa, ragione_sociale, deleted_at")
+    .eq("id", input.id)
+    .maybeSingle();
+
+  if (loadError) return { success: false, error: loadError.message };
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Fornitore non trovato." };
+  }
+
+  const codice = String(existing.codice_targa);
+  const expected = fraseConfermaSoftDelete(codice);
+  if (input.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("fornitori")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "fornitori",
+    entity_id: input.id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Soft delete fornitore ${codice}`,
+    payload: {
+      codice_targa: codice,
+      ragione_sociale: existing.ragione_sociale,
+      conferma: expected,
+    },
+  });
+
+  return { success: true };
 }

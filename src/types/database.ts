@@ -133,8 +133,11 @@ export interface FornitoreRow {
   bio_certificato_path: string;
   bio_codice: string;
   created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface FornitoreInsert {
@@ -157,8 +160,11 @@ export interface FornitoreInsert {
   bio_certificato_path?: string;
   bio_codice?: string;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface FornitoreUpdate {
@@ -181,8 +187,11 @@ export interface FornitoreUpdate {
   bio_certificato_path?: string;
   bio_codice?: string;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export type ClienteConsegnaAltraAziendaRow = {
@@ -212,8 +221,11 @@ export interface ClienteRow {
   prodotti_acquistati: string[];
   consegne_altra_azienda: ClienteConsegnaAltraAziendaRow[];
   created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface ClienteInsert {
@@ -234,8 +246,11 @@ export interface ClienteInsert {
   prodotti_acquistati?: string[];
   consegne_altra_azienda?: ClienteConsegnaAltraAziendaRow[];
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface ClienteUpdate {
@@ -256,8 +271,11 @@ export interface ClienteUpdate {
   prodotti_acquistati?: string[];
   consegne_altra_azienda?: ClienteConsegnaAltraAziendaRow[];
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface MateriaPrimaRow {
@@ -270,8 +288,11 @@ export interface MateriaPrimaRow {
   bio_certificato: string;
   bio_codice: string;
   created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface MateriaPrimaInsert {
@@ -284,8 +305,11 @@ export interface MateriaPrimaInsert {
   bio_certificato?: string;
   bio_codice?: string;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface MateriaPrimaUpdate {
@@ -298,8 +322,11 @@ export interface MateriaPrimaUpdate {
   bio_certificato?: string;
   bio_codice?: string;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface ProdottoProprioRow {
@@ -309,8 +336,11 @@ export interface ProdottoProprioRow {
   note: string;
   is_bio: boolean;
   created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export interface ProdottoProprioInsert {
@@ -320,8 +350,11 @@ export interface ProdottoProprioInsert {
   note?: string;
   is_bio?: boolean;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export interface ProdottoProprioUpdate {
@@ -331,8 +364,11 @@ export interface ProdottoProprioUpdate {
   note?: string;
   is_bio?: boolean;
   created_by?: string | null;
+  updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
 }
 
 export type OrdineStato = "ricevuto" | "evaso" | "storico";

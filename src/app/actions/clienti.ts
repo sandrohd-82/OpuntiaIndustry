@@ -12,6 +12,8 @@ import {
   type Cliente,
   type ClienteInput,
 } from "@/lib/amministrazione/clienti";
+import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
@@ -55,6 +57,7 @@ export async function listClientiAction(): Promise<
   const { data, error } = await supabase
     .from("clienti")
     .select("*")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -116,6 +119,7 @@ export async function createClienteAction(
     prodotti_acquistati: normalized.prodottiAcquistati,
     consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
     created_by: auth.userId,
+    updated_by: auth.userId,
   };
 
   const { data, error } = await supabase
@@ -124,7 +128,8 @@ export async function createClienteAction(
     .select("*")
     .single();
 
-  if (error || !data) {
+  let row = data as ClienteRow | null;
+  if (error || !row) {
     if (error?.code === "23505") {
       try {
         const used = await loadUsedCodiciTarga();
@@ -138,25 +143,35 @@ export async function createClienteAction(
           .select("*")
           .single();
         if (!retry.error && retry.data) {
-          return {
-            success: true,
-            cliente: mapClienteRow(retry.data as ClienteRow),
-          };
+          row = retry.data as ClienteRow;
         }
       } catch {
         // fall through
       }
     }
-
-    return {
-      success: false,
-      error: error?.message ?? "Salvataggio cliente non riuscito.",
-    };
+    if (!row) {
+      return {
+        success: false,
+        error: error?.message ?? "Salvataggio cliente non riuscito.",
+      };
+    }
   }
+
+  await writeAuditLog({
+    entity_type: "clienti",
+    entity_id: row.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata scheda cliente ${row.codice_targa}`,
+    payload: {
+      codice_targa: row.codice_targa,
+      ragione_sociale: row.ragione_sociale,
+    },
+  });
 
   return {
     success: true,
-    cliente: mapClienteRow(data as ClienteRow),
+    cliente: mapClienteRow(row),
   };
 }
 
@@ -164,7 +179,7 @@ export async function updateClienteAction(
   id: string,
   input: ClienteInput
 ): Promise<ClientiActionResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
   const normalized = normalizeClienteInput(input);
@@ -192,8 +207,10 @@ export async function updateClienteAction(
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       prodotti_acquistati: normalized.prodottiAcquistati,
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
+      updated_by: auth.userId,
     })
     .eq("id", id)
+    .is("deleted_at", null)
     .select("*")
     .single();
 
@@ -204,8 +221,76 @@ export async function updateClienteAction(
     };
   }
 
+  const row = data as ClienteRow;
+  await writeAuditLog({
+    entity_type: "clienti",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornata scheda cliente ${row.codice_targa}`,
+    payload: {
+      codice_targa: row.codice_targa,
+      ragione_sociale: row.ragione_sociale,
+    },
+  });
+
   return {
     success: true,
-    cliente: mapClienteRow(data as ClienteRow),
+    cliente: mapClienteRow(row),
   };
+}
+
+export async function softDeleteClienteAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const { data: existing, error: loadError } = await supabase
+    .from("clienti")
+    .select("id, codice_targa, ragione_sociale, deleted_at")
+    .eq("id", input.id)
+    .maybeSingle();
+
+  if (loadError) return { success: false, error: loadError.message };
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Cliente non trovato." };
+  }
+
+  const codice = String(existing.codice_targa);
+  const expected = fraseConfermaSoftDelete(codice);
+  if (input.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
+
+  const { error } = await supabase
+    .from("clienti")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "clienti",
+    entity_id: input.id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Soft delete cliente ${codice}`,
+    payload: {
+      codice_targa: codice,
+      ragione_sociale: existing.ragione_sociale,
+      conferma: expected,
+    },
+  });
+
+  return { success: true };
 }
