@@ -1,8 +1,18 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, useTransition } from "react";
 import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
+import {
+  clearFicImportCheckpointAction,
   discardFicImportAction,
+  markFicImportProgressAction,
+  pauseFicImportAction,
   saveFicImportReviewAction,
 } from "@/app/actions/fic-anagrafiche";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
@@ -16,8 +26,10 @@ import { emptySede } from "@/lib/amministrazione/fornitori";
 
 type Props = {
   items: AnagraficaSyncReviewItem[];
-  onClose: () => void;
+  /** ID già fatti in sessione precedente (ripresa). */
+  initialCompletedIds?: number[];
   onFinished: () => void;
+  onPaused: () => void;
 };
 
 function fieldClass(changed: boolean): string {
@@ -35,12 +47,19 @@ function isChanged(
 
 export function AnagraficaSyncReviewModal({
   items: initialItems,
-  onClose,
+  initialCompletedIds = [],
   onFinished,
+  onPaused,
 }: Props) {
   const titleId = useId();
   const [queue, setQueue] = useState(initialItems);
   const [index, setIndex] = useState(0);
+  const [completedIds, setCompletedIds] = useState<number[]>(initialCompletedIds);
+  const [lastSaved, setLastSaved] = useState<{
+    ficEntityId: number | null;
+    name: string;
+    vat: string;
+  }>({ ficEntityId: null, name: "", vat: "" });
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -48,20 +67,40 @@ export function AnagraficaSyncReviewModal({
   const [draft, setDraft] = useState<AnagraficaSyncDraft | null>(
     current?.proposed ?? null
   );
+  const kind = current?.kind ?? queue[0]?.kind ?? "fornitore";
 
   useEffect(() => {
     setQueue(initialItems);
     setIndex(0);
+    setCompletedIds(initialCompletedIds);
     setDraft(initialItems[0]?.proposed ?? null);
-  }, [initialItems]);
+  }, [initialItems, initialCompletedIds]);
 
   useEffect(() => {
     setDraft(current?.proposed ?? null);
   }, [current]);
 
+  const runPause = useCallback(() => {
+    setError(null);
+    startTransition(async () => {
+      const result = await pauseFicImportAction({
+        kind,
+        completedFicIds: completedIds,
+        lastSavedFicEntityId: lastSaved.ficEntityId,
+        lastSavedName: lastSaved.name,
+        lastSavedVat: lastSaved.vat,
+      });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      onPaused();
+    });
+  }, [kind, completedIds, lastSaved, onPaused]);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") runPause();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -70,22 +109,13 @@ export function AnagraficaSyncReviewModal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [runPause]);
 
   const label = current?.kind === "fornitore" ? "fornitore" : "cliente";
   const progress = useMemo(() => {
     if (!queue.length) return "Nessuna voce";
-    return `${index + 1} di ${queue.length}`;
-  }, [index, queue.length]);
-
-  function advance() {
-    if (index + 1 >= queue.length) {
-      onFinished();
-      return;
-    }
-    setIndex((i) => i + 1);
-    setError(null);
-  }
+    return `${index + 1} di ${queue.length} (già fatte in totale: ${completedIds.length})`;
+  }, [index, queue.length, completedIds.length]);
 
   function handleSave() {
     if (!current || !draft) return;
@@ -102,25 +132,77 @@ export function AnagraficaSyncReviewModal({
         setError(result.error);
         return;
       }
-      advance();
+      const nextCompleted = completedIds.includes(current.ficEntityId)
+        ? completedIds
+        : [...completedIds, current.ficEntityId];
+      setCompletedIds(nextCompleted);
+      setLastSaved({
+        ficEntityId: current.ficEntityId,
+        name: draft.ragioneSociale,
+        vat: draft.partitaIva,
+      });
+      const mark = await markFicImportProgressAction({
+        kind: current.kind,
+        completedFicIds: nextCompleted,
+        lastSavedFicEntityId: current.ficEntityId,
+        lastSavedName: draft.ragioneSociale,
+        lastSavedVat: draft.partitaIva,
+      });
+      if (!mark.success) {
+        setError(mark.error);
+        return;
+      }
+      if (index + 1 >= queue.length) {
+        await clearFicImportCheckpointAction(current.kind);
+        onFinished();
+        return;
+      }
+      setIndex((i) => i + 1);
     });
   }
 
   function handleDiscard() {
     if (!current) return;
     setError(null);
+    const name = draft?.ragioneSociale ?? current.proposed.ragioneSociale;
+    const vat = draft?.partitaIva ?? current.proposed.partitaIva;
     startTransition(async () => {
       const result = await discardFicImportAction({
         kind: current.kind,
         ficEntityId: current.ficEntityId,
-        entityName: draft?.ragioneSociale ?? current.proposed.ragioneSociale,
-        vatNumber: draft?.partitaIva ?? current.proposed.partitaIva,
+        entityName: name,
+        vatNumber: vat,
       });
       if (!result.success) {
         setError(result.error);
         return;
       }
-      advance();
+      const nextCompleted = completedIds.includes(current.ficEntityId)
+        ? completedIds
+        : [...completedIds, current.ficEntityId];
+      setCompletedIds(nextCompleted);
+      setLastSaved({
+        ficEntityId: current.ficEntityId,
+        name,
+        vat,
+      });
+      const mark = await markFicImportProgressAction({
+        kind: current.kind,
+        completedFicIds: nextCompleted,
+        lastSavedFicEntityId: current.ficEntityId,
+        lastSavedName: name,
+        lastSavedVat: vat,
+      });
+      if (!mark.success) {
+        setError(mark.error);
+        return;
+      }
+      if (index + 1 >= queue.length) {
+        await clearFicImportCheckpointAction(current.kind);
+        onFinished();
+        return;
+      }
+      setIndex((i) => i + 1);
     });
   }
 
@@ -131,7 +213,9 @@ export function AnagraficaSyncReviewModal({
           <p className="text-sm">Nessuna anagrafica da revisionare.</p>
           <button
             type="button"
-            onClick={onFinished}
+            onClick={() => {
+              void clearFicImportCheckpointAction(kind).then(onFinished);
+            }}
             className="mt-4 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
           >
             Chiudi
@@ -147,14 +231,12 @@ export function AnagraficaSyncReviewModal({
     <div
       className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -162,8 +244,9 @@ export function AnagraficaSyncReviewModal({
               Revisione sync {label}
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Una voce alla volta. Salva per archiviare, Scarta per non
-              rivederla più. I campi gialli sono diversi dall’archivio.
+              Una voce alla volta. <strong>Pausa</strong> salva il punto e
+              riparti da qui al prossimo Sincronizza. Campi gialli = diversi
+              dall’archivio.
             </p>
           </div>
           <p className="text-sm font-medium tabular-nums">{progress}</p>
@@ -338,11 +421,11 @@ export function AnagraficaSyncReviewModal({
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button
             type="button"
-            onClick={onClose}
+            onClick={runPause}
             disabled={pending}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900 disabled:opacity-60"
           >
-            Interrompi
+            {pending ? "Pausa…" : "Pausa"}
           </button>
           <button
             type="button"

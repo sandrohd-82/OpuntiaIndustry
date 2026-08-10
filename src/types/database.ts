@@ -668,6 +668,34 @@ export interface FicImportDiscardedInsert {
   created_by?: string | null;
 }
 
+export type FicImportCheckpointStatus = "idle" | "in_progress" | "paused";
+
+export interface FicImportCheckpointRow {
+  entity_kind: FicImportEntityKind;
+  status: FicImportCheckpointStatus;
+  completed_fic_ids: number[];
+  last_saved_fic_entity_id: number | null;
+  last_saved_name: string;
+  last_saved_vat: string;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FicImportCheckpointInsert {
+  entity_kind: FicImportEntityKind;
+  status?: FicImportCheckpointStatus;
+  completed_fic_ids?: number[];
+  last_saved_fic_entity_id?: number | null;
+  last_saved_name?: string;
+  last_saved_vat?: string;
+  updated_by?: string | null;
+}
+
+export type FicImportCheckpointUpdate = Partial<
+  Omit<FicImportCheckpointInsert, "entity_kind">
+>;
+
 export interface Database {
   public: {
     Tables: {
@@ -729,6 +757,12 @@ export interface Database {
         Row: FicImportDiscardedRow;
         Insert: FicImportDiscardedInsert;
         Update: never;
+        Relationships: [];
+      };
+      fic_import_checkpoints: {
+        Row: FicImportCheckpointRow;
+        Insert: FicImportCheckpointInsert;
+        Update: FicImportCheckpointUpdate;
         Relationships: [];
       };
       user_second_factor: {

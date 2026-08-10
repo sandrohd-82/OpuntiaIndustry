@@ -245,6 +245,8 @@ export function ClientiBoard() {
   const [syncItems, setSyncItems] = useState<AnagraficaSyncReviewItem[] | null>(
     null
   );
+  const [syncCompletedIds, setSyncCompletedIds] = useState<number[]>([]);
+  const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
 
   const filtersActive = hasActiveClientiFilters(filters);
@@ -257,11 +259,22 @@ export function ClientiBoard() {
 
   function handleSync() {
     setSaveError(null);
+    setSyncInfo(null);
     startSyncTransition(async () => {
       const result = await startFicSyncClientiAction();
       if (!result.success) {
         setSaveError(result.error);
         return;
+      }
+      setSyncCompletedIds(result.completedFicIds);
+      if (result.resumed && result.skippedCompleted > 0) {
+        setSyncInfo(
+          `Ripresa sync: saltate ${result.skippedCompleted} voci già fatte` +
+            (result.lastSavedName
+              ? ` (ultima: ${result.lastSavedName})`
+              : "") +
+            "."
+        );
       }
       setSyncItems(result.items);
     });
@@ -421,6 +434,12 @@ export function ClientiBoard() {
         </div>
       </div>
 
+      {syncInfo ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {syncInfo}
+        </p>
+      ) : null}
+
       {syncItems && syncItems.length === 0 ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
           Nessun cliente nuovo o da aggiornare da Fatture in Cloud.
@@ -436,9 +455,17 @@ export function ClientiBoard() {
       {syncItems && syncItems.length > 0 ? (
         <AnagraficaSyncReviewModal
           items={syncItems}
-          onClose={() => setSyncItems(null)}
+          initialCompletedIds={syncCompletedIds}
           onFinished={() => {
             setSyncItems(null);
+            setSyncInfo("Sincronizzazione clienti completata.");
+            void refresh();
+          }}
+          onPaused={() => {
+            setSyncItems(null);
+            setSyncInfo(
+              "Sync in pausa. Al prossimo Sincronizza riparti da dove hai lasciato."
+            );
             void refresh();
           }}
         />

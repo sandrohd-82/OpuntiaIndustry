@@ -59,6 +59,65 @@ async function loadDiscardedIds(
   return new Set((data ?? []).map((r) => Number(r.fic_entity_id)));
 }
 
+async function loadCheckpointCompletedIds(
+  kind: FicImportEntityKind
+): Promise<{ completed: Set<number>; resumed: boolean; lastSavedName: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fic_import_checkpoints")
+    .select("status, completed_fic_ids, last_saved_name")
+    .eq("entity_kind", kind)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || data.status === "idle") {
+    return { completed: new Set(), resumed: false, lastSavedName: "" };
+  }
+  const ids = Array.isArray(data.completed_fic_ids)
+    ? data.completed_fic_ids.map((n) => Number(n))
+    : [];
+  return {
+    completed: new Set(ids.filter((n) => Number.isFinite(n) && n > 0)),
+    resumed: data.status === "paused" || data.status === "in_progress",
+    lastSavedName: String(data.last_saved_name ?? ""),
+  };
+}
+
+async function upsertCheckpoint(input: {
+  kind: FicImportEntityKind;
+  status: "idle" | "in_progress" | "paused";
+  completedFicIds: number[];
+  lastSavedFicEntityId?: number | null;
+  lastSavedName?: string;
+  lastSavedVat?: string;
+  userId: string;
+}): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("fic_import_checkpoints").upsert(
+    {
+      entity_kind: input.kind,
+      status: input.status,
+      completed_fic_ids: input.completedFicIds,
+      last_saved_fic_entity_id: input.lastSavedFicEntityId ?? null,
+      last_saved_name: input.lastSavedName ?? "",
+      last_saved_vat: input.lastSavedVat ?? "",
+      updated_by: input.userId,
+    },
+    { onConflict: "entity_kind" }
+  );
+  if (error) throw new Error(error.message);
+}
+
+export type FicSyncStartResult =
+  | {
+      success: true;
+      items: AnagraficaSyncReviewItem[];
+      resumed: boolean;
+      skippedCompleted: number;
+      completedFicIds: number[];
+      lastSavedName: string;
+    }
+  | { success: false; error: string };
+
 function mergeInvoiceEnrichment(
   entities: FicEntityNormalized[],
   invoices: Array<{ raw: Record<string, unknown> }>,
@@ -121,14 +180,12 @@ async function previewTarga(
   return nextSequentialCodiceTarga(prefix, used);
 }
 
-export async function startFicSyncFornitoriAction(): Promise<
-  | { success: true; items: AnagraficaSyncReviewItem[] }
-  | { success: false; error: string }
-> {
-  await requireAreaAccess("amministrazione");
+export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult> {
+  const { auth } = await requireAreaAccess("amministrazione");
   try {
     getFicConfig();
     const discarded = await loadDiscardedIds("supplier");
+    const checkpoint = await loadCheckpointCompletedIds("supplier");
     const [suppliers, received] = await Promise.all([
       fetchFicSuppliers(),
       fetchReceivedInvoices(null),
@@ -137,7 +194,12 @@ export async function startFicSyncFornitoriAction(): Promise<
       suppliers,
       received.map((d) => ({ raw: d.raw })),
       "supplier"
-    ).filter((e) => e.ficId && !discarded.has(e.ficId));
+    ).filter(
+      (e) =>
+        e.ficId &&
+        !discarded.has(e.ficId) &&
+        !checkpoint.completed.has(e.ficId)
+    );
 
     const supabase = await createClient();
     const { data: localRows, error } = await supabase
@@ -188,7 +250,32 @@ export async function startFicSyncFornitoriAction(): Promise<
     items.sort((a, b) =>
       a.proposed.ragioneSociale.localeCompare(b.proposed.ragioneSociale, "it")
     );
-    return { success: true, items };
+
+    if (items.length === 0 && checkpoint.completed.size > 0) {
+      await upsertCheckpoint({
+        kind: "supplier",
+        status: "idle",
+        completedFicIds: [],
+        userId: auth.userId,
+      });
+    } else if (items.length > 0) {
+      await upsertCheckpoint({
+        kind: "supplier",
+        status: "in_progress",
+        completedFicIds: Array.from(checkpoint.completed),
+        lastSavedName: checkpoint.lastSavedName,
+        userId: auth.userId,
+      });
+    }
+
+    return {
+      success: true,
+      items,
+      resumed: checkpoint.resumed && checkpoint.completed.size > 0,
+      skippedCompleted: checkpoint.completed.size,
+      completedFicIds: Array.from(checkpoint.completed),
+      lastSavedName: checkpoint.lastSavedName,
+    };
   } catch (e) {
     return {
       success: false,
@@ -197,14 +284,12 @@ export async function startFicSyncFornitoriAction(): Promise<
   }
 }
 
-export async function startFicSyncClientiAction(): Promise<
-  | { success: true; items: AnagraficaSyncReviewItem[] }
-  | { success: false; error: string }
-> {
-  await requireAreaAccess("amministrazione");
+export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
+  const { auth } = await requireAreaAccess("amministrazione");
   try {
     getFicConfig();
     const discarded = await loadDiscardedIds("client");
+    const checkpoint = await loadCheckpointCompletedIds("client");
     const [clients, issued] = await Promise.all([
       fetchFicClients(),
       fetchIssuedInvoices(null),
@@ -213,7 +298,12 @@ export async function startFicSyncClientiAction(): Promise<
       clients,
       issued.map((d) => ({ raw: d.raw })),
       "client"
-    ).filter((e) => e.ficId && !discarded.has(e.ficId));
+    ).filter(
+      (e) =>
+        e.ficId &&
+        !discarded.has(e.ficId) &&
+        !checkpoint.completed.has(e.ficId)
+    );
 
     const supabase = await createClient();
     const { data: localRows, error } = await supabase
@@ -262,7 +352,32 @@ export async function startFicSyncClientiAction(): Promise<
     items.sort((a, b) =>
       a.proposed.ragioneSociale.localeCompare(b.proposed.ragioneSociale, "it")
     );
-    return { success: true, items };
+
+    if (items.length === 0 && checkpoint.completed.size > 0) {
+      await upsertCheckpoint({
+        kind: "client",
+        status: "idle",
+        completedFicIds: [],
+        userId: auth.userId,
+      });
+    } else if (items.length > 0) {
+      await upsertCheckpoint({
+        kind: "client",
+        status: "in_progress",
+        completedFicIds: Array.from(checkpoint.completed),
+        lastSavedName: checkpoint.lastSavedName,
+        userId: auth.userId,
+      });
+    }
+
+    return {
+      success: true,
+      items,
+      resumed: checkpoint.resumed && checkpoint.completed.size > 0,
+      skippedCompleted: checkpoint.completed.size,
+      completedFicIds: Array.from(checkpoint.completed),
+      lastSavedName: checkpoint.lastSavedName,
+    };
   } catch (e) {
     return {
       success: false,
@@ -291,6 +406,86 @@ export async function discardFicImportAction(input: {
   );
   if (error) return { success: false, error: error.message };
   return { success: true };
+}
+
+/** Dopo Salva/Scarta: aggiorna elenco già fatti (così la Pausa non perde nulla). */
+export async function markFicImportProgressAction(input: {
+  kind: AnagraficaSyncKind;
+  completedFicIds: number[];
+  lastSavedFicEntityId: number;
+  lastSavedName: string;
+  lastSavedVat: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  try {
+    await upsertCheckpoint({
+      kind: entityKindDb(input.kind),
+      status: "in_progress",
+      completedFicIds: input.completedFicIds,
+      lastSavedFicEntityId: input.lastSavedFicEntityId,
+      lastSavedName: input.lastSavedName,
+      lastSavedVat: input.lastSavedVat,
+      userId: auth.userId,
+    });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Salvataggio avanzamento fallito.",
+    };
+  }
+}
+
+/** Pausa: chiude la sync e riparte da qui al prossimo Sincronizza. */
+export async function pauseFicImportAction(input: {
+  kind: AnagraficaSyncKind;
+  completedFicIds: number[];
+  lastSavedFicEntityId: number | null;
+  lastSavedName: string;
+  lastSavedVat: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  try {
+    await upsertCheckpoint({
+      kind: entityKindDb(input.kind),
+      status: "paused",
+      completedFicIds: input.completedFicIds,
+      lastSavedFicEntityId: input.lastSavedFicEntityId,
+      lastSavedName: input.lastSavedName,
+      lastSavedVat: input.lastSavedVat,
+      userId: auth.userId,
+    });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Pausa sync fallita.",
+    };
+  }
+}
+
+/** Fine coda: azzera checkpoint. */
+export async function clearFicImportCheckpointAction(
+  kind: AnagraficaSyncKind
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  try {
+    await upsertCheckpoint({
+      kind: entityKindDb(kind),
+      status: "idle",
+      completedFicIds: [],
+      lastSavedFicEntityId: null,
+      lastSavedName: "",
+      lastSavedVat: "",
+      userId: auth.userId,
+    });
+    return { success: true };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Reset checkpoint fallito.",
+    };
+  }
 }
 
 export async function saveFicImportReviewAction(input: {
