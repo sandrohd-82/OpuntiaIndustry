@@ -150,23 +150,30 @@ export async function getGraficiIncassiAction(
   return { success: true, data: accumulateByMonth(anno, points) };
 }
 
-export async function getGraficiHomeAnnoAction(
-  anno?: number
-): Promise<
+export async function getGraficiHomeAnnoAction(input?: {
+  anno?: number;
+  mese?: number | null;
+}): Promise<
   | {
       success: true;
       anno: number;
+      mese: number | null;
       ordini: GraficiKpi;
       incassi: GraficiKpi;
     }
   | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
-  const y = anno && anno >= 2000 && anno <= 2100 ? anno : new Date().getFullYear();
+  const y =
+    input?.anno && input.anno >= 2000 && input.anno <= 2100
+      ? input.anno
+      : new Date().getFullYear();
+  const mese =
+    input?.mese && input.mese >= 1 && input.mese <= 12 ? input.mese : null;
 
   const [ordini, incassi] = await Promise.all([
-    getGraficiOrdiniQtyAction({ anno: y, mese: null, prodottoId: null }),
-    getGraficiIncassiAction({ anno: y, mese: null, clienteId: null }),
+    getGraficiOrdiniQtyAction({ anno: y, mese, prodottoId: null }),
+    getGraficiIncassiAction({ anno: y, mese, clienteId: null }),
   ]);
 
   if (!ordini.success) return { success: false, error: ordini.error };
@@ -175,6 +182,7 @@ export async function getGraficiHomeAnnoAction(
   return {
     success: true,
     anno: y,
+    mese,
     ordini: ordini.data,
     incassi: incassi.data,
   };

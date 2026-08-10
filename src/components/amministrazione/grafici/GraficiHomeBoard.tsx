@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getGraficiHomeAnnoAction } from "@/app/actions/grafici";
+import { GraficiPeriodoFilters } from "@/components/amministrazione/grafici/GraficiPeriodoFilters";
 import { MiniBarChart } from "@/components/amministrazione/grafici/MiniBarChart";
 import {
   currentAnno,
   emptySerieAnno,
   formatEuro,
   formatQty,
+  MESI_IT,
   type GraficiKpi,
 } from "@/lib/amministrazione/grafici";
 
@@ -22,6 +24,7 @@ type CardProps = {
   emptyLabel: string;
   valueFormatter?: (n: number) => string;
   muted?: boolean;
+  loading?: boolean;
 };
 
 function GraficiCard({
@@ -34,6 +37,7 @@ function GraficiCard({
   emptyLabel,
   valueFormatter,
   muted,
+  loading,
 }: CardProps) {
   return (
     <section className="flex flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm">
@@ -55,9 +59,9 @@ function GraficiCard({
       <p
         className={`text-2xl font-semibold tabular-nums ${muted ? "text-[var(--muted)]" : "text-slate-900"}`}
       >
-        {kpiValue}
+        {loading ? "…" : kpiValue}
       </p>
-      <div className="mt-3">
+      <div className={`mt-3 ${loading ? "opacity-60" : ""}`}>
         <MiniBarChart
           serie={serie}
           emptyLabel={emptyLabel}
@@ -69,49 +73,71 @@ function GraficiCard({
 }
 
 export function GraficiHomeBoard() {
-  const anno = currentAnno();
-  const [ordini, setOrdini] = useState<GraficiKpi>(() => emptySerieAnno(anno));
-  const [incassi, setIncassi] = useState<GraficiKpi>(() => emptySerieAnno(anno));
+  const [anno, setAnno] = useState(currentAnno);
+  const [mese, setMese] = useState<number | null>(null);
+  const [ordini, setOrdini] = useState<GraficiKpi>(() =>
+    emptySerieAnno(currentAnno())
+  );
+  const [incassi, setIncassi] = useState<GraficiKpi>(() =>
+    emptySerieAnno(currentAnno())
+  );
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const result = await getGraficiHomeAnnoAction(anno);
+      setLoading(true);
+      const result = await getGraficiHomeAnnoAction({ anno, mese });
       if (cancelled) return;
       if (!result.success) {
         setError(result.error);
+        setOrdini(emptySerieAnno(anno));
+        setIncassi(emptySerieAnno(anno));
       } else {
         setOrdini(result.ordini);
         setIncassi(result.incassi);
         setError(null);
       }
       setReady(true);
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [anno]);
+  }, [anno, mese]);
+
+  const emptyProd = emptySerieAnno(anno);
+  const periodoLabel = mese
+    ? `${MESI_IT[mese - 1]} ${anno}`
+    : `Anno ${anno}`;
+  const kpiSuffix = mese ? "mese" : "anno";
 
   if (!ready) {
     return (
       <p className="text-sm text-[var(--muted)]">
-        Caricamento panoramica grafici {anno}…
+        Caricamento panoramica grafici…
       </p>
     );
   }
 
-  const emptyProd = emptySerieAnno(anno);
-
   return (
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
-        Panoramica anno <span className="font-semibold text-slate-800">{anno}</span>
-        . I dati di Ordini e Incassi arrivano dal database; Produttività e Materia
-        prima resteranno vuoti finché non sarà registrata la produzione /
-        l’ingresso MP (ISO 9001: solo dati tracciati).
+        Panoramica per{" "}
+        <span className="font-semibold text-slate-800">{periodoLabel}</span>.
+        Cambia anno o mese per aggiornare subito i grafici. Ordini e Incassi
+        usano il database; Produttività e Materia prima restano vuoti finché non
+        c’è registrazione produzione / ingresso MP (ISO 9001).
       </p>
+
+      <GraficiPeriodoFilters
+        anno={anno}
+        mese={mese}
+        onAnnoChange={setAnno}
+        onMeseChange={setMese}
+      />
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -124,41 +150,45 @@ export function GraficiHomeBoard() {
           title="Produttività"
           description="Prodotto finito generato"
           href="/app/amministrazione/grafici/produttivita"
-          kpiLabel="Totale anno"
+          kpiLabel={`Totale ${kpiSuffix}`}
           kpiValue="—"
           serie={emptyProd.serie}
           emptyLabel="Nessun dato di produzione finita registrato"
           muted
+          loading={loading}
         />
         <GraficiCard
           title="Ordini"
           description="Quantità ordinata (righe prodotto)"
           href="/app/amministrazione/grafici/ordini"
-          kpiLabel="Quantità totale anno"
+          kpiLabel={`Quantità totale ${kpiSuffix}`}
           kpiValue={formatQty(ordini.totale)}
           serie={ordini.serie}
-          emptyLabel="Nessuna quantità ordinata nell’anno"
+          emptyLabel="Nessuna quantità ordinata nel periodo"
           valueFormatter={formatQty}
+          loading={loading}
         />
         <GraficiCard
           title="Materia prima"
           description="Ingressi materia prima"
           href="/app/amministrazione/grafici/materia-prima"
-          kpiLabel="Totale anno"
+          kpiLabel={`Totale ${kpiSuffix}`}
           kpiValue="—"
           serie={emptyProd.serie}
           emptyLabel="Nessun ingresso materia prima registrato"
           muted
+          loading={loading}
         />
         <GraficiCard
           title="Incassi"
           description="Ordini pagati"
           href="/app/amministrazione/grafici/incassi"
-          kpiLabel="Incassato anno"
+          kpiLabel={`Incassato ${kpiSuffix}`}
           kpiValue={formatEuro(incassi.totale)}
           serie={incassi.serie}
-          emptyLabel="Nessun ordine pagato nell’anno"
+          emptyLabel="Nessun ordine pagato nel periodo"
           valueFormatter={formatEuro}
+          loading={loading}
         />
       </div>
     </div>
