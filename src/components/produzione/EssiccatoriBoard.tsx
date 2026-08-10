@@ -382,6 +382,8 @@ function PhotoModal({
           </button>
         </div>
         <div className="bg-slate-100 p-3">
+          {/* Dynamic local/blob preview; next/image not suitable here */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={item.imageSrc}
             alt={`Foto ${item.name}`}

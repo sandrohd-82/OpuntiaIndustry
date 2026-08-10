@@ -142,7 +142,7 @@ export async function listOrdiniAction(
   if (error) return { success: false, error: error.message };
 
   const ids = (data ?? []).map((r) => r.id);
-  let righeByOrdine = new Map<string, OrdineRigaRow[]>();
+  const righeByOrdine = new Map<string, OrdineRigaRow[]>();
   if (ids.length > 0) {
     const { data: righe } = await supabase
       .from("ordini_righe")

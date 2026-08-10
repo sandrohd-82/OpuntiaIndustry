@@ -101,7 +101,7 @@ function faseFromProcedura(proc: ProceduraSalvata): EssiccatoreFase {
   }
 }
 
-function powerFromProcedura(_proc: ProceduraSalvata): EssiccatorePower {
+function powerFromProcedura(): EssiccatorePower {
   // Procedure operative: essiccatore acceso (anche in spegnimento con ventola attiva)
   return "acceso";
 }
@@ -116,7 +116,7 @@ export function applyProceduraToEssiccatore(
   atIso: string = new Date().toISOString()
 ): Essiccatore {
   const fase = faseFromProcedura(proc);
-  const power = powerFromProcedura(proc);
+  const power = powerFromProcedura();
   const wasOff = ess.power === "spento" || !ess.accesoDal;
   const tempImpostata = proc.temperaturaC;
   // Rilevata vicino al set-point (leggero ritardo termico demo)
