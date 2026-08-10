@@ -20,6 +20,7 @@ oppure applicare manualmente in Supabase Dashboard → SQL Editor (nell’ordine
 1. `supabase/migrations/20260808160000_ordini_iso9001.sql` (fase 1 — ordini)
 2. `supabase/migrations/20260810120000_schede_iso9001_soft_delete.sql` (fase 2 — schede anagrafiche)
 3. `supabase/migrations/20260810140000_ordini_pagamento_audit_backfill.sql` (pagamento + backfill operatore `sandrohd@gmail.com`)
+4. `supabase/migrations/20260810150000_profiles_nome_cognome_ruolo.sql` (nome/cognome/ruolo aziendale operatori)
 
 ### Fase 2 — schede
 

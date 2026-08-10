@@ -38,6 +38,9 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string | null;
+  first_name?: string;
+  last_name?: string;
+  job_title?: string;
   role_id: string;
   is_active: boolean;
   app_roles?: AppRole;

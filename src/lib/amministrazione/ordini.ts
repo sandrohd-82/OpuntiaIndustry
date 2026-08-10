@@ -301,6 +301,26 @@ export function mapOrdineRow(
   };
 }
 
+/** Formato audit: "S. Incorvaia" */
+export function formatOperatoreShort(
+  firstName: string | null | undefined,
+  lastName: string | null | undefined,
+  fallback: string | null | undefined = null
+): string {
+  const first = (firstName ?? "").trim();
+  const last = (lastName ?? "").trim();
+  if (first && last) return `${first.charAt(0).toUpperCase()}. ${last}`;
+  if (last) return last;
+  if (first) return first;
+  const fb = (fallback ?? "").trim();
+  if (!fb) return "Operatore non registrato";
+  const parts = fb.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0].charAt(0).toUpperCase()}. ${parts.slice(1).join(" ")}`;
+  }
+  return fb;
+}
+
 export function formatOperatoreQuando(
   label: string | null | undefined,
   isoDate: string | null | undefined
@@ -313,4 +333,50 @@ export function formatOperatoreQuando(
     : "—";
   const who = label?.trim() || "Operatore non registrato";
   return `${who} · ${when}`;
+}
+
+export function labelDocumentoStato(stato: OrdineDocumentoStato): string {
+  switch (stato) {
+    case "bozza":
+      return "bozza";
+    case "registrato":
+      return "registrato";
+    case "approvato":
+      return "approvato";
+    case "chiuso":
+      return "chiuso";
+    default:
+      return stato;
+  }
+}
+
+export type OrdineAuditEntry = {
+  id: string;
+  action: string;
+  actionLabel: string;
+  summary: string;
+  actorLabel: string;
+  createdAt: string;
+  payload: Record<string, unknown>;
+};
+
+export function labelAuditAction(action: string): string {
+  switch (action) {
+    case "create":
+      return "Creazione";
+    case "update":
+      return "Modifica";
+    case "soft_delete":
+      return "Eliminazione";
+    case "restore":
+      return "Ripristino";
+    case "status_change":
+      return "Cambio stato";
+    case "attachment_upload":
+      return "Allegato caricato";
+    case "attachment_remove":
+      return "Allegato rimosso";
+    default:
+      return action;
+  }
 }

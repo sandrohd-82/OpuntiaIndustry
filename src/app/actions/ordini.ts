@@ -3,17 +3,21 @@
 import { createClient } from "@/lib/supabase/server";
 import {
   buildNumeroInternoOrdine,
+  formatOperatoreShort,
   fraseConfermaEliminazione,
+  labelAuditAction,
   mapOrdineRow,
   ordineInputSchema,
   ORDINI_ALLEGATI_BUCKET,
   totaleOrdine,
   type Ordine,
+  type OrdineAuditEntry,
   type OrdineInput,
 } from "@/lib/amministrazione/ordini";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   AuditLogInsert,
+  AuditLogRow,
   OrdineInsert,
   OrdineRigaInsert,
   OrdineRigaRow,
@@ -43,12 +47,23 @@ async function resolveOperatorLabels(
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name")
+    .select("id, email, full_name, first_name, last_name")
     .in("id", ids);
 
   for (const p of data ?? []) {
-    const label = String(p.full_name ?? "").trim() || String(p.email ?? "").trim();
-    if (label) map.set(String(p.id), label);
+    const row = p as {
+      id: string;
+      email?: string | null;
+      full_name?: string | null;
+      first_name?: string | null;
+      last_name?: string | null;
+    };
+    const label = formatOperatoreShort(
+      row.first_name,
+      row.last_name,
+      String(row.full_name ?? "").trim() || String(row.email ?? "").trim()
+    );
+    if (label) map.set(String(row.id), label);
   }
   return map;
 }
@@ -606,4 +621,66 @@ export async function getOrdineAllegatoSignedUrlAction(
     return { success: false, error: error?.message ?? "URL non disponibile." };
   }
   return { success: true, url: data.signedUrl };
+}
+
+export async function listOrdineAuditLogAction(
+  ordineId: string
+): Promise<
+  | { success: true; entries: OrdineAuditEntry[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("audit_log")
+    .select("*")
+    .eq("entity_type", "ordini")
+    .eq("entity_id", ordineId)
+    .order("created_at", { ascending: false });
+
+  if (error) return { success: false, error: error.message };
+
+  const rows = (data ?? []) as AuditLogRow[];
+  const labels = await resolveOperatorLabels(rows.map((r) => r.actor_id));
+
+  let entries: OrdineAuditEntry[] = rows.map((r) => ({
+    id: r.id,
+    action: r.action,
+    actionLabel: labelAuditAction(r.action),
+    summary: r.summary,
+    actorLabel: r.actor_id
+      ? (labels.get(r.actor_id) ?? "Operatore non registrato")
+      : "Operatore non registrato",
+    createdAt: r.created_at,
+    payload: (r.payload ?? {}) as Record<string, unknown>,
+  }));
+
+  // Fallback ISO: se audit_log vuoto, espone almeno create/update dalla scheda
+  if (entries.length === 0) {
+    const ordine = await loadOrdineWithRighe(ordineId);
+    if (!ordine) return { success: false, error: "Ordine non trovato." };
+    entries = [
+      {
+        id: `fallback-update-${ordine.id}`,
+        action: "update",
+        actionLabel: labelAuditAction("update"),
+        summary: `Ultima modifica ordine ${ordine.numeroInterno} (v${ordine.versione})`,
+        actorLabel: ordine.updatedByLabel ?? "Operatore non registrato",
+        createdAt: ordine.updatedAt,
+        payload: { versione: ordine.versione, fonte: "scheda" },
+      },
+      {
+        id: `fallback-create-${ordine.id}`,
+        action: "create",
+        actionLabel: labelAuditAction("create"),
+        summary: `Creazione ordine ${ordine.numeroInterno}`,
+        actorLabel: ordine.createdByLabel ?? "Operatore non registrato",
+        createdAt: ordine.createdAt,
+        payload: { fonte: "scheda" },
+      },
+    ];
+  }
+
+  return { success: true, entries };
 }

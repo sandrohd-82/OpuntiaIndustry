@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { FaFilePdf } from "react-icons/fa6";
 import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLogModal";
 import {
   formatOperatoreQuando,
   imponibileRiga,
+  labelDocumentoStato,
   labelTipoPagamento,
   totaleRiga,
   totaleTrasporto,
@@ -63,6 +65,12 @@ type Props = {
 };
 
 export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
+  const [auditOpen, setAuditOpen] = useState(false);
+  const creatoLine = formatOperatoreQuando(
+    ordine.createdByLabel,
+    ordine.createdAt
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -75,9 +83,6 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-xs text-[var(--muted)]">
-            v{ordine.versione} · {ordine.documentoStato}
-          </p>
           {onEdit ? (
             <button
               type="button"
@@ -88,6 +93,23 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
             </button>
           ) : null}
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+        <span className="font-semibold text-slate-800">
+          V{ordine.versione} {labelDocumentoStato(ordine.documentoStato)}
+        </span>
+        <span className="text-[var(--muted)]" aria-hidden>
+          ·
+        </span>
+        <span className="text-[var(--muted)]">Creato da: {creatoLine}</span>
+        <button
+          type="button"
+          onClick={() => setAuditOpen(true)}
+          className="text-sm font-medium text-[var(--primary)] underline-offset-2 hover:underline"
+        >
+          Mostra tutti
+        </button>
       </div>
 
       <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -173,17 +195,6 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           </div>
         ) : null}
       </dl>
-
-      <div className="rounded-xl border border-[var(--border)] bg-white p-3 text-xs text-[var(--muted)]">
-        <p>
-          <span className="font-medium text-slate-700">Creato da: </span>
-          {formatOperatoreQuando(ordine.createdByLabel, ordine.createdAt)}
-        </p>
-        <p className="mt-1">
-          <span className="font-medium text-slate-700">Ultima modifica: </span>
-          {formatOperatoreQuando(ordine.updatedByLabel, ordine.updatedAt)}
-        </p>
-      </div>
 
       <div className="flex flex-col gap-1">
         {ordine.offerta ? (
@@ -281,6 +292,14 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
           <span className="font-medium text-slate-700">Note: </span>
           {ordine.note}
         </p>
+      ) : null}
+
+      {auditOpen ? (
+        <OrdineAuditLogModal
+          ordineId={ordine.id}
+          numeroInterno={ordine.numeroInterno}
+          onClose={() => setAuditOpen(false)}
+        />
       ) : null}
     </div>
   );
