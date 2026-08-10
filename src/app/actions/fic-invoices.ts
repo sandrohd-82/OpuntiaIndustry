@@ -4,6 +4,7 @@ import {
   fetchIssuedInvoices,
   fetchReceivedInvoices,
   getFicConfig,
+  peekFicEnv,
   type FicDocumentNormalized,
 } from "@/lib/fic";
 import {
@@ -26,6 +27,18 @@ export type FicSyncError = {
   success: false;
   error: string;
 };
+
+/** Diagnostica sicura: non espone il token, solo se Vercel lo vede. */
+export async function checkFicEnvAction(): Promise<{
+  success: true;
+  hasToken: boolean;
+  hasCompanyId: boolean;
+  tokenLength: number;
+  companyIdPreview: string;
+}> {
+  await requireAreaAccess("amministrazione");
+  return { success: true, ...peekFicEnv() };
+}
 
 export async function listFicInvoicesAction(
   type: FicInvoiceKind

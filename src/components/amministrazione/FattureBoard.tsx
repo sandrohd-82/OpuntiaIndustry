@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import {
+  checkFicEnvAction,
   listFicInvoicesAction,
   syncFattureInCloudAction,
 } from "@/app/actions/fic-invoices";
@@ -35,10 +36,19 @@ export function FattureBoard({ type }: Props) {
   const [message, setMessage] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [pending, startTransition] = useTransition();
+  const [envStatus, setEnvStatus] = useState<string | null>(null);
 
   const load = useCallback(() => {
     startTransition(async () => {
-      const result = await listFicInvoicesAction(type);
+      const [result, env] = await Promise.all([
+        listFicInvoicesAction(type),
+        checkFicEnvAction(),
+      ]);
+      if (env.success) {
+        setEnvStatus(
+          `Vercel vede: token ${env.hasToken ? `SÌ (${env.tokenLength} caratteri)` : "NO"} · company ${env.hasCompanyId ? env.companyIdPreview : "NO"}`
+        );
+      }
       if (!result.success) {
         setError(result.error);
         setInvoices([]);
@@ -89,6 +99,9 @@ export function FattureBoard({ type }: Props) {
               ? new Date(lastSyncAt).toLocaleString("it-IT")
               : "mai (premi Sincronizza)"}
           </p>
+          {envStatus ? (
+            <p className="mt-1 text-xs text-[var(--muted)]">{envStatus}</p>
+          ) : null}
         </div>
         <button
           type="button"

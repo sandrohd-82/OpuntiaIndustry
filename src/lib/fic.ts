@@ -21,17 +21,52 @@ export type FicDocumentNormalized = {
   raw: Record<string, unknown>;
 };
 
+/**
+ * Lettura a runtime (notazione a parentesi) per evitare che Next.js
+ * “congeli” il valore a build time quando la variabile non c’era ancora.
+ */
+function readServerEnv(name: string): string {
+  const direct = process.env[name];
+  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  // Alcuni setup Vercel espongono anche senza trim/spazi strani
+  const all = process.env;
+  const match = Object.keys(all).find(
+    (k) => k.trim().toUpperCase() === name.toUpperCase()
+  );
+  if (match) {
+    const v = all[match];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+export function peekFicEnv(): {
+  hasToken: boolean;
+  hasCompanyId: boolean;
+  tokenLength: number;
+  companyIdPreview: string;
+} {
+  const token = readServerEnv("FIC_API_TOKEN");
+  const companyRaw = readServerEnv("FIC_COMPANY_ID");
+  return {
+    hasToken: token.length > 0,
+    hasCompanyId: /^\d+$/.test(companyRaw),
+    tokenLength: token.length,
+    companyIdPreview: companyRaw || "(vuoto)",
+  };
+}
+
 export function getFicConfig(): { token: string; companyId: number } {
-  const token = process.env.FIC_API_TOKEN?.trim();
-  const companyRaw = process.env.FIC_COMPANY_ID?.trim();
+  const token = readServerEnv("FIC_API_TOKEN");
+  const companyRaw = readServerEnv("FIC_COMPANY_ID");
   if (!token) {
     throw new Error(
-      "Manca FIC_API_TOKEN: il “codice segreto” per parlare con Fatture in Cloud."
+      "Manca FIC_API_TOKEN sul server Vercel. Controlla Settings → Environment Variables (nome esatto FIC_API_TOKEN, ambiente Production) e fai Redeploy senza cache."
     );
   }
   if (!companyRaw || !/^\d+$/.test(companyRaw)) {
     throw new Error(
-      "Manca FIC_COMPANY_ID: il numero della tua azienda su Fatture in Cloud."
+      "Manca FIC_COMPANY_ID sul server Vercel (deve essere solo numeri, es. 941053). Poi Redeploy."
     );
   }
   return { token, companyId: Number(companyRaw) };
