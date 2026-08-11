@@ -6,6 +6,7 @@ import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/Grafic
 import { GraficiMateriaPrimaBoard } from "@/components/amministrazione/grafici/GraficiMateriaPrimaBoard";
 import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/GraficiOrdiniBoard";
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
+import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { FattureBoard } from "@/components/amministrazione/FattureBoard";
@@ -112,15 +113,37 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
+  if (section === "schede" && sub === "servizi") {
+    return (
+      <>
+        <AppHeader title="Servizi" subtitle={page.description} />
+        <div className="p-6">
+          <CatalogoOffertaBoard kind="servizio" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "prodotti") {
+    return (
+      <>
+        <AppHeader title="Prodotti" subtitle={page.description} />
+        <div className="p-6">
+          <CatalogoOffertaBoard kind="prodotto" />
+        </div>
+      </>
+    );
+  }
+
   if (section === "schede" && sub === "prodotti-propri") {
     return (
       <>
-        <AppHeader title="Prodotti propri" subtitle={page.description} />
+        <AppHeader title="Prodotti Agrinsicilia" subtitle={page.description} />
         <div className="p-6">
           <Suspense
             fallback={
               <p className="text-sm text-[var(--muted)]">
-                Caricamento prodotti propri…
+                Caricamento prodotti Agrinsicilia…
               </p>
             }
           >

@@ -55,7 +55,9 @@ export function ProdottiPropriBoard() {
 
   if (!ready) {
     return (
-      <p className="text-sm text-[var(--muted)]">Caricamento prodotti propri…</p>
+      <p className="text-sm text-[var(--muted)]">
+        Caricamento prodotti Agrinsicilia…
+      </p>
     );
   }
 
