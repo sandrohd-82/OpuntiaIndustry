@@ -64,7 +64,13 @@ create policy "fic_import_discarded_insert_amm"
   to authenticated
   with check (public.has_area_access('amministrazione') or public.is_superadmin());
 
--- Nessun UPDATE/DELETE: scarto immutabile
+-- UPDATE necessario per upsert (Scarta due volte / ripresa): nessun DELETE
+drop policy if exists "fic_import_discarded_update_amm" on public.fic_import_discarded;
+create policy "fic_import_discarded_update_amm"
+  on public.fic_import_discarded for update
+  to authenticated
+  using (public.has_area_access('amministrazione') or public.is_superadmin())
+  with check (public.has_area_access('amministrazione') or public.is_superadmin());
 
-grant select, insert on table public.fic_import_discarded to authenticated;
+grant select, insert, update on table public.fic_import_discarded to authenticated;
 grant all on table public.fic_import_discarded to postgres, service_role;
