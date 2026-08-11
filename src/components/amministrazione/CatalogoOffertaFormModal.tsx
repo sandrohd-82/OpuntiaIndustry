@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { FaChevronDown, FaCopy } from "react-icons/fa6";
 import {
   catalogoPrefix,
@@ -81,20 +82,20 @@ export function CatalogoOffertaFormModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (modelloOpen) {
-          setModelloOpen(false);
-          return;
-        }
-        onClose();
+      if (e.key !== "Escape") return;
+      // Impedisce chiusura della modale azienda/sync sottostante
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (modelloOpen) {
+        setModelloOpen(false);
+        return;
       }
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey, true);
     return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [onClose, modelloOpen]);
 
@@ -183,6 +184,8 @@ export function CatalogoOffertaFormModal({
         note: note.trim(),
         isBio: tipologia === "bio",
       });
+      // Chiude solo questa modale (il genitore resta aperto)
+      onClose();
     } catch (err) {
       setFormError(
         err instanceof Error ? err.message : "Salvataggio non riuscito."
@@ -203,11 +206,15 @@ export function CatalogoOffertaFormModal({
 
   const leggenda = leggendaParti(kind);
 
-  return (
+  const overlay = (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
+      data-nested-modal="catalog"
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div
         role="dialog"
@@ -528,4 +535,7 @@ export function CatalogoOffertaFormModal({
       )}
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(overlay, document.body);
 }

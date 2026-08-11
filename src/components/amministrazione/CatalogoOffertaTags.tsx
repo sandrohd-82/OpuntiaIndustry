@@ -93,9 +93,10 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
     setItems((prev) =>
       [...prev, result.item].sort((a, b) => a.nome.localeCompare(b.nome, "it"))
     );
+    // Aggiorna la scheda azienda: seleziona il nuovo codice, lascia aperta la modale genitore
     onChange([...value, result.item.codice]);
     setCreateOpen(false);
-    setPickerOpen(false);
+    setPickerOpen(true);
     setQuery("");
     setError(null);
   }
@@ -186,6 +187,7 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
           catalog={items}
           onClose={() => setCreateOpen(false)}
           onSave={async (values) => {
+            // Non richiama onClose qui: lo fa la modale figlia dopo il successo
             await handleCreate(values);
           }}
         />

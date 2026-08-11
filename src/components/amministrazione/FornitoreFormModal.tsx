@@ -111,16 +111,24 @@ export function FornitoreFormModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Catalogo servizio/prodotto aperto sopra questa scheda
+      if (document.querySelector('[data-nested-modal="catalog"]')) return;
+      if (elevated) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, elevated);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, elevated);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, elevated]);
 
   useEffect(() => {
     if (isEdit) return;
@@ -233,11 +241,15 @@ export function FornitoreFormModal({
 
   return (
     <div
+      data-nested-modal={elevated ? "fornitore" : undefined}
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
-        elevated ? "z-[80]" : "z-[60]"
+        elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div
         role="dialog"

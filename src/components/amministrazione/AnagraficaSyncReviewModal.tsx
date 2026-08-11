@@ -35,6 +35,7 @@ import {
   type FornitoreInput,
 } from "@/lib/amministrazione/fornitori";
 import type { ClienteInput } from "@/lib/amministrazione/clienti";
+import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
 type Props = {
   items: AnagraficaSyncReviewItem[];
@@ -113,7 +114,10 @@ export function AnagraficaSyncReviewModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") runPause();
+      if (e.key !== "Escape") return;
+      // Non chiudere la sync se è aperta una modale figlia (servizio/prodotto/fornitore)
+      if (hasNestedModalOpen()) return;
+      runPause();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;

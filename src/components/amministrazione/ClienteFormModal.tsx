@@ -17,7 +17,6 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
-
 const PRODOTTI_PROPRI_NUOVO_PATH =
   "/app/amministrazione/schede/prodotti-propri?nuovo=1";
 
@@ -242,16 +241,23 @@ export function ClienteFormModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (document.querySelector('[data-nested-modal="catalog"]')) return;
+      if (elevated) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, elevated);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, elevated);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, elevated]);
 
   useEffect(() => {
     if (isEdit) return;
@@ -314,11 +320,15 @@ export function ClienteFormModal({
 
   const dialog = (
     <div
+      data-nested-modal={elevated ? "cliente" : undefined}
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
-        elevated ? "z-[70]" : "z-[60]"
+        elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
       data-cliente-modal-root="true"
     >
       <div
