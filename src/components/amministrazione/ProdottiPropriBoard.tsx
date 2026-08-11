@@ -65,7 +65,7 @@ export function ProdottiPropriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco prodotti propri con targa libera, filtri e controllo
+          Elenco prodotti Agrinsicilia con targa libera, filtri e controllo
           anti-duplicato sul nome.
         </p>
         <div className="flex flex-wrap items-center gap-2">
