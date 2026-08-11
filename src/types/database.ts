@@ -714,6 +714,77 @@ export type CatalogoProdottoFornitoreUpdate = Partial<CatalogoProdottoFornitoreI
   deleted_by?: string | null;
 };
 
+export type AnagraficaArchivioMotivo =
+  | "eliminata"
+  | "scartata_sync"
+  | "pulizia";
+
+export interface ClienteArchivioRow {
+  id: string;
+  partita_iva: string;
+  ragione_sociale: string;
+  fic_entity_id: number | null;
+  motivo: AnagraficaArchivioMotivo;
+  note: string;
+  snapshot: Record<string, unknown>;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  ripescato_at: string | null;
+  ripescato_by: string | null;
+}
+
+export type ClienteArchivioInsert = {
+  id?: string;
+  partita_iva?: string;
+  ragione_sociale?: string;
+  fic_entity_id?: number | null;
+  motivo?: AnagraficaArchivioMotivo;
+  note?: string;
+  snapshot?: Record<string, unknown>;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type ClienteArchivioUpdate = Partial<ClienteArchivioInsert> & {
+  ripescato_at?: string | null;
+  ripescato_by?: string | null;
+};
+
+export interface FornitoreArchivioRow {
+  id: string;
+  partita_iva: string;
+  ragione_sociale: string;
+  fic_entity_id: number | null;
+  motivo: AnagraficaArchivioMotivo;
+  note: string;
+  snapshot: Record<string, unknown>;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  ripescato_at: string | null;
+  ripescato_by: string | null;
+}
+
+export type FornitoreArchivioInsert = {
+  id?: string;
+  partita_iva?: string;
+  ragione_sociale?: string;
+  fic_entity_id?: number | null;
+  motivo?: AnagraficaArchivioMotivo;
+  note?: string;
+  snapshot?: Record<string, unknown>;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type FornitoreArchivioUpdate = Partial<FornitoreArchivioInsert> & {
+  ripescato_at?: string | null;
+  ripescato_by?: string | null;
+};
+
 export type FicImportEntityKind = "supplier" | "client";
 
 export interface FicImportDiscardedRow {
@@ -790,6 +861,18 @@ export interface Database {
         Row: ClienteRow;
         Insert: ClienteInsert;
         Update: ClienteUpdate;
+        Relationships: [];
+      };
+      clienti_archivio: {
+        Row: ClienteArchivioRow;
+        Insert: ClienteArchivioInsert;
+        Update: ClienteArchivioUpdate;
+        Relationships: [];
+      };
+      fornitori_archivio: {
+        Row: FornitoreArchivioRow;
+        Insert: FornitoreArchivioInsert;
+        Update: FornitoreArchivioUpdate;
         Relationships: [];
       };
       materie_prime: {
@@ -945,6 +1028,24 @@ export interface Database {
       is_superadmin: {
         Args: Record<string, never>;
         Returns: boolean;
+      };
+      archive_unused_cliente: {
+        Args: {
+          p_id: string;
+          p_motivo: string;
+          p_note?: string;
+          p_actor?: string;
+        };
+        Returns: Record<string, unknown>;
+      };
+      archive_unused_fornitore: {
+        Args: {
+          p_id: string;
+          p_motivo: string;
+          p_note?: string;
+          p_actor?: string;
+        };
+        Returns: Record<string, unknown>;
       };
     };
   };

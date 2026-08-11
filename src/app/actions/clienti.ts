@@ -12,7 +12,9 @@ import {
   type Cliente,
   type ClienteInput,
 } from "@/lib/amministrazione/clienti";
+import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
+import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
@@ -25,7 +27,37 @@ async function loadUsedCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
   const { data, error } = await supabase.from("clienti").select("codice_targa");
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => String(row.codice_targa));
+  return (data ?? []).map((row) => String(row.codice_targa).toUpperCase());
+}
+
+async function assertPartitaIvaUnica(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  partitaIva: string,
+  excludeId?: string
+): Promise<string | null> {
+  const vat = normalizeVatKey(partitaIva);
+  if (!vat) return "La partita IVA è obbligatoria.";
+  const { data, error } = await supabase
+    .from("clienti")
+    .select("id, partita_iva, codice_targa, ragione_sociale")
+    .is("deleted_at", null);
+  if (error) return error.message;
+  const dup = (
+    (data ?? []) as Array<{
+      id: string;
+      partita_iva: string;
+      codice_targa: string;
+      ragione_sociale: string;
+    }>
+  ).find(
+    (row) =>
+      normalizeVatKey(row.partita_iva) === vat &&
+      (!excludeId || row.id !== excludeId)
+  );
+  if (dup) {
+    return `P. IVA già presente su ${dup.codice_targa} — ${dup.ragione_sociale}.`;
+  }
+  return null;
 }
 
 export async function previewNextCodiceTargaClienteAction(): Promise<
@@ -81,11 +113,17 @@ export async function createClienteAction(
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
     return {
       success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie.",
+      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
     };
   }
 
-  let codiceTarga = normalized.codiceTarga;
+  const vatError = await assertPartitaIvaUnica(
+    supabase,
+    normalized.partitaIva
+  );
+  if (vatError) return { success: false, error: vatError };
+
+  let codiceTarga = normalized.codiceTarga?.toUpperCase();
   try {
     const used = await loadUsedCodiciTarga();
     if (
@@ -173,6 +211,13 @@ export async function createClienteAction(
     },
   });
 
+  if (input.archivioId) {
+    await markAnagraficaArchivioRipescatoAction({
+      kind: "cliente",
+      archivioId: input.archivioId,
+    });
+  }
+
   return {
     success: true,
     cliente: mapClienteRow(row),
@@ -190,9 +235,16 @@ export async function updateClienteAction(
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
     return {
       success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie.",
+      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
     };
   }
+
+  const vatError = await assertPartitaIvaUnica(
+    supabase,
+    normalized.partitaIva,
+    id
+  );
+  if (vatError) return { success: false, error: vatError };
 
   const { data, error } = await supabase
     .from("clienti")
@@ -251,7 +303,10 @@ export async function updateClienteAction(
 export async function softDeleteClienteAction(input: {
   id: string;
   confermaTestuale: string;
-}): Promise<{ success: true } | { success: false; error: string }> {
+}): Promise<
+  | { success: true; mode: "archived" | "soft_deleted" }
+  | { success: false; error: string }
+> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
@@ -275,6 +330,50 @@ export async function softDeleteClienteAction(input: {
     };
   }
 
+  const { count, error: actError } = await supabase
+    .from("ordini")
+    .select("id", { count: "exact", head: true })
+    .eq("cliente_id", input.id)
+    .is("deleted_at", null);
+  if (actError) return { success: false, error: actError.message };
+
+  if ((count ?? 0) === 0) {
+    const { data: archived, error: rpcError } = await supabase.rpc(
+      "archive_unused_cliente",
+      {
+        p_id: input.id,
+        p_motivo: "eliminata",
+        p_note: "Eliminazione scheda senza attività",
+        p_actor: auth.userId,
+      }
+    );
+    if (rpcError) {
+      if (rpcError.message.includes("HAS_ACTIVITY")) {
+        // fall through to soft delete
+      } else {
+        return { success: false, error: rpcError.message };
+      }
+    } else {
+      const payload = (archived ?? {}) as {
+        archivio_id?: string;
+        former_codice_targa?: string;
+      };
+      await writeAuditLog({
+        entity_type: "clienti_archivio",
+        entity_id: payload.archivio_id ?? input.id,
+        action: "soft_delete",
+        actor_id: auth.userId,
+        summary: `Cliente ${codice} archiviato (targa liberata)`,
+        payload: {
+          former_codice_targa: codice,
+          ragione_sociale: existing.ragione_sociale,
+          conferma: expected,
+        },
+      });
+      return { success: true, mode: "archived" };
+    }
+  }
+
   const { error } = await supabase
     .from("clienti")
     .update({
@@ -292,7 +391,7 @@ export async function softDeleteClienteAction(input: {
     entity_id: input.id,
     action: "soft_delete",
     actor_id: auth.userId,
-    summary: `Soft delete cliente ${codice}`,
+    summary: `Soft delete cliente ${codice} (con attività — targa bloccata)`,
     payload: {
       codice_targa: codice,
       ragione_sociale: existing.ragione_sociale,
@@ -300,5 +399,5 @@ export async function softDeleteClienteAction(input: {
     },
   });
 
-  return { success: true };
+  return { success: true, mode: "soft_deleted" };
 }

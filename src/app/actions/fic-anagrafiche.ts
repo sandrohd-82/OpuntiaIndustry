@@ -1,6 +1,10 @@
 "use server";
 
 import {
+  markAnagraficaArchivioRipescatoAction,
+  upsertAnagraficaArchivioFromDraftAction,
+} from "@/app/actions/anagrafiche-archivio";
+import {
   createClienteAction,
   updateClienteAction,
 } from "@/app/actions/clienti";
@@ -8,6 +12,11 @@ import {
   createFornitoreAction,
   updateFornitoreAction,
 } from "@/app/actions/fornitori";
+import {
+  mapClienteArchivioRow,
+  mapFornitoreArchivioRow,
+  type AnagraficaArchivioHit,
+} from "@/lib/amministrazione/anagrafiche-archivio";
 import {
   draftFromCliente,
   draftFromFicEntity,
@@ -38,8 +47,10 @@ import {
 } from "@/lib/fic";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  ClienteArchivioRow,
   ClienteRow,
   FicImportEntityKind,
+  FornitoreArchivioRow,
   FornitoreRow,
 } from "@/types/database";
 
@@ -57,6 +68,39 @@ async function loadDiscardedIds(
     .eq("entity_kind", kind);
   if (error) throw new Error(error.message);
   return new Set((data ?? []).map((r) => Number(r.fic_entity_id)));
+}
+
+async function loadArchivioHits(
+  kind: AnagraficaSyncKind
+): Promise<{
+  byVat: Map<string, AnagraficaArchivioHit>;
+  byFicId: Map<number, AnagraficaArchivioHit>;
+}> {
+  const supabase = await createClient();
+  const table =
+    kind === "cliente" ? "clienti_archivio" : "fornitori_archivio";
+  const { data, error } = await supabase
+    .from(table)
+    .select("*")
+    .is("ripescato_at", null);
+  if (error) throw new Error(error.message);
+
+  const byVat = new Map<string, AnagraficaArchivioHit>();
+  const byFicId = new Map<number, AnagraficaArchivioHit>();
+  for (const row of (data ?? []) as Array<
+    ClienteArchivioRow | FornitoreArchivioRow
+  >) {
+    const hit =
+      kind === "cliente"
+        ? mapClienteArchivioRow(row as ClienteArchivioRow)
+        : mapFornitoreArchivioRow(row as FornitoreArchivioRow);
+    const vat = normalizeVatKey(hit.partitaIva);
+    if (vat && !byVat.has(vat)) byVat.set(vat, hit);
+    if (hit.ficEntityId && !byFicId.has(hit.ficEntityId)) {
+      byFicId.set(hit.ficEntityId, hit);
+    }
+  }
+  return { byVat, byFicId };
 }
 
 async function loadCheckpointCompletedIds(
@@ -185,6 +229,7 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
   try {
     getFicConfig();
     const discarded = await loadDiscardedIds("supplier");
+    const archivio = await loadArchivioHits("fornitore");
     const checkpoint = await loadCheckpointCompletedIds("supplier");
     const [suppliers, received] = await Promise.all([
       fetchFicSuppliers(),
@@ -194,12 +239,7 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
       suppliers,
       received.map((d) => ({ raw: d.raw })),
       "supplier"
-    ).filter(
-      (e) =>
-        e.ficId &&
-        !discarded.has(e.ficId) &&
-        !checkpoint.completed.has(e.ficId)
-    );
+    ).filter((e) => e.ficId && !checkpoint.completed.has(e.ficId));
 
     const supabase = await createClient();
     const { data: localRows, error } = await supabase
@@ -220,13 +260,24 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
     for (const entity of merged) {
       const incoming = draftFromFicEntity(entity);
       if (!incoming.ragioneSociale.trim()) continue;
-      const existing = incoming.partitaIva
-        ? byVat.get(normalizeVatKey(incoming.partitaIva))
-        : undefined;
-      const current = existing ? draftFromFornitore(existing) : null;
-      const { proposed, changedFields } = mergeProposedDraft(incoming, current);
+      const vatKey = normalizeVatKey(incoming.partitaIva);
+      const existing = vatKey ? byVat.get(vatKey) : undefined;
+      const archHit =
+        archivio.byFicId.get(entity.ficId) ??
+        (vatKey ? archivio.byVat.get(vatKey) : undefined);
+      const wasDiscarded = discarded.has(entity.ficId) || Boolean(archHit);
 
-      // Se già presente e niente da cambiare → salta (niente rumore)
+      const current = existing ? draftFromFornitore(existing) : null;
+      const baseIncoming =
+        !existing && archHit
+          ? mergeProposedDraft(incoming, archHit.draft).proposed
+          : incoming;
+      const { proposed, changedFields } = mergeProposedDraft(
+        baseIncoming,
+        current
+      );
+
+      // Attivo e identico → salta; scartati/archiviati (non attivi) si ripropongono
       if (existing && changedFields.length === 0) continue;
 
       let codiceTarga = existing?.codiceTarga ?? "";
@@ -241,9 +292,13 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
         codiceTarga,
         mode: existing ? "update" : "create",
         existingId: existing?.id ?? null,
-        current,
+        current: current ?? (archHit ? archHit.draft : null),
         proposed,
         changedFields,
+        fromArchivio: wasDiscarded && !existing,
+        archivioId: archHit?.id ?? null,
+        motivoArchivio:
+          archHit?.motivo ?? (wasDiscarded ? "scartata_sync" : null),
       });
     }
 
@@ -289,6 +344,7 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
   try {
     getFicConfig();
     const discarded = await loadDiscardedIds("client");
+    const archivio = await loadArchivioHits("cliente");
     const checkpoint = await loadCheckpointCompletedIds("client");
     const [clients, issued] = await Promise.all([
       fetchFicClients(),
@@ -298,12 +354,7 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
       clients,
       issued.map((d) => ({ raw: d.raw })),
       "client"
-    ).filter(
-      (e) =>
-        e.ficId &&
-        !discarded.has(e.ficId) &&
-        !checkpoint.completed.has(e.ficId)
-    );
+    ).filter((e) => e.ficId && !checkpoint.completed.has(e.ficId));
 
     const supabase = await createClient();
     const { data: localRows, error } = await supabase
@@ -324,11 +375,23 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
     for (const entity of merged) {
       const incoming = draftFromFicEntity(entity);
       if (!incoming.ragioneSociale.trim()) continue;
-      const existing = incoming.partitaIva
-        ? byVat.get(normalizeVatKey(incoming.partitaIva))
-        : undefined;
+      const vatKey = normalizeVatKey(incoming.partitaIva);
+      const existing = vatKey ? byVat.get(vatKey) : undefined;
+      const archHit =
+        archivio.byFicId.get(entity.ficId) ??
+        (vatKey ? archivio.byVat.get(vatKey) : undefined);
+      const wasDiscarded = discarded.has(entity.ficId) || Boolean(archHit);
+
       const current = existing ? draftFromCliente(existing) : null;
-      const { proposed, changedFields } = mergeProposedDraft(incoming, current);
+      const baseIncoming =
+        !existing && archHit
+          ? mergeProposedDraft(incoming, archHit.draft).proposed
+          : incoming;
+      const { proposed, changedFields } = mergeProposedDraft(
+        baseIncoming,
+        current
+      );
+
       if (existing && changedFields.length === 0) continue;
 
       let codiceTarga = existing?.codiceTarga ?? "";
@@ -343,9 +406,13 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
         codiceTarga,
         mode: existing ? "update" : "create",
         existingId: existing?.id ?? null,
-        current,
+        current: current ?? (archHit ? archHit.draft : null),
         proposed,
         changedFields,
+        fromArchivio: wasDiscarded && !existing,
+        archivioId: archHit?.id ?? null,
+        motivoArchivio:
+          archHit?.motivo ?? (wasDiscarded ? "scartata_sync" : null),
       });
     }
 
@@ -392,6 +459,7 @@ export async function discardFicImportAction(input: {
   entityName?: string;
   vatNumber?: string;
   note?: string;
+  draft?: AnagraficaSyncDraft | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
@@ -407,6 +475,39 @@ export async function discardFicImportAction(input: {
     { onConflict: "entity_kind,fic_entity_id" }
   );
   if (error) return { success: false, error: error.message };
+
+  const draft: AnagraficaSyncDraft = input.draft ?? {
+    ragioneSociale: input.entityName ?? "",
+    partitaIva: input.vatNumber ?? "",
+    email: "",
+    pec: "",
+    sdiCode: "",
+    telefono: "",
+    sedeAmministrativa: {
+      nazione: "Italia",
+      provincia: "",
+      citta: "",
+      cap: "",
+      indirizzo: "",
+    },
+    sedeMagazzino: {
+      nazione: "",
+      provincia: "",
+      citta: "",
+      cap: "",
+      indirizzo: "",
+    },
+  };
+
+  const archived = await upsertAnagraficaArchivioFromDraftAction({
+    kind: input.kind,
+    draft,
+    ficEntityId: input.ficEntityId,
+    motivo: "scartata_sync",
+    note: input.note ?? "",
+  });
+  if (!archived.success) return { success: false, error: archived.error };
+
   return { success: true };
 }
 
@@ -496,9 +597,32 @@ export async function saveFicImportReviewAction(input: {
   existingId: string | null;
   codiceTarga: string;
   draft: AnagraficaSyncDraft;
+  archivioId?: string | null;
+  ficEntityId?: number | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
   await requireAreaAccess("amministrazione");
   const draft = input.draft;
+
+  async function afterSaveSuccess(): Promise<
+    { success: true } | { success: false; error: string }
+  > {
+    if (input.archivioId) {
+      const marked = await markAnagraficaArchivioRipescatoAction({
+        kind: input.kind,
+        archivioId: input.archivioId,
+      });
+      if (!marked.success) return marked;
+    }
+    if (input.ficEntityId) {
+      const supabase = await createClient();
+      await supabase
+        .from("fic_import_discarded")
+        .delete()
+        .eq("entity_kind", entityKindDb(input.kind))
+        .eq("fic_entity_id", input.ficEntityId);
+    }
+    return { success: true };
+  }
 
   if (input.kind === "fornitore") {
     const values = draftToFornitoreInput(
@@ -507,34 +631,32 @@ export async function saveFicImportReviewAction(input: {
         ? input.codiceTarga
         : undefined
     );
+    values.archivioId = input.archivioId ?? null;
     if (input.mode === "update" && input.existingId) {
       const fd = new FormData();
       fd.set("input", JSON.stringify(values));
       const result = await updateFornitoreAction(input.existingId, fd);
-      return result.success
-        ? { success: true }
-        : { success: false, error: result.error };
+      if (!result.success) return { success: false, error: result.error };
+      return afterSaveSuccess();
     }
     const fd = new FormData();
     fd.set("input", JSON.stringify(values));
     const result = await createFornitoreAction(fd);
-    return result.success
-      ? { success: true }
-      : { success: false, error: result.error };
+    if (!result.success) return { success: false, error: result.error };
+    return afterSaveSuccess();
   }
 
   const values = draftToClienteInput(
     draft,
     isValidCodiceTarga(input.codiceTarga, "C") ? input.codiceTarga : undefined
   );
+  values.archivioId = input.archivioId ?? null;
   if (input.mode === "update" && input.existingId) {
     const result = await updateClienteAction(input.existingId, values);
-    return result.success
-      ? { success: true }
-      : { success: false, error: result.error };
+    if (!result.success) return { success: false, error: result.error };
+    return afterSaveSuccess();
   }
   const result = await createClienteAction(values);
-  return result.success
-    ? { success: true }
-    : { success: false, error: result.error };
+  if (!result.success) return { success: false, error: result.error };
+  return afterSaveSuccess();
 }

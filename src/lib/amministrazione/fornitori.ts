@@ -51,6 +51,8 @@ export type FornitoreInput = {
   bioCodice?: string;
   /** Se true, rimuove il PDF bio esistente (senza sostituirlo). */
   removeBioCertificato?: boolean;
+  /** Se ripescata da archivio: id riga fornitori_archivio da chiudere al salvataggio. */
+  archivioId?: string | null;
 };
 
 export function emptySede(): SedeFornitore {

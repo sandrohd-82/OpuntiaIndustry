@@ -50,6 +50,10 @@ export type AnagraficaSyncReviewItem = {
   proposed: AnagraficaSyncDraft;
   /** Campi diversi rispetto all’archivio. */
   changedFields: ChangedFieldKey[];
+  /** Presente in clienti_archivio / fornitori_archivio o scarto sync. */
+  fromArchivio?: boolean;
+  archivioId?: string | null;
+  motivoArchivio?: string | null;
 };
 
 function sedeFromEntity(entity: FicEntityNormalized): SedeFornitore {

@@ -43,6 +43,8 @@ export type ClienteInput = {
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
   prodottiAcquistati: string[];
+  /** Se ripescata da archivio: id riga clienti_archivio da chiudere al salvataggio. */
+  archivioId?: string | null;
 };
 
 export { emptySede, formatSedeBreve };

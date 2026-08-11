@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { FaChevronDown } from "react-icons/fa6";
+import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-archivio";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
@@ -65,6 +66,9 @@ export function FornitoreFormModal({
     initial?.ragioneSociale ?? ""
   );
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [archivioId, setArchivioId] = useState<string | null>(null);
+  const [archivioHint, setArchivioHint] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
   const [email, setEmail] = useState(initial?.email ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
@@ -144,14 +148,46 @@ export function FornitoreFormModal({
     };
   }, [isEdit, initial?.codiceTarga]);
 
+  async function checkArchivioByVat(vat: string) {
+    if (isEdit || !vat.trim()) {
+      setArchivioId(null);
+      setArchivioHint(null);
+      return;
+    }
+    const result = await findAnagraficaArchivioByVatAction("fornitore", vat);
+    if (!result.success || !result.hit) {
+      setArchivioId(null);
+      setArchivioHint(null);
+      return;
+    }
+    const hit = result.hit;
+    setArchivioId(hit.id);
+    setArchivioHint(
+      `Trovata in archivio come scartata/eliminata: ${hit.ragioneSociale}. Dati riproposti: valuta e salva (ripesca) oppure chiudi.`
+    );
+    setRagioneSociale(hit.draft.ragioneSociale || ragioneSociale);
+    setPartitaIva(hit.draft.partitaIva || vat);
+    setEmail(hit.draft.email);
+    setPec(hit.draft.pec);
+    setSdiCode(hit.draft.sdiCode);
+    setTelefono(hit.draft.telefono);
+    setSedeAmministrativa(hit.draft.sedeAmministrativa);
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim() || saving) return;
+    if (!ragioneSociale.trim() || !partitaIva.trim() || saving) {
+      setFormError(
+        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito."
+      );
+      return;
+    }
     if (!/^F[0-9A-F]{3}$/.test(codice) || codice === "F000") {
       setCodiceError("Il codice fornitore deve essere F + 3 esadecimali (F001–FFFF).");
       return;
     }
+    setFormError(null);
     setSaving(true);
     try {
       await onSave(
@@ -177,6 +213,7 @@ export function FornitoreFormModal({
           prodottiAcquistati: tipologie.includes("materia_prima")
             ? prodotti
             : [],
+          archivioId,
           bioCertificatoPath: initial?.bioCertificatoPath ?? "",
           bioCodice: bioCodice.trim(),
           removeBioCertificato: removeBioPdf && !bioPdf,
@@ -255,10 +292,21 @@ export function FornitoreFormModal({
               <span className="mb-1 block font-medium">P. IVA</span>
               <input
                 value={partitaIva}
-                onChange={(e) => setPartitaIva(e.target.value)}
+                onChange={(e) => {
+                  setPartitaIva(e.target.value);
+                  setArchivioHint(null);
+                  setArchivioId(null);
+                  setFormError(null);
+                }}
+                onBlur={() => void checkArchivioByVat(partitaIva)}
                 required
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
+              {archivioHint ? (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  {archivioHint}
+                </p>
+              ) : null}
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Mail</span>
@@ -443,6 +491,12 @@ export function FornitoreFormModal({
             />
           </fieldset>
 
+          {formError ? (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {formError}
+            </p>
+          ) : null}
+
           <div className="flex gap-2 pt-1">
             <button
               type="button"
@@ -453,7 +507,7 @@ export function FornitoreFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || codiceLoading || codiceTarga.length !== 4}
+              disabled={saving || codiceLoading || codiceTarga.length !== 4 || !ragioneSociale.trim() || !partitaIva.trim()}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving

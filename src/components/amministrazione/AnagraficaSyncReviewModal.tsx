@@ -220,6 +220,12 @@ export function AnagraficaSyncReviewModal({
 
   function handleSave() {
     if (!current || !draft) return;
+    if (!draft.ragioneSociale.trim() || !draft.partitaIva.trim()) {
+      setError(
+        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito."
+      );
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const result = await saveFicImportReviewAction({
@@ -228,6 +234,8 @@ export function AnagraficaSyncReviewModal({
         existingId: current.existingId,
         codiceTarga: current.codiceTarga,
         draft,
+        archivioId: current.archivioId,
+        ficEntityId: current.ficEntityId,
       });
       if (!result.success) {
         setError(result.error);
@@ -273,6 +281,7 @@ export function AnagraficaSyncReviewModal({
         ficEntityId: current.ficEntityId,
         entityName: name,
         vatNumber: vat,
+        draft: draft ?? current.proposed,
       });
       if (!result.success) {
         setError(result.error);
@@ -366,6 +375,19 @@ export function AnagraficaSyncReviewModal({
               : "Scheda già presente (stessa P.IVA) — aggiornamento sotto conferma."}
           </p>
         </div>
+
+        {current.fromArchivio ? (
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <p className="font-semibold">Azienda scartata / eliminata</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              Era in archivio
+              {current.motivoArchivio ? ` (${current.motivoArchivio})` : ""}.
+              Controlla i dati e usa <strong>Salva</strong> per ripescare con
+              nuova targa, oppure <strong>Scarta</strong> per lasciarla in
+              archivio senza targa.
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-5 space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -561,7 +583,11 @@ export function AnagraficaSyncReviewModal({
             disabled={pending || !draft.ragioneSociale.trim()}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
-            {pending ? "Salvo…" : "Salva"}
+            {pending
+              ? "Salvo…"
+              : current.fromArchivio
+                ? "Ripescaggio / Salva"
+                : "Salva"}
           </button>
         </div>
       </div>

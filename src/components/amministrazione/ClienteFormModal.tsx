@@ -4,6 +4,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
+import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-archivio";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -77,6 +78,8 @@ export function ClienteFormModal({
     initial?.ragioneSociale ?? ""
   );
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [archivioId, setArchivioId] = useState<string | null>(null);
+  const [archivioHint, setArchivioHint] = useState<string | null>(null);
   const [email, setEmail] = useState(initial?.email ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
@@ -200,7 +203,41 @@ export function ClienteFormModal({
           : sedeMagazzino,
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
+      archivioId,
     };
+  }
+
+  async function checkArchivioByVat(vat: string) {
+    if (isEdit || !vat.trim()) {
+      setArchivioId(null);
+      setArchivioHint(null);
+      return;
+    }
+    const result = await findAnagraficaArchivioByVatAction("cliente", vat);
+    if (!result.success || !result.hit) {
+      setArchivioId(null);
+      setArchivioHint(null);
+      return;
+    }
+    const hit = result.hit;
+    setArchivioId(hit.id);
+    setArchivioHint(
+      `Trovata in archivio come scartata/eliminata: ${hit.ragioneSociale}. I dati sono stati riproposti: valuta e salva (ripesca) oppure chiudi.`
+    );
+    setRagioneSociale(hit.draft.ragioneSociale || ragioneSociale);
+    setPartitaIva(hit.draft.partitaIva || vat);
+    setEmail(hit.draft.email);
+    setPec(hit.draft.pec);
+    setSdiCode(hit.draft.sdiCode);
+    setTelefono(hit.draft.telefono);
+    setSedeAmministrativa(hit.draft.sedeAmministrativa);
+    if (
+      hit.draft.sedeMagazzino.indirizzo ||
+      hit.draft.sedeMagazzino.citta
+    ) {
+      setMagazzinoOpen(true);
+      setSedeMagazzino(hit.draft.sedeMagazzino);
+    }
   }
 
   useEffect(() => {
@@ -342,10 +379,20 @@ export function ClienteFormModal({
               <span className="mb-1 block font-medium">P. IVA</span>
               <input
                 value={partitaIva}
-                onChange={(e) => setPartitaIva(e.target.value)}
+                onChange={(e) => {
+                  setPartitaIva(e.target.value);
+                  setArchivioHint(null);
+                  setArchivioId(null);
+                }}
+                onBlur={() => void checkArchivioByVat(partitaIva)}
                 required
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
+              {archivioHint ? (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  {archivioHint}
+                </p>
+              ) : null}
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Mail</span>
