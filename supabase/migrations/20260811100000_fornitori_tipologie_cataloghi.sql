@@ -23,17 +23,19 @@ create table if not exists public.catalogo_servizi (
   id uuid primary key default gen_random_uuid(),
   codice text not null,
   nome text not null,
+  note text not null default '',
+  is_bio boolean not null default false,
   created_by uuid references auth.users (id) on delete set null,
   updated_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
   deleted_by uuid references auth.users (id) on delete set null,
-  constraint catalogo_servizi_codice_check check (codice ~ '^SRV[0-9A-F]{3}$')
+  constraint catalogo_servizi_codice_check check (codice ~* '^sz[A-Za-z0-9\-_\/]+$')
 );
 
-create unique index if not exists catalogo_servizi_codice_uidx
-  on public.catalogo_servizi (codice)
+create unique index if not exists catalogo_servizi_codice_lower_uidx
+  on public.catalogo_servizi (lower(codice))
   where deleted_at is null;
 
 create index if not exists catalogo_servizi_nome_idx
@@ -73,17 +75,19 @@ create table if not exists public.catalogo_prodotti_fornitore (
   id uuid primary key default gen_random_uuid(),
   codice text not null,
   nome text not null,
+  note text not null default '',
+  is_bio boolean not null default false,
   created_by uuid references auth.users (id) on delete set null,
   updated_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
   deleted_by uuid references auth.users (id) on delete set null,
-  constraint catalogo_prodotti_fornitore_codice_check check (codice ~ '^PRF[0-9A-F]{3}$')
+  constraint catalogo_prodotti_fornitore_codice_check check (codice ~* '^pr[A-Za-z0-9\-_\/]+$')
 );
 
-create unique index if not exists catalogo_prodotti_fornitore_codice_uidx
-  on public.catalogo_prodotti_fornitore (codice)
+create unique index if not exists catalogo_prodotti_fornitore_codice_lower_uidx
+  on public.catalogo_prodotti_fornitore (lower(codice))
   where deleted_at is null;
 
 create index if not exists catalogo_prodotti_fornitore_nome_idx

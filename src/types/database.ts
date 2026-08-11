@@ -660,6 +660,8 @@ export interface CatalogoServizioRow {
   id: string;
   codice: string;
   nome: string;
+  note: string;
+  is_bio: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -672,6 +674,8 @@ export type CatalogoServizioInsert = {
   id?: string;
   codice: string;
   nome: string;
+  note?: string;
+  is_bio?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 };
@@ -685,6 +689,8 @@ export interface CatalogoProdottoFornitoreRow {
   id: string;
   codice: string;
   nome: string;
+  note: string;
+  is_bio: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -697,6 +703,8 @@ export type CatalogoProdottoFornitoreInsert = {
   id?: string;
   codice: string;
   nome: string;
+  note?: string;
+  is_bio?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 };

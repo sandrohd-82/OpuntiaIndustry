@@ -8,12 +8,15 @@ import {
   listCatalogoProdottiFornitoreAction,
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
-import type { CatalogoOffertaItem } from "@/lib/amministrazione/catalogo-offerta";
-
-type Kind = "servizio" | "prodotto";
+import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
+import type {
+  CatalogoOffertaInput,
+  CatalogoOffertaItem,
+  CatalogoOffertaKind,
+} from "@/lib/amministrazione/catalogo-offerta";
 
 type Props = {
-  kind: Kind;
+  kind: CatalogoOffertaKind;
   title: string;
   value: string[];
   onChange: (codes: string[]) => void;
@@ -23,10 +26,9 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
   const [items, setItems] = useState<CatalogoOffertaItem[]>([]);
   const [ready, setReady] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   async function refresh() {
     const result =
@@ -42,19 +44,24 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
   }, [kind]);
 
   useEffect(() => {
-    if (!pickerOpen) return;
+    if (!pickerOpen && !createOpen) return;
     void refresh();
-  }, [pickerOpen, kind]);
+  }, [pickerOpen, createOpen, kind]);
 
-  const byCode = useMemo(
-    () => new Map(items.map((i) => [i.codice, i])),
-    [items]
-  );
+  const byCode = useMemo(() => {
+    const map = new Map<string, CatalogoOffertaItem>();
+    for (const i of items) {
+      map.set(i.codice, i);
+      map.set(i.codice.toLowerCase(), i);
+    }
+    return map;
+  }, [items]);
 
   const available = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const selected = new Set(value.map((c) => c.toLowerCase()));
     return items.filter((i) => {
-      if (value.includes(i.codice)) return false;
+      if (selected.has(i.codice.toLowerCase())) return false;
       if (!q) return true;
       return (
         i.codice.toLowerCase().includes(q) || i.nome.toLowerCase().includes(q)
@@ -63,34 +70,34 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
   }, [items, value, query]);
 
   function addCode(code: string) {
-    if (value.includes(code)) return;
+    if (value.some((c) => c.toLowerCase() === code.toLowerCase())) return;
     onChange([...value, code]);
     setPickerOpen(false);
     setQuery("");
   }
 
   function removeCode(code: string) {
-    onChange(value.filter((c) => c !== code));
+    onChange(value.filter((c) => c.toLowerCase() !== code.toLowerCase()));
   }
 
-  async function createNew() {
-    const nome = newName.trim();
-    if (!nome || saving) return;
-    setSaving(true);
+  async function handleCreate(values: CatalogoOffertaInput) {
     setError(null);
     const result =
       kind === "servizio"
-        ? await createCatalogoServizioAction({ nome })
-        : await createCatalogoProdottoFornitoreAction({ nome });
-    setSaving(false);
+        ? await createCatalogoServizioAction(values)
+        : await createCatalogoProdottoFornitoreAction(values);
     if (!result.success) {
       setError(result.error);
-      return;
+      throw new Error(result.error);
     }
-    setItems((prev) => [...prev, result.item].sort((a, b) => a.nome.localeCompare(b.nome, "it")));
+    setItems((prev) =>
+      [...prev, result.item].sort((a, b) => a.nome.localeCompare(b.nome, "it"))
+    );
     onChange([...value, result.item.codice]);
-    setNewName("");
+    setCreateOpen(false);
     setPickerOpen(false);
+    setQuery("");
+    setError(null);
   }
 
   return (
@@ -101,7 +108,7 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
           <p className="text-xs text-[var(--muted)]">Nessuna voce selezionata.</p>
         ) : (
           value.map((code) => {
-            const item = byCode.get(code);
+            const item = byCode.get(code) ?? byCode.get(code.toLowerCase());
             return (
               <button
                 key={code}
@@ -148,37 +155,40 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
                   className="block w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-white"
                 >
                   <span className="font-medium">{i.codice}</span> — {i.nome}
+                  {i.isBio ? " · Bio" : ""}
                 </button>
               ))
             )}
           </div>
           <div className="border-t border-[var(--border)] pt-3">
-            <p className="mb-1 text-xs font-medium">Nuova voce</p>
-            <div className="flex gap-2">
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={
-                  kind === "servizio"
-                    ? "Es. Trasporto cisterna"
-                    : "Es. Acqua potabile"
-                }
-                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
-              />
-              <button
-                type="button"
-                onClick={() => void createNew()}
-                disabled={saving || !newName.trim()}
-                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white disabled:opacity-60"
-              >
-                Crea
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setCreateOpen(true);
+              }}
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              <FaPlus size={11} />
+              Nuova voce catalogo
+            </button>
             {error ? (
               <p className="mt-1 text-xs text-red-600">{error}</p>
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {createOpen ? (
+        <CatalogoOffertaFormModal
+          kind={kind}
+          mode="create"
+          catalog={items}
+          onClose={() => setCreateOpen(false)}
+          onSave={async (values) => {
+            await handleCreate(values);
+          }}
+        />
       ) : null}
     </fieldset>
   );
