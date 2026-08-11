@@ -26,11 +26,42 @@ export type FornitoriActionResult =
 
 const MAX_BIO_PDF_BYTES = 10 * 1024 * 1024;
 
+/** Targhe che bloccano la sequenza: attive + soft-delete con materie bio collegate. */
 async function loadUsedCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("fornitori").select("codice_targa");
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("id, codice_targa, deleted_at");
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => String(row.codice_targa).toUpperCase());
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    codice_targa: string;
+    deleted_at: string | null;
+  }>;
+  const active = rows
+    .filter((r) => !r.deleted_at)
+    .map((r) => String(r.codice_targa).toUpperCase());
+  const softIds = rows.filter((r) => r.deleted_at).map((r) => r.id);
+  if (softIds.length === 0) return active;
+
+  const { data: materie, error: matError } = await supabase
+    .from("materie_prime")
+    .select("fornitore_bio_id")
+    .in("fornitore_bio_id", softIds)
+    .is("deleted_at", null);
+  if (matError) throw new Error(matError.message);
+
+  const busy = new Set(
+    (materie ?? [])
+      .map((m) => String(m.fornitore_bio_id))
+      .filter(Boolean)
+  );
+  const softBusy = rows
+    .filter((r) => r.deleted_at && busy.has(r.id))
+    .map((r) => String(r.codice_targa).toUpperCase());
+
+  return [...new Set([...active, ...softBusy])];
 }
 
 async function assertPartitaIvaUnica(

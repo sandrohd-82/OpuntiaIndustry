@@ -255,6 +255,8 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
         .map((f) => [normalizeVatKey(f.partitaIva), f] as const)
     );
     const usedTarghe = locals.map((f) => f.codiceTarga);
+    /** Una sola anteprima: non prenotare C/F progressivi per tutta la coda sync. */
+    const nextTargaPreview = await previewTarga("F", usedTarghe);
     const items: AnagraficaSyncReviewItem[] = [];
 
     for (const entity of merged) {
@@ -280,11 +282,7 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
       // Attivo e identico → salta; scartati/archiviati (non attivi) si ripropongono
       if (existing && changedFields.length === 0) continue;
 
-      let codiceTarga = existing?.codiceTarga ?? "";
-      if (!existing) {
-        codiceTarga = await previewTarga("F", usedTarghe);
-        usedTarghe.push(codiceTarga);
-      }
+      const codiceTarga = existing?.codiceTarga ?? nextTargaPreview;
 
       items.push({
         ficEntityId: entity.ficId,
@@ -370,6 +368,8 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
         .map((c) => [normalizeVatKey(c.partitaIva), c] as const)
     );
     const usedTarghe = locals.map((c) => c.codiceTarga);
+    /** Una sola anteprima: non prenotare C001…C00D per tutta la coda sync. */
+    const nextTargaPreview = await previewTarga("C", usedTarghe);
     const items: AnagraficaSyncReviewItem[] = [];
 
     for (const entity of merged) {
@@ -394,11 +394,7 @@ export async function startFicSyncClientiAction(): Promise<FicSyncStartResult> {
 
       if (existing && changedFields.length === 0) continue;
 
-      let codiceTarga = existing?.codiceTarga ?? "";
-      if (!existing) {
-        codiceTarga = await previewTarga("C", usedTarghe);
-        usedTarghe.push(codiceTarga);
-      }
+      const codiceTarga = existing?.codiceTarga ?? nextTargaPreview;
 
       items.push({
         ficEntityId: entity.ficId,
@@ -625,9 +621,10 @@ export async function saveFicImportReviewAction(input: {
   }
 
   if (input.kind === "fornitore") {
+    // Create: non usare la targa “prenotata” in coda — la assegna il server.
     const values = draftToFornitoreInput(
       draft,
-      isValidCodiceTarga(input.codiceTarga, "F")
+      input.mode === "update" && isValidCodiceTarga(input.codiceTarga, "F")
         ? input.codiceTarga
         : undefined
     );
@@ -648,7 +645,9 @@ export async function saveFicImportReviewAction(input: {
 
   const values = draftToClienteInput(
     draft,
-    isValidCodiceTarga(input.codiceTarga, "C") ? input.codiceTarga : undefined
+    input.mode === "update" && isValidCodiceTarga(input.codiceTarga, "C")
+      ? input.codiceTarga
+      : undefined
   );
   values.archivioId = input.archivioId ?? null;
   if (input.mode === "update" && input.existingId) {

@@ -23,11 +23,42 @@ export type ClientiActionResult =
   | { success: true; cliente: Cliente }
   | { success: false; error: string };
 
+/** Targhe che bloccano la sequenza: attive + soft-delete con ordini collegati. */
 async function loadUsedCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("clienti").select("codice_targa");
+  const { data, error } = await supabase
+    .from("clienti")
+    .select("id, codice_targa, deleted_at");
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row) => String(row.codice_targa).toUpperCase());
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    codice_targa: string;
+    deleted_at: string | null;
+  }>;
+  const active = rows
+    .filter((r) => !r.deleted_at)
+    .map((r) => String(r.codice_targa).toUpperCase());
+  const softIds = rows.filter((r) => r.deleted_at).map((r) => r.id);
+  if (softIds.length === 0) return active;
+
+  const { data: ordini, error: ordError } = await supabase
+    .from("ordini")
+    .select("cliente_id")
+    .in("cliente_id", softIds)
+    .is("deleted_at", null);
+  if (ordError) throw new Error(ordError.message);
+
+  const busy = new Set(
+    (ordini ?? [])
+      .map((o) => String(o.cliente_id))
+      .filter(Boolean)
+  );
+  const softBusy = rows
+    .filter((r) => r.deleted_at && busy.has(r.id))
+    .map((r) => String(r.codice_targa).toUpperCase());
+
+  return [...new Set([...active, ...softBusy])];
 }
 
 async function assertPartitaIvaUnica(

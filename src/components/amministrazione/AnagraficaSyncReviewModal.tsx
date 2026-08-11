@@ -371,7 +371,7 @@ export function AnagraficaSyncReviewModal({
           </div>
           <p className="mt-2 text-xs text-[var(--muted)]">
             {current.mode === "create"
-              ? "Nuova scheda — targa proposta al salvataggio."
+              ? "Nuova scheda — anteprima della prossima targa libera; al salvataggio viene assegnata la prima effettivamente libera (non si “saltano” codici per le altre voci in coda)."
               : "Scheda già presente (stessa P.IVA) — aggiornamento sotto conferma."}
           </p>
         </div>
