@@ -1,4 +1,7 @@
-import { normalizeTipologie } from "@/lib/amministrazione/catalogo-offerta";
+import {
+  labelFornitoreTipologia,
+  normalizeTipologie,
+} from "@/lib/amministrazione/catalogo-offerta";
 import type { FornitoreRow, FornitoreTipologia } from "@/types/database";
 
 export const FORNITORI_BIO_BUCKET = "fornitori-bio";
@@ -157,6 +160,8 @@ export type FornitoriFilters = {
   citta: string;
   query: string;
   volume: FornitoriVolumeFilter;
+  /** Filtro offerta: servizio / prodotto / materia_prima */
+  tipology: FornitoreTipologia | "";
 };
 
 export function emptyFornitoriFilters(): FornitoriFilters {
@@ -165,6 +170,7 @@ export function emptyFornitoriFilters(): FornitoriFilters {
     citta: "",
     query: "",
     volume: "",
+    tipology: "",
   };
 }
 
@@ -173,7 +179,8 @@ export function hasActiveFornitoriFilters(filters: FornitoriFilters): boolean {
     Boolean(filters.letter) ||
     Boolean(filters.citta.trim()) ||
     Boolean(filters.query.trim()) ||
-    Boolean(filters.volume)
+    Boolean(filters.volume) ||
+    Boolean(filters.tipology)
   );
 }
 
@@ -255,8 +262,18 @@ export function filterFornitori(
 
     if (!matchesVolume(volumeAcquistoOf(f), filters.volume)) return false;
 
+    if (filters.tipology && !f.tipologie.includes(filters.tipology)) {
+      return false;
+    }
+
     return true;
   });
+}
+
+/** Etichette offerta per colonna elenco (Servizi, Prodotti, …). */
+export function formatFornitoreOfferta(tipologie: FornitoreTipologia[]): string {
+  if (!tipologie.length) return "—";
+  return tipologie.map(labelFornitoreTipologia).join(", ");
 }
 
 export function uniqueFornitoriCitta(fornitori: Fornitore[]): string[] {

@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
 import { GraficiMateriaPrimaBoard } from "@/components/amministrazione/grafici/GraficiMateriaPrimaBoard";
 import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/GraficiOrdiniBoard";
@@ -49,37 +48,14 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
+  // Redirect: sottovoci fornitori rimosse → unica pagina con filtri
   if (section === "fornitori") {
-    const tipologyFilter =
-      sub === "servizi"
-        ? ("servizio" as const)
-        : sub === "prodotti"
-          ? ("prodotto" as const)
-          : sub === "materia-prima"
-            ? ("materia_prima" as const)
-            : null;
-    const titles: Record<string, string> = {
-      tutti: "Fornitori",
-      servizi: "Fornitori — Servizi",
-      prodotti: "Fornitori — Prodotti",
-      "materia-prima": "Fornitori — Materia prima",
-    };
-    return (
-      <>
-        <AppHeader
-          title={titles[sub] ?? "Fornitori"}
-          subtitle={page.description}
-        />
-        <div className="p-6">
-          <FornitoriBoard tipologyFilter={tipologyFilter} />
-        </div>
-      </>
-    );
+    redirect("/app/amministrazione/fornitori");
   }
 
   // Redirect compatibilità vecchi percorsi
   if (section === "schede" && sub === "fornitori") {
-    redirect("/app/amministrazione/fornitori/tutti");
+    redirect("/app/amministrazione/fornitori");
   }
   if (section === "schede" && sub === "clienti") {
     redirect("/app/amministrazione/clienti");

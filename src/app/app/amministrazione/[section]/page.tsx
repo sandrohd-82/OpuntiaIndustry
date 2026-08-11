@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
+import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { GraficiHomeBoard } from "@/components/amministrazione/grafici/GraficiHomeBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -43,6 +44,19 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title="Clienti" subtitle={page.description} />
         <div className="p-6">
           <ClientiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fornitori") {
+    const page = resolveAmministrazionePage([section]);
+    if (!page) notFound();
+    return (
+      <>
+        <AppHeader title="Fornitori" subtitle={page.description} />
+        <div className="p-6">
+          <FornitoriBoard />
         </div>
       </>
     );

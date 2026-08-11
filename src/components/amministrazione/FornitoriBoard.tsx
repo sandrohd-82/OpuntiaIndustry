@@ -22,10 +22,11 @@ import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDeta
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import type { AnagraficaSyncReviewItem } from "@/lib/amministrazione/fic-anagrafiche";
+import { FORNITORE_TIPOLOGIE } from "@/lib/amministrazione/catalogo-offerta";
 import {
   emptyFornitoriFilters,
   filterFornitori,
-  filterFornitoriByTipologia,
+  formatFornitoreOfferta,
   formatSedeBreve,
   hasActiveFornitoriFilters,
   uniqueFornitoriCitta,
@@ -92,6 +93,11 @@ function FornitoreRow({
         </td>
         <td className="px-4 py-3 font-semibold">{fornitore.ragioneSociale}</td>
         <td className="px-4 py-3 tabular-nums">{fornitore.partitaIva}</td>
+        <td className="px-4 py-3">
+          <span className="text-sm text-slate-700">
+            {formatFornitoreOfferta(fornitore.tipologie)}
+          </span>
+        </td>
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(fornitore.sedeAmministrativa)}
         </td>
@@ -139,7 +145,7 @@ function FornitoreRow({
       </tr>
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={selectMode ? 10 : 9} className="px-4 py-4">
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
@@ -179,14 +185,7 @@ function FornitoreRow({
   );
 }
 
-type FornitoriBoardProps = {
-  /** null = tutti i fornitori */
-  tipologyFilter?: FornitoreTipologia | null;
-};
-
-export function FornitoriBoard({
-  tipologyFilter = null,
-}: FornitoriBoardProps) {
+export function FornitoriBoard() {
   const {
     fornitori,
     ready,
@@ -258,20 +257,19 @@ export function FornitoriBoard({
     };
   }, []);
 
-  const scoped = useMemo(
-    () => filterFornitoriByTipologia(fornitori, tipologyFilter),
-    [fornitori, tipologyFilter]
-  );
-
   const filtered = useMemo(
-    () => filterFornitori(scoped, filters),
-    [scoped, filters]
+    () => filterFornitori(fornitori, filters),
+    [fornitori, filters]
   );
 
   const cittaOptions = useMemo(
-    () => uniqueFornitoriCitta(scoped),
-    [scoped]
+    () => uniqueFornitoriCitta(fornitori),
+    [fornitori]
   );
+
+  function setTipologyFilter(tipology: FornitoreTipologia | "") {
+    setFilters((prev) => ({ ...prev, tipology }));
+  }
 
   const selectedVisible = useMemo(
     () => filtered.filter((f) => selectedIds.has(f.id)),
@@ -414,6 +412,37 @@ export function FornitoriBoard({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+          Offerta
+        </span>
+        <button
+          type="button"
+          onClick={() => setTipologyFilter("")}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            !filters.tipology
+              ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]"
+              : "border-[var(--border)] bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Tutti
+        </button>
+        {FORNITORE_TIPOLOGIE.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setTipologyFilter(t.value)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              filters.tipology === t.value
+                ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]"
+                : "border-[var(--border)] bg-white text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {syncInfo ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {syncInfo}
@@ -532,6 +561,7 @@ export function FornitoriBoard({
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
+                <th className="px-4 py-3 font-medium">Offerta</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
                 <th className="px-4 py-3 font-medium">Sede ritiro</th>
                 <th className="px-4 py-3 font-medium">Prodotti</th>

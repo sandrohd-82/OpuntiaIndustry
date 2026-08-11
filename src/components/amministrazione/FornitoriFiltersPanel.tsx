@@ -42,7 +42,8 @@ export function FornitoriFiltersPanel({
     Boolean(value.letter) ||
     Boolean(value.citta.trim()) ||
     Boolean(value.query.trim()) ||
-    Boolean(value.volume);
+    Boolean(value.volume) ||
+    Boolean(value.tipology);
 
   const suggestions = useMemo(
     () => suggestFornitori(fornitori, value.query, 8),
