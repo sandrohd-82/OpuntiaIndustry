@@ -7,53 +7,6 @@ import {
 /** Sottosezioni del modulo Amministrazione (menu laterale) */
 export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
-    slug: "ordini",
-    label: "Ordini",
-    description: "Gestione ordini ricevuti, evasi e storico",
-    path: "/app/amministrazione/ordini",
-    children: [
-      {
-        slug: "ricevuti",
-        label: "Ricevuti",
-        description: "Ordini ricevuti da gestire",
-        path: "/app/amministrazione/ordini/ricevuti",
-      },
-      {
-        slug: "evasi",
-        label: "Evasi",
-        description: "Ordini già evasi",
-        path: "/app/amministrazione/ordini/evasi",
-      },
-      {
-        slug: "storico",
-        label: "Storico",
-        description:
-          "Ordini conclusi e consegnati; qui arriveranno anche dopo la chiusura automatica",
-        path: "/app/amministrazione/ordini/storico",
-      },
-    ],
-  },
-  {
-    slug: "fatture",
-    label: "Fatture",
-    description: "Fatture ricevute e inviate",
-    path: "/app/amministrazione/fatture",
-    children: [
-      {
-        slug: "ricevute",
-        label: "Ricevute",
-        description: "Fatture ricevute dai fornitori",
-        path: "/app/amministrazione/fatture/ricevute",
-      },
-      {
-        slug: "inviate",
-        label: "Inviate",
-        description: "Fatture inviate ai clienti",
-        path: "/app/amministrazione/fatture/inviate",
-      },
-    ],
-  },
-  {
     slug: "clienti",
     label: "Clienti",
     description: "Anagrafiche clienti",
@@ -125,40 +78,55 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "dipendenti",
-    label: "Dipendenti",
-    description: "Personale, turni, ore e buste paga",
-    path: "/app/amministrazione/dipendenti",
+    slug: "ordini",
+    label: "Ordini",
+    description: "Gestione ordini ricevuti, evasi e storico",
+    path: "/app/amministrazione/ordini",
     children: [
       {
-        slug: "elenco-e-mansione",
-        label: "Elenco e mansione",
-        description: "Elenco dipendenti e mansioni",
-        path: "/app/amministrazione/dipendenti/elenco-e-mansione",
+        slug: "ricevuti",
+        label: "Ricevuti",
+        description: "Ordini ricevuti da gestire",
+        path: "/app/amministrazione/ordini/ricevuti",
       },
       {
-        slug: "turnistica",
-        label: "Turnistica",
-        description: "Turni del personale",
-        path: "/app/amministrazione/dipendenti/turnistica",
+        slug: "evasi",
+        label: "Evasi",
+        description: "Ordini già evasi",
+        path: "/app/amministrazione/ordini/evasi",
       },
       {
-        slug: "situazione-ore",
-        label: "Situazione Ore",
-        description: "Situazione ore lavorate",
-        path: "/app/amministrazione/dipendenti/situazione-ore",
+        slug: "storico",
+        label: "Storico",
+        description:
+          "Ordini conclusi e consegnati; qui arriveranno anche dopo la chiusura automatica",
+        path: "/app/amministrazione/ordini/storico",
+      },
+    ],
+  },
+  {
+    slug: "fatture",
+    label: "Fatture",
+    description: "Fatture ricevute e inviate",
+    path: "/app/amministrazione/fatture",
+    children: [
+      {
+        slug: "ricevute",
+        label: "Ricevute",
+        description: "Fatture ricevute dai fornitori",
+        path: "/app/amministrazione/fatture/ricevute",
       },
       {
-        slug: "buste-paga",
-        label: "Buste paga",
-        description: "Buste paga dipendenti",
-        path: "/app/amministrazione/dipendenti/buste-paga",
+        slug: "inviate",
+        label: "Inviate",
+        description: "Fatture inviate ai clienti",
+        path: "/app/amministrazione/fatture/inviate",
       },
     ],
   },
   {
     slug: "grafici",
-    label: "Grafici",
+    label: "Statistiche",
     description:
       "Panoramica e report dell’anno in corso: produttività, ordini, materia prima, incassi",
     path: "/app/amministrazione/grafici",
@@ -190,6 +158,38 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         description:
           "Ordini pagati: importi per azienda, mese e anno",
         path: "/app/amministrazione/grafici/incassi",
+      },
+    ],
+  },
+  {
+    slug: "dipendenti",
+    label: "Dipendenti",
+    description: "Personale, turni, ore e buste paga",
+    path: "/app/amministrazione/dipendenti",
+    children: [
+      {
+        slug: "elenco-e-mansione",
+        label: "Elenco e mansione",
+        description: "Elenco dipendenti e mansioni",
+        path: "/app/amministrazione/dipendenti/elenco-e-mansione",
+      },
+      {
+        slug: "turnistica",
+        label: "Turnistica",
+        description: "Turni del personale",
+        path: "/app/amministrazione/dipendenti/turnistica",
+      },
+      {
+        slug: "situazione-ore",
+        label: "Situazione Ore",
+        description: "Situazione ore lavorate",
+        path: "/app/amministrazione/dipendenti/situazione-ore",
+      },
+      {
+        slug: "buste-paga",
+        label: "Buste paga",
+        description: "Buste paga dipendenti",
+        path: "/app/amministrazione/dipendenti/buste-paga",
       },
     ],
   },

@@ -27,7 +27,7 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     if (!page) notFound();
     return (
       <>
-        <AppHeader title="Grafici" subtitle={page.description} />
+        <AppHeader title="Statistiche" subtitle={page.description} />
         <div className="p-6">
           <GraficiHomeBoard />
         </div>
