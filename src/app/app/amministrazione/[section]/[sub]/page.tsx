@@ -7,7 +7,7 @@ import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/G
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
-import { FattureBoard } from "@/components/amministrazione/FattureBoard";
+import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
@@ -165,12 +165,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
+  // Redirect legacy slug Inviate → Emesse
   if (section === "fatture" && sub === "inviate") {
+    redirect("/app/amministrazione/fatture/emesse");
+  }
+
+  if (section === "fatture" && sub === "emesse") {
     return (
       <>
-        <AppHeader title="Fatture inviate" subtitle={page.description} />
+        <AppHeader title="Fatture emesse" subtitle={page.description} />
         <div className="p-6">
-          <FattureBoard type="issued" />
+          <FattureInterneBoard kind="emessa" />
         </div>
       </>
     );
@@ -181,7 +186,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
       <>
         <AppHeader title="Fatture ricevute" subtitle={page.description} />
         <div className="p-6">
-          <FattureBoard type="received" />
+          <FattureInterneBoard kind="ricevuta" />
         </div>
       </>
     );

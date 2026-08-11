@@ -571,6 +571,181 @@ export interface AuditLogInsert {
   payload?: Record<string, unknown>;
 }
 
+export type FatturaStatoPagamento = "pagato" | "da_pagare";
+export type FatturaDocumentoStato = "bozza" | "registrata" | "chiusa";
+
+export interface FatturaEmessaRow {
+  id: string;
+  numero_interno: string;
+  cliente_id: string;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_emissione: string;
+  numero_documento_esterno: string;
+  fic_id: number | null;
+  spedizione: number;
+  imponibile: number;
+  iva_percentuale: number;
+  imposta: number;
+  totale: number;
+  stato_pagamento: FatturaStatoPagamento;
+  ricevuta_storage_path: string;
+  ricevuta_file_name: string;
+  versione: number;
+  documento_stato: FatturaDocumentoStato;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type FatturaEmessaInsert = {
+  id?: string;
+  numero_interno: string;
+  cliente_id: string;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_emissione: string;
+  numero_documento_esterno?: string;
+  fic_id?: number | null;
+  spedizione?: number;
+  imponibile?: number;
+  iva_percentuale?: number;
+  imposta?: number;
+  totale?: number;
+  stato_pagamento?: FatturaStatoPagamento;
+  ricevuta_storage_path?: string;
+  ricevuta_file_name?: string;
+  versione?: number;
+  documento_stato?: FatturaDocumentoStato;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export type FatturaEmessaUpdate = Partial<FatturaEmessaInsert>;
+
+export interface FatturaEmessaRigaRow {
+  id: string;
+  fattura_id: string;
+  prodotto_id: string | null;
+  codice: string;
+  descrizione: string;
+  quantita: number;
+  prezzo_unitario: number;
+  importo: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type FatturaEmessaRigaInsert = {
+  id?: string;
+  fattura_id: string;
+  prodotto_id?: string | null;
+  codice?: string;
+  descrizione?: string;
+  quantita?: number;
+  prezzo_unitario?: number;
+  importo?: number;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export interface FatturaRicevutaRow {
+  id: string;
+  numero_interno: string;
+  fornitore_id: string;
+  fornitore_ragione_sociale: string;
+  fornitore_codice_targa: string;
+  data_emissione: string;
+  numero_documento_esterno: string;
+  fic_id: number | null;
+  spedizione: number;
+  imponibile: number;
+  iva_percentuale: number;
+  imposta: number;
+  totale: number;
+  stato_pagamento: FatturaStatoPagamento;
+  ricevuta_storage_path: string;
+  ricevuta_file_name: string;
+  versione: number;
+  documento_stato: FatturaDocumentoStato;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type FatturaRicevutaInsert = {
+  id?: string;
+  numero_interno: string;
+  fornitore_id: string;
+  fornitore_ragione_sociale: string;
+  fornitore_codice_targa: string;
+  data_emissione: string;
+  numero_documento_esterno?: string;
+  fic_id?: number | null;
+  spedizione?: number;
+  imponibile?: number;
+  iva_percentuale?: number;
+  imposta?: number;
+  totale?: number;
+  stato_pagamento?: FatturaStatoPagamento;
+  ricevuta_storage_path?: string;
+  ricevuta_file_name?: string;
+  versione?: number;
+  documento_stato?: FatturaDocumentoStato;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export type FatturaRicevutaUpdate = Partial<FatturaRicevutaInsert>;
+
+export interface FatturaRicevutaRigaRow {
+  id: string;
+  fattura_id: string;
+  prodotto_id: string | null;
+  codice: string;
+  descrizione: string;
+  quantita: number;
+  prezzo_unitario: number;
+  importo: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type FatturaRicevutaRigaInsert = {
+  id?: string;
+  fattura_id: string;
+  prodotto_id?: string | null;
+  codice?: string;
+  descrizione?: string;
+  quantita?: number;
+  prezzo_unitario?: number;
+  importo?: number;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
 export type FicInvoiceKind = "issued" | "received";
 export type FicPaymentStatus = "paid" | "not_paid" | "partially_paid";
 export type FicSyncLogStatus = "running" | "success" | "error";
@@ -903,6 +1078,30 @@ export interface Database {
         Row: AuditLogRow;
         Insert: AuditLogInsert;
         Update: never;
+        Relationships: [];
+      };
+      fatture_emesse: {
+        Row: FatturaEmessaRow;
+        Insert: FatturaEmessaInsert;
+        Update: FatturaEmessaUpdate;
+        Relationships: [];
+      };
+      fatture_emesse_righe: {
+        Row: FatturaEmessaRigaRow;
+        Insert: FatturaEmessaRigaInsert;
+        Update: Partial<FatturaEmessaRigaInsert>;
+        Relationships: [];
+      };
+      fatture_ricevute: {
+        Row: FatturaRicevutaRow;
+        Insert: FatturaRicevutaInsert;
+        Update: FatturaRicevutaUpdate;
+        Relationships: [];
+      };
+      fatture_ricevute_righe: {
+        Row: FatturaRicevutaRigaRow;
+        Insert: FatturaRicevutaRigaInsert;
+        Update: Partial<FatturaRicevutaRigaInsert>;
         Relationships: [];
       };
       fic_invoices: {

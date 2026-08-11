@@ -81,20 +81,20 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "fatture",
     label: "Fatture",
-    description: "Fatture ricevute e inviate",
+    description: "Fatture ricevute e emesse (storico registrazioni)",
     path: "/app/amministrazione/fatture",
     children: [
       {
         slug: "ricevute",
         label: "Ricevute",
-        description: "Fatture ricevute dai fornitori",
+        description: "Storico fatture ricevute dai fornitori",
         path: "/app/amministrazione/fatture/ricevute",
       },
       {
-        slug: "inviate",
-        label: "Inviate",
-        description: "Fatture inviate ai clienti",
-        path: "/app/amministrazione/fatture/inviate",
+        slug: "emesse",
+        label: "Emesse",
+        description: "Storico fatture emesse ai clienti",
+        path: "/app/amministrazione/fatture/emesse",
       },
     ],
   },

@@ -11,12 +11,12 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
-import { startFicSyncClientiAction } from "@/app/actions/fic-anagrafiche";
+import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
-import { AnagraficaSyncReviewModal } from "@/components/amministrazione/AnagraficaSyncReviewModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDetailModal";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
@@ -32,7 +32,7 @@ import {
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import { exportClientiPdf } from "@/lib/amministrazione/clienti-pdf";
-import type { AnagraficaSyncReviewItem } from "@/lib/amministrazione/fic-anagrafiche";
+import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
@@ -242,10 +242,9 @@ export function ClientiBoard() {
   const [pdfSelectMode, setPdfSelectMode] = useState(false);
   const [pdfDetailOpen, setPdfDetailOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [syncItems, setSyncItems] = useState<AnagraficaSyncReviewItem[] | null>(
+  const [syncItems, setSyncItems] = useState<FatturaSyncQueueItem[] | null>(
     null
   );
-  const [syncCompletedIds, setSyncCompletedIds] = useState<number[]>([]);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
 
@@ -261,19 +260,14 @@ export function ClientiBoard() {
     setSaveError(null);
     setSyncInfo(null);
     startSyncTransition(async () => {
-      const result = await startFicSyncClientiAction();
+      const result = await startFattureEmesseSyncAction();
       if (!result.success) {
         setSaveError(result.error);
         return;
       }
-      setSyncCompletedIds(result.completedFicIds);
-      if (result.resumed && result.skippedCompleted > 0) {
+      if (result.skippedAlreadyRegistered > 0) {
         setSyncInfo(
-          `Ripresa sync: saltate ${result.skippedCompleted} voci già fatte` +
-            (result.lastSavedName
-              ? ` (ultima: ${result.lastSavedName})`
-              : "") +
-            "."
+          `${result.skippedAlreadyRegistered} fatture già registrate saltate.`
         );
       }
       setSyncItems(result.items);
@@ -442,7 +436,7 @@ export function ClientiBoard() {
 
       {syncItems && syncItems.length === 0 ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          Nessun cliente nuovo o da aggiornare da Fatture in Cloud.
+          Nessuna fattura emessa da registrare da Fatture in Cloud.
         </p>
       ) : null}
 
@@ -453,19 +447,20 @@ export function ClientiBoard() {
       )}
 
       {syncItems && syncItems.length > 0 ? (
-        <AnagraficaSyncReviewModal
+        <FatturaSyncQueueModal
           items={syncItems}
-          initialCompletedIds={syncCompletedIds}
-          onFinished={() => {
-            setSyncItems(null);
-            setSyncInfo("Sincronizzazione clienti completata.");
-            void refresh();
-          }}
-          onPaused={() => {
+          onFinished={(n) => {
             setSyncItems(null);
             setSyncInfo(
-              "Sync in pausa. Al prossimo Sincronizza riparti da dove hai lasciato."
+              n > 0
+                ? `Sync completata: ${n} fatture emesse registrate.`
+                : "Sync completata senza nuove registrazioni."
             );
+            void refresh();
+          }}
+          onCancel={() => {
+            setSyncItems(null);
+            setSyncInfo("Sync interrotta.");
             void refresh();
           }}
         />

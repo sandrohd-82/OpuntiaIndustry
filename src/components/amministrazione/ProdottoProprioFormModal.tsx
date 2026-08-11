@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { FaCopy } from "react-icons/fa6";
 import {
   findProdottoProprioByCodice,
@@ -10,6 +11,7 @@ import {
   type ProdottoProprio,
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
+import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
 type Tipologia = "bio" | "convenzionale";
 
@@ -20,6 +22,8 @@ type Props = {
   catalog?: ProdottoProprio[];
   onClose: () => void;
   onSave: (values: ProdottoProprioInput) => void | Promise<void>;
+  /** Nested sopra un'altra modale (es. registrazione fattura). */
+  elevated?: boolean;
 };
 
 export function ProdottoProprioFormModal({
@@ -28,6 +32,7 @@ export function ProdottoProprioFormModal({
   catalog = [],
   onClose,
   onSave,
+  elevated = false,
 }: Props) {
   const titleId = useId();
   const isEdit = mode === "edit";
@@ -48,22 +53,27 @@ export function ProdottoProprioFormModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (modelloOpen) {
-          setModelloOpen(false);
-          return;
-        }
-        onClose();
+      if (e.key !== "Escape") return;
+      if (modelloOpen) {
+        setModelloOpen(false);
+        return;
       }
+      if (elevated) {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (hasNestedModalOpen()) return;
+      onClose();
     }
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, elevated);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, elevated);
       document.body.style.overflow = prev;
     };
-  }, [onClose, modelloOpen]);
+  }, [onClose, modelloOpen, elevated]);
 
   const codiceCompleto = useMemo(
     () => sanitizeCodiceProdottoProprio(codice),
@@ -164,11 +174,17 @@ export function ProdottoProprioFormModal({
     !(similiForti.length > 0 && !ackSimili) &&
     !saving;
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
+      data-nested-modal={elevated ? "prodotto" : undefined}
+      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
+        elevated ? "z-[100]" : "z-[60]"
+      }`}
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div
         role="dialog"
@@ -435,4 +451,7 @@ export function ProdottoProprioFormModal({
       )}
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(dialog, document.body);
 }
