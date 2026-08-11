@@ -218,6 +218,11 @@ export function ClienteFormModal({
 
   useEffect(() => {
     if (isEdit) return;
+    if (initial?.codiceTarga) {
+      setCodiceTarga(initial.codiceTarga);
+      setCodiceLoading(false);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       setCodiceLoading(true);
@@ -235,7 +240,7 @@ export function ClienteFormModal({
     return () => {
       cancelled = true;
     };
-  }, [isEdit]);
+  }, [isEdit, initial?.codiceTarga]);
 
   async function persist(values: ClienteInput): Promise<boolean> {
     setSaving(true);

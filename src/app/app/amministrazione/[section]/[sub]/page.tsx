@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
@@ -49,15 +49,37 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "schede" && sub === "fornitori") {
+  if (section === "fornitori") {
+    const tipologyFilter =
+      sub === "servizi"
+        ? ("servizio" as const)
+        : sub === "prodotti"
+          ? ("prodotto" as const)
+          : sub === "materia-prima"
+            ? ("materia_prima" as const)
+            : null;
+    const titles: Record<string, string> = {
+      tutti: "Fornitori",
+      servizi: "Fornitori — Servizi",
+      prodotti: "Fornitori — Prodotti",
+      "materia-prima": "Fornitori — Materia prima",
+    };
     return (
       <>
-        <AppHeader title="Fornitori" subtitle={page.description} />
+        <AppHeader
+          title={titles[sub] ?? "Fornitori"}
+          subtitle={page.description}
+        />
         <div className="p-6">
-          <FornitoriBoard />
+          <FornitoriBoard tipologyFilter={tipologyFilter} />
         </div>
       </>
     );
+  }
+
+  // Redirect compatibilità vecchio percorso Schede → Fornitori
+  if (section === "schede" && sub === "fornitori") {
+    redirect("/app/amministrazione/fornitori/tutti");
   }
 
   if (section === "schede" && sub === "clienti") {

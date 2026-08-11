@@ -234,9 +234,59 @@ export function draftToFornitoreInput(
     pec: draft.pec,
     sdiCode: draft.sdiCode,
     telefono: draft.telefono,
+    tipologie: [],
+    serviziOfferti: [],
+    prodottiFornitore: [],
     sedeAmministrativa: draft.sedeAmministrativa,
     sedeMagazzino: draft.sedeMagazzino,
     prodottiAcquistati: [],
+  };
+}
+
+/** Anteprima Fornitore per aprire la modale fornitore da sync clienti. */
+export function draftToFornitorePreview(
+  draft: AnagraficaSyncDraft,
+  codiceTarga: string
+): Fornitore {
+  return {
+    id: "",
+    codiceTarga,
+    ragioneSociale: draft.ragioneSociale,
+    partitaIva: draft.partitaIva,
+    email: draft.email,
+    pec: draft.pec,
+    sdiCode: draft.sdiCode,
+    telefono: draft.telefono,
+    tipologie: [],
+    serviziOfferti: [],
+    prodottiFornitore: [],
+    sedeAmministrativa: draft.sedeAmministrativa,
+    sedeMagazzino: draft.sedeMagazzino,
+    prodottiAcquistati: [],
+    bioCertificatoPath: "",
+    bioCodice: "",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function draftToClientePreview(
+  draft: AnagraficaSyncDraft,
+  codiceTarga: string
+): Cliente {
+  return {
+    id: "",
+    codiceTarga,
+    ragioneSociale: draft.ragioneSociale,
+    partitaIva: draft.partitaIva,
+    email: draft.email,
+    pec: draft.pec,
+    sdiCode: draft.sdiCode,
+    telefono: draft.telefono,
+    sedeAmministrativa: draft.sedeAmministrativa,
+    sedeMagazzino: draft.sedeMagazzino,
+    consegneAltraAzienda: [],
+    prodottiAcquistati: [],
+    createdAt: new Date().toISOString(),
   };
 }
 

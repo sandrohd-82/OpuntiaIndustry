@@ -391,6 +391,7 @@ export async function discardFicImportAction(input: {
   ficEntityId: number;
   entityName?: string;
   vatNumber?: string;
+  note?: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
@@ -400,6 +401,7 @@ export async function discardFicImportAction(input: {
       fic_entity_id: input.ficEntityId,
       entity_name: input.entityName ?? "",
       vat_number: input.vatNumber ?? "",
+      note: input.note ?? "",
       created_by: auth.userId,
     },
     { onConflict: "entity_kind,fic_entity_id" }

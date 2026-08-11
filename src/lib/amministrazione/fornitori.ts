@@ -1,4 +1,5 @@
-import type { FornitoreRow } from "@/types/database";
+import { normalizeTipologie } from "@/lib/amministrazione/catalogo-offerta";
+import type { FornitoreRow, FornitoreTipologia } from "@/types/database";
 
 export const FORNITORI_BIO_BUCKET = "fornitori-bio";
 
@@ -19,6 +20,9 @@ export type Fornitore = {
   pec: string;
   sdiCode: string;
   telefono: string;
+  tipologie: FornitoreTipologia[];
+  serviziOfferti: string[];
+  prodottiFornitore: string[];
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
@@ -37,6 +41,9 @@ export type FornitoreInput = {
   pec?: string;
   sdiCode?: string;
   telefono?: string;
+  tipologie?: FornitoreTipologia[];
+  serviziOfferti?: string[];
+  prodottiFornitore?: string[];
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
@@ -79,6 +86,13 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     pec: (input.pec ?? "").trim(),
     sdiCode: (input.sdiCode ?? "").trim(),
     telefono: (input.telefono ?? "").trim(),
+    tipologie: normalizeTipologie(input.tipologie),
+    serviziOfferti: (input.serviziOfferti ?? [])
+      .map((p) => p.trim())
+      .filter(Boolean),
+    prodottiFornitore: (input.prodottiFornitore ?? [])
+      .map((p) => p.trim())
+      .filter(Boolean),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
     prodottiAcquistati: input.prodottiAcquistati
@@ -100,6 +114,9 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",
     telefono: row.telefono ?? "",
+    tipologie: normalizeTipologie(row.tipologie),
+    serviziOfferti: row.servizi_offerti ?? [],
+    prodottiFornitore: row.prodotti_fornitore ?? [],
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,
@@ -167,7 +184,19 @@ function normalizeSearch(value: string): string {
 }
 
 export function volumeAcquistoOf(fornitore: Fornitore): number {
-  return fornitore.prodottiAcquistati.length;
+  return (
+    fornitore.prodottiAcquistati.length +
+    fornitore.serviziOfferti.length +
+    fornitore.prodottiFornitore.length
+  );
+}
+
+export function filterFornitoriByTipologia(
+  fornitori: Fornitore[],
+  tipologia: FornitoreTipologia | null
+): Fornitore[] {
+  if (!tipologia) return fornitori;
+  return fornitori.filter((f) => f.tipologie.includes(tipologia));
 }
 
 function matchesVolume(
@@ -212,7 +241,10 @@ export function filterFornitori(
         f.sedeAmministrativa.provincia,
         f.sedeMagazzino.citta,
         f.bioCodice,
+        ...f.tipologie,
         ...f.prodottiAcquistati,
+        ...f.serviziOfferti,
+        ...f.prodottiFornitore,
       ]
         .map(normalizeSearch)
         .join(" ");

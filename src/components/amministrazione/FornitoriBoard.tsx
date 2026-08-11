@@ -25,6 +25,7 @@ import type { AnagraficaSyncReviewItem } from "@/lib/amministrazione/fic-anagraf
 import {
   emptyFornitoriFilters,
   filterFornitori,
+  filterFornitoriByTipologia,
   formatSedeBreve,
   hasActiveFornitoriFilters,
   uniqueFornitoriCitta,
@@ -35,6 +36,7 @@ import {
 import { exportFornitoriPdf } from "@/lib/amministrazione/fornitori-pdf";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
+import type { FornitoreTipologia } from "@/types/database";
 
 function SedeDetail({ title, sede }: { title: string; sede: SedeFornitore }) {
   return (
@@ -177,7 +179,14 @@ function FornitoreRow({
   );
 }
 
-export function FornitoriBoard() {
+type FornitoriBoardProps = {
+  /** null = tutti i fornitori */
+  tipologyFilter?: FornitoreTipologia | null;
+};
+
+export function FornitoriBoard({
+  tipologyFilter = null,
+}: FornitoriBoardProps) {
   const {
     fornitori,
     ready,
@@ -249,14 +258,19 @@ export function FornitoriBoard() {
     };
   }, []);
 
+  const scoped = useMemo(
+    () => filterFornitoriByTipologia(fornitori, tipologyFilter),
+    [fornitori, tipologyFilter]
+  );
+
   const filtered = useMemo(
-    () => filterFornitori(fornitori, filters),
-    [fornitori, filters]
+    () => filterFornitori(scoped, filters),
+    [scoped, filters]
   );
 
   const cittaOptions = useMemo(
-    () => uniqueFornitoriCitta(fornitori),
-    [fornitori]
+    () => uniqueFornitoriCitta(scoped),
+    [scoped]
   );
 
   const selectedVisible = useMemo(

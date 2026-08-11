@@ -8,6 +8,7 @@ import {
   useState,
   useTransition,
 } from "react";
+import { createClienteAction } from "@/app/actions/clienti";
 import {
   clearFicImportCheckpointAction,
   discardFicImportAction,
@@ -15,14 +16,25 @@ import {
   pauseFicImportAction,
   saveFicImportReviewAction,
 } from "@/app/actions/fic-anagrafiche";
+import { createFornitoreAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import type {
   AnagraficaSyncDraft,
   AnagraficaSyncReviewItem,
   ChangedFieldKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
-import { emptySede } from "@/lib/amministrazione/fornitori";
+import {
+  draftToClientePreview,
+  draftToFornitorePreview,
+} from "@/lib/amministrazione/fic-anagrafiche";
+import {
+  emptySede,
+  type FornitoreInput,
+} from "@/lib/amministrazione/fornitori";
+import type { ClienteInput } from "@/lib/amministrazione/clienti";
 
 type Props = {
   items: AnagraficaSyncReviewItem[];
@@ -62,6 +74,7 @@ export function AnagraficaSyncReviewModal({
   }>({ ficEntityId: null, name: "", vat: "" });
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [transferOpen, setTransferOpen] = useState(false);
 
   const current = queue[index] ?? null;
   const [draft, setDraft] = useState<AnagraficaSyncDraft | null>(
@@ -116,6 +129,94 @@ export function AnagraficaSyncReviewModal({
     if (!queue.length) return "Nessuna voce";
     return `${index + 1} di ${queue.length} (già fatte in totale: ${completedIds.length})`;
   }, [index, queue.length, completedIds.length]);
+
+  async function completeCurrentAsDone(
+    ficEntityId: number,
+    name: string,
+    vat: string
+  ) {
+    const nextCompleted = completedIds.includes(ficEntityId)
+      ? completedIds
+      : [...completedIds, ficEntityId];
+    setCompletedIds(nextCompleted);
+    setLastSaved({ ficEntityId, name, vat });
+    const mark = await markFicImportProgressAction({
+      kind,
+      completedFicIds: nextCompleted,
+      lastSavedFicEntityId: ficEntityId,
+      lastSavedName: name,
+      lastSavedVat: vat,
+    });
+    if (!mark.success) {
+      setError(mark.error);
+      return;
+    }
+    if (index + 1 >= queue.length) {
+      await clearFicImportCheckpointAction(kind);
+      onFinished();
+      return;
+    }
+    setIndex((i) => i + 1);
+  }
+
+  async function handleTransferFornitoreSave(
+    values: FornitoreInput,
+    bioPdf?: File | null
+  ) {
+    if (!current || !draft) return;
+    const fd = new FormData();
+    fd.set("input", JSON.stringify(values));
+    if (bioPdf) fd.set("bioPdf", bioPdf);
+    const created = await createFornitoreAction(fd);
+    if (!created.success) {
+      setError(created.error);
+      return;
+    }
+    const discarded = await discardFicImportAction({
+      kind: "cliente",
+      ficEntityId: current.ficEntityId,
+      entityName: draft.ragioneSociale,
+      vatNumber: draft.partitaIva,
+      note: "trasferito_a_fornitori",
+    });
+    if (!discarded.success) {
+      setError(discarded.error);
+      return;
+    }
+    setTransferOpen(false);
+    await completeCurrentAsDone(
+      current.ficEntityId,
+      values.ragioneSociale,
+      values.partitaIva
+    );
+  }
+
+  async function handleTransferClienteSave(values: ClienteInput) {
+    if (!current || !draft) return false;
+    const created = await createClienteAction(values);
+    if (!created.success) {
+      setError(created.error);
+      return false;
+    }
+    const discarded = await discardFicImportAction({
+      kind: "fornitore",
+      ficEntityId: current.ficEntityId,
+      entityName: draft.ragioneSociale,
+      vatNumber: draft.partitaIva,
+      note: "trasferito_a_clienti",
+    });
+    if (!discarded.success) {
+      setError(discarded.error);
+      return false;
+    }
+    setTransferOpen(false);
+    await completeCurrentAsDone(
+      current.ficEntityId,
+      values.ragioneSociale,
+      values.partitaIva
+    );
+    return true;
+  }
 
   function handleSave() {
     if (!current || !draft) return;
@@ -427,6 +528,25 @@ export function AnagraficaSyncReviewModal({
           >
             {pending ? "Pausa…" : "Pausa"}
           </button>
+          {current.kind === "cliente" ? (
+            <button
+              type="button"
+              onClick={() => setTransferOpen(true)}
+              disabled={pending}
+              className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-900 disabled:opacity-60"
+            >
+              Passa a fornitori
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setTransferOpen(true)}
+              disabled={pending}
+              className="rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-900 disabled:opacity-60"
+            >
+              Passa a clienti
+            </button>
+          )}
           <button
             type="button"
             onClick={handleDiscard}
@@ -445,6 +565,26 @@ export function AnagraficaSyncReviewModal({
           </button>
         </div>
       </div>
+
+      {transferOpen && current.kind === "cliente" && draft ? (
+        <FornitoreFormModal
+          mode="create"
+          elevated
+          initial={draftToFornitorePreview(draft, "")}
+          onClose={() => setTransferOpen(false)}
+          onSave={handleTransferFornitoreSave}
+        />
+      ) : null}
+
+      {transferOpen && current.kind === "fornitore" && draft ? (
+        <ClienteFormModal
+          mode="create"
+          elevated
+          initial={draftToClientePreview(draft, "")}
+          onClose={() => setTransferOpen(false)}
+          onSave={handleTransferClienteSave}
+        />
+      ) : null}
     </div>
   );
 }

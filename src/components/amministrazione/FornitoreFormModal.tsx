@@ -5,14 +5,17 @@ import { FaChevronDown } from "react-icons/fa6";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
+import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffertaTags";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
+import { FORNITORE_TIPOLOGIE } from "@/lib/amministrazione/catalogo-offerta";
 import {
   emptySede,
   type Fornitore,
   type FornitoreInput,
   type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
+import type { FornitoreTipologia } from "@/types/database";
 
 type Props = {
   mode: "create" | "edit";
@@ -22,6 +25,8 @@ type Props = {
     values: FornitoreInput,
     bioPdf?: File | null
   ) => void | Promise<void>;
+  /** Sopra un’altra modale (es. sync clienti → passa a fornitori). */
+  elevated?: boolean;
 };
 
 function sameSede(a: SedeFornitore, b: SedeFornitore) {
@@ -49,6 +54,7 @@ export function FornitoreFormModal({
   initial,
   onClose,
   onSave,
+  elevated = false,
 }: Props) {
   const titleId = useId();
   const isEdit = mode === "edit";
@@ -63,6 +69,15 @@ export function FornitoreFormModal({
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
+  const [tipologie, setTipologie] = useState<FornitoreTipologia[]>(
+    initial?.tipologie ?? []
+  );
+  const [servizi, setServizi] = useState<string[]>(
+    initial?.serviziOfferti ?? []
+  );
+  const [prodottiFornitore, setProdottiFornitore] = useState<string[]>(
+    initial?.prodottiFornitore ?? []
+  );
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -105,6 +120,11 @@ export function FornitoreFormModal({
 
   useEffect(() => {
     if (isEdit) return;
+    if (initial?.codiceTarga) {
+      setCodiceTarga(initial.codiceTarga);
+      setCodiceLoading(false);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       setCodiceLoading(true);
@@ -122,7 +142,7 @@ export function FornitoreFormModal({
     return () => {
       cancelled = true;
     };
-  }, [isEdit]);
+  }, [isEdit, initial?.codiceTarga]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -143,13 +163,20 @@ export function FornitoreFormModal({
           pec: pec.trim(),
           sdiCode: sdiCode.trim(),
           telefono: telefono.trim(),
+          tipologie,
+          serviziOfferti: tipologie.includes("servizio") ? servizi : [],
+          prodottiFornitore: tipologie.includes("prodotto")
+            ? prodottiFornitore
+            : [],
           sedeAmministrativa,
           sedeMagazzino: !ritiroOpen
             ? emptySede()
             : stessaSede
               ? sedeAmministrativa
               : sedeMagazzino,
-          prodottiAcquistati: prodotti,
+          prodottiAcquistati: tipologie.includes("materia_prima")
+            ? prodotti
+            : [],
           bioCertificatoPath: initial?.bioCertificatoPath ?? "",
           bioCodice: bioCodice.trim(),
           removeBioCertificato: removeBioPdf && !bioPdf,
@@ -161,9 +188,17 @@ export function FornitoreFormModal({
     }
   }
 
+  function toggleTipologia(t: FornitoreTipologia) {
+    setTipologie((prev) =>
+      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+    );
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
+      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
+        elevated ? "z-[80]" : "z-[60]"
+      }`}
       role="presentation"
       onClick={onClose}
     >
@@ -329,17 +364,59 @@ export function FornitoreFormModal({
             )}
           </div>
 
-          <FornitoreDiTags
-            value={prodotti}
-            onChange={setProdotti}
-            bioCertificatoPath={
-              removeBioPdf && !bioPdf
-                ? ""
-                : initial?.bioCertificatoPath || (bioPdf ? "__local__" : "")
-            }
-            bioCodice={bioCodice}
-            hasLocalBioPdf={Boolean(bioPdf)}
-          />
+          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+            <legend className="px-1 text-sm font-semibold">
+              Cosa offre questo fornitore?
+            </legend>
+            <p className="text-xs text-[var(--muted)]">
+              Puoi selezionare più voci (es. servizi + materia prima).
+            </p>
+            <div className="flex flex-wrap gap-3">
+              {FORNITORE_TIPOLOGIE.map((t) => (
+                <label key={t.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={tipologie.includes(t.value)}
+                    onChange={() => toggleTipologia(t.value)}
+                    className="rounded border-[var(--border)]"
+                  />
+                  {t.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {tipologie.includes("servizio") ? (
+            <CatalogoOffertaTags
+              kind="servizio"
+              title="Servizi offerti"
+              value={servizi}
+              onChange={setServizi}
+            />
+          ) : null}
+
+          {tipologie.includes("prodotto") ? (
+            <CatalogoOffertaTags
+              kind="prodotto"
+              title="Prodotti offerti"
+              value={prodottiFornitore}
+              onChange={setProdottiFornitore}
+            />
+          ) : null}
+
+          {tipologie.includes("materia_prima") ? (
+            <FornitoreDiTags
+              value={prodotti}
+              onChange={setProdotti}
+              bioCertificatoPath={
+                removeBioPdf && !bioPdf
+                  ? ""
+                  : initial?.bioCertificatoPath || (bioPdf ? "__local__" : "")
+              }
+              bioCodice={bioCodice}
+              hasLocalBioPdf={Boolean(bioPdf)}
+            />
+          ) : null}
 
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-medium">Bio</legend>

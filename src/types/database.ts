@@ -116,6 +116,8 @@ export interface AuthSession2faUpdate {
   created_at?: string;
 }
 
+export type FornitoreTipologia = "servizio" | "prodotto" | "materia_prima";
+
 export interface FornitoreRow {
   id: string;
   codice_targa: string;
@@ -135,6 +137,9 @@ export interface FornitoreRow {
   sede_mag_citta: string;
   sede_mag_cap: string;
   sede_mag_indirizzo: string;
+  tipologie: FornitoreTipologia[];
+  servizi_offerti: string[];
+  prodotti_fornitore: string[];
   prodotti_acquistati: string[];
   bio_certificato: string;
   bio_certificato_path: string;
@@ -166,6 +171,9 @@ export interface FornitoreInsert {
   sede_mag_citta: string;
   sede_mag_cap: string;
   sede_mag_indirizzo: string;
+  tipologie?: FornitoreTipologia[];
+  servizi_offerti?: string[];
+  prodotti_fornitore?: string[];
   prodotti_acquistati?: string[];
   bio_certificato?: string;
   bio_certificato_path?: string;
@@ -197,6 +205,9 @@ export interface FornitoreUpdate {
   sede_mag_citta?: string;
   sede_mag_cap?: string;
   sede_mag_indirizzo?: string;
+  tipologie?: FornitoreTipologia[];
+  servizi_offerti?: string[];
+  prodotti_fornitore?: string[];
   prodotti_acquistati?: string[];
   bio_certificato?: string;
   bio_certificato_path?: string;
@@ -645,6 +656,56 @@ export type FicSyncLogUpdate = Partial<
   >
 >;
 
+export interface CatalogoServizioRow {
+  id: string;
+  codice: string;
+  nome: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type CatalogoServizioInsert = {
+  id?: string;
+  codice: string;
+  nome: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type CatalogoServizioUpdate = Partial<CatalogoServizioInsert> & {
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export interface CatalogoProdottoFornitoreRow {
+  id: string;
+  codice: string;
+  nome: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type CatalogoProdottoFornitoreInsert = {
+  id?: string;
+  codice: string;
+  nome: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type CatalogoProdottoFornitoreUpdate = Partial<CatalogoProdottoFornitoreInsert> & {
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
 export type FicImportEntityKind = "supplier" | "client";
 
 export interface FicImportDiscardedRow {
@@ -703,6 +764,18 @@ export interface Database {
         Row: FornitoreRow;
         Insert: FornitoreInsert;
         Update: FornitoreUpdate;
+        Relationships: [];
+      };
+      catalogo_servizi: {
+        Row: CatalogoServizioRow;
+        Insert: CatalogoServizioInsert;
+        Update: CatalogoServizioUpdate;
+        Relationships: [];
+      };
+      catalogo_prodotti_fornitore: {
+        Row: CatalogoProdottoFornitoreRow;
+        Insert: CatalogoProdottoFornitoreInsert;
+        Update: CatalogoProdottoFornitoreUpdate;
         Relationships: [];
       };
       clienti: {

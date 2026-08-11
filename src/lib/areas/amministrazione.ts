@@ -54,17 +54,44 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "fornitori",
+    label: "Fornitori",
+    description:
+      "Anagrafiche fornitori: tutti, oppure filtrati per servizi, prodotti, materia prima",
+    path: "/app/amministrazione/fornitori",
+    children: [
+      {
+        slug: "tutti",
+        label: "Tutti",
+        description: "Tutti i fornitori insieme",
+        path: "/app/amministrazione/fornitori/tutti",
+      },
+      {
+        slug: "servizi",
+        label: "Servizi",
+        description: "Fornitori che offrono servizi",
+        path: "/app/amministrazione/fornitori/servizi",
+      },
+      {
+        slug: "prodotti",
+        label: "Prodotti",
+        description: "Fornitori che offrono prodotti",
+        path: "/app/amministrazione/fornitori/prodotti",
+      },
+      {
+        slug: "materia-prima",
+        label: "Materia prima",
+        description: "Fornitori di materia prima",
+        path: "/app/amministrazione/fornitori/materia-prima",
+      },
+    ],
+  },
+  {
     slug: "schede",
     label: "Schede",
     description: "Anagrafiche e schede di riferimento",
     path: "/app/amministrazione/schede",
     children: [
-      {
-        slug: "fornitori",
-        label: "Fornitori",
-        description: "Schede fornitori",
-        path: "/app/amministrazione/schede/fornitori",
-      },
       {
         slug: "materia-prima",
         label: "Materia prima",
