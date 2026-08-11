@@ -1,6 +1,5 @@
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
-import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
 import { GraficiMateriaPrimaBoard } from "@/components/amministrazione/grafici/GraficiMateriaPrimaBoard";
@@ -78,20 +77,12 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  // Redirect compatibilità vecchio percorso Schede → Fornitori
+  // Redirect compatibilità vecchi percorsi
   if (section === "schede" && sub === "fornitori") {
     redirect("/app/amministrazione/fornitori/tutti");
   }
-
   if (section === "schede" && sub === "clienti") {
-    return (
-      <>
-        <AppHeader title="Clienti" subtitle={page.description} />
-        <div className="p-6">
-          <ClientiBoard />
-        </div>
-      </>
-    );
+    redirect("/app/amministrazione/clienti");
   }
 
   if (section === "schede" && sub === "materia-prima") {
