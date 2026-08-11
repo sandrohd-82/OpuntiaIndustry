@@ -168,6 +168,43 @@ set
   last_saved_vat = '';
 
 -- ---------------------------------------------------------------------------
+-- Dedupe P.IVA attive (tiene la targa più bassa, soft-delete le altre)
+-- ---------------------------------------------------------------------------
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by lower(trim(partita_iva))
+      order by codice_targa asc, created_at asc
+    ) as rn
+  from public.clienti
+  where deleted_at is null and trim(partita_iva) <> ''
+)
+update public.clienti c
+set
+  deleted_at = now(),
+  updated_at = now()
+from ranked r
+where c.id = r.id and r.rn > 1;
+
+with ranked as (
+  select
+    id,
+    row_number() over (
+      partition by lower(trim(partita_iva))
+      order by codice_targa asc, created_at asc
+    ) as rn
+  from public.fornitori
+  where deleted_at is null and trim(partita_iva) <> ''
+)
+update public.fornitori f
+set
+  deleted_at = now(),
+  updated_at = now()
+from ranked r
+where f.id = r.id and r.rn > 1;
+
+-- ---------------------------------------------------------------------------
 -- Univocità P.IVA sulle schede attive
 -- ---------------------------------------------------------------------------
 create unique index if not exists clienti_partita_iva_active_uidx
