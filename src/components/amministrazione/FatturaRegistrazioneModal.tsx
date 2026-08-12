@@ -16,6 +16,7 @@ import { ProdottoPrezzoStoricoInfo } from "@/components/amministrazione/Prodotto
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
+  bilancioDilazioni,
   calcolaTotaliFattura,
   emptyFatturaDilazione,
   emptyFatturaRiga,
@@ -176,6 +177,15 @@ export function FatturaRegistrazioneModal({
       ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
       : null;
 
+  const dilazioniBilancio = useMemo(
+    () =>
+      bilancioDilazioni(
+        totals.totale,
+        dilazioniNormalizzate.map((d) => d.importo)
+      ),
+    [totals.totale, dilazioniNormalizzate]
+  );
+
   useEffect(() => {
     if (statoDaDilazioni && statoDaDilazioni !== statoPagamento) {
       setStatoPagamento(statoDaDilazioni);
@@ -332,6 +342,18 @@ export function FatturaRegistrazioneModal({
           ? "Seleziona un cliente (intestazione)."
           : "Seleziona un fornitore (intestazione)."
       );
+      return;
+    }
+    if (dilazioniNormalizzate.length > 0 && !dilazioniBilancio.equilibrato) {
+      if (dilazioniBilancio.mancante > 0) {
+        setFormError(
+          `Dilazioni incomplete: manca ${formatEuro(dilazioniBilancio.mancante)} rispetto al totale fattura (${formatEuro(dilazioniBilancio.totaleFattura)}).`
+        );
+      } else {
+        setFormError(
+          `Dilazioni in esubero di ${formatEuro(dilazioniBilancio.esubero)} rispetto al totale fattura (${formatEuro(dilazioniBilancio.totaleFattura)}).`
+        );
+      }
       return;
     }
     setSaving(true);
@@ -827,12 +849,22 @@ export function FatturaRegistrazioneModal({
               <button
                 type="button"
                 onClick={() =>
-                  setDilazioni((prev) => [
-                    ...prev,
-                    emptyFatturaDilazione(
-                      prev.length === 0 ? totals.totale : 0
-                    ),
-                  ])
+                  setDilazioni((prev) => {
+                    const sommaAttuale = prev.reduce(
+                      (s, d) => s + numberOrZero(d.importo),
+                      0
+                    );
+                    const residuo = Math.max(
+                      0,
+                      Math.round((totals.totale - sommaAttuale) * 100) / 100
+                    );
+                    return [
+                      ...prev,
+                      emptyFatturaDilazione(
+                        prev.length === 0 ? totals.totale : residuo
+                      ),
+                    ];
+                  })
                 }
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
               >
@@ -846,6 +878,38 @@ export function FatturaRegistrazioneModal({
                 Nessuna dilazione. Usa «Aggiungi dilazione» per scadenze multiple.
               </p>
             ) : (
+              <>
+              <div
+                className={`rounded-lg border px-3 py-2 text-xs ${
+                  dilazioniBilancio.equilibrato
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                    : dilazioniBilancio.esubero > 0
+                      ? "border-rose-200 bg-rose-50 text-rose-900"
+                      : "border-amber-200 bg-amber-50 text-amber-950"
+                }`}
+                role="status"
+              >
+                <p className="font-medium">
+                  Controllo dilazioni · Somma rate{" "}
+                  {formatEuro(dilazioniBilancio.sommaDilazioni)} su totale{" "}
+                  {formatEuro(dilazioniBilancio.totaleFattura)}
+                </p>
+                {dilazioniBilancio.equilibrato ? (
+                  <p className="mt-0.5">
+                    Importi allineati al totale fattura.
+                  </p>
+                ) : dilazioniBilancio.mancante > 0 ? (
+                  <p className="mt-0.5">
+                    Mancano {formatEuro(dilazioniBilancio.mancante)} da
+                    assegnare alle dilazioni.
+                  </p>
+                ) : (
+                  <p className="mt-0.5">
+                    Esubero di {formatEuro(dilazioniBilancio.esubero)} rispetto
+                    al totale fattura.
+                  </p>
+                )}
+              </div>
               <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
                 <table className="w-full min-w-[560px] text-left text-sm">
                   <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -957,6 +1021,7 @@ export function FatturaRegistrazioneModal({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </section>
 

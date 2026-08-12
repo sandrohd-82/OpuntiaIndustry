@@ -195,6 +195,38 @@ export function emptyFatturaDilazione(
   };
 }
 
+export type DilazioniBilancio = {
+  sommaDilazioni: number;
+  totaleFattura: number;
+  differenza: number;
+  /** somma < totale (manca da dilazionare) */
+  mancante: number;
+  /** somma > totale */
+  esubero: number;
+  equilibrato: boolean;
+};
+
+/** Confronto somma rate vs totale fattura (tolleranza 1 cent). */
+export function bilancioDilazioni(
+  totaleFattura: number,
+  importiDilazioni: number[]
+): DilazioniBilancio {
+  const totale = roundMoney(totaleFattura);
+  const somma = roundMoney(
+    importiDilazioni.reduce((s, n) => s + (Number(n) || 0), 0)
+  );
+  const differenza = roundMoney(somma - totale);
+  const equilibrato = Math.abs(differenza) < 0.005;
+  return {
+    sommaDilazioni: somma,
+    totaleFattura: totale,
+    differenza,
+    mancante: equilibrato || differenza >= 0 ? 0 : roundMoney(-differenza),
+    esubero: equilibrato || differenza <= 0 ? 0 : differenza,
+    equilibrato,
+  };
+}
+
 /** Ft-26-C001/1 */
 export function buildNumeroInternoFattura(input: {
   dataEmissione: string;

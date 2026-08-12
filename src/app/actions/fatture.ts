@@ -2,9 +2,11 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import {
+  bilancioDilazioni,
   buildNumeroInternoFattura,
   calcolaTotaliFattura,
   fatturaInputSchema,
+  formatEuro,
   mapFatturaEmessaRow,
   mapFatturaRicevutaRow,
   type Fattura,
@@ -245,6 +247,25 @@ export async function createFatturaAction(
     spedizioneIvaApplicata: input.spedizioneIvaApplicata,
     ivaPercentuale: input.ivaPercentuale,
   });
+
+  if (input.dilazioni.length > 0) {
+    const bil = bilancioDilazioni(
+      totals.totale,
+      input.dilazioni.map((d) => d.importo)
+    );
+    if (!bil.equilibrato) {
+      if (bil.mancante > 0) {
+        return {
+          success: false,
+          error: `Dilazioni incomplete: manca ${formatEuro(bil.mancante)} rispetto al totale ${formatEuro(bil.totaleFattura)}.`,
+        };
+      }
+      return {
+        success: false,
+        error: `Dilazioni in esubero di ${formatEuro(bil.esubero)} rispetto al totale ${formatEuro(bil.totaleFattura)}.`,
+      };
+    }
+  }
 
   try {
     const seq = await nextSeqFattura(
