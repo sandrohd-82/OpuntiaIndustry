@@ -1,26 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listClientiAction } from "@/app/actions/clienti";
-import { getGraficiIncassiAction } from "@/app/actions/grafici";
+import {
+  getGraficiIncassiAction,
+  getGraficiIncassiMultiAnnoAction,
+} from "@/app/actions/grafici";
 import { GraficiPeriodoFilters } from "@/components/amministrazione/grafici/GraficiPeriodoFilters";
 import { MiniBarChart } from "@/components/amministrazione/grafici/MiniBarChart";
+import { MultiYearLineChart } from "@/components/amministrazione/grafici/MultiYearLineChart";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
   currentAnno,
   emptySerieAnno,
   formatEuro,
+  labelAndamento,
+  type GraficiAndamento,
+  type GraficiFonteIncassi,
   type GraficiKpi,
+  type GraficiMultiAnno,
 } from "@/lib/amministrazione/grafici";
+
+function badgeClass(a: GraficiAndamento): string {
+  if (a === "crescita") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+  if (a === "calo") return "bg-rose-50 text-rose-800 border-rose-200";
+  if (a === "stabile") return "bg-amber-50 text-amber-900 border-amber-200";
+  return "bg-slate-50 text-slate-600 border-slate-200";
+}
 
 export function GraficiIncassiBoard() {
   const [anno, setAnno] = useState(currentAnno);
   const [mese, setMese] = useState<number | null>(null);
   const [clienteId, setClienteId] = useState<string | null>(null);
+  const [fonte, setFonte] = useState<GraficiFonteIncassi>("fatture");
+  const [anniConfronto, setAnniConfronto] = useState<number[]>([]);
   const [clienti, setClienti] = useState<Cliente[]>([]);
   const [kpi, setKpi] = useState<GraficiKpi>(() => emptySerieAnno(currentAnno()));
+  const [multi, setMulti] = useState<GraficiMultiAnno | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+
+  const multiMode = anniConfronto.length > 0;
 
   useEffect(() => {
     void listClientiAction().then((r) => {
@@ -29,34 +49,82 @@ export function GraficiIncassiBoard() {
   }, []);
 
   useEffect(() => {
+    setAnniConfronto((prev) => prev.filter((y) => y !== anno));
+  }, [anno]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       setReady(false);
-      const result = await getGraficiIncassiAction({
-        anno,
-        mese,
-        clienteId,
-      });
-      if (cancelled) return;
-      if (!result.success) {
-        setError(result.error);
-        setKpi(emptySerieAnno(anno));
+      if (multiMode) {
+        const result = await getGraficiIncassiMultiAnnoAction({
+          anno,
+          mese,
+          clienteId,
+          fonte,
+          anniConfronto: [anno, ...anniConfronto],
+        });
+        if (cancelled) return;
+        if (!result.success) {
+          setError(result.error);
+          setMulti(null);
+          setKpi(emptySerieAnno(anno));
+        } else {
+          setError(null);
+          setMulti(result.data);
+          const current =
+            result.data.seriePerAnno.find((s) => s.anno === anno) ??
+            emptySerieAnno(anno);
+          setKpi(current);
+        }
       } else {
-        setError(null);
-        setKpi(result.data);
+        const result = await getGraficiIncassiAction({
+          anno,
+          mese,
+          clienteId,
+          fonte,
+        });
+        if (cancelled) return;
+        if (!result.success) {
+          setError(result.error);
+          setKpi(emptySerieAnno(anno));
+          setMulti(null);
+        } else {
+          setError(null);
+          setKpi(result.data);
+          setMulti(null);
+        }
       }
       setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [anno, mese, clienteId]);
+  }, [anno, mese, clienteId, fonte, multiMode, anniConfronto]);
+
+  const clienteLabel = useMemo(() => {
+    if (!clienteId) return "Tutte le aziende";
+    const c = clienti.find((x) => x.id === clienteId);
+    return c ? `${c.codiceTarga} — ${c.ragioneSociale}` : "Azienda selezionata";
+  }, [clienteId, clienti]);
+
+  const fonteLabel =
+    fonte === "fatture"
+      ? "fatture emesse"
+      : fonte === "ordini"
+        ? "ordini pagati"
+        : "fatture + ordini pagati";
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
-        Solo ordini con flag <strong>Pagato = Sì</strong>. Importo = totale
-        ordine (€).
+        Incassi da <strong>{fonteLabel}</strong>
+        {fonte === "fatture"
+          ? " (totale documento per data emissione)."
+          : fonte === "ordini"
+            ? " (flag Pagato = Sì)."
+            : " — attenzione: possibili doppi conteggi se ordine e fattura coincidono."}{" "}
+        Filtra per periodo e/o azienda; confronta più anni sullo stesso grafico.
       </p>
 
       <GraficiPeriodoFilters
@@ -64,6 +132,8 @@ export function GraficiIncassiBoard() {
         mese={mese}
         onAnnoChange={setAnno}
         onMeseChange={setMese}
+        anniConfronto={anniConfronto}
+        onAnniConfrontoChange={setAnniConfronto}
       >
         <label className="block text-sm">
           <span className="mb-1 block font-medium">Azienda (cliente)</span>
@@ -80,6 +150,18 @@ export function GraficiIncassiBoard() {
             ))}
           </select>
         </label>
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Fonte dati</span>
+          <select
+            value={fonte}
+            onChange={(e) => setFonte(e.target.value as GraficiFonteIncassi)}
+            className="min-w-[200px] rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            <option value="fatture">Fatture emesse</option>
+            <option value="ordini">Solo ordini pagati</option>
+            <option value="entrambi">Fatture + ordini pagati</option>
+          </select>
+        </label>
       </GraficiPeriodoFilters>
 
       {error ? (
@@ -89,19 +171,41 @@ export function GraficiIncassiBoard() {
       ) : null}
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
-          Totale incassato
-        </p>
-        <p className="text-2xl font-semibold tabular-nums">
-          {ready ? formatEuro(kpi.totale) : "…"}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
+              Totale · {clienteLabel}
+            </p>
+            <p className="text-2xl font-semibold tabular-nums">
+              {ready ? formatEuro(kpi.totale) : "…"}
+            </p>
+          </div>
+          {multi ? (
+            <div
+              className={`rounded-lg border px-3 py-2 text-sm ${badgeClass(multi.andamento)}`}
+            >
+              <p className="font-semibold">{labelAndamento(multi.andamento)}</p>
+              <p className="mt-0.5 text-xs opacity-90">{multi.notaAndamento}</p>
+            </div>
+          ) : null}
+        </div>
+
         <div className="mt-4">
-          <MiniBarChart
-            serie={kpi.serie}
-            height={220}
-            emptyLabel="Nessun ordine pagato nel periodo"
-            valueFormatter={formatEuro}
-          />
+          {multiMode && multi ? (
+            <MultiYearLineChart
+              seriePerAnno={multi.seriePerAnno}
+              height={280}
+              emptyLabel="Nessun incasso nel periodo selezionato"
+              valueFormatter={formatEuro}
+            />
+          ) : (
+            <MiniBarChart
+              serie={kpi.serie}
+              height={220}
+              emptyLabel="Nessuna fattura / incasso nel periodo"
+              valueFormatter={formatEuro}
+            />
+          )}
         </div>
       </div>
     </div>

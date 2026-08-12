@@ -27,6 +27,17 @@ export type GraficiKpi = {
   anno: number;
 };
 
+export type GraficiFonteIncassi = "fatture" | "ordini" | "entrambi";
+
+export type GraficiAndamento = "crescita" | "stabile" | "calo" | "n/d";
+
+export type GraficiMultiAnno = {
+  seriePerAnno: GraficiKpi[];
+  andamento: GraficiAndamento;
+  variazionePct: number | null;
+  notaAndamento: string;
+};
+
 export const graficiPeriodoSchema = z.object({
   anno: z.number().int().min(2000).max(2100),
   mese: z.number().int().min(1).max(12).nullable().optional(),
@@ -34,10 +45,14 @@ export const graficiPeriodoSchema = z.object({
 
 export const graficiOrdiniFiltroSchema = graficiPeriodoSchema.extend({
   prodottoId: z.string().uuid().nullable().optional(),
+  clienteId: z.string().uuid().nullable().optional(),
+  anniConfronto: z.array(z.number().int().min(2000).max(2100)).optional(),
 });
 
 export const graficiIncassiFiltroSchema = graficiPeriodoSchema.extend({
   clienteId: z.string().uuid().nullable().optional(),
+  fonte: z.enum(["fatture", "ordini", "entrambi"]).optional(),
+  anniConfronto: z.array(z.number().int().min(2000).max(2100)).optional(),
 });
 
 export type GraficiOrdiniFiltro = z.infer<typeof graficiOrdiniFiltroSchema>;
@@ -59,6 +74,12 @@ export function currentAnno(): number {
   return new Date().getFullYear();
 }
 
+/** Anni selezionabili nei filtri (anno corrente e 7 precedenti). */
+export function anniDisponibili(now = new Date()): number[] {
+  const y = now.getFullYear();
+  return Array.from({ length: 8 }, (_, i) => y - i);
+}
+
 export function formatQty(value: number): string {
   return value.toLocaleString("it-IT", {
     maximumFractionDigits: 2,
@@ -71,3 +92,59 @@ export function formatEuro(value: number): string {
     currency: "EUR",
   });
 }
+
+export function labelAndamento(a: GraficiAndamento): string {
+  if (a === "crescita") return "In crescita";
+  if (a === "calo") return "In calo";
+  if (a === "stabile") return "Stabile";
+  return "N/D";
+}
+
+/** Confronta totale anno più recente vs precedente (≥5% = crescita/calo). */
+export function calcolaAndamentoMultiAnno(
+  seriePerAnno: GraficiKpi[]
+): Pick<GraficiMultiAnno, "andamento" | "variazionePct" | "notaAndamento"> {
+  const sorted = [...seriePerAnno].sort((a, b) => b.anno - a.anno);
+  if (sorted.length < 2) {
+    return {
+      andamento: "n/d",
+      variazionePct: null,
+      notaAndamento: "Seleziona almeno due anni per il confronto andamento.",
+    };
+  }
+  const ultimo = sorted[0];
+  const prec = sorted[1];
+  if (prec.totale === 0 && ultimo.totale === 0) {
+    return {
+      andamento: "stabile",
+      variazionePct: 0,
+      notaAndamento: `Nessun valore in ${prec.anno} e ${ultimo.anno}.`,
+    };
+  }
+  if (prec.totale === 0) {
+    return {
+      andamento: "crescita",
+      variazionePct: null,
+      notaAndamento: `Da 0 a ${ultimo.anno}: crescita (base ${prec.anno} nulla).`,
+    };
+  }
+  const pct = ((ultimo.totale - prec.totale) / prec.totale) * 100;
+  const andamento: GraficiAndamento =
+    pct > 5 ? "crescita" : pct < -5 ? "calo" : "stabile";
+  return {
+    andamento,
+    variazionePct: Math.round(pct * 10) / 10,
+    notaAndamento: `${ultimo.anno} vs ${prec.anno}: ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% (${labelAndamento(andamento)}).`,
+  };
+}
+
+export const COLORI_ANNI = [
+  "#0f766e",
+  "#b45309",
+  "#1d4ed8",
+  "#be123c",
+  "#7c3aed",
+  "#065f46",
+  "#9a3412",
+  "#334155",
+] as const;
