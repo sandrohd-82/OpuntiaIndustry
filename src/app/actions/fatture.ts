@@ -828,13 +828,45 @@ export async function getFatturaByIdAction(
       .eq("fattura_id", id)
       .is("deleted_at", null)
       .order("sort_order", { ascending: true });
+    const fattura = mapFatturaEmessaRow(
+      data as FatturaEmessaRow,
+      (righe ?? []) as FatturaEmessaRigaRow[],
+      (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
+    );
+
+    if (fattura.kind === "nota_credito") {
+      const linkIds = [
+        fattura.fatturaCollegataId,
+        fattura.fatturaSostitutivaId,
+      ].filter((x): x is string => Boolean(x));
+      if (linkIds.length > 0) {
+        const { data: linked } = await supabase
+          .from("fatture_emesse")
+          .select("id, numero_interno")
+          .in("id", linkIds)
+          .is("deleted_at", null);
+        const byId = new Map(
+          (linked ?? []).map((r) => [
+            String(r.id),
+            String(r.numero_interno ?? ""),
+          ])
+        );
+        if (fattura.fatturaCollegataId) {
+          fattura.fatturaCollegataNumeroInterno =
+            byId.get(fattura.fatturaCollegataId) ||
+            fattura.riferimentoFatturaEsterno ||
+            null;
+        }
+        if (fattura.fatturaSostitutivaId) {
+          fattura.fatturaSostitutivaNumeroInterno =
+            byId.get(fattura.fatturaSostitutivaId) || null;
+        }
+      }
+    }
+
     return {
       success: true,
-      fattura: mapFatturaEmessaRow(
-        data as FatturaEmessaRow,
-        (righe ?? []) as FatturaEmessaRigaRow[],
-        (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
-      ),
+      fattura,
     };
   }
 

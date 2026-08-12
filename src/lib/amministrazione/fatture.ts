@@ -67,6 +67,10 @@ export type Fattura = {
   fatturaCompensativaId: string | null;
   modalitaCollegamento: FatturaModalitaCollegamentoNc | null;
   fatturaSostitutivaId: string | null;
+  /** Solo dettaglio NC: n. interno fattura stornata. */
+  fatturaCollegataNumeroInterno?: string | null;
+  /** Solo dettaglio NC: n. interno fattura sostitutiva. */
+  fatturaSostitutivaNumeroInterno?: string | null;
   ricevuta: FatturaAllegatoMeta | null;
   versione: number;
   documentoStato: FatturaDocumentoStato;

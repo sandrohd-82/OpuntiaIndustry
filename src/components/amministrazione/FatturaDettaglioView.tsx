@@ -98,7 +98,9 @@ export function FatturaDettaglioView({ fattura }: Props) {
                 href={fatturaDetailPath("emessa", fattura.fatturaCollegataId)}
                 className="font-mono font-medium text-[var(--primary)] hover:underline"
               >
-                {fattura.riferimentoFatturaEsterno || "Apri fattura"}
+                {fattura.fatturaCollegataNumeroInterno ||
+                  fattura.riferimentoFatturaEsterno ||
+                  "Fattura collegata"}
               </Link>
               <span className="text-[var(--muted)]">
                 {" "}
@@ -114,7 +116,8 @@ export function FatturaDettaglioView({ fattura }: Props) {
                 href={fatturaDetailPath("emessa", fattura.fatturaSostitutivaId)}
                 className="font-mono font-medium text-[var(--primary)] hover:underline"
               >
-                Apri fattura di rimpiazzo
+                {fattura.fatturaSostitutivaNumeroInterno ||
+                  "Fattura di rimpiazzo"}
               </Link>
             </p>
           ) : null}
