@@ -31,8 +31,13 @@ function dateRangeForYear(
   };
 }
 
+type DateFilterQuery = {
+  gte: (column: string, value: string) => DateFilterQuery;
+  lte: (column: string, value: string) => DateFilterQuery;
+};
+
 /** Applica filtro data solo se non è “Intera vita”. */
-function applyDateRange<T extends { gte: Function; lte: Function }>(
+function applyDateRange<T extends DateFilterQuery>(
   query: T,
   column: string,
   range: { from: string; to: string } | null
