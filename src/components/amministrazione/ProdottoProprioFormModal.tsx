@@ -11,8 +11,6 @@ import {
   type ProdottoProprio,
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
-import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
-
 type Tipologia = "bio" | "convenzionale";
 
 type Props = {
@@ -54,26 +52,21 @@ export function ProdottoProprioFormModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // Solo chiude il selettore modello, non la scheda prodotto.
       if (modelloOpen) {
-        setModelloOpen(false);
-        return;
-      }
-      if (elevated) {
+        e.preventDefault();
         e.stopPropagation();
-        onClose();
-        return;
+        setModelloOpen(false);
       }
-      if (hasNestedModalOpen()) return;
-      onClose();
     }
-    document.addEventListener("keydown", onKey, elevated);
+    document.addEventListener("keydown", onKey, true);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey, elevated);
+      document.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = prev;
     };
-  }, [onClose, modelloOpen, elevated]);
+  }, [modelloOpen]);
 
   const codiceCompleto = useMemo(
     () => sanitizeCodiceProdottoProprio(codice),
@@ -181,10 +174,7 @@ export function ProdottoProprioFormModal({
         elevated ? "z-[100]" : "z-[60]"
       }`}
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

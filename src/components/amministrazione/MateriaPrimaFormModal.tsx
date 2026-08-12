@@ -66,12 +66,10 @@ export function MateriaPrimaFormModal({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        if (modelloOpen) {
-          setModelloOpen(false);
-          return;
-        }
-        onClose();
+      if (e.key !== "Escape") return;
+      if (modelloOpen) {
+        e.preventDefault();
+        setModelloOpen(false);
       }
     }
     document.addEventListener("keydown", onKey);
@@ -81,7 +79,7 @@ export function MateriaPrimaFormModal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, modelloOpen]);
+  }, [modelloOpen]);
 
   const codiceCompleto = useMemo(() => {
     const body = sanitizeCodiceMateriaPrimaBody(codiceBody);
@@ -186,7 +184,7 @@ export function MateriaPrimaFormModal({
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

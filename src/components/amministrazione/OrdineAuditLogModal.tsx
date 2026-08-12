@@ -68,7 +68,7 @@ export function OrdineAuditLogModal({
     <div
       className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

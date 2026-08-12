@@ -26,8 +26,6 @@ import {
   ClearableNumberInput,
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
-import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
-
 type EditableRiga = Omit<FatturaRiga, "quantita" | "prezzoUnitario"> & {
   quantita: number | "";
   prezzoUnitario: number | "";
@@ -117,19 +115,13 @@ export function FatturaRegistrazioneModal({
   );
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (hasNestedModalOpen()) return;
-      onClose();
-    }
-    document.addEventListener("keydown", onKey, elevated);
+    // Escape / click fuori non chiudono (evita perdita dati): solo Pausa / Annulla / Salva.
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey, elevated);
       document.body.style.overflow = prev;
     };
-  }, [onClose, elevated]);
+  }, []);
 
   useEffect(() => {
     if (!anagraficaId || !anagraficaCodiceTarga || !dataEmissione) {
@@ -244,11 +236,7 @@ export function FatturaRegistrazioneModal({
         elevated ? "z-[80]" : "z-[60]"
       }`}
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (hasNestedModalOpen()) return;
-        onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

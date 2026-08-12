@@ -135,9 +135,7 @@ export function ProcedureTransitionModal({
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/70 p-4"
       role="presentation"
-      onClick={() => {
-        if (!confirmed) onCancel();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

@@ -83,21 +83,17 @@ export function CatalogoOffertaFormModal({
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
-      // Impedisce chiusura della modale azienda/sync sottostante
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
-      if (modelloOpen) {
-        setModelloOpen(false);
-        return;
-      }
-      onClose();
+      // Solo chiude il selettore modello, non la scheda catalogo.
+      if (modelloOpen) setModelloOpen(false);
     }
     document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("keydown", onKey, true);
     };
-  }, [onClose, modelloOpen]);
+  }, [modelloOpen]);
 
   const codiceCompleto = useMemo(() => {
     const body = sanitizeCatalogoBody(kind, codiceBody);
@@ -211,10 +207,7 @@ export function CatalogoOffertaFormModal({
       data-nested-modal="catalog"
       className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14"
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

@@ -55,7 +55,7 @@ export function OrdineEliminaConfirmModal({
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4"
       role="presentation"
-      onClick={onClose}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"

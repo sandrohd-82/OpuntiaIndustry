@@ -257,24 +257,13 @@ export function ClienteFormModal({
   }
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (document.querySelector('[data-nested-modal="catalog"]')) return;
-      if (elevated) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-      }
-      onClose();
-    }
-    document.addEventListener("keydown", onKey, elevated);
+    // Escape non chiude la scheda (evita perdita dati): solo Annulla / Salva.
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey, elevated);
       document.body.style.overflow = prev;
     };
-  }, [onClose, elevated]);
+  }, []);
 
   useEffect(() => {
     if (isEdit) return;
@@ -342,10 +331,7 @@ export function ClienteFormModal({
         elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
       data-cliente-modal-root="true"
     >
       <div

@@ -118,19 +118,13 @@ export function OrdineFormModal({
   }, [mode, clienteId, clienteTarga, dataOrdine]);
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (document.querySelector("[data-cliente-modal-root='true']")) return;
-      onClose();
-    }
-    document.addEventListener("keydown", onKey);
+    // Escape / click fuori non chiudono (evita perdita dati): solo Annulla / Salva.
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -227,10 +221,7 @@ export function OrdineFormModal({
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
       role="presentation"
-      onClick={() => {
-        if (document.querySelector("[data-cliente-modal-root='true']")) return;
-        onClose();
-      }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"
