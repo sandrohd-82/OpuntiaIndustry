@@ -26,6 +26,8 @@ export type FatturaSyncQueueItem = {
   amountGross: number;
   statoPagamento: FatturaStatoPagamento;
   spedizione: number;
+  /** Default false in sync: IVA non applicata al trasporto. */
+  spedizioneIvaApplicata: boolean;
   ivaPercentuale: number;
   imponibile: number;
   imposta: number;
@@ -77,13 +79,18 @@ export function extractRigheFromFicRaw(
       asText(r.name ?? r.description ?? r.product_description) || "Voce";
     const codice = asText(r.code ?? r.product_code ?? r.sku) || "—";
     if (!descrizione && !prezzoUnitario && !quantita) continue;
+    const scontoPercentuale = Math.min(
+      100,
+      Math.max(0, asNumber(r.discount ?? r.discount_percent ?? r.sconto))
+    );
     righe.push({
       prodottoId: null,
       codice,
       descrizione,
       quantita,
       prezzoUnitario,
-      importo: importoRiga(quantita, prezzoUnitario),
+      scontoPercentuale,
+      importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
     });
   }
   if (righe.length === 0) {
@@ -95,6 +102,7 @@ export function extractRigheFromFicRaw(
         descrizione: asText(raw.subject ?? raw.description) || "Documento FiC",
         quantita: 1,
         prezzoUnitario: gross,
+        scontoPercentuale: 0,
         importo: gross,
       });
     }
@@ -169,6 +177,7 @@ export function buildFatturaSyncQueueItem(input: {
   const totals = calcolaTotaliFattura({
     righe,
     spedizione,
+    spedizioneIvaApplicata: false,
     ivaPercentuale,
   });
   const entity = entityStubFromDoc(input.doc);
@@ -185,6 +194,7 @@ export function buildFatturaSyncQueueItem(input: {
     amountGross: input.doc.amountGross,
     statoPagamento: statoPagamentoFromFic(input.doc.status),
     spedizione,
+    spedizioneIvaApplicata: false,
     ivaPercentuale,
     imponibile: totals.imponibile,
     imposta: totals.imposta,

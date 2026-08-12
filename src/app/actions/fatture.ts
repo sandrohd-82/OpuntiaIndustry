@@ -202,6 +202,7 @@ export async function createFatturaAction(
   const totals = calcolaTotaliFattura({
     righe: input.righe,
     spedizione: input.spedizione,
+    spedizioneIvaApplicata: input.spedizioneIvaApplicata,
     ivaPercentuale: input.ivaPercentuale,
   });
 
@@ -227,6 +228,7 @@ export async function createFatturaAction(
         numero_documento_esterno: input.numeroDocumentoEsterno,
         fic_id: input.ficId,
         spedizione: input.spedizione,
+        spedizione_iva_applicata: input.spedizioneIvaApplicata,
         imponibile: totals.imponibile,
         iva_percentuale: input.ivaPercentuale,
         imposta: totals.imposta,
@@ -277,6 +279,7 @@ export async function createFatturaAction(
           descrizione: r.descrizione,
           quantita: r.quantita,
           prezzo_unitario: r.prezzoUnitario,
+          sconto_percentuale: r.scontoPercentuale,
           importo: r.importo,
           sort_order: i,
           created_by: auth.userId,
@@ -322,6 +325,7 @@ export async function createFatturaAction(
       numero_documento_esterno: input.numeroDocumentoEsterno,
       fic_id: input.ficId,
       spedizione: input.spedizione,
+      spedizione_iva_applicata: input.spedizioneIvaApplicata,
       imponibile: totals.imponibile,
       iva_percentuale: input.ivaPercentuale,
       imposta: totals.imposta,
@@ -372,6 +376,7 @@ export async function createFatturaAction(
         descrizione: r.descrizione,
         quantita: r.quantita,
         prezzo_unitario: r.prezzoUnitario,
+        sconto_percentuale: r.scontoPercentuale,
         importo: r.importo,
         sort_order: i,
         created_by: auth.userId,

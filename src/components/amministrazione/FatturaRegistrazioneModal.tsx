@@ -17,6 +17,7 @@ import {
   emptyFatturaRiga,
   formatEuro,
   importoRiga,
+  prezzoScontatoUnitario,
   type Fattura,
   type FatturaKind,
   type FatturaRiga,
@@ -26,9 +27,14 @@ import {
   ClearableNumberInput,
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
-type EditableRiga = Omit<FatturaRiga, "quantita" | "prezzoUnitario"> & {
+
+type EditableRiga = Omit<
+  FatturaRiga,
+  "quantita" | "prezzoUnitario" | "scontoPercentuale"
+> & {
   quantita: number | "";
   prezzoUnitario: number | "";
+  scontoPercentuale: number | "";
 };
 
 export type FatturaRegistrazionePrefill = {
@@ -39,6 +45,7 @@ export type FatturaRegistrazionePrefill = {
   numeroDocumentoEsterno?: string;
   ficId?: number | null;
   spedizione?: number;
+  spedizioneIvaApplicata?: boolean;
   ivaPercentuale?: number;
   statoPagamento?: FatturaStatoPagamento;
   note?: string;
@@ -82,6 +89,9 @@ export function FatturaRegistrazioneModal({
   const [spedizione, setSpedizione] = useState<number | "">(
     prefill?.spedizione ?? 0
   );
+  const [spedizioneIvaApplicata, setSpedizioneIvaApplicata] = useState(
+    prefill?.spedizioneIvaApplicata ?? false
+  );
   const [ivaPercentuale, setIvaPercentuale] = useState<number | "">(
     prefill?.ivaPercentuale ?? 22
   );
@@ -90,7 +100,12 @@ export function FatturaRegistrazioneModal({
   );
   const [note, setNote] = useState(prefill?.note ?? "");
   const [righe, setRighe] = useState<EditableRiga[]>(
-    prefill?.righe?.length ? prefill.righe : [emptyFatturaRiga()]
+    prefill?.righe?.length
+      ? prefill.righe.map((r) => ({
+          ...r,
+          scontoPercentuale: r.scontoPercentuale ?? 0,
+        }))
+      : [emptyFatturaRiga()]
   );
   const [ricevuta, setRicevuta] = useState<File | null>(null);
   const [numeroInterno, setNumeroInterno] = useState("");
@@ -107,11 +122,13 @@ export function FatturaRegistrazioneModal({
         righe: righe.map((r) => ({
           quantita: numberOrZero(r.quantita),
           prezzoUnitario: numberOrZero(r.prezzoUnitario),
+          scontoPercentuale: numberOrZero(r.scontoPercentuale),
         })),
         spedizione: numberOrZero(spedizione),
+        spedizioneIvaApplicata,
         ivaPercentuale: numberOrZero(ivaPercentuale),
       }),
-    [righe, spedizione, ivaPercentuale]
+    [righe, spedizione, spedizioneIvaApplicata, ivaPercentuale]
   );
 
   useEffect(() => {
@@ -152,7 +169,8 @@ export function FatturaRegistrazioneModal({
         const next = { ...r, ...patch };
         next.importo = importoRiga(
           numberOrZero(next.quantita),
-          numberOrZero(next.prezzoUnitario)
+          numberOrZero(next.prezzoUnitario),
+          numberOrZero(next.scontoPercentuale)
         );
         return next;
       })
@@ -187,15 +205,20 @@ export function FatturaRegistrazioneModal({
     setFormError(null);
     try {
       const fd = new FormData();
-      const righePayload: FatturaRiga[] = righe.map((r) => ({
-        ...r,
-        quantita: numberOrZero(r.quantita),
-        prezzoUnitario: numberOrZero(r.prezzoUnitario),
-        importo: importoRiga(
-          numberOrZero(r.quantita),
-          numberOrZero(r.prezzoUnitario)
-        ),
-      }));
+      const righePayload: FatturaRiga[] = righe.map((r) => {
+        const scontoPercentuale = numberOrZero(r.scontoPercentuale);
+        return {
+          ...r,
+          quantita: numberOrZero(r.quantita),
+          prezzoUnitario: numberOrZero(r.prezzoUnitario),
+          scontoPercentuale,
+          importo: importoRiga(
+            numberOrZero(r.quantita),
+            numberOrZero(r.prezzoUnitario),
+            scontoPercentuale
+          ),
+        };
+      });
       fd.set(
         "payload",
         JSON.stringify({
@@ -206,6 +229,7 @@ export function FatturaRegistrazioneModal({
           numeroDocumentoEsterno,
           ficId: prefill?.ficId ?? null,
           spedizione: numberOrZero(spedizione),
+          spedizioneIvaApplicata,
           ivaPercentuale: numberOrZero(ivaPercentuale),
           statoPagamento,
           note,
@@ -242,7 +266,7 @@ export function FatturaRegistrazioneModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-4xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-full max-w-5xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -352,7 +376,9 @@ export function FatturaRegistrazioneModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setRighe((prev) => [...prev, emptyFatturaRiga()])}
+                  onClick={() =>
+                    setRighe((prev) => [...prev, emptyFatturaRiga()])
+                  }
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
                 >
                   <FaPlus size={11} />
@@ -362,7 +388,7 @@ export function FatturaRegistrazioneModal({
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[720px] text-left text-sm">
+              <table className="w-full min-w-[860px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
                   <tr>
                     <th className="px-2 py-2">Prodotto</th>
@@ -370,98 +396,131 @@ export function FatturaRegistrazioneModal({
                     <th className="px-2 py-2">Descrizione</th>
                     <th className="px-2 py-2">Qtà</th>
                     <th className="px-2 py-2">Prezzo u.</th>
+                    <th className="px-2 py-2">Sconto %</th>
                     <th className="px-2 py-2">Importo</th>
                     <th className="px-2 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {righe.map((riga, index) => (
-                    <tr key={index} className="border-t border-[var(--border)]">
-                      <td className="px-2 py-2">
-                        <select
-                          value={riga.prodottoId ?? ""}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            if (v === "__new__") {
-                              setRigaIndexForNuovo(index);
-                              setCreatingProdotto(true);
-                              return;
-                            }
-                            applyProdotto(index, v);
-                          }}
-                          className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
-                        >
-                          <option value="">Seleziona…</option>
-                          {prodotti.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.codice} — {p.nome}
+                  {righe.map((riga, index) => {
+                    const listino = numberOrZero(riga.prezzoUnitario);
+                    const sconto = numberOrZero(riga.scontoPercentuale);
+                    const scontato = prezzoScontatoUnitario(listino, sconto);
+                    const hasSconto = sconto > 0;
+                    return (
+                      <tr
+                        key={index}
+                        className="border-t border-[var(--border)]"
+                      >
+                        <td className="px-2 py-2">
+                          <select
+                            value={riga.prodottoId ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              if (v === "__new__") {
+                                setRigaIndexForNuovo(index);
+                                setCreatingProdotto(true);
+                                return;
+                              }
+                              applyProdotto(index, v);
+                            }}
+                            className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                          >
+                            <option value="">Seleziona…</option>
+                            {prodotti.map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.codice} — {p.nome}
+                              </option>
+                            ))}
+                            <option value="__new__">
+                              + Crea nuovo prodotto
                             </option>
-                          ))}
-                          <option value="__new__">+ Crea nuovo prodotto</option>
-                        </select>
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          value={riga.codice}
-                          onChange={(e) =>
-                            patchRiga(index, { codice: e.target.value })
-                          }
-                          className="w-24 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
-                          required
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <input
-                          value={riga.descrizione}
-                          onChange={(e) =>
-                            patchRiga(index, { descrizione: e.target.value })
-                          }
-                          className="w-full min-w-[160px] rounded border border-[var(--border)] px-2 py-1.5"
-                          required
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <ClearableNumberInput
-                          min={0}
-                          value={riga.quantita}
-                          onValueChange={(v) =>
-                            patchRiga(index, { quantita: v })
-                          }
-                          className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
-                          required
-                        />
-                      </td>
-                      <td className="px-2 py-2">
-                        <ClearableNumberInput
-                          min={0}
-                          value={riga.prezzoUnitario}
-                          onValueChange={(v) =>
-                            patchRiga(index, { prezzoUnitario: v })
-                          }
-                          className="w-24 rounded border border-[var(--border)] px-2 py-1.5"
-                          required
-                        />
-                      </td>
-                      <td className="px-2 py-2 tabular-nums">
-                        {formatEuro(riga.importo)}
-                      </td>
-                      <td className="px-2 py-2 text-right">
-                        <button
-                          type="button"
-                          disabled={righe.length <= 1}
-                          onClick={() =>
-                            setRighe((prev) =>
-                              prev.filter((_, i) => i !== index)
-                            )
-                          }
-                          className="rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
-                          aria-label="Rimuovi riga"
-                        >
-                          <FaTrash size={12} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          </select>
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={riga.codice}
+                            onChange={(e) =>
+                              patchRiga(index, { codice: e.target.value })
+                            }
+                            className="w-24 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
+                            required
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <input
+                            value={riga.descrizione}
+                            onChange={(e) =>
+                              patchRiga(index, { descrizione: e.target.value })
+                            }
+                            className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5"
+                            required
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <ClearableNumberInput
+                            min={0}
+                            value={riga.quantita}
+                            onValueChange={(v) =>
+                              patchRiga(index, { quantita: v })
+                            }
+                            className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
+                            required
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <ClearableNumberInput
+                            min={0}
+                            value={riga.prezzoUnitario}
+                            onValueChange={(v) =>
+                              patchRiga(index, { prezzoUnitario: v })
+                            }
+                            className="w-24 rounded border border-[var(--border)] px-2 py-1.5"
+                            required
+                          />
+                          {hasSconto ? (
+                            <div className="mt-1 space-y-0.5 text-xs leading-tight">
+                              <p className="text-[var(--muted)] line-through tabular-nums">
+                                {formatEuro(listino)}
+                              </p>
+                              <p className="font-medium tabular-nums text-emerald-800">
+                                {formatEuro(scontato)}
+                              </p>
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-2 py-2">
+                          <ClearableNumberInput
+                            min={0}
+                            max={100}
+                            value={riga.scontoPercentuale}
+                            onValueChange={(v) =>
+                              patchRiga(index, { scontoPercentuale: v })
+                            }
+                            className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
+                          />
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {formatEuro(riga.importo)}
+                        </td>
+                        <td className="px-2 py-2 text-right">
+                          <button
+                            type="button"
+                            disabled={righe.length <= 1}
+                            onClick={() =>
+                              setRighe((prev) =>
+                                prev.filter((_, i) => i !== index)
+                              )
+                            }
+                            className="rounded p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-40"
+                            aria-label="Rimuovi riga"
+                          >
+                            <FaTrash size={12} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -478,6 +537,20 @@ export function FatturaRegistrazioneModal({
                 onValueChange={setSpedizione}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
+              <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
+                <input
+                  type="checkbox"
+                  checked={spedizioneIvaApplicata}
+                  onChange={(e) => setSpedizioneIvaApplicata(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Applica IVA anche sulla spedizione
+                  <span className="mt-0.5 block text-[11px] opacity-80">
+                    Di default l&apos;IVA non è applicata al trasporto.
+                  </span>
+                </span>
+              </label>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -501,7 +574,8 @@ export function FatturaRegistrazioneModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Imposta: {formatEuro(totals.imposta)}
+                Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
+                {formatEuro(totals.imposta)}
               </p>
             </div>
             <div>
@@ -610,10 +684,14 @@ export function FatturaRegistrazioneModal({
             }
             await refresh();
             const idx =
-              rigaIndexForNuovo ??
-              (righe.length > 0 ? righe.length - 1 : 0);
+              rigaIndexForNuovo ?? (righe.length > 0 ? righe.length - 1 : 0);
             if (rigaIndexForNuovo == null && !righe[0]?.codice) {
-              applyProdottoToLocal(0, result.prodotto.id, result.prodotto.codice, result.prodotto.nome);
+              applyProdottoToLocal(
+                0,
+                result.prodotto.id,
+                result.prodotto.codice,
+                result.prodotto.nome
+              );
             } else if (rigaIndexForNuovo != null) {
               applyProdottoToLocal(
                 idx,
@@ -630,6 +708,7 @@ export function FatturaRegistrazioneModal({
                   descrizione: result.prodotto.nome,
                   quantita: 1,
                   prezzoUnitario: 0,
+                  scontoPercentuale: 0,
                   importo: 0,
                 },
               ]);
@@ -658,7 +737,8 @@ export function FatturaRegistrazioneModal({
               descrizione: nome,
               importo: importoRiga(
                 numberOrZero(r.quantita),
-                numberOrZero(r.prezzoUnitario)
+                numberOrZero(r.prezzoUnitario),
+                numberOrZero(r.scontoPercentuale)
               ),
             }
           : r

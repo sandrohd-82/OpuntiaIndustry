@@ -590,6 +590,7 @@ export interface FatturaEmessaRow {
   numero_documento_esterno: string;
   fic_id: number | null;
   spedizione: number;
+  spedizione_iva_applicata: boolean;
   imponibile: number;
   iva_percentuale: number;
   imposta: number;
@@ -618,6 +619,7 @@ export type FatturaEmessaInsert = {
   numero_documento_esterno?: string;
   fic_id?: number | null;
   spedizione?: number;
+  spedizione_iva_applicata?: boolean;
   imponibile?: number;
   iva_percentuale?: number;
   imposta?: number;
@@ -644,6 +646,7 @@ export interface FatturaEmessaRigaRow {
   descrizione: string;
   quantita: number;
   prezzo_unitario: number;
+  sconto_percentuale: number;
   importo: number;
   sort_order: number;
   created_at: string;
@@ -660,6 +663,7 @@ export type FatturaEmessaRigaInsert = {
   descrizione?: string;
   quantita?: number;
   prezzo_unitario?: number;
+  sconto_percentuale?: number;
   importo?: number;
   sort_order?: number;
   created_by?: string | null;
@@ -676,6 +680,7 @@ export interface FatturaRicevutaRow {
   numero_documento_esterno: string;
   fic_id: number | null;
   spedizione: number;
+  spedizione_iva_applicata: boolean;
   imponibile: number;
   iva_percentuale: number;
   imposta: number;
@@ -704,6 +709,7 @@ export type FatturaRicevutaInsert = {
   numero_documento_esterno?: string;
   fic_id?: number | null;
   spedizione?: number;
+  spedizione_iva_applicata?: boolean;
   imponibile?: number;
   iva_percentuale?: number;
   imposta?: number;
@@ -730,6 +736,7 @@ export interface FatturaRicevutaRigaRow {
   descrizione: string;
   quantita: number;
   prezzo_unitario: number;
+  sconto_percentuale: number;
   importo: number;
   sort_order: number;
   created_at: string;
@@ -746,6 +753,7 @@ export type FatturaRicevutaRigaInsert = {
   descrizione?: string;
   quantita?: number;
   prezzo_unitario?: number;
+  sconto_percentuale?: number;
   importo?: number;
   sort_order?: number;
   created_by?: string | null;

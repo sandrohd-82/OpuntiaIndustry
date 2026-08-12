@@ -21,7 +21,10 @@ export type FatturaRiga = {
   codice: string;
   descrizione: string;
   quantita: number;
+  /** Prezzo di listino (unitario). */
   prezzoUnitario: number;
+  /** Sconto % sul listino (0–100). */
+  scontoPercentuale: number;
   importo: number;
 };
 
@@ -36,6 +39,8 @@ export type Fattura = {
   numeroDocumentoEsterno: string;
   ficId: number | null;
   spedizione: number;
+  /** Default false: IVA non applicata alla spedizione. */
+  spedizioneIvaApplicata: boolean;
   imponibile: number;
   ivaPercentuale: number;
   imposta: number;
@@ -58,6 +63,7 @@ export type FatturaInput = {
   numeroDocumentoEsterno?: string;
   ficId?: number | null;
   spedizione: number;
+  spedizioneIvaApplicata: boolean;
   ivaPercentuale: number;
   statoPagamento: FatturaStatoPagamento;
   note?: string;
@@ -68,25 +74,57 @@ export function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-export function importoRiga(quantita: number, prezzoUnitario: number): number {
-  return roundMoney(quantita * prezzoUnitario);
+export function clampSconto(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
+
+/** Prezzo unitario dopo sconto %. */
+export function prezzoScontatoUnitario(
+  prezzoUnitario: number,
+  scontoPercentuale: number
+): number {
+  const sconto = clampSconto(scontoPercentuale);
+  return roundMoney(prezzoUnitario * (1 - sconto / 100));
+}
+
+export function importoRiga(
+  quantita: number,
+  prezzoUnitario: number,
+  scontoPercentuale = 0
+): number {
+  return roundMoney(
+    quantita * prezzoScontatoUnitario(prezzoUnitario, scontoPercentuale)
+  );
 }
 
 export function calcolaTotaliFattura(input: {
-  righe: Array<{ quantita: number; prezzoUnitario: number }>;
+  righe: Array<{
+    quantita: number;
+    prezzoUnitario: number;
+    scontoPercentuale?: number;
+  }>;
   spedizione: number;
+  spedizioneIvaApplicata?: boolean;
   ivaPercentuale: number;
-}): { imponibile: number; imposta: number; totale: number } {
+}): { imponibile: number; baseIva: number; imposta: number; totale: number } {
   const prodotti = input.righe.reduce(
-    (sum, r) => sum + importoRiga(r.quantita, r.prezzoUnitario),
+    (sum, r) =>
+      sum +
+      importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale ?? 0),
     0
   );
-  const imponibile = roundMoney(prodotti + (Number(input.spedizione) || 0));
+  const spedizione = Number(input.spedizione) || 0;
+  const imponibile = roundMoney(prodotti + spedizione);
+  const baseIva = roundMoney(
+    prodotti + (input.spedizioneIvaApplicata ? spedizione : 0)
+  );
   const imposta = roundMoney(
-    (imponibile * (Number(input.ivaPercentuale) || 0)) / 100
+    (baseIva * (Number(input.ivaPercentuale) || 0)) / 100
   );
   return {
     imponibile,
+    baseIva,
     imposta,
     totale: roundMoney(imponibile + imposta),
   };
@@ -117,6 +155,7 @@ const rigaSchema = z.object({
   descrizione: z.string().trim().min(1, "Descrizione obbligatoria"),
   quantita: z.number().positive("Quantità deve essere > 0"),
   prezzoUnitario: z.number().min(0, "Prezzo non valido"),
+  scontoPercentuale: z.number().min(0).max(100).optional(),
   importo: z.number().min(0).optional(),
 });
 
@@ -129,21 +168,26 @@ export const fatturaInputSchema = z
     numeroDocumentoEsterno: z.string().optional(),
     ficId: z.number().int().positive().nullable().optional(),
     spedizione: z.number().min(0),
+    spedizioneIvaApplicata: z.boolean().optional(),
     ivaPercentuale: z.number().min(0).max(100),
     statoPagamento: z.enum(["pagato", "da_pagare"]),
     note: z.string().optional(),
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno un prodotto"),
   })
   .transform((v) => {
-    const righe = v.righe.map((r) => ({
-      id: r.id,
-      prodottoId: r.prodottoId ?? null,
-      codice: r.codice.trim(),
-      descrizione: r.descrizione.trim(),
-      quantita: r.quantita,
-      prezzoUnitario: r.prezzoUnitario,
-      importo: importoRiga(r.quantita, r.prezzoUnitario),
-    }));
+    const righe = v.righe.map((r) => {
+      const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
+      return {
+        id: r.id,
+        prodottoId: r.prodottoId ?? null,
+        codice: r.codice.trim(),
+        descrizione: r.descrizione.trim(),
+        quantita: r.quantita,
+        prezzoUnitario: r.prezzoUnitario,
+        scontoPercentuale,
+        importo: importoRiga(r.quantita, r.prezzoUnitario, scontoPercentuale),
+      };
+    });
     return {
       ...v,
       anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
@@ -151,9 +195,27 @@ export const fatturaInputSchema = z
       numeroDocumentoEsterno: (v.numeroDocumentoEsterno ?? "").trim(),
       note: (v.note ?? "").trim(),
       ficId: v.ficId ?? null,
+      spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
       righe,
     };
   });
+
+function mapRighe(
+  righe: Array<FatturaEmessaRigaRow | FatturaRicevutaRigaRow>
+): FatturaRiga[] {
+  return [...righe]
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((r) => ({
+      id: r.id,
+      prodottoId: r.prodotto_id,
+      codice: r.codice,
+      descrizione: r.descrizione,
+      quantita: Number(r.quantita) || 0,
+      prezzoUnitario: Number(r.prezzo_unitario) || 0,
+      scontoPercentuale: Number(r.sconto_percentuale) || 0,
+      importo: Number(r.importo) || 0,
+    }));
+}
 
 export function mapFatturaEmessaRow(
   row: FatturaEmessaRow,
@@ -170,32 +232,22 @@ export function mapFatturaEmessaRow(
     numeroDocumentoEsterno: row.numero_documento_esterno ?? "",
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
+    spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
-    ricevuta:
-      row.ricevuta_storage_path
-        ? {
-            storagePath: row.ricevuta_storage_path,
-            fileName: row.ricevuta_file_name || "ricevuta",
-          }
-        : null,
+    ricevuta: row.ricevuta_storage_path
+      ? {
+          storagePath: row.ricevuta_storage_path,
+          fileName: row.ricevuta_file_name || "ricevuta",
+        }
+      : null,
     versione: row.versione,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
-    righe: [...righe]
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((r) => ({
-        id: r.id,
-        prodottoId: r.prodotto_id,
-        codice: r.codice,
-        descrizione: r.descrizione,
-        quantita: Number(r.quantita) || 0,
-        prezzoUnitario: Number(r.prezzo_unitario) || 0,
-        importo: Number(r.importo) || 0,
-      })),
+    righe: mapRighe(righe),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -216,32 +268,22 @@ export function mapFatturaRicevutaRow(
     numeroDocumentoEsterno: row.numero_documento_esterno ?? "",
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
+    spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
-    ricevuta:
-      row.ricevuta_storage_path
-        ? {
-            storagePath: row.ricevuta_storage_path,
-            fileName: row.ricevuta_file_name || "ricevuta",
-          }
-        : null,
+    ricevuta: row.ricevuta_storage_path
+      ? {
+          storagePath: row.ricevuta_storage_path,
+          fileName: row.ricevuta_file_name || "ricevuta",
+        }
+      : null,
     versione: row.versione,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
-    righe: [...righe]
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((r) => ({
-        id: r.id,
-        prodottoId: r.prodotto_id,
-        codice: r.codice,
-        descrizione: r.descrizione,
-        quantita: Number(r.quantita) || 0,
-        prezzoUnitario: Number(r.prezzo_unitario) || 0,
-        importo: Number(r.importo) || 0,
-      })),
+    righe: mapRighe(righe),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -274,6 +316,7 @@ export function emptyFatturaRiga(): FatturaRiga {
     descrizione: "",
     quantita: 1,
     prezzoUnitario: 0,
+    scontoPercentuale: 0,
     importo: 0,
   };
 }
