@@ -20,6 +20,8 @@ export type Cliente = {
   codiceTarga: string;
   ragioneSociale: string;
   partitaIva: string;
+  codiceFiscale: string;
+  isPrivato: boolean;
   email: string;
   pec: string;
   sdiCode: string;
@@ -35,6 +37,8 @@ export type ClienteInput = {
   codiceTarga?: string;
   ragioneSociale: string;
   partitaIva: string;
+  codiceFiscale: string;
+  isPrivato: boolean;
   email?: string;
   pec?: string;
   sdiCode?: string;
@@ -78,13 +82,18 @@ function isConsegnaComplete(item: ConsegnaAltraAzienda): boolean {
 
 export function normalizeClienteInput(input: ClienteInput): ClienteInput {
   const codice = input.codiceTarga?.trim().toUpperCase();
+  const isPrivato = Boolean(input.isPrivato);
+  const partitaIva = isPrivato ? "" : input.partitaIva.trim();
+  const codiceFiscale = (input.codiceFiscale ?? "").trim();
   return {
     codiceTarga:
       codice && /^C[0-9A-F]{3}$/.test(codice) && codice !== "C000"
         ? codice
         : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
-    partitaIva: input.partitaIva.trim(),
+    partitaIva,
+    codiceFiscale,
+    isPrivato,
     email: (input.email ?? "").trim(),
     pec: (input.pec ?? "").trim(),
     sdiCode: (input.sdiCode ?? "").trim(),
@@ -97,7 +106,27 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
+    archivioId: input.archivioId,
   };
+}
+
+/** Validazione business: azienda → P.IVA+CF obbligatori; privato → CF facoltativo. */
+export function validateClienteFiscali(
+  input: Pick<ClienteInput, "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato">
+): string | null {
+  if (!input.ragioneSociale.trim()) {
+    return "La ragione sociale è obbligatoria.";
+  }
+  if (input.isPrivato) {
+    return null;
+  }
+  if (!input.partitaIva.trim()) {
+    return "La partita IVA è obbligatoria per i clienti azienda.";
+  }
+  if (!input.codiceFiscale.trim()) {
+    return "Il codice fiscale è obbligatorio per i clienti azienda.";
+  }
+  return null;
 }
 
 export function consegneToDb(
@@ -136,7 +165,9 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     id: row.id,
     codiceTarga: row.codice_targa,
     ragioneSociale: row.ragione_sociale,
-    partitaIva: row.partita_iva,
+    partitaIva: row.partita_iva ?? "",
+    codiceFiscale: row.codice_fiscale ?? "",
+    isPrivato: Boolean(row.is_privato),
     email: row.email ?? "",
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",
@@ -242,6 +273,7 @@ export function filterClienti(
       const haystack = [
         c.ragioneSociale,
         c.partitaIva,
+        c.codiceFiscale,
         c.codiceTarga,
         c.sedeAmministrativa.citta,
         c.sedeAmministrativa.provincia,
@@ -300,6 +332,7 @@ export function suggestClienti(
         c.ragioneSociale,
         c.codiceTarga,
         c.partitaIva,
+        c.codiceFiscale,
         c.sedeAmministrativa.citta,
         c.sedeMagazzino.citta,
         ...c.consegneAltraAzienda.map((x) => x.ragioneSociale),

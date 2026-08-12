@@ -234,6 +234,8 @@ export interface ClienteRow {
   codice_targa: string;
   ragione_sociale: string;
   partita_iva: string;
+  codice_fiscale: string;
+  is_privato: boolean;
   email: string;
   pec: string;
   sdi_code: string;
@@ -262,7 +264,9 @@ export interface ClienteInsert {
   id?: string;
   codice_targa?: string;
   ragione_sociale: string;
-  partita_iva: string;
+  partita_iva?: string;
+  codice_fiscale?: string;
+  is_privato?: boolean;
   email?: string;
   pec?: string;
   sdi_code?: string;
@@ -292,6 +296,8 @@ export interface ClienteUpdate {
   codice_targa?: string;
   ragione_sociale?: string;
   partita_iva?: string;
+  codice_fiscale?: string;
+  is_privato?: boolean;
   email?: string;
   pec?: string;
   sdi_code?: string;

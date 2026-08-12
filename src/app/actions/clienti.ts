@@ -9,6 +9,7 @@ import {
   consegneToDb,
   mapClienteRow,
   normalizeClienteInput,
+  validateClienteFiscali,
   type Cliente,
   type ClienteInput,
 } from "@/lib/amministrazione/clienti";
@@ -67,7 +68,7 @@ async function assertPartitaIvaUnica(
   excludeId?: string
 ): Promise<string | null> {
   const vat = normalizeVatKey(partitaIva);
-  if (!vat) return "La partita IVA è obbligatoria.";
+  if (!vat) return null;
   const { data, error } = await supabase
     .from("clienti")
     .select("id, partita_iva, codice_targa, ragione_sociale")
@@ -87,6 +88,36 @@ async function assertPartitaIvaUnica(
   );
   if (dup) {
     return `P. IVA già presente su ${dup.codice_targa} — ${dup.ragione_sociale}.`;
+  }
+  return null;
+}
+
+async function assertCodiceFiscaleUnico(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  codiceFiscale: string,
+  excludeId?: string
+): Promise<string | null> {
+  const cf = normalizeVatKey(codiceFiscale);
+  if (!cf) return null;
+  const { data, error } = await supabase
+    .from("clienti")
+    .select("id, codice_fiscale, codice_targa, ragione_sociale")
+    .is("deleted_at", null);
+  if (error) return error.message;
+  const dup = (
+    (data ?? []) as Array<{
+      id: string;
+      codice_fiscale: string;
+      codice_targa: string;
+      ragione_sociale: string;
+    }>
+  ).find(
+    (row) =>
+      normalizeVatKey(row.codice_fiscale) === cf &&
+      (!excludeId || row.id !== excludeId)
+  );
+  if (dup) {
+    return `Codice fiscale già presente su ${dup.codice_targa} — ${dup.ragione_sociale}.`;
   }
   return null;
 }
@@ -141,11 +172,9 @@ export async function createClienteAction(
   const supabase = await createClient();
 
   const normalized = normalizeClienteInput(input);
-  if (!normalized.ragioneSociale || !normalized.partitaIva) {
-    return {
-      success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
-    };
+  const fiscalErr = validateClienteFiscali(normalized);
+  if (fiscalErr) {
+    return { success: false, error: fiscalErr };
   }
 
   const vatError = await assertPartitaIvaUnica(
@@ -153,6 +182,11 @@ export async function createClienteAction(
     normalized.partitaIva
   );
   if (vatError) return { success: false, error: vatError };
+  const cfError = await assertCodiceFiscaleUnico(
+    supabase,
+    normalized.codiceFiscale
+  );
+  if (cfError) return { success: false, error: cfError };
 
   let codiceTarga = normalized.codiceTarga?.toUpperCase();
   try {
@@ -175,6 +209,8 @@ export async function createClienteAction(
     codice_targa: codiceTarga,
     ragione_sociale: normalized.ragioneSociale,
     partita_iva: normalized.partitaIva,
+    codice_fiscale: normalized.codiceFiscale,
+    is_privato: normalized.isPrivato,
     email: normalized.email ?? "",
     pec: normalized.pec ?? "",
     sdi_code: normalized.sdiCode ?? "",
@@ -263,11 +299,9 @@ export async function updateClienteAction(
   const supabase = await createClient();
 
   const normalized = normalizeClienteInput(input);
-  if (!normalized.ragioneSociale || !normalized.partitaIva) {
-    return {
-      success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
-    };
+  const fiscalErr = validateClienteFiscali(normalized);
+  if (fiscalErr) {
+    return { success: false, error: fiscalErr };
   }
 
   const vatError = await assertPartitaIvaUnica(
@@ -276,12 +310,20 @@ export async function updateClienteAction(
     id
   );
   if (vatError) return { success: false, error: vatError };
+  const cfError = await assertCodiceFiscaleUnico(
+    supabase,
+    normalized.codiceFiscale,
+    id
+  );
+  if (cfError) return { success: false, error: cfError };
 
   const { data, error } = await supabase
     .from("clienti")
     .update({
       ragione_sociale: normalized.ragioneSociale,
       partita_iva: normalized.partitaIva,
+      codice_fiscale: normalized.codiceFiscale,
+      is_privato: normalized.isPrivato,
       email: normalized.email ?? "",
       pec: normalized.pec ?? "",
       sdi_code: normalized.sdiCode ?? "",

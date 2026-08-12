@@ -89,7 +89,18 @@ function ClienteRow({
           <CodiceTargaBadge code={cliente.codiceTarga} />
         </td>
         <td className="px-4 py-3 font-semibold">{cliente.ragioneSociale}</td>
-        <td className="px-4 py-3 tabular-nums">{cliente.partitaIva}</td>
+        <td className="px-4 py-3 tabular-nums">
+          {cliente.isPrivato ? (
+            <span title="Cliente privato">
+              {cliente.codiceFiscale || "—"}
+              <span className="ml-1 text-[10px] font-medium uppercase text-[var(--muted)]">
+                CF
+              </span>
+            </span>
+          ) : (
+            cliente.partitaIva
+          )}
+        </td>
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(cliente.sedeAmministrativa)}
         </td>
@@ -548,7 +559,7 @@ export function ClientiBoard() {
                 ) : null}
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
-                <th className="px-4 py-3 font-medium">P. IVA</th>
+                <th className="px-4 py-3 font-medium">P. IVA / CF</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
                 <th className="px-4 py-3 font-medium">Sede Mag.</th>
                 <th className="px-4 py-3 font-medium">Prodotti</th>

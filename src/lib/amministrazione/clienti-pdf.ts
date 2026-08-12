@@ -142,12 +142,16 @@ function exportPrincipali(
   autoTable(doc, {
     startY: y,
     head: [
-      ["Targa", "R. Sociale", "P. IVA", "Sede Amm.", "Sede Mag.", "Prodotti"],
+      ["Targa", "R. Sociale", "P. IVA / CF", "Sede Amm.", "Sede Mag.", "Prodotti"],
     ],
     body: clienti.map((c) => [
       c.codiceTarga,
       c.ragioneSociale,
-      c.partitaIva,
+      c.isPrivato
+        ? c.codiceFiscale
+          ? `CF ${c.codiceFiscale}`
+          : "Privato"
+        : c.partitaIva || "—",
       formatSedeBreve(c.sedeAmministrativa),
       formatSedeBreve(c.sedeMagazzino),
       c.prodottiAcquistati.length ? c.prodottiAcquistati.join(", ") : "—",
@@ -242,7 +246,22 @@ function exportCompleta(
     doc.text(`${c.codiceTarga} — ${c.ragioneSociale}`, marginX, y);
     y += 7;
 
-    y = writeLabelValue(doc, "Partita IVA", c.partitaIva, y, marginX, contentWidth);
+    y = writeLabelValue(
+      doc,
+      c.isPrivato ? "Tipo" : "Partita IVA",
+      c.isPrivato ? "Cliente privato" : c.partitaIva || "—",
+      y,
+      marginX,
+      contentWidth
+    );
+    y = writeLabelValue(
+      doc,
+      "Codice fiscale",
+      c.codiceFiscale || "—",
+      y,
+      marginX,
+      contentWidth
+    );
     y = writeLabelValue(
       doc,
       "Sede amministrativa",

@@ -76,7 +76,11 @@ export function ClienteFormModal({
   const [ragioneSociale, setRagioneSociale] = useState(
     initial?.ragioneSociale ?? ""
   );
+  const [isPrivato, setIsPrivato] = useState(initial?.isPrivato ?? false);
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [codiceFiscale, setCodiceFiscale] = useState(
+    initial?.codiceFiscale ?? ""
+  );
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [archivioHint, setArchivioHint] = useState<string | null>(null);
   const [email, setEmail] = useState(initial?.email ?? "");
@@ -135,8 +139,16 @@ export function ClienteFormModal({
 
   function buildValues(): ClienteInput | null {
     const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim()) {
-      setFormError("Compila ragione sociale e partita IVA prima di continuare.");
+    if (!ragioneSociale.trim()) {
+      setFormError("Compila la ragione sociale prima di continuare.");
+      return null;
+    }
+    if (!isPrivato && !partitaIva.trim()) {
+      setFormError("La partita IVA è obbligatoria per i clienti azienda.");
+      return null;
+    }
+    if (!isPrivato && !codiceFiscale.trim()) {
+      setFormError("Il codice fiscale è obbligatorio per i clienti azienda.");
       return null;
     }
     if (!isSedeFilled(sedeAmministrativa)) {
@@ -189,7 +201,9 @@ export function ClienteFormModal({
     return {
       codiceTarga: codice,
       ragioneSociale: ragioneSociale.trim(),
-      partitaIva: partitaIva.trim(),
+      partitaIva: isPrivato ? "" : partitaIva.trim(),
+      codiceFiscale: codiceFiscale.trim(),
+      isPrivato,
       email: email.trim(),
       pec: pec.trim(),
       sdiCode: sdiCode.trim(),
@@ -225,6 +239,9 @@ export function ClienteFormModal({
     );
     setRagioneSociale(hit.draft.ragioneSociale || ragioneSociale);
     setPartitaIva(hit.draft.partitaIva || vat);
+    if (!codiceFiscale.trim()) {
+      setCodiceFiscale(hit.draft.partitaIva || vat);
+    }
     setEmail(hit.draft.email);
     setPec(hit.draft.pec);
     setSdiCode(hit.draft.sdiCode);
@@ -385,8 +402,30 @@ export function ClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={isPrivato}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setIsPrivato(next);
+                  if (next) {
+                    setPartitaIva("");
+                    setArchivioHint(null);
+                    setArchivioId(null);
+                  }
+                }}
+                className="rounded border-[var(--border)]"
+              />
+              <span className="font-medium">Cliente privato</span>
+              <span className="text-xs text-[var(--muted)]">
+                (P. IVA non compilabile; codice fiscale facoltativo)
+              </span>
+            </label>
             <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">P. IVA</span>
+              <span className="mb-1 block font-medium">
+                P. IVA{isPrivato ? "" : " *"}
+              </span>
               <input
                 value={partitaIva}
                 onChange={(e) => {
@@ -395,8 +434,12 @@ export function ClienteFormModal({
                   setArchivioId(null);
                 }}
                 onBlur={() => void checkArchivioByVat(partitaIva)}
-                required
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                required={!isPrivato}
+                disabled={isPrivato}
+                placeholder={
+                  isPrivato ? "Non applicabile al cliente privato" : undefined
+                }
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-[var(--muted)]"
               />
               {archivioHint ? (
                 <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -404,6 +447,37 @@ export function ClienteFormModal({
                 </p>
               ) : null}
             </label>
+            <div className="space-y-2 sm:col-span-2">
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">
+                  Codice fiscale{isPrivato ? " (facoltativo)" : " *"}
+                </span>
+                <input
+                  value={codiceFiscale}
+                  onChange={(e) => setCodiceFiscale(e.target.value)}
+                  required={!isPrivato}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+              </label>
+              {!isPrivato ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!partitaIva.trim()) {
+                      setFormError(
+                        "Inserisci prima la partita IVA per copiarla nel codice fiscale."
+                      );
+                      return;
+                    }
+                    setCodiceFiscale(partitaIva.trim());
+                    setFormError(null);
+                  }}
+                  className="text-sm font-medium text-[var(--primary)] hover:underline"
+                >
+                  Copia P.IVA in Codice Fiscale
+                </button>
+              ) : null}
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Mail</span>
               <input
