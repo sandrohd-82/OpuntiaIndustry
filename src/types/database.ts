@@ -820,6 +820,188 @@ export type FatturaRicevutaDilazioneInsert = {
   deleted_by?: string | null;
 };
 
+export type FormaGiuridicaFiscale = "cooperativa_agricola_sociale_arl";
+export type RegimeIvaFiscale = "ordinario" | "speciale_agricolo_art34";
+export type IvaPeriodoFiscale = "mensile" | "trimestrale";
+export type AdempimentoCategoria =
+  | "iva"
+  | "inps"
+  | "ires"
+  | "irap"
+  | "f24"
+  | "altro";
+export type AdempimentoRicorrenza =
+  | "mensile"
+  | "trimestrale"
+  | "annuale"
+  | "una_tantum";
+export type DashboardFiscalePeriodoTipo = "mese" | "trimestre" | "anno" | "custom";
+
+export type FiscalTipoColtura = {
+  codice: string;
+  label: string;
+  percentuale_compensazione: number;
+  aliquota_iva: number;
+};
+
+export type FiscalInpsParametri = {
+  contribuzione_otd_pct: number;
+  contribuzione_oti_pct: number;
+  sgravio_zona_svantaggiata_pct: number;
+  stima_mensile_fissa_eur: number;
+};
+
+export interface CompanyFiscalProfileRow {
+  id: string;
+  company_key: string;
+  forma_giuridica: FormaGiuridicaFiscale;
+  regime_iva: RegimeIvaFiscale;
+  iva_periodo: IvaPeriodoFiscale;
+  cooperativa_sociale_l381: boolean;
+  zona_svantaggiata: boolean;
+  otd_count: number;
+  oti_count: number;
+  tipi_colture: FiscalTipoColtura[];
+  inps_parametri: FiscalInpsParametri;
+  aliquota_ires_pct: number;
+  aliquota_irap_pct: number;
+  aliquota_stima_generica_pct: number;
+  note: string;
+  open_data_enabled: boolean;
+  open_data_last_sync_at: string | null;
+  open_data_last_payload: Record<string, unknown>;
+  versione: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type CompanyFiscalProfileInsert = {
+  id?: string;
+  company_key?: string;
+  forma_giuridica?: FormaGiuridicaFiscale;
+  regime_iva?: RegimeIvaFiscale;
+  iva_periodo?: IvaPeriodoFiscale;
+  cooperativa_sociale_l381?: boolean;
+  zona_svantaggiata?: boolean;
+  otd_count?: number;
+  oti_count?: number;
+  tipi_colture?: FiscalTipoColtura[];
+  inps_parametri?: FiscalInpsParametri;
+  aliquota_ires_pct?: number;
+  aliquota_irap_pct?: number;
+  aliquota_stima_generica_pct?: number;
+  note?: string;
+  open_data_enabled?: boolean;
+  open_data_last_sync_at?: string | null;
+  open_data_last_payload?: Record<string, unknown>;
+  versione?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export type CompanyFiscalProfileUpdate = Partial<CompanyFiscalProfileInsert>;
+
+export interface CompanyFiscalProfileAuditRow {
+  id: string;
+  profile_id: string;
+  changed_at: string;
+  changed_by: string | null;
+  reason_for_change: string;
+  previous_payload: Record<string, unknown>;
+  next_payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export type CompanyFiscalProfileAuditInsert = {
+  id?: string;
+  profile_id: string;
+  changed_at?: string;
+  changed_by?: string | null;
+  reason_for_change: string;
+  previous_payload?: Record<string, unknown>;
+  next_payload?: Record<string, unknown>;
+};
+
+export interface FiscalOpenDataCacheRow {
+  id: string;
+  source_key: string;
+  source_label: string;
+  source_url: string;
+  fetched_at: string;
+  payload: Record<string, unknown>;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdempimentoFiscaleRow {
+  id: string;
+  codice: string;
+  titolo: string;
+  descrizione: string;
+  categoria: AdempimentoCategoria;
+  ricorrenza: AdempimentoRicorrenza;
+  giorno_mese: number | null;
+  mese_anno: number | null;
+  attivo: boolean;
+  sort_order: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type AdempimentoFiscaleInsert = {
+  id?: string;
+  codice?: string;
+  titolo: string;
+  descrizione?: string;
+  categoria?: AdempimentoCategoria;
+  ricorrenza?: AdempimentoRicorrenza;
+  giorno_mese?: number | null;
+  mese_anno?: number | null;
+  attivo?: boolean;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export interface DashboardFiscaleSnapshotRow {
+  id: string;
+  periodo_tipo: DashboardFiscalePeriodoTipo;
+  periodo_label: string;
+  periodo_dal: string;
+  periodo_al: string;
+  payload: Record<string, unknown>;
+  profilo_versione: number;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type DashboardFiscaleSnapshotInsert = {
+  id?: string;
+  periodo_tipo: DashboardFiscalePeriodoTipo;
+  periodo_label: string;
+  periodo_dal: string;
+  periodo_al: string;
+  payload: Record<string, unknown>;
+  profilo_versione?: number;
+  note?: string;
+  created_by?: string | null;
+};
+
 export type FicInvoiceKind = "issued" | "received";
 export type FicPaymentStatus = "paid" | "not_paid" | "partially_paid";
 export type FicSyncLogStatus = "running" | "success" | "error";
@@ -1188,6 +1370,38 @@ export interface Database {
         Row: FatturaRicevutaDilazioneRow;
         Insert: FatturaRicevutaDilazioneInsert;
         Update: Partial<FatturaRicevutaDilazioneInsert>;
+        Relationships: [];
+      };
+      company_fiscal_profile: {
+        Row: CompanyFiscalProfileRow;
+        Insert: CompanyFiscalProfileInsert;
+        Update: CompanyFiscalProfileUpdate;
+        Relationships: [];
+      };
+      company_fiscal_profile_audit: {
+        Row: CompanyFiscalProfileAuditRow;
+        Insert: CompanyFiscalProfileAuditInsert;
+        Update: never;
+        Relationships: [];
+      };
+      fiscal_open_data_cache: {
+        Row: FiscalOpenDataCacheRow;
+        Insert: Partial<FiscalOpenDataCacheRow> & {
+          source_key: string;
+        };
+        Update: Partial<FiscalOpenDataCacheRow>;
+        Relationships: [];
+      };
+      adempimenti_fiscali: {
+        Row: AdempimentoFiscaleRow;
+        Insert: AdempimentoFiscaleInsert;
+        Update: Partial<AdempimentoFiscaleInsert>;
+        Relationships: [];
+      };
+      dashboard_fiscale_snapshots: {
+        Row: DashboardFiscaleSnapshotRow;
+        Insert: DashboardFiscaleSnapshotInsert;
+        Update: never;
         Relationships: [];
       };
       fic_invoices: {
