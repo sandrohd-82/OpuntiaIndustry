@@ -12,6 +12,8 @@ import {
   emptySerieAnno,
   formatEuro,
   formatQty,
+  isInteraVita,
+  labelPeriodoAnno,
   MESI_IT,
   type GraficiKpi,
 } from "@/lib/amministrazione/grafici";
@@ -120,9 +122,9 @@ export function GraficiHomeBoard() {
 
   const emptyProd = emptySerieAnno(anno);
   const periodoLabel = mese
-    ? `${MESI_IT[mese - 1]} ${anno}`
-    : `Anno ${anno}`;
-  const kpiSuffix = mese ? "mese" : "anno";
+    ? `${MESI_IT[mese - 1]} ${isInteraVita(anno) ? "— intera vita" : anno}`
+    : labelPeriodoAnno(anno);
+  const kpiSuffix = mese ? "mese" : isInteraVita(anno) ? "storico" : "anno";
 
   if (!ready) {
     return (

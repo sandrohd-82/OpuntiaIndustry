@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   formatEuro,
-  formatEuroCompact,
   MESI_IT,
   type GraficiIncassiDettaglio,
 } from "@/lib/amministrazione/grafici";
@@ -177,7 +176,7 @@ export function CompanyLineChart({
                   className="fill-slate-400"
                   fontSize={10}
                 >
-                  {formatEuroCompact(t)}
+                  {formatEuro(t)}
                 </text>
               </g>
             );

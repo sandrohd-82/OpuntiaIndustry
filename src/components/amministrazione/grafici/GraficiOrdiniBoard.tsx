@@ -15,6 +15,7 @@ import {
   currentAnno,
   emptySerieAnno,
   formatQty,
+  isInteraVita,
   labelAndamento,
   type GraficiAndamento,
   type GraficiKpi,
@@ -42,7 +43,7 @@ export function GraficiOrdiniBoard() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
-  const multiMode = anniConfronto.length > 0;
+  const multiMode = anniConfronto.length > 0 && !isInteraVita(anno);
 
   useEffect(() => {
     void listProdottiPropriAction().then((r) => {

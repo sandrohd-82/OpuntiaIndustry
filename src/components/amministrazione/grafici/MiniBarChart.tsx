@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  formatEuroCompact,
+  formatEuro,
   type GraficiSerieMese,
 } from "@/lib/amministrazione/grafici";
 
@@ -18,7 +18,7 @@ export function MiniBarChart({
   serie,
   height = 140,
   emptyLabel = "Nessun dato",
-  valueFormatter = formatEuroCompact,
+  valueFormatter = formatEuro,
   showValues = true,
 }: Props) {
   const max = Math.max(...serie.map((s) => s.valore), 0);

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  formatEuroCompact,
+  formatEuro,
   type GraficiAziendaMeta,
   type GraficiMeseStacked,
 } from "@/lib/amministrazione/grafici";
@@ -20,7 +20,7 @@ export function StackedBarChart({
   aziende,
   height = 280,
   emptyLabel = "Nessun dato",
-  valueFormatter = formatEuroCompact,
+  valueFormatter = formatEuro,
 }: Props) {
   const max = Math.max(...mesi.map((m) => m.totale), 0);
   const hasData = max > 0;

@@ -38,8 +38,15 @@ export type GraficiMultiAnno = {
   notaAndamento: string;
 };
 
+/** Sentinel: tutto lo storico (nessun filtro anno). */
+export const ANNO_INTERA_VITA = 0;
+
 export const graficiPeriodoSchema = z.object({
-  anno: z.number().int().min(2000).max(2100),
+  /** Anno solare, oppure `ANNO_INTERA_VITA` (0) = intera vita. */
+  anno: z.union([
+    z.literal(ANNO_INTERA_VITA),
+    z.number().int().min(2000).max(2100),
+  ]),
   mese: z.number().int().min(1).max(12).nullable().optional(),
 });
 
@@ -54,6 +61,14 @@ export const graficiIncassiFiltroSchema = graficiPeriodoSchema.extend({
   fonte: z.enum(["fatture", "ordini", "entrambi"]).optional(),
   anniConfronto: z.array(z.number().int().min(2000).max(2100)).optional(),
 });
+
+export function isInteraVita(anno: number): boolean {
+  return anno === ANNO_INTERA_VITA;
+}
+
+export function labelPeriodoAnno(anno: number): string {
+  return isInteraVita(anno) ? "Intera vita" : `Anno ${anno}`;
+}
 
 export type GraficiOrdiniFiltro = z.infer<typeof graficiOrdiniFiltroSchema>;
 export type GraficiIncassiFiltro = z.infer<typeof graficiIncassiFiltroSchema>;
@@ -210,17 +225,7 @@ export function coloreAziendaByIndex(index: number): string {
   return COLORI_AZIENDE[index % COLORI_AZIENDE.length];
 }
 
-/** Formato compatto per etichette barre (€1,2k). */
+/** Importo per esteso (senza abbreviazione “k”). */
 export function formatEuroCompact(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return "€0";
-  if (Math.abs(value) >= 1000) {
-    return `€${(value / 1000).toLocaleString("it-IT", {
-      maximumFractionDigits: 1,
-    })}k`;
-  }
-  return value.toLocaleString("it-IT", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  });
+  return formatEuro(value);
 }

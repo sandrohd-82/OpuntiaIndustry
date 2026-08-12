@@ -1,7 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { anniDisponibili, MESI_IT } from "@/lib/amministrazione/grafici";
+import {
+  ANNO_INTERA_VITA,
+  anniDisponibili,
+  isInteraVita,
+  MESI_IT,
+} from "@/lib/amministrazione/grafici";
 
 type Props = {
   anno: number;
@@ -25,7 +30,15 @@ export function GraficiPeriodoFilters({
 }: Props) {
   const years = anniDisponibili();
   const confronto = anniConfronto ?? [];
-  const showConfronto = Boolean(onAnniConfrontoChange);
+  const interaVita = isInteraVita(anno);
+  const showConfronto = Boolean(onAnniConfrontoChange) && !interaVita;
+
+  function handleAnnoChange(next: number) {
+    onAnnoChange(next);
+    if (isInteraVita(next) && onAnniConfrontoChange) {
+      onAnniConfrontoChange([]);
+    }
+  }
 
   function toggleAnno(y: number) {
     if (!onAnniConfrontoChange) return;
@@ -43,12 +56,13 @@ export function GraficiPeriodoFilters({
     <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <div className="flex flex-wrap items-end gap-3">
         <label className="block text-sm">
-          <span className="mb-1 block font-medium">Anno</span>
+          <span className="mb-1 block font-medium">Periodo</span>
           <select
             value={anno}
-            onChange={(e) => onAnnoChange(Number(e.target.value))}
+            onChange={(e) => handleAnnoChange(Number(e.target.value))}
             className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           >
+            <option value={ANNO_INTERA_VITA}>Intera vita</option>
             {years.map((y) => (
               <option key={y} value={y}>
                 {y}

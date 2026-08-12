@@ -8,6 +8,7 @@ import {
   graficiIncassiFiltroSchema,
   graficiOrdiniFiltroSchema,
   graficiPeriodoSchema,
+  isInteraVita,
   MESI_IT,
   type GraficiFonteIncassi,
   type GraficiIncassiDettaglio,
@@ -20,11 +21,24 @@ import {
 type ActionOk<T> = { success: true } & T;
 type ActionFail = { success: false; error: string };
 
-function dateRangeForYear(anno: number): { from: string; to: string } {
+function dateRangeForYear(
+  anno: number
+): { from: string; to: string } | null {
+  if (isInteraVita(anno)) return null;
   return {
     from: `${anno}-01-01`,
     to: `${anno}-12-31`,
   };
+}
+
+/** Applica filtro data solo se non è “Intera vita”. */
+function applyDateRange<T extends { gte: Function; lte: Function }>(
+  query: T,
+  column: string,
+  range: { from: string; to: string } | null
+): T {
+  if (!range) return query;
+  return query.gte(column, range.from).lte(column, range.to) as T;
 }
 
 function accumulateByMonth(
@@ -54,16 +68,15 @@ async function loadIncassiAnno(
   clienteId: string | null | undefined,
   fonte: GraficiFonteIncassi
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
-  const { from, to } = dateRangeForYear(anno);
+  const range = dateRangeForYear(anno);
   const rows: { dateStr: string; amount: number }[] = [];
 
   if (fonte === "fatture" || fonte === "entrambi") {
     let q = supabase
       .from("fatture_emesse")
       .select("data_emissione, totale, cliente_id, tipo_documento")
-      .is("deleted_at", null)
-      .gte("data_emissione", from)
-      .lte("data_emissione", to);
+      .is("deleted_at", null);
+    q = applyDateRange(q, "data_emissione", range);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -88,9 +101,8 @@ async function loadIncassiAnno(
       .from("ordini")
       .select("data_ordine, importo_euro, cliente_id, pagato")
       .is("deleted_at", null)
-      .eq("pagato", true)
-      .gte("data_ordine", from)
-      .lte("data_ordine", to);
+      .eq("pagato", true);
+    q = applyDateRange(q, "data_ordine", range);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -117,7 +129,7 @@ async function loadIncassiDettaglioAnno(
   | { ok: true; data: GraficiIncassiDettaglio }
   | { ok: false; error: string }
 > {
-  const { from, to } = dateRangeForYear(anno);
+  const range = dateRangeForYear(anno);
   type Row = {
     dateStr: string;
     amount: number;
@@ -134,9 +146,8 @@ async function loadIncassiDettaglioAnno(
       .select(
         "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento"
       )
-      .is("deleted_at", null)
-      .gte("data_emissione", from)
-      .lte("data_emissione", to);
+      .is("deleted_at", null);
+    q = applyDateRange(q, "data_emissione", range);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -169,9 +180,8 @@ async function loadIncassiDettaglioAnno(
         "id, data_ordine, importo_euro, cliente_id, clienti(ragione_sociale, codice_targa)"
       )
       .is("deleted_at", null)
-      .eq("pagato", true)
-      .gte("data_ordine", from)
-      .lte("data_ordine", to);
+      .eq("pagato", true);
+    q = applyDateRange(q, "data_ordine", range);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -325,9 +335,8 @@ async function loadIncassiDettaglioAnno(
       .from("ordini")
       .select("id")
       .is("deleted_at", null)
-      .eq("pagato", true)
-      .gte("data_ordine", from)
-      .lte("data_ordine", to);
+      .eq("pagato", true);
+    ordiniQ = applyDateRange(ordiniQ, "data_ordine", range);
     if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
     const { data: ordini, error: oErr } = await ordiniQ;
     if (oErr) {
@@ -390,14 +399,13 @@ async function loadOrdiniQtyAnno(
   prodottoId: string | null | undefined,
   clienteId: string | null | undefined
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
-  const { from, to } = dateRangeForYear(anno);
+  const range = dateRangeForYear(anno);
 
   let ordiniQ = supabase
     .from("ordini")
     .select("id, data_ordine, cliente_id")
-    .is("deleted_at", null)
-    .gte("data_ordine", from)
-    .lte("data_ordine", to);
+    .is("deleted_at", null);
+  ordiniQ = applyDateRange(ordiniQ, "data_ordine", range);
   if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
 
   const { data: ordini, error: ordiniErr } = await ordiniQ;
@@ -486,9 +494,17 @@ export async function getGraficiIncassiMultiAnnoAction(
     fonte = "fatture",
     anniConfronto,
   } = parsed.data;
+  if (isInteraVita(anno)) {
+    return {
+      success: false,
+      error: "Il confronto multi-anno non è disponibile con «Intera vita».",
+    };
+  }
   const anni = [
     ...new Set(
-      (anniConfronto?.length ? anniConfronto : [anno]).filter(Boolean)
+      (anniConfronto?.length ? anniConfronto : [anno]).filter(
+        (y) => typeof y === "number" && !isInteraVita(y)
+      )
     ),
   ].sort((a, b) => a - b);
   if (anni.length === 0) {
@@ -550,9 +566,17 @@ export async function getGraficiOrdiniQtyMultiAnnoAction(
     return { success: false, error: "Filtri non validi." };
   }
   const { anno, mese, prodottoId, clienteId, anniConfronto } = parsed.data;
+  if (isInteraVita(anno)) {
+    return {
+      success: false,
+      error: "Il confronto multi-anno non è disponibile con «Intera vita».",
+    };
+  }
   const anni = [
     ...new Set(
-      (anniConfronto?.length ? anniConfronto : [anno]).filter(Boolean)
+      (anniConfronto?.length ? anniConfronto : [anno]).filter(
+        (y) => typeof y === "number" && !isInteraVita(y)
+      )
     ),
   ].sort((a, b) => a - b);
   if (anni.length === 0) {

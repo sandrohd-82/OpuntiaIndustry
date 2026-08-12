@@ -17,6 +17,7 @@ import {
   currentAnno,
   emptySerieAnno,
   formatEuro,
+  isInteraVita,
   labelAndamento,
   type GraficiAndamento,
   type GraficiFonteIncassi,
@@ -62,7 +63,7 @@ export function GraficiIncassiBoard() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
-  const multiMode = anniConfronto.length > 0;
+  const multiMode = anniConfronto.length > 0 && !isInteraVita(anno);
 
   useEffect(() => {
     void listClientiAction().then((r) => {
