@@ -2,10 +2,12 @@ import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFi
 import {
   formatDateIt,
   formatEuro,
+  labelModalitaCollegamentoNc,
   labelStatoPagamento,
   prezzoScontatoUnitario,
   type Fattura,
 } from "@/lib/amministrazione/fatture";
+import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import Link from "next/link";
 
 type Props = {
@@ -14,10 +16,13 @@ type Props = {
 
 export function FatturaDettaglioView({ fattura }: Props) {
   const listHref =
-    fattura.kind === "emessa"
-      ? "/app/amministrazione/fatture/emesse"
-      : "/app/amministrazione/fatture/ricevute";
-  const entityLabel = fattura.kind === "emessa" ? "Cliente" : "Fornitore";
+    fattura.kind === "nota_credito"
+      ? "/app/amministrazione/fatture/note-credito"
+      : fattura.kind === "emessa"
+        ? "/app/amministrazione/fatture/emesse"
+        : "/app/amministrazione/fatture/ricevute";
+  const entityLabel =
+    fattura.kind === "ricevuta" ? "Fornitore" : "Cliente";
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -40,6 +45,12 @@ export function FatturaDettaglioView({ fattura }: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {fattura.kind === "nota_credito" &&
+          fattura.modalitaCollegamento === "sostituzione" ? (
+            <span className="inline-flex rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-900">
+              {labelModalitaCollegamentoNc(fattura.modalitaCollegamento)}
+            </span>
+          ) : null}
           <span
             className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
               fattura.statoPagamento === "pagato"
@@ -68,6 +79,47 @@ export function FatturaDettaglioView({ fattura }: Props) {
           {fattura.anagraficaRagioneSociale}
         </p>
       </section>
+
+      {fattura.kind === "nota_credito" ? (
+        <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Collegamento
+          </h3>
+          <p className="mt-1">
+            Modalità:{" "}
+            <strong>
+              {labelModalitaCollegamentoNc(fattura.modalitaCollegamento)}
+            </strong>
+          </p>
+          {fattura.fatturaCollegataId ? (
+            <p className="mt-1">
+              Fattura stornata:{" "}
+              <Link
+                href={fatturaDetailPath("emessa", fattura.fatturaCollegataId)}
+                className="font-mono font-medium text-[var(--primary)] hover:underline"
+              >
+                {fattura.riferimentoFatturaEsterno || "Apri fattura"}
+              </Link>
+              <span className="text-[var(--muted)]">
+                {" "}
+                (resta registrata e visibile)
+              </span>
+            </p>
+          ) : null}
+          {fattura.modalitaCollegamento === "sostituzione" &&
+          fattura.fatturaSostitutivaId ? (
+            <p className="mt-1">
+              Fattura sostitutiva:{" "}
+              <Link
+                href={fatturaDetailPath("emessa", fattura.fatturaSostitutivaId)}
+                className="font-mono font-medium text-[var(--primary)] hover:underline"
+              >
+                Apri fattura di rimpiazzo
+              </Link>
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <table className="w-full min-w-[640px] text-left text-sm">

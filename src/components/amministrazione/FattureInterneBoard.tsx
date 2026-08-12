@@ -240,8 +240,15 @@ export function FattureInterneBoard({ kind }: Props) {
                     {f.numeroDocumentoEsterno || "—"}
                   </td>
                   {kind === "nota_credito" ? (
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {f.riferimentoFatturaEsterno || "—"}
+                    <td className="px-4 py-3 text-xs">
+                      <span className="font-mono">
+                        {f.riferimentoFatturaEsterno || "—"}
+                      </span>
+                      {f.modalitaCollegamento === "sostituzione" ? (
+                        <span className="mt-0.5 block text-[10px] font-medium uppercase tracking-wide text-indigo-800">
+                          Sostituzione gestionale
+                        </span>
+                      ) : null}
                     </td>
                   ) : null}
                   <td className="px-4 py-3 tabular-nums">

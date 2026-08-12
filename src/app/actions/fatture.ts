@@ -447,6 +447,10 @@ export async function createFatturaAction(
         rimborso_mezzo: kind === "nota_credito" ? input.rimborsoMezzo : null,
         fattura_compensativa_id:
           kind === "nota_credito" ? input.fatturaCompensativaId : null,
+        modalita_collegamento:
+          kind === "nota_credito" ? input.modalitaCollegamento : null,
+        fattura_sostitutiva_id:
+          kind === "nota_credito" ? input.fatturaSostitutivaId : null,
         documento_stato: "registrata",
         note: input.note,
         tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
@@ -547,6 +551,7 @@ export async function createFatturaAction(
 
       if (
         kind === "nota_credito" &&
+        input.modalitaCollegamento !== "sostituzione" &&
         input.fatturaCollegataId &&
         input.dilazioniAnnullateIds.length > 0
       ) {
@@ -631,6 +636,8 @@ export async function createFatturaAction(
           rimborso_necessario: input.rimborsoNecessario,
           rimborso_mezzo: input.rimborsoMezzo,
           fattura_compensativa_id: input.fatturaCompensativaId,
+          modalita_collegamento: input.modalitaCollegamento,
+          fattura_sostitutiva_id: input.fatturaSostitutivaId,
           prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
           tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
           fattura_collegata_id: input.fatturaCollegataId ?? null,

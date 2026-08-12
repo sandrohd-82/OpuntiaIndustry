@@ -4,6 +4,7 @@ import type {
   FatturaEmessaDilazioneRow,
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
+  FatturaModalitaCollegamentoNc,
   FatturaRicevutaDilazioneRow,
   FatturaRicevutaRigaRow,
   FatturaRicevutaRow,
@@ -64,6 +65,8 @@ export type Fattura = {
   rimborsoNecessario: boolean | null;
   rimborsoMezzo: FatturaRimborsoMezzo | null;
   fatturaCompensativaId: string | null;
+  modalitaCollegamento: FatturaModalitaCollegamentoNc | null;
+  fatturaSostitutivaId: string | null;
   ricevuta: FatturaAllegatoMeta | null;
   versione: number;
   documentoStato: FatturaDocumentoStato;
@@ -92,6 +95,8 @@ export type FatturaInput = {
   rimborsoNecessario?: boolean | null;
   rimborsoMezzo?: FatturaRimborsoMezzo | null;
   fatturaCompensativaId?: string | null;
+  modalitaCollegamento?: FatturaModalitaCollegamentoNc | null;
+  fatturaSostitutivaId?: string | null;
   /** Dilazioni della fattura collegata da annullare (solo NC). */
   dilazioniAnnullateIds?: string[];
   /** Dopo create fattura: collega questa NC come compensata. */
@@ -341,6 +346,8 @@ const fatturaInputObjectSchema = z.object({
     .nullable()
     .optional(),
   fatturaCompensativaId: z.string().uuid().nullable().optional(),
+  modalitaCollegamento: z.enum(["normale", "sostituzione"]).nullable().optional(),
+  fatturaSostitutivaId: z.string().uuid().nullable().optional(),
   dilazioniAnnullateIds: z.array(z.string().uuid()).optional(),
   collegaComeCompensativaNcId: z.string().uuid().nullable().optional(),
   note: z.string().optional(),
@@ -393,20 +400,47 @@ function transformFatturaInput(
   let rimborsoNecessario: boolean | null = null;
   let rimborsoMezzo: FatturaRimborsoMezzo | null = null;
   let fatturaCompensativaId: string | null = null;
+  let modalitaCollegamento: FatturaModalitaCollegamentoNc | null = null;
+  let fatturaSostitutivaId: string | null = null;
   let statoPagamento = v.statoPagamento;
+  let dilazioniAnnullateIds: string[] = [];
 
   if (isNc) {
-    statoIncassoNc = v.statoIncassoNc ?? "non_incassata";
-    statoPagamento = statoPagamentoFromIncassoNc(statoIncassoNc);
-    if (statoIncassoNc === "gia_incassata") {
-      rimborsoNecessario = Boolean(v.rimborsoNecessario);
-      if (rimborsoNecessario) {
-        rimborsoMezzo = v.rimborsoMezzo ?? null;
-        if (!rimborsoMezzo) {
-          throw new Error("Seleziona il mezzo di rimborso.");
-        }
-        if (rimborsoMezzo === "nuova_fattura") {
-          fatturaCompensativaId = v.fatturaCompensativaId ?? null;
+    modalitaCollegamento = v.modalitaCollegamento ?? "normale";
+    if (modalitaCollegamento === "sostituzione") {
+      fatturaSostitutivaId = v.fatturaSostitutivaId ?? null;
+      if (!fatturaSostitutivaId) {
+        throw new Error("Seleziona la fattura sostitutiva (rimpiazzo gestionale).");
+      }
+      if (
+        v.fatturaCollegataId &&
+        fatturaSostitutivaId === v.fatturaCollegataId
+      ) {
+        throw new Error(
+          "La fattura sostitutiva deve essere diversa da quella stornata."
+        );
+      }
+      // Interno: niente rimborso/incasso/dilazioni — NC azzera e rimpiazza
+      statoIncassoNc = null;
+      statoPagamento = "pagato";
+      rimborsoNecessario = null;
+      rimborsoMezzo = null;
+      fatturaCompensativaId = null;
+      dilazioniAnnullateIds = [];
+    } else {
+      statoIncassoNc = v.statoIncassoNc ?? "non_incassata";
+      statoPagamento = statoPagamentoFromIncassoNc(statoIncassoNc);
+      dilazioniAnnullateIds = [...new Set(v.dilazioniAnnullateIds ?? [])];
+      if (statoIncassoNc === "gia_incassata") {
+        rimborsoNecessario = Boolean(v.rimborsoNecessario);
+        if (rimborsoNecessario) {
+          rimborsoMezzo = v.rimborsoMezzo ?? null;
+          if (!rimborsoMezzo) {
+            throw new Error("Seleziona il mezzo di rimborso.");
+          }
+          if (rimborsoMezzo === "nuova_fattura") {
+            fatturaCompensativaId = v.fatturaCompensativaId ?? null;
+          }
         }
       }
     }
@@ -433,9 +467,9 @@ function transformFatturaInput(
     rimborsoNecessario,
     rimborsoMezzo,
     fatturaCompensativaId,
-    dilazioniAnnullateIds: isNc
-      ? [...new Set(v.dilazioniAnnullateIds ?? [])]
-      : [],
+    modalitaCollegamento,
+    fatturaSostitutivaId,
+    dilazioniAnnullateIds,
     collegaComeCompensativaNcId: v.collegaComeCompensativaNcId ?? null,
     righe,
     dilazioni,
@@ -534,6 +568,8 @@ export function mapFatturaEmessaRow(
     rimborsoNecessario: row.rimborso_necessario ?? null,
     rimborsoMezzo: row.rimborso_mezzo ?? null,
     fatturaCompensativaId: row.fattura_compensativa_id ?? null,
+    modalitaCollegamento: row.modalita_collegamento ?? null,
+    fatturaSostitutivaId: row.fattura_sostitutiva_id ?? null,
     ricevuta: row.ricevuta_storage_path
       ? {
           storagePath: row.ricevuta_storage_path,
@@ -579,6 +615,8 @@ export function mapFatturaRicevutaRow(
     rimborsoNecessario: null,
     rimborsoMezzo: null,
     fatturaCompensativaId: null,
+    modalitaCollegamento: null,
+    fatturaSostitutivaId: null,
     ricevuta: row.ricevuta_storage_path
       ? {
           storagePath: row.ricevuta_storage_path,
@@ -595,6 +633,12 @@ export function mapFatturaRicevutaRow(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+export function labelModalitaCollegamentoNc(
+  m: FatturaModalitaCollegamentoNc | null | undefined
+): string {
+  return m === "sostituzione" ? "Sostituzione gestionale" : "Normale";
 }
 
 export function labelStatoPagamento(

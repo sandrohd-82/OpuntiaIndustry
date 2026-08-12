@@ -43,6 +43,7 @@ import {
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
 import type {
+  FatturaModalitaCollegamentoNc,
   FatturaRimborsoMezzo,
   FatturaStatoIncassoNc,
 } from "@/types/database";
@@ -166,6 +167,12 @@ export function FatturaRegistrazioneModal({
   const [fatturaCollegataId, setFatturaCollegataId] = useState(
     prefill?.fatturaCollegataId ?? ""
   );
+  const [modalitaCollegamento, setModalitaCollegamento] =
+    useState<FatturaModalitaCollegamentoNc>("normale");
+  const [fatturaSostitutivaId, setFatturaSostitutivaId] = useState("");
+  const [pendingPickerTarget, setPendingPickerTarget] = useState<
+    "collegata" | "sostitutiva"
+  >("collegata");
   const [riferimentoFatturaEsterno, setRiferimentoFatturaEsterno] = useState(
     prefill?.riferimentoFatturaEsterno ?? ""
   );
@@ -279,10 +286,22 @@ export function FatturaRegistrazioneModal({
     }
   }, [statoDaDilazioni, statoPagamento, isNc]);
 
+  const isSostituzione =
+    isNc && modalitaCollegamento === "sostituzione";
+
   useEffect(() => {
-    if (!isNc) return;
+    if (!isNc || isSostituzione) return;
     setStatoPagamento(statoPagamentoFromIncassoNc(statoIncassoNc));
-  }, [isNc, statoIncassoNc]);
+  }, [isNc, statoIncassoNc, isSostituzione]);
+
+  useEffect(() => {
+    if (!isSostituzione) return;
+    setStatoPagamento("pagato");
+    setRimborsoNecessario(false);
+    setRimborsoMezzo("");
+    setFatturaCompensativaId("");
+    setDilazioniAnnullateIds([]);
+  }, [isSostituzione]);
 
   useEffect(() => {
     // Escape / click fuori non chiudono (evita perdita dati): solo Pausa / Annulla / Salva.
@@ -313,7 +332,7 @@ export function FatturaRegistrazioneModal({
   }, [isNc, anagraficaId]);
 
   useEffect(() => {
-    if (!isNc || !fatturaCollegataId) {
+    if (!isNc || isSostituzione || !fatturaCollegataId) {
       setDilazioniCollegate([]);
       return;
     }
@@ -327,7 +346,7 @@ export function FatturaRegistrazioneModal({
     return () => {
       cancelled = true;
     };
-  }, [isNc, fatturaCollegataId]);
+  }, [isNc, isSostituzione, fatturaCollegataId]);
 
   useEffect(() => {
     if (!anagraficaId || !anagraficaCodiceTarga || !dataEmissione) {
@@ -476,8 +495,23 @@ export function FatturaRegistrazioneModal({
       setFormError("Seleziona la fattura collegata alla nota di credito.");
       return;
     }
+    if (isSostituzione && !fatturaSostitutivaId) {
+      setFormError("Seleziona la fattura sostitutiva (rimpiazzo gestionale).");
+      return;
+    }
+    if (
+      isSostituzione &&
+      fatturaSostitutivaId &&
+      fatturaSostitutivaId === fatturaCollegataId
+    ) {
+      setFormError(
+        "La fattura sostitutiva deve essere diversa da quella stornata."
+      );
+      return;
+    }
     if (
       isNc &&
+      !isSostituzione &&
       statoIncassoNc === "gia_incassata" &&
       rimborsoNecessario &&
       !rimborsoMezzo
@@ -532,27 +566,40 @@ export function FatturaRegistrazioneModal({
           spedizioneIvaApplicata,
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
           ivaPercentuale: numberOrZero(ivaPercentuale),
-          statoPagamento: isNc
-            ? statoPagamentoFromIncassoNc(statoIncassoNc)
-            : dilazioniNormalizzate.length > 0
-              ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
-              : statoPagamento,
-          statoIncassoNc: isNc ? statoIncassoNc : null,
+          statoPagamento: isSostituzione
+            ? "pagato"
+            : isNc
+              ? statoPagamentoFromIncassoNc(statoIncassoNc)
+              : dilazioniNormalizzate.length > 0
+                ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
+                : statoPagamento,
+          statoIncassoNc:
+            isNc && !isSostituzione ? statoIncassoNc : null,
           rimborsoNecessario:
-            isNc && statoIncassoNc === "gia_incassata"
+            isNc &&
+            !isSostituzione &&
+            statoIncassoNc === "gia_incassata"
               ? rimborsoNecessario
               : null,
           rimborsoMezzo:
             isNc &&
+            !isSostituzione &&
             statoIncassoNc === "gia_incassata" &&
             rimborsoNecessario
               ? rimborsoMezzo || null
               : null,
           fatturaCompensativaId:
-            isNc && rimborsoMezzo === "nuova_fattura"
+            isNc &&
+            !isSostituzione &&
+            rimborsoMezzo === "nuova_fattura"
               ? fatturaCompensativaId || null
               : null,
-          dilazioniAnnullateIds: isNc ? dilazioniAnnullateIds : [],
+          modalitaCollegamento: isNc ? modalitaCollegamento : null,
+          fatturaSostitutivaId: isSostituzione
+            ? fatturaSostitutivaId || null
+            : null,
+          dilazioniAnnullateIds:
+            isNc && !isSostituzione ? dilazioniAnnullateIds : [],
           collegaComeCompensativaNcId:
             prefill?.collegaComeCompensativaNcId ?? null,
           note,
@@ -684,45 +731,118 @@ export function FatturaRegistrazioneModal({
               />
             </div>
             {isNc ? (
-              <div className="sm:col-span-2">
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  Collegata a fattura
-                </label>
-                <select
-                  required
-                  value={fatturaCollegataId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setFatturaCollegataId(id);
-                    setDilazioniAnnullateIds([]);
-                    const opt = fattureCollegabili.find((f) => f.id === id);
-                    if (opt) {
-                      setRiferimentoFatturaEsterno(opt.numeroInterno);
+              <div className="sm:col-span-2 space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    Modalità collegamento
+                  </label>
+                  <select
+                    value={modalitaCollegamento}
+                    onChange={(e) =>
+                      setModalitaCollegamento(
+                        e.target.value as FatturaModalitaCollegamentoNc
+                      )
                     }
-                  }}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                >
-                  <option value="">Seleziona fattura…</option>
-                  {fattureCollegabili.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-[var(--muted)]">
-                    Solo fatture della stessa azienda · n. interno, importo e
-                    data
-                  </p>
-                  <button
-                    type="button"
-                    disabled={!anagraficaId}
-                    onClick={() => setShowPendingPicker(true)}
-                    className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-950 hover:bg-indigo-100 disabled:opacity-50"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   >
-                    Cerca fattura da sincronizzare
-                  </button>
+                    <option value="normale">
+                      Normale (incasso / rimborso)
+                    </option>
+                    <option value="sostituzione">
+                      Sostituzione gestionale (fattura rimpiazzata)
+                    </option>
+                  </select>
+                  {isSostituzione ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      La fattura stornata resta registrata e visibile; la NC la
+                      azzera contabilmente. Indica la fattura corretta di
+                      rimpiazzo. Rimborso e dilazioni non si applicano.
+                    </p>
+                  ) : null}
                 </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    {isSostituzione
+                      ? "Fattura stornata (originale)"
+                      : "Collegata a fattura"}
+                  </label>
+                  <select
+                    required
+                    value={fatturaCollegataId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setFatturaCollegataId(id);
+                      setDilazioniAnnullateIds([]);
+                      const opt = fattureCollegabili.find((f) => f.id === id);
+                      if (opt) {
+                        setRiferimentoFatturaEsterno(opt.numeroInterno);
+                      }
+                    }}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">Seleziona fattura…</option>
+                    {fattureCollegabili.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <p className="text-xs text-[var(--muted)]">
+                      Stessa azienda · n. interno, importo e data
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!anagraficaId}
+                      onClick={() => {
+                        setPendingPickerTarget("collegata");
+                        setShowPendingPicker(true);
+                      }}
+                      className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-950 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      Cerca fattura da sincronizzare
+                    </button>
+                  </div>
+                </div>
+                {isSostituzione ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                      Fattura sostitutiva (corretta)
+                    </label>
+                    <select
+                      required
+                      value={fatturaSostitutivaId}
+                      onChange={(e) => setFatturaSostitutivaId(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                    >
+                      <option value="">Seleziona fattura di rimpiazzo…</option>
+                      {fattureCollegabili
+                        .filter((f) => f.id !== fatturaCollegataId)
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.label}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-[var(--muted)]">
+                        Fattura con errori risolti · resta nello storico come
+                        documento a sé
+                      </p>
+                      <button
+                        type="button"
+                        disabled={!anagraficaId}
+                        onClick={() => {
+                          setPendingPickerTarget("sostitutiva");
+                          setShowPendingPicker(true);
+                        }}
+                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-950 hover:bg-indigo-100 disabled:opacity-50"
+                      >
+                        Cerca fattura da sincronizzare
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div>
@@ -1053,6 +1173,7 @@ export function FatturaRegistrazioneModal({
             </div>
           </div>
 
+          {!isSostituzione ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -1105,8 +1226,14 @@ export function FatturaRegistrazioneModal({
               </div>
             ) : null}
           </div>
+          ) : (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Sostituzione gestionale: la fattura originale resta nello storico;
+              non servono rimborso né gestione dilazioni.
+            </div>
+          )}
 
-          {isNc && statoIncassoNc === "gia_incassata" ? (
+          {isNc && !isSostituzione && statoIncassoNc === "gia_incassata" ? (
             <div className="space-y-3 rounded-lg border border-[var(--border)] bg-slate-50/80 p-3">
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <input
@@ -1176,7 +1303,7 @@ export function FatturaRegistrazioneModal({
             </div>
           ) : null}
 
-          {isNc ? (
+          {isNc && !isSostituzione ? (
             <section className="space-y-2">
               <div>
                 <h3 className="text-sm font-semibold">
@@ -1560,7 +1687,10 @@ export function FatturaRegistrazioneModal({
             statoPagamento: pendingInvoiceToRegister.statoPagamento,
             righe: pendingInvoiceToRegister.righe,
             lockAnagrafica: true,
-            note: `Registrata prima della nota di credito (collegamento NC)`,
+            note:
+              pendingPickerTarget === "sostitutiva"
+                ? "Registrata come fattura sostitutiva (rimpiazzo gestionale NC)"
+                : "Registrata prima della nota di credito (collegamento NC)",
           }}
           onClose={() => {
             setPendingInvoiceToRegister(null);
@@ -1572,9 +1702,13 @@ export function FatturaRegistrazioneModal({
               clienteId: anagraficaId,
             });
             if (res.success) setFattureCollegabili(res.fatture);
-            setFatturaCollegataId(fattura.id);
-            setRiferimentoFatturaEsterno(fattura.numeroInterno);
-            setDilazioniAnnullateIds([]);
+            if (pendingPickerTarget === "sostitutiva") {
+              setFatturaSostitutivaId(fattura.id);
+            } else {
+              setFatturaCollegataId(fattura.id);
+              setRiferimentoFatturaEsterno(fattura.numeroInterno);
+              setDilazioniAnnullateIds([]);
+            }
           }}
         />
       ) : null}

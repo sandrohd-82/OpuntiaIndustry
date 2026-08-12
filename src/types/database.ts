@@ -589,6 +589,7 @@ export type FatturaRimborsoMezzo =
   | "denaro"
   | "rimpiazzo_merce"
   | "nuova_fattura";
+export type FatturaModalitaCollegamentoNc = "normale" | "sostituzione";
 
 export interface FatturaEmessaRow {
   id: string;
@@ -611,6 +612,8 @@ export interface FatturaEmessaRow {
   rimborso_necessario: boolean | null;
   rimborso_mezzo: FatturaRimborsoMezzo | null;
   fattura_compensativa_id: string | null;
+  modalita_collegamento: FatturaModalitaCollegamentoNc | null;
+  fattura_sostitutiva_id: string | null;
   ricevuta_storage_path: string;
   ricevuta_file_name: string;
   versione: number;
@@ -657,6 +660,8 @@ export type FatturaEmessaInsert = {
   rimborso_necessario?: boolean | null;
   rimborso_mezzo?: FatturaRimborsoMezzo | null;
   fattura_compensativa_id?: string | null;
+  modalita_collegamento?: FatturaModalitaCollegamentoNc | null;
+  fattura_sostitutiva_id?: string | null;
   ricevuta_storage_path?: string;
   ricevuta_file_name?: string;
   versione?: number;
