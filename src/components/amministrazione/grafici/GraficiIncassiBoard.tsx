@@ -249,12 +249,13 @@ export function GraficiIncassiBoard() {
         </div>
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-slate-800">
-            Andamento aziende (linee continue)
+            Crescita aziende (slideshow)
           </h3>
           <CompanyLineChart
             series={dettaglio.andamentoAziende}
             height={260}
-            emptyLabel="Nessun andamento nel periodo"
+            emptyLabel="Nessuna crescita nel periodo"
+            secondsPerCompany={5}
           />
         </div>
       </div>
