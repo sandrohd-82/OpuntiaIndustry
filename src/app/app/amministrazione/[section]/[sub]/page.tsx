@@ -7,6 +7,7 @@ import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/G
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
+import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
 import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
@@ -168,6 +169,20 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   // Redirect legacy slug Inviate → Emesse
   if (section === "fatture" && sub === "inviate") {
     redirect("/app/amministrazione/fatture/emesse");
+  }
+
+  if (section === "fatture" && sub === "emetti") {
+    return (
+      <>
+        <AppHeader
+          title="Emetti fattura"
+          subtitle={page.description}
+        />
+        <div className="p-6">
+          <FatturaEmissioneBoard />
+        </div>
+      </>
+    );
   }
 
   if (section === "fatture" && sub === "emesse") {

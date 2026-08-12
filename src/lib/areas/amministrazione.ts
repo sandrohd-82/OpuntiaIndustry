@@ -85,6 +85,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/amministrazione/fatture",
     children: [
       {
+        slug: "emetti",
+        label: "Emetti",
+        description:
+          "Crea e invia fatture elettroniche a Fatture in Cloud / SDI",
+        path: "/app/amministrazione/fatture/emetti",
+      },
+      {
         slug: "ricevute",
         label: "Ricevute",
         description: "Storico fatture ricevute dai fornitori",

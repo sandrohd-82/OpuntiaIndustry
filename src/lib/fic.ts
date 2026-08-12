@@ -92,34 +92,54 @@ type FicListResponse = {
   total?: number;
 };
 
-async function ficGet<T>(
+async function ficRequest<T>(
+  method: "GET" | "POST" | "PUT",
   path: string,
-  query: Record<string, string | number | undefined>
+  options?: {
+    query?: Record<string, string | number | undefined>;
+    body?: unknown;
+  }
 ): Promise<T> {
   const { token, companyId } = getFicConfig();
   const url = new URL(`${FIC_API_BASE}/c/${companyId}${path}`);
-  for (const [k, v] of Object.entries(query)) {
+  for (const [k, v] of Object.entries(options?.query ?? {})) {
     if (v === undefined || v === "") continue;
     url.searchParams.set(k, String(v));
   }
 
   const res = await fetch(url.toString(), {
-    method: "GET",
+    method,
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
+      ...(options?.body !== undefined
+        ? { "Content-Type": "application/json" }
+        : {}),
     },
+    body: options?.body !== undefined ? JSON.stringify(options.body) : undefined,
     cache: "no-store",
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
-      `Fatture in Cloud ha risposto con errore ${res.status}: ${body.slice(0, 400)}`
+      `Fatture in Cloud ha risposto con errore ${res.status}: ${body.slice(0, 600)}`
     );
   }
 
+  if (res.status === 204) return {} as T;
   return (await res.json()) as T;
+}
+
+async function ficGet<T>(
+  path: string,
+  query: Record<string, string | number | undefined>
+): Promise<T> {
+  return ficRequest<T>("GET", path, { query });
+}
+
+async function ficPost<T>(path: string, body: unknown): Promise<T> {
+  return ficRequest<T>("POST", path, { body });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -410,4 +430,127 @@ export async function fetchFicDocumentPdfUrl(input: {
   throw new Error(
     "Fatture in Cloud non ha restituito un link PDF per questo documento (allegato assente o non disponibile)."
   );
+}
+
+export type FicVatType = {
+  id: number;
+  value: number;
+  description: string;
+};
+
+/** Elenco aliquote IVA configurate su FiC. */
+export async function fetchFicVatTypes(): Promise<FicVatType[]> {
+  const res = await ficGet<{ data?: unknown[] }>("/info/vat_types", {});
+  const out: FicVatType[] = [];
+  for (const item of res.data ?? []) {
+    const r = asRecord(item);
+    const id = asNumber(r.id);
+    if (!id && id !== 0) continue;
+    out.push({
+      id,
+      value: asNumber(r.value),
+      description: asText(r.description),
+    });
+  }
+  return out;
+}
+
+/** Trova vat.id FiC più vicino all’aliquota %. Preferisce match esatto. */
+export function resolveFicVatId(
+  vatTypes: FicVatType[],
+  aliquotaPercent: number
+): number {
+  const target = Number(aliquotaPercent) || 0;
+  const exact = vatTypes.find((v) => Math.abs(v.value - target) < 0.001);
+  if (exact) return exact.id;
+  if (target === 0) {
+    const zero = vatTypes.find((v) => v.value === 0);
+    if (zero) return zero.id;
+  }
+  // fallback comune FiC: id 0 = IVA default azienda
+  return vatTypes[0]?.id ?? 0;
+}
+
+export type CreateIssuedDocumentResult = {
+  ficId: number;
+  number: string;
+  eiStatus: string;
+  pdfUrl: string;
+  raw: Record<string, unknown>;
+};
+
+/** Crea fattura emessa su FiC (POST /issued_documents). */
+export async function createIssuedDocument(
+  data: Record<string, unknown>
+): Promise<CreateIssuedDocumentResult> {
+  const res = await ficPost<{ data?: unknown }>("/issued_documents", { data });
+  const doc = asRecord(res.data);
+  const ficId = asNumber(doc.id);
+  if (!ficId) {
+    throw new Error(
+      "Fatture in Cloud non ha restituito l’ID del documento creato."
+    );
+  }
+  const number = [doc.number, doc.numeration]
+    .filter((x) => x !== null && x !== undefined && String(x).trim() !== "")
+    .map(String)
+    .join("");
+  let pdfUrl = "";
+  try {
+    pdfUrl = await fetchFicDocumentPdfUrl({ kind: "issued", ficId });
+  } catch {
+    pdfUrl = asText(doc.url);
+  }
+  return {
+    ficId,
+    number: number || String(doc.number ?? ""),
+    eiStatus: asText(doc.ei_status),
+    pdfUrl,
+    raw: doc,
+  };
+}
+
+/** Invia e-fattura allo SDI. */
+export async function sendIssuedDocumentToSdi(input: {
+  ficId: number;
+  dryRun?: boolean;
+}): Promise<{ raw: Record<string, unknown> }> {
+  const body = input.dryRun
+    ? { data: { dry_run: true } }
+    : { data: {} };
+  const res = await ficPost<{ data?: unknown }>(
+    `/issued_documents/${input.ficId}/e_invoice/send`,
+    body
+  );
+  return { raw: asRecord(res.data ?? res) };
+}
+
+/** Invia mail di cortesia con link/PDF al cliente. */
+export async function sendIssuedDocumentCourtesyEmail(input: {
+  ficId: number;
+  recipientEmail: string;
+  subject: string;
+  bodyHtml?: string;
+}): Promise<void> {
+  const email = input.recipientEmail.trim();
+  if (!email) {
+    throw new Error("Email destinatario mancante per la mail di cortesia.");
+  }
+  await ficPost(`/issued_documents/${input.ficId}/email`, {
+    data: {
+      recipient_email: email,
+      subject: input.subject,
+      body:
+        input.bodyHtml ??
+        `Gentile cliente,<br>in allegato / al link la fattura <b>${input.subject}</b>.<br><br>{{allegati}}<br><br>Cordiali saluti.`,
+      include: {
+        document: true,
+        delivery_note: false,
+        attachment: false,
+        accompanying_invoice: false,
+      },
+      attach_pdf: true,
+      send_copy: false,
+    },
+  });
 }
