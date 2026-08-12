@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { listClientiAction } from "@/app/actions/clienti";
 import {
-  getGraficiIncassiAction,
+  getGraficiIncassiDettaglioAction,
   getGraficiIncassiMultiAnnoAction,
 } from "@/app/actions/grafici";
+import { CompanyLineChart } from "@/components/amministrazione/grafici/CompanyLineChart";
 import { GraficiPeriodoFilters } from "@/components/amministrazione/grafici/GraficiPeriodoFilters";
-import { MiniBarChart } from "@/components/amministrazione/grafici/MiniBarChart";
+import { IncassiAziendeTable } from "@/components/amministrazione/grafici/IncassiAziendeTable";
 import { MultiYearLineChart } from "@/components/amministrazione/grafici/MultiYearLineChart";
+import { PieChartProdotti } from "@/components/amministrazione/grafici/PieChartProdotti";
+import { StackedBarChart } from "@/components/amministrazione/grafici/StackedBarChart";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
   currentAnno,
@@ -17,6 +20,7 @@ import {
   labelAndamento,
   type GraficiAndamento,
   type GraficiFonteIncassi,
+  type GraficiIncassiDettaglio,
   type GraficiKpi,
   type GraficiMultiAnno,
 } from "@/lib/amministrazione/grafici";
@@ -28,6 +32,22 @@ function badgeClass(a: GraficiAndamento): string {
   return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
+function emptyDettaglio(anno: number): GraficiIncassiDettaglio {
+  return {
+    anno,
+    totale: 0,
+    aziende: [],
+    mesi: emptySerieAnno(anno).serie.map((s) => ({
+      mese: s.mese,
+      label: s.label,
+      totale: 0,
+      perAzienda: [],
+    })),
+    andamentoAziende: [],
+    prodotti: [],
+  };
+}
+
 export function GraficiIncassiBoard() {
   const [anno, setAnno] = useState(currentAnno);
   const [mese, setMese] = useState<number | null>(null);
@@ -35,7 +55,9 @@ export function GraficiIncassiBoard() {
   const [fonte, setFonte] = useState<GraficiFonteIncassi>("fatture");
   const [anniConfronto, setAnniConfronto] = useState<number[]>([]);
   const [clienti, setClienti] = useState<Cliente[]>([]);
-  const [kpi, setKpi] = useState<GraficiKpi>(() => emptySerieAnno(currentAnno()));
+  const [dettaglio, setDettaglio] = useState<GraficiIncassiDettaglio>(() =>
+    emptyDettaglio(currentAnno())
+  );
   const [multi, setMulti] = useState<GraficiMultiAnno | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -56,42 +78,48 @@ export function GraficiIncassiBoard() {
     let cancelled = false;
     void (async () => {
       setReady(false);
+      const dettaglioP = getGraficiIncassiDettaglioAction({
+        anno,
+        mese,
+        clienteId,
+        fonte,
+      });
+
       if (multiMode) {
-        const result = await getGraficiIncassiMultiAnnoAction({
-          anno,
-          mese,
-          clienteId,
-          fonte,
-          anniConfronto: [anno, ...anniConfronto],
-        });
+        const [detR, multiR] = await Promise.all([
+          dettaglioP,
+          getGraficiIncassiMultiAnnoAction({
+            anno,
+            mese,
+            clienteId,
+            fonte,
+            anniConfronto: [anno, ...anniConfronto],
+          }),
+        ]);
         if (cancelled) return;
-        if (!result.success) {
-          setError(result.error);
-          setMulti(null);
-          setKpi(emptySerieAnno(anno));
+        if (!detR.success) {
+          setError(detR.error);
+          setDettaglio(emptyDettaglio(anno));
         } else {
+          setDettaglio(detR.data);
           setError(null);
-          setMulti(result.data);
-          const current =
-            result.data.seriePerAnno.find((s) => s.anno === anno) ??
-            emptySerieAnno(anno);
-          setKpi(current);
+        }
+        if (!multiR.success) {
+          setMulti(null);
+          if (detR.success) setError(multiR.error);
+        } else {
+          setMulti(multiR.data);
         }
       } else {
-        const result = await getGraficiIncassiAction({
-          anno,
-          mese,
-          clienteId,
-          fonte,
-        });
+        const detR = await dettaglioP;
         if (cancelled) return;
-        if (!result.success) {
-          setError(result.error);
-          setKpi(emptySerieAnno(anno));
+        if (!detR.success) {
+          setError(detR.error);
+          setDettaglio(emptyDettaglio(anno));
           setMulti(null);
         } else {
           setError(null);
-          setKpi(result.data);
+          setDettaglio(detR.data);
           setMulti(null);
         }
       }
@@ -115,16 +143,14 @@ export function GraficiIncassiBoard() {
         ? "ordini pagati"
         : "fatture + ordini pagati";
 
+  const kpiTotale = dettaglio.totale;
+  const serieMulti: GraficiKpi[] = multi?.seriePerAnno ?? [];
+
   return (
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
-        Incassi da <strong>{fonteLabel}</strong>
-        {fonte === "fatture"
-          ? " (totale documento per data emissione)."
-          : fonte === "ordini"
-            ? " (flag Pagato = Sì)."
-            : " — attenzione: possibili doppi conteggi se ordine e fattura coincidono."}{" "}
-        Filtra per periodo e/o azienda; confronta più anni sullo stesso grafico.
+        Incassi da <strong>{fonteLabel}</strong>. Barre stacked per azienda
+        (importo in cima), tabella mensile, torta prodotti e andamento a linee.
       </p>
 
       <GraficiPeriodoFilters
@@ -177,7 +203,7 @@ export function GraficiIncassiBoard() {
               Totale · {clienteLabel}
             </p>
             <p className="text-2xl font-semibold tabular-nums">
-              {ready ? formatEuro(kpi.totale) : "…"}
+              {ready ? formatEuro(kpiTotale) : "…"}
             </p>
           </div>
           {multi ? (
@@ -191,23 +217,61 @@ export function GraficiIncassiBoard() {
         </div>
 
         <div className="mt-4">
-          {multiMode && multi ? (
-            <MultiYearLineChart
-              seriePerAnno={multi.seriePerAnno}
-              height={280}
-              emptyLabel="Nessun incasso nel periodo selezionato"
-              valueFormatter={formatEuro}
-            />
-          ) : (
-            <MiniBarChart
-              serie={kpi.serie}
-              height={220}
-              emptyLabel="Nessuna fattura / incasso nel periodo"
-              valueFormatter={formatEuro}
-            />
-          )}
+          <h3 className="mb-2 text-sm font-semibold text-slate-800">
+            Incassi mensili per azienda
+          </h3>
+          <StackedBarChart
+            mesi={dettaglio.mesi}
+            aziende={dettaglio.aziende}
+            height={300}
+            emptyLabel="Nessuna fattura / incasso nel periodo"
+            valueFormatter={formatEuro}
+          />
         </div>
       </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">
+          Dettaglio per azienda e mese
+        </h3>
+        <IncassiAziendeTable
+          aziende={dettaglio.aziende}
+          mesi={dettaglio.mesi}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">
+            Prodotti venduti
+          </h3>
+          <PieChartProdotti prodotti={dettaglio.prodotti} />
+        </div>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">
+            Andamento aziende (linee continue)
+          </h3>
+          <CompanyLineChart
+            series={dettaglio.andamentoAziende}
+            height={260}
+            emptyLabel="Nessun andamento nel periodo"
+          />
+        </div>
+      </div>
+
+      {multiMode && multi ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="mb-3 text-sm font-semibold text-slate-800">
+            Confronto anni
+          </h3>
+          <MultiYearLineChart
+            seriePerAnno={serieMulti}
+            height={280}
+            emptyLabel="Nessun incasso nel confronto anni"
+            valueFormatter={formatEuro}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -148,3 +148,79 @@ export const COLORI_ANNI = [
   "#9a3412",
   "#334155",
 ] as const;
+
+/** Palette aziende (stabile per indice). */
+export const COLORI_AZIENDE = [
+  "#0f766e",
+  "#b45309",
+  "#1d4ed8",
+  "#be123c",
+  "#7c3aed",
+  "#0891b2",
+  "#ca8a04",
+  "#c2410c",
+  "#4d7c0f",
+  "#9333ea",
+  "#0e7490",
+  "#a16207",
+  "#9f1239",
+  "#166534",
+  "#1e3a8a",
+  "#7c2d12",
+] as const;
+
+export type GraficiAziendaMeta = {
+  id: string;
+  label: string;
+  codiceTarga: string;
+  color: string;
+};
+
+export type GraficiMeseStacked = {
+  mese: number;
+  label: string;
+  totale: number;
+  /** Importi per azienda (stesso ordine di `aziende`). */
+  perAzienda: number[];
+};
+
+export type GraficiProdottoSlice = {
+  codice: string;
+  label: string;
+  valore: number;
+  color: string;
+};
+
+export type GraficiIncassiDettaglio = {
+  anno: number;
+  totale: number;
+  aziende: GraficiAziendaMeta[];
+  mesi: GraficiMeseStacked[];
+  /** Serie mensile per azienda (12 valori, 0 se nessun incasso). */
+  andamentoAziende: Array<{
+    aziendaId: string;
+    label: string;
+    color: string;
+    valori: number[];
+  }>;
+  prodotti: GraficiProdottoSlice[];
+};
+
+export function coloreAziendaByIndex(index: number): string {
+  return COLORI_AZIENDE[index % COLORI_AZIENDE.length];
+}
+
+/** Formato compatto per etichette barre (€1,2k). */
+export function formatEuroCompact(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "€0";
+  if (Math.abs(value) >= 1000) {
+    return `€${(value / 1000).toLocaleString("it-IT", {
+      maximumFractionDigits: 1,
+    })}k`;
+  }
+  return value.toLocaleString("it-IT", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+  });
+}
