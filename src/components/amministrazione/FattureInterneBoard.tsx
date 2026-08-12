@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { FaPlus } from "react-icons/fa6";
+import { FaArrowsRotate, FaPlus } from "react-icons/fa6";
+import {
+  startFattureEmesseSyncAction,
+  startFattureRicevuteSyncAction,
+} from "@/app/actions/fatture-sync";
 import { listFattureAction } from "@/app/actions/fatture";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import {
   formatDateIt,
   formatEuro,
@@ -12,6 +17,7 @@ import {
   type Fattura,
   type FatturaKind,
 } from "@/lib/amministrazione/fatture";
+import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 
 type Props = {
   kind: FatturaKind;
@@ -23,6 +29,11 @@ export function FattureInterneBoard({ kind }: Props) {
   const [ready, setReady] = useState(false);
   const [pending, startTransition] = useTransition();
   const [creating, setCreating] = useState(false);
+  const [syncItems, setSyncItems] = useState<FatturaSyncQueueItem[] | null>(
+    null
+  );
+  const [syncInfo, setSyncInfo] = useState<string | null>(null);
+  const [syncPending, startSyncTransition] = useTransition();
 
   const load = useCallback(() => {
     startTransition(async () => {
@@ -43,11 +54,32 @@ export function FattureInterneBoard({ kind }: Props) {
     load();
   }, [load]);
 
+  function handleSync() {
+    setError(null);
+    setSyncInfo(null);
+    startSyncTransition(async () => {
+      const result =
+        kind === "emessa"
+          ? await startFattureEmesseSyncAction()
+          : await startFattureRicevuteSyncAction();
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      if (result.skippedAlreadyRegistered > 0) {
+        setSyncInfo(
+          `${result.skippedAlreadyRegistered} fatture già registrate saltate.`
+        );
+      }
+      setSyncItems(result.items);
+    });
+  }
+
   const entityLabel = kind === "emessa" ? "Cliente" : "Fornitore";
   const titleHint =
     kind === "emessa"
-      ? "Storico fatture emesse registrate. La sincronizzazione parti da Clienti."
-      : "Storico fatture ricevute registrate. La sincronizzazione parti da Fornitori.";
+      ? "Storico fatture emesse. Sincronizza = stesso flusso della pagina Clienti (fatture FiC emesse)."
+      : "Storico fatture ricevute. Sincronizza = stesso flusso della pagina Fornitori (fatture FiC ricevute).";
 
   return (
     <div className="space-y-4">
@@ -55,20 +87,72 @@ export function FattureInterneBoard({ kind }: Props) {
         <div>
           <p className="text-sm text-[var(--muted)]">{titleHint}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-        >
-          <FaPlus size={12} />
-          Registra fattura
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleSync}
+            disabled={syncPending}
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+          >
+            <FaArrowsRotate
+              size={14}
+              className={syncPending ? "animate-spin" : ""}
+            />
+            {syncPending ? "Preparazione sync…" : "Sincronizza"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            <FaPlus size={12} />
+            Registra fattura
+          </button>
+        </div>
       </div>
+
+      {syncInfo ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          {syncInfo}
+        </p>
+      ) : null}
+
+      {syncItems && syncItems.length === 0 ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {kind === "emessa"
+            ? "Nessuna fattura emessa da registrare da Fatture in Cloud."
+            : "Nessuna fattura ricevuta da registrare da Fatture in Cloud."}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
+      ) : null}
+
+      {syncItems && syncItems.length > 0 ? (
+        <FatturaSyncQueueModal
+          items={syncItems}
+          onFinished={(n) => {
+            setSyncItems(null);
+            setSyncInfo(
+              n > 0
+                ? `Sync completata: ${n} fatture ${kind === "emessa" ? "emesse" : "ricevute"} registrate.`
+                : "Sync completata senza nuove registrazioni."
+            );
+            load();
+          }}
+          onPaused={() => {
+            setSyncItems(null);
+            setSyncInfo(
+              kind === "emessa"
+                ? "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture emesse non ancora registrate."
+                : "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture ricevute non ancora registrate."
+            );
+            load();
+          }}
+        />
       ) : null}
 
       {!ready || pending ? (
@@ -77,8 +161,7 @@ export function FattureInterneBoard({ kind }: Props) {
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-10 text-center">
           <p className="text-sm font-medium">Nessuna fattura registrata</p>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Usa «Registra fattura» oppure sincronizza da{" "}
-            {kind === "emessa" ? "Clienti" : "Fornitori"}.
+            Usa «Registra fattura» oppure «Sincronizza» da Fatture in Cloud.
           </p>
         </div>
       ) : (

@@ -43,6 +43,8 @@ type Props = {
   kind: FatturaKind;
   onClose: () => void;
   onSaved: (fattura: Fattura) => void;
+  /** Durante sync: interrompe la coda senza chiudere come “salta documento”. */
+  onPause?: () => void;
   prefill?: FatturaRegistrazionePrefill | null;
   elevated?: boolean;
 };
@@ -51,6 +53,7 @@ export function FatturaRegistrazioneModal({
   kind,
   onClose,
   onSaved,
+  onPause,
   prefill = null,
   elevated = false,
 }: Props) {
@@ -560,13 +563,23 @@ export function FatturaRegistrazioneModal({
             </p>
           ) : null}
 
-          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
+            {onPause ? (
+              <button
+                type="button"
+                onClick={onPause}
+                disabled={saving}
+                className="mr-auto rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+              >
+                Pausa
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onClose}
               className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
             >
-              Annulla
+              {onPause ? "Salta documento" : "Annulla"}
             </button>
             <button
               type="submit"

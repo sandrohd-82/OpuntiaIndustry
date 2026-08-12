@@ -467,9 +467,11 @@ export function FornitoriBoard() {
             );
             void refresh();
           }}
-          onCancel={() => {
+          onPaused={() => {
             setSyncItems(null);
-            setSyncInfo("Sync interrotta.");
+            setSyncInfo(
+              "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture ricevute non ancora registrate."
+            );
             void refresh();
           }}
         />
