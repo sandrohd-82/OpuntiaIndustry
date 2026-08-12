@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type {
   FatturaDocumentoStato,
+  FatturaEmessaDilazioneRow,
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
+  FatturaRicevutaDilazioneRow,
   FatturaRicevutaRigaRow,
   FatturaRicevutaRow,
   FatturaStatoPagamento,
@@ -28,6 +30,14 @@ export type FatturaRiga = {
   importo: number;
 };
 
+export type FatturaDilazione = {
+  id?: string;
+  dataScadenza: string;
+  importo: number;
+  statoPagamento: FatturaStatoPagamento;
+  note?: string;
+};
+
 export type Fattura = {
   id: string;
   kind: FatturaKind;
@@ -51,6 +61,7 @@ export type Fattura = {
   documentoStato: FatturaDocumentoStato;
   note: string;
   righe: FatturaRiga[];
+  dilazioni: FatturaDilazione[];
   createdAt: string;
   updatedAt: string;
 };
@@ -68,6 +79,7 @@ export type FatturaInput = {
   statoPagamento: FatturaStatoPagamento;
   note?: string;
   righe: FatturaRiga[];
+  dilazioni?: FatturaDilazione[];
 };
 
 export function roundMoney(value: number): number {
@@ -136,6 +148,53 @@ export function year2FromDate(isoDate: string): string {
   return String(new Date().getFullYear()).slice(-2);
 }
 
+/** Data odierna YYYY-MM-DD (locale). */
+export function todayIsoDate(now = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** Scadenza futura rispetto a oggi → non ancora saldabile come “pagata” forzata. */
+export function isDilazioneFutura(
+  dataScadenza: string,
+  today = todayIsoDate()
+): boolean {
+  return dataScadenza > today;
+}
+
+/** Rate future: stato sempre da_pagare. */
+export function normalizeDilazioneStato(
+  dataScadenza: string,
+  stato: FatturaStatoPagamento,
+  today = todayIsoDate()
+): FatturaStatoPagamento {
+  if (isDilazioneFutura(dataScadenza, today)) return "da_pagare";
+  return stato;
+}
+
+/** Se ci sono dilazioni: pagato solo se tutte pagate. */
+export function statoPagamentoFromDilazioni(
+  dilazioni: Array<{ statoPagamento: FatturaStatoPagamento }>
+): FatturaStatoPagamento {
+  if (dilazioni.length === 0) return "da_pagare";
+  return dilazioni.every((d) => d.statoPagamento === "pagato")
+    ? "pagato"
+    : "da_pagare";
+}
+
+export function emptyFatturaDilazione(
+  totaleSuggerito = 0
+): FatturaDilazione {
+  return {
+    dataScadenza: todayIsoDate(),
+    importo: Math.max(0, roundMoney(totaleSuggerito)),
+    statoPagamento: "da_pagare",
+    note: "",
+  };
+}
+
 /** Ft-26-C001/1 */
 export function buildNumeroInternoFattura(input: {
   dataEmissione: string;
@@ -159,6 +218,14 @@ const rigaSchema = z.object({
   importo: z.number().min(0).optional(),
 });
 
+const dilazioneSchema = z.object({
+  id: z.string().optional(),
+  dataScadenza: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data dilazione non valida"),
+  importo: z.number().min(0, "Importo dilazione non valido"),
+  statoPagamento: z.enum(["pagato", "da_pagare"]),
+  note: z.string().optional(),
+});
+
 export const fatturaInputSchema = z
   .object({
     anagraficaId: z.string().uuid("Anagrafica non valida"),
@@ -173,8 +240,10 @@ export const fatturaInputSchema = z
     statoPagamento: z.enum(["pagato", "da_pagare"]),
     note: z.string().optional(),
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno un prodotto"),
+    dilazioni: z.array(dilazioneSchema).optional(),
   })
   .transform((v) => {
+    const today = todayIsoDate();
     const righe = v.righe.map((r) => {
       const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
       return {
@@ -188,6 +257,21 @@ export const fatturaInputSchema = z
         importo: importoRiga(r.quantita, r.prezzoUnitario, scontoPercentuale),
       };
     });
+    const dilazioni = (v.dilazioni ?? []).map((d) => ({
+      id: d.id,
+      dataScadenza: d.dataScadenza,
+      importo: roundMoney(d.importo),
+      statoPagamento: normalizeDilazioneStato(
+        d.dataScadenza,
+        d.statoPagamento,
+        today
+      ),
+      note: (d.note ?? "").trim(),
+    }));
+    const statoPagamento =
+      dilazioni.length > 0
+        ? statoPagamentoFromDilazioni(dilazioni)
+        : v.statoPagamento;
     return {
       ...v,
       anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
@@ -196,7 +280,9 @@ export const fatturaInputSchema = z
       note: (v.note ?? "").trim(),
       ficId: v.ficId ?? null,
       spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
+      statoPagamento,
       righe,
+      dilazioni,
     };
   });
 
@@ -217,9 +303,28 @@ function mapRighe(
     }));
 }
 
+function mapDilazioni(
+  dilazioni: Array<FatturaEmessaDilazioneRow | FatturaRicevutaDilazioneRow>
+): FatturaDilazione[] {
+  return [...dilazioni]
+    .filter((d) => !d.deleted_at)
+    .sort((a, b) => {
+      if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
+      return a.data_scadenza.localeCompare(b.data_scadenza);
+    })
+    .map((d) => ({
+      id: d.id,
+      dataScadenza: d.data_scadenza,
+      importo: Number(d.importo) || 0,
+      statoPagamento: d.stato_pagamento,
+      note: d.note ?? "",
+    }));
+}
+
 export function mapFatturaEmessaRow(
   row: FatturaEmessaRow,
-  righe: FatturaEmessaRigaRow[]
+  righe: FatturaEmessaRigaRow[],
+  dilazioni: FatturaEmessaDilazioneRow[] = []
 ): Fattura {
   return {
     id: row.id,
@@ -248,6 +353,7 @@ export function mapFatturaEmessaRow(
     documentoStato: row.documento_stato,
     note: row.note ?? "",
     righe: mapRighe(righe),
+    dilazioni: mapDilazioni(dilazioni),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -255,7 +361,8 @@ export function mapFatturaEmessaRow(
 
 export function mapFatturaRicevutaRow(
   row: FatturaRicevutaRow,
-  righe: FatturaRicevutaRigaRow[]
+  righe: FatturaRicevutaRigaRow[],
+  dilazioni: FatturaRicevutaDilazioneRow[] = []
 ): Fattura {
   return {
     id: row.id,
@@ -284,6 +391,7 @@ export function mapFatturaRicevutaRow(
     documentoStato: row.documento_stato,
     note: row.note ?? "",
     righe: mapRighe(righe),
+    dilazioni: mapDilazioni(dilazioni),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

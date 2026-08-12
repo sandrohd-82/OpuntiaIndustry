@@ -760,6 +760,66 @@ export type FatturaRicevutaRigaInsert = {
   updated_by?: string | null;
 };
 
+export interface FatturaEmessaDilazioneRow {
+  id: string;
+  fattura_id: string;
+  data_scadenza: string;
+  importo: number;
+  stato_pagamento: FatturaStatoPagamento;
+  sort_order: number;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type FatturaEmessaDilazioneInsert = {
+  id?: string;
+  fattura_id: string;
+  data_scadenza: string;
+  importo?: number;
+  stato_pagamento?: FatturaStatoPagamento;
+  sort_order?: number;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export interface FatturaRicevutaDilazioneRow {
+  id: string;
+  fattura_id: string;
+  data_scadenza: string;
+  importo: number;
+  stato_pagamento: FatturaStatoPagamento;
+  sort_order: number;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type FatturaRicevutaDilazioneInsert = {
+  id?: string;
+  fattura_id: string;
+  data_scadenza: string;
+  importo?: number;
+  stato_pagamento?: FatturaStatoPagamento;
+  sort_order?: number;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
 export type FicInvoiceKind = "issued" | "received";
 export type FicPaymentStatus = "paid" | "not_paid" | "partially_paid";
 export type FicSyncLogStatus = "running" | "success" | "error";
@@ -1116,6 +1176,18 @@ export interface Database {
         Row: FatturaRicevutaRigaRow;
         Insert: FatturaRicevutaRigaInsert;
         Update: Partial<FatturaRicevutaRigaInsert>;
+        Relationships: [];
+      };
+      fatture_emesse_dilazioni: {
+        Row: FatturaEmessaDilazioneRow;
+        Insert: FatturaEmessaDilazioneInsert;
+        Update: Partial<FatturaEmessaDilazioneInsert>;
+        Relationships: [];
+      };
+      fatture_ricevute_dilazioni: {
+        Row: FatturaRicevutaDilazioneRow;
+        Insert: FatturaRicevutaDilazioneInsert;
+        Update: Partial<FatturaRicevutaDilazioneInsert>;
         Relationships: [];
       };
       fic_invoices: {

@@ -160,6 +160,44 @@ export function FatturaDettaglioView({ fattura }: Props) {
         </div>
       </section>
 
+      {fattura.dilazioni.length > 0 ? (
+        <section className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+          <div className="border-b border-[var(--border)] px-4 py-3">
+            <h3 className="text-sm font-semibold">Dilazioni</h3>
+          </div>
+          <table className="w-full min-w-[480px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-3">Data scadenza</th>
+                <th className="px-4 py-3">Importo</th>
+                <th className="px-4 py-3">Stato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fattura.dilazioni.map((d, i) => (
+                <tr key={d.id ?? i} className="border-t border-[var(--border)]">
+                  <td className="px-4 py-3">{formatDateIt(d.dataScadenza)}</td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {formatEuro(d.importo)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
+                        d.statoPagamento === "pagato"
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          : "border-rose-200 bg-rose-50 text-rose-800"
+                      }`}
+                    >
+                      {labelStatoPagamento(d.statoPagamento)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      ) : null}
+
       {fattura.note ? (
         <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">

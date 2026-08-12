@@ -178,6 +178,7 @@ export function FattureInterneBoard({ kind }: Props) {
                 <th className="px-4 py-3 font-medium">Imponibile</th>
                 <th className="px-4 py-3 font-medium">Totale</th>
                 <th className="px-4 py-3 font-medium">Stato</th>
+                <th className="px-4 py-3 font-medium">Dilazioni</th>
                 <th className="px-4 py-3 text-right font-medium">FiC</th>
               </tr>
             </thead>
@@ -222,6 +223,11 @@ export function FattureInterneBoard({ kind }: Props) {
                     >
                       {labelStatoPagamento(f.statoPagamento)}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                    {f.dilazioni.length === 0
+                      ? "—"
+                      : `${f.dilazioni.filter((d) => d.statoPagamento === "pagato").length}/${f.dilazioni.length} pagate`}
                   </td>
                   <td className="px-4 py-3 text-right">
                     {f.ficId ? (

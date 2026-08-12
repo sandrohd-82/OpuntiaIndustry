@@ -19,10 +19,14 @@ import {
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  FatturaEmessaDilazioneInsert,
+  FatturaEmessaDilazioneRow,
   FatturaEmessaInsert,
   FatturaEmessaRigaInsert,
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
+  FatturaRicevutaDilazioneInsert,
+  FatturaRicevutaDilazioneRow,
   FatturaRicevutaInsert,
   FatturaRicevutaRigaInsert,
   FatturaRicevutaRigaRow,
@@ -135,6 +139,7 @@ export async function listFattureAction(
     const rows = (data ?? []) as FatturaEmessaRow[];
     const ids = rows.map((r) => r.id);
     const righeBy = new Map<string, FatturaEmessaRigaRow[]>();
+    const dilBy = new Map<string, FatturaEmessaDilazioneRow[]>();
     if (ids.length > 0) {
       const { data: righe } = await supabase
         .from("fatture_emesse_righe")
@@ -145,11 +150,25 @@ export async function listFattureAction(
         list.push(r);
         righeBy.set(r.fattura_id, list);
       }
+      const { data: dilazioni } = await supabase
+        .from("fatture_emesse_dilazioni")
+        .select("*")
+        .in("fattura_id", ids)
+        .is("deleted_at", null);
+      for (const d of (dilazioni ?? []) as FatturaEmessaDilazioneRow[]) {
+        const list = dilBy.get(d.fattura_id) ?? [];
+        list.push(d);
+        dilBy.set(d.fattura_id, list);
+      }
     }
     return {
       success: true,
       fatture: rows.map((row) =>
-        mapFatturaEmessaRow(row, righeBy.get(row.id) ?? [])
+        mapFatturaEmessaRow(
+          row,
+          righeBy.get(row.id) ?? [],
+          dilBy.get(row.id) ?? []
+        )
       ),
     };
   }
@@ -164,6 +183,7 @@ export async function listFattureAction(
   const rows = (data ?? []) as FatturaRicevutaRow[];
   const ids = rows.map((r) => r.id);
   const righeBy = new Map<string, FatturaRicevutaRigaRow[]>();
+  const dilBy = new Map<string, FatturaRicevutaDilazioneRow[]>();
   if (ids.length > 0) {
     const { data: righe } = await supabase
       .from("fatture_ricevute_righe")
@@ -174,11 +194,25 @@ export async function listFattureAction(
       list.push(r);
       righeBy.set(r.fattura_id, list);
     }
+    const { data: dilazioni } = await supabase
+      .from("fatture_ricevute_dilazioni")
+      .select("*")
+      .in("fattura_id", ids)
+      .is("deleted_at", null);
+    for (const d of (dilazioni ?? []) as FatturaRicevutaDilazioneRow[]) {
+      const list = dilBy.get(d.fattura_id) ?? [];
+      list.push(d);
+      dilBy.set(d.fattura_id, list);
+    }
   }
   return {
     success: true,
     fatture: rows.map((row) =>
-      mapFatturaRicevutaRow(row, righeBy.get(row.id) ?? [])
+      mapFatturaRicevutaRow(
+        row,
+        righeBy.get(row.id) ?? [],
+        dilBy.get(row.id) ?? []
+      )
     ),
   };
 }
@@ -300,6 +334,30 @@ export async function createFatturaAction(
         return { success: false, error: righeErr.message };
       }
 
+      let dilazioniData: FatturaEmessaDilazioneRow[] = [];
+      if (input.dilazioni.length > 0) {
+        const dilInsert: FatturaEmessaDilazioneInsert[] = input.dilazioni.map(
+          (d, i) => ({
+            fattura_id: row.id,
+            data_scadenza: d.dataScadenza,
+            importo: d.importo,
+            stato_pagamento: d.statoPagamento,
+            sort_order: i,
+            note: d.note ?? "",
+            created_by: auth.userId,
+            updated_by: auth.userId,
+          })
+        );
+        const { data: dilRows, error: dilErr } = await supabase
+          .from("fatture_emesse_dilazioni")
+          .insert(dilInsert)
+          .select("*");
+        if (dilErr) {
+          return { success: false, error: dilErr.message };
+        }
+        dilazioniData = (dilRows ?? []) as FatturaEmessaDilazioneRow[];
+      }
+
       await writeAuditLog({
         entity_type: "fatture_emesse",
         entity_id: row.id,
@@ -310,6 +368,8 @@ export async function createFatturaAction(
           fic_id: input.ficId,
           cliente_id: input.anagraficaId,
           totale: totals.totale,
+          dilazioni: input.dilazioni.length,
+          stato_pagamento: input.statoPagamento,
         },
       });
 
@@ -317,7 +377,8 @@ export async function createFatturaAction(
         success: true,
         fattura: mapFatturaEmessaRow(
           row,
-          (righeData ?? []) as FatturaEmessaRigaRow[]
+          (righeData ?? []) as FatturaEmessaRigaRow[],
+          dilazioniData
         ),
       };
     }
@@ -397,6 +458,30 @@ export async function createFatturaAction(
       return { success: false, error: righeErr.message };
     }
 
+    let dilazioniData: FatturaRicevutaDilazioneRow[] = [];
+    if (input.dilazioni.length > 0) {
+      const dilInsert: FatturaRicevutaDilazioneInsert[] = input.dilazioni.map(
+        (d, i) => ({
+          fattura_id: row.id,
+          data_scadenza: d.dataScadenza,
+          importo: d.importo,
+          stato_pagamento: d.statoPagamento,
+          sort_order: i,
+          note: d.note ?? "",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+      );
+      const { data: dilRows, error: dilErr } = await supabase
+        .from("fatture_ricevute_dilazioni")
+        .insert(dilInsert)
+        .select("*");
+      if (dilErr) {
+        return { success: false, error: dilErr.message };
+      }
+      dilazioniData = (dilRows ?? []) as FatturaRicevutaDilazioneRow[];
+    }
+
     await writeAuditLog({
       entity_type: "fatture_ricevute",
       entity_id: row.id,
@@ -407,6 +492,8 @@ export async function createFatturaAction(
         fic_id: input.ficId,
         fornitore_id: input.anagraficaId,
         totale: totals.totale,
+        dilazioni: input.dilazioni.length,
+        stato_pagamento: input.statoPagamento,
       },
     });
 
@@ -414,7 +501,8 @@ export async function createFatturaAction(
       success: true,
       fattura: mapFatturaRicevutaRow(
         row,
-        (righeData ?? []) as FatturaRicevutaRigaRow[]
+        (righeData ?? []) as FatturaRicevutaRigaRow[],
+        dilazioniData
       ),
     };
   } catch (e) {
@@ -448,11 +536,18 @@ export async function getFatturaByIdAction(
       .select("*")
       .eq("fattura_id", id)
       .order("sort_order", { ascending: true });
+    const { data: dilazioni } = await supabase
+      .from("fatture_emesse_dilazioni")
+      .select("*")
+      .eq("fattura_id", id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
     return {
       success: true,
       fattura: mapFatturaEmessaRow(
         data as FatturaEmessaRow,
-        (righe ?? []) as FatturaEmessaRigaRow[]
+        (righe ?? []) as FatturaEmessaRigaRow[],
+        (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
       ),
     };
   }
@@ -471,11 +566,18 @@ export async function getFatturaByIdAction(
     .eq("fattura_id", id)
     .order("sort_order", { ascending: true });
   if (righeErr) return { success: false, error: righeErr.message };
+  const { data: dilazioni } = await supabase
+    .from("fatture_ricevute_dilazioni")
+    .select("*")
+    .eq("fattura_id", id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
   return {
     success: true,
     fattura: mapFatturaRicevutaRow(
       data as FatturaRicevutaRow,
-      (righe ?? []) as FatturaRicevutaRigaRow[]
+      (righe ?? []) as FatturaRicevutaRigaRow[],
+      (dilazioni ?? []) as FatturaRicevutaDilazioneRow[]
     ),
   };
 }

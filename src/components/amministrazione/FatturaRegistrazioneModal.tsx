@@ -17,12 +17,18 @@ import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoP
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   calcolaTotaliFattura,
+  emptyFatturaDilazione,
   emptyFatturaRiga,
   formatDateIt,
   formatEuro,
   importoRiga,
+  isDilazioneFutura,
+  normalizeDilazioneStato,
   prezzoScontatoUnitario,
+  statoPagamentoFromDilazioni,
+  todayIsoDate,
   type Fattura,
+  type FatturaDilazione,
   type FatturaKind,
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
@@ -45,6 +51,10 @@ type EditableRiga = Omit<
   quantita: number | "";
   prezzoUnitario: number | "";
   scontoPercentuale: number | "";
+};
+
+type EditableDilazione = Omit<FatturaDilazione, "importo"> & {
+  importo: number | "";
 };
 
 export type FatturaRegistrazionePrefill = {
@@ -130,6 +140,7 @@ export function FatturaRegistrazioneModal({
   const [prezzoHints, setPrezzoHints] = useState<
     Record<string, ProdottoPrezzoStoricoHint>
   >({});
+  const [dilazioni, setDilazioni] = useState<EditableDilazione[]>([]);
 
   const totals = useMemo(
     () =>
@@ -145,6 +156,31 @@ export function FatturaRegistrazioneModal({
       }),
     [righe, spedizione, spedizioneIvaApplicata, ivaPercentuale]
   );
+
+  const dilazioniNormalizzate = useMemo(
+    () =>
+      dilazioni.map((d) => ({
+        dataScadenza: d.dataScadenza || todayIsoDate(),
+        importo: numberOrZero(d.importo),
+        statoPagamento: normalizeDilazioneStato(
+          d.dataScadenza || todayIsoDate(),
+          d.statoPagamento
+        ),
+        note: d.note ?? "",
+      })),
+    [dilazioni]
+  );
+
+  const statoDaDilazioni =
+    dilazioniNormalizzate.length > 0
+      ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
+      : null;
+
+  useEffect(() => {
+    if (statoDaDilazioni && statoDaDilazioni !== statoPagamento) {
+      setStatoPagamento(statoDaDilazioni);
+    }
+  }, [statoDaDilazioni, statoPagamento]);
 
   useEffect(() => {
     // Escape / click fuori non chiudono (evita perdita dati): solo Pausa / Annulla / Salva.
@@ -328,9 +364,13 @@ export function FatturaRegistrazioneModal({
           spedizione: numberOrZero(spedizione),
           spedizioneIvaApplicata,
           ivaPercentuale: numberOrZero(ivaPercentuale),
-          statoPagamento,
+          statoPagamento:
+            dilazioniNormalizzate.length > 0
+              ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
+              : statoPagamento,
           note,
           righe: righePayload,
+          dilazioni: dilazioniNormalizzate,
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
@@ -745,11 +785,20 @@ export function FatturaRegistrazioneModal({
                 onChange={(e) =>
                   setStatoPagamento(e.target.value as FatturaStatoPagamento)
                 }
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                disabled={dilazioni.length > 0}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 disabled:bg-slate-50"
               >
                 <option value="da_pagare">Da pagare</option>
                 <option value="pagato">Pagato</option>
               </select>
+              {dilazioni.length > 0 ? (
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Stato allineato alle dilazioni
+                  {statoDaDilazioni === "pagato"
+                    ? " (tutte pagate)."
+                    : " (almeno una non saldata)."}
+                </p>
+              ) : null}
             </div>
             {statoPagamento === "pagato" ? (
               <div>
@@ -765,6 +814,151 @@ export function FatturaRegistrazioneModal({
               </div>
             ) : null}
           </div>
+
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-semibold">Dilazioni</h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Una riga per scadenza con data e stato. Le date future risultano
+                  non saldate.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDilazioni((prev) => [
+                    ...prev,
+                    emptyFatturaDilazione(
+                      prev.length === 0 ? totals.totale : 0
+                    ),
+                  ])
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+              >
+                <FaPlus size={11} />
+                Aggiungi dilazione
+              </button>
+            </div>
+
+            {dilazioni.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)]">
+                Nessuna dilazione. Usa «Aggiungi dilazione» per scadenze multiple.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
+                <table className="w-full min-w-[560px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+                    <tr>
+                      <th className="px-2 py-2">Data scadenza</th>
+                      <th className="px-2 py-2">Importo</th>
+                      <th className="px-2 py-2">Stato pagamento</th>
+                      <th className="px-2 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dilazioni.map((d, index) => {
+                      const futura = isDilazioneFutura(
+                        d.dataScadenza || todayIsoDate()
+                      );
+                      const statoEffettivo = normalizeDilazioneStato(
+                        d.dataScadenza || todayIsoDate(),
+                        d.statoPagamento
+                      );
+                      return (
+                        <tr
+                          key={index}
+                          className="border-t border-[var(--border)]"
+                        >
+                          <td className="px-2 py-2">
+                            <input
+                              type="date"
+                              required
+                              value={d.dataScadenza}
+                              onChange={(e) => {
+                                const dataScadenza = e.target.value;
+                                setDilazioni((prev) =>
+                                  prev.map((row, i) =>
+                                    i === index
+                                      ? {
+                                          ...row,
+                                          dataScadenza,
+                                          statoPagamento: normalizeDilazioneStato(
+                                            dataScadenza,
+                                            row.statoPagamento
+                                          ),
+                                        }
+                                      : row
+                                  )
+                                );
+                              }}
+                              className="rounded border border-[var(--border)] px-2 py-1.5"
+                            />
+                            {futura ? (
+                              <p className="mt-0.5 text-[11px] text-amber-800">
+                                Futura → non saldata
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-2 py-2">
+                            <ClearableNumberInput
+                              min={0}
+                              value={d.importo}
+                              onValueChange={(v) =>
+                                setDilazioni((prev) =>
+                                  prev.map((row, i) =>
+                                    i === index ? { ...row, importo: v } : row
+                                  )
+                                )
+                              }
+                              className="w-28 rounded border border-[var(--border)] px-2 py-1.5"
+                            />
+                          </td>
+                          <td className="px-2 py-2">
+                            <select
+                              value={statoEffettivo}
+                              disabled={futura}
+                              onChange={(e) =>
+                                setDilazioni((prev) =>
+                                  prev.map((row, i) =>
+                                    i === index
+                                      ? {
+                                          ...row,
+                                          statoPagamento: e.target
+                                            .value as FatturaStatoPagamento,
+                                        }
+                                      : row
+                                  )
+                                )
+                              }
+                              className="rounded border border-[var(--border)] px-2 py-1.5 disabled:bg-slate-50"
+                            >
+                              <option value="da_pagare">Da pagare</option>
+                              <option value="pagato">Pagato</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDilazioni((prev) =>
+                                  prev.filter((_, i) => i !== index)
+                                )
+                              }
+                              className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                              aria-label="Rimuovi dilazione"
+                            >
+                              <FaTrash size={12} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
 
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
