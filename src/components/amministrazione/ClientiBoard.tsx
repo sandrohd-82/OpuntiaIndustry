@@ -10,6 +10,7 @@ import {
   FaPen,
   FaPlus,
   FaTrash,
+  FaUser,
 } from "react-icons/fa6";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
@@ -88,7 +89,20 @@ function ClienteRow({
         <td className="px-4 py-3">
           <CodiceTargaBadge code={cliente.codiceTarga} />
         </td>
-        <td className="px-4 py-3 font-semibold">{cliente.ragioneSociale}</td>
+        <td className="px-4 py-3 font-semibold">
+          <span className="inline-flex items-center gap-2">
+            {cliente.isPrivato ? (
+              <span
+                title="Cliente privato"
+                aria-label="Cliente privato"
+                className="inline-flex shrink-0 text-[var(--primary)]"
+              >
+                <FaUser size={13} />
+              </span>
+            ) : null}
+            {cliente.ragioneSociale}
+          </span>
+        </td>
         <td className="px-4 py-3 tabular-nums">
           {cliente.isPrivato ? (
             <span title="Cliente privato">
