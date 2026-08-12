@@ -47,8 +47,10 @@ async function nextSeqFattura(
   codiceTarga: string
 ): Promise<number> {
   const supabase = await createClient();
-  const table = kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
-  const idCol = kind === "emessa" ? "cliente_id" : "fornitore_id";
+  const table =
+    kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const idCol = kind === "ricevuta" ? "fornitore_id" : "cliente_id";
+  const prefix = kind === "nota_credito" ? "Nc" : "Ft";
 
   const { data, error } = await supabase
     .from(table)
@@ -59,14 +61,23 @@ async function nextSeqFattura(
 
   const targa = codiceTarga.trim().toUpperCase();
   const re = new RegExp(
-    `^Ft-\\d{2}-${targa.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
+    `^${prefix}-\\d{2}-${targa.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
     "i"
   );
   let countById = 0;
   let maxParsed = 0;
   for (const row of data ?? []) {
     const rec = row as Record<string, unknown>;
-    if (rec[idCol] === anagraficaId) countById += 1;
+    if (rec[idCol] === anagraficaId) {
+      const num = String(rec.numero_interno ?? "");
+      if (kind === "nota_credito") {
+        if (num.toUpperCase().startsWith("NC-")) countById += 1;
+      } else if (kind === "emessa") {
+        if (num.toUpperCase().startsWith("FT-")) countById += 1;
+      } else {
+        countById += 1;
+      }
+    }
     const m = String(rec.numero_interno).match(re);
     if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
   }
@@ -94,6 +105,7 @@ export async function previewNumeroInternoFatturaAction(input: {
         dataEmissione: input.dataEmissione,
         codiceTarga: input.codiceTarga,
         seq,
+        kind: input.kind,
       }),
     };
   } catch (e) {
@@ -180,7 +192,8 @@ async function syncProdottiAcquistatiFromFatturaRighe(input: {
   ];
   if (validCodes.length === 0) return [];
 
-  const table = input.kind === "emessa" ? "clienti" : "fornitori";
+  const table =
+    input.kind === "ricevuta" ? "fornitori" : "clienti";
   const { data: anagrafica, error } = await supabase
     .from(table)
     .select("id, prodotti_acquistati")
@@ -242,12 +255,18 @@ export async function listFattureAction(
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
-  if (kind === "emessa") {
-    const { data, error } = await supabase
+  if (kind === "emessa" || kind === "nota_credito") {
+    let q = supabase
       .from("fatture_emesse")
       .select("*")
       .is("deleted_at", null)
       .order("data_emissione", { ascending: false });
+    if (kind === "nota_credito") {
+      q = q.eq("tipo_documento", "nota_credito");
+    } else {
+      q = q.or("tipo_documento.eq.fattura,tipo_documento.is.null");
+    }
+    const { data, error } = await q;
     if (error) return { success: false, error: error.message };
 
     const rows = (data ?? []) as FatturaEmessaRow[];
@@ -389,9 +408,10 @@ export async function createFatturaAction(
       dataEmissione: input.dataEmissione,
       codiceTarga: input.anagraficaCodiceTarga,
       seq,
+      kind,
     });
 
-    if (kind === "emessa") {
+    if (kind === "emessa" || kind === "nota_credito") {
       const insert: FatturaEmessaInsert = {
         numero_interno: numeroInterno,
         cliente_id: input.anagraficaId,
@@ -409,6 +429,9 @@ export async function createFatturaAction(
         stato_pagamento: input.statoPagamento,
         documento_stato: "registrata",
         note: input.note,
+        tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
+        fattura_collegata_id: input.fatturaCollegataId ?? null,
+        riferimento_fattura_esterno: input.riferimentoFatturaEsterno ?? "",
         created_by: auth.userId,
         updated_by: auth.userId,
       };
@@ -505,9 +528,12 @@ export async function createFatturaAction(
       await writeAuditLog({
         entity_type: "fatture_emesse",
         entity_id: row.id,
-        action: "create",
+        action: kind === "nota_credito" ? "create_nota_credito" : "create",
         actor_id: auth.userId,
-        summary: `Registrata fattura emessa ${numeroInterno}`,
+        summary:
+          kind === "nota_credito"
+            ? `Registrata nota di credito ${numeroInterno}`
+            : `Registrata fattura emessa ${numeroInterno}`,
         payload: {
           fic_id: input.ficId,
           cliente_id: input.anagraficaId,
@@ -515,6 +541,9 @@ export async function createFatturaAction(
           dilazioni: input.dilazioni.length,
           stato_pagamento: input.statoPagamento,
           prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
+          tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
+          fattura_collegata_id: input.fatturaCollegataId ?? null,
+          riferimento_fattura_esterno: input.riferimentoFatturaEsterno ?? "",
         },
       });
 
@@ -679,7 +708,7 @@ export async function getFatturaByIdAction(
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
 
-  if (kind === "emessa") {
+  if (kind === "emessa" || kind === "nota_credito") {
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select("*")
@@ -687,7 +716,7 @@ export async function getFatturaByIdAction(
       .is("deleted_at", null)
       .maybeSingle();
     if (error) return { success: false, error: error.message };
-    if (!data) return { success: false, error: "Fattura non trovata." };
+    if (!data) return { success: false, error: "Documento non trovato." };
     const { data: righe } = await supabase
       .from("fatture_emesse_righe")
       .select("*")
@@ -759,8 +788,10 @@ export async function getSpedizioneIvaStoricoHintAction(input: {
   }
 
   const supabase = await createClient();
-  const table = input.kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
-  const idCol = input.kind === "emessa" ? "cliente_id" : "fornitore_id";
+  const table =
+    input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+  const idCol =
+    input.kind === "ricevuta" ? "fornitore_id" : "cliente_id";
 
   const { data, error } = await supabase
     .from(table)
@@ -820,10 +851,13 @@ export async function getProdottoPrezzoStoricoHintAction(input: {
 
   const supabase = await createClient();
   const headerTable =
-    input.kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
+    input.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
   const righeTable =
-    input.kind === "emessa" ? "fatture_emesse_righe" : "fatture_ricevute_righe";
-  const idCol = input.kind === "emessa" ? "cliente_id" : "fornitore_id";
+    input.kind === "ricevuta"
+      ? "fatture_ricevute_righe"
+      : "fatture_emesse_righe";
+  const idCol =
+    input.kind === "ricevuta" ? "fornitore_id" : "cliente_id";
 
   const { data: headers, error: hErr } = await supabase
     .from(headerTable)

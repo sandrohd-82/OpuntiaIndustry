@@ -70,6 +70,8 @@ export type FatturaRegistrazionePrefill = {
   ivaPercentuale?: number;
   statoPagamento?: FatturaStatoPagamento;
   note?: string;
+  fatturaCollegataId?: string | null;
+  riferimentoFatturaEsterno?: string;
   righe?: FatturaRiga[];
   lockAnagrafica?: boolean;
 };
@@ -338,9 +340,9 @@ export function FatturaRegistrazioneModal({
     if (saving) return;
     if (!anagraficaId) {
       setFormError(
-        kind === "emessa"
-          ? "Seleziona un cliente (intestazione)."
-          : "Seleziona un fornitore (intestazione)."
+        kind === "ricevuta"
+          ? "Seleziona un fornitore (intestazione)."
+          : "Seleziona un cliente (intestazione)."
       );
       return;
     }
@@ -391,6 +393,8 @@ export function FatturaRegistrazioneModal({
               ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
               : statoPagamento,
           note,
+          fatturaCollegataId: prefill?.fatturaCollegataId ?? null,
+          riferimentoFatturaEsterno: prefill?.riferimentoFatturaEsterno ?? "",
           righe: righePayload,
           dilazioni: dilazioniNormalizzate,
         })
@@ -408,9 +412,11 @@ export function FatturaRegistrazioneModal({
   }
 
   const title =
-    kind === "emessa"
-      ? "Registrazione fattura emessa"
-      : "Registrazione fattura ricevuta";
+    kind === "nota_credito"
+      ? "Registrazione nota di credito"
+      : kind === "emessa"
+        ? "Registrazione fattura emessa"
+        : "Registrazione fattura ricevuta";
 
   const dialog = (
     <div
@@ -434,14 +440,25 @@ export function FatturaRegistrazioneModal({
               {title}
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Registrazione nello storico. Non è una fattura da inviare.
+              {kind === "nota_credito"
+                ? "Registrazione nota di credito nello storico (storno/annullamento). Apri il PDF FiC per verifica."
+                : "Registrazione nello storico. Non è una fattura da inviare."}
             </p>
+            {prefill?.riferimentoFatturaEsterno ? (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Riferimento fattura:{" "}
+                <strong>{prefill.riferimentoFatturaEsterno}</strong>
+              </p>
+            ) : null}
           </div>
           {prefill?.ficId ? (
             <ApriFatturaFicButton
               kind={kind}
               ficId={prefill.ficId}
               variant="button"
+              label={
+                kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
+              }
             />
           ) : null}
         </div>
@@ -452,7 +469,7 @@ export function FatturaRegistrazioneModal({
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Intestazione
               </label>
-              {kind === "emessa" ? (
+              {kind === "emessa" || kind === "nota_credito" ? (
                 <ClienteSelectField
                   value={anagraficaId}
                   onChange={(c) => {
@@ -519,7 +536,7 @@ export function FatturaRegistrazioneModal({
           <section className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">
-                {kind === "emessa" ? "Prodotti venduti" : "Prodotti"}
+                {kind === "ricevuta" ? "Prodotti" : "Prodotti venduti"}
               </h3>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1066,7 +1083,11 @@ export function FatturaRegistrazioneModal({
               disabled={saving}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
-              {saving ? "Salvataggio…" : "Registra fattura"}
+              {saving
+                ? "Salvataggio…"
+                : kind === "nota_credito"
+                  ? "Registra nota di credito"
+                  : "Registra fattura"}
             </button>
           </div>
         </form>

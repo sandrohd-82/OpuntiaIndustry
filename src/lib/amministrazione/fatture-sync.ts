@@ -16,6 +16,13 @@ import {
 } from "@/lib/fic";
 import type { FatturaStatoPagamento } from "@/types/database";
 
+export type FatturaSyncLinkedHint = {
+  fatturaId: string | null;
+  numeroInterno: string;
+  numeroEsterno: string;
+  motivo: string;
+};
+
 export type FatturaSyncQueueItem = {
   ficId: number;
   kind: FatturaKind;
@@ -38,6 +45,9 @@ export type FatturaSyncQueueItem = {
   existingLabel: string | null;
   proposedTarga: string;
   draft: AnagraficaSyncDraft;
+  /** Fattura già in Opuntia collegata a questa NC (o hint testuale). */
+  linkedFattura: FatturaSyncLinkedHint | null;
+  riferimentoFatturaEsterno: string;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -63,11 +73,13 @@ function asText(value: unknown): string {
 export function extractRigheFromFicRaw(
   raw: Record<string, unknown>
 ): FatturaRiga[] {
-  const items = Array.isArray(raw.items)
-    ? raw.items
-    : Array.isArray(raw.products)
-      ? raw.products
-      : [];
+  const items = Array.isArray(raw.items_list)
+    ? raw.items_list
+    : Array.isArray(raw.items)
+      ? raw.items
+      : Array.isArray(raw.products)
+        ? raw.products
+        : [];
   const righe: FatturaRiga[] = [];
   for (const item of items) {
     const r = asRecord(item);
@@ -127,7 +139,11 @@ export function extractSpedizioneFromFicRaw(
 export function extractIvaPercentFromFicRaw(
   raw: Record<string, unknown>
 ): number {
-  const items = Array.isArray(raw.items) ? raw.items : [];
+  const items = Array.isArray(raw.items_list)
+    ? raw.items_list
+    : Array.isArray(raw.items)
+      ? raw.items
+      : [];
   for (const item of items) {
     const vat = asRecord(asRecord(item).vat);
     const rate = asNumber(vat.value ?? vat.rate ?? asRecord(item).vat_rate);
@@ -164,12 +180,143 @@ function entityStubFromDoc(doc: FicDocumentNormalized): FicEntityNormalized {
   return enrichEntityFromInvoiceRaw(base, doc.raw);
 }
 
+/** Riferimenti fattura citati in una nota di credito (es. 20/2025). */
+export function extractFatturaRefsFromCreditNote(
+  doc: FicDocumentNormalized
+): string[] {
+  const raw = doc.raw;
+  const chunks = [
+    doc.number,
+    asText(raw.notes),
+    asText(raw.subject),
+    asText(raw.visible_subject),
+    asText(raw.description),
+    asText(asRecord(raw.ei_data).original_document_number),
+    asText(asRecord(raw.ei_data).cig),
+    JSON.stringify(raw.related ?? raw.original_document ?? ""),
+  ];
+  const text = chunks.join(" ");
+  const refs = new Set<string>();
+  for (const m of text.matchAll(
+    /fattura\s*(?:n\.?|nr\.?|num\.?)?\s*([0-9]+\/[0-9]{2,4})/gi
+  )) {
+    refs.add(normalizeDocRef(m[1]));
+  }
+  for (const m of text.matchAll(/\b([0-9]{1,6}\/[0-9]{4})\b/g)) {
+    refs.add(normalizeDocRef(m[1]));
+  }
+  return [...refs].filter(Boolean);
+}
+
+export function normalizeDocRef(value: string): string {
+  return value.trim().replace(/\s+/g, "");
+}
+
+export type RegisteredFatturaHint = {
+  id: string;
+  numeroInterno: string;
+  numeroEsterno: string;
+  clienteId: string;
+  entityVat: string;
+  dataEmissione: string;
+  totale: number;
+};
+
+/** Collega NC a fattura già registrata per riferimento / importo / periodo. */
+export function matchCreditNoteToFattura(
+  doc: FicDocumentNormalized,
+  fatture: RegisteredFatturaHint[]
+): FatturaSyncLinkedHint | null {
+  const refs = extractFatturaRefsFromCreditNote(doc);
+  const vat = normalizeVatKey(doc.entityVat);
+  const amount = Math.abs(doc.amountGross);
+  const date = doc.date || "";
+
+  for (const ref of refs) {
+    const hit = fatture.find((f) => {
+      const ext = normalizeDocRef(f.numeroEsterno);
+      return (
+        ext === ref ||
+        ext.endsWith(ref) ||
+        ext.includes(ref) ||
+        f.numeroInterno.includes(ref)
+      );
+    });
+    if (hit) {
+      return {
+        fatturaId: hit.id,
+        numeroInterno: hit.numeroInterno,
+        numeroEsterno: hit.numeroEsterno || ref,
+        motivo: `Riferimento documento «${ref}»`,
+      };
+    }
+  }
+
+  // Match debole: stessa P.IVA, importo ≈, data entro 120 giorni
+  const candidates = fatture.filter((f) => {
+    if (vat && normalizeVatKey(f.entityVat) !== vat) return false;
+    const diff = Math.abs(Math.abs(f.totale) - amount);
+    if (amount > 0 && diff > Math.max(0.5, amount * 0.02)) return false;
+    if (date && f.dataEmissione) {
+      const a = Date.parse(date);
+      const b = Date.parse(f.dataEmissione);
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        const days = Math.abs(a - b) / (1000 * 60 * 60 * 24);
+        if (days > 120) return false;
+      }
+    }
+    return true;
+  });
+  if (candidates.length === 1) {
+    const hit = candidates[0];
+    return {
+      fatturaId: hit.id,
+      numeroInterno: hit.numeroInterno,
+      numeroEsterno: hit.numeroEsterno,
+      motivo: "Stesso cliente, importo e periodo compatibili",
+    };
+  }
+  if (refs.length > 0) {
+    return {
+      fatturaId: null,
+      numeroInterno: "",
+      numeroEsterno: refs[0],
+      motivo: `Riferimento «${refs[0]}» (fattura non ancora in Opuntia o non trovata)`,
+    };
+  }
+  return null;
+}
+
+/** NC pendenti correlate a una fattura FiC in coda (stesso cliente / rif / importo). */
+export function creditNotesRelatedToInvoice(
+  invoice: FicDocumentNormalized,
+  creditNotes: FicDocumentNormalized[]
+): FicDocumentNormalized[] {
+  const vat = normalizeVatKey(invoice.entityVat);
+  const invNum = normalizeDocRef(invoice.number);
+  const amount = Math.abs(invoice.amountGross);
+  return creditNotes.filter((nc) => {
+    const refs = extractFatturaRefsFromCreditNote(nc);
+    if (invNum && refs.some((r) => invNum.includes(r) || r.includes(invNum))) {
+      return true;
+    }
+    const sameVat = vat && normalizeVatKey(nc.entityVat) === vat;
+    const amountClose =
+      amount > 0 &&
+      Math.abs(Math.abs(nc.amountGross) - amount) <=
+        Math.max(0.5, amount * 0.02);
+    if (sameVat && amountClose) return true;
+    return false;
+  });
+}
+
 export function buildFatturaSyncQueueItem(input: {
   doc: FicDocumentNormalized;
   kind: FatturaKind;
   existingId: string | null;
   existingLabel: string | null;
   proposedTarga: string;
+  linkedFattura?: FatturaSyncLinkedHint | null;
 }): FatturaSyncQueueItem {
   const righe = extractRigheFromFicRaw(input.doc.raw);
   const spedizione = extractSpedizioneFromFicRaw(input.doc.raw);
@@ -182,6 +329,8 @@ export function buildFatturaSyncQueueItem(input: {
   });
   const entity = entityStubFromDoc(input.doc);
   const draft = draftFromFicEntity(entity);
+  const linked = input.linkedFattura ?? null;
+  const refs = extractFatturaRefsFromCreditNote(input.doc);
 
   return {
     ficId: input.doc.ficId,
@@ -198,13 +347,16 @@ export function buildFatturaSyncQueueItem(input: {
     ivaPercentuale,
     imponibile: totals.imponibile,
     imposta: totals.imposta,
-    totale: totals.totale || input.doc.amountGross,
+    totale: totals.totale || Math.abs(input.doc.amountGross),
     righe,
     anagraficaMode: input.existingId ? "existing" : "create",
     existingId: input.existingId,
     existingLabel: input.existingLabel,
     proposedTarga: input.proposedTarga,
     draft,
+    linkedFattura: linked,
+    riferimentoFatturaEsterno:
+      linked?.numeroEsterno || refs[0] || "",
   };
 }
 

@@ -579,6 +579,7 @@ export interface AuditLogInsert {
 
 export type FatturaStatoPagamento = "pagato" | "da_pagare";
 export type FatturaDocumentoStato = "bozza" | "registrata" | "chiusa";
+export type FatturaTipoDocumento = "fattura" | "nota_credito";
 
 export interface FatturaEmessaRow {
   id: string;
@@ -601,6 +602,9 @@ export interface FatturaEmessaRow {
   versione: number;
   documento_stato: FatturaDocumentoStato;
   note: string;
+  tipo_documento: FatturaTipoDocumento;
+  fattura_collegata_id: string | null;
+  riferimento_fattura_esterno: string;
   numero_fattura: string;
   pdf_url: string;
   ei_status: string;
@@ -639,6 +643,9 @@ export type FatturaEmessaInsert = {
   versione?: number;
   documento_stato?: FatturaDocumentoStato;
   note?: string;
+  tipo_documento?: FatturaTipoDocumento;
+  fattura_collegata_id?: string | null;
+  riferimento_fattura_esterno?: string;
   numero_fattura?: string;
   pdf_url?: string;
   ei_status?: string;

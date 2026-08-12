@@ -12,6 +12,14 @@ type Props = {
 function parseKind(kind: string): FatturaKind | null {
   if (kind === "emesse" || kind === "emessa") return "emessa";
   if (kind === "ricevute" || kind === "ricevuta") return "ricevuta";
+  if (
+    kind === "note-credito" ||
+    kind === "note_credito" ||
+    kind === "nota_credito" ||
+    kind === "nota-credito"
+  ) {
+    return "nota_credito";
+  }
   return null;
 }
 
@@ -25,7 +33,11 @@ export default async function FatturaDettaglioPage({ params }: Props) {
   if (!result.success) notFound();
 
   const title =
-    kind === "emessa" ? "Dettaglio fattura emessa" : "Dettaglio fattura ricevuta";
+    kind === "nota_credito"
+      ? "Dettaglio nota di credito"
+      : kind === "emessa"
+        ? "Dettaglio fattura emessa"
+        : "Dettaglio fattura ricevuta";
 
   return (
     <>

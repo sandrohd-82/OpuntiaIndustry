@@ -5,7 +5,7 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { fetchFicDocumentPdfUrl, getFicConfig } from "@/lib/fic";
 
 function toFicKind(kind: FatturaKind): "issued" | "received" {
-  return kind === "emessa" ? "issued" : "received";
+  return kind === "ricevuta" ? "received" : "issued";
 }
 
 export async function openFicInvoiceUrlAction(input: {

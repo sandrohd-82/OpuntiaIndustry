@@ -196,6 +196,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
+  if (section === "fatture" && sub === "note-credito") {
+    return (
+      <>
+        <AppHeader title="Note di credito" subtitle={page.description} />
+        <div className="p-6">
+          <FattureInterneBoard kind="nota_credito" />
+        </div>
+      </>
+    );
+  }
+
   if (section === "fatture" && sub === "ricevute") {
     return (
       <>

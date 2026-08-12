@@ -25,6 +25,12 @@ type Props = {
   kind: FatturaKind;
 };
 
+function docLabel(kind: FatturaKind): string {
+  if (kind === "nota_credito") return "nota di credito";
+  if (kind === "emessa") return "fattura emessa";
+  return "fattura ricevuta";
+}
+
 export function FattureInterneBoard({ kind }: Props) {
   const [fatture, setFatture] = useState<Fattura[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -61,27 +67,41 @@ export function FattureInterneBoard({ kind }: Props) {
     setSyncInfo(null);
     startSyncTransition(async () => {
       const result =
-        kind === "emessa"
-          ? await startFattureEmesseSyncAction()
-          : await startFattureRicevuteSyncAction();
+        kind === "ricevuta"
+          ? await startFattureRicevuteSyncAction()
+          : await startFattureEmesseSyncAction();
       if (!result.success) {
         setError(result.error);
         return;
       }
+      const parts: string[] = [];
       if (result.skippedAlreadyRegistered > 0) {
-        setSyncInfo(
-          `${result.skippedAlreadyRegistered} fatture già registrate saltate.`
+        parts.push(
+          `${result.skippedAlreadyRegistered} documenti già registrati saltati.`
         );
       }
+      if (result.creditNotesPending > 0) {
+        parts.push(
+          `${result.creditNotesPending} note di credito da registrare (mostrate prima se collegate a fatture già sincronizzate).`
+        );
+      }
+      if (parts.length) setSyncInfo(parts.join(" "));
       setSyncItems(result.items);
     });
   }
 
-  const entityLabel = kind === "emessa" ? "Cliente" : "Fornitore";
+  const entityLabel = kind === "ricevuta" ? "Fornitore" : "Cliente";
   const titleHint =
-    kind === "emessa"
-      ? "Storico fatture emesse. Sincronizza = stesso flusso della pagina Clienti (fatture FiC emesse)."
-      : "Storico fatture ricevute. Sincronizza = stesso flusso della pagina Fornitori (fatture FiC ricevute).";
+    kind === "nota_credito"
+      ? "Storico note di credito. In sync le NC collegate a fatture già registrate vengono proposte per prime; poi NC legate alle fatture in coda."
+      : kind === "emessa"
+        ? "Storico fatture emesse. Sincronizza include anche le note di credito FiC (priorità NC collegate)."
+        : "Storico fatture ricevute. Sincronizza = stesso flusso della pagina Fornitori.";
+
+  const emptyLabel =
+    kind === "nota_credito"
+      ? "Nessuna nota di credito registrata"
+      : "Nessuna fattura registrata";
 
   return (
     <div className="space-y-4">
@@ -108,7 +128,9 @@ export function FattureInterneBoard({ kind }: Props) {
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
           >
             <FaPlus size={12} />
-            Registra fattura
+            {kind === "nota_credito"
+              ? "Registra nota di credito"
+              : "Registra fattura"}
           </button>
         </div>
       </div>
@@ -121,9 +143,7 @@ export function FattureInterneBoard({ kind }: Props) {
 
       {syncItems && syncItems.length === 0 ? (
         <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-          {kind === "emessa"
-            ? "Nessuna fattura emessa da registrare da Fatture in Cloud."
-            : "Nessuna fattura ricevuta da registrare da Fatture in Cloud."}
+          Nessun documento da registrare da Fatture in Cloud.
         </p>
       ) : null}
 
@@ -140,7 +160,7 @@ export function FattureInterneBoard({ kind }: Props) {
             setSyncItems(null);
             setSyncInfo(
               n > 0
-                ? `Sync completata: ${n} fatture ${kind === "emessa" ? "emesse" : "ricevute"} registrate.`
+                ? `Sync completata: ${n} documenti registrati.`
                 : "Sync completata senza nuove registrazioni."
             );
             load();
@@ -148,100 +168,12 @@ export function FattureInterneBoard({ kind }: Props) {
           onPaused={() => {
             setSyncItems(null);
             setSyncInfo(
-              kind === "emessa"
-                ? "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture emesse non ancora registrate."
-                : "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture ricevute non ancora registrate."
+              "Sync in pausa. Al prossimo Sincronizza riparti dai documenti non ancora registrati (note di credito incluse)."
             );
             load();
           }}
         />
       ) : null}
-
-      {!ready || pending ? (
-        <p className="text-sm text-[var(--muted)]">Caricamento…</p>
-      ) : fatture.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-10 text-center">
-          <p className="text-sm font-medium">Nessuna fattura registrata</p>
-          <p className="mt-1 text-sm text-[var(--muted)]">
-            Usa «Registra fattura» oppure «Sincronizza» da Fatture in Cloud.
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">N. interno</th>
-                <th className="px-4 py-3 font-medium">Data</th>
-                <th className="px-4 py-3 font-medium">{entityLabel}</th>
-                <th className="px-4 py-3 font-medium">Doc. esterno</th>
-                <th className="px-4 py-3 font-medium">Imponibile</th>
-                <th className="px-4 py-3 font-medium">Totale</th>
-                <th className="px-4 py-3 font-medium">Stato</th>
-                <th className="px-4 py-3 font-medium">Dilazioni</th>
-                <th className="px-4 py-3 text-right font-medium">FiC</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fatture.map((f) => (
-                <tr key={f.id} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3 font-mono text-xs font-semibold">
-                    <Link
-                      href={fatturaDetailPath(kind, f.id)}
-                      className="text-[var(--primary)] hover:underline"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {f.numeroInterno}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{formatDateIt(f.dataEmissione)}</td>
-                  <td className="px-4 py-3">
-                    <span className="font-medium">
-                      {f.anagraficaCodiceTarga}
-                    </span>{" "}
-                    <span className="text-[var(--muted)]">
-                      {f.anagraficaRagioneSociale}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-[var(--muted)]">
-                    {f.numeroDocumentoEsterno || "—"}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {formatEuro(f.imponibile)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums font-medium">
-                    {formatEuro(f.totale)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
-                        f.statoPagamento === "pagato"
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                          : "border-rose-200 bg-rose-50 text-rose-800"
-                      }`}
-                    >
-                      {labelStatoPagamento(f.statoPagamento)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-[var(--muted)]">
-                    {f.dilazioni.length === 0
-                      ? "—"
-                      : `${f.dilazioni.filter((d) => d.statoPagamento === "pagato").length}/${f.dilazioni.length} pagate`}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {f.ficId ? (
-                      <ApriFatturaFicButton kind={kind} ficId={f.ficId} />
-                    ) : (
-                      <span className="text-xs text-[var(--muted)]">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {creating ? (
         <FatturaRegistrazioneModal
@@ -253,6 +185,92 @@ export function FattureInterneBoard({ kind }: Props) {
           }}
         />
       ) : null}
+
+      {!ready || pending ? (
+        <p className="text-sm text-[var(--muted)]">Caricamento…</p>
+      ) : fatture.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-10 text-center">
+          <p className="text-sm font-medium">{emptyLabel}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Usa «Registra» oppure «Sincronizza» da Fatture in Cloud.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+              <tr>
+                <th className="px-4 py-3 font-medium">N. interno</th>
+                <th className="px-4 py-3 font-medium">Data</th>
+                <th className="px-4 py-3 font-medium">{entityLabel}</th>
+                <th className="px-4 py-3 font-medium">Doc. esterno</th>
+                {kind === "nota_credito" ? (
+                  <th className="px-4 py-3 font-medium">Rif. fattura</th>
+                ) : null}
+                <th className="px-4 py-3 font-medium">Imponibile</th>
+                <th className="px-4 py-3 font-medium">Totale</th>
+                <th className="px-4 py-3 font-medium">Stato</th>
+                <th className="px-4 py-3 font-medium">FiC</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[var(--border)]">
+              {fatture.map((f) => (
+                <tr key={f.id} className="hover:bg-slate-50/80">
+                  <td className="px-4 py-3">
+                    <Link
+                      href={fatturaDetailPath(f.kind, f.id)}
+                      className="font-mono text-sm font-medium text-[var(--primary)] hover:underline"
+                    >
+                      {f.numeroInterno}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {formatDateIt(f.dataEmissione)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="font-medium">
+                      {f.anagraficaCodiceTarga}
+                    </span>
+                    <span className="text-[var(--muted)]">
+                      {" "}
+                      — {f.anagraficaRagioneSociale}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 font-mono text-xs">
+                    {f.numeroDocumentoEsterno || "—"}
+                  </td>
+                  {kind === "nota_credito" ? (
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {f.riferimentoFatturaEsterno || "—"}
+                    </td>
+                  ) : null}
+                  <td className="px-4 py-3 tabular-nums">
+                    {formatEuro(f.imponibile)}
+                  </td>
+                  <td className="px-4 py-3 tabular-nums font-medium">
+                    {formatEuro(f.totale)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {labelStatoPagamento(f.statoPagamento)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <ApriFatturaFicButton
+                      kind={f.kind}
+                      ficId={f.ficId}
+                      label={
+                        kind === "nota_credito"
+                          ? "Apri NC"
+                          : "Apri fattura"
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="sr-only">{docLabel(kind)}</p>
     </div>
   );
 }

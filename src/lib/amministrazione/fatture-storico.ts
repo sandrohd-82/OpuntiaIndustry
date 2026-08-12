@@ -36,7 +36,12 @@ export function fatturaDetailPath(
   kind: FatturaKind,
   fatturaId: string
 ): string {
-  const segment = kind === "emessa" ? "emesse" : "ricevute";
+  const segment =
+    kind === "nota_credito"
+      ? "note-credito"
+      : kind === "emessa"
+        ? "emesse"
+        : "ricevute";
   return `/app/amministrazione/fatture/${segment}/${fatturaId}`;
 }
 

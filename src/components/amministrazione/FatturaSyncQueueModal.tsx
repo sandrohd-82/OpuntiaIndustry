@@ -117,6 +117,18 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         statoPagamento: current.statoPagamento,
         righe: current.righe,
         lockAnagrafica: true,
+        fatturaCollegataId: current.linkedFattura?.fatturaId ?? null,
+        riferimentoFatturaEsterno:
+          current.riferimentoFatturaEsterno ||
+          current.linkedFattura?.numeroEsterno ||
+          "",
+        note: current.linkedFattura
+          ? `Nota di credito collegata: ${current.linkedFattura.motivo}${
+              current.linkedFattura.numeroInterno
+                ? ` (${current.linkedFattura.numeroInterno})`
+                : ""
+            }`
+          : undefined,
       }
     : null;
 
@@ -124,19 +136,29 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     ? `${index + 1} di ${items.length}`
     : `0 di ${items.length}`;
 
+  const docKindLabel =
+    kind === "nota_credito"
+      ? "nota di credito"
+      : kind === "emessa"
+        ? "fattura emessa"
+        : "fattura ricevuta";
+
   const pauseBar = (
     <div className="fixed inset-x-0 top-0 z-[110] flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 shadow-sm">
       <p className="min-w-0 flex-1 text-sm text-amber-950">
-        Sync fatture {kind === "emessa" ? "emesse" : "ricevute"} —{" "}
+        Sync documenti FiC —{" "}
         <strong className="tabular-nums">{progressLabel}</strong>
+        {current ? (
+          <span className="text-amber-900"> · {docKindLabel}</span>
+        ) : null}
         {registeredCount > 0 ? (
           <span className="text-amber-800">
             {" "}
-            · {registeredCount} già registrate in questa sessione
+            · {registeredCount} già registrati in questa sessione
           </span>
         ) : null}
         . <strong>Pausa</strong> interrompe: al prossimo Sincronizza riparti
-        dalle fatture non ancora registrate.
+        dai documenti non ancora registrati (NC incluse).
       </p>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {current ? (
@@ -145,6 +167,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             ficId={current.ficId}
             variant="button"
             className="border-amber-300 bg-white"
+            label={
+              kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
+            }
           />
         ) : null}
         <button
@@ -185,6 +210,11 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
       <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl">
         <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
           Documento in revisione
+          {kind === "nota_credito" ? (
+            <span className="ml-2 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800">
+              NOTA DI CREDITO
+            </span>
+          ) : null}
         </p>
         <h2 className="mt-1 text-lg font-semibold">
           Doc. FiC {current.numeroEsterno || current.ficId}
@@ -196,21 +226,41 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         <p className="mt-1 text-sm text-[var(--muted)]">
           Importo FiC: {formatEuro(current.amountGross)}
         </p>
+        {current.linkedFattura ? (
+          <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+            <p className="font-semibold">Collegata a fattura già sincronizzata</p>
+            <p className="mt-0.5">
+              {current.linkedFattura.numeroInterno
+                ? `${current.linkedFattura.numeroInterno} · `
+                : ""}
+              rif. {current.linkedFattura.numeroEsterno || "—"}
+            </p>
+            <p className="mt-0.5 text-xs opacity-90">
+              {current.linkedFattura.motivo}
+            </p>
+          </div>
+        ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <ApriFatturaFicButton
             kind={kind}
             ficId={current.ficId}
             variant="button"
+            label={
+              kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
+            }
           />
         </div>
 
         {step.type === "notice-existing" ? (
           <div className="mt-4 space-y-3">
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              La fattura trovata è collegata all&apos;azienda{" "}
+              Il documento è collegato all&apos;azienda{" "}
               <strong>{current.existingLabel}</strong> già presente in
-              anagrafica. Controlla i dati e procedi alla registrazione della
-              fattura.
+              anagrafica. Controlla i dati e procedi alla registrazione
+              {kind === "nota_credito"
+                ? " della nota di credito"
+                : " della fattura"}
+              .
             </div>
             <div className="flex justify-end gap-2">
               <button
@@ -252,7 +302,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         {step.type === "fattura" ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm text-[var(--muted)]">
-              Apertura registrazione fattura
+              Apertura registrazione {docKindLabel}
               {anagraficaLabel ? ` per ${anagraficaLabel}` : ""}…
             </p>
             <div className="flex justify-end">
@@ -282,7 +332,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
           )
         : null}
 
-      {step.type === "anagrafica-create" && kind === "emessa" ? (
+      {step.type === "anagrafica-create" &&
+      (kind === "emessa" || kind === "nota_credito") ? (
         <ClienteFormModal
           mode="create"
           elevated

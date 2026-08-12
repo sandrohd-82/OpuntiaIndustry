@@ -10,7 +10,7 @@ import type {
   FatturaStatoPagamento,
 } from "@/types/database";
 
-export type FatturaKind = "emessa" | "ricevuta";
+export type FatturaKind = "emessa" | "ricevuta" | "nota_credito";
 
 export type FatturaAllegatoMeta = {
   storagePath: string;
@@ -60,6 +60,8 @@ export type Fattura = {
   versione: number;
   documentoStato: FatturaDocumentoStato;
   note: string;
+  fatturaCollegataId: string | null;
+  riferimentoFatturaEsterno: string;
   righe: FatturaRiga[];
   dilazioni: FatturaDilazione[];
   createdAt: string;
@@ -78,6 +80,8 @@ export type FatturaInput = {
   ivaPercentuale: number;
   statoPagamento: FatturaStatoPagamento;
   note?: string;
+  fatturaCollegataId?: string | null;
+  riferimentoFatturaEsterno?: string;
   righe: FatturaRiga[];
   dilazioni?: FatturaDilazione[];
 };
@@ -227,16 +231,18 @@ export function bilancioDilazioni(
   };
 }
 
-/** Ft-26-C001/1 */
+/** Ft-26-C001/1 — oppure Nc-26-C001/1 per note di credito. */
 export function buildNumeroInternoFattura(input: {
   dataEmissione: string;
   codiceTarga: string;
   seq: number;
+  kind?: FatturaKind;
 }): string {
   const aa = year2FromDate(input.dataEmissione);
   const targa = input.codiceTarga.trim().toUpperCase() || "X000";
   const seq = Math.max(1, Math.floor(input.seq));
-  return `Ft-${aa}-${targa}/${seq}`;
+  const prefix = input.kind === "nota_credito" ? "Nc" : "Ft";
+  return `${prefix}-${aa}-${targa}/${seq}`;
 }
 
 const rigaSchema = z.object({
@@ -271,6 +277,8 @@ export const fatturaInputSchema = z
     ivaPercentuale: z.number().min(0).max(100),
     statoPagamento: z.enum(["pagato", "da_pagare"]),
     note: z.string().optional(),
+    fatturaCollegataId: z.string().uuid().nullable().optional(),
+    riferimentoFatturaEsterno: z.string().optional(),
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno un prodotto"),
     dilazioni: z.array(dilazioneSchema).optional(),
   })
@@ -310,6 +318,8 @@ export const fatturaInputSchema = z
       anagraficaCodiceTarga: v.anagraficaCodiceTarga.trim().toUpperCase(),
       numeroDocumentoEsterno: (v.numeroDocumentoEsterno ?? "").trim(),
       note: (v.note ?? "").trim(),
+      fatturaCollegataId: v.fatturaCollegataId ?? null,
+      riferimentoFatturaEsterno: (v.riferimentoFatturaEsterno ?? "").trim(),
       ficId: v.ficId ?? null,
       spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
       statoPagamento,
@@ -358,9 +368,12 @@ export function mapFatturaEmessaRow(
   righe: FatturaEmessaRigaRow[],
   dilazioni: FatturaEmessaDilazioneRow[] = []
 ): Fattura {
+  const isNc =
+    row.tipo_documento === "nota_credito" ||
+    String(row.numero_interno ?? "").toUpperCase().startsWith("NC-");
   return {
     id: row.id,
-    kind: "emessa",
+    kind: isNc ? "nota_credito" : "emessa",
     numeroInterno: row.numero_interno,
     anagraficaId: row.cliente_id,
     anagraficaRagioneSociale: row.cliente_ragione_sociale,
@@ -384,6 +397,8 @@ export function mapFatturaEmessaRow(
     versione: row.versione,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
+    fatturaCollegataId: row.fattura_collegata_id ?? null,
+    riferimentoFatturaEsterno: row.riferimento_fattura_esterno ?? "",
     righe: mapRighe(righe),
     dilazioni: mapDilazioni(dilazioni),
     createdAt: row.created_at,
@@ -422,6 +437,8 @@ export function mapFatturaRicevutaRow(
     versione: row.versione,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
+    fatturaCollegataId: null,
+    riferimentoFatturaEsterno: "",
     righe: mapRighe(righe),
     dilazioni: mapDilazioni(dilazioni),
     createdAt: row.created_at,

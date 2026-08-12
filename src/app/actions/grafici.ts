@@ -60,7 +60,7 @@ async function loadIncassiAnno(
   if (fonte === "fatture" || fonte === "entrambi") {
     let q = supabase
       .from("fatture_emesse")
-      .select("data_emissione, totale, cliente_id")
+      .select("data_emissione, totale, cliente_id, tipo_documento")
       .is("deleted_at", null)
       .gte("data_emissione", from)
       .lte("data_emissione", to);
@@ -73,9 +73,12 @@ async function loadIncassiAnno(
       };
     }
     for (const r of data ?? []) {
+      const isNc = (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
+      const amount = Number(r.totale) || 0;
       rows.push({
         dateStr: String(r.data_emissione ?? ""),
-        amount: Number(r.totale) || 0,
+        // Note di credito riducono l'incasso
+        amount: isNc ? -Math.abs(amount) : amount,
       });
     }
   }
@@ -129,7 +132,7 @@ async function loadIncassiDettaglioAnno(
     let q = supabase
       .from("fatture_emesse")
       .select(
-        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa"
+        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento"
       )
       .is("deleted_at", null)
       .gte("data_emissione", from)
@@ -145,14 +148,17 @@ async function loadIncassiDettaglioAnno(
       const dateStr = String(r.data_emissione ?? "");
       const m = Number(dateStr.slice(5, 7));
       if (mese != null && m !== mese) continue;
+      const isNc =
+        (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
+      const amount = Number(r.totale) || 0;
       rows.push({
         dateStr,
-        amount: Number(r.totale) || 0,
+        amount: isNc ? -Math.abs(amount) : amount,
         clienteId: cid,
         clienteLabel: String(r.cliente_ragione_sociale ?? "Cliente"),
         codiceTarga: String(r.cliente_codice_targa ?? ""),
       });
-      if (r.id) fatturaIds.push(String(r.id));
+      if (r.id && !isNc) fatturaIds.push(String(r.id));
     }
   }
 

@@ -262,6 +262,23 @@ export async function fetchIssuedInvoices(
   );
 }
 
+/** Scarica note di credito emesse (credit_note). */
+export async function fetchIssuedCreditNotes(
+  since: Date | null
+): Promise<FicDocumentNormalized[]> {
+  const q = buildUpdatedSinceQuery(since);
+  return listAllPages(
+    "/issued_documents",
+    {
+      type: "credit_note",
+      fieldset: "detailed",
+      sort: "-updated_at",
+      q,
+    },
+    normalizeIssuedDocument
+  );
+}
+
 /** Scarica fatture ricevute (expense) aggiornate da `since` (se presente). */
 export async function fetchReceivedInvoices(
   since: Date | null

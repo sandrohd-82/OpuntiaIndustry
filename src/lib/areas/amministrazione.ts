@@ -103,6 +103,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         description: "Storico fatture emesse ai clienti",
         path: "/app/amministrazione/fatture/emesse",
       },
+      {
+        slug: "note-credito",
+        label: "Note di credito",
+        description:
+          "Note di credito FiC (storno/annullamento fatture emesse)",
+        path: "/app/amministrazione/fatture/note-credito",
+      },
     ],
   },
   {
