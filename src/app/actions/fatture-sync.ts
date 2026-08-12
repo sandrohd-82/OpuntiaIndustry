@@ -1,10 +1,12 @@
 "use server";
 
 import {
+  amountMatchScore,
   buildFatturaSyncQueueItem,
   creditNotesRelatedToInvoice,
   matchCreditNoteToFattura,
   normalizeVatKey,
+  sortPendingInvoicesByNcAmount,
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
@@ -322,4 +324,112 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     skippedAlreadyRegistered,
     creditNotesPending: 0,
   };
+}
+
+export type PendingFicInvoiceCandidate = FatturaSyncQueueItem & {
+  amountClose: boolean;
+  amountDelta: number;
+};
+
+/**
+ * Fatture FiC emesse ancora da sincronizzare per un cliente,
+ * priorità a importo uguale/affine alla nota di credito.
+ */
+export async function listPendingFicInvoicesForClienteAction(input: {
+  clienteId: string;
+  importoNc: number;
+  excludeFicIds?: number[];
+}): Promise<
+  | { success: true; items: PendingFicInvoiceCandidate[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!input.clienteId) {
+    return { success: true, items: [] };
+  }
+
+  try {
+    getFicConfig();
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Configurazione Fatture in Cloud mancante.",
+    };
+  }
+
+  const supabase = await createClient();
+  const [clienteRes, registeredRes, invoices] = await Promise.all([
+    supabase
+      .from("clienti")
+      .select("*")
+      .eq("id", input.clienteId)
+      .is("deleted_at", null)
+      .maybeSingle(),
+    supabase
+      .from("fatture_emesse")
+      .select("fic_id")
+      .is("deleted_at", null),
+    fetchIssuedInvoices(null),
+  ]);
+
+  if (clienteRes.error) {
+    return { success: false, error: clienteRes.error.message };
+  }
+  if (registeredRes.error) {
+    return { success: false, error: registeredRes.error.message };
+  }
+  const cliente = clienteRes.data as ClienteRow | null;
+  if (!cliente) {
+    return { success: false, error: "Cliente non trovato." };
+  }
+
+  const registeredFicIds = new Set(
+    (registeredRes.data ?? [])
+      .map((r) => Number(r.fic_id))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+  const excluded = new Set(
+    (input.excludeFicIds ?? []).filter((n) => Number.isFinite(n) && n > 0)
+  );
+
+  const vat = normalizeVatKey(cliente.partita_iva);
+
+  const pending = invoices.filter((d) => {
+    if (registeredFicIds.has(d.ficId)) return false;
+    if (excluded.has(d.ficId)) return false;
+    const docVat = normalizeVatKey(d.entityVat);
+    if (vat && docVat) return docVat === vat;
+    // Fallback: nome ragione sociale (normalizzato) se manca P.IVA
+    if (!vat && !docVat) {
+      const a = (cliente.ragione_sociale || "").trim().toLowerCase();
+      const b = (d.entityName || "").trim().toLowerCase();
+      return Boolean(a && b && (a === b || a.includes(b) || b.includes(a)));
+    }
+    return false;
+  });
+
+  const sorted = sortPendingInvoicesByNcAmount(pending, input.importoNc);
+  const target = Math.abs(input.importoNc);
+  const items: PendingFicInvoiceCandidate[] = sorted.map((doc) => {
+    const score = amountMatchScore(doc.amountGross, target);
+    const base = buildFatturaSyncQueueItem({
+      doc,
+      kind: "emessa",
+      existingId: cliente.id,
+      existingLabel: `${cliente.codice_targa} — ${cliente.ragione_sociale}`,
+      proposedTarga: cliente.codice_targa,
+      linkedFattura: null,
+    });
+    return {
+      ...base,
+      anagraficaMode: "existing",
+      amountClose: score.close,
+      amountDelta: score.delta,
+    };
+  });
+
+  return { success: true, items };
 }

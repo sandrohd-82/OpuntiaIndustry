@@ -12,9 +12,11 @@ import {
   previewNumeroInternoFatturaAction,
   type DilazioneFatturaOption,
 } from "@/app/actions/fatture";
+import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
+import { NcPendingFatturaPickerModal } from "@/components/amministrazione/NcPendingFatturaPickerModal";
 import { ProdottoPrezzoStoricoInfo } from "@/components/amministrazione/ProdottoPrezzoStoricoInfo";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
@@ -102,6 +104,8 @@ type Props = {
   onPause?: () => void;
   prefill?: FatturaRegistrazionePrefill | null;
   elevated?: boolean;
+  /** Sopra un’altra modale fattura (es. registrazione fattura da NC). */
+  stackTop?: boolean;
 };
 
 export function FatturaRegistrazioneModal({
@@ -111,6 +115,7 @@ export function FatturaRegistrazioneModal({
   onPause,
   prefill = null,
   elevated = false,
+  stackTop = false,
 }: Props) {
   const titleId = useId();
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
@@ -211,6 +216,9 @@ export function FatturaRegistrazioneModal({
     Record<string, ProdottoPrezzoStoricoHint>
   >({});
   const [dilazioni, setDilazioni] = useState<EditableDilazione[]>([]);
+  const [showPendingPicker, setShowPendingPicker] = useState(false);
+  const [pendingInvoiceToRegister, setPendingInvoiceToRegister] =
+    useState<PendingFicInvoiceCandidate | null>(null);
 
   const totals = useMemo(
     () =>
@@ -573,12 +581,12 @@ export function FatturaRegistrazioneModal({
         ? "Registrazione fattura emessa"
         : "Registrazione fattura ricevuta";
 
+  const zLayer = stackTop ? "z-[95]" : elevated ? "z-[80]" : "z-[60]";
+
   const dialog = (
     <div
-      data-nested-modal={elevated ? "fattura" : undefined}
-      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8 sm:py-12 ${
-        elevated ? "z-[80]" : "z-[60]"
-      }`}
+      data-nested-modal={elevated || stackTop ? "fattura" : undefined}
+      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8 sm:py-12 ${zLayer}`}
       role="presentation"
       onClick={(e) => e.stopPropagation()}
     >
@@ -701,9 +709,20 @@ export function FatturaRegistrazioneModal({
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-[var(--muted)]">
-                  Solo fatture della stessa azienda · n. interno, importo e data
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <p className="text-xs text-[var(--muted)]">
+                    Solo fatture della stessa azienda · n. interno, importo e
+                    data
+                  </p>
+                  <button
+                    type="button"
+                    disabled={!anagraficaId}
+                    onClick={() => setShowPendingPicker(true)}
+                    className="rounded-lg border border-indigo-300 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-950 hover:bg-indigo-100 disabled:opacity-50"
+                  >
+                    Cerca fattura da sincronizzare
+                  </button>
+                </div>
               </div>
             ) : null}
             <div>
@@ -1504,6 +1523,61 @@ export function FatturaRegistrazioneModal({
           }}
         />
       )}
+
+      {isNc && showPendingPicker && anagraficaId ? (
+        <NcPendingFatturaPickerModal
+          clienteId={anagraficaId}
+          clienteLabel={
+            anagraficaCodiceTarga
+              ? `${anagraficaCodiceTarga} — ${anagraficaRagioneSociale}`
+              : anagraficaRagioneSociale || "Cliente"
+          }
+          importoNc={Math.abs(totals.totale)}
+          onClose={() => setShowPendingPicker(false)}
+          onConfirm={(item) => {
+            setPendingInvoiceToRegister(item);
+            setShowPendingPicker(false);
+          }}
+        />
+      ) : null}
+
+      {isNc && pendingInvoiceToRegister ? (
+        <FatturaRegistrazioneModal
+          kind="emessa"
+          stackTop
+          elevated
+          prefill={{
+            anagraficaId,
+            anagraficaRagioneSociale,
+            anagraficaCodiceTarga,
+            dataEmissione: pendingInvoiceToRegister.dataEmissione,
+            numeroDocumentoEsterno: pendingInvoiceToRegister.numeroEsterno,
+            ficId: pendingInvoiceToRegister.ficId,
+            spedizione: pendingInvoiceToRegister.spedizione,
+            spedizioneIvaApplicata:
+              pendingInvoiceToRegister.spedizioneIvaApplicata,
+            ivaPercentuale: pendingInvoiceToRegister.ivaPercentuale,
+            statoPagamento: pendingInvoiceToRegister.statoPagamento,
+            righe: pendingInvoiceToRegister.righe,
+            lockAnagrafica: true,
+            note: `Registrata prima della nota di credito (collegamento NC)`,
+          }}
+          onClose={() => {
+            setPendingInvoiceToRegister(null);
+            setShowPendingPicker(true);
+          }}
+          onSaved={async (fattura) => {
+            setPendingInvoiceToRegister(null);
+            const res = await listFattureEmesseClienteAction({
+              clienteId: anagraficaId,
+            });
+            if (res.success) setFattureCollegabili(res.fatture);
+            setFatturaCollegataId(fattura.id);
+            setRiferimentoFatturaEsterno(fattura.numeroInterno);
+            setDilazioniAnnullateIds([]);
+          }}
+        />
+      ) : null}
     </div>
   );
 

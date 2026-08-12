@@ -375,4 +375,35 @@ export function buildFatturaSyncQueueItem(input: {
   };
 }
 
+/** Priorità match importo NC ↔ fattura (±0,5€ o 2%). */
+export function amountMatchScore(
+  amountA: number,
+  amountB: number
+): { close: boolean; delta: number } {
+  const a = Math.abs(amountA);
+  const b = Math.abs(amountB);
+  const delta = Math.abs(a - b);
+  const close = a > 0 && b > 0 && delta <= Math.max(0.5, a * 0.02);
+  return { close, delta };
+}
+
+export function sortPendingInvoicesByNcAmount<
+  T extends {
+    amountGross: number;
+    dataEmissione?: string | null;
+    date?: string | null;
+  },
+>(items: T[], importoNc: number): T[] {
+  const target = Math.abs(importoNc);
+  return [...items].sort((x, y) => {
+    const sx = amountMatchScore(x.amountGross, target);
+    const sy = amountMatchScore(y.amountGross, target);
+    if (sx.close !== sy.close) return sx.close ? -1 : 1;
+    if (sx.delta !== sy.delta) return sx.delta - sy.delta;
+    const dx = x.dataEmissione || x.date || "";
+    const dy = y.dataEmissione || y.date || "";
+    return dy.localeCompare(dx);
+  });
+}
+
 export { normalizeVatKey };
