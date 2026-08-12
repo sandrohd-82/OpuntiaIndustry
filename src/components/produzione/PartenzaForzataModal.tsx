@@ -2,6 +2,7 @@
 
 import { useId, useState } from "react";
 import { FaFan, FaFire } from "react-icons/fa6";
+import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 
 type Props = {
   essiccatoreName: string;
@@ -62,12 +63,13 @@ export function PartenzaForzataModal({
               onChange={(e) => setBruciatore(clampPercent(Number(e.target.value)))}
               className="w-full accent-orange-500"
             />
-            <input
-              type="number"
+            <ClearableNumberInput
               min={0}
               max={100}
               value={bruciatore}
-              onChange={(e) => setBruciatore(clampPercent(Number(e.target.value)))}
+              onValueChange={(v) =>
+                setBruciatore(v === "" ? 0 : clampPercent(v))
+              }
               className="mt-2 w-24 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm tabular-nums"
             />
           </label>
@@ -88,13 +90,12 @@ export function PartenzaForzataModal({
               }
               className="w-full accent-sky-500"
             />
-            <input
-              type="number"
+            <ClearableNumberInput
               min={0}
               max={100}
               value={ventilazione}
-              onChange={(e) =>
-                setVentilazione(clampPercent(Number(e.target.value)))
+              onValueChange={(v) =>
+                setVentilazione(v === "" ? 0 : clampPercent(v))
               }
               className="mt-2 w-24 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm tabular-nums"
             />

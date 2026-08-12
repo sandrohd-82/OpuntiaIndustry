@@ -22,7 +22,16 @@ import {
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
 import type { FatturaStatoPagamento } from "@/types/database";
+import {
+  ClearableNumberInput,
+  numberOrZero,
+} from "@/components/ui/ClearableNumberInput";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
+
+type EditableRiga = Omit<FatturaRiga, "quantita" | "prezzoUnitario"> & {
+  quantita: number | "";
+  prezzoUnitario: number | "";
+};
 
 export type FatturaRegistrazionePrefill = {
   anagraficaId?: string;
@@ -72,15 +81,17 @@ export function FatturaRegistrazioneModal({
   const [numeroDocumentoEsterno, setNumeroDocumentoEsterno] = useState(
     prefill?.numeroDocumentoEsterno ?? ""
   );
-  const [spedizione, setSpedizione] = useState(prefill?.spedizione ?? 0);
-  const [ivaPercentuale, setIvaPercentuale] = useState(
+  const [spedizione, setSpedizione] = useState<number | "">(
+    prefill?.spedizione ?? 0
+  );
+  const [ivaPercentuale, setIvaPercentuale] = useState<number | "">(
     prefill?.ivaPercentuale ?? 22
   );
   const [statoPagamento, setStatoPagamento] = useState<FatturaStatoPagamento>(
     prefill?.statoPagamento ?? "da_pagare"
   );
   const [note, setNote] = useState(prefill?.note ?? "");
-  const [righe, setRighe] = useState<FatturaRiga[]>(
+  const [righe, setRighe] = useState<EditableRiga[]>(
     prefill?.righe?.length ? prefill.righe : [emptyFatturaRiga()]
   );
   const [ricevuta, setRicevuta] = useState<File | null>(null);
@@ -95,9 +106,12 @@ export function FatturaRegistrazioneModal({
   const totals = useMemo(
     () =>
       calcolaTotaliFattura({
-        righe,
-        spedizione,
-        ivaPercentuale,
+        righe: righe.map((r) => ({
+          quantita: numberOrZero(r.quantita),
+          prezzoUnitario: numberOrZero(r.prezzoUnitario),
+        })),
+        spedizione: numberOrZero(spedizione),
+        ivaPercentuale: numberOrZero(ivaPercentuale),
       }),
     [righe, spedizione, ivaPercentuale]
   );
@@ -139,12 +153,15 @@ export function FatturaRegistrazioneModal({
     };
   }, [kind, anagraficaId, anagraficaCodiceTarga, dataEmissione]);
 
-  function patchRiga(index: number, patch: Partial<FatturaRiga>) {
+  function patchRiga(index: number, patch: Partial<EditableRiga>) {
     setRighe((prev) =>
       prev.map((r, i) => {
         if (i !== index) return r;
         const next = { ...r, ...patch };
-        next.importo = importoRiga(next.quantita, next.prezzoUnitario);
+        next.importo = importoRiga(
+          numberOrZero(next.quantita),
+          numberOrZero(next.prezzoUnitario)
+        );
         return next;
       })
     );
@@ -178,6 +195,15 @@ export function FatturaRegistrazioneModal({
     setFormError(null);
     try {
       const fd = new FormData();
+      const righePayload: FatturaRiga[] = righe.map((r) => ({
+        ...r,
+        quantita: numberOrZero(r.quantita),
+        prezzoUnitario: numberOrZero(r.prezzoUnitario),
+        importo: importoRiga(
+          numberOrZero(r.quantita),
+          numberOrZero(r.prezzoUnitario)
+        ),
+      }));
       fd.set(
         "payload",
         JSON.stringify({
@@ -187,11 +213,11 @@ export function FatturaRegistrazioneModal({
           dataEmissione,
           numeroDocumentoEsterno,
           ficId: prefill?.ficId ?? null,
-          spedizione,
-          ivaPercentuale,
+          spedizione: numberOrZero(spedizione),
+          ivaPercentuale: numberOrZero(ivaPercentuale),
           statoPagamento,
           note,
-          righe,
+          righe: righePayload,
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
@@ -407,30 +433,22 @@ export function FatturaRegistrazioneModal({
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
-                          min={0.0001}
-                          step="any"
+                        <ClearableNumberInput
+                          min={0}
                           value={riga.quantita}
-                          onChange={(e) =>
-                            patchRiga(index, {
-                              quantita: Number(e.target.value) || 0,
-                            })
+                          onValueChange={(v) =>
+                            patchRiga(index, { quantita: v })
                           }
                           className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
                           required
                         />
                       </td>
                       <td className="px-2 py-2">
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           min={0}
-                          step="0.01"
                           value={riga.prezzoUnitario}
-                          onChange={(e) =>
-                            patchRiga(index, {
-                              prezzoUnitario: Number(e.target.value) || 0,
-                            })
+                          onValueChange={(v) =>
+                            patchRiga(index, { prezzoUnitario: v })
                           }
                           className="w-24 rounded border border-[var(--border)] px-2 py-1.5"
                           required
@@ -466,12 +484,10 @@ export function FatturaRegistrazioneModal({
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Spedizione
               </label>
-              <input
-                type="number"
+              <ClearableNumberInput
                 min={0}
-                step="0.01"
                 value={spedizione}
-                onChange={(e) => setSpedizione(Number(e.target.value) || 0)}
+                onValueChange={setSpedizione}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </div>
@@ -489,13 +505,11 @@ export function FatturaRegistrazioneModal({
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 % IVA
               </label>
-              <input
-                type="number"
+              <ClearableNumberInput
                 min={0}
                 max={100}
-                step="0.01"
                 value={ivaPercentuale}
-                onChange={(e) => setIvaPercentuale(Number(e.target.value) || 0)}
+                onValueChange={setIvaPercentuale}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
               <p className="mt-1 text-xs text-[var(--muted)]">
@@ -654,7 +668,10 @@ export function FatturaRegistrazioneModal({
               prodottoId: id,
               codice,
               descrizione: nome,
-              importo: importoRiga(r.quantita, r.prezzoUnitario),
+              importo: importoRiga(
+                numberOrZero(r.quantita),
+                numberOrZero(r.prezzoUnitario)
+              ),
             }
           : r
       )

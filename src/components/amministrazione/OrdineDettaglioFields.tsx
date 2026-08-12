@@ -16,6 +16,7 @@ import {
   type OrdineTrasporto,
 } from "@/lib/amministrazione/ordini";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
+import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 
 function AllegatoUpload({
   label,
@@ -166,10 +167,6 @@ function formatEuro(value: number) {
   });
 }
 
-function parseNum(value: string): number {
-  const n = Number(value.replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
 
 type Props = {
   numeroInterno: string;
@@ -364,15 +361,13 @@ export function OrdineDettaglioFields({
                     <span className="mb-1 block text-xs font-medium">
                       Quantità
                     </span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       min={0}
-                      step="any"
                       required
-                      value={riga.quantita || ""}
-                      onChange={(e) =>
+                      value={riga.quantita === 0 ? "" : riga.quantita}
+                      onValueChange={(v) =>
                         patchRiga(riga.id, {
-                          quantita: parseNum(e.target.value),
+                          quantita: v === "" ? 0 : v,
                         })
                       }
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -383,15 +378,15 @@ export function OrdineDettaglioFields({
                     <span className="mb-1 block text-xs font-medium">
                       Prezzo (€)
                     </span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       min={0}
-                      step="0.01"
                       required
-                      value={riga.prezzoUnitario || ""}
-                      onChange={(e) =>
+                      value={
+                        riga.prezzoUnitario === 0 ? "" : riga.prezzoUnitario
+                      }
+                      onValueChange={(v) =>
                         patchRiga(riga.id, {
-                          prezzoUnitario: parseNum(e.target.value),
+                          prezzoUnitario: v === "" ? 0 : v,
                         })
                       }
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -402,16 +397,14 @@ export function OrdineDettaglioFields({
                     <span className="mb-1 block text-xs font-medium">
                       IVA %
                     </span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       min={0}
-                      step="0.01"
                       list={`iva-options-${riga.id}`}
                       required
                       value={riga.ivaPercentuale}
-                      onChange={(e) =>
+                      onValueChange={(v) =>
                         patchRiga(riga.id, {
-                          ivaPercentuale: parseNum(e.target.value),
+                          ivaPercentuale: v === "" ? 0 : v,
                         })
                       }
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -459,15 +452,13 @@ export function OrdineDettaglioFields({
             <span className="mb-1 block text-xs font-medium">
               Imponibile (€)
             </span>
-            <input
-              type="number"
+            <ClearableNumberInput
               min={0}
-              step="0.01"
-              value={trasporto.imponibile || ""}
-              onChange={(e) =>
+              value={trasporto.imponibile === 0 ? "" : trasporto.imponibile}
+              onValueChange={(v) =>
                 onTrasportoChange({
                   ...trasporto,
-                  imponibile: parseNum(e.target.value),
+                  imponibile: v === "" ? 0 : v,
                 })
               }
               className="w-full rounded-lg border border-[var(--border)] px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -475,16 +466,14 @@ export function OrdineDettaglioFields({
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium">IVA %</span>
-            <input
-              type="number"
+            <ClearableNumberInput
               min={0}
-              step="0.01"
               list="iva-trasporto-options"
               value={trasporto.ivaPercentuale}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 onTrasportoChange({
                   ...trasporto,
-                  ivaPercentuale: parseNum(e.target.value),
+                  ivaPercentuale: v === "" ? 0 : v,
                 })
               }
               className="w-full rounded-lg border border-[var(--border)] px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
