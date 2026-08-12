@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  findNcCompensazioneCandidatesAction,
+  type NcCompensazioneCandidate,
+} from "@/app/actions/fatture";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
@@ -16,7 +20,7 @@ import {
   draftToFornitorePreview,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
-import { formatEuro } from "@/lib/amministrazione/fatture";
+import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
 type Props = {
@@ -29,6 +33,7 @@ type Props = {
 type Step =
   | { type: "notice-existing" }
   | { type: "anagrafica-create" }
+  | { type: "compensazione-nc" }
   | { type: "fattura" };
 
 export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
@@ -40,6 +45,13 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const [anagraficaLabel, setAnagraficaLabel] = useState<string | null>(null);
   const [anagraficaTarga, setAnagraficaTarga] = useState<string | null>(null);
   const [anagraficaNome, setAnagraficaNome] = useState<string | null>(null);
+  const [compCandidates, setCompCandidates] = useState<
+    NcCompensazioneCandidate[]
+  >([]);
+  const [compPromptDone, setCompPromptDone] = useState(false);
+  const [compChecking, setCompChecking] = useState(false);
+  const [collegaComeCompensativaNcId, setCollegaComeCompensativaNcId] =
+    useState<string | null>(null);
 
   const current = items[index] ?? null;
   const kind = current?.kind ?? "emessa";
@@ -52,15 +64,61 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     if (current.anagraficaMode === "create" && !anagraficaId) {
       return { type: "anagrafica-create" };
     }
+    if (kind === "emessa" && anagraficaId && !compPromptDone) {
+      if (compChecking) return { type: "compensazione-nc" };
+      if (compCandidates.length > 0) return { type: "compensazione-nc" };
+    }
     return { type: "fattura" };
-  }, [current, anagraficaId]);
+  }, [
+    current,
+    anagraficaId,
+    kind,
+    compPromptDone,
+    compCandidates.length,
+    compChecking,
+  ]);
 
   useEffect(() => {
     setAnagraficaId(null);
     setAnagraficaLabel(null);
     setAnagraficaTarga(null);
     setAnagraficaNome(null);
+    setCompCandidates([]);
+    setCompPromptDone(false);
+    setCompChecking(false);
+    setCollegaComeCompensativaNcId(null);
   }, [index, current?.ficId, current?.anagraficaMode, current?.existingId]);
+
+  useEffect(() => {
+    if (kind !== "emessa" || !anagraficaId || !current) {
+      setCompCandidates([]);
+      setCompChecking(false);
+      if (kind !== "emessa") setCompPromptDone(true);
+      return;
+    }
+    let cancelled = false;
+    setCompChecking(true);
+    setCompPromptDone(false);
+    void (async () => {
+      const res = await findNcCompensazioneCandidatesAction({
+        clienteId: anagraficaId,
+        importoFattura: current.amountGross || current.totale,
+        descrizioneHint: current.numeroEsterno,
+      });
+      if (cancelled) return;
+      setCompChecking(false);
+      if (res.success && res.candidates.length > 0) {
+        setCompCandidates(res.candidates);
+        setCompPromptDone(false);
+      } else {
+        setCompCandidates([]);
+        setCompPromptDone(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, anagraficaId, current]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -122,13 +180,16 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
           current.riferimentoFatturaEsterno ||
           current.linkedFattura?.numeroEsterno ||
           "",
+        collegaComeCompensativaNcId,
         note: current.linkedFattura
           ? `Nota di credito collegata: ${current.linkedFattura.motivo}${
               current.linkedFattura.numeroInterno
                 ? ` (${current.linkedFattura.numeroInterno})`
                 : ""
             }`
-          : undefined,
+          : collegaComeCompensativaNcId
+            ? `Fattura compensativa per NC collegata`
+            : undefined,
       }
     : null;
 
@@ -250,6 +311,76 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             }
           />
         </div>
+
+        {step.type === "compensazione-nc" ? (
+          <div className="mt-4 space-y-3">
+            {compChecking ? (
+              <p className="text-sm text-[var(--muted)]">
+                Verifica note di credito in attesa di compensazione…
+              </p>
+            ) : (
+              <>
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-950">
+              <p className="font-semibold">
+                Possibile fattura compensativa di nota di credito
+              </p>
+              <p className="mt-1 text-xs opacity-90">
+                Confrontando importi e descrizione, questa fattura potrebbe
+                compensare una NC in attesa di «nuova fattura».
+              </p>
+            </div>
+            <ul className="space-y-2">
+              {compCandidates.map((c) => (
+                <li
+                  key={c.id}
+                  className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                >
+                  <p className="font-medium">
+                    È la fattura compensativa della nota di credito{" "}
+                    <strong>{c.numeroInterno}</strong>?
+                  </p>
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">
+                    {formatDateIt(c.dataEmissione)} · {formatEuro(c.totale)} ·{" "}
+                    {c.motivo}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCollegaComeCompensativaNcId(c.id);
+                        setCompPromptDone(true);
+                      }}
+                      className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white"
+                    >
+                      Sì, collega a {c.numeroInterno}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={onPaused}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
+              >
+                Pausa
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCollegaComeCompensativaNcId(null);
+                  setCompPromptDone(true);
+                }}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+              >
+                No, nessuna di queste
+              </button>
+            </div>
+              </>
+            )}
+          </div>
+        ) : null}
 
         {step.type === "notice-existing" ? (
           <div className="mt-4 space-y-3">

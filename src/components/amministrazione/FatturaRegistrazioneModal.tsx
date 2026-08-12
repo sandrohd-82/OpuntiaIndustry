@@ -7,7 +7,10 @@ import {
   createFatturaAction,
   getProdottoPrezzoStoricoHintAction,
   getSpedizioneIvaStoricoHintAction,
+  listDilazioniFatturaEmessaAction,
+  listFattureEmesseClienteAction,
   previewNumeroInternoFatturaAction,
+  type DilazioneFatturaOption,
 } from "@/app/actions/fatture";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
@@ -20,19 +23,27 @@ import {
   calcolaTotaliFattura,
   emptyFatturaDilazione,
   emptyFatturaRiga,
+  emptyFatturaRigaNotaCredito,
   formatDateIt,
   formatEuro,
   importoRiga,
   isDilazioneFutura,
   normalizeDilazioneStato,
+  normalizeQuantitaNotaCredito,
   prezzoScontatoUnitario,
   statoPagamentoFromDilazioni,
+  statoPagamentoFromIncassoNc,
   todayIsoDate,
   type Fattura,
+  type FatturaCollegabileOption,
   type FatturaDilazione,
   type FatturaKind,
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
+import type {
+  FatturaRimborsoMezzo,
+  FatturaStatoIncassoNc,
+} from "@/types/database";
 import {
   fatturaDetailPath,
   prodottoStoricoKey,
@@ -67,11 +78,18 @@ export type FatturaRegistrazionePrefill = {
   ficId?: number | null;
   spedizione?: number;
   spedizioneIvaApplicata?: boolean;
+  spedizioneSottraiIncassi?: boolean;
   ivaPercentuale?: number;
   statoPagamento?: FatturaStatoPagamento;
+  statoIncassoNc?: FatturaStatoIncassoNc | null;
+  rimborsoNecessario?: boolean | null;
+  rimborsoMezzo?: FatturaRimborsoMezzo | null;
+  fatturaCompensativaId?: string | null;
+  collegaComeCompensativaNcId?: string | null;
   note?: string;
   fatturaCollegataId?: string | null;
   riferimentoFatturaEsterno?: string;
+  dilazioniAnnullateIds?: string[];
   righe?: FatturaRiga[];
   lockAnagrafica?: boolean;
 };
@@ -115,21 +133,70 @@ export function FatturaRegistrazioneModal({
   const [spedizioneIvaApplicata, setSpedizioneIvaApplicata] = useState(
     prefill?.spedizioneIvaApplicata ?? false
   );
+  const [spedizioneSottraiIncassi, setSpedizioneSottraiIncassi] = useState(
+    prefill?.spedizioneSottraiIncassi ?? true
+  );
   const [ivaPercentuale, setIvaPercentuale] = useState<number | "">(
     prefill?.ivaPercentuale ?? 22
+  );
+  const isNc = kind === "nota_credito";
+  const [statoIncassoNc, setStatoIncassoNc] = useState<FatturaStatoIncassoNc>(
+    prefill?.statoIncassoNc ??
+      (prefill?.statoPagamento === "pagato"
+        ? "gia_incassata"
+        : "non_incassata")
   );
   const [statoPagamento, setStatoPagamento] = useState<FatturaStatoPagamento>(
     prefill?.statoPagamento ?? "da_pagare"
   );
-  const [note, setNote] = useState(prefill?.note ?? "");
-  const [righe, setRighe] = useState<EditableRiga[]>(
-    prefill?.righe?.length
-      ? prefill.righe.map((r) => ({
-          ...r,
-          scontoPercentuale: r.scontoPercentuale ?? 0,
-        }))
-      : [emptyFatturaRiga()]
+  const [rimborsoNecessario, setRimborsoNecessario] = useState(
+    prefill?.rimborsoNecessario ?? false
   );
+  const [rimborsoMezzo, setRimborsoMezzo] = useState<FatturaRimborsoMezzo | "">(
+    prefill?.rimborsoMezzo ?? ""
+  );
+  const [fatturaCompensativaId, setFatturaCompensativaId] = useState(
+    prefill?.fatturaCompensativaId ?? ""
+  );
+  const [fatturaCollegataId, setFatturaCollegataId] = useState(
+    prefill?.fatturaCollegataId ?? ""
+  );
+  const [riferimentoFatturaEsterno, setRiferimentoFatturaEsterno] = useState(
+    prefill?.riferimentoFatturaEsterno ?? ""
+  );
+  const [fattureCollegabili, setFattureCollegabili] = useState<
+    FatturaCollegabileOption[]
+  >([]);
+  const [dilazioniCollegate, setDilazioniCollegate] = useState<
+    DilazioneFatturaOption[]
+  >([]);
+  const [dilazioniAnnullateIds, setDilazioniAnnullateIds] = useState<string[]>(
+    prefill?.dilazioniAnnullateIds ?? []
+  );
+  const [note, setNote] = useState(prefill?.note ?? "");
+  const [righe, setRighe] = useState<EditableRiga[]>(() => {
+    if (prefill?.righe?.length) {
+      return prefill.righe.map((r) => {
+        const qty =
+          kind === "nota_credito"
+            ? normalizeQuantitaNotaCredito(r.quantita)
+            : r.quantita;
+        const scontoPercentuale = r.scontoPercentuale ?? 0;
+        return {
+          ...r,
+          quantita: qty,
+          prezzoUnitario: Math.abs(r.prezzoUnitario),
+          scontoPercentuale,
+          importo: importoRiga(qty, Math.abs(r.prezzoUnitario), scontoPercentuale),
+        };
+      });
+    }
+    return [
+      kind === "nota_credito"
+        ? emptyFatturaRigaNotaCredito()
+        : emptyFatturaRiga(),
+    ];
+  });
   const [ricevuta, setRicevuta] = useState<File | null>(null);
   const [numeroInterno, setNumeroInterno] = useState("");
   const [saving, setSaving] = useState(false);
@@ -155,9 +222,18 @@ export function FatturaRegistrazioneModal({
         })),
         spedizione: numberOrZero(spedizione),
         spedizioneIvaApplicata,
+        spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
+        notaCredito: isNc,
         ivaPercentuale: numberOrZero(ivaPercentuale),
       }),
-    [righe, spedizione, spedizioneIvaApplicata, ivaPercentuale]
+    [
+      righe,
+      spedizione,
+      spedizioneIvaApplicata,
+      spedizioneSottraiIncassi,
+      ivaPercentuale,
+      isNc,
+    ]
   );
 
   const dilazioniNormalizzate = useMemo(
@@ -189,10 +265,16 @@ export function FatturaRegistrazioneModal({
   );
 
   useEffect(() => {
+    if (isNc) return;
     if (statoDaDilazioni && statoDaDilazioni !== statoPagamento) {
       setStatoPagamento(statoDaDilazioni);
     }
-  }, [statoDaDilazioni, statoPagamento]);
+  }, [statoDaDilazioni, statoPagamento, isNc]);
+
+  useEffect(() => {
+    if (!isNc) return;
+    setStatoPagamento(statoPagamentoFromIncassoNc(statoIncassoNc));
+  }, [isNc, statoIncassoNc]);
 
   useEffect(() => {
     // Escape / click fuori non chiudono (evita perdita dati): solo Pausa / Annulla / Salva.
@@ -202,6 +284,42 @@ export function FatturaRegistrazioneModal({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isNc || !anagraficaId) {
+      setFattureCollegabili([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await listFattureEmesseClienteAction({
+        clienteId: anagraficaId,
+      });
+      if (cancelled) return;
+      if (res.success) setFattureCollegabili(res.fatture);
+      else setFattureCollegabili([]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isNc, anagraficaId]);
+
+  useEffect(() => {
+    if (!isNc || !fatturaCollegataId) {
+      setDilazioniCollegate([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await listDilazioniFatturaEmessaAction(fatturaCollegataId);
+      if (cancelled) return;
+      if (res.success) setDilazioniCollegate(res.dilazioni);
+      else setDilazioniCollegate([]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isNc, fatturaCollegataId]);
 
   useEffect(() => {
     if (!anagraficaId || !anagraficaCodiceTarga || !dataEmissione) {
@@ -346,7 +464,24 @@ export function FatturaRegistrazioneModal({
       );
       return;
     }
-    if (dilazioniNormalizzate.length > 0 && !dilazioniBilancio.equilibrato) {
+    if (isNc && !fatturaCollegataId) {
+      setFormError("Seleziona la fattura collegata alla nota di credito.");
+      return;
+    }
+    if (
+      isNc &&
+      statoIncassoNc === "gia_incassata" &&
+      rimborsoNecessario &&
+      !rimborsoMezzo
+    ) {
+      setFormError("Seleziona il mezzo di rimborso.");
+      return;
+    }
+    if (
+      !isNc &&
+      dilazioniNormalizzate.length > 0 &&
+      !dilazioniBilancio.equilibrato
+    ) {
       if (dilazioniBilancio.mancante > 0) {
         setFormError(
           `Dilazioni incomplete: manca ${formatEuro(dilazioniBilancio.mancante)} rispetto al totale fattura (${formatEuro(dilazioniBilancio.totaleFattura)}).`
@@ -364,16 +499,16 @@ export function FatturaRegistrazioneModal({
       const fd = new FormData();
       const righePayload: FatturaRiga[] = righe.map((r) => {
         const scontoPercentuale = numberOrZero(r.scontoPercentuale);
+        const quantita = isNc
+          ? normalizeQuantitaNotaCredito(numberOrZero(r.quantita))
+          : numberOrZero(r.quantita);
+        const prezzoUnitario = Math.abs(numberOrZero(r.prezzoUnitario));
         return {
           ...r,
-          quantita: numberOrZero(r.quantita),
-          prezzoUnitario: numberOrZero(r.prezzoUnitario),
+          quantita,
+          prezzoUnitario,
           scontoPercentuale,
-          importo: importoRiga(
-            numberOrZero(r.quantita),
-            numberOrZero(r.prezzoUnitario),
-            scontoPercentuale
-          ),
+          importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
         };
       });
       fd.set(
@@ -385,18 +520,38 @@ export function FatturaRegistrazioneModal({
           dataEmissione,
           numeroDocumentoEsterno,
           ficId: prefill?.ficId ?? null,
-          spedizione: numberOrZero(spedizione),
+          spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
+          spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
           ivaPercentuale: numberOrZero(ivaPercentuale),
-          statoPagamento:
-            dilazioniNormalizzate.length > 0
+          statoPagamento: isNc
+            ? statoPagamentoFromIncassoNc(statoIncassoNc)
+            : dilazioniNormalizzate.length > 0
               ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
               : statoPagamento,
+          statoIncassoNc: isNc ? statoIncassoNc : null,
+          rimborsoNecessario:
+            isNc && statoIncassoNc === "gia_incassata"
+              ? rimborsoNecessario
+              : null,
+          rimborsoMezzo:
+            isNc &&
+            statoIncassoNc === "gia_incassata" &&
+            rimborsoNecessario
+              ? rimborsoMezzo || null
+              : null,
+          fatturaCompensativaId:
+            isNc && rimborsoMezzo === "nuova_fattura"
+              ? fatturaCompensativaId || null
+              : null,
+          dilazioniAnnullateIds: isNc ? dilazioniAnnullateIds : [],
+          collegaComeCompensativaNcId:
+            prefill?.collegaComeCompensativaNcId ?? null,
           note,
-          fatturaCollegataId: prefill?.fatturaCollegataId ?? null,
-          riferimentoFatturaEsterno: prefill?.riferimentoFatturaEsterno ?? "",
+          fatturaCollegataId: isNc ? fatturaCollegataId || null : null,
+          riferimentoFatturaEsterno: isNc ? riferimentoFatturaEsterno : "",
           righe: righePayload,
-          dilazioni: dilazioniNormalizzate,
+          dilazioni: isNc ? [] : dilazioniNormalizzate,
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
@@ -520,6 +675,37 @@ export function FatturaRegistrazioneModal({
                 className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm"
               />
             </div>
+            {isNc ? (
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Collegata a fattura
+                </label>
+                <select
+                  required
+                  value={fatturaCollegataId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setFatturaCollegataId(id);
+                    setDilazioniAnnullateIds([]);
+                    const opt = fattureCollegabili.find((f) => f.id === id);
+                    if (opt) {
+                      setRiferimentoFatturaEsterno(opt.numeroInterno);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">Seleziona fattura…</option>
+                  {fattureCollegabili.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Solo fatture della stessa azienda · n. interno, importo e data
+                </p>
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 N. documento esterno (FiC / fornitore)
@@ -553,7 +739,12 @@ export function FatturaRegistrazioneModal({
                 <button
                   type="button"
                   onClick={() =>
-                    setRighe((prev) => [...prev, emptyFatturaRiga()])
+                    setRighe((prev) => [
+                      ...prev,
+                      isNc
+                        ? emptyFatturaRigaNotaCredito()
+                        : emptyFatturaRiga(),
+                    ])
                   }
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
                 >
@@ -653,10 +844,17 @@ export function FatturaRegistrazioneModal({
                         </td>
                         <td className="px-2 py-2">
                           <ClearableNumberInput
-                            min={0}
+                            min={isNc ? undefined : 0}
                             value={riga.quantita}
                             onValueChange={(v) =>
-                              patchRiga(index, { quantita: v })
+                              patchRiga(index, {
+                                quantita:
+                                  v === ""
+                                    ? ""
+                                    : isNc
+                                      ? normalizeQuantitaNotaCredito(v)
+                                      : v,
+                              })
                             }
                             className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
                             required
@@ -667,7 +865,10 @@ export function FatturaRegistrazioneModal({
                             min={0}
                             value={riga.prezzoUnitario}
                             onValueChange={(v) =>
-                              patchRiga(index, { prezzoUnitario: v })
+                              patchRiga(index, {
+                                prezzoUnitario:
+                                  v === "" ? "" : Math.abs(v),
+                              })
                             }
                             className="w-24 rounded border border-[var(--border)] px-2 py-1.5"
                             required
@@ -745,6 +946,25 @@ export function FatturaRegistrazioneModal({
                   </span>
                 </span>
               </label>
+              {isNc ? (
+                <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
+                  <input
+                    type="checkbox"
+                    checked={spedizioneSottraiIncassi}
+                    onChange={(e) =>
+                      setSpedizioneSottraiIncassi(e.target.checked)
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Sottrai il trasporto dagli incassi
+                    <span className="mt-0.5 block text-[11px] opacity-80">
+                      Se deselezionato resta tra gli incassi (non riduce il
+                      totale NC).
+                    </span>
+                  </span>
+                </label>
+              ) : null}
               {spedizioneIvaHint?.applicataInPassato ? (
                 <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
                   <p className="font-medium">
@@ -817,20 +1037,33 @@ export function FatturaRegistrazioneModal({
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                Stato
+                {isNc ? "Incasso" : "Stato"}
               </label>
-              <select
-                value={statoPagamento}
-                onChange={(e) =>
-                  setStatoPagamento(e.target.value as FatturaStatoPagamento)
-                }
-                disabled={dilazioni.length > 0}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 disabled:bg-slate-50"
-              >
-                <option value="da_pagare">Da pagare</option>
-                <option value="pagato">Pagato</option>
-              </select>
-              {dilazioni.length > 0 ? (
+              {isNc ? (
+                <select
+                  value={statoIncassoNc}
+                  onChange={(e) =>
+                    setStatoIncassoNc(e.target.value as FatturaStatoIncassoNc)
+                  }
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                >
+                  <option value="non_incassata">Non incassata</option>
+                  <option value="gia_incassata">Già incassata</option>
+                </select>
+              ) : (
+                <select
+                  value={statoPagamento}
+                  onChange={(e) =>
+                    setStatoPagamento(e.target.value as FatturaStatoPagamento)
+                  }
+                  disabled={dilazioni.length > 0}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 disabled:bg-slate-50"
+                >
+                  <option value="da_pagare">Da pagare</option>
+                  <option value="pagato">Pagato</option>
+                </select>
+              )}
+              {!isNc && dilazioni.length > 0 ? (
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   Stato allineato alle dilazioni
                   {statoDaDilazioni === "pagato"
@@ -839,7 +1072,7 @@ export function FatturaRegistrazioneModal({
                 </p>
               ) : null}
             </div>
-            {statoPagamento === "pagato" ? (
+            {(isNc ? statoIncassoNc === "gia_incassata" : statoPagamento === "pagato") ? (
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Copia ricevuta (opzionale)
@@ -854,6 +1087,135 @@ export function FatturaRegistrazioneModal({
             ) : null}
           </div>
 
+          {isNc && statoIncassoNc === "gia_incassata" ? (
+            <div className="space-y-3 rounded-lg border border-[var(--border)] bg-slate-50/80 p-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={rimborsoNecessario}
+                  onChange={(e) => {
+                    setRimborsoNecessario(e.target.checked);
+                    if (!e.target.checked) {
+                      setRimborsoMezzo("");
+                      setFatturaCompensativaId("");
+                    }
+                  }}
+                />
+                <span className="font-medium">Rimborso necessario</span>
+              </label>
+              {rimborsoNecessario ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                      Mezzo rimborso
+                    </label>
+                    <select
+                      required
+                      value={rimborsoMezzo}
+                      onChange={(e) =>
+                        setRimborsoMezzo(
+                          e.target.value as FatturaRimborsoMezzo | ""
+                        )
+                      }
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">Seleziona…</option>
+                      <option value="denaro">Denaro</option>
+                      <option value="rimpiazzo_merce">Rimpiazzo merce</option>
+                      <option value="nuova_fattura">
+                        Nuova fattura (collega)
+                      </option>
+                    </select>
+                  </div>
+                  {rimborsoMezzo === "nuova_fattura" ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                        Fattura compensativa
+                      </label>
+                      <select
+                        value={fatturaCompensativaId}
+                        onChange={(e) =>
+                          setFatturaCompensativaId(e.target.value)
+                        }
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">
+                          Nessuna ancora (verrà proposta in sync)
+                        </option>
+                        {fattureCollegabili
+                          .filter((f) => f.id !== fatturaCollegataId)
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.label}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isNc ? (
+            <section className="space-y-2">
+              <div>
+                <h3 className="text-sm font-semibold">
+                  Dilazioni fattura collegata
+                </h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Seleziona le rate da annullare sulla fattura collegata.
+                </p>
+              </div>
+              {!fatturaCollegataId ? (
+                <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)]">
+                  Seleziona prima la fattura collegata.
+                </p>
+              ) : dilazioniCollegate.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-[var(--muted)]">
+                  Nessuna dilazione attiva su questa fattura.
+                </p>
+              ) : (
+                <ul className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+                  {dilazioniCollegate.map((d) => {
+                    const checked = dilazioniAnnullateIds.includes(d.id);
+                    return (
+                      <li key={d.id}>
+                        <label className="flex cursor-pointer items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              setDilazioniAnnullateIds((prev) =>
+                                e.target.checked
+                                  ? [...prev, d.id]
+                                  : prev.filter((x) => x !== d.id)
+                              );
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>
+                            <span className="font-medium">
+                              {formatDateIt(d.dataScadenza)} ·{" "}
+                              {formatEuro(d.importo)}
+                            </span>
+                            <span className="ml-2 text-xs text-[var(--muted)]">
+                              {d.statoPagamento === "pagato"
+                                ? "Pagata"
+                                : "Da pagare"}
+                              {checked ? " → sarà annullata" : ""}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          {!isNc ? (
           <section className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -1041,6 +1403,7 @@ export function FatturaRegistrazioneModal({
               </>
             )}
           </section>
+          ) : null}
 
           <div>
             <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -1128,13 +1491,11 @@ export function FatturaRegistrazioneModal({
               setRighe((prev) => [
                 ...prev,
                 {
+                  ...emptyFatturaRigaNotaCredito(),
                   prodottoId: result.prodotto.id,
                   codice: result.prodotto.codice,
                   descrizione: result.prodotto.nome,
-                  quantita: 1,
-                  prezzoUnitario: 0,
-                  scontoPercentuale: 0,
-                  importo: 0,
+                  quantita: isNc ? -1 : 1,
                 },
               ]);
             }

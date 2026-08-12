@@ -7,6 +7,8 @@ import type {
   FatturaRicevutaDilazioneRow,
   FatturaRicevutaRigaRow,
   FatturaRicevutaRow,
+  FatturaRimborsoMezzo,
+  FatturaStatoIncassoNc,
   FatturaStatoPagamento,
 } from "@/types/database";
 
@@ -51,11 +53,17 @@ export type Fattura = {
   spedizione: number;
   /** Default false: IVA non applicata alla spedizione. */
   spedizioneIvaApplicata: boolean;
+  /** NC: se false il trasporto non riduce gli incassi. */
+  spedizioneSottraiIncassi: boolean;
   imponibile: number;
   ivaPercentuale: number;
   imposta: number;
   totale: number;
   statoPagamento: FatturaStatoPagamento;
+  statoIncassoNc: FatturaStatoIncassoNc | null;
+  rimborsoNecessario: boolean | null;
+  rimborsoMezzo: FatturaRimborsoMezzo | null;
+  fatturaCompensativaId: string | null;
   ricevuta: FatturaAllegatoMeta | null;
   versione: number;
   documentoStato: FatturaDocumentoStato;
@@ -77,13 +85,30 @@ export type FatturaInput = {
   ficId?: number | null;
   spedizione: number;
   spedizioneIvaApplicata: boolean;
+  spedizioneSottraiIncassi?: boolean;
   ivaPercentuale: number;
   statoPagamento: FatturaStatoPagamento;
+  statoIncassoNc?: FatturaStatoIncassoNc | null;
+  rimborsoNecessario?: boolean | null;
+  rimborsoMezzo?: FatturaRimborsoMezzo | null;
+  fatturaCompensativaId?: string | null;
+  /** Dilazioni della fattura collegata da annullare (solo NC). */
+  dilazioniAnnullateIds?: string[];
+  /** Dopo create fattura: collega questa NC come compensata. */
+  collegaComeCompensativaNcId?: string | null;
   note?: string;
   fatturaCollegataId?: string | null;
   riferimentoFatturaEsterno?: string;
   righe: FatturaRiga[];
   dilazioni?: FatturaDilazione[];
+};
+
+export type FatturaCollegabileOption = {
+  id: string;
+  numeroInterno: string;
+  dataEmissione: string;
+  totale: number;
+  label: string;
 };
 
 export function roundMoney(value: number): number {
@@ -122,6 +147,10 @@ export function calcolaTotaliFattura(input: {
   }>;
   spedizione: number;
   spedizioneIvaApplicata?: boolean;
+  /** Default true. Se false (NC) il trasporto non entra nei totali/incassi. */
+  spedizioneSottraiIncassi?: boolean;
+  /** Nota di credito: quantità negative → totali negativi; spedizione in valore assoluto. */
+  notaCredito?: boolean;
   ivaPercentuale: number;
 }): { imponibile: number; baseIva: number; imposta: number; totale: number } {
   const prodotti = input.righe.reduce(
@@ -130,7 +159,14 @@ export function calcolaTotaliFattura(input: {
       importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale ?? 0),
     0
   );
-  const spedizione = Number(input.spedizione) || 0;
+  const spedAbs = Math.abs(Number(input.spedizione) || 0);
+  const includeSped =
+    spedAbs > 0 && (input.spedizioneSottraiIncassi !== false);
+  const spedizione = !includeSped
+    ? 0
+    : input.notaCredito
+      ? -spedAbs
+      : spedAbs;
   const imponibile = roundMoney(prodotti + spedizione);
   const baseIva = roundMoney(
     prodotti + (input.spedizioneIvaApplicata ? spedizione : 0)
@@ -144,6 +180,28 @@ export function calcolaTotaliFattura(input: {
     imposta,
     totale: roundMoney(imponibile + imposta),
   };
+}
+
+/** Allinea quantità NC: sempre negative (prezzo unitario resta positivo). */
+export function normalizeQuantitaNotaCredito(quantita: number): number {
+  if (!Number.isFinite(quantita) || quantita === 0) return -1;
+  return quantita > 0 ? -quantita : quantita;
+}
+
+export function statoPagamentoFromIncassoNc(
+  stato: FatturaStatoIncassoNc
+): FatturaStatoPagamento {
+  return stato === "gia_incassata" ? "pagato" : "da_pagare";
+}
+
+export function labelStatoIncassoNc(stato: FatturaStatoIncassoNc): string {
+  return stato === "gia_incassata" ? "Già incassata" : "Non incassata";
+}
+
+export function labelRimborsoMezzo(mezzo: FatturaRimborsoMezzo): string {
+  if (mezzo === "denaro") return "Denaro";
+  if (mezzo === "rimpiazzo_merce") return "Rimpiazzo merce";
+  return "Nuova fattura";
 }
 
 export function year2FromDate(isoDate: string): string {
@@ -245,15 +303,15 @@ export function buildNumeroInternoFattura(input: {
   return `${prefix}-${aa}-${targa}/${seq}`;
 }
 
-const rigaSchema = z.object({
+const rigaSchemaBase = z.object({
   id: z.string().optional(),
   prodottoId: z.string().uuid().nullable().optional(),
   codice: z.string().trim().min(1, "Codice prodotto obbligatorio"),
   descrizione: z.string().trim().min(1, "Descrizione obbligatoria"),
-  quantita: z.number().positive("Quantità deve essere > 0"),
+  quantita: z.number().refine((n) => n !== 0, "Quantità non valida"),
   prezzoUnitario: z.number().min(0, "Prezzo non valido"),
   scontoPercentuale: z.number().min(0).max(100).optional(),
-  importo: z.number().min(0).optional(),
+  importo: z.number().optional(),
 });
 
 const dilazioneSchema = z.object({
@@ -264,69 +322,151 @@ const dilazioneSchema = z.object({
   note: z.string().optional(),
 });
 
-export const fatturaInputSchema = z
-  .object({
-    anagraficaId: z.string().uuid("Anagrafica non valida"),
-    anagraficaRagioneSociale: z.string().trim().min(1),
-    anagraficaCodiceTarga: z.string().trim().min(1),
-    dataEmissione: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida"),
-    numeroDocumentoEsterno: z.string().optional(),
-    ficId: z.number().int().positive().nullable().optional(),
-    spedizione: z.number().min(0),
-    spedizioneIvaApplicata: z.boolean().optional(),
-    ivaPercentuale: z.number().min(0).max(100),
-    statoPagamento: z.enum(["pagato", "da_pagare"]),
-    note: z.string().optional(),
-    fatturaCollegataId: z.string().uuid().nullable().optional(),
-    riferimentoFatturaEsterno: z.string().optional(),
-    righe: z.array(rigaSchema).min(1, "Aggiungi almeno un prodotto"),
-    dilazioni: z.array(dilazioneSchema).optional(),
-  })
-  .transform((v) => {
-    const today = todayIsoDate();
-    const righe = v.righe.map((r) => {
-      const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
-      return {
-        id: r.id,
-        prodottoId: r.prodottoId ?? null,
-        codice: r.codice.trim(),
-        descrizione: r.descrizione.trim(),
-        quantita: r.quantita,
-        prezzoUnitario: r.prezzoUnitario,
-        scontoPercentuale,
-        importo: importoRiga(r.quantita, r.prezzoUnitario, scontoPercentuale),
-      };
-    });
-    const dilazioni = (v.dilazioni ?? []).map((d) => ({
-      id: d.id,
-      dataScadenza: d.dataScadenza,
-      importo: roundMoney(d.importo),
-      statoPagamento: normalizeDilazioneStato(
-        d.dataScadenza,
-        d.statoPagamento,
-        today
-      ),
-      note: (d.note ?? "").trim(),
-    }));
-    const statoPagamento =
-      dilazioni.length > 0
-        ? statoPagamentoFromDilazioni(dilazioni)
-        : v.statoPagamento;
+const fatturaInputObjectSchema = z.object({
+  anagraficaId: z.string().uuid("Anagrafica non valida"),
+  anagraficaRagioneSociale: z.string().trim().min(1),
+  anagraficaCodiceTarga: z.string().trim().min(1),
+  dataEmissione: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida"),
+  numeroDocumentoEsterno: z.string().optional(),
+  ficId: z.number().int().positive().nullable().optional(),
+  spedizione: z.number().min(0),
+  spedizioneIvaApplicata: z.boolean().optional(),
+  spedizioneSottraiIncassi: z.boolean().optional(),
+  ivaPercentuale: z.number().min(0).max(100),
+  statoPagamento: z.enum(["pagato", "da_pagare"]),
+  statoIncassoNc: z.enum(["gia_incassata", "non_incassata"]).nullable().optional(),
+  rimborsoNecessario: z.boolean().nullable().optional(),
+  rimborsoMezzo: z
+    .enum(["denaro", "rimpiazzo_merce", "nuova_fattura"])
+    .nullable()
+    .optional(),
+  fatturaCompensativaId: z.string().uuid().nullable().optional(),
+  dilazioniAnnullateIds: z.array(z.string().uuid()).optional(),
+  collegaComeCompensativaNcId: z.string().uuid().nullable().optional(),
+  note: z.string().optional(),
+  fatturaCollegataId: z.string().uuid().nullable().optional(),
+  riferimentoFatturaEsterno: z.string().optional(),
+  righe: z.array(rigaSchemaBase).min(1, "Aggiungi almeno un prodotto"),
+  dilazioni: z.array(dilazioneSchema).optional(),
+});
+
+function transformFatturaInput(
+  v: z.infer<typeof fatturaInputObjectSchema>,
+  kind: FatturaKind
+) {
+  const today = todayIsoDate();
+  const isNc = kind === "nota_credito";
+  const righe = v.righe.map((r) => {
+    const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
+    const quantita = isNc
+      ? normalizeQuantitaNotaCredito(r.quantita)
+      : r.quantita;
+    if (!isNc && (!(quantita > 0) || !Number.isFinite(quantita))) {
+      throw new Error("Quantità deve essere > 0");
+    }
     return {
-      ...v,
-      anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
-      anagraficaCodiceTarga: v.anagraficaCodiceTarga.trim().toUpperCase(),
-      numeroDocumentoEsterno: (v.numeroDocumentoEsterno ?? "").trim(),
-      note: (v.note ?? "").trim(),
-      fatturaCollegataId: v.fatturaCollegataId ?? null,
-      riferimentoFatturaEsterno: (v.riferimentoFatturaEsterno ?? "").trim(),
-      ficId: v.ficId ?? null,
-      spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
-      statoPagamento,
-      righe,
-      dilazioni,
+      id: r.id,
+      prodottoId: r.prodottoId ?? null,
+      codice: r.codice.trim(),
+      descrizione: r.descrizione.trim(),
+      quantita,
+      prezzoUnitario: Math.abs(r.prezzoUnitario),
+      scontoPercentuale,
+      importo: importoRiga(quantita, Math.abs(r.prezzoUnitario), scontoPercentuale),
     };
   });
+  const dilazioni = isNc
+    ? []
+    : (v.dilazioni ?? []).map((d) => ({
+        id: d.id,
+        dataScadenza: d.dataScadenza,
+        importo: roundMoney(d.importo),
+        statoPagamento: normalizeDilazioneStato(
+          d.dataScadenza,
+          d.statoPagamento,
+          today
+        ),
+        note: (d.note ?? "").trim(),
+      }));
+
+  let statoIncassoNc: FatturaStatoIncassoNc | null = null;
+  let rimborsoNecessario: boolean | null = null;
+  let rimborsoMezzo: FatturaRimborsoMezzo | null = null;
+  let fatturaCompensativaId: string | null = null;
+  let statoPagamento = v.statoPagamento;
+
+  if (isNc) {
+    statoIncassoNc = v.statoIncassoNc ?? "non_incassata";
+    statoPagamento = statoPagamentoFromIncassoNc(statoIncassoNc);
+    if (statoIncassoNc === "gia_incassata") {
+      rimborsoNecessario = Boolean(v.rimborsoNecessario);
+      if (rimborsoNecessario) {
+        rimborsoMezzo = v.rimborsoMezzo ?? null;
+        if (!rimborsoMezzo) {
+          throw new Error("Seleziona il mezzo di rimborso.");
+        }
+        if (rimborsoMezzo === "nuova_fattura") {
+          fatturaCompensativaId = v.fatturaCompensativaId ?? null;
+        }
+      }
+    }
+  } else if (dilazioni.length > 0) {
+    statoPagamento = statoPagamentoFromDilazioni(dilazioni);
+  }
+
+  return {
+    ...v,
+    anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
+    anagraficaCodiceTarga: v.anagraficaCodiceTarga.trim().toUpperCase(),
+    numeroDocumentoEsterno: (v.numeroDocumentoEsterno ?? "").trim(),
+    note: (v.note ?? "").trim(),
+    fatturaCollegataId: v.fatturaCollegataId ?? null,
+    riferimentoFatturaEsterno: (v.riferimentoFatturaEsterno ?? "").trim(),
+    ficId: v.ficId ?? null,
+    spedizione: Math.abs(Number(v.spedizione) || 0),
+    spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
+    spedizioneSottraiIncassi: isNc
+      ? v.spedizioneSottraiIncassi !== false
+      : true,
+    statoPagamento,
+    statoIncassoNc,
+    rimborsoNecessario,
+    rimborsoMezzo,
+    fatturaCompensativaId,
+    dilazioniAnnullateIds: isNc
+      ? [...new Set(v.dilazioniAnnullateIds ?? [])]
+      : [],
+    collegaComeCompensativaNcId: v.collegaComeCompensativaNcId ?? null,
+    righe,
+    dilazioni,
+  };
+}
+
+/** Schema legacy (fattura/ricevuta). Per NC usare parseFatturaInput. */
+export const fatturaInputSchema = fatturaInputObjectSchema.transform((v) =>
+  transformFatturaInput(v, "emessa")
+);
+
+export function parseFatturaInput(kind: FatturaKind, payload: unknown) {
+  const parsed = fatturaInputObjectSchema.safeParse(payload);
+  if (!parsed.success) {
+    return {
+      success: false as const,
+      error: parsed.error.issues[0]?.message ?? "Validazione fallita.",
+    };
+  }
+  try {
+    return {
+      success: true as const,
+      data: transformFatturaInput(parsed.data, kind),
+    };
+  } catch (e) {
+    return {
+      success: false as const,
+      error: e instanceof Error ? e.message : "Validazione fallita.",
+    };
+  }
+}
 
 function mapRighe(
   righe: Array<FatturaEmessaRigaRow | FatturaRicevutaRigaRow>
@@ -354,11 +494,12 @@ function mapDilazioni(
       if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order;
       return a.data_scadenza.localeCompare(b.data_scadenza);
     })
+    .filter((d) => d.stato_pagamento !== "annullata")
     .map((d) => ({
       id: d.id,
       dataScadenza: d.data_scadenza,
       importo: Number(d.importo) || 0,
-      statoPagamento: d.stato_pagamento,
+      statoPagamento: d.stato_pagamento as FatturaStatoPagamento,
       note: d.note ?? "",
     }));
 }
@@ -383,11 +524,16 @@ export function mapFatturaEmessaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
+    spedizioneSottraiIncassi: row.spedizione_sottrai_incassi !== false,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
+    statoIncassoNc: row.stato_incasso_nc ?? null,
+    rimborsoNecessario: row.rimborso_necessario ?? null,
+    rimborsoMezzo: row.rimborso_mezzo ?? null,
+    fatturaCompensativaId: row.fattura_compensativa_id ?? null,
     ricevuta: row.ricevuta_storage_path
       ? {
           storagePath: row.ricevuta_storage_path,
@@ -423,11 +569,16 @@ export function mapFatturaRicevutaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
+    spedizioneSottraiIncassi: true,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
+    statoIncassoNc: null,
+    rimborsoNecessario: null,
+    rimborsoMezzo: null,
+    fatturaCompensativaId: null,
     ricevuta: row.ricevuta_storage_path
       ? {
           storagePath: row.ricevuta_storage_path,
@@ -446,8 +597,26 @@ export function mapFatturaRicevutaRow(
   };
 }
 
-export function labelStatoPagamento(stato: FatturaStatoPagamento): string {
+export function labelStatoPagamento(
+  stato: FatturaStatoPagamento,
+  kind?: FatturaKind
+): string {
+  if (kind === "nota_credito") {
+    return stato === "pagato" ? "Già incassata" : "Non incassata";
+  }
   return stato === "pagato" ? "Pagato" : "Da pagare";
+}
+
+export function emptyFatturaRigaNotaCredito(): FatturaRiga {
+  return {
+    prodottoId: null,
+    codice: "",
+    descrizione: "",
+    quantita: -1,
+    prezzoUnitario: 0,
+    scontoPercentuale: 0,
+    importo: 0,
+  };
 }
 
 export function formatEuro(value: number): string {

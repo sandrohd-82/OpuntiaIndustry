@@ -318,13 +318,28 @@ export function buildFatturaSyncQueueItem(input: {
   proposedTarga: string;
   linkedFattura?: FatturaSyncLinkedHint | null;
 }): FatturaSyncQueueItem {
-  const righe = extractRigheFromFicRaw(input.doc.raw);
+  const righeRaw = extractRigheFromFicRaw(input.doc.raw);
+  const isNc = input.kind === "nota_credito";
+  const righe = isNc
+    ? righeRaw.map((r) => ({
+        ...r,
+        quantita: r.quantita > 0 ? -r.quantita : r.quantita || -1,
+        prezzoUnitario: Math.abs(r.prezzoUnitario),
+        importo: importoRiga(
+          r.quantita > 0 ? -r.quantita : r.quantita || -1,
+          Math.abs(r.prezzoUnitario),
+          r.scontoPercentuale ?? 0
+        ),
+      }))
+    : righeRaw;
   const spedizione = extractSpedizioneFromFicRaw(input.doc.raw);
   const ivaPercentuale = extractIvaPercentFromFicRaw(input.doc.raw);
   const totals = calcolaTotaliFattura({
     righe,
     spedizione,
     spedizioneIvaApplicata: false,
+    notaCredito: isNc,
+    spedizioneSottraiIncassi: true,
     ivaPercentuale,
   });
   const entity = entityStubFromDoc(input.doc);

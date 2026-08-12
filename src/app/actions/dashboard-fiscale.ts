@@ -192,13 +192,14 @@ export async function getDashboardFiscaleScadenzarioAction(input?: {
     for (const d of (dil ?? []) as FatturaEmessaDilazioneRow[]) {
       const f = emesseById.get(d.fattura_id);
       if (!f) continue;
+      if (d.stato_pagamento === "annullata") continue;
       scadenze.push({
         id: `inc-${d.id}`,
         data: d.data_scadenza,
         tipo: "incasso",
         titolo: `Incasso ${f.numero_interno} — ${f.cliente_ragione_sociale}`,
         importo: Number(d.importo) || 0,
-        stato: d.stato_pagamento,
+        stato: d.stato_pagamento === "pagato" ? "pagato" : "da_pagare",
         riferimento: f.numero_interno,
         fatturaId: f.id,
         fatturaKind: "emessa",

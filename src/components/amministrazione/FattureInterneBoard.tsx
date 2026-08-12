@@ -251,7 +251,7 @@ export function FattureInterneBoard({ kind }: Props) {
                     {formatEuro(f.totale)}
                   </td>
                   <td className="px-4 py-3">
-                    {labelStatoPagamento(f.statoPagamento)}
+                    {labelStatoPagamento(f.statoPagamento, f.kind)}
                   </td>
                   <td className="px-4 py-3">
                     <ApriFatturaFicButton

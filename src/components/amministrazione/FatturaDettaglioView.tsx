@@ -47,7 +47,7 @@ export function FatturaDettaglioView({ fattura }: Props) {
                 : "border-rose-200 bg-rose-50 text-rose-800"
             }`}
           >
-            {labelStatoPagamento(fattura.statoPagamento)}
+            {labelStatoPagamento(fattura.statoPagamento, fattura.kind)}
           </span>
           {fattura.ficId ? (
             <ApriFatturaFicButton
@@ -132,6 +132,11 @@ export function FatturaDettaglioView({ fattura }: Props) {
             {fattura.spedizioneIvaApplicata
               ? "IVA applicata anche sulla spedizione"
               : "IVA non applicata sulla spedizione"}
+            {fattura.kind === "nota_credito"
+              ? fattura.spedizioneSottraiIncassi
+                ? " · sottratta dagli incassi"
+                : " · non sottratta (resta negli incassi)"
+              : ""}
           </p>
         </div>
         <div>

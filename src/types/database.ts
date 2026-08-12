@@ -578,8 +578,17 @@ export interface AuditLogInsert {
 }
 
 export type FatturaStatoPagamento = "pagato" | "da_pagare";
+export type FatturaDilazioneStatoPagamento =
+  | "pagato"
+  | "da_pagare"
+  | "annullata";
 export type FatturaDocumentoStato = "bozza" | "registrata" | "chiusa";
 export type FatturaTipoDocumento = "fattura" | "nota_credito";
+export type FatturaStatoIncassoNc = "gia_incassata" | "non_incassata";
+export type FatturaRimborsoMezzo =
+  | "denaro"
+  | "rimpiazzo_merce"
+  | "nuova_fattura";
 
 export interface FatturaEmessaRow {
   id: string;
@@ -592,11 +601,16 @@ export interface FatturaEmessaRow {
   fic_id: number | null;
   spedizione: number;
   spedizione_iva_applicata: boolean;
+  spedizione_sottrai_incassi: boolean;
   imponibile: number;
   iva_percentuale: number;
   imposta: number;
   totale: number;
   stato_pagamento: FatturaStatoPagamento;
+  stato_incasso_nc: FatturaStatoIncassoNc | null;
+  rimborso_necessario: boolean | null;
+  rimborso_mezzo: FatturaRimborsoMezzo | null;
+  fattura_compensativa_id: string | null;
   ricevuta_storage_path: string;
   ricevuta_file_name: string;
   versione: number;
@@ -633,11 +647,16 @@ export type FatturaEmessaInsert = {
   fic_id?: number | null;
   spedizione?: number;
   spedizione_iva_applicata?: boolean;
+  spedizione_sottrai_incassi?: boolean;
   imponibile?: number;
   iva_percentuale?: number;
   imposta?: number;
   totale?: number;
   stato_pagamento?: FatturaStatoPagamento;
+  stato_incasso_nc?: FatturaStatoIncassoNc | null;
+  rimborso_necessario?: boolean | null;
+  rimborso_mezzo?: FatturaRimborsoMezzo | null;
+  fattura_compensativa_id?: string | null;
   ricevuta_storage_path?: string;
   ricevuta_file_name?: string;
   versione?: number;
@@ -796,9 +815,11 @@ export interface FatturaEmessaDilazioneRow {
   fattura_id: string;
   data_scadenza: string;
   importo: number;
-  stato_pagamento: FatturaStatoPagamento;
+  stato_pagamento: FatturaDilazioneStatoPagamento;
   sort_order: number;
   note: string;
+  annullata_at: string | null;
+  annullata_by: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -812,9 +833,11 @@ export type FatturaEmessaDilazioneInsert = {
   fattura_id: string;
   data_scadenza: string;
   importo?: number;
-  stato_pagamento?: FatturaStatoPagamento;
+  stato_pagamento?: FatturaDilazioneStatoPagamento;
   sort_order?: number;
   note?: string;
+  annullata_at?: string | null;
+  annullata_by?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   deleted_at?: string | null;

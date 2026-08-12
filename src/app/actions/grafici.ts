@@ -74,7 +74,9 @@ async function loadIncassiAnno(
   if (fonte === "fatture" || fonte === "entrambi") {
     let q = supabase
       .from("fatture_emesse")
-      .select("data_emissione, totale, cliente_id, tipo_documento")
+      .select(
+        "data_emissione, totale, cliente_id, tipo_documento, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
+      )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range);
     if (clienteId) q = q.eq("cliente_id", clienteId);
@@ -86,12 +88,16 @@ async function loadIncassiAnno(
       };
     }
     for (const r of data ?? []) {
-      const isNc = (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
-      const amount = Number(r.totale) || 0;
+      const isNc =
+        (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
+      let amount = Number(r.totale) || 0;
+      if (isNc) {
+        // Totale NC già negativo; se positivo (legacy) forza segno
+        amount = amount <= 0 ? amount : -Math.abs(amount);
+      }
       rows.push({
         dateStr: String(r.data_emissione ?? ""),
-        // Note di credito riducono l'incasso
-        amount: isNc ? -Math.abs(amount) : amount,
+        amount,
       });
     }
   }
@@ -161,10 +167,11 @@ async function loadIncassiDettaglioAnno(
       if (mese != null && m !== mese) continue;
       const isNc =
         (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
-      const amount = Number(r.totale) || 0;
+      let amount = Number(r.totale) || 0;
+      if (isNc) amount = amount <= 0 ? amount : -Math.abs(amount);
       rows.push({
         dateStr,
-        amount: isNc ? -Math.abs(amount) : amount,
+        amount,
         clienteId: cid,
         clienteLabel: String(r.cliente_ragione_sociale ?? "Cliente"),
         codiceTarga: String(r.cliente_codice_targa ?? ""),

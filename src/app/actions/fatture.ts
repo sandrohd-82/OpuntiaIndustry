@@ -5,11 +5,13 @@ import {
   bilancioDilazioni,
   buildNumeroInternoFattura,
   calcolaTotaliFattura,
-  fatturaInputSchema,
   formatEuro,
+  formatDateIt,
   mapFatturaEmessaRow,
   mapFatturaRicevutaRow,
+  parseFatturaInput,
   type Fattura,
+  type FatturaCollegabileOption,
   type FatturaKind,
 } from "@/lib/amministrazione/fatture";
 import {
@@ -364,11 +366,11 @@ export async function createFatturaAction(
     return { success: false, error: "Dati fattura non validi." };
   }
 
-  const parsed = fatturaInputSchema.safeParse(payload);
+  const parsed = parseFatturaInput(kind, payload);
   if (!parsed.success) {
     return {
       success: false,
-      error: parsed.error.issues[0]?.message ?? "Validazione fallita.",
+      error: parsed.error,
     };
   }
   const input = parsed.data;
@@ -376,8 +378,17 @@ export async function createFatturaAction(
     righe: input.righe,
     spedizione: input.spedizione,
     spedizioneIvaApplicata: input.spedizioneIvaApplicata,
+    spedizioneSottraiIncassi: input.spedizioneSottraiIncassi,
+    notaCredito: kind === "nota_credito",
     ivaPercentuale: input.ivaPercentuale,
   });
+
+  if (kind === "nota_credito" && !input.fatturaCollegataId) {
+    return {
+      success: false,
+      error: "Seleziona la fattura collegata alla nota di credito.",
+    };
+  }
 
   if (input.dilazioni.length > 0) {
     const bil = bilancioDilazioni(
@@ -422,11 +433,20 @@ export async function createFatturaAction(
         fic_id: input.ficId,
         spedizione: input.spedizione,
         spedizione_iva_applicata: input.spedizioneIvaApplicata,
+        spedizione_sottrai_incassi:
+          kind === "nota_credito" ? input.spedizioneSottraiIncassi : true,
         imponibile: totals.imponibile,
         iva_percentuale: input.ivaPercentuale,
         imposta: totals.imposta,
         totale: totals.totale,
         stato_pagamento: input.statoPagamento,
+        stato_incasso_nc:
+          kind === "nota_credito" ? input.statoIncassoNc : null,
+        rimborso_necessario:
+          kind === "nota_credito" ? input.rimborsoNecessario : null,
+        rimborso_mezzo: kind === "nota_credito" ? input.rimborsoMezzo : null,
+        fattura_compensativa_id:
+          kind === "nota_credito" ? input.fatturaCompensativaId : null,
         documento_stato: "registrata",
         note: input.note,
         tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
@@ -525,6 +545,73 @@ export async function createFatturaAction(
         dilazioniData = (dilRows ?? []) as FatturaEmessaDilazioneRow[];
       }
 
+      if (
+        kind === "nota_credito" &&
+        input.fatturaCollegataId &&
+        input.dilazioniAnnullateIds.length > 0
+      ) {
+        const nowIso = new Date().toISOString();
+        const { error: annErr } = await supabase
+          .from("fatture_emesse_dilazioni")
+          .update({
+            stato_pagamento: "annullata",
+            annullata_at: nowIso,
+            annullata_by: auth.userId,
+            updated_by: auth.userId,
+          })
+          .eq("fattura_id", input.fatturaCollegataId)
+          .in("id", input.dilazioniAnnullateIds)
+          .is("deleted_at", null);
+        if (annErr) {
+          return {
+            success: false,
+            error: `Annullamento dilazioni: ${annErr.message}`,
+          };
+        }
+        await writeAuditLog({
+          entity_type: "fatture_emesse",
+          entity_id: input.fatturaCollegataId,
+          action: "annulla_dilazioni_da_nc",
+          actor_id: auth.userId,
+          summary: `Annullate ${input.dilazioniAnnullateIds.length} dilazioni da NC ${numeroInterno}`,
+          payload: {
+            nota_credito_id: row.id,
+            dilazioni_ids: input.dilazioniAnnullateIds,
+          },
+        });
+      }
+
+      if (
+        kind === "emessa" &&
+        input.collegaComeCompensativaNcId
+      ) {
+        const { error: compErr } = await supabase
+          .from("fatture_emesse")
+          .update({
+            fattura_compensativa_id: row.id,
+            updated_by: auth.userId,
+          })
+          .eq("id", input.collegaComeCompensativaNcId)
+          .eq("tipo_documento", "nota_credito")
+          .is("deleted_at", null);
+        if (compErr) {
+          return {
+            success: false,
+            error: `Collegamento NC compensativa: ${compErr.message}`,
+          };
+        }
+        await writeAuditLog({
+          entity_type: "fatture_emesse",
+          entity_id: input.collegaComeCompensativaNcId,
+          action: "collega_fattura_compensativa",
+          actor_id: auth.userId,
+          summary: `Fattura ${numeroInterno} collegata come compensativa NC`,
+          payload: {
+            fattura_compensativa_id: row.id,
+          },
+        });
+      }
+
       await writeAuditLog({
         entity_type: "fatture_emesse",
         entity_id: row.id,
@@ -540,10 +627,16 @@ export async function createFatturaAction(
           totale: totals.totale,
           dilazioni: input.dilazioni.length,
           stato_pagamento: input.statoPagamento,
+          stato_incasso_nc: input.statoIncassoNc,
+          rimborso_necessario: input.rimborsoNecessario,
+          rimborso_mezzo: input.rimborsoMezzo,
+          fattura_compensativa_id: input.fatturaCompensativaId,
           prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
           tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
           fattura_collegata_id: input.fatturaCollegataId ?? null,
           riferimento_fattura_esterno: input.riferimentoFatturaEsterno ?? "",
+          spedizione_sottrai_incassi: input.spedizioneSottraiIncassi,
+          dilazioni_annullate: input.dilazioniAnnullateIds.length,
         },
       });
 
@@ -924,4 +1017,149 @@ export async function getProdottoPrezzoStoricoHintAction(input: {
       condizioni,
     },
   };
+}
+
+/** Fatture emesse della stessa azienda (per collegamento NC / compensativa). */
+export async function listFattureEmesseClienteAction(input: {
+  clienteId: string;
+  excludeId?: string | null;
+}): Promise<
+  | { success: true; fatture: FatturaCollegabileOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!input.clienteId) {
+    return { success: true, fatture: [] };
+  }
+  const supabase = await createClient();
+  let q = supabase
+    .from("fatture_emesse")
+    .select("id, numero_interno, data_emissione, totale")
+    .eq("cliente_id", input.clienteId)
+    .or("tipo_documento.eq.fattura,tipo_documento.is.null")
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(200);
+  if (input.excludeId) q = q.neq("id", input.excludeId);
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  const fatture: FatturaCollegabileOption[] = (data ?? []).map((r) => {
+    const id = String(r.id);
+    const numeroInterno = String(r.numero_interno ?? "");
+    const dataEmissione = String(r.data_emissione ?? "");
+    const totale = Number(r.totale) || 0;
+    return {
+      id,
+      numeroInterno,
+      dataEmissione,
+      totale,
+      label: `${numeroInterno} · ${formatEuro(totale)} · ${formatDateIt(dataEmissione)}`,
+    };
+  });
+  return { success: true, fatture };
+}
+
+export type DilazioneFatturaOption = {
+  id: string;
+  dataScadenza: string;
+  importo: number;
+  statoPagamento: string;
+  note: string;
+};
+
+/** Dilazioni attive di una fattura (per annullo da NC). */
+export async function listDilazioniFatturaEmessaAction(
+  fatturaId: string
+): Promise<
+  | { success: true; dilazioni: DilazioneFatturaOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!fatturaId) return { success: true, dilazioni: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_emesse_dilazioni")
+    .select("id, data_scadenza, importo, stato_pagamento, note")
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null)
+    .neq("stato_pagamento", "annullata")
+    .order("sort_order", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    dilazioni: (data ?? []).map((d) => ({
+      id: String(d.id),
+      dataScadenza: String(d.data_scadenza),
+      importo: Number(d.importo) || 0,
+      statoPagamento: String(d.stato_pagamento),
+      note: String(d.note ?? ""),
+    })),
+  };
+}
+
+export type NcCompensazioneCandidate = {
+  id: string;
+  numeroInterno: string;
+  dataEmissione: string;
+  totale: number;
+  riferimentoFatturaEsterno: string;
+  note: string;
+  motivo: string;
+};
+
+/** NC in attesa di fattura compensativa, stesso cliente, importi affini. */
+export async function findNcCompensazioneCandidatesAction(input: {
+  clienteId: string;
+  importoFattura: number;
+  descrizioneHint?: string;
+}): Promise<
+  | { success: true; candidates: NcCompensazioneCandidate[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!input.clienteId) return { success: true, candidates: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select(
+      "id, numero_interno, data_emissione, totale, riferimento_fattura_esterno, note"
+    )
+    .eq("cliente_id", input.clienteId)
+    .eq("tipo_documento", "nota_credito")
+    .eq("rimborso_mezzo", "nuova_fattura")
+    .is("fattura_compensativa_id", null)
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(40);
+  if (error) return { success: false, error: error.message };
+
+  const amount = Math.abs(input.importoFattura);
+  const hint = (input.descrizioneHint ?? "").trim().toLowerCase();
+  const candidates: NcCompensazioneCandidate[] = [];
+  for (const r of data ?? []) {
+    const tot = Math.abs(Number(r.totale) || 0);
+    const amountClose =
+      amount > 0 &&
+      Math.abs(tot - amount) <= Math.max(0.5, amount * 0.02);
+    const note = String(r.note ?? "");
+    const rif = String(r.riferimento_fattura_esterno ?? "");
+    const descMatch =
+      !hint ||
+      note.toLowerCase().includes(hint) ||
+      rif.toLowerCase().includes(hint);
+    if (!amountClose && !descMatch) continue;
+    const numeroInterno = String(r.numero_interno ?? "");
+    candidates.push({
+      id: String(r.id),
+      numeroInterno,
+      dataEmissione: String(r.data_emissione ?? ""),
+      totale: Number(r.totale) || 0,
+      riferimentoFatturaEsterno: rif,
+      note,
+      motivo: amountClose
+        ? `Importo simile (${formatEuro(tot)} ≈ ${formatEuro(amount)})`
+        : "Descrizione / riferimento affine",
+    });
+  }
+  return { success: true, candidates };
 }
