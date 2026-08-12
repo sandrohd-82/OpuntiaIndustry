@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import {
@@ -158,6 +159,13 @@ export function FatturaSyncQueueModal({ items, onFinished, onCancel }: Props) {
         <p className="mt-1 text-sm text-[var(--muted)]">
           Importo FiC: {formatEuro(current.amountGross)}
         </p>
+        <div className="mt-2">
+          <ApriFatturaFicButton
+            kind={kind}
+            ficId={current.ficId}
+            variant="button"
+          />
+        </div>
 
         {step.type === "notice-existing" ? (
           <div className="mt-4 space-y-3">

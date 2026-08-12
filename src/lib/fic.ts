@@ -368,3 +368,46 @@ export async function fetchFicSuppliers(): Promise<FicEntityNormalized[]> {
 export async function fetchFicClients(): Promise<FicEntityNormalized[]> {
   return listAllEntities("/entities/clients", "client");
 }
+
+/**
+ * URL temporaneo PDF/allegato documento FiC (da aprire in nuova scheda).
+ * Emesse: campo `url`; ricevute: `attachment_url` / preview.
+ */
+export async function fetchFicDocumentPdfUrl(input: {
+  kind: FicInvoiceKind;
+  ficId: number;
+}): Promise<string> {
+  const ficId = Number(input.ficId);
+  if (!Number.isFinite(ficId) || ficId <= 0) {
+    throw new Error("ID documento Fatture in Cloud non valido.");
+  }
+
+  const path =
+    input.kind === "issued"
+      ? `/issued_documents/${ficId}`
+      : `/received_documents/${ficId}`;
+
+  const res = await ficGet<{ data?: unknown }>(path, {});
+  const data = asRecord(res.data);
+  const candidates = [
+    data.url,
+    data.attachment_url,
+    data.attachmentUrl,
+    data.attachment_preview_url,
+    data.attachmentPreviewUrl,
+    data.ai_url,
+    data.aiUrl,
+  ];
+
+  for (const c of candidates) {
+    const url = asText(c);
+    if (!url) continue;
+    if (url.startsWith("http://") || url.startsWith("https://")) return url;
+    // Alcune risposte espongono path relativi
+    if (url.startsWith("/")) return `https://api-v2.fattureincloud.it${url}`;
+  }
+
+  throw new Error(
+    "Fatture in Cloud non ha restituito un link PDF per questo documento (allegato assente o non disponibile)."
+  );
+}

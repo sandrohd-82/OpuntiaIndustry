@@ -7,6 +7,7 @@ import {
   createFatturaAction,
   previewNumeroInternoFatturaAction,
 } from "@/app/actions/fatture";
+import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
@@ -227,12 +228,23 @@ export function FatturaRegistrazioneModal({
         className="w-full max-w-4xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="text-lg font-semibold">
-          {title}
-        </h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Registrazione nello storico. Non è una fattura da inviare.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id={titleId} className="text-lg font-semibold">
+              {title}
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Registrazione nello storico. Non è una fattura da inviare.
+            </p>
+          </div>
+          {prefill?.ficId ? (
+            <ApriFatturaFicButton
+              kind={kind}
+              ficId={prefill.ficId}
+              variant="button"
+            />
+          ) : null}
+        </div>
 
         <form onSubmit={submit} className="mt-4 space-y-5">
           <div className="grid gap-3 sm:grid-cols-2">

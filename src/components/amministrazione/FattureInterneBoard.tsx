@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { FaPlus } from "react-icons/fa6";
 import { listFattureAction } from "@/app/actions/fatture";
+import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import {
   formatDateIt,
@@ -92,6 +93,7 @@ export function FattureInterneBoard({ kind }: Props) {
                 <th className="px-4 py-3 font-medium">Imponibile</th>
                 <th className="px-4 py-3 font-medium">Totale</th>
                 <th className="px-4 py-3 font-medium">Stato</th>
+                <th className="px-4 py-3 text-right font-medium">FiC</th>
               </tr>
             </thead>
             <tbody>
@@ -128,6 +130,13 @@ export function FattureInterneBoard({ kind }: Props) {
                     >
                       {labelStatoPagamento(f.statoPagamento)}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {f.ficId ? (
+                      <ApriFatturaFicButton kind={kind} ficId={f.ficId} />
+                    ) : (
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
