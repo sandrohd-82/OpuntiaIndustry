@@ -122,6 +122,118 @@ async function uploadRicevuta(
   return { path, name: file.name };
 }
 
+/**
+ * Aggiunge in scheda anagrafica i codici prodotto presenti sulla fattura
+ * e mancanti in prodotti_acquistati (solo se esistono in prodotti_propri).
+ */
+async function syncProdottiAcquistatiFromFatturaRighe(input: {
+  kind: FatturaKind;
+  anagraficaId: string;
+  righe: Array<{ prodottoId: string | null; codice: string }>;
+  userId: string;
+  fatturaId: string;
+  numeroInterno: string;
+}): Promise<string[]> {
+  const supabase = await createClient();
+  const rawCodes = [
+    ...new Set(
+      input.righe
+        .map((r) => (r.codice ?? "").trim())
+        .filter((c) => c.length > 0 && c !== "—")
+    ),
+  ];
+
+  const ids = [
+    ...new Set(
+      input.righe
+        .map((r) => r.prodottoId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  const codes = new Set<string>(rawCodes);
+  if (ids.length > 0) {
+    const { data: byId } = await supabase
+      .from("prodotti_propri")
+      .select("id, codice")
+      .in("id", ids)
+      .is("deleted_at", null);
+    for (const p of byId ?? []) {
+      const code = String((p as { codice?: string }).codice ?? "").trim();
+      if (code) codes.add(code);
+    }
+  }
+
+  if (codes.size === 0) return [];
+
+  const { data: valid } = await supabase
+    .from("prodotti_propri")
+    .select("codice")
+    .in("codice", [...codes])
+    .is("deleted_at", null);
+  const validCodes = [
+    ...new Set(
+      (valid ?? [])
+        .map((p) => String((p as { codice?: string }).codice ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+  if (validCodes.length === 0) return [];
+
+  const table = input.kind === "emessa" ? "clienti" : "fornitori";
+  const { data: anagrafica, error } = await supabase
+    .from(table)
+    .select("id, prodotti_acquistati")
+    .eq("id", input.anagraficaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !anagrafica) {
+    console.error("[syncProdottiAcquistati]", error?.message);
+    return [];
+  }
+
+  const existing = Array.isArray(
+    (anagrafica as { prodotti_acquistati?: string[] }).prodotti_acquistati
+  )
+    ? (
+        anagrafica as { prodotti_acquistati: string[] }
+      ).prodotti_acquistati.map((c) => String(c).trim()).filter(Boolean)
+    : [];
+  const missing = validCodes.filter((c) => !existing.includes(c));
+  if (missing.length === 0) return [];
+
+  const merged = [...new Set([...existing, ...missing])].sort((a, b) =>
+    a.localeCompare(b, "it")
+  );
+  const { error: upErr } = await supabase
+    .from(table)
+    .update({
+      prodotti_acquistati: merged,
+      updated_by: input.userId,
+    })
+    .eq("id", input.anagraficaId)
+    .is("deleted_at", null);
+  if (upErr) {
+    console.error("[syncProdottiAcquistati] update", upErr.message);
+    return [];
+  }
+
+  await writeAuditLog({
+    entity_type: table,
+    entity_id: input.anagraficaId,
+    action: "update",
+    actor_id: input.userId,
+    summary: `Aggiunti prodotti da fattura ${input.numeroInterno}: ${missing.join(", ")}`,
+    payload: {
+      fattura_id: input.fatturaId,
+      added: missing,
+      source: "fattura_registrazione",
+    },
+  });
+
+  return missing;
+}
+
 export async function listFattureAction(
   kind: FatturaKind
 ): Promise<
@@ -355,6 +467,17 @@ export async function createFatturaAction(
         return { success: false, error: righeErr.message };
       }
 
+      const prodottiAggiuntiScheda = await syncProdottiAcquistatiFromFatturaRighe(
+        {
+          kind: "emessa",
+          anagraficaId: input.anagraficaId,
+          righe: input.righe,
+          userId: auth.userId,
+          fatturaId: row.id,
+          numeroInterno,
+        }
+      );
+
       let dilazioniData: FatturaEmessaDilazioneRow[] = [];
       if (input.dilazioni.length > 0) {
         const dilInsert: FatturaEmessaDilazioneInsert[] = input.dilazioni.map(
@@ -391,6 +514,7 @@ export async function createFatturaAction(
           totale: totals.totale,
           dilazioni: input.dilazioni.length,
           stato_pagamento: input.statoPagamento,
+          prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
         },
       });
 
@@ -479,6 +603,17 @@ export async function createFatturaAction(
       return { success: false, error: righeErr.message };
     }
 
+    const prodottiAggiuntiScheda = await syncProdottiAcquistatiFromFatturaRighe(
+      {
+        kind: "ricevuta",
+        anagraficaId: input.anagraficaId,
+        righe: input.righe,
+        userId: auth.userId,
+        fatturaId: row.id,
+        numeroInterno,
+      }
+    );
+
     let dilazioniData: FatturaRicevutaDilazioneRow[] = [];
     if (input.dilazioni.length > 0) {
       const dilInsert: FatturaRicevutaDilazioneInsert[] = input.dilazioni.map(
@@ -515,6 +650,7 @@ export async function createFatturaAction(
         totale: totals.totale,
         dilazioni: input.dilazioni.length,
         stato_pagamento: input.statoPagamento,
+        prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
       },
     });
 
