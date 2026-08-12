@@ -10,6 +10,12 @@ import {
   type Fattura,
   type FatturaKind,
 } from "@/lib/amministrazione/fatture";
+import {
+  hasCondizioniParticolari,
+  toCondizioneStorico,
+  type ProdottoPrezzoStoricoHint,
+  type SpedizioneIvaStoricoHint,
+} from "@/lib/amministrazione/fatture-storico";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -417,4 +423,212 @@ export async function createFatturaAction(
       error: e instanceof Error ? e.message : "Errore salvataggio fattura.",
     };
   }
+}
+
+export async function getFatturaByIdAction(
+  kind: FatturaKind,
+  id: string
+): Promise<
+  { success: true; fattura: Fattura } | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  if (kind === "emessa") {
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select("*")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    if (!data) return { success: false, error: "Fattura non trovata." };
+    const { data: righe } = await supabase
+      .from("fatture_emesse_righe")
+      .select("*")
+      .eq("fattura_id", id)
+      .order("sort_order", { ascending: true });
+    return {
+      success: true,
+      fattura: mapFatturaEmessaRow(
+        data as FatturaEmessaRow,
+        (righe ?? []) as FatturaEmessaRigaRow[]
+      ),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Fattura non trovata." };
+  const { data: righe, error: righeErr } = await supabase
+    .from("fatture_ricevute_righe")
+    .select("*")
+    .eq("fattura_id", id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  return {
+    success: true,
+    fattura: mapFatturaRicevutaRow(
+      data as FatturaRicevutaRow,
+      (righe ?? []) as FatturaRicevutaRigaRow[]
+    ),
+  };
+}
+
+/** Avviso storico: IVA già applicata sulla spedizione per questa anagrafica. */
+export async function getSpedizioneIvaStoricoHintAction(input: {
+  kind: FatturaKind;
+  anagraficaId: string;
+}): Promise<
+  | { success: true; hint: SpedizioneIvaStoricoHint }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const empty: SpedizioneIvaStoricoHint = {
+    applicataInPassato: false,
+    count: 0,
+    ultima: null,
+    fatture: [],
+  };
+  if (!input.anagraficaId) {
+    return { success: true, hint: empty };
+  }
+
+  const supabase = await createClient();
+  const table = input.kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
+  const idCol = input.kind === "emessa" ? "cliente_id" : "fornitore_id";
+
+  const { data, error } = await supabase
+    .from(table)
+    .select("id, numero_interno, data_emissione, spedizione_iva_applicata")
+    .eq(idCol, input.anagraficaId)
+    .eq("spedizione_iva_applicata", true)
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(10);
+
+  if (error) return { success: false, error: error.message };
+
+  const fatture = (data ?? []).map((row) => {
+    const r = row as {
+      id: string;
+      numero_interno: string;
+      data_emissione: string;
+    };
+    return {
+      id: r.id,
+      numeroInterno: r.numero_interno,
+      dataEmissione: r.data_emissione,
+    };
+  });
+
+  return {
+    success: true,
+    hint: {
+      applicataInPassato: fatture.length > 0,
+      count: fatture.length,
+      ultima: fatture[0] ?? null,
+      fatture,
+    },
+  };
+}
+
+/** Storico prezzi/sconti prodotto × anagrafica (per ⓘ in registrazione / futura creazione). */
+export async function getProdottoPrezzoStoricoHintAction(input: {
+  kind: FatturaKind;
+  anagraficaId: string;
+  prodottoId?: string | null;
+  codice?: string | null;
+}): Promise<
+  | { success: true; hint: ProdottoPrezzoStoricoHint }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const empty: ProdottoPrezzoStoricoHint = {
+    hasParticolari: false,
+    condizioni: [],
+  };
+  if (!input.anagraficaId) return { success: true, hint: empty };
+
+  const prodottoId = input.prodottoId?.trim() || null;
+  const codice = (input.codice ?? "").trim();
+  if (!prodottoId && !codice) return { success: true, hint: empty };
+
+  const supabase = await createClient();
+  const headerTable =
+    input.kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
+  const righeTable =
+    input.kind === "emessa" ? "fatture_emesse_righe" : "fatture_ricevute_righe";
+  const idCol = input.kind === "emessa" ? "cliente_id" : "fornitore_id";
+
+  const { data: headers, error: hErr } = await supabase
+    .from(headerTable)
+    .select("id, numero_interno, data_emissione")
+    .eq(idCol, input.anagraficaId)
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(80);
+
+  if (hErr) return { success: false, error: hErr.message };
+  const headerRows = (headers ?? []) as Array<{
+    id: string;
+    numero_interno: string;
+    data_emissione: string;
+  }>;
+  if (headerRows.length === 0) return { success: true, hint: empty };
+
+  const headerById = new Map(headerRows.map((h) => [h.id, h]));
+  const fatturaIds = headerRows.map((h) => h.id);
+
+  let q = supabase
+    .from(righeTable)
+    .select(
+      "fattura_id, prodotto_id, codice, quantita, prezzo_unitario, sconto_percentuale"
+    )
+    .in("fattura_id", fatturaIds);
+
+  if (prodottoId) {
+    q = q.eq("prodotto_id", prodottoId);
+  } else {
+    q = q.ilike("codice", codice);
+  }
+
+  const { data: righe, error: rErr } = await q.limit(40);
+  if (rErr) return { success: false, error: rErr.message };
+
+  const condizioni = (righe ?? [])
+    .map((raw) => {
+      const r = raw as {
+        fattura_id: string;
+        quantita: number;
+        prezzo_unitario: number;
+        sconto_percentuale: number;
+      };
+      const h = headerById.get(r.fattura_id);
+      if (!h) return null;
+      return toCondizioneStorico({
+        fatturaId: h.id,
+        numeroInterno: h.numero_interno,
+        dataEmissione: h.data_emissione,
+        prezzoUnitario: Number(r.prezzo_unitario) || 0,
+        scontoPercentuale: Number(r.sconto_percentuale) || 0,
+        quantita: Number(r.quantita) || 0,
+      });
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null)
+    .sort((a, b) => b.dataEmissione.localeCompare(a.dataEmissione))
+    .slice(0, 10);
+
+  return {
+    success: true,
+    hint: {
+      hasParticolari: hasCondizioniParticolari(condizioni),
+      condizioni,
+    },
+  };
 }

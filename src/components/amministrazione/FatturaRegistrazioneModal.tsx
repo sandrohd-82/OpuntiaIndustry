@@ -5,16 +5,20 @@ import { createPortal } from "react-dom";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createFatturaAction,
+  getProdottoPrezzoStoricoHintAction,
+  getSpedizioneIvaStoricoHintAction,
   previewNumeroInternoFatturaAction,
 } from "@/app/actions/fatture";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
+import { ProdottoPrezzoStoricoInfo } from "@/components/amministrazione/ProdottoPrezzoStoricoInfo";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   calcolaTotaliFattura,
   emptyFatturaRiga,
+  formatDateIt,
   formatEuro,
   importoRiga,
   prezzoScontatoUnitario,
@@ -22,6 +26,12 @@ import {
   type FatturaKind,
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
+import {
+  fatturaDetailPath,
+  prodottoStoricoKey,
+  type ProdottoPrezzoStoricoHint,
+  type SpedizioneIvaStoricoHint,
+} from "@/lib/amministrazione/fatture-storico";
 import type { FatturaStatoPagamento } from "@/types/database";
 import {
   ClearableNumberInput,
@@ -115,6 +125,11 @@ export function FatturaRegistrazioneModal({
   const [rigaIndexForNuovo, setRigaIndexForNuovo] = useState<number | null>(
     null
   );
+  const [spedizioneIvaHint, setSpedizioneIvaHint] =
+    useState<SpedizioneIvaStoricoHint | null>(null);
+  const [prezzoHints, setPrezzoHints] = useState<
+    Record<string, ProdottoPrezzoStoricoHint>
+  >({});
 
   const totals = useMemo(
     () =>
@@ -161,6 +176,88 @@ export function FatturaRegistrazioneModal({
       cancelled = true;
     };
   }, [kind, anagraficaId, anagraficaCodiceTarga, dataEmissione]);
+
+  useEffect(() => {
+    if (!anagraficaId) {
+      setSpedizioneIvaHint(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await getSpedizioneIvaStoricoHintAction({
+        kind,
+        anagraficaId,
+      });
+      if (cancelled) return;
+      if (res.success) setSpedizioneIvaHint(res.hint);
+      else setSpedizioneIvaHint(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, anagraficaId]);
+
+  const prodottoKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const r of righe) {
+      const k = prodottoStoricoKey({
+        prodottoId: r.prodottoId,
+        codice: r.codice,
+      });
+      if (k) keys.add(k);
+    }
+    return [...keys].sort().join("|");
+  }, [righe]);
+
+  useEffect(() => {
+    if (!anagraficaId || !prodottoKeys) {
+      setPrezzoHints({});
+      return;
+    }
+    let cancelled = false;
+    const rows = righe
+      .map((r) => ({
+        key: prodottoStoricoKey({
+          prodottoId: r.prodottoId,
+          codice: r.codice,
+        }),
+        prodottoId: r.prodottoId,
+        codice: r.codice,
+      }))
+      .filter((r): r is typeof r & { key: string } => Boolean(r.key));
+
+    const unique = new Map<string, { prodottoId: string | null; codice: string }>();
+    for (const r of rows) {
+      if (!unique.has(r.key)) {
+        unique.set(r.key, {
+          prodottoId: r.prodottoId,
+          codice: r.codice,
+        });
+      }
+    }
+
+    void (async () => {
+      const next: Record<string, ProdottoPrezzoStoricoHint> = {};
+      await Promise.all(
+        [...unique.entries()].map(async ([key, ref]) => {
+          const res = await getProdottoPrezzoStoricoHintAction({
+            kind,
+            anagraficaId,
+            prodottoId: ref.prodottoId,
+            codice: ref.codice,
+          });
+          if (res.success) next[key] = res.hint;
+        })
+      );
+      if (!cancelled) setPrezzoHints(next);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // prodottoKeys riassume le chiavi prodotto delle righe
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intenzionale: evita refetch a ogni keystroke numerico
+  }, [kind, anagraficaId, prodottoKeys]);
 
   function patchRiga(index: number, patch: Partial<EditableRiga>) {
     setRighe((prev) =>
@@ -407,35 +504,53 @@ export function FatturaRegistrazioneModal({
                     const sconto = numberOrZero(riga.scontoPercentuale);
                     const scontato = prezzoScontatoUnitario(listino, sconto);
                     const hasSconto = sconto > 0;
+                    const storicoKey = prodottoStoricoKey({
+                      prodottoId: riga.prodottoId,
+                      codice: riga.codice,
+                    });
+                    const prezzoHint = storicoKey
+                      ? prezzoHints[storicoKey]
+                      : undefined;
+                    const showInfo =
+                      prezzoHint?.hasParticolari &&
+                      (prezzoHint.condizioni.length ?? 0) > 0;
                     return (
                       <tr
                         key={index}
                         className="border-t border-[var(--border)]"
                       >
                         <td className="px-2 py-2">
-                          <select
-                            value={riga.prodottoId ?? ""}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              if (v === "__new__") {
-                                setRigaIndexForNuovo(index);
-                                setCreatingProdotto(true);
-                                return;
-                              }
-                              applyProdotto(index, v);
-                            }}
-                            className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
-                          >
-                            <option value="">Seleziona…</option>
-                            {prodotti.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.codice} — {p.nome}
+                          <div className="flex items-start gap-1.5">
+                            <select
+                              value={riga.prodottoId ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                if (v === "__new__") {
+                                  setRigaIndexForNuovo(index);
+                                  setCreatingProdotto(true);
+                                  return;
+                                }
+                                applyProdotto(index, v);
+                              }}
+                              className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                            >
+                              <option value="">Seleziona…</option>
+                              {prodotti.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.codice} — {p.nome}
+                                </option>
+                              ))}
+                              <option value="__new__">
+                                + Crea nuovo prodotto
                               </option>
-                            ))}
-                            <option value="__new__">
-                              + Crea nuovo prodotto
-                            </option>
-                          </select>
+                            </select>
+                            {showInfo && prezzoHint ? (
+                              <ProdottoPrezzoStoricoInfo
+                                kind={kind}
+                                condizioni={prezzoHint.condizioni}
+                              />
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-2 py-2">
                           <input
@@ -551,6 +666,36 @@ export function FatturaRegistrazioneModal({
                   </span>
                 </span>
               </label>
+              {spedizioneIvaHint?.applicataInPassato ? (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
+                  <p className="font-medium">
+                    Nota: a questa anagrafica è già stata applicata l&apos;IVA
+                    sulla spedizione
+                    {spedizioneIvaHint.ultima
+                      ? ` (es. ${spedizioneIvaHint.ultima.numeroInterno} del ${formatDateIt(spedizioneIvaHint.ultima.dataEmissione)})`
+                      : ""}
+                    .
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {spedizioneIvaHint.fatture.slice(0, 5).map((f) => (
+                      <li key={f.id}>
+                        <a
+                          href={fatturaDetailPath(kind, f.id)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium text-amber-900 underline hover:no-underline"
+                        >
+                          {f.numeroInterno}
+                        </a>
+                        <span className="text-amber-800/80">
+                          {" "}
+                          · {formatDateIt(f.dataEmissione)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">

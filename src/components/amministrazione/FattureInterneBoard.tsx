@@ -17,7 +17,9 @@ import {
   type Fattura,
   type FatturaKind,
 } from "@/lib/amministrazione/fatture";
+import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
+import Link from "next/link";
 
 type Props = {
   kind: FatturaKind;
@@ -183,7 +185,14 @@ export function FattureInterneBoard({ kind }: Props) {
               {fatture.map((f) => (
                 <tr key={f.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3 font-mono text-xs font-semibold">
-                    {f.numeroInterno}
+                    <Link
+                      href={fatturaDetailPath(kind, f.id)}
+                      className="text-[var(--primary)] hover:underline"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {f.numeroInterno}
+                    </Link>
                   </td>
                   <td className="px-4 py-3">{formatDateIt(f.dataEmissione)}</td>
                   <td className="px-4 py-3">
