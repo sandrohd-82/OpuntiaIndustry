@@ -11,6 +11,7 @@ import {
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
+import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   fetchIssuedCreditNotes,
@@ -68,6 +69,12 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
           ? e.message
           : "Configurazione Fatture in Cloud mancante.",
     };
+  }
+
+  // Prima della coda: riallinea sempre i progressivi alla data di emissione
+  const rinum = await rinumeraTutteFattureEmesseAction();
+  if (!rinum.success) {
+    return { success: false, error: `Rinumerazione: ${rinum.error}` };
   }
 
   const supabase = await createClient();
@@ -146,8 +153,9 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     }))
     .filter((x) => x.linked?.fatturaId);
 
+  // Cronologico: dalla data più lontana a quella più vicina a oggi
   linkedToRegistered.sort((a, b) =>
-    (b.doc.date || "").localeCompare(a.doc.date || "")
+    (a.doc.date || "").localeCompare(b.doc.date || "")
   );
 
   for (const { doc, linked } of linkedToRegistered) {
@@ -163,15 +171,15 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     );
   }
 
-  // 2) Per ogni fattura pendente: prima le NC correlate, poi la fattura
+  // 2) Per ogni fattura pendente (più vecchia prima): NC correlate, poi fattura
   const invoicesSorted = [...pendingInvoices].sort((a, b) =>
-    (b.date || "").localeCompare(a.date || "")
+    (a.date || "").localeCompare(b.date || "")
   );
 
   for (const inv of invoicesSorted) {
-    const related = creditNotesRelatedToInvoice(inv, pendingCredits).filter(
-      (nc) => !usedNcFicIds.has(nc.ficId)
-    );
+    const related = creditNotesRelatedToInvoice(inv, pendingCredits)
+      .filter((nc) => !usedNcFicIds.has(nc.ficId))
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     for (const nc of related) {
       usedNcFicIds.add(nc.ficId);
       const anag = resolveClienteForDoc(nc, byVat, usedTarghe);
@@ -213,10 +221,10 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     );
   }
 
-  // 3) NC residue (senza match forte)
+  // 3) NC residue (senza match forte) — ancora dalla più vecchia
   const orphanCredits = pendingCredits
     .filter((d) => !usedNcFicIds.has(d.ficId))
-    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
 
   for (const doc of orphanCredits) {
     const anag = resolveClienteForDoc(doc, byVat, usedTarghe);

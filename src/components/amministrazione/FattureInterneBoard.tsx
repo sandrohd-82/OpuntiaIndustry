@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { FaArrowsRotate, FaPlus } from "react-icons/fa6";
 import {
+  listFattureAction,
+  rinumeraTutteFattureEmesseAction,
+} from "@/app/actions/fatture";
+import {
   startFattureEmesseSyncAction,
   startFattureRicevuteSyncAction,
 } from "@/app/actions/fatture-sync";
-import { listFattureAction } from "@/app/actions/fatture";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
@@ -82,10 +85,13 @@ export function FattureInterneBoard({ kind }: Props) {
       }
       if (result.creditNotesPending > 0) {
         parts.push(
-          `${result.creditNotesPending} note di credito da registrare (mostrate prima se collegate a fatture già sincronizzate).`
+          `${result.creditNotesPending} note di credito da registrare.`
         );
       }
-      if (parts.length) setSyncInfo(parts.join(" "));
+      parts.push(
+        "Coda in ordine cronologico (dalla data più lontana a oggi); i progressivi interni vengono riallineati per azienda."
+      );
+      setSyncInfo(parts.join(" "));
       setSyncItems(result.items);
     });
   }
@@ -93,9 +99,9 @@ export function FattureInterneBoard({ kind }: Props) {
   const entityLabel = kind === "ricevuta" ? "Fornitore" : "Cliente";
   const titleHint =
     kind === "nota_credito"
-      ? "Storico note di credito. In sync le NC collegate a fatture già registrate vengono proposte per prime; poi NC legate alle fatture in coda."
+      ? "Storico note di credito. Sync dalla fattura più vecchia; i numeri interni (targa) si riorganizzano sempre per data."
       : kind === "emessa"
-        ? "Storico fatture emesse. Sincronizza include anche le note di credito FiC (priorità NC collegate)."
+        ? "Storico fatture emesse. Sync cronologica (vecchie → recenti); i progressivi Ft/Nc si riallineano per azienda a ogni sync."
         : "Storico fatture ricevute. Sincronizza = stesso flusso della pagina Fornitori.";
 
   const emptyLabel =
@@ -157,20 +163,30 @@ export function FattureInterneBoard({ kind }: Props) {
         <FatturaSyncQueueModal
           items={syncItems}
           onFinished={(n) => {
-            setSyncItems(null);
-            setSyncInfo(
-              n > 0
-                ? `Sync completata: ${n} documenti registrati.`
-                : "Sync completata senza nuove registrazioni."
-            );
-            load();
+            void (async () => {
+              if (kind === "emessa" || kind === "nota_credito") {
+                await rinumeraTutteFattureEmesseAction();
+              }
+              setSyncItems(null);
+              setSyncInfo(
+                n > 0
+                  ? `Sync completata: ${n} documenti registrati. Progressivi riallineati per data.`
+                  : "Sync completata senza nuove registrazioni. Progressivi riallineati per data."
+              );
+              load();
+            })();
           }}
           onPaused={() => {
-            setSyncItems(null);
-            setSyncInfo(
-              "Sync in pausa. Al prossimo Sincronizza riparti dai documenti non ancora registrati (note di credito incluse)."
-            );
-            load();
+            void (async () => {
+              if (kind === "emessa" || kind === "nota_credito") {
+                await rinumeraTutteFattureEmesseAction();
+              }
+              setSyncItems(null);
+              setSyncInfo(
+                "Sync in pausa. Progressivi riallineati. Al prossimo Sincronizza riparti dai documenti non ancora registrati."
+              );
+              load();
+            })();
           }}
         />
       ) : null}

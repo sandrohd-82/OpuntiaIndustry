@@ -20,6 +20,11 @@ import {
   type ProdottoPrezzoStoricoHint,
   type SpedizioneIvaStoricoHint,
 } from "@/lib/amministrazione/fatture-storico";
+import {
+  planRinumeraFattureEmesse,
+  tempNumeroInterno,
+  type FatturaRinumeraRow,
+} from "@/lib/amministrazione/fatture-rinumerazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -42,6 +47,148 @@ const RICEVUTA_BUCKET = "fatture-ricevute-pagamenti";
 export type FattureActionResult =
   | { success: true; fattura: Fattura }
   | { success: false; error: string };
+
+type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Rinumera Ft/Nc di un cliente in ordine di data emissione (targa gestionale).
+ * Due fasi (TMP → definitivo) per rispettare l’unicità di numero_interno.
+ */
+export async function rinumeraFattureEmesseClienteInternal(
+  supabase: SupabaseServer,
+  actorId: string | null,
+  clienteId: string
+): Promise<{ ok: true; changed: number } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select(
+      "id, cliente_id, cliente_codice_targa, data_emissione, numero_interno, tipo_documento, created_at"
+    )
+    .eq("cliente_id", clienteId)
+    .is("deleted_at", null);
+  if (error) return { ok: false, error: error.message };
+
+  const rows: FatturaRinumeraRow[] = (data ?? []).map((r) => ({
+    id: String(r.id),
+    clienteId: String(r.cliente_id),
+    codiceTarga: String(r.cliente_codice_targa ?? ""),
+    dataEmissione: String(r.data_emissione ?? ""),
+    numeroInterno: String(r.numero_interno ?? ""),
+    tipoDocumento:
+      (r.tipo_documento as string) === "nota_credito"
+        ? "nota_credito"
+        : "fattura",
+    createdAt: String(r.created_at ?? ""),
+  }));
+
+  const changes = planRinumeraFattureEmesse(rows);
+  if (changes.length === 0) return { ok: true, changed: 0 };
+
+  for (const ch of changes) {
+    const { error: e1 } = await supabase
+      .from("fatture_emesse")
+      .update({
+        numero_interno: tempNumeroInterno(ch.id),
+        updated_by: actorId,
+      })
+      .eq("id", ch.id);
+    if (e1) return { ok: false, error: e1.message };
+  }
+
+  for (const ch of changes) {
+    const { error: e2 } = await supabase
+      .from("fatture_emesse")
+      .update({
+        numero_interno: ch.a,
+        updated_by: actorId,
+      })
+      .eq("id", ch.id);
+    if (e2) return { ok: false, error: e2.message };
+
+    // Aggiorna riferimenti testuali sulle NC collegate a questa fattura
+    await supabase
+      .from("fatture_emesse")
+      .update({
+        riferimento_fattura_esterno: ch.a,
+        updated_by: actorId,
+      })
+      .eq("fattura_collegata_id", ch.id)
+      .eq("tipo_documento", "nota_credito")
+      .is("deleted_at", null);
+  }
+
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: clienteId,
+    action: "rinumera_per_data_emissione",
+    actor_id: actorId,
+    summary: `Rinumerate ${changes.length} documenti cliente per data emissione`,
+    payload: {
+      cliente_id: clienteId,
+      changes: changes.map((c) => ({
+        id: c.id,
+        da: c.da,
+        a: c.a,
+        data_emissione: c.dataEmissione,
+      })),
+    },
+  });
+
+  return { ok: true, changed: changes.length };
+}
+
+/** Rinumerazione di tutti i clienti (sync / manutenzione). */
+export async function rinumeraTutteFattureEmesseAction(): Promise<
+  | { success: true; clienti: number; changed: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .select("cliente_id")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const clienteIds = [
+    ...new Set(
+      (data ?? [])
+        .map((r) => String(r.cliente_id ?? ""))
+        .filter(Boolean)
+    ),
+  ];
+
+  let changed = 0;
+  for (const clienteId of clienteIds) {
+    const res = await rinumeraFattureEmesseClienteInternal(
+      supabase,
+      auth.userId,
+      clienteId
+    );
+    if (!res.ok) return { success: false, error: res.error };
+    changed += res.changed;
+  }
+
+  return { success: true, clienti: clienteIds.length, changed };
+}
+
+export async function rinumeraFattureEmesseClienteAction(
+  clienteId: string
+): Promise<
+  | { success: true; changed: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!clienteId) return { success: false, error: "Cliente non valido." };
+  const supabase = await createClient();
+  const res = await rinumeraFattureEmesseClienteInternal(
+    supabase,
+    auth.userId,
+    clienteId
+  );
+  if (!res.ok) return { success: false, error: res.error };
+  return { success: true, changed: res.changed };
+}
 
 async function nextSeqFattura(
   kind: FatturaKind,
@@ -647,10 +794,24 @@ export async function createFatturaAction(
         },
       });
 
+      // Sempre: progressivi allineati alla data (anche se arrivano documenti più vecchi)
+      await rinumeraFattureEmesseClienteInternal(
+        supabase,
+        auth.userId,
+        input.anagraficaId
+      );
+
+      const { data: refreshed } = await supabase
+        .from("fatture_emesse")
+        .select("*")
+        .eq("id", row.id)
+        .maybeSingle();
+      const finalRow = (refreshed ?? row) as FatturaEmessaRow;
+
       return {
         success: true,
         fattura: mapFatturaEmessaRow(
-          row,
+          finalRow,
           (righeData ?? []) as FatturaEmessaRigaRow[],
           dilazioniData
         ),

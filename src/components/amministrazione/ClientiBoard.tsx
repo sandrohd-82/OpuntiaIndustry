@@ -12,6 +12,7 @@ import {
   FaTrash,
   FaUser,
 } from "react-icons/fa6";
+import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
@@ -475,20 +476,26 @@ export function ClientiBoard() {
         <FatturaSyncQueueModal
           items={syncItems}
           onFinished={(n) => {
-            setSyncItems(null);
-            setSyncInfo(
-              n > 0
-                ? `Sync completata: ${n} fatture emesse registrate.`
-                : "Sync completata senza nuove registrazioni."
-            );
-            void refresh();
+            void (async () => {
+              await rinumeraTutteFattureEmesseAction();
+              setSyncItems(null);
+              setSyncInfo(
+                n > 0
+                  ? `Sync completata: ${n} fatture emesse registrate. Progressivi riallineati per data.`
+                  : "Sync completata. Progressivi riallineati per data."
+              );
+              void refresh();
+            })();
           }}
           onPaused={() => {
-            setSyncItems(null);
-            setSyncInfo(
-              "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture emesse non ancora registrate."
-            );
-            void refresh();
+            void (async () => {
+              await rinumeraTutteFattureEmesseAction();
+              setSyncItems(null);
+              setSyncInfo(
+                "Sync in pausa. Progressivi riallineati. Al prossimo Sincronizza riparti dalle fatture non ancora registrate."
+              );
+              void refresh();
+            })();
           }}
         />
       ) : null}
