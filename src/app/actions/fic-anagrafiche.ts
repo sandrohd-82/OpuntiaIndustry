@@ -479,6 +479,7 @@ export async function discardFicImportAction(input: {
     pec: "",
     sdiCode: "",
     telefono: "",
+    sitoWeb: "",
     sedeAmministrativa: {
       nazione: "Italia",
       provincia: "",

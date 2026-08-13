@@ -46,6 +46,7 @@ export function draftFromArchivioSnapshot(
     pec: String(snap.pec ?? ""),
     sdiCode: String(snap.sdi_code ?? ""),
     telefono: String(snap.telefono ?? ""),
+    sitoWeb: String(snap.sito_web ?? ""),
     sedeAmministrativa: sedeFromSnap(snap, "sede_amm"),
     sedeMagazzino: Object.keys(snap).some((k) => k.startsWith("sede_mag_"))
       ? sedeFromSnap(snap, "sede_mag")
@@ -99,6 +100,7 @@ export function draftToArchivioSnapshot(
     pec: draft.pec,
     sdi_code: draft.sdiCode,
     telefono: draft.telefono,
+    sito_web: draft.sitoWeb,
     sede_amm_nazione: draft.sedeAmministrativa.nazione,
     sede_amm_provincia: draft.sedeAmministrativa.provincia,
     sede_amm_citta: draft.sedeAmministrativa.citta,

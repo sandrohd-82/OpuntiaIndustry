@@ -493,6 +493,26 @@ export function AnagraficaSyncReviewModal({
                 className={fieldClass(isChanged(changed, "sdiCode"))}
               />
             </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">
+                Sito Web
+                {isChanged(changed, "sitoWeb") ? (
+                  <span className="ml-2 text-xs font-normal text-amber-700">
+                    modificato
+                  </span>
+                ) : null}
+              </span>
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="https://"
+                value={draft.sitoWeb}
+                onChange={(e) =>
+                  setDraft({ ...draft, sitoWeb: e.target.value })
+                }
+                className={fieldClass(isChanged(changed, "sitoWeb"))}
+              />
+            </label>
           </div>
 
           <div

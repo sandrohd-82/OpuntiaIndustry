@@ -127,6 +127,7 @@ export interface FornitoreRow {
   pec: string;
   sdi_code: string;
   telefono: string;
+  sito_web: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -161,6 +162,7 @@ export interface FornitoreInsert {
   pec?: string;
   sdi_code?: string;
   telefono?: string;
+  sito_web?: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -195,6 +197,7 @@ export interface FornitoreUpdate {
   pec?: string;
   sdi_code?: string;
   telefono?: string;
+  sito_web?: string;
   sede_amm_nazione?: string;
   sede_amm_provincia?: string;
   sede_amm_citta?: string;
@@ -240,6 +243,7 @@ export interface ClienteRow {
   pec: string;
   sdi_code: string;
   telefono: string;
+  sito_web: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -271,6 +275,7 @@ export interface ClienteInsert {
   pec?: string;
   sdi_code?: string;
   telefono?: string;
+  sito_web?: string;
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -302,6 +307,7 @@ export interface ClienteUpdate {
   pec?: string;
   sdi_code?: string;
   telefono?: string;
+  sito_web?: string;
   sede_amm_nazione?: string;
   sede_amm_provincia?: string;
   sede_amm_citta?: string;

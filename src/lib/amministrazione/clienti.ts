@@ -26,6 +26,7 @@ export type Cliente = {
   pec: string;
   sdiCode: string;
   telefono: string;
+  sitoWeb: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -43,6 +44,7 @@ export type ClienteInput = {
   pec?: string;
   sdiCode?: string;
   telefono?: string;
+  sitoWeb?: string;
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -98,6 +100,7 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     pec: (input.pec ?? "").trim(),
     sdiCode: (input.sdiCode ?? "").trim(),
     telefono: (input.telefono ?? "").trim(),
+    sitoWeb: (input.sitoWeb ?? "").trim(),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
     consegneAltraAzienda: (input.consegneAltraAzienda ?? [])
@@ -172,6 +175,7 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",
     telefono: row.telefono ?? "",
+    sitoWeb: row.sito_web ?? "",
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,

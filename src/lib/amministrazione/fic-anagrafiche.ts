@@ -14,6 +14,7 @@ export type ContattiAnagrafica = {
   pec: string;
   sdiCode: string;
   telefono: string;
+  sitoWeb: string;
 };
 
 export type AnagraficaSyncDraft = {
@@ -23,6 +24,7 @@ export type AnagraficaSyncDraft = {
   pec: string;
   sdiCode: string;
   telefono: string;
+  sitoWeb: string;
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
 };
@@ -34,6 +36,7 @@ export type ChangedFieldKey =
   | "pec"
   | "sdiCode"
   | "telefono"
+  | "sitoWeb"
   | "sedeAmministrativa"
   | "sedeMagazzino";
 
@@ -116,6 +119,7 @@ export function draftFromFicEntity(
     pec: entity.pec,
     sdiCode: entity.sdi,
     telefono: entity.phone,
+    sitoWeb: "",
     sedeAmministrativa: sedeFromEntity(entity),
     sedeMagazzino: sedeMagFromEntity(entity),
   };
@@ -129,6 +133,7 @@ export function draftFromFornitore(f: Fornitore): AnagraficaSyncDraft {
     pec: f.pec,
     sdiCode: f.sdiCode,
     telefono: f.telefono,
+    sitoWeb: f.sitoWeb,
     sedeAmministrativa: f.sedeAmministrativa,
     sedeMagazzino: f.sedeMagazzino,
   };
@@ -142,6 +147,7 @@ export function draftFromCliente(c: Cliente): AnagraficaSyncDraft {
     pec: c.pec,
     sdiCode: c.sdiCode,
     telefono: c.telefono,
+    sitoWeb: c.sitoWeb,
     sedeAmministrativa: c.sedeAmministrativa,
     sedeMagazzino: c.sedeMagazzino,
   };
@@ -165,6 +171,7 @@ export function mergeProposedDraft(
         "pec",
         "sdiCode",
         "telefono",
+        "sitoWeb",
         "sedeAmministrativa",
         "sedeMagazzino",
       ].filter((k) => {
@@ -184,6 +191,8 @@ export function mergeProposedDraft(
     pec: pickContact(current.pec, incoming.pec),
     sdiCode: pickContact(current.sdiCode, incoming.sdiCode),
     telefono: pickContact(current.telefono, incoming.telefono),
+    // Sito web non arriva da FiC: conserva sempre il valore locale.
+    sitoWeb: pickFilled(current.sitoWeb, incoming.sitoWeb),
     sedeAmministrativa: isSedeEmpty(current.sedeAmministrativa)
       ? incoming.sedeAmministrativa
       : current.sedeAmministrativa,
@@ -210,6 +219,7 @@ export function mergeProposedDraft(
     "pec",
     "sdiCode",
     "telefono",
+    "sitoWeb",
   ];
   for (const key of scalarKeys) {
     if ((proposed[key] ?? "").trim() !== (current[key] ?? "").trim()) {
@@ -238,6 +248,7 @@ export function draftToFornitoreInput(
     pec: draft.pec,
     sdiCode: draft.sdiCode,
     telefono: draft.telefono,
+    sitoWeb: draft.sitoWeb,
     tipologie: [],
     serviziOfferti: [],
     prodottiFornitore: [],
@@ -261,6 +272,7 @@ export function draftToFornitorePreview(
     pec: draft.pec,
     sdiCode: draft.sdiCode,
     telefono: draft.telefono,
+    sitoWeb: draft.sitoWeb,
     tipologie: [],
     serviziOfferti: [],
     prodottiFornitore: [],
@@ -288,6 +300,7 @@ export function draftToClientePreview(
     pec: draft.pec,
     sdiCode: draft.sdiCode,
     telefono: draft.telefono,
+    sitoWeb: draft.sitoWeb,
     sedeAmministrativa: draft.sedeAmministrativa,
     sedeMagazzino: draft.sedeMagazzino,
     consegneAltraAzienda: [],
@@ -310,6 +323,7 @@ export function draftToClienteInput(
     pec: draft.pec,
     sdiCode: draft.sdiCode,
     telefono: draft.telefono,
+    sitoWeb: draft.sitoWeb,
     sedeAmministrativa: draft.sedeAmministrativa,
     sedeMagazzino: draft.sedeMagazzino,
     consegneAltraAzienda: [],

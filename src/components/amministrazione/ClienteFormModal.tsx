@@ -87,6 +87,7 @@ export function ClienteFormModal({
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
+  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -208,6 +209,7 @@ export function ClienteFormModal({
       pec: pec.trim(),
       sdiCode: sdiCode.trim(),
       telefono: telefono.trim(),
+      sitoWeb: sitoWeb.trim(),
       sedeAmministrativa,
       sedeMagazzino: !magazzinoOpen
         ? emptySede()
@@ -246,6 +248,7 @@ export function ClienteFormModal({
     setPec(hit.draft.pec);
     setSdiCode(hit.draft.sdiCode);
     setTelefono(hit.draft.telefono);
+    setSitoWeb(hit.draft.sitoWeb);
     setSedeAmministrativa(hit.draft.sedeAmministrativa);
     if (
       hit.draft.sedeMagazzino.indirizzo ||
@@ -495,6 +498,17 @@ export function ClienteFormModal({
               <input
                 value={sdiCode}
                 onChange={(e) => setSdiCode(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Sito Web</span>
+              <input
+                type="text"
+                inputMode="url"
+                placeholder="https://"
+                value={sitoWeb}
+                onChange={(e) => setSitoWeb(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>

@@ -23,6 +23,7 @@ export type Fornitore = {
   pec: string;
   sdiCode: string;
   telefono: string;
+  sitoWeb: string;
   tipologie: FornitoreTipologia[];
   serviziOfferti: string[];
   prodottiFornitore: string[];
@@ -44,6 +45,7 @@ export type FornitoreInput = {
   pec?: string;
   sdiCode?: string;
   telefono?: string;
+  sitoWeb?: string;
   tipologie?: FornitoreTipologia[];
   serviziOfferti?: string[];
   prodottiFornitore?: string[];
@@ -91,6 +93,7 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     pec: (input.pec ?? "").trim(),
     sdiCode: (input.sdiCode ?? "").trim(),
     telefono: (input.telefono ?? "").trim(),
+    sitoWeb: (input.sitoWeb ?? "").trim(),
     tipologie: normalizeTipologie(input.tipologie),
     serviziOfferti: (input.serviziOfferti ?? [])
       .map((p) => p.trim())
@@ -119,6 +122,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",
     telefono: row.telefono ?? "",
+    sitoWeb: row.sito_web ?? "",
     tipologie: normalizeTipologie(row.tipologie),
     serviziOfferti: row.servizi_offerti ?? [],
     prodottiFornitore: row.prodotti_fornitore ?? [],
