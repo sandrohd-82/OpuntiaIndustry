@@ -14,12 +14,17 @@ import {
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
+import {
+  ClearableNumberInput,
+  numberOrZero,
+} from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import {
   childStadioFor,
   emptyConfezionamentoDraft,
   emptyNodo,
+  normalizeConfezionamentoDraft,
   totaleKgConfezionati,
   type ConfezionamentoDraft,
   type ConfezionamentoNodoDraft,
@@ -117,8 +122,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   const [prodotto, setProdotto] = useState<ProdottoProprio | null>(null);
   const [creatingProdotto, setCreatingProdotto] = useState(false);
 
-  const [quantita, setQuantita] = useState<number>(100);
-  const [prezzoUnitario, setPrezzoUnitario] = useState<number>(0);
+  const [quantita, setQuantita] = useState<number | "">(100);
+  const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
 
   const [consegnaTipo, setConsegnaTipo] = useState<"asap" | "data">("asap");
   const [dataRichiesta, setDataRichiesta] = useState("");
@@ -206,21 +211,22 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     return map;
   }, [catalogo]);
 
+  const quantitaKg = numberOrZero(quantita);
   const kgConfezionati = useMemo(
     () => totaleKgConfezionati(conf.nodi),
     [conf.nodi]
   );
-  const kgDelta = Math.round((quantita - kgConfezionati) * 1000) / 1000;
+  const kgDelta = Math.round((quantitaKg - kgConfezionati) * 1000) / 1000;
 
   async function runCalcolo(opts?: { usaSabatoOverride?: boolean }) {
-    if (!prodotto || quantita <= 0) return;
+    if (!prodotto || quantitaKg <= 0) return;
     setCalcoloLoading(true);
     setFormError(null);
     const sab = opts?.usaSabatoOverride ?? usaSabato;
     const result = await calcolaConsegnaOrdineAction({
       prodottoId: prodotto.id,
       prodottoCodice: prodotto.codice,
-      quantitaKg: quantita,
+      quantitaKg,
       consegnaTipo,
       dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
       urgente,
@@ -261,7 +267,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   }, [
     step,
     prodotto?.id,
-    quantita,
+    quantitaKg,
     consegnaTipo,
     dataRichiesta,
     urgente,
@@ -274,7 +280,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   function canNext(): boolean {
     if (step === 1) return Boolean(clienteId && clienteNome && clienteTarga);
     if (step === 2) return Boolean(prodotto);
-    if (step === 3) return quantita > 0 && prezzoUnitario >= 0;
+    if (step === 3)
+      return quantitaKg > 0 && numberOrZero(prezzoUnitario) >= 0;
     if (step === 4) return Boolean(calcolo?.dataConsegnaStimata);
     if (step === 5) {
       if (!corriereDopo && !corriereId) return false;
@@ -297,6 +304,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     }
     setSaving(true);
     setFormError(null);
+    const confNorm = normalizeConfezionamentoDraft(conf);
     const result = await createOrdineWizardAction({
       clienteId,
       cliente: clienteNome,
@@ -305,8 +313,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       prodottoId: prodotto.id,
       prodottoCodice: prodotto.codice,
       prodottoNome: prodotto.nome,
-      quantita,
-      prezzoUnitario,
+      quantita: quantitaKg,
+      prezzoUnitario: numberOrZero(prezzoUnitario),
       ivaPercentuale: 22,
       consegnaTipo,
       dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
@@ -323,7 +331,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       spedizioneACarico: aCarico,
       spedizionePctAgrinsicilia:
         aCarico === "diviso" ? Number(pctAgrin) : null,
-      confezionamento: conf,
+      confezionamento: confNorm,
       tipoPagamento: "alla_consegna",
     });
     setSaving(false);
@@ -392,16 +400,14 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
           )}
           <label className="text-xs">
             N
-            <input
-              type="number"
-              min={0.001}
-              step="any"
+            <ClearableNumberInput
+              min={0}
               value={nodo.quantita}
-              onChange={(e) =>
+              onValueChange={(v) =>
                 setConf((prev) => ({
                   ...prev,
                   nodi: updateNodoInTree(prev.nodi, nodo.localId, {
-                    quantita: Number(e.target.value) || 0,
+                    quantita: v,
                   }),
                 }))
               }
@@ -411,16 +417,14 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
           {nodo.stadio === "prodotto_kg" ? (
             <label className="text-xs">
               kg
-              <input
-                type="number"
-                min={0.001}
-                step="any"
+              <ClearableNumberInput
+                min={0}
                 value={nodo.kgProdotto ?? ""}
-                onChange={(e) =>
+                onValueChange={(v) =>
                   setConf((prev) => ({
                     ...prev,
                     nodi: updateNodoInTree(prev.nodi, nodo.localId, {
-                      kgProdotto: Number(e.target.value) || 0,
+                      kgProdotto: v,
                       nome: prodotto?.nome ?? "Prodotto",
                       codice: prodotto?.codice ?? "",
                     }),
@@ -592,13 +596,11 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">
                 <span className="mb-1 block font-medium">Quantità (kg)</span>
-                <input
-                  type="number"
-                  min={0.001}
-                  step="any"
+                <ClearableNumberInput
+                  min={0}
                   value={quantita}
-                  onChange={(e) => {
-                    setQuantita(Number(e.target.value));
+                  onValueChange={(v) => {
+                    setQuantita(v);
                     setOverridesSeeded(false);
                   }}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
@@ -608,12 +610,10 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                 <span className="mb-1 block font-medium">
                   Prezzo vendita (€/kg)
                 </span>
-                <input
-                  type="number"
+                <ClearableNumberInput
                   min={0}
-                  step="0.01"
                   value={prezzoUnitario}
-                  onChange={(e) => setPrezzoUnitario(Number(e.target.value))}
+                  onValueChange={setPrezzoUnitario}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
               </label>
@@ -698,17 +698,11 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                   <span className="mb-1 block font-medium">
                     Resa usata (%)
                   </span>
-                  <input
-                    type="number"
-                    min={0.01}
+                  <ClearableNumberInput
+                    min={0}
                     max={100}
-                    step="0.01"
                     value={resaOverride}
-                    onChange={(e) =>
-                      setResaOverride(
-                        e.target.value === "" ? "" : Number(e.target.value)
-                      )
-                    }
+                    onValueChange={setResaOverride}
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                   />
                   <span className="mt-1 block text-xs text-[var(--muted)]">
@@ -720,16 +714,10 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                   <span className="mb-1 block font-medium">
                     kg / essiccatore
                   </span>
-                  <input
-                    type="number"
-                    min={1}
-                    step="1"
+                  <ClearableNumberInput
+                    min={0}
                     value={kgEssiccatore}
-                    onChange={(e) =>
-                      setKgEssiccatore(
-                        e.target.value === "" ? "" : Number(e.target.value)
-                      )
-                    }
+                    onValueChange={setKgEssiccatore}
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                   />
                   <span className="mt-1 block text-xs text-[var(--muted)]">
@@ -896,22 +884,17 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                     <span className="mb-1 block font-medium">
                       % Agrinsicilia (resto al cliente)
                     </span>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       min={0}
                       max={100}
-                      step="0.01"
                       value={pctAgrin}
-                      onChange={(e) =>
-                        setPctAgrin(
-                          e.target.value === "" ? "" : Number(e.target.value)
-                        )
-                      }
+                      onValueChange={setPctAgrin}
                       className="w-40 rounded-lg border border-[var(--border)] px-3 py-2"
                     />
                     {pctAgrin !== "" ? (
                       <span className="ml-2 text-xs text-[var(--muted)]">
-                        Cliente: {Math.round((100 - Number(pctAgrin)) * 100) / 100}%
+                        Cliente:{" "}
+                        {Math.round((100 - Number(pctAgrin)) * 100) / 100}%
                       </span>
                     ) : null}
                   </label>
@@ -1048,7 +1031,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                 }`}
               >
                 <p>
-                  Ordine: <strong>{quantita.toLocaleString("it-IT")} kg</strong>
+                  Ordine:{" "}
+                  <strong>{quantitaKg.toLocaleString("it-IT")} kg</strong>
                   {" · "}
                   Confezionati:{" "}
                   <strong>{kgConfezionati.toLocaleString("it-IT")} kg</strong>

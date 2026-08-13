@@ -16,7 +16,10 @@ import {
   type OrdineAuditEntry,
   type OrdineInput,
 } from "@/lib/amministrazione/ordini";
-import { totaleKgConfezionati } from "@/lib/amministrazione/imballaggi-spedizioni";
+import {
+  normalizeConfezionamentoDraft,
+  totaleKgConfezionati,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 import { ordineWizardInputSchema } from "@/lib/amministrazione/produzione-capacita";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
@@ -823,7 +826,7 @@ export async function createOrdineWizardAction(
     if (righeErr) return { success: false, error: righeErr };
 
     if (input.confezionamento) {
-      const conf = input.confezionamento;
+      const conf = normalizeConfezionamentoDraft(input.confezionamento);
       const kgConf = totaleKgConfezionati(conf.nodi);
       const kgDelta = Math.round((input.quantita - kgConf) * 1000) / 1000;
       const { data: confRow, error: confErr } = await supabase

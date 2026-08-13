@@ -123,8 +123,9 @@ export type ConfezionamentoNodoDraft = {
   catalogoId: string | null;
   nome: string;
   codice: string;
-  quantita: number;
-  kgProdotto: number | null;
+  /** `""` mentre si digita (ClearableNumberInput). */
+  quantita: number | "";
+  kgProdotto: number | null | "";
   children: ConfezionamentoNodoDraft[];
 };
 
@@ -175,10 +176,11 @@ export function totaleKgConfezionati(nodi: ConfezionamentoNodoDraft[]): number {
   function walk(nodes: ConfezionamentoNodoDraft[], parentMult: number): number {
     let sum = 0;
     for (const n of nodes) {
-      const q = Number(n.quantita) || 0;
+      const q = typeof n.quantita === "number" ? n.quantita : 0;
+      const kg = typeof n.kgProdotto === "number" ? n.kgProdotto : 0;
       const mult = parentMult * q;
       if (n.stadio === "prodotto_kg") {
-        sum += parentMult * q * (Number(n.kgProdotto) || 0);
+        sum += parentMult * q * kg;
       } else {
         sum += walk(n.children, mult);
       }
@@ -186,6 +188,42 @@ export function totaleKgConfezionati(nodi: ConfezionamentoNodoDraft[]): number {
     return sum;
   }
   return Math.round(walk(nodi, 1) * 1000) / 1000;
+}
+
+export type ConfezionamentoNodoNormalized = Omit<
+  ConfezionamentoNodoDraft,
+  "quantita" | "kgProdotto" | "children"
+> & {
+  quantita: number;
+  kgProdotto: number | null;
+  children: ConfezionamentoNodoNormalized[];
+};
+
+export type ConfezionamentoNormalized = Omit<ConfezionamentoDraft, "nodi"> & {
+  nodi: ConfezionamentoNodoNormalized[];
+};
+
+/** Normalizza qty/kg vuoti prima del salvataggio. */
+export function normalizeConfezionamentoDraft(
+  draft: ConfezionamentoDraft
+): ConfezionamentoNormalized {
+  function norm(
+    nodes: ConfezionamentoNodoDraft[]
+  ): ConfezionamentoNodoNormalized[] {
+    return nodes.map((n) => ({
+      ...n,
+      quantita:
+        n.quantita === "" || !Number.isFinite(n.quantita) ? 0 : n.quantita,
+      kgProdotto:
+        n.kgProdotto === "" || n.kgProdotto == null
+          ? n.stadio === "prodotto_kg"
+            ? 0
+            : null
+          : n.kgProdotto,
+      children: norm(n.children),
+    }));
+  }
+  return { ...draft, nodi: norm(draft.nodi) };
 }
 
 export function childStadioFor(
@@ -231,8 +269,13 @@ export const spedizioneWizardSchema = z
     }
   });
 
-export const confezionamentoNodoSchema: z.ZodType<ConfezionamentoNodoDraft> = z.lazy(
-  () =>
+const quantitaDraftSchema = z.union([
+  z.number().positive(),
+  z.literal(""),
+]);
+
+export const confezionamentoNodoSchema: z.ZodType<ConfezionamentoNodoDraft> =
+  z.lazy(() =>
     z.object({
       localId: z.string().min(1),
       stadio: z.enum([
@@ -244,11 +287,11 @@ export const confezionamentoNodoSchema: z.ZodType<ConfezionamentoNodoDraft> = z.
       catalogoId: z.string().uuid().nullable(),
       nome: z.string(),
       codice: z.string(),
-      quantita: z.number().positive(),
-      kgProdotto: z.number().nullable(),
+      quantita: quantitaDraftSchema,
+      kgProdotto: z.union([z.number(), z.null(), z.literal("")]),
       children: z.array(confezionamentoNodoSchema),
     })
-);
+  );
 
 export const confezionamentoDraftSchema = z.object({
   movimentazioneModo: z.enum(["su_pallet", "nessun_pallet"]),
