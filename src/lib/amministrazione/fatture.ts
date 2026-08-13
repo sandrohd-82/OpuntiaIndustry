@@ -194,10 +194,28 @@ export function calcolaTotaliFattura(input: {
   };
 }
 
-/** Allinea quantità NC: sempre negative (prezzo unitario resta positivo). */
-export function normalizeQuantitaNotaCredito(quantita: number): number {
+/**
+ * Quantità negativa per storno riga o nota di credito.
+ * Il prezzo unitario resta sempre positivo; il segno è sulla quantità.
+ */
+export function normalizeQuantitaNegativa(quantita: number): number {
   if (!Number.isFinite(quantita) || quantita === 0) return -1;
   return quantita > 0 ? -quantita : quantita;
+}
+
+/** Allinea quantità NC: sempre negative (prezzo unitario resta positivo). */
+export function normalizeQuantitaNotaCredito(quantita: number): number {
+  return normalizeQuantitaNegativa(quantita);
+}
+
+export function isRigaStornoQuantita(quantita: number): boolean {
+  return Number.isFinite(quantita) && quantita < 0;
+}
+
+/** Quantità positiva in fattura (toglie lo storno). */
+export function normalizeQuantitaPositiva(quantita: number): number {
+  if (!Number.isFinite(quantita) || quantita === 0) return 1;
+  return Math.abs(quantita);
 }
 
 export function statoPagamentoFromIncassoNc(
@@ -375,8 +393,11 @@ function transformFatturaInput(
     const quantita = isNc
       ? normalizeQuantitaNotaCredito(r.quantita)
       : r.quantita;
-    if (!isNc && (!(quantita > 0) || !Number.isFinite(quantita))) {
-      throw new Error("Quantità deve essere > 0");
+    // Fattura: qty > 0 normale, qty < 0 storno/annullamento voce. NC: sempre < 0.
+    if (!Number.isFinite(quantita) || quantita === 0) {
+      throw new Error(
+        "Quantità non valida: usa un valore diverso da zero (negativo = storno)."
+      );
     }
     return {
       id: r.id,
@@ -686,6 +707,19 @@ export function emptyFatturaRigaNotaCredito(): FatturaRiga {
     prodottoId: null,
     codice: "",
     descrizione: "",
+    quantita: -1,
+    prezzoUnitario: 0,
+    scontoPercentuale: 0,
+    importo: 0,
+  };
+}
+
+/** Riga di storno in fattura (qty negativa, prezzo positivo). */
+export function emptyFatturaRigaStorno(): FatturaRiga {
+  return {
+    prodottoId: null,
+    codice: "",
+    descrizione: "Storno / annullamento",
     quantita: -1,
     prezzoUnitario: 0,
     scontoPercentuale: 0,

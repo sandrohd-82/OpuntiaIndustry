@@ -218,16 +218,26 @@ export function FatturaDettaglioView({
                   r.prezzoUnitario,
                   r.scontoPercentuale
                 );
+                const isStorno = r.quantita < 0;
                 return (
                   <tr
                     key={r.id ?? i}
-                    className="border-t border-[var(--border)]"
+                    className={
+                      isStorno
+                        ? "border-t border-amber-200 bg-amber-50/40"
+                        : "border-t border-[var(--border)]"
+                    }
                   >
                     <td className="px-4 py-3 font-mono text-xs text-slate-900">
                       {r.codice?.trim() || "—"}
                     </td>
                     <td className="px-4 py-3 text-slate-900">
                       {r.descrizione?.trim() || "—"}
+                      {isStorno ? (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                          Storno
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3 tabular-nums text-slate-900">
                       {r.quantita}

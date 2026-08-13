@@ -28,12 +28,16 @@ import {
   emptyFatturaDilazione,
   emptyFatturaRiga,
   emptyFatturaRigaNotaCredito,
+  emptyFatturaRigaStorno,
   formatDateIt,
   formatEuro,
   importoRiga,
   isDilazioneFutura,
+  isRigaStornoQuantita,
   normalizeDilazioneStato,
+  normalizeQuantitaNegativa,
   normalizeQuantitaNotaCredito,
+  normalizeQuantitaPositiva,
   prezzoScontatoUnitario,
   statoPagamentoFromDilazioni,
   statoPagamentoFromIncassoNc,
@@ -1131,13 +1135,29 @@ export function FatturaRegistrazioneModal({
                   <FaPlus size={11} />
                   Aggiungi riga
                 </button>
+                {!isNc ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRighe((prev) => [...prev, emptyFatturaRigaStorno()])
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
+                    title="Aggiunge una voce con quantità negativa che riduce il totale"
+                  >
+                    <FaPlus size={11} />
+                    Riga storno
+                  </button>
+                ) : null}
               </div>
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[860px] text-left text-sm">
+              <table className="w-full min-w-[920px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
                   <tr>
+                    {!isNc ? (
+                      <th className="px-2 py-2">Storno</th>
+                    ) : null}
                     <th className="px-2 py-2">Prodotto</th>
                     <th className="px-2 py-2">Codice</th>
                     <th className="px-2 py-2">Descrizione</th>
@@ -1154,6 +1174,8 @@ export function FatturaRegistrazioneModal({
                     const sconto = numberOrZero(riga.scontoPercentuale);
                     const scontato = prezzoScontatoUnitario(listino, sconto);
                     const hasSconto = sconto > 0;
+                    const isStorno =
+                      isNc || isRigaStornoQuantita(numberOrZero(riga.quantita));
                     const storicoKey = prodottoStoricoKey({
                       prodottoId: riga.prodottoId,
                       codice: riga.codice,
@@ -1167,8 +1189,33 @@ export function FatturaRegistrazioneModal({
                     return (
                       <tr
                         key={index}
-                        className="border-t border-[var(--border)]"
+                        className={
+                          isStorno && !isNc
+                            ? "border-t border-amber-200 bg-amber-50/50"
+                            : "border-t border-[var(--border)]"
+                        }
                       >
+                        {!isNc ? (
+                          <td className="px-2 py-2 align-middle">
+                            <label className="inline-flex items-center gap-1.5 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={isStorno}
+                                onChange={(e) => {
+                                  const q = numberOrZero(riga.quantita);
+                                  patchRiga(index, {
+                                    quantita: e.target.checked
+                                      ? normalizeQuantitaNegativa(q)
+                                      : normalizeQuantitaPositiva(q),
+                                  });
+                                }}
+                                className="rounded border-[var(--border)]"
+                                title="Quantità negativa: riduce il totale fattura"
+                              />
+                              <span className="sr-only">Storno</span>
+                            </label>
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2">
                           <div className="flex items-start gap-1.5">
                             <select
@@ -1231,7 +1278,6 @@ export function FatturaRegistrazioneModal({
                         </td>
                         <td className="px-2 py-2">
                           <ClearableNumberInput
-                            min={isNc ? undefined : 0}
                             value={riga.quantita}
                             onValueChange={(v) =>
                               patchRiga(index, {
@@ -1240,11 +1286,18 @@ export function FatturaRegistrazioneModal({
                                     ? ""
                                     : isNc
                                       ? normalizeQuantitaNotaCredito(v)
-                                      : v,
+                                      : isStorno
+                                        ? normalizeQuantitaNegativa(v)
+                                        : v,
                               })
                             }
                             className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
                             required
+                            title={
+                              isNc || isStorno
+                                ? "Quantità negativa (storno)"
+                                : "Quantità (usa «Storno» o valore negativo per annullare)"
+                            }
                           />
                         </td>
                         <td className="px-2 py-2">
