@@ -135,6 +135,9 @@ export const ordineWizardInputSchema = z
     giorniProduzione: z
       .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
       .optional(),
+    giorniPreparazione: z
+      .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+      .optional(),
     dataConsegnaCalendario: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)

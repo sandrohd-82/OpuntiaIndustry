@@ -109,14 +109,66 @@ export function buildWorkingBlock(input: {
   return { days, skippedOccupied, conflicts };
 }
 
-/** Data consegna = giorno successivo all’ultimo giorno di produzione (lavorativo o calendario?). */
+export type BloccoCalendarioOrdine = {
+  produzione: string[];
+  preparazione: string[];
+  /** Tutti i giorni impegnati (verde + giallo). */
+  tutti: string[];
+  dataConsegna: string | null;
+  skippedOccupied: string[];
+  conflicts: string[];
+};
+
+/**
+ * Blocco ordine: N giorni produzione (verdi) + M giorni
+ * «Preparazione e imballaggio» (gialli), poi data consegna al
+ * primo giorno lavorativo successivo.
+ */
+export function buildBloccoCalendarioOrdine(input: {
+  startIso: string;
+  giorniProduzione: number;
+  giorniPreparazione: number;
+  usaSabato: boolean;
+  occupiedSet: Set<string>;
+  skipOccupied: boolean;
+}): BloccoCalendarioOrdine {
+  const nProd = Math.max(0, Math.floor(input.giorniProduzione));
+  const nPrep = Math.max(0, Math.floor(input.giorniPreparazione));
+  const total = nProd + nPrep;
+  const block = buildWorkingBlock({
+    startIso: input.startIso,
+    giorni: total,
+    usaSabato: input.usaSabato,
+    occupiedSet: input.occupiedSet,
+    skipOccupied: input.skipOccupied,
+  });
+  const produzione = block.days.slice(0, nProd);
+  const preparazione = block.days.slice(nProd, nProd + nPrep);
+  const tutti = [...produzione, ...preparazione];
+  return {
+    produzione,
+    preparazione,
+    tutti,
+    dataConsegna: dataConsegnaDaBlocco(tutti, input.usaSabato),
+    skippedOccupied: block.skippedOccupied,
+    conflicts: block.conflicts,
+  };
+}
+
+/** Data consegna = primo giorno lavorativo dopo l’ultimo giorno del blocco. */
 export function dataConsegnaDaBlocco(
   blockDays: string[],
   usaSabato: boolean
 ): string | null {
   if (!blockDays.length) return null;
   const last = blockDays[blockDays.length - 1]!;
+  // Giorno successivo, poi allinea al primo lavorativo
   return nextWorkingDay(addDays(last, 1), usaSabato);
+}
+
+export function monthFromIso(iso: string): { year: number; month0: number } {
+  const d = parseIso(iso);
+  return { year: d.getFullYear(), month0: d.getMonth() };
 }
 
 export function formatIsoIt(iso: string): string {

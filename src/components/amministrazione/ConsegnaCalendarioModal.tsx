@@ -7,20 +7,29 @@ import {
   spostaImpegnoCalendarioAction,
 } from "@/app/actions/calendario-produzione";
 import {
-  buildWorkingBlock,
+  buildBloccoCalendarioOrdine,
   dataConsegnaDaBlocco,
   formatIsoIt,
+  monthFromIso,
   monthMatrix,
+  type BloccoCalendarioOrdine,
   type CalendarioImpegno,
 } from "@/lib/amministrazione/calendario-produzione";
+import {
+  ClearableNumberInput,
+} from "@/components/ui/ClearableNumberInput";
 
 type Props = {
-  giorniNecessari: number;
+  giorniProduzioneNecessari: number;
   usaSabato: boolean;
   onToggleSabato: (v: boolean) => void;
-  initialSelected?: string[];
+  initialGiorniProduzione?: string[];
+  initialGiorniPreparazione?: string[];
+  /** Default 1; ripristinato se già confermato. */
+  initialCountPreparazione?: number;
   onConfirm: (payload: {
     giorniProduzione: string[];
+    giorniPreparazione: string[];
     dataConsegna: string;
   }) => void;
   onClose: () => void;
@@ -28,25 +37,79 @@ type Props = {
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
 
+function emptyBlocco(): BloccoCalendarioOrdine {
+  return {
+    produzione: [],
+    preparazione: [],
+    tutti: [],
+    dataConsegna: null,
+    skippedOccupied: [],
+    conflicts: [],
+  };
+}
+
 export function ConsegnaCalendarioModal({
-  giorniNecessari,
+  giorniProduzioneNecessari,
   usaSabato,
   onToggleSabato,
-  initialSelected = [],
+  initialGiorniProduzione = [],
+  initialGiorniPreparazione = [],
+  initialCountPreparazione,
   onConfirm,
   onClose,
 }: Props) {
   const titleId = useId();
   const today = new Date();
-  const [year, setYear] = useState(today.getFullYear());
-  const [month0, setMonth0] = useState(today.getMonth());
+  const seedConsegna =
+    initialGiorniProduzione.length > 0 &&
+    initialGiorniPreparazione.length > 0
+      ? dataConsegnaDaBlocco(
+          [...initialGiorniProduzione, ...initialGiorniPreparazione],
+          usaSabato
+        )
+      : null;
+  const seedIso =
+    seedConsegna ??
+    initialGiorniPreparazione[initialGiorniPreparazione.length - 1] ??
+    initialGiorniProduzione[0] ??
+    null;
+  const seedMonth = seedIso ? monthFromIso(seedIso) : null;
+  const [year, setYear] = useState(
+    seedMonth?.year ?? today.getFullYear()
+  );
+  const [month0, setMonth0] = useState(
+    seedMonth?.month0 ?? today.getMonth()
+  );
   const [impegni, setImpegni] = useState<CalendarioImpegno[]>([]);
   const [hoverIso, setHoverIso] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>(initialSelected);
+  const [countPrep, setCountPrep] = useState<number | "">(
+    initialCountPreparazione && initialCountPreparazione > 0
+      ? initialCountPreparazione
+      : initialGiorniPreparazione.length > 0
+        ? initialGiorniPreparazione.length
+        : 1
+  );
+  const [produzione, setProduzione] = useState<string[]>(
+    initialGiorniProduzione
+  );
+  const [preparazione, setPreparazione] = useState<string[]>(
+    initialGiorniPreparazione
+  );
+  const [dataConsegna, setDataConsegna] = useState<string | null>(() => {
+    if (
+      initialGiorniProduzione.length > 0 &&
+      initialGiorniPreparazione.length > 0
+    ) {
+      return dataConsegnaDaBlocco(
+        [...initialGiorniProduzione, ...initialGiorniPreparazione],
+        usaSabato
+      );
+    }
+    return null;
+  });
   const [forceMode, setForceMode] = useState(false);
   const [conflictAsk, setConflictAsk] = useState<{
-    days: string[];
-    conflicts: string[];
+    blocco: BloccoCalendarioOrdine;
   } | null>(null);
   const [displaceAsk, setDisplaceAsk] = useState<{
     impegno: CalendarioImpegno;
@@ -54,6 +117,8 @@ export function ConsegnaCalendarioModal({
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const nPrep = typeof countPrep === "number" && countPrep > 0 ? countPrep : 0;
 
   const range = useMemo(() => {
     const from = `${year}-${String(month0 + 1).padStart(2, "0")}-01`;
@@ -87,6 +152,25 @@ export function ConsegnaCalendarioModal({
     };
   }, []);
 
+  function goToIsoMonth(iso: string) {
+    const m = monthFromIso(iso);
+    setYear(m.year);
+    setMonth0(m.month0);
+  }
+
+  function applyBlocco(blocco: BloccoCalendarioOrdine) {
+    setProduzione(blocco.produzione);
+    setPreparazione(blocco.preparazione);
+    setDataConsegna(blocco.dataConsegna);
+    setError(null);
+    // Mostra sempre il mese della data consegna (o ultimo giorno del blocco)
+    const focus =
+      blocco.dataConsegna ??
+      blocco.tutti[blocco.tutti.length - 1] ??
+      null;
+    if (focus) goToIsoMonth(focus);
+  }
+
   const occupiedMap = useMemo(() => {
     const m = new Map<string, CalendarioImpegno[]>();
     for (const i of impegni) {
@@ -102,23 +186,53 @@ export function ConsegnaCalendarioModal({
     [impegni]
   );
 
-  const preview = useMemo(() => {
-    if (!hoverIso || giorniNecessari <= 0) {
-      return { days: [] as string[], skippedOccupied: [] as string[], conflicts: [] as string[] };
+  // Se cambia il n° giorni preparazione con selezione già fatta, riallinea dal primo giorno prod.
+  useEffect(() => {
+    if (produzione.length === 0 || nPrep <= 0) return;
+    if (
+      produzione.length === giorniProduzioneNecessari &&
+      preparazione.length === nPrep
+    ) {
+      return;
     }
-    return buildWorkingBlock({
-      startIso: hoverIso,
-      giorni: giorniNecessari,
+    const start = produzione[0]!;
+    const blocco = buildBloccoCalendarioOrdine({
+      startIso: start,
+      giorniProduzione: giorniProduzioneNecessari,
+      giorniPreparazione: nPrep,
       usaSabato,
       occupiedSet,
       skipOccupied: !forceMode,
     });
-  }, [hoverIso, giorniNecessari, usaSabato, occupiedSet, forceMode]);
+    if (
+      blocco.tutti.length === giorniProduzioneNecessari + nPrep &&
+      blocco.skippedOccupied.length === 0
+    ) {
+      applyBlocco(blocco);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nPrep, usaSabato]);
 
-  const selectedConsegna = useMemo(
-    () => dataConsegnaDaBlocco(selected, usaSabato),
-    [selected, usaSabato]
-  );
+  const preview = useMemo(() => {
+    if (!hoverIso || giorniProduzioneNecessari <= 0 || nPrep <= 0) {
+      return emptyBlocco();
+    }
+    return buildBloccoCalendarioOrdine({
+      startIso: hoverIso,
+      giorniProduzione: giorniProduzioneNecessari,
+      giorniPreparazione: nPrep,
+      usaSabato,
+      occupiedSet,
+      skipOccupied: !forceMode,
+    });
+  }, [
+    hoverIso,
+    giorniProduzioneNecessari,
+    nPrep,
+    usaSabato,
+    occupiedSet,
+    forceMode,
+  ]);
 
   const rows = useMemo(() => monthMatrix(year, month0), [year, month0]);
 
@@ -131,13 +245,19 @@ export function ConsegnaCalendarioModal({
     if (dow === 6 && !usaSabato) {
       return "bg-slate-200 text-slate-500 border-slate-300";
     }
-    if (selectedConsegna === iso) {
-      return "bg-emerald-500 text-white border-emerald-700 ring-4 ring-emerald-300 shadow-lg scale-[1.03] z-10 font-bold";
+    if (dataConsegna === iso) {
+      return "bg-sky-500 text-white border-sky-700 ring-4 ring-sky-300 shadow-lg scale-[1.03] z-10 font-bold";
     }
-    if (selected.includes(iso)) {
+    if (preparazione.includes(iso)) {
+      return "bg-amber-300 text-amber-950 border-amber-500 ring-2 ring-amber-400 font-semibold";
+    }
+    if (produzione.includes(iso)) {
       return "bg-emerald-400/90 text-emerald-950 border-emerald-600 ring-2 ring-emerald-300 font-semibold";
     }
-    if (preview.days.includes(iso)) {
+    if (preview.preparazione.includes(iso)) {
+      return "bg-amber-200/90 text-amber-950 border-amber-400 ring-2 ring-amber-300 font-semibold";
+    }
+    if (preview.produzione.includes(iso)) {
       return "bg-lime-300/90 text-lime-950 border-lime-500 ring-2 ring-lime-400 font-semibold";
     }
     if (occupiedSet.has(iso)) {
@@ -150,38 +270,43 @@ export function ConsegnaCalendarioModal({
   }
 
   function trySelectFrom(startIso: string) {
-    const block = buildWorkingBlock({
+    if (nPrep <= 0) {
+      setError("Imposta almeno 1 giorno di preparazione e imballaggio.");
+      return;
+    }
+    const blocco = buildBloccoCalendarioOrdine({
       startIso,
-      giorni: giorniNecessari,
+      giorniProduzione: giorniProduzioneNecessari,
+      giorniPreparazione: nPrep,
       usaSabato,
       occupiedSet,
       skipOccupied: true,
     });
-    if (block.skippedOccupied.length > 0) {
-      const forced = buildWorkingBlock({
+    if (blocco.skippedOccupied.length > 0) {
+      const forced = buildBloccoCalendarioOrdine({
         startIso,
-        giorni: giorniNecessari,
+        giorniProduzione: giorniProduzioneNecessari,
+        giorniPreparazione: nPrep,
         usaSabato,
         occupiedSet,
         skipOccupied: false,
       });
-      setConflictAsk({
-        days: forced.days,
-        conflicts: forced.conflicts,
-      });
+      setConflictAsk({ blocco: forced });
       return;
     }
-    if (block.days.length < giorniNecessari) {
-      setError("Impossibile posizionare tutti i giorni lavorativi da questa data.");
+    const needed = giorniProduzioneNecessari + nPrep;
+    if (blocco.tutti.length < needed) {
+      setError(
+        "Impossibile posizionare tutti i giorni lavorativi da questa data."
+      );
       return;
     }
-    setSelected(block.days);
-    setError(null);
+    applyBlocco(blocco);
   }
 
   function confirmForced() {
     if (!conflictAsk) return;
-    setSelected(conflictAsk.days);
+    applyBlocco(conflictAsk.blocco);
     setForceMode(true);
     setConflictAsk(null);
   }
@@ -205,6 +330,12 @@ export function ConsegnaCalendarioModal({
     year: "numeric",
   });
 
+  const canConfirm =
+    produzione.length === giorniProduzioneNecessari &&
+    preparazione.length === nPrep &&
+    nPrep > 0 &&
+    Boolean(dataConsegna);
+
   const content = (
     <div
       className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/70 px-3 py-6"
@@ -222,10 +353,10 @@ export function ConsegnaCalendarioModal({
               Calendario consegna / produzione
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Passa il mouse: {giorniNecessari} caselle lavorative seguono il
-              cursore (saltano domenica
-              {usaSabato ? "" : " e sabato"}
-              {forceMode ? "" : " e giorni già impegnati"}). Clic per fissare.
+              Passa il mouse: {giorniProduzioneNecessari} giorni verdi
+              (lavorazione) + {nPrep || "…"} gialli (preparazione e
+              imballaggio). Clic per fissare. La data consegna (azzurra) è il
+              giorno lavorativo successivo.
             </p>
           </div>
           <button
@@ -237,7 +368,26 @@ export function ConsegnaCalendarioModal({
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">
+              Giorni preparazione e imballaggio
+            </span>
+            <ClearableNumberInput
+              min={1}
+              max={60}
+              value={countPrep}
+              onValueChange={(v) => {
+                if (v === "") {
+                  setCountPrep("");
+                  return;
+                }
+                setCountPrep(Math.max(1, Math.floor(v)));
+              }}
+              emptyAsZeroOnBlur={false}
+              className="w-24 rounded-lg border border-[var(--border)] px-3 py-1.5"
+            />
+          </label>
           <button
             type="button"
             onClick={prevMonth}
@@ -245,7 +395,7 @@ export function ConsegnaCalendarioModal({
           >
             ←
           </button>
-          <span className="min-w-[10rem] text-center text-sm font-semibold capitalize">
+          <span className="min-w-[10rem] pb-1.5 text-center text-sm font-semibold capitalize">
             {monthLabel}
           </span>
           <button
@@ -283,12 +433,16 @@ export function ConsegnaCalendarioModal({
             Occupato
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-lime-300 ring-1 ring-lime-500" />
-            Anteprima blocco
+            <span className="inline-block h-3.5 w-3.5 rounded bg-emerald-400 ring-1 ring-emerald-600" />
+            Lavorazione
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-emerald-500 ring-2 ring-emerald-300" />
-            Selezionato / consegna
+            <span className="inline-block h-3.5 w-3.5 rounded bg-amber-300 ring-1 ring-amber-500" />
+            Preparazione e imballaggio
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block h-3.5 w-3.5 rounded bg-sky-500 ring-2 ring-sky-300" />
+            Consegna
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3.5 w-3.5 rounded bg-slate-200" />
@@ -323,6 +477,9 @@ export function ConsegnaCalendarioModal({
               const dow = new Date(iso + "T12:00:00").getDay();
               const isSun = dow === 0;
               const occ = occupiedMap.get(iso) ?? [];
+              const inPreview = preview.tutti.includes(iso);
+              const inSelected =
+                produzione.includes(iso) || preparazione.includes(iso);
               return (
                 <button
                   key={key}
@@ -332,7 +489,7 @@ export function ConsegnaCalendarioModal({
                   onMouseLeave={() => setHoverIso(null)}
                   onClick={() => {
                     if (isSun) return;
-                    if (occ.length && !forceMode && !preview.days.includes(iso)) {
+                    if (occ.length && !forceMode && !inPreview) {
                       setDisplaceAsk({ impegno: occ[0]!, targetDay: iso });
                       return;
                     }
@@ -340,20 +497,30 @@ export function ConsegnaCalendarioModal({
                   }}
                   className={`relative aspect-square rounded-lg border text-sm transition ${cellClass(iso)}`}
                   title={
-                    occ.length
-                      ? `Occupato: ${occ.map((o) => o.etichetta || o.ordineId).join(", ")}`
-                      : iso
+                    dataConsegna === iso
+                      ? `Consegna · ${iso}`
+                      : preparazione.includes(iso)
+                        ? `Preparazione e imballaggio · ${iso}`
+                        : produzione.includes(iso)
+                          ? `Lavorazione · ${iso}`
+                          : occ.length
+                            ? `Occupato: ${occ.map((o) => o.etichetta || o.ordineId).join(", ")}`
+                            : iso
                   }
                 >
                   <span className="absolute left-1.5 top-1 text-xs tabular-nums">
                     {Number(iso.slice(8, 10))}
                   </span>
-                  {selectedConsegna === iso ? (
-                    <span className="absolute inset-x-1 bottom-1 rounded bg-emerald-900/30 px-0.5 text-[9px] font-bold uppercase leading-tight">
+                  {dataConsegna === iso ? (
+                    <span className="absolute inset-x-0.5 bottom-0.5 rounded bg-sky-900/40 px-0.5 text-[8px] font-bold uppercase leading-tight tracking-tight">
                       Consegna
                     </span>
-                  ) : null}
-                  {occ.length && !preview.days.includes(iso) && !selected.includes(iso) ? (
+                  ) : preparazione.includes(iso) ||
+                    preview.preparazione.includes(iso) ? (
+                    <span className="absolute inset-x-0.5 bottom-0.5 rounded bg-amber-900/20 px-0.5 text-[8px] font-bold uppercase leading-tight tracking-tight">
+                      Prep.
+                    </span>
+                  ) : occ.length && !inPreview && !inSelected ? (
                     <span className="absolute inset-x-1 bottom-1 truncate text-[9px] font-medium leading-tight opacity-90">
                       {occ[0]?.etichetta || "Imp."}
                     </span>
@@ -375,19 +542,38 @@ export function ConsegnaCalendarioModal({
 
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3 text-sm">
           <p>
-            Giorni produzione selezionati:{" "}
-            <strong>{selected.length}</strong> / {giorniNecessari}
+            Lavorazione (verdi):{" "}
+            <strong>{produzione.length}</strong> /{" "}
+            {giorniProduzioneNecessari}
           </p>
-          {selected.length ? (
+          {produzione.length ? (
             <p className="mt-1 text-xs text-[var(--muted)]">
-              {selected.map(formatIsoIt).join(" · ")}
+              {produzione.map(formatIsoIt).join(" · ")}
             </p>
           ) : null}
           <p className="mt-2">
-            Data consegna (evidenziata):{" "}
-            <strong className="text-emerald-700">
-              {selectedConsegna ? formatIsoIt(selectedConsegna) : "—"}
+            Preparazione e imballaggio (gialli):{" "}
+            <strong>{preparazione.length}</strong> / {nPrep || "—"}
+          </p>
+          {preparazione.length ? (
+            <p className="mt-1 text-xs text-amber-900">
+              {preparazione.map(formatIsoIt).join(" · ")}
+            </p>
+          ) : null}
+          <p className="mt-2">
+            Data consegna:{" "}
+            <strong className="text-sky-700">
+              {dataConsegna ? formatIsoIt(dataConsegna) : "—"}
             </strong>
+            {dataConsegna ? (
+              <button
+                type="button"
+                className="ml-2 text-xs font-medium text-sky-700 underline"
+                onClick={() => goToIsoMonth(dataConsegna)}
+              >
+                Vai al mese
+              </button>
+            ) : null}
           </p>
           {preview.skippedOccupied.length > 0 && !forceMode ? (
             <p className="mt-2 text-xs text-amber-800">
@@ -407,14 +593,13 @@ export function ConsegnaCalendarioModal({
           </button>
           <button
             type="button"
-            disabled={
-              selected.length !== giorniNecessari || !selectedConsegna
-            }
+            disabled={!canConfirm}
             onClick={() => {
-              if (!selectedConsegna) return;
+              if (!dataConsegna || !canConfirm) return;
               onConfirm({
-                giorniProduzione: selected,
-                dataConsegna: selectedConsegna,
+                giorniProduzione: produzione,
+                giorniPreparazione: preparazione,
+                dataConsegna,
               });
             }}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
@@ -435,7 +620,7 @@ export function ConsegnaCalendarioModal({
               i giorni (sovrascrivendo / sostituendo gli impegni)?
             </p>
             <ul className="mt-2 list-inside list-disc text-xs text-amber-900">
-              {conflictAsk.conflicts.map((d) => (
+              {conflictAsk.blocco.conflicts.map((d) => (
                 <li key={d}>{formatIsoIt(d)}</li>
               ))}
             </ul>
@@ -468,8 +653,8 @@ export function ConsegnaCalendarioModal({
               {displaceAsk.impegno.etichetta
                 ? ` (${displaceAsk.impegno.etichetta})`
                 : ""}
-              . Puoi spostarlo su un altro giorno libero dal calendario (clicca
-              dopo «Sposta») oppure sostituirlo con questo ordine.
+              . Puoi spostarlo su un altro giorno libero dal calendario oppure
+              sostituirlo con questo ordine.
             </p>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
@@ -494,7 +679,6 @@ export function ConsegnaCalendarioModal({
                 type="button"
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
                 onClick={() => {
-                  // Modalità spostamento: prossimo click libero sposta l'impegno
                   const target = window.prompt(
                     "Nuova data (AAAA-MM-GG) libera per spostare l’impegno:",
                     displaceAsk.impegno.dataGiorno

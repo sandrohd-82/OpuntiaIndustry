@@ -139,8 +139,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   const [kgEssiccatore, setKgEssiccatore] = useState<number | "">(2200);
   const [overridesSeeded, setOverridesSeeded] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
-  const [calendarioAutoShown, setCalendarioAutoShown] = useState(false);
   const [giorniProduzione, setGiorniProduzione] = useState<string[]>([]);
+  const [giorniPreparazione, setGiorniPreparazione] = useState<string[]>([]);
   const [dataConsegnaCalendario, setDataConsegnaCalendario] = useState<
     string | null
   >(null);
@@ -265,15 +265,6 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     if (result.calcolo.chiedereSabato && !sab) {
       setSabatoProposto(true);
     }
-    // Apri calendario una volta dopo il primo calcolo con giorni > 0
-    if (
-      result.calcolo.giorniLavorativiNecessari > 0 &&
-      giorniProduzione.length === 0 &&
-      !calendarioAutoShown
-    ) {
-      setCalendarioAutoShown(true);
-      setCalendarioOpen(true);
-    }
   }
 
   useEffect(() => {
@@ -298,7 +289,17 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     if (step === 2) return Boolean(prodotto);
     if (step === 3)
       return quantitaKg > 0 && numberOrZero(prezzoUnitario) >= 0;
-    if (step === 4) return Boolean(calcolo?.dataConsegnaStimata);
+    if (step === 4) {
+      if (!calcolo || calcolo.giorniLavorativiNecessari <= 0) {
+        return Boolean(calcolo?.dataConsegnaStimata);
+      }
+      // Operatore deve fissare i giorni sul calendario (verde + giallo)
+      return (
+        giorniProduzione.length === calcolo.giorniLavorativiNecessari &&
+        giorniPreparazione.length > 0 &&
+        Boolean(dataConsegnaCalendario)
+      );
+    }
     if (step === 5) {
       if (!corriereDopo && !corriereId) return false;
       if (aCarico === "diviso" && (pctAgrin === "" || Number(pctAgrin) < 0))
@@ -348,6 +349,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       spedizionePctAgrinsicilia:
         aCarico === "diviso" ? Number(pctAgrin) : null,
       giorniProduzione,
+      giorniPreparazione,
       dataConsegnaCalendario,
       confezionamento: confNorm,
       tipoPagamento: "alla_consegna",
@@ -798,13 +800,20 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                     </li>
                     {giorniProduzione.length > 0 ? (
                       <li className="text-emerald-800">
-                        Calendario: {giorniProduzione.length} giorni produzione
-                        fissati
+                        Calendario: {giorniProduzione.length} giorni lavorazione
+                        {giorniPreparazione.length > 0
+                          ? ` + ${giorniPreparazione.length} preparazione/imballaggio`
+                          : ""}
                         {dataConsegnaCalendario
                           ? ` · consegna ${formatDateIt(dataConsegnaCalendario)}`
                           : ""}
                       </li>
-                    ) : null}
+                    ) : (
+                      <li className="text-amber-800">
+                        Apri il calendario e seleziona i giorni di lavorazione
+                        (e preparazione) per abilitare Avanti.
+                      </li>
+                    )}
                     {calcolo.avvisi.map((a) => (
                       <li key={a} className="text-xs text-[var(--muted)]">
                         {a}
@@ -826,7 +835,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                 >
                   {giorniProduzione.length
                     ? "Riapri calendario produzione"
-                    : `Apri calendario · ${calcolo.giorniLavorativiNecessari} giorni lavorativi`}
+                    : `Apri calendario · ${calcolo.giorniLavorativiNecessari} lavorazione + prep.`}
                 </button>
               ) : null}
             </div>
@@ -1183,13 +1192,22 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
 
       {calendarioOpen && calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
         <ConsegnaCalendarioModal
-          giorniNecessari={calcolo.giorniLavorativiNecessari}
+          giorniProduzioneNecessari={calcolo.giorniLavorativiNecessari}
           usaSabato={usaSabato}
           onToggleSabato={setUsaSabato}
-          initialSelected={giorniProduzione}
+          initialGiorniProduzione={giorniProduzione}
+          initialGiorniPreparazione={giorniPreparazione}
+          initialCountPreparazione={
+            giorniPreparazione.length > 0 ? giorniPreparazione.length : 1
+          }
           onClose={() => setCalendarioOpen(false)}
-          onConfirm={({ giorniProduzione: days, dataConsegna }) => {
+          onConfirm={({
+            giorniProduzione: days,
+            giorniPreparazione: prep,
+            dataConsegna,
+          }) => {
             setGiorniProduzione(days);
+            setGiorniPreparazione(prep);
             setDataConsegnaCalendario(dataConsegna);
             setCalendarioOpen(false);
           }}

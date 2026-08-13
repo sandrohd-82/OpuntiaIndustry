@@ -739,6 +739,11 @@ export async function createOrdineWizardAction(
     };
   }
   const giorniProduzione = input.giorniProduzione ?? [];
+  const giorniPreparazione = input.giorniPreparazione ?? [];
+  const giorniCalendarioImpegno = [
+    ...giorniProduzione,
+    ...giorniPreparazione,
+  ];
 
   const trasporto = emptyTrasporto();
   const righeCalc = [
@@ -795,6 +800,7 @@ export async function createOrdineWizardAction(
       capacita_snapshot: {
         ...calcRes.calcolo.snapshot,
         giorni_produzione: giorniProduzione,
+        giorni_preparazione: giorniPreparazione,
         data_consegna_calendario: dataConsegna,
       },
       giorni_produzione: giorniProduzione,
@@ -834,8 +840,9 @@ export async function createOrdineWizardAction(
     ]);
     if (righeErr) return { success: false, error: righeErr };
 
-    if (giorniProduzione.length > 0) {
-      const etichetta = `${numeroInterno} · ${input.prodottoCodice}`;
+    if (giorniCalendarioImpegno.length > 0) {
+      const etichettaProd = `${numeroInterno} · ${input.prodottoCodice}`;
+      const etichettaPrep = `${numeroInterno} · Prep/Imballaggio`;
       const linea =
         typeof calcRes.calcolo.snapshot.linea === "string"
           ? calcRes.calcolo.snapshot.linea
@@ -849,22 +856,33 @@ export async function createOrdineWizardAction(
           deleted_by: auth.userId,
           updated_by: auth.userId,
         })
-        .in("data_giorno", giorniProduzione)
+        .in("data_giorno", giorniCalendarioImpegno)
         .is("deleted_at", null);
+
+      const rowsImpegno = [
+        ...giorniProduzione.map((d) => ({
+          data_giorno: d,
+          ordine_id: row.id,
+          linea_codice: linea,
+          etichetta: etichettaProd,
+          note: "lavorazione",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })),
+        ...giorniPreparazione.map((d) => ({
+          data_giorno: d,
+          ordine_id: row.id,
+          linea_codice: linea,
+          etichetta: etichettaPrep,
+          note: "preparazione_imballaggio",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })),
+      ];
 
       const { error: impErr } = await supabase
         .from("produzione_calendario_impegni")
-        .insert(
-          giorniProduzione.map((d) => ({
-            data_giorno: d,
-            ordine_id: row.id,
-            linea_codice: linea,
-            etichetta,
-            note: "",
-            created_by: auth.userId,
-            updated_by: auth.userId,
-          }))
-        );
+        .insert(rowsImpegno);
       if (impErr) {
         return {
           success: false,
