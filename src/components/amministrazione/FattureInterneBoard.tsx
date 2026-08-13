@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import { FaArrowsRotate, FaPlus } from "react-icons/fa6";
 import {
   getFatturaByIdAction,
@@ -14,6 +20,7 @@ import {
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
+import { SortableTh } from "@/components/ui/SortableTh";
 import {
   formatDateIt,
   formatEuro,
@@ -23,16 +30,71 @@ import {
 } from "@/lib/amministrazione/fatture";
 import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
+import {
+  buildTrimestreOptions,
+  isoInDateRange,
+  labelTrimestreKey,
+  trimestreFromIsoDate,
+  type TrimestreKey,
+} from "@/lib/amministrazione/trimestre-commerciale";
+import {
+  compareSortValues,
+  nextSortState,
+  type SortState,
+} from "@/lib/ui/list-sort";
 import Link from "next/link";
 
 type Props = {
   kind: FatturaKind;
 };
 
+type SortKey =
+  | "numeroInterno"
+  | "dataEmissione"
+  | "anagrafica"
+  | "docEsterno"
+  | "rifFattura"
+  | "imponibile"
+  | "totale"
+  | "stato";
+
 function docLabel(kind: FatturaKind): string {
   if (kind === "nota_credito") return "nota di credito";
   if (kind === "emessa") return "fattura emessa";
   return "fattura ricevuta";
+}
+
+function prodottoMatch(f: Fattura, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return f.righe.some((r) => {
+    const codice = (r.codice ?? "").toLowerCase();
+    const desc = (r.descrizione ?? "").toLowerCase();
+    return codice.includes(q) || desc.includes(q);
+  });
+}
+
+function sortValue(f: Fattura, key: SortKey): string | number {
+  switch (key) {
+    case "numeroInterno":
+      return f.numeroInterno;
+    case "dataEmissione":
+      return f.dataEmissione;
+    case "anagrafica":
+      return `${f.anagraficaCodiceTarga} ${f.anagraficaRagioneSociale}`;
+    case "docEsterno":
+      return f.numeroDocumentoEsterno || "";
+    case "rifFattura":
+      return f.riferimentoFatturaEsterno || "";
+    case "imponibile":
+      return f.imponibile;
+    case "totale":
+      return f.totale;
+    case "stato":
+      return f.statoPagamento;
+    default:
+      return "";
+  }
 }
 
 export function FattureInterneBoard({ kind }: Props) {
@@ -47,6 +109,18 @@ export function FattureInterneBoard({ kind }: Props) {
   );
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
+
+  const [sort, setSort] = useState<SortState<SortKey> | null>({
+    key: "dataEmissione",
+    dir: "desc",
+  });
+  const [filtroDal, setFiltroDal] = useState("");
+  const [filtroAl, setFiltroAl] = useState("");
+  const [filtroTrimestre, setFiltroTrimestre] = useState<TrimestreKey | "">(
+    ""
+  );
+  const [filtroAziendaId, setFiltroAziendaId] = useState("");
+  const [filtroProdotto, setFiltroProdotto] = useState("");
 
   const load = useCallback(() => {
     startTransition(async () => {
@@ -66,6 +140,15 @@ export function FattureInterneBoard({ kind }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setFiltroDal("");
+    setFiltroAl("");
+    setFiltroTrimestre("");
+    setFiltroAziendaId("");
+    setFiltroProdotto("");
+    setSort({ key: "dataEmissione", dir: "desc" });
+  }, [kind]);
 
   function handleSync() {
     setError(null);
@@ -111,6 +194,74 @@ export function FattureInterneBoard({ kind }: Props) {
       ? "Nessuna nota di credito registrata"
       : "Nessuna fattura registrata";
 
+  const aziendeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of fatture) {
+      const id = f.anagraficaId || f.anagraficaCodiceTarga;
+      if (!id) continue;
+      if (!map.has(id)) {
+        map.set(
+          id,
+          `${f.anagraficaCodiceTarga} — ${f.anagraficaRagioneSociale}`
+        );
+      }
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1], "it", { sensitivity: "base" }))
+      .map(([id, label]) => ({ id, label }));
+  }, [fatture]);
+
+  const trimestreOptions = useMemo(
+    () => buildTrimestreOptions(fatture.map((f) => f.dataEmissione)),
+    [fatture]
+  );
+
+  const filteredSorted = useMemo(() => {
+    let list = fatture.filter((f) => {
+      if (!isoInDateRange(f.dataEmissione, filtroDal, filtroAl)) return false;
+      if (filtroTrimestre) {
+        const t = trimestreFromIsoDate(f.dataEmissione);
+        if (!t || t.key !== filtroTrimestre) return false;
+      }
+      if (filtroAziendaId) {
+        const id = f.anagraficaId || f.anagraficaCodiceTarga;
+        if (id !== filtroAziendaId) return false;
+      }
+      if (!prodottoMatch(f, filtroProdotto)) return false;
+      return true;
+    });
+
+    if (sort) {
+      list = [...list].sort((a, b) =>
+        compareSortValues(sortValue(a, sort.key), sortValue(b, sort.key), sort.dir)
+      );
+    }
+    return list;
+  }, [
+    fatture,
+    filtroDal,
+    filtroAl,
+    filtroTrimestre,
+    filtroAziendaId,
+    filtroProdotto,
+    sort,
+  ]);
+
+  const filtriAttivi =
+    Boolean(filtroDal) ||
+    Boolean(filtroAl) ||
+    Boolean(filtroTrimestre) ||
+    Boolean(filtroAziendaId) ||
+    Boolean(filtroProdotto.trim());
+
+  function clearFiltri() {
+    setFiltroDal("");
+    setFiltroAl("");
+    setFiltroTrimestre("");
+    setFiltroAziendaId("");
+    setFiltroProdotto("");
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -141,6 +292,103 @@ export function FattureInterneBoard({ kind }: Props) {
               : "Registra fattura"}
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Filtri
+          </p>
+          {filtriAttivi ? (
+            <button
+              type="button"
+              onClick={clearFiltri}
+              className="text-xs font-medium text-[var(--primary)] hover:underline"
+            >
+              Azzera filtri
+            </button>
+          ) : null}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Data da
+            </span>
+            <input
+              type="date"
+              value={filtroDal}
+              onChange={(e) => setFiltroDal(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Data a
+            </span>
+            <input
+              type="date"
+              value={filtroAl}
+              onChange={(e) => setFiltroAl(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Trimestre commerciale
+            </span>
+            <select
+              value={filtroTrimestre}
+              onChange={(e) =>
+                setFiltroTrimestre(e.target.value as TrimestreKey | "")
+              }
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            >
+              <option value="">Tutti</option>
+              {trimestreOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Azienda ({entityLabel.toLowerCase()})
+            </span>
+            <select
+              value={filtroAziendaId}
+              onChange={(e) => setFiltroAziendaId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            >
+              <option value="">Tutte</option>
+              {aziendeOptions.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm sm:col-span-2 lg:col-span-1">
+            <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+              Contiene prodotto
+            </span>
+            <input
+              type="search"
+              value={filtroProdotto}
+              onChange={(e) => setFiltroProdotto(e.target.value)}
+              placeholder="Es. Agrinsicilia, ODR…"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            />
+          </label>
+        </div>
+        {ready && fatture.length > 0 ? (
+          <p className="mt-3 text-xs text-[var(--muted)]">
+            Mostrate {filteredSorted.length} di {fatture.length}
+            {filtroTrimestre
+              ? ` · ${labelTrimestreKey(filtroTrimestre)}`
+              : ""}
+          </p>
+        ) : null}
       </div>
 
       {syncInfo ? (
@@ -225,27 +473,82 @@ export function FattureInterneBoard({ kind }: Props) {
             Usa «Registra» oppure «Sincronizza» da Fatture in Cloud.
           </p>
         </div>
+      ) : filteredSorted.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] px-4 py-10 text-center">
+          <p className="text-sm font-medium">Nessun documento con questi filtri</p>
+          <button
+            type="button"
+            onClick={clearFiltri}
+            className="mt-3 text-sm font-medium text-[var(--primary)] hover:underline"
+          >
+            Azzera filtri
+          </button>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
           <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide">
               <tr>
-                <th className="px-4 py-3 font-medium">N. interno</th>
-                <th className="px-4 py-3 font-medium">Data</th>
-                <th className="px-4 py-3 font-medium">{entityLabel}</th>
-                <th className="px-4 py-3 font-medium">Doc. esterno</th>
+                <SortableTh
+                  label="N. interno"
+                  sortKey="numeroInterno"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Data"
+                  sortKey="dataEmissione"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label={entityLabel}
+                  sortKey="anagrafica"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Doc. esterno"
+                  sortKey="docEsterno"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
                 {kind === "nota_credito" ? (
-                  <th className="px-4 py-3 font-medium">Rif. fattura</th>
+                  <SortableTh
+                    label="Rif. fattura"
+                    sortKey="rifFattura"
+                    sort={sort}
+                    onSort={(k) => setSort((s) => nextSortState(s, k))}
+                  />
                 ) : null}
-                <th className="px-4 py-3 font-medium">Imponibile</th>
-                <th className="px-4 py-3 font-medium">Totale</th>
-                <th className="px-4 py-3 font-medium">Stato</th>
-                <th className="px-4 py-3 font-medium">FiC</th>
-                <th className="px-4 py-3 text-right font-medium">Azioni</th>
+                <SortableTh
+                  label="Imponibile"
+                  sortKey="imponibile"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Totale"
+                  sortKey="totale"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Stato"
+                  sortKey="stato"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <th className="px-4 py-3 font-medium text-[var(--muted)]">
+                  FiC
+                </th>
+                <th className="px-4 py-3 text-right font-medium text-[var(--muted)]">
+                  Azioni
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
-              {fatture.map((f) => (
+              {filteredSorted.map((f) => (
                 <tr key={f.id} className="hover:bg-slate-50/80">
                   <td className="px-4 py-3">
                     <Link
@@ -311,9 +614,7 @@ export function FattureInterneBoard({ kind }: Props) {
                       kind={f.kind}
                       ficId={f.ficId}
                       label={
-                        kind === "nota_credito"
-                          ? "Apri NC"
-                          : "Apri fattura"
+                        kind === "nota_credito" ? "Apri NC" : "Apri fattura"
                       }
                     />
                   </td>

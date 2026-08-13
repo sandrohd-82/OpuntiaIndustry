@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   FaChevronDown,
   FaChevronUp,
@@ -17,15 +17,32 @@ import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettagl
 import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
 import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
 import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
+import { SortableTh } from "@/components/ui/SortableTh";
 import { useOrdini } from "@/hooks/useOrdini";
 import {
   fraseConfermaEliminazione,
   labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
+import {
+  compareSortValues,
+  nextSortState,
+  type SortState,
+} from "@/lib/ui/list-sort";
 import type { OrdineStato } from "@/types/database";
 
 const COL_COUNT = 12;
+
+type OrdineSortKey =
+  | "numeroInterno"
+  | "numeroCliente"
+  | "cliente"
+  | "dataOrdine"
+  | "dataConsegna"
+  | "importoEuro"
+  | "tipoPagamento"
+  | "pagato"
+  | "versione";
 
 function formatEuro(value: number) {
   return value.toLocaleString("it-IT", {
@@ -209,6 +226,33 @@ export function OrdiniBoard({
   const [actionError, setActionError] = useState<string | null>(null);
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
+    key: "dataOrdine",
+    dir: "desc",
+  });
+
+  const ordiniSorted = useMemo(() => {
+    if (!sort) return ordini;
+    return [...ordini].sort((a, b) => {
+      const av =
+        sort.key === "pagato"
+          ? a.pagato
+            ? 1
+            : 0
+          : sort.key === "importoEuro" || sort.key === "versione"
+            ? a[sort.key]
+            : (a[sort.key] ?? "");
+      const bv =
+        sort.key === "pagato"
+          ? b.pagato
+            ? 1
+            : 0
+          : sort.key === "importoEuro" || sort.key === "versione"
+            ? b[sort.key]
+            : (b[sort.key] ?? "");
+      return compareSortValues(av, bv, sort.dir);
+    });
+  }, [ordini, sort]);
 
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">{loadingLabel}</p>;
@@ -295,24 +339,76 @@ export function OrdiniBoard({
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
           <table className="w-full min-w-[1100px] text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide">
               <tr>
-                <th className="px-4 py-3 font-medium">N. interno</th>
-                <th className="px-4 py-3 font-medium">N. del cliente</th>
-                <th className="px-4 py-3 font-medium">Cliente</th>
-                <th className="px-4 py-3 font-medium">Data ordine</th>
-                <th className="px-4 py-3 font-medium">Data consegna</th>
-                <th className="px-4 py-3 text-right font-medium">Totale</th>
-                <th className="px-4 py-3 font-medium">Pagamento</th>
-                <th className="px-4 py-3 font-medium">Pagato</th>
-                <th className="px-4 py-3 font-medium">Offerta</th>
-                <th className="px-4 py-3 font-medium">Ord. cl.</th>
-                <th className="px-4 py-3 font-medium">v</th>
-                <th className="px-4 py-3 text-right font-medium">Azioni</th>
+                <SortableTh
+                  label="N. interno"
+                  sortKey="numeroInterno"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="N. del cliente"
+                  sortKey="numeroCliente"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Cliente"
+                  sortKey="cliente"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Data ordine"
+                  sortKey="dataOrdine"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Data consegna"
+                  sortKey="dataConsegna"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Totale"
+                  sortKey="importoEuro"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                  align="right"
+                />
+                <SortableTh
+                  label="Pagamento"
+                  sortKey="tipoPagamento"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Pagato"
+                  sortKey="pagato"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <th className="px-4 py-3 font-medium text-[var(--muted)]">
+                  Offerta
+                </th>
+                <th className="px-4 py-3 font-medium text-[var(--muted)]">
+                  Ord. cl.
+                </th>
+                <SortableTh
+                  label="v"
+                  sortKey="versione"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <th className="px-4 py-3 text-right font-medium text-[var(--muted)]">
+                  Azioni
+                </th>
               </tr>
             </thead>
             <tbody>
-              {ordini.map((ordine) => (
+              {ordiniSorted.map((ordine) => (
                 <OrdineTableRow
                   key={ordine.id}
                   ordine={ordine}
