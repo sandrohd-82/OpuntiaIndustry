@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { FaArrowsRotate, FaPlus } from "react-icons/fa6";
 import {
+  getFatturaByIdAction,
   listFattureAction,
   rinumeraTutteFattureEmesseAction,
 } from "@/app/actions/fatture";
@@ -307,7 +308,17 @@ export function FattureInterneBoard({ kind }: Props) {
                     <td className="px-4 py-3 text-right">
                       <button
                         type="button"
-                        onClick={() => setEditing(f)}
+                        onClick={() => {
+                          void (async () => {
+                            setError(null);
+                            const res = await getFatturaByIdAction(f.kind, f.id);
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setEditing(res.fattura);
+                          })();
+                        }}
                         className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
                       >
                         Modifica

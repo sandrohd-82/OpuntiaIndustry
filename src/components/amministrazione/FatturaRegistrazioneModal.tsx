@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createFatturaAction,
+  getFatturaByIdAction,
   getProdottoPrezzoStoricoHintAction,
   getSpedizioneIvaStoricoHintAction,
   listDilazioniFatturaEmessaAction,
@@ -118,7 +119,7 @@ function seedFromInitialOrPrefill(
 ): FatturaRegistrazionePrefill {
   if (initial) {
     return {
-      anagraficaId: initial.anagraficaId ?? undefined,
+      anagraficaId: initial.anagraficaId || undefined,
       anagraficaRagioneSociale: initial.anagraficaRagioneSociale,
       anagraficaCodiceTarga: initial.anagraficaCodiceTarga,
       dataEmissione: initial.dataEmissione,
@@ -136,11 +137,37 @@ function seedFromInitialOrPrefill(
       note: initial.note,
       fatturaCollegataId: initial.fatturaCollegataId,
       riferimentoFatturaEsterno: initial.riferimentoFatturaEsterno,
-      righe: initial.righe,
+      righe: initial.righe ?? [],
       lockAnagrafica: true,
     };
   }
   return prefill ?? {};
+}
+
+function toEditableRighe(
+  source: FatturaRiga[] | undefined,
+  kind: FatturaKind
+): EditableRiga[] {
+  if (source?.length) {
+    return source.map((r) => {
+      const qty =
+        kind === "nota_credito"
+          ? normalizeQuantitaNotaCredito(r.quantita)
+          : r.quantita;
+      const scontoPercentuale = r.scontoPercentuale ?? 0;
+      const prezzoUnitario = Math.abs(r.prezzoUnitario);
+      return {
+        ...r,
+        quantita: qty,
+        prezzoUnitario,
+        scontoPercentuale,
+        importo: importoRiga(qty, prezzoUnitario, scontoPercentuale),
+      };
+    });
+  }
+  return [
+    kind === "nota_credito" ? emptyFatturaRigaNotaCredito() : emptyFatturaRiga(),
+  ];
 }
 
 export function FatturaRegistrazioneModal({
@@ -228,35 +255,19 @@ export function FatturaRegistrazioneModal({
     seed.dilazioniAnnullateIds ?? []
   );
   const [note, setNote] = useState(seed.note ?? "");
-  const [righe, setRighe] = useState<EditableRiga[]>(() => {
-    if (seed.righe?.length) {
-      return seed.righe.map((r) => {
-        const qty =
-          kind === "nota_credito"
-            ? normalizeQuantitaNotaCredito(r.quantita)
-            : r.quantita;
-        const scontoPercentuale = r.scontoPercentuale ?? 0;
-        return {
-          ...r,
-          quantita: qty,
-          prezzoUnitario: Math.abs(r.prezzoUnitario),
-          scontoPercentuale,
-          importo: importoRiga(qty, Math.abs(r.prezzoUnitario), scontoPercentuale),
-        };
-      });
-    }
-    return [
-      kind === "nota_credito"
-        ? emptyFatturaRigaNotaCredito()
-        : emptyFatturaRiga(),
-    ];
-  });
+  const [righe, setRighe] = useState<EditableRiga[]>(() =>
+    toEditableRighe(seed.righe, kind)
+  );
   const [ricevuta, setRicevuta] = useState<File | null>(null);
   const [numeroInterno, setNumeroInterno] = useState(
     initial?.numeroInterno ?? ""
   );
   const [saving, setSaving] = useState(false);
+  const [hydrating, setHydrating] = useState(isEdit);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editSnapshot, setEditSnapshot] = useState<Fattura | null>(
+    initial ?? null
+  );
   const [creatingProdotto, setCreatingProdotto] = useState(false);
   const [rigaIndexForNuovo, setRigaIndexForNuovo] = useState<number | null>(
     null
@@ -356,24 +367,153 @@ export function FatturaRegistrazioneModal({
     };
   }, []);
 
+  function applyDocumento(doc: Fattura) {
+    setEditSnapshot(doc);
+    setAnagraficaId(doc.anagraficaId || "");
+    setAnagraficaRagioneSociale(doc.anagraficaRagioneSociale || "");
+    setAnagraficaCodiceTarga(doc.anagraficaCodiceTarga || "");
+    setDataEmissione(doc.dataEmissione);
+    setNumeroDocumentoEsterno(doc.numeroDocumentoEsterno || "");
+    setSpedizione(Math.abs(doc.spedizione) || 0);
+    setSpedizioneIvaApplicata(Boolean(doc.spedizioneIvaApplicata));
+    setSpedizioneSottraiIncassi(doc.spedizioneSottraiIncassi !== false);
+    setIvaPercentuale(doc.ivaPercentuale ?? 22);
+    setStatoPagamento(doc.statoPagamento);
+    setStatoIncassoNc(
+      doc.statoIncassoNc ??
+        (doc.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
+    );
+    setRimborsoNecessario(Boolean(doc.rimborsoNecessario));
+    setRimborsoMezzo(doc.rimborsoMezzo ?? "");
+    setFatturaCompensativaId(doc.fatturaCompensativaId ?? "");
+    setFatturaCollegataId(doc.fatturaCollegataId ?? "");
+    setModalitaCollegamento(doc.modalitaCollegamento ?? "normale");
+    setFatturaSostitutivaId(doc.fatturaSostitutivaId ?? "");
+    setRiferimentoFatturaEsterno(doc.riferimentoFatturaEsterno || "");
+    setNote(doc.note || "");
+    setNumeroInterno(doc.numeroInterno);
+    setRighe(toEditableRighe(doc.righe, doc.kind));
+    // Opzioni select collegamento: includi subito le fatture già collegate
+    const extras: FatturaCollegabileOption[] = [];
+    if (doc.fatturaCollegataId) {
+      extras.push({
+        id: doc.fatturaCollegataId,
+        numeroInterno: doc.fatturaCollegataNumeroInterno || "Fattura collegata",
+        dataEmissione: "",
+        totale: 0,
+        label:
+          doc.fatturaCollegataNumeroInterno ||
+          doc.riferimentoFatturaEsterno ||
+          "Fattura collegata",
+      });
+    }
+    if (doc.fatturaSostitutivaId) {
+      extras.push({
+        id: doc.fatturaSostitutivaId,
+        numeroInterno:
+          doc.fatturaSostitutivaNumeroInterno || "Fattura sostitutiva",
+        dataEmissione: "",
+        totale: 0,
+        label:
+          doc.fatturaSostitutivaNumeroInterno || "Fattura di rimpiazzo",
+      });
+    }
+    if (extras.length > 0) {
+      setFattureCollegabili((prev) => {
+        const byId = new Map(prev.map((f) => [f.id, f]));
+        for (const e of extras) {
+          if (!byId.has(e.id)) byId.set(e.id, e);
+        }
+        return [...byId.values()];
+      });
+    }
+  }
+
+  // Modifica: ricarica documento completo (righe, collegamenti) e idrata il form
+  useEffect(() => {
+    if (!isEdit || !initial?.id) {
+      setHydrating(false);
+      return;
+    }
+    let cancelled = false;
+    setHydrating(true);
+    // Applica subito i dati già in memoria (evita form vuoto durante fetch)
+    applyDocumento(initial);
+    void (async () => {
+      const res = await getFatturaByIdAction(initial.kind, initial.id);
+      if (cancelled) return;
+      if (res.success) {
+        applyDocumento(res.fattura);
+      } else {
+        setFormError(
+          `Impossibile ricaricare il documento: ${res.error}. Uso i dati già aperti.`
+        );
+      }
+      setHydrating(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo all'apertura modale
+  }, [isEdit, initial?.id]);
+
   useEffect(() => {
     if (!isNc || !anagraficaId) {
-      setFattureCollegabili([]);
+      if (!isEdit) setFattureCollegabili([]);
       return;
     }
     let cancelled = false;
     void (async () => {
       const res = await listFattureEmesseClienteAction({
         clienteId: anagraficaId,
+        excludeId: isEdit ? initial?.id : null,
       });
       if (cancelled) return;
-      if (res.success) setFattureCollegabili(res.fatture);
-      else setFattureCollegabili([]);
+      if (res.success) {
+        setFattureCollegabili((prev) => {
+          const byId = new Map(res.fatture.map((f) => [f.id, f]));
+          // Mantieni opzioni già collegate se assenti dalla lista
+          for (const p of prev) {
+            if (!byId.has(p.id)) byId.set(p.id, p);
+          }
+          if (editSnapshot?.fatturaCollegataId && !byId.has(editSnapshot.fatturaCollegataId)) {
+            byId.set(editSnapshot.fatturaCollegataId, {
+              id: editSnapshot.fatturaCollegataId,
+              numeroInterno:
+                editSnapshot.fatturaCollegataNumeroInterno ||
+                "Fattura collegata",
+              dataEmissione: "",
+              totale: 0,
+              label:
+                editSnapshot.fatturaCollegataNumeroInterno ||
+                editSnapshot.riferimentoFatturaEsterno ||
+                "Fattura collegata",
+            });
+          }
+          if (
+            editSnapshot?.fatturaSostitutivaId &&
+            !byId.has(editSnapshot.fatturaSostitutivaId)
+          ) {
+            byId.set(editSnapshot.fatturaSostitutivaId, {
+              id: editSnapshot.fatturaSostitutivaId,
+              numeroInterno:
+                editSnapshot.fatturaSostitutivaNumeroInterno ||
+                "Fattura sostitutiva",
+              dataEmissione: "",
+              totale: 0,
+              label:
+                editSnapshot.fatturaSostitutivaNumeroInterno ||
+                "Fattura di rimpiazzo",
+            });
+          }
+          return [...byId.values()];
+        });
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isNc, anagraficaId]);
+  }, [isNc, anagraficaId, isEdit, initial?.id, editSnapshot]);
 
   useEffect(() => {
     if (!isNc || isSostituzione || !fatturaCollegataId) {
@@ -616,7 +756,7 @@ export function FatturaRegistrazioneModal({
           anagraficaCodiceTarga,
           dataEmissione,
           numeroDocumentoEsterno,
-          ficId: seed.ficId ?? prefill?.ficId ?? null,
+          ficId: editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId ?? null,
           spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
@@ -713,21 +853,31 @@ export function FatturaRegistrazioneModal({
               {title}
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              {kind === "nota_credito"
-                ? "Registrazione nota di credito nello storico (storno/annullamento). Apri il PDF FiC per verifica."
-                : "Registrazione nello storico. Non è una fattura da inviare."}
+              {isEdit
+                ? "Modifica del documento già registrato. I campi sono precompilati dai dati salvati."
+                : kind === "nota_credito"
+                  ? "Registrazione nota di credito nello storico (storno/annullamento). Apri il PDF FiC per verifica."
+                  : "Registrazione nello storico. Non è una fattura da inviare."}
             </p>
-            {prefill?.riferimentoFatturaEsterno ? (
+            {(seed.riferimentoFatturaEsterno ||
+              prefill?.riferimentoFatturaEsterno) &&
+            isNc ? (
               <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 Riferimento fattura:{" "}
-                <strong>{prefill.riferimentoFatturaEsterno}</strong>
+                <strong>
+                  {riferimentoFatturaEsterno ||
+                    seed.riferimentoFatturaEsterno ||
+                    prefill?.riferimentoFatturaEsterno}
+                </strong>
               </p>
             ) : null}
           </div>
-          {prefill?.ficId ? (
+          {(editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId) ? (
             <ApriFatturaFicButton
               kind={kind}
-              ficId={prefill.ficId}
+              ficId={
+                (editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId) as number
+              }
               variant="button"
               label={
                 kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
@@ -736,17 +886,35 @@ export function FatturaRegistrazioneModal({
           ) : null}
         </div>
 
-        <form onSubmit={submit} className="mt-4 space-y-5">
+        {hydrating ? (
+          <p className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3 text-sm text-[var(--muted)]">
+            Caricamento dati documento…
+          </p>
+        ) : null}
+
+        <form
+          onSubmit={submit}
+          className={`mt-4 space-y-5 ${hydrating ? "pointer-events-none opacity-60" : ""}`}
+        >
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Intestazione
               </label>
-              {kind === "emessa" || kind === "nota_credito" ? (
+              {isEdit || seed.lockAnagrafica || prefill?.lockAnagrafica ? (
+                <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm">
+                  <span className="font-mono font-medium">
+                    {anagraficaCodiceTarga || "—"}
+                  </span>
+                  <span className="text-[var(--muted)]"> — </span>
+                  <span className="font-medium">
+                    {anagraficaRagioneSociale || "Anagrafica non impostata"}
+                  </span>
+                </div>
+              ) : kind === "emessa" || kind === "nota_credito" ? (
                 <ClienteSelectField
                   value={anagraficaId}
                   onChange={(c) => {
-                    if ((seed.lockAnagrafica || prefill?.lockAnagrafica) && anagraficaId) return;
                     setAnagraficaId(c?.id ?? "");
                     setAnagraficaRagioneSociale(c?.ragioneSociale ?? "");
                     setAnagraficaCodiceTarga(c?.codiceTarga ?? "");
@@ -756,16 +924,15 @@ export function FatturaRegistrazioneModal({
                 <FornitoreSelectField
                   value={anagraficaId}
                   onChange={(f) => {
-                    if ((seed.lockAnagrafica || prefill?.lockAnagrafica) && anagraficaId) return;
                     setAnagraficaId(f?.id ?? "");
                     setAnagraficaRagioneSociale(f?.ragioneSociale ?? "");
                     setAnagraficaCodiceTarga(f?.codiceTarga ?? "");
                   }}
                 />
               )}
-              {seed.lockAnagrafica || prefill?.lockAnagrafica ? (
+              {isEdit || seed.lockAnagrafica || prefill?.lockAnagrafica ? (
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  Intestazione presa dall&apos;anagrafica OpuntiaIndustry.
+                  Intestazione bloccata (documento già registrato).
                 </p>
               ) : null}
             </div>
@@ -1007,6 +1174,13 @@ export function FatturaRegistrazioneModal({
                               className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
                             >
                               <option value="">Seleziona…</option>
+                              {riga.prodottoId &&
+                              !prodotti.some((p) => p.id === riga.prodottoId) ? (
+                                <option value={riga.prodottoId}>
+                                  {riga.codice || "—"} —{" "}
+                                  {riga.descrizione || "Prodotto salvato"}
+                                </option>
+                              ) : null}
                               {prodotti.map((p) => (
                                 <option key={p.id} value={p.id}>
                                   {p.codice} — {p.nome}

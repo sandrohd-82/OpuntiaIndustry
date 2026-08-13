@@ -45,7 +45,7 @@ export type Fattura = {
   id: string;
   kind: FatturaKind;
   numeroInterno: string;
-  anagraficaId: string;
+  anagraficaId: string | null;
   anagraficaRagioneSociale: string;
   anagraficaCodiceTarga: string;
   dataEmissione: string;
