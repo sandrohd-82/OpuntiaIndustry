@@ -1012,6 +1012,25 @@ export async function updateFatturaAction(
     };
   }
 
+  if (kind !== "nota_credito" && input.dilazioni.length > 0) {
+    const bil = bilancioDilazioni(
+      totals.totale,
+      input.dilazioni.map((d) => d.importo)
+    );
+    if (!bil.equilibrato) {
+      if (bil.mancante > 0) {
+        return {
+          success: false,
+          error: `Dilazioni incomplete: manca ${formatEuro(bil.mancante)} rispetto al totale ${formatEuro(bil.totaleFattura)}.`,
+        };
+      }
+      return {
+        success: false,
+        error: `Dilazioni in esubero di ${formatEuro(bil.esubero)} rispetto al totale ${formatEuro(bil.totaleFattura)}.`,
+      };
+    }
+  }
+
   try {
     if (kind === "emessa" || kind === "nota_credito") {
       const { data: existing, error: exErr } = await supabase
@@ -1130,6 +1149,54 @@ export async function updateFatturaAction(
         return { success: false, error: `Righe documento: ${righeErr.message}` };
       }
 
+      let dilazioniData: FatturaEmessaDilazioneRow[] = [];
+      if (kind === "emessa") {
+        const nowIso = new Date().toISOString();
+        await supabase
+          .from("fatture_emesse_dilazioni")
+          .update({
+            deleted_at: nowIso,
+            deleted_by: auth.userId,
+            updated_by: auth.userId,
+          })
+          .eq("fattura_id", id)
+          .is("deleted_at", null);
+
+        if (input.dilazioni.length > 0) {
+          const dilInsert: FatturaEmessaDilazioneInsert[] = input.dilazioni.map(
+            (d, i) => ({
+              fattura_id: id,
+              data_scadenza: d.dataScadenza,
+              importo: d.importo,
+              stato_pagamento: d.statoPagamento,
+              sort_order: i,
+              note: d.note ?? "",
+              created_by: auth.userId,
+              updated_by: auth.userId,
+            })
+          );
+          const { data: dilRows, error: dilErr } = await supabase
+            .from("fatture_emesse_dilazioni")
+            .insert(dilInsert)
+            .select("*");
+          if (dilErr) {
+            return {
+              success: false,
+              error: `Dilazioni: ${dilErr.message}`,
+            };
+          }
+          dilazioniData = (dilRows ?? []) as FatturaEmessaDilazioneRow[];
+        }
+      } else {
+        const { data: dilazioni } = await supabase
+          .from("fatture_emesse_dilazioni")
+          .select("*")
+          .eq("fattura_id", id)
+          .is("deleted_at", null)
+          .order("sort_order", { ascending: true });
+        dilazioniData = (dilazioni ?? []) as FatturaEmessaDilazioneRow[];
+      }
+
       await writeAuditLog({
         entity_type: "fatture_emesse",
         entity_id: id,
@@ -1143,19 +1210,13 @@ export async function updateFatturaAction(
           versione: patch.versione,
           totale: totals.totale,
           righe: input.righe.length,
+          dilazioni: input.dilazioni.length,
           tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
           fattura_collegata_id: input.fatturaCollegataId ?? null,
           fattura_sostitutiva_id: input.fatturaSostitutivaId ?? null,
           modalita_collegamento: input.modalitaCollegamento,
         },
       });
-
-      const { data: dilazioni } = await supabase
-        .from("fatture_emesse_dilazioni")
-        .select("*")
-        .eq("fattura_id", id)
-        .is("deleted_at", null)
-        .order("sort_order", { ascending: true });
 
       const { data: refreshed } = await supabase
         .from("fatture_emesse")
@@ -1168,7 +1229,7 @@ export async function updateFatturaAction(
         fattura: mapFatturaEmessaRow(
           (refreshed ?? updated) as FatturaEmessaRow,
           (righeData ?? []) as FatturaEmessaRigaRow[],
-          (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
+          dilazioniData
         ),
       };
     }
@@ -1243,28 +1304,60 @@ export async function updateFatturaAction(
       return { success: false, error: `Righe documento: ${righeErr.message}` };
     }
 
+    const nowIso = new Date().toISOString();
+    await supabase
+      .from("fatture_ricevute_dilazioni")
+      .update({
+        deleted_at: nowIso,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("fattura_id", id)
+      .is("deleted_at", null);
+
+    let dilazioniData: FatturaRicevutaDilazioneRow[] = [];
+    if (input.dilazioni.length > 0) {
+      const dilInsert: FatturaRicevutaDilazioneInsert[] = input.dilazioni.map(
+        (d, i) => ({
+          fattura_id: id,
+          data_scadenza: d.dataScadenza,
+          importo: d.importo,
+          stato_pagamento: d.statoPagamento,
+          sort_order: i,
+          note: d.note ?? "",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+      );
+      const { data: dilRows, error: dilErr } = await supabase
+        .from("fatture_ricevute_dilazioni")
+        .insert(dilInsert)
+        .select("*");
+      if (dilErr) {
+        return { success: false, error: `Dilazioni: ${dilErr.message}` };
+      }
+      dilazioniData = (dilRows ?? []) as FatturaRicevutaDilazioneRow[];
+    }
+
     await writeAuditLog({
       entity_type: "fatture_ricevute",
       entity_id: id,
       action: "update",
       actor_id: auth.userId,
       summary: `Modificata fattura ricevuta ${existingRow.numero_interno} (v${patch.versione})`,
-      payload: { versione: patch.versione, totale: totals.totale },
+      payload: {
+        versione: patch.versione,
+        totale: totals.totale,
+        dilazioni: input.dilazioni.length,
+      },
     });
-
-    const { data: dilazioni } = await supabase
-      .from("fatture_ricevute_dilazioni")
-      .select("*")
-      .eq("fattura_id", id)
-      .is("deleted_at", null)
-      .order("sort_order", { ascending: true });
 
     return {
       success: true,
       fattura: mapFatturaRicevutaRow(
         updated as FatturaRicevutaRow,
         (righeData ?? []) as FatturaRicevutaRigaRow[],
-        (dilazioni ?? []) as FatturaRicevutaDilazioneRow[]
+        dilazioniData
       ),
     };
   } catch (e) {

@@ -241,9 +241,7 @@ export function FattureInterneBoard({ kind }: Props) {
                 <th className="px-4 py-3 font-medium">Totale</th>
                 <th className="px-4 py-3 font-medium">Stato</th>
                 <th className="px-4 py-3 font-medium">FiC</th>
-                {kind === "nota_credito" ? (
-                  <th className="px-4 py-3 text-right font-medium">Azioni</th>
-                ) : null}
+                <th className="px-4 py-3 text-right font-medium">Azioni</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
@@ -304,27 +302,25 @@ export function FattureInterneBoard({ kind }: Props) {
                       }
                     />
                   </td>
-                  {kind === "nota_credito" ? (
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void (async () => {
-                            setError(null);
-                            const res = await getFatturaByIdAction(f.kind, f.id);
-                            if (!res.success) {
-                              setError(res.error);
-                              return;
-                            }
-                            setEditing(res.fattura);
-                          })();
-                        }}
-                        className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                      >
-                        Modifica
-                      </button>
-                    </td>
-                  ) : null}
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          setError(null);
+                          const res = await getFatturaByIdAction(f.kind, f.id);
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setEditing(res.fattura);
+                        })();
+                      }}
+                      className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                    >
+                      Modifica
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

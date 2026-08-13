@@ -42,7 +42,7 @@ export default async function FatturaDettaglioPage({ params }: Props) {
   const subtitle =
     kind === "nota_credito"
       ? `Modificabile · anteprima fatture collegate · ${result.fattura.numeroInterno}`
-      : `Consultazione condizioni (sconti, prezzi, IVA spedizione) — ${result.fattura.numeroInterno}`;
+      : `Modificabile · condizioni (sconti, prezzi, IVA spedizione) — ${result.fattura.numeroInterno}`;
 
   return (
     <>

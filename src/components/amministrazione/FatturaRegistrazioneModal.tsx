@@ -277,7 +277,12 @@ export function FatturaRegistrazioneModal({
   const [prezzoHints, setPrezzoHints] = useState<
     Record<string, ProdottoPrezzoStoricoHint>
   >({});
-  const [dilazioni, setDilazioni] = useState<EditableDilazione[]>([]);
+  const [dilazioni, setDilazioni] = useState<EditableDilazione[]>(() =>
+    (initial?.dilazioni ?? []).map((d) => ({
+      ...d,
+      importo: d.importo,
+    }))
+  );
   const [showPendingPicker, setShowPendingPicker] = useState(false);
   const [pendingInvoiceToRegister, setPendingInvoiceToRegister] =
     useState<PendingFicInvoiceCandidate | null>(null);
@@ -393,6 +398,12 @@ export function FatturaRegistrazioneModal({
     setNote(doc.note || "");
     setNumeroInterno(doc.numeroInterno);
     setRighe(toEditableRighe(doc.righe, doc.kind));
+    setDilazioni(
+      (doc.dilazioni ?? []).map((d) => ({
+        ...d,
+        importo: d.importo,
+      }))
+    );
     // Opzioni select collegamento: includi subito le fatture già collegate
     const extras: FatturaCollegabileOption[] = [];
     if (doc.fatturaCollegataId) {

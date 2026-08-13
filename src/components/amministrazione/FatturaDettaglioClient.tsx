@@ -93,20 +93,13 @@ export function FatturaDettaglioClient({ initial }: Props) {
       <FatturaDettaglioView
         fattura={fattura}
         layoutWidth="full"
-        onEdit={
-          fattura.kind === "nota_credito"
-            ? () => {
-                void (async () => {
-                  const res = await getFatturaByIdAction(
-                    fattura.kind,
-                    fattura.id
-                  );
-                  if (res.success) setFattura(res.fattura);
-                  setEditing(true);
-                })();
-              }
-            : undefined
-        }
+        onEdit={() => {
+          void (async () => {
+            const res = await getFatturaByIdAction(fattura.kind, fattura.id);
+            if (res.success) setFattura(res.fattura);
+            setEditing(true);
+          })();
+        }}
       />
 
       {previewError ? (
