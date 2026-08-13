@@ -205,6 +205,9 @@ export async function calcolaConsegnaOrdineAction(
     essiccatori,
     reseBaseline,
     reseMedieOsservate: reseMedie,
+    resaPercentualeOverride: input.resaPercentualeOverride ?? null,
+    capacitaIngressoKgPerEssiccatoreOverride:
+      input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
   });
 
   return {

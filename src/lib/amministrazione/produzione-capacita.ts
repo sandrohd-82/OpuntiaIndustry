@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  confezionamentoDraftSchema,
+  totaleKgConfezionati,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 
 /** Linea produttiva: secco (ODR/NDR) vs gel (OGL/NGL). */
 export type LineaProduzioneCodice = "secco" | "gel";
@@ -43,6 +47,10 @@ export type CapacitaCalcoloInput = {
   reseBaseline: ResaBaseline[];
   /** Medie ML opzionali: chiave `${linea}|${stagione}` → % */
   reseMedieOsservate?: Record<string, number>;
+  /** Override resa % (wizard): ricalcola tutto senza salvare i default DB */
+  resaPercentualeOverride?: number | null;
+  /** Override kg ingresso per ciascun essiccatore attivo (default tipico 2200) */
+  capacitaIngressoKgPerEssiccatoreOverride?: number | null;
   /** Giorni max di ricerca ASAP (default 365) */
   maxGiorniRicerca?: number;
 };
@@ -51,7 +59,7 @@ export type CapacitaCalcoloResult = {
   lineaCodice: LineaProduzioneCodice | null;
   stagione: StagioneProduzione;
   resaPercentualeUsata: number;
-  resaFonte: "baseline" | "media_osservata";
+  resaFonte: "baseline" | "media_osservata" | "override_operatore";
   essiccatoriAttivi: number;
   capacitaIngressoGiornalieraKg: number;
   capacitaUscitaGiornalieraKg: number;
@@ -78,6 +86,12 @@ export const calcoloConsegnaInputSchema = z.object({
   urgente: z.boolean(),
   usaMagazzino: z.boolean(),
   usaSabato: z.boolean(),
+  resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
+  capacitaIngressoKgPerEssiccatoreOverride: z
+    .number()
+    .positive()
+    .nullable()
+    .optional(),
 });
 
 export type CalcoloConsegnaInput = z.infer<typeof calcoloConsegnaInputSchema>;
@@ -105,6 +119,20 @@ export const ordineWizardInputSchema = z
     urgente: z.boolean().default(false),
     usaMagazzino: z.boolean().default(false),
     usaSabato: z.boolean().default(false),
+    resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
+    capacitaIngressoKgPerEssiccatoreOverride: z
+      .number()
+      .positive()
+      .nullable()
+      .optional(),
+    spedizioneMezzo: z.literal("corriere").default("corriere"),
+    corriereId: z.string().uuid().nullable().optional(),
+    corriereDaCompilare: z.boolean().default(false),
+    spedizioneACarico: z
+      .enum(["cliente", "agrinsicilia", "diviso"])
+      .default("cliente"),
+    spedizionePctAgrinsicilia: z.number().min(0).max(100).nullable().optional(),
+    confezionamento: confezionamentoDraftSchema.optional(),
     note: z.string().optional(),
     tipoPagamento: z
       .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])
@@ -117,6 +145,39 @@ export const ordineWizardInputSchema = z
         message: "Indica la data di consegna desiderata.",
         path: ["dataRichiesta"],
       });
+    }
+    if (!val.corriereDaCompilare && !val.corriereId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona un corriere oppure «Compilerò dopo».",
+        path: ["corriereId"],
+      });
+    }
+    if (
+      val.spedizioneACarico === "diviso" &&
+      (val.spedizionePctAgrinsicilia == null ||
+        !Number.isFinite(val.spedizionePctAgrinsicilia))
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica la % a carico Agrinsicilia.",
+        path: ["spedizionePctAgrinsicilia"],
+      });
+    }
+    const conf = val.confezionamento;
+    if (conf && conf.nodi.length > 0) {
+      const kgConf = totaleKgConfezionati(conf.nodi);
+      const delta = Math.round((val.quantita - kgConf) * 1000) / 1000;
+      if (Math.abs(delta) > 0.001 && !conf.coerenzaIgnorata) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            delta > 0
+              ? `${delta} kg restano fuori dal confezionamento: modifica o ignora.`
+              : `Confezionamento supera l’ordine di ${Math.abs(delta)} kg: modifica o ignora.`,
+          path: ["confezionamento", "coerenzaIgnorata"],
+        });
+      }
     }
   });
 
@@ -295,16 +356,38 @@ export function calcolaConsegnaCapacita(
     };
   }
 
-  const { pct, fonte } = resolveResaPercentuale({
+  const resolved = resolveResaPercentuale({
     lineaCodice: linea.codice,
     stagione,
     reseBaseline: input.reseBaseline,
     reseMedieOsservate: input.reseMedieOsservate,
   });
+  const overrideResa =
+    typeof input.resaPercentualeOverride === "number" &&
+    input.resaPercentualeOverride > 0
+      ? input.resaPercentualeOverride
+      : null;
+  const pct = overrideResa ?? resolved.pct;
+  const fonte: CapacitaCalcoloResult["resaFonte"] = overrideResa
+    ? "override_operatore"
+    : resolved.fonte;
+
+  const overrideKgEss =
+    typeof input.capacitaIngressoKgPerEssiccatoreOverride === "number" &&
+    input.capacitaIngressoKgPerEssiccatoreOverride > 0
+      ? input.capacitaIngressoKgPerEssiccatoreOverride
+      : null;
+
+  const essiccatoriEff =
+    overrideKgEss != null && linea.usaEssiccatori
+      ? input.essiccatori.map((e) =>
+          e.attivo ? { ...e, capacitaIngressoKg: overrideKgEss } : e
+        )
+      : input.essiccatori;
 
   const { ingressoKg, essiccatoriAttivi } = capacitaIngressoGiornalieraKg(
     linea,
-    input.essiccatori
+    essiccatoriEff
   );
   const uscitaKgGiorno = (ingressoKg * pct) / 100;
 
@@ -412,7 +495,10 @@ export function calcolaConsegnaCapacita(
     stagione,
     resa_percentuale: pct,
     resa_fonte: fonte,
+    resa_baseline_o_media: resolved.pct,
+    resa_override: overrideResa,
     essiccatori_attivi: essiccatoriAttivi,
+    capacita_ingresso_kg_per_essiccatore_override: overrideKgEss,
     capacita_ingresso_kg_giorno: ingressoKg,
     capacita_uscita_kg_giorno: uscitaKgGiorno,
     giacenza_usata_kg: giacenza,

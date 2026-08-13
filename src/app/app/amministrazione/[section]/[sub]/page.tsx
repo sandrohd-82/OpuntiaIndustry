@@ -6,6 +6,7 @@ import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/Grafici
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
+import { ImballaggiSpedizioniBoard } from "@/components/amministrazione/ImballaggiSpedizioniBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
 import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
@@ -117,6 +118,20 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           >
             <ProdottiPropriBoard />
           </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "imballaggi-spedizioni") {
+    return (
+      <>
+        <AppHeader
+          title="Imballaggi e spedizioni"
+          subtitle={page.description}
+        />
+        <div className="p-6">
+          <ImballaggiSpedizioniBoard />
         </div>
       </>
     );

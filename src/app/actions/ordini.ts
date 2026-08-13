@@ -16,11 +16,13 @@ import {
   type OrdineAuditEntry,
   type OrdineInput,
 } from "@/lib/amministrazione/ordini";
+import { totaleKgConfezionati } from "@/lib/amministrazione/imballaggi-spedizioni";
 import { ordineWizardInputSchema } from "@/lib/amministrazione/produzione-capacita";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   AuditLogInsert,
   AuditLogRow,
+  OrdineConfezionamentoNodoInsert,
   OrdineInsert,
   OrdineRigaInsert,
   OrdineRigaRow,
@@ -714,6 +716,9 @@ export async function createOrdineWizardAction(
     urgente: input.urgente,
     usaMagazzino: input.usaMagazzino,
     usaSabato: input.usaSabato,
+    resaPercentualeOverride: input.resaPercentualeOverride ?? null,
+    capacitaIngressoKgPerEssiccatoreOverride:
+      input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
   });
   if (!calcRes.success) {
     return { success: false, error: calcRes.error };
@@ -782,6 +787,16 @@ export async function createOrdineWizardAction(
       data_consegna_stimata: dataConsegna,
       capacita_snapshot: calcRes.calcolo.snapshot,
       is_test: true,
+      spedizione_mezzo: "corriere",
+      corriere_id: input.corriereDaCompilare
+        ? null
+        : (input.corriereId ?? null),
+      corriere_da_compilare: Boolean(input.corriereDaCompilare),
+      spedizione_a_carico: input.spedizioneACarico,
+      spedizione_pct_agrinsicilia:
+        input.spedizioneACarico === "diviso"
+          ? (input.spedizionePctAgrinsicilia ?? null)
+          : null,
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -807,6 +822,79 @@ export async function createOrdineWizardAction(
     ]);
     if (righeErr) return { success: false, error: righeErr };
 
+    if (input.confezionamento) {
+      const conf = input.confezionamento;
+      const kgConf = totaleKgConfezionati(conf.nodi);
+      const kgDelta = Math.round((input.quantita - kgConf) * 1000) / 1000;
+      const { data: confRow, error: confErr } = await supabase
+        .from("ordini_confezionamento")
+        .insert({
+          ordine_id: row.id,
+          movimentazione_modo: conf.movimentazioneModo,
+          pallet_catalogo_id: conf.palletCatalogoId,
+          pallet_misure_custom: conf.palletMisureCustom.trim(),
+          kg_ordine: input.quantita,
+          kg_confezionati: kgConf,
+          kg_delta: kgDelta,
+          coerenza_ignorata: conf.coerenzaIgnorata,
+          note: conf.note.trim(),
+          versione: 1,
+          documento_stato: "bozza",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .select("id")
+        .single();
+      if (confErr || !confRow) {
+        return {
+          success: false,
+          error: confErr?.message ?? "Salvataggio confezionamento fallito.",
+        };
+      }
+      const confId = (confRow as { id: string }).id;
+
+      async function insertNodi(
+        nodes: typeof conf.nodi,
+        parentId: string | null,
+        sortBase: number
+      ): Promise<string | null> {
+        let sort = sortBase;
+        for (const n of nodes) {
+          const insertNodo: OrdineConfezionamentoNodoInsert = {
+            confezionamento_id: confId,
+            parent_id: parentId,
+            stadio: n.stadio,
+            catalogo_id: n.catalogoId,
+            nome_snapshot: n.nome,
+            codice_snapshot: n.codice,
+            quantita: n.quantita,
+            kg_prodotto: n.stadio === "prodotto_kg" ? n.kgProdotto : null,
+            sort_order: sort,
+            created_by: auth.userId,
+            updated_by: auth.userId,
+          };
+          const { data: nodoRow, error: nodoErr } = await supabase
+            .from("ordini_confezionamento_nodi")
+            .insert(insertNodo)
+            .select("id")
+            .single();
+          if (nodoErr || !nodoRow) {
+            return nodoErr?.message ?? "Nodo confezionamento non salvato.";
+          }
+          const nodeId = (nodoRow as { id: string }).id;
+          sort += 1;
+          if (n.children.length) {
+            const childErr = await insertNodi(n.children, nodeId, 0);
+            if (childErr) return childErr;
+          }
+        }
+        return null;
+      }
+
+      const nodiErr = await insertNodi(conf.nodi, null, 0);
+      if (nodiErr) return { success: false, error: nodiErr };
+    }
+
     await writeAudit({
       entity_type: "ordini",
       entity_id: row.id,
@@ -818,6 +906,7 @@ export async function createOrdineWizardAction(
         is_test: true,
         consegna_tipo: input.consegnaTipo,
         capacita: calcRes.calcolo.snapshot,
+        spedizione_a_carico: input.spedizioneACarico,
       },
     });
 

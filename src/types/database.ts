@@ -472,6 +472,11 @@ export interface OrdineRow {
   data_consegna_stimata: string | null;
   capacita_snapshot: Record<string, unknown>;
   is_test: boolean;
+  spedizione_mezzo: "corriere";
+  corriere_id: string | null;
+  corriere_da_compilare: boolean;
+  spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
+  spedizione_pct_agrinsicilia: number | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -516,6 +521,11 @@ export interface OrdineInsert {
   data_consegna_stimata?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
+  spedizione_mezzo?: "corriere";
+  corriere_id?: string | null;
+  corriere_da_compilare?: boolean;
+  spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
+  spedizione_pct_agrinsicilia?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -554,10 +564,158 @@ export interface OrdineUpdate {
   data_consegna_stimata?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
+  spedizione_mezzo?: "corriere";
+  corriere_id?: string | null;
+  corriere_da_compilare?: boolean;
+  spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
+  spedizione_pct_agrinsicilia?: number | null;
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;
 }
+
+export type ImballaggioStadio = "movimentazione" | "confezione" | "isolamento";
+
+export interface ImballaggioVoceRow {
+  id: string;
+  stadio: ImballaggioStadio;
+  codice: string;
+  nome: string;
+  largo_mm: number | null;
+  profondita_mm: number | null;
+  altezza_mm: number | null;
+  capacita_lt: number | null;
+  note: string;
+  sort_order: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type ImballaggioVoceInsert = {
+  id?: string;
+  stadio: ImballaggioStadio;
+  codice: string;
+  nome: string;
+  largo_mm?: number | null;
+  profondita_mm?: number | null;
+  altezza_mm?: number | null;
+  capacita_lt?: number | null;
+  note?: string;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type ImballaggioVoceUpdate = Partial<ImballaggioVoceInsert> & {
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export interface CorriereRow {
+  id: string;
+  nome: string;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type CorriereInsert = {
+  id?: string;
+  nome: string;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type CorriereUpdate = Partial<CorriereInsert> & {
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+export type OrdineConfezionamentoModo = "su_pallet" | "nessun_pallet";
+export type OrdineConfezionamentoNodoStadio =
+  | ImballaggioStadio
+  | "prodotto_kg";
+
+export interface OrdineConfezionamentoRow {
+  id: string;
+  ordine_id: string;
+  movimentazione_modo: OrdineConfezionamentoModo;
+  pallet_catalogo_id: string | null;
+  pallet_misure_custom: string;
+  kg_ordine: number;
+  kg_confezionati: number;
+  kg_delta: number;
+  coerenza_ignorata: boolean;
+  note: string;
+  versione: number;
+  documento_stato: "bozza" | "approvato" | "chiuso";
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type OrdineConfezionamentoInsert = {
+  id?: string;
+  ordine_id: string;
+  movimentazione_modo?: OrdineConfezionamentoModo;
+  pallet_catalogo_id?: string | null;
+  pallet_misure_custom?: string;
+  kg_ordine?: number;
+  kg_confezionati?: number;
+  kg_delta?: number;
+  coerenza_ignorata?: boolean;
+  note?: string;
+  versione?: number;
+  documento_stato?: "bozza" | "approvato" | "chiuso";
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export interface OrdineConfezionamentoNodoRow {
+  id: string;
+  confezionamento_id: string;
+  parent_id: string | null;
+  stadio: OrdineConfezionamentoNodoStadio;
+  catalogo_id: string | null;
+  nome_snapshot: string;
+  codice_snapshot: string;
+  quantita: number;
+  kg_prodotto: number | null;
+  sort_order: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type OrdineConfezionamentoNodoInsert = {
+  id?: string;
+  confezionamento_id: string;
+  parent_id?: string | null;
+  stadio: OrdineConfezionamentoNodoStadio;
+  catalogo_id?: string | null;
+  nome_snapshot?: string;
+  codice_snapshot?: string;
+  quantita?: number;
+  kg_prodotto?: number | null;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
 
 export interface OrdineRigaRow {
   id: string;
@@ -1427,6 +1585,36 @@ export interface Database {
         Row: OrdineRigaRow;
         Insert: OrdineRigaInsert;
         Update: Partial<OrdineRigaInsert>;
+        Relationships: [];
+      };
+      imballaggi_voci: {
+        Row: ImballaggioVoceRow;
+        Insert: ImballaggioVoceInsert;
+        Update: ImballaggioVoceUpdate;
+        Relationships: [];
+      };
+      corrieri: {
+        Row: CorriereRow;
+        Insert: CorriereInsert;
+        Update: CorriereUpdate;
+        Relationships: [];
+      };
+      ordini_confezionamento: {
+        Row: OrdineConfezionamentoRow;
+        Insert: OrdineConfezionamentoInsert;
+        Update: Partial<OrdineConfezionamentoInsert> & {
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
+      ordini_confezionamento_nodi: {
+        Row: OrdineConfezionamentoNodoRow;
+        Insert: OrdineConfezionamentoNodoInsert;
+        Update: Partial<OrdineConfezionamentoNodoInsert> & {
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
         Relationships: [];
       };
       audit_log: {

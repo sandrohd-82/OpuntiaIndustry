@@ -49,6 +49,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         description: "Schede prodotti Agrinsicilia",
         path: "/app/amministrazione/schede/prodotti-propri",
       },
+      {
+        slug: "imballaggi-spedizioni",
+        label: "Imballaggi e spedizioni",
+        description:
+          "Catalogo movimentazione, confezione, isolamento e corrieri",
+        path: "/app/amministrazione/schede/imballaggi-spedizioni",
+      },
     ],
   },
   {
