@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { includeInContabilitaFatturaEmessa } from "@/lib/amministrazione/fatture";
 import {
   calcolaAndamentoMultiAnno,
   coloreAziendaByIndex,
@@ -80,7 +81,7 @@ async function loadIncassiAnno(
     let q = supabase
       .from("fatture_emesse")
       .select(
-        "data_emissione, totale, cliente_id, tipo_documento, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
+        "data_emissione, totale, cliente_id, tipo_documento, stato_pagamento, fattura_collegata_id, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range);
@@ -93,15 +94,22 @@ async function loadIncassiAnno(
       };
     }
     for (const r of data ?? []) {
-      const isNc =
-        (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
-      let amount = Number(r.totale) || 0;
+      const row = r as {
+        tipo_documento?: string;
+        stato_pagamento?: string;
+        fattura_collegata_id?: string | null;
+        totale?: number;
+        data_emissione?: string;
+      };
+      if (!includeInContabilitaFatturaEmessa(row)) continue;
+      const isNc = row.tipo_documento === "nota_credito";
+      let amount = Number(row.totale) || 0;
       if (isNc) {
         // Totale NC già negativo; se positivo (legacy) forza segno
         amount = amount <= 0 ? amount : -Math.abs(amount);
       }
       rows.push({
-        dateStr: String(r.data_emissione ?? ""),
+        dateStr: String(row.data_emissione ?? ""),
         amount,
       });
     }
@@ -155,7 +163,7 @@ async function loadIncassiDettaglioAnno(
     let q = supabase
       .from("fatture_emesse")
       .select(
-        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento"
+        "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range);
@@ -165,13 +173,13 @@ async function loadIncassiDettaglioAnno(
       return { ok: false, error: `Incassi da fatture: ${error.message}` };
     }
     for (const r of data ?? []) {
+      if (!includeInContabilitaFatturaEmessa(r)) continue;
       const cid = String(r.cliente_id ?? "");
       if (!cid) continue;
       const dateStr = String(r.data_emissione ?? "");
       const m = Number(dateStr.slice(5, 7));
       if (mese != null && m !== mese) continue;
-      const isNc =
-        (r as { tipo_documento?: string }).tipo_documento === "nota_credito";
+      const isNc = r.tipo_documento === "nota_credito";
       let amount = Number(r.totale) || 0;
       if (isNc) amount = amount <= 0 ? amount : -Math.abs(amount);
       rows.push({

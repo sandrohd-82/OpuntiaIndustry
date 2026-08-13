@@ -71,6 +71,9 @@ export type Fattura = {
   fatturaCollegataNumeroInterno?: string | null;
   /** Solo dettaglio NC: n. interno fattura sostitutiva. */
   fatturaSostitutivaNumeroInterno?: string | null;
+  /** Fattura stornata: id / n. interno della NC che l’ha annullata. */
+  annullataDaNcId?: string | null;
+  annullataDaNcNumeroInterno?: string | null;
   ricevuta: FatturaAllegatoMeta | null;
   versione: number;
   documentoStato: FatturaDocumentoStato;
@@ -199,7 +202,7 @@ export function normalizeQuantitaNotaCredito(quantita: number): number {
 
 export function statoPagamentoFromIncassoNc(
   stato: FatturaStatoIncassoNc
-): FatturaStatoPagamento {
+): Extract<FatturaStatoPagamento, "pagato" | "da_pagare"> {
   return stato === "gia_incassata" ? "pagato" : "da_pagare";
 }
 
@@ -247,8 +250,8 @@ export function normalizeDilazioneStato(
 
 /** Se ci sono dilazioni: pagato solo se tutte pagate. */
 export function statoPagamentoFromDilazioni(
-  dilazioni: Array<{ statoPagamento: FatturaStatoPagamento }>
-): FatturaStatoPagamento {
+  dilazioni: Array<{ statoPagamento: FatturaStatoPagamento | string }>
+): Extract<FatturaStatoPagamento, "pagato" | "da_pagare"> {
   if (dilazioni.length === 0) return "da_pagare";
   return dilazioni.every((d) => d.statoPagamento === "pagato")
     ? "pagato"
@@ -574,6 +577,8 @@ export function mapFatturaEmessaRow(
     fatturaCompensativaId: row.fattura_compensativa_id ?? null,
     modalitaCollegamento: row.modalita_collegamento ?? null,
     fatturaSostitutivaId: row.fattura_sostitutiva_id ?? null,
+    annullataDaNcId: row.annullata_da_nc_id ?? null,
+    annullataDaNcNumeroInterno: null,
     ricevuta: row.ricevuta_storage_path
       ? {
           storagePath: row.ricevuta_storage_path,
@@ -647,12 +652,33 @@ export function labelModalitaCollegamentoNc(
 
 export function labelStatoPagamento(
   stato: FatturaStatoPagamento,
-  kind?: FatturaKind
+  kind?: FatturaKind,
+  opts?: { annullataDaNcNumeroInterno?: string | null }
 ): string {
   if (kind === "nota_credito") {
     return stato === "pagato" ? "Già incassata" : "Non incassata";
   }
+  if (stato === "annullata") {
+    const nc = opts?.annullataDaNcNumeroInterno?.trim();
+    return nc ? `Annullata (${nc})` : "Annullata";
+  }
   return stato === "pagato" ? "Pagato" : "Da pagare";
+}
+
+/**
+ * Documenti da escludere da incassi / IVA / utili:
+ * - fattura con stato annullata (stornata da NC)
+ * - nota di credito di storno collegata a una fattura (evita doppio storno)
+ */
+export function includeInContabilitaFatturaEmessa(row: {
+  tipo_documento?: string | null;
+  stato_pagamento?: string | null;
+  fattura_collegata_id?: string | null;
+}): boolean {
+  if (row.stato_pagamento === "annullata") return false;
+  const isNc = row.tipo_documento === "nota_credito";
+  if (isNc && row.fattura_collegata_id) return false;
+  return true;
 }
 
 export function emptyFatturaRigaNotaCredito(): FatturaRiga {

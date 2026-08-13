@@ -283,6 +283,81 @@ async function uploadRicevuta(
   return { path, name: file.name };
 }
 
+/** Marca la fattura stornata come annullata e annulla le dilazioni residue. */
+async function markFatturaAnnullataDaNc(
+  supabase: SupabaseServer,
+  fatturaId: string,
+  ncId: string,
+  actorId: string
+): Promise<string | null> {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from("fatture_emesse")
+    .update({
+      stato_pagamento: "annullata",
+      annullata_da_nc_id: ncId,
+      annullata_at: nowIso,
+      annullata_by: actorId,
+      updated_by: actorId,
+    })
+    .eq("id", fatturaId)
+    .is("deleted_at", null);
+  if (error) return error.message;
+
+  await supabase
+    .from("fatture_emesse_dilazioni")
+    .update({
+      stato_pagamento: "annullata",
+      annullata_at: nowIso,
+      annullata_by: actorId,
+      updated_by: actorId,
+    })
+    .eq("fattura_id", fatturaId)
+    .is("deleted_at", null)
+    .neq("stato_pagamento", "annullata");
+
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: fatturaId,
+    action: "status_change",
+    actor_id: actorId,
+    summary: "Fattura annullata da nota di credito (non contabilizzata)",
+    payload: { annullata_da_nc_id: ncId, stato_pagamento: "annullata" },
+  });
+  return null;
+}
+
+/** Arricchisce le fatture con il n. interno NC che le ha annullate. */
+async function enrichAnnullataDaNcNumeri(
+  supabase: SupabaseServer,
+  fatture: Fattura[]
+): Promise<Fattura[]> {
+  const ncIds = [
+    ...new Set(
+      fatture
+        .map((f) => f.annullataDaNcId)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+  if (ncIds.length === 0) return fatture;
+  const { data } = await supabase
+    .from("fatture_emesse")
+    .select("id, numero_interno")
+    .in("id", ncIds);
+  const byId = new Map(
+    (data ?? []).map((r) => [String(r.id), String(r.numero_interno ?? "")])
+  );
+  return fatture.map((f) =>
+    f.annullataDaNcId
+      ? {
+          ...f,
+          annullataDaNcNumeroInterno:
+            byId.get(f.annullataDaNcId) || f.annullataDaNcNumeroInterno || null,
+        }
+      : f
+  );
+}
+
 /**
  * Aggiunge in scheda anagrafica i codici prodotto presenti sulla fattura
  * e mancanti in prodotti_acquistati (solo se esistono in prodotti_propri).
@@ -443,15 +518,16 @@ export async function listFattureAction(
         dilBy.set(d.fattura_id, list);
       }
     }
+    const mapped = rows.map((row) =>
+      mapFatturaEmessaRow(
+        row,
+        righeBy.get(row.id) ?? [],
+        dilBy.get(row.id) ?? []
+      )
+    );
     return {
       success: true,
-      fatture: rows.map((row) =>
-        mapFatturaEmessaRow(
-          row,
-          righeBy.get(row.id) ?? [],
-          dilBy.get(row.id) ?? []
-        )
-      ),
+      fatture: await enrichAnnullataDaNcNumeri(supabase, mapped),
     };
   }
 
@@ -708,41 +784,36 @@ export async function createFatturaAction(
         dilazioniData = (dilRows ?? []) as FatturaEmessaDilazioneRow[];
       }
 
-      if (
-        kind === "nota_credito" &&
-        input.modalitaCollegamento !== "sostituzione" &&
-        input.fatturaCollegataId &&
-        input.dilazioniAnnullateIds.length > 0
-      ) {
-        const nowIso = new Date().toISOString();
-        const { error: annErr } = await supabase
-          .from("fatture_emesse_dilazioni")
-          .update({
-            stato_pagamento: "annullata",
-            annullata_at: nowIso,
-            annullata_by: auth.userId,
-            updated_by: auth.userId,
-          })
-          .eq("fattura_id", input.fatturaCollegataId)
-          .in("id", input.dilazioniAnnullateIds)
-          .is("deleted_at", null);
-        if (annErr) {
+      if (kind === "nota_credito" && input.fatturaCollegataId) {
+        // Fattura collegata → annullata (non contabilizzata) + tutte le dilazioni
+        const markErr = await markFatturaAnnullataDaNc(
+          supabase,
+          input.fatturaCollegataId,
+          row.id,
+          auth.userId
+        );
+        if (markErr) {
           return {
             success: false,
-            error: `Annullamento dilazioni: ${annErr.message}`,
+            error: `Annullamento fattura collegata: ${markErr}`,
           };
         }
-        await writeAuditLog({
-          entity_type: "fatture_emesse",
-          entity_id: input.fatturaCollegataId,
-          action: "annulla_dilazioni_da_nc",
-          actor_id: auth.userId,
-          summary: `Annullate ${input.dilazioniAnnullateIds.length} dilazioni da NC ${numeroInterno}`,
-          payload: {
-            nota_credito_id: row.id,
-            dilazioni_ids: input.dilazioniAnnullateIds,
-          },
-        });
+        if (
+          input.modalitaCollegamento !== "sostituzione" &&
+          input.dilazioniAnnullateIds.length > 0
+        ) {
+          await writeAuditLog({
+            entity_type: "fatture_emesse",
+            entity_id: input.fatturaCollegataId,
+            action: "annulla_dilazioni_da_nc",
+            actor_id: auth.userId,
+            summary: `Annullate dilazioni da NC ${numeroInterno}`,
+            payload: {
+              nota_credito_id: row.id,
+              dilazioni_ids: input.dilazioniAnnullateIds,
+            },
+          });
+        }
       }
 
       if (
@@ -820,13 +891,15 @@ export async function createFatturaAction(
         .maybeSingle();
       const finalRow = (refreshed ?? row) as FatturaEmessaRow;
 
+      const created = mapFatturaEmessaRow(
+        finalRow,
+        (righeData ?? []) as FatturaEmessaRigaRow[],
+        dilazioniData
+      );
+      const [enriched] = await enrichAnnullataDaNcNumeri(supabase, [created]);
       return {
         success: true,
-        fattura: mapFatturaEmessaRow(
-          finalRow,
-          (righeData ?? []) as FatturaEmessaRigaRow[],
-          dilazioniData
-        ),
+        fattura: enriched,
       };
     }
 
@@ -1070,7 +1143,11 @@ export async function updateFatturaAction(
         iva_percentuale: input.ivaPercentuale,
         imposta: totals.imposta,
         totale: totals.totale,
-        stato_pagamento: input.statoPagamento,
+        // Non togliere "annullata" se già stornata da NC
+        stato_pagamento:
+          existingRow.stato_pagamento === "annullata"
+            ? "annullata"
+            : input.statoPagamento,
         stato_incasso_nc:
           kind === "nota_credito" ? input.statoIncassoNc : null,
         rimborso_necessario:
@@ -1197,6 +1274,21 @@ export async function updateFatturaAction(
         dilazioniData = (dilazioni ?? []) as FatturaEmessaDilazioneRow[];
       }
 
+      if (kind === "nota_credito" && input.fatturaCollegataId) {
+        const markErr = await markFatturaAnnullataDaNc(
+          supabase,
+          input.fatturaCollegataId,
+          id,
+          auth.userId
+        );
+        if (markErr) {
+          return {
+            success: false,
+            error: `Annullamento fattura collegata: ${markErr}`,
+          };
+        }
+      }
+
       await writeAuditLog({
         entity_type: "fatture_emesse",
         entity_id: id,
@@ -1224,13 +1316,15 @@ export async function updateFatturaAction(
         .eq("id", id)
         .maybeSingle();
 
+      const mapped = mapFatturaEmessaRow(
+        (refreshed ?? updated) as FatturaEmessaRow,
+        (righeData ?? []) as FatturaEmessaRigaRow[],
+        dilazioniData
+      );
+      const [enriched] = await enrichAnnullataDaNcNumeri(supabase, [mapped]);
       return {
         success: true,
-        fattura: mapFatturaEmessaRow(
-          (refreshed ?? updated) as FatturaEmessaRow,
-          (righeData ?? []) as FatturaEmessaRigaRow[],
-          dilazioniData
-        ),
+        fattura: enriched,
       };
     }
 
@@ -1438,9 +1532,10 @@ export async function getFatturaByIdAction(
       }
     }
 
+    const [enriched] = await enrichAnnullataDaNcNumeri(supabase, [fattura]);
     return {
       success: true,
-      fattura,
+      fattura: enriched,
     };
   }
 

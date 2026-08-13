@@ -88,12 +88,16 @@ export function FatturaDettaglioView({
           ) : null}
           <span
             className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-medium ${
-              fattura.statoPagamento === "pagato"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "border-rose-200 bg-rose-50 text-rose-800"
+              fattura.statoPagamento === "annullata"
+                ? "border-slate-300 bg-slate-100 text-slate-800"
+                : fattura.statoPagamento === "pagato"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : "border-rose-200 bg-rose-50 text-rose-800"
             }`}
           >
-            {labelStatoPagamento(fattura.statoPagamento, fattura.kind)}
+            {labelStatoPagamento(fattura.statoPagamento, fattura.kind, {
+              annullataDaNcNumeroInterno: fattura.annullataDaNcNumeroInterno,
+            })}
           </span>
           {fattura.ficId ? (
             <ApriFatturaFicButton
@@ -104,6 +108,28 @@ export function FatturaDettaglioView({
           ) : null}
         </div>
       </div>
+
+      {fattura.statoPagamento === "annullata" && !isPreview ? (
+        <section className="rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+          <p className="font-semibold">Fattura annullata — non contabilizzata</p>
+          <p className="mt-1 text-[var(--muted)]">
+            Stornata con nota di credito{" "}
+            {fattura.annullataDaNcId ? (
+              <Link
+                href={fatturaDetailPath("nota_credito", fattura.annullataDaNcId)}
+                className="font-mono font-medium text-[var(--primary)] hover:underline"
+              >
+                {fattura.annullataDaNcNumeroInterno || "NC"}
+              </Link>
+            ) : (
+              <span className="font-mono">
+                {fattura.annullataDaNcNumeroInterno || "—"}
+              </span>
+            )}
+            . Esclusa da incassi, IVA e scadenziario.
+          </p>
+        </section>
+      ) : null}
 
       <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">

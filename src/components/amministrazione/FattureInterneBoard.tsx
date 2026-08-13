@@ -289,7 +289,22 @@ export function FattureInterneBoard({ kind }: Props) {
                     {formatEuro(f.totale)}
                   </td>
                   <td className="px-4 py-3">
-                    {labelStatoPagamento(f.statoPagamento, f.kind)}
+                    {f.statoPagamento === "annullata" ? (
+                      <span className="inline-flex flex-col gap-0.5">
+                        <span className="inline-flex w-fit rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                          Annullata
+                        </span>
+                        {f.annullataDaNcNumeroInterno ? (
+                          <span className="font-mono text-[11px] text-[var(--muted)]">
+                            {f.annullataDaNcNumeroInterno}
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      labelStatoPagamento(f.statoPagamento, f.kind, {
+                        annullataDaNcNumeroInterno: f.annullataDaNcNumeroInterno,
+                      })
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <ApriFatturaFicButton

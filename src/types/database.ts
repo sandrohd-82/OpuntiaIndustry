@@ -600,7 +600,7 @@ export interface AuditLogInsert {
   payload?: Record<string, unknown>;
 }
 
-export type FatturaStatoPagamento = "pagato" | "da_pagare";
+export type FatturaStatoPagamento = "pagato" | "da_pagare" | "annullata";
 export type FatturaDilazioneStatoPagamento =
   | "pagato"
   | "da_pagare"
@@ -645,6 +645,9 @@ export interface FatturaEmessaRow {
   tipo_documento: FatturaTipoDocumento;
   fattura_collegata_id: string | null;
   riferimento_fattura_esterno: string;
+  annullata_da_nc_id: string | null;
+  annullata_at: string | null;
+  annullata_by: string | null;
   numero_fattura: string;
   pdf_url: string;
   ei_status: string;

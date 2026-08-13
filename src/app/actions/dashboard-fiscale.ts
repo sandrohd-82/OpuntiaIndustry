@@ -16,6 +16,7 @@ import {
   mapCompanyFiscalProfileRow,
   type CompanyFiscalProfile,
 } from "@/lib/amministrazione/fiscal-profile";
+import { includeInContabilitaFatturaEmessa } from "@/lib/amministrazione/fatture";
 import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -81,7 +82,9 @@ export async function getDashboardFiscaleSummaryAction(input: {
 
   const { data: emesse, error: eErr } = await supabase
     .from("fatture_emesse")
-    .select("id, imponibile, imposta, data_emissione")
+    .select(
+      "id, imponibile, imposta, data_emissione, tipo_documento, stato_pagamento, fattura_collegata_id"
+    )
     .is("deleted_at", null)
     .gte("data_emissione", periodo.dal)
     .lte("data_emissione", periodo.al);
@@ -95,11 +98,16 @@ export async function getDashboardFiscaleSummaryAction(input: {
     .lte("data_emissione", periodo.al);
   if (rErr) return { success: false, error: rErr.message };
 
-  const emesseRows = (emesse ?? []) as Array<{
-    id: string;
-    imponibile: number;
-    imposta: number;
-  }>;
+  const emesseRows = (
+    (emesse ?? []) as Array<{
+      id: string;
+      imponibile: number;
+      imposta: number;
+      tipo_documento?: string | null;
+      stato_pagamento?: string | null;
+      fattura_collegata_id?: string | null;
+    }>
+  ).filter((r) => includeInContabilitaFatturaEmessa(r));
   const ricevuteRows = (ricevute ?? []) as Array<{
     id: string;
     imponibile: number;
@@ -174,10 +182,12 @@ export async function getDashboardFiscaleScadenzarioAction(input?: {
   const { data: emesse } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, numero_interno, data_emissione, totale, stato_pagamento, cliente_ragione_sociale"
+      "id, numero_interno, data_emissione, totale, stato_pagamento, cliente_ragione_sociale, tipo_documento, fattura_collegata_id"
     )
     .is("deleted_at", null);
-  const emesseRows = (emesse ?? []) as FatturaEmessaRow[];
+  const emesseRows = ((emesse ?? []) as FatturaEmessaRow[]).filter((r) =>
+    includeInContabilitaFatturaEmessa(r)
+  );
   const emesseIds = emesseRows.map((r) => r.id);
   const emesseById = new Map(emesseRows.map((r) => [r.id, r]));
 
@@ -192,6 +202,7 @@ export async function getDashboardFiscaleScadenzarioAction(input?: {
     for (const d of (dil ?? []) as FatturaEmessaDilazioneRow[]) {
       const f = emesseById.get(d.fattura_id);
       if (!f) continue;
+      if (f.stato_pagamento === "annullata") continue;
       if (d.stato_pagamento === "annullata") continue;
       scadenze.push({
         id: `inc-${d.id}`,
@@ -249,13 +260,14 @@ export async function getDashboardFiscaleScadenzarioAction(input?: {
     for (const d of (dil ?? []) as FatturaRicevutaDilazioneRow[]) {
       const f = ricevuteById.get(d.fattura_id);
       if (!f) continue;
+      if (d.stato_pagamento === "annullata") continue;
       scadenze.push({
         id: `pag-${d.id}`,
         data: d.data_scadenza,
         tipo: "pagamento",
         titolo: `Pagamento ${f.numero_interno} — ${f.fornitore_ragione_sociale}`,
         importo: Number(d.importo) || 0,
-        stato: d.stato_pagamento,
+        stato: d.stato_pagamento === "pagato" ? "pagato" : "da_pagare",
         riferimento: f.numero_interno,
         fatturaId: f.id,
         fatturaKind: "ricevuta",
