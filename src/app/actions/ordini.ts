@@ -728,13 +728,17 @@ export async function createOrdineWizardAction(
   }
 
   const dataConsegna =
-    calcRes.calcolo.dataConsegnaStimata ?? input.dataRichiesta ?? null;
+    input.dataConsegnaCalendario ??
+    calcRes.calcolo.dataConsegnaStimata ??
+    input.dataRichiesta ??
+    null;
   if (!dataConsegna) {
     return {
       success: false,
       error: "Impossibile determinare la data di consegna.",
     };
   }
+  const giorniProduzione = input.giorniProduzione ?? [];
 
   const trasporto = emptyTrasporto();
   const righeCalc = [
@@ -788,7 +792,12 @@ export async function createOrdineWizardAction(
       usa_magazzino: input.usaMagazzino,
       usa_sabato: input.usaSabato,
       data_consegna_stimata: dataConsegna,
-      capacita_snapshot: calcRes.calcolo.snapshot,
+      capacita_snapshot: {
+        ...calcRes.calcolo.snapshot,
+        giorni_produzione: giorniProduzione,
+        data_consegna_calendario: dataConsegna,
+      },
+      giorni_produzione: giorniProduzione,
       is_test: true,
       spedizione_mezzo: "corriere",
       corriere_id: input.corriereDaCompilare
@@ -824,6 +833,45 @@ export async function createOrdineWizardAction(
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };
+
+    if (giorniProduzione.length > 0) {
+      const etichetta = `${numeroInterno} · ${input.prodottoCodice}`;
+      const linea =
+        typeof calcRes.calcolo.snapshot.linea === "string"
+          ? calcRes.calcolo.snapshot.linea
+          : null;
+      // Soft-delete eventuali impegni già presenti sulle stesse date (forza)
+      const nowIso = new Date().toISOString();
+      await supabase
+        .from("produzione_calendario_impegni")
+        .update({
+          deleted_at: nowIso,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .in("data_giorno", giorniProduzione)
+        .is("deleted_at", null);
+
+      const { error: impErr } = await supabase
+        .from("produzione_calendario_impegni")
+        .insert(
+          giorniProduzione.map((d) => ({
+            data_giorno: d,
+            ordine_id: row.id,
+            linea_codice: linea,
+            etichetta,
+            note: "",
+            created_by: auth.userId,
+            updated_by: auth.userId,
+          }))
+        );
+      if (impErr) {
+        return {
+          success: false,
+          error: `Ordine creato ma calendario: ${impErr.message}`,
+        };
+      }
+    }
 
     if (input.confezionamento) {
       const conf = normalizeConfezionamentoDraft(input.confezionamento);

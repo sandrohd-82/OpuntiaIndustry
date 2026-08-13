@@ -477,6 +477,7 @@ export interface OrdineRow {
   corriere_da_compilare: boolean;
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia: number | null;
+  giorni_produzione: string[];
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -526,6 +527,7 @@ export interface OrdineInsert {
   corriere_da_compilare?: boolean;
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
+  giorni_produzione?: string[];
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -569,10 +571,37 @@ export interface OrdineUpdate {
   corriere_da_compilare?: boolean;
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
+  giorni_produzione?: string[];
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;
 }
+
+export interface ProduzioneCalendarioImpegnoRow {
+  id: string;
+  data_giorno: string;
+  ordine_id: string | null;
+  linea_codice: string | null;
+  etichetta: string;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type ProduzioneCalendarioImpegnoInsert = {
+  id?: string;
+  data_giorno: string;
+  ordine_id?: string | null;
+  linea_codice?: string | null;
+  etichetta?: string;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
 
 export type ImballaggioStadio = "movimentazione" | "confezione" | "isolamento";
 
@@ -1612,6 +1641,15 @@ export interface Database {
         Row: OrdineConfezionamentoNodoRow;
         Insert: OrdineConfezionamentoNodoInsert;
         Update: Partial<OrdineConfezionamentoNodoInsert> & {
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
+      produzione_calendario_impegni: {
+        Row: ProduzioneCalendarioImpegnoRow;
+        Insert: ProduzioneCalendarioImpegnoInsert;
+        Update: Partial<ProduzioneCalendarioImpegnoInsert> & {
           deleted_at?: string | null;
           deleted_by?: string | null;
         };

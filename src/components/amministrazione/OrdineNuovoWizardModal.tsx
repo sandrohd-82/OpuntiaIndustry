@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/imballaggi-spedizioni";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import {
   ClearableNumberInput,
@@ -137,6 +138,12 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   const [resaOverride, setResaOverride] = useState<number | "">("");
   const [kgEssiccatore, setKgEssiccatore] = useState<number | "">(2200);
   const [overridesSeeded, setOverridesSeeded] = useState(false);
+  const [calendarioOpen, setCalendarioOpen] = useState(false);
+  const [calendarioAutoShown, setCalendarioAutoShown] = useState(false);
+  const [giorniProduzione, setGiorniProduzione] = useState<string[]>([]);
+  const [dataConsegnaCalendario, setDataConsegnaCalendario] = useState<
+    string | null
+  >(null);
 
   const [corrieri, setCorrieri] = useState<Corriere[]>([]);
   const [corriereId, setCorriereId] = useState<string>("");
@@ -258,6 +265,15 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     if (result.calcolo.chiedereSabato && !sab) {
       setSabatoProposto(true);
     }
+    // Apri calendario una volta dopo il primo calcolo con giorni > 0
+    if (
+      result.calcolo.giorniLavorativiNecessari > 0 &&
+      giorniProduzione.length === 0 &&
+      !calendarioAutoShown
+    ) {
+      setCalendarioAutoShown(true);
+      setCalendarioOpen(true);
+    }
   }
 
   useEffect(() => {
@@ -331,6 +347,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       spedizioneACarico: aCarico,
       spedizionePctAgrinsicilia:
         aCarico === "diviso" ? Number(pctAgrin) : null,
+      giorniProduzione,
+      dataConsegnaCalendario,
       confezionamento: confNorm,
       tipoPagamento: "alla_consegna",
     });
@@ -774,8 +792,19 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                     </li>
                     <li className="font-semibold text-slate-900">
                       Data consegna stimata:{" "}
-                      {formatDateIt(calcolo.dataConsegnaStimata)}
+                      {formatDateIt(
+                        dataConsegnaCalendario ?? calcolo.dataConsegnaStimata
+                      )}
                     </li>
+                    {giorniProduzione.length > 0 ? (
+                      <li className="text-emerald-800">
+                        Calendario: {giorniProduzione.length} giorni produzione
+                        fissati
+                        {dataConsegnaCalendario
+                          ? ` · consegna ${formatDateIt(dataConsegnaCalendario)}`
+                          : ""}
+                      </li>
+                    ) : null}
                     {calcolo.avvisi.map((a) => (
                       <li key={a} className="text-xs text-[var(--muted)]">
                         {a}
@@ -788,6 +817,18 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                   </p>
                 )}
               </div>
+
+              {calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setCalendarioOpen(true)}
+                  className="w-full rounded-lg border-2 border-emerald-500 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+                >
+                  {giorniProduzione.length
+                    ? "Riapri calendario produzione"
+                    : `Apri calendario · ${calcolo.giorniLavorativiNecessari} giorni lavorativi`}
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -1139,6 +1180,21 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
           }}
         />
       )}
+
+      {calendarioOpen && calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
+        <ConsegnaCalendarioModal
+          giorniNecessari={calcolo.giorniLavorativiNecessari}
+          usaSabato={usaSabato}
+          onToggleSabato={setUsaSabato}
+          initialSelected={giorniProduzione}
+          onClose={() => setCalendarioOpen(false)}
+          onConfirm={({ giorniProduzione: days, dataConsegna }) => {
+            setGiorniProduzione(days);
+            setDataConsegnaCalendario(dataConsegna);
+            setCalendarioOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
