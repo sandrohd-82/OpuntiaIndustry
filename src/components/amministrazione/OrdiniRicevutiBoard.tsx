@@ -6,11 +6,13 @@ export function OrdiniRicevutiBoard() {
   return (
     <OrdiniBoard
       stato="ricevuto"
-      description="Ordini ricevuti su database con tracciabilità ISO 9001. Espandi la riga per i dettagli, modifica con la stessa modale di creazione ed elimina con soft delete (doppia conferma)."
+      description="Ordini ricevuti con wizard capacità produttiva (essiccatori, rese periodo, magazzino). Tracciabilità ISO 9001; i dati di prova sono soft-delete con «Pulisci dati test»."
       createLabel="Nuovo ordine"
       emptyTitle="Nessun ordine ricevuto"
-      emptyHint="Registra un nuovo ordine ricevuto dal cliente."
+      emptyHint="Avvia il wizard: cliente → prodotto → quantità/prezzo → consegna."
       loadingLabel="Caricamento ordini…"
+      useWizardCreate
+      showPurgeTest
     />
   );
 }

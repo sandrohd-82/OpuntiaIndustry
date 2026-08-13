@@ -1,8 +1,10 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import {
   buildNumeroInternoOrdine,
+  emptyTrasporto,
   formatOperatoreShort,
   fraseConfermaEliminazione,
   labelAuditAction,
@@ -14,6 +16,7 @@ import {
   type OrdineAuditEntry,
   type OrdineInput,
 } from "@/lib/amministrazione/ordini";
+import { ordineWizardInputSchema } from "@/lib/amministrazione/produzione-capacita";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   AuditLogInsert,
@@ -683,4 +686,226 @@ export async function listOrdineAuditLogAction(
   }
 
   return { success: true, entries };
+}
+
+/**
+ * Wizard Ordini Ricevuti: crea ordine con calcolo capacità / consegna.
+ * Marca is_test=true (dati eliminabili con purge).
+ */
+export async function createOrdineWizardAction(
+  raw: unknown
+): Promise<OrdiniActionResult> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = ordineWizardInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Validazione fallita.",
+    };
+  }
+  const input = parsed.data;
+
+  const calcRes = await calcolaConsegnaOrdineAction({
+    prodottoId: input.prodottoId,
+    prodottoCodice: input.prodottoCodice,
+    quantitaKg: input.quantita,
+    consegnaTipo: input.consegnaTipo,
+    dataRichiesta: input.dataRichiesta ?? null,
+    urgente: input.urgente,
+    usaMagazzino: input.usaMagazzino,
+    usaSabato: input.usaSabato,
+  });
+  if (!calcRes.success) {
+    return { success: false, error: calcRes.error };
+  }
+
+  const dataConsegna =
+    calcRes.calcolo.dataConsegnaStimata ?? input.dataRichiesta ?? null;
+  if (!dataConsegna) {
+    return {
+      success: false,
+      error: "Impossibile determinare la data di consegna.",
+    };
+  }
+
+  const trasporto = emptyTrasporto();
+  const righeCalc = [
+    {
+      id: "wizard-1",
+      prodottoId: input.prodottoId,
+      prodottoCodice: input.prodottoCodice,
+      prodottoNome: input.prodottoNome,
+      quantita: input.quantita,
+      prezzoUnitario: input.prezzoUnitario,
+      ivaPercentuale: input.ivaPercentuale,
+    },
+  ];
+  const importo = totaleOrdine(righeCalc, trasporto);
+
+  try {
+    const supabase = await createClient();
+    const seq = await nextSeqForCliente(
+      input.clienteId,
+      input.codiceTargaCliente
+    );
+    const numeroInterno = buildNumeroInternoOrdine({
+      dataOrdine: input.dataOrdine,
+      codiceTargaCliente: input.codiceTargaCliente,
+      seq,
+    });
+
+    const insert: OrdineInsert = {
+      numero_interno: numeroInterno,
+      numero_cliente: "",
+      cliente_id: input.clienteId,
+      cliente_ragione_sociale: input.cliente.trim(),
+      cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
+      data_ordine: input.dataOrdine,
+      data_consegna: dataConsegna,
+      stato: "ricevuto",
+      origine_storico: null,
+      trasporto_azienda: "",
+      trasporto_imponibile: 0,
+      trasporto_iva_percentuale: 22,
+      importo_euro: importo,
+      note: input.note?.trim() ?? "",
+      tipo_pagamento: input.tipoPagamento,
+      pagato: false,
+      data_pagamento: null,
+      note_rateizzazione: "",
+      documento_stato: "registrato",
+      versione: 1,
+      consegna_tipo: input.consegnaTipo,
+      urgente: input.urgente,
+      usa_magazzino: input.usaMagazzino,
+      usa_sabato: input.usaSabato,
+      data_consegna_stimata: dataConsegna,
+      capacita_snapshot: calcRes.calcolo.snapshot,
+      is_test: true,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    };
+
+    const { data: row, error } = await supabase
+      .from("ordini")
+      .insert(insert)
+      .select("*")
+      .single();
+    if (error || !row) {
+      return { success: false, error: error?.message ?? "Creazione fallita." };
+    }
+
+    const righeErr = await replaceRighe(row.id, [
+      {
+        prodottoId: input.prodottoId,
+        prodottoCodice: input.prodottoCodice,
+        prodottoNome: input.prodottoNome,
+        quantita: input.quantita,
+        prezzoUnitario: input.prezzoUnitario,
+        ivaPercentuale: input.ivaPercentuale,
+      },
+    ]);
+    if (righeErr) return { success: false, error: righeErr };
+
+    await writeAudit({
+      entity_type: "ordini",
+      entity_id: row.id,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Creato ordine wizard ${numeroInterno} (consegna ${dataConsegna})`,
+      payload: {
+        wizard: true,
+        is_test: true,
+        consegna_tipo: input.consegnaTipo,
+        capacita: calcRes.calcolo.snapshot,
+      },
+    });
+
+    const ordine = await loadOrdineWithRighe(row.id);
+    if (!ordine) {
+      return { success: false, error: "Ordine creato ma non leggibile." };
+    }
+    return { success: true, ordine };
+  } catch (e) {
+    console.error("[createOrdineWizardAction]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Errore creazione ordine.",
+    };
+  }
+}
+
+/**
+ * Soft-delete di tutti i dati test dell’area ordini/produzione collegata.
+ * Non tocca configurazione (linee, essiccatori, baseline rese).
+ */
+export async function purgeOrdiniTestAction(): Promise<
+  | { success: true; purged: { ordini: number; movimenti: number; osservazioni: number; giacenze: number } }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  async function softPurge(
+    table: string
+  ): Promise<{ count: number; error: string | null }> {
+    const { data, error } = await supabase
+      .from(table)
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("is_test", true)
+      .is("deleted_at", null)
+      .select("id");
+    if (error) return { count: 0, error: error.message };
+    return { count: (data ?? []).length, error: null };
+  }
+
+  const ordini = await softPurge("ordini");
+  if (ordini.error) return { success: false, error: ordini.error };
+  const movimenti = await softPurge("magazzino_movimenti");
+  if (movimenti.error) return { success: false, error: movimenti.error };
+  const osservazioni = await softPurge("produzione_resa_osservazioni");
+  if (osservazioni.error) return { success: false, error: osservazioni.error };
+
+  // Giacenze test: azzera quantità e soft-delete
+  const { data: giacenzeData, error: giacenzeErr } = await supabase
+    .from("magazzino_giacenze")
+    .update({
+      quantita_kg: 0,
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("is_test", true)
+    .is("deleted_at", null)
+    .select("id");
+  if (giacenzeErr) return { success: false, error: giacenzeErr.message };
+
+  await writeAudit({
+    entity_type: "ordini",
+    entity_id: "00000000-0000-0000-0000-000000000000",
+    action: "purge_test_ordini",
+    actor_id: auth.userId,
+    summary: "Pulizia dati test area ordini / magazzino / osservazioni resa",
+    payload: {
+      ordini: ordini.count,
+      movimenti: movimenti.count,
+      osservazioni: osservazioni.count,
+      giacenze: (giacenzeData ?? []).length,
+    },
+  });
+
+  return {
+    success: true,
+    purged: {
+      ordini: ordini.count,
+      movimenti: movimenti.count,
+      osservazioni: osservazioni.count,
+      giacenze: (giacenzeData ?? []).length,
+    },
+  };
 }

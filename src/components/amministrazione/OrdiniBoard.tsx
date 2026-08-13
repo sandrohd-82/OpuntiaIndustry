@@ -9,10 +9,14 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
-import { getOrdineAllegatoSignedUrlAction } from "@/app/actions/ordini";
+import {
+  getOrdineAllegatoSignedUrlAction,
+  purgeOrdiniTestAction,
+} from "@/app/actions/ordini";
 import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettaglioPanel";
 import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
 import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
+import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
 import { useOrdini } from "@/hooks/useOrdini";
 import {
   fraseConfermaEliminazione,
@@ -180,6 +184,10 @@ type Props = {
   emptyTitle: string;
   emptyHint?: string;
   loadingLabel: string;
+  /** Wizard capacità per Ordini Ricevuti */
+  useWizardCreate?: boolean;
+  /** Pulsante soft-purge dati is_test */
+  showPurgeTest?: boolean;
 };
 
 export function OrdiniBoard({
@@ -189,13 +197,18 @@ export function OrdiniBoard({
   emptyTitle,
   emptyHint,
   loadingLabel,
+  useWizardCreate = false,
+  showPurgeTest = false,
 }: Props) {
-  const { ordini, ready, error, removeOrdine, upsertLocal } = useOrdini(stato);
+  const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
+    useOrdini(stato);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Ordine | null>(null);
   const [deleting, setDeleting] = useState<Ordine | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [purgeBusy, setPurgeBusy] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
 
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">{loadingLabel}</p>;
@@ -205,17 +218,52 @@ export function OrdiniBoard({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">{description}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setActionError(null);
-            setCreating(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-        >
-          <FaPlus size={14} />
-          {createLabel}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {showPurgeTest ? (
+            <button
+              type="button"
+              disabled={purgeBusy}
+              onClick={() => {
+                void (async () => {
+                  if (
+                    !window.confirm(
+                      "Eliminare (soft delete) tutti i dati di test ordini, movimenti magazzino e osservazioni resa? La configurazione essiccatori/rese non viene toccata."
+                    )
+                  ) {
+                    return;
+                  }
+                  setPurgeBusy(true);
+                  setPurgeMsg(null);
+                  setActionError(null);
+                  const result = await purgeOrdiniTestAction();
+                  setPurgeBusy(false);
+                  if (!result.success) {
+                    setActionError(result.error);
+                    return;
+                  }
+                  setPurgeMsg(
+                    `Pulizia ok: ${result.purged.ordini} ordini, ${result.purged.movimenti} movimenti, ${result.purged.osservazioni} osservazioni, ${result.purged.giacenze} giacenze.`
+                  );
+                  await refresh();
+                })();
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {purgeBusy ? "Pulizia…" : "Pulisci dati test"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setActionError(null);
+              setCreating(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+          >
+            <FaPlus size={14} />
+            {createLabel}
+          </button>
+        </div>
       </div>
 
       {(error || actionError) && (
@@ -223,6 +271,11 @@ export function OrdiniBoard({
           {actionError || error}
         </p>
       )}
+      {purgeMsg ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          {purgeMsg}
+        </p>
+      ) : null}
 
       {ordini.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
@@ -284,7 +337,18 @@ export function OrdiniBoard({
         </div>
       )}
 
-      {creating && (
+      {creating && useWizardCreate && (
+        <OrdineNuovoWizardModal
+          onClose={() => setCreating(false)}
+          onSaved={(ordine) => {
+            upsertLocal(ordine);
+            setCreating(false);
+            setExpandedId(ordine.id);
+          }}
+        />
+      )}
+
+      {creating && !useWizardCreate && (
         <OrdineFormModal
           mode="create"
           stato={stato}

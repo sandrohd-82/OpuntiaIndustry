@@ -428,6 +428,8 @@ export type OrdineTipoPagamento =
   | "posticipato"
   | "dilazionato";
 
+export type OrdineConsegnaTipo = "asap" | "data";
+
 export interface OrdineRow {
   id: string;
   numero_interno: string;
@@ -457,6 +459,13 @@ export interface OrdineRow {
   ordine_cliente_file_name: string;
   versione: number;
   documento_stato: OrdineDocumentoStato;
+  consegna_tipo: OrdineConsegnaTipo | null;
+  urgente: boolean;
+  usa_magazzino: boolean;
+  usa_sabato: boolean;
+  data_consegna_stimata: string | null;
+  capacita_snapshot: Record<string, unknown>;
+  is_test: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -494,6 +503,13 @@ export interface OrdineInsert {
   ordine_cliente_file_name?: string;
   versione?: number;
   documento_stato?: OrdineDocumentoStato;
+  consegna_tipo?: OrdineConsegnaTipo | null;
+  urgente?: boolean;
+  usa_magazzino?: boolean;
+  usa_sabato?: boolean;
+  data_consegna_stimata?: string | null;
+  capacita_snapshot?: Record<string, unknown>;
+  is_test?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -525,6 +541,13 @@ export interface OrdineUpdate {
   ordine_cliente_file_name?: string;
   versione?: number;
   documento_stato?: OrdineDocumentoStato;
+  consegna_tipo?: OrdineConsegnaTipo | null;
+  urgente?: boolean;
+  usa_magazzino?: boolean;
+  usa_sabato?: boolean;
+  data_consegna_stimata?: string | null;
+  capacita_snapshot?: Record<string, unknown>;
+  is_test?: boolean;
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;

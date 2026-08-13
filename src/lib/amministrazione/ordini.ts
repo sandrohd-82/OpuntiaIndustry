@@ -81,6 +81,13 @@ export type Ordine = {
   ordineClienteDoc: OrdineAllegatoMeta | null;
   versione: number;
   documentoStato: OrdineDocumentoStato;
+  consegnaTipo: "asap" | "data" | null;
+  urgente: boolean;
+  usaMagazzino: boolean;
+  usaSabato: boolean;
+  dataConsegnaStimata: string | null;
+  capacitaSnapshot: Record<string, unknown>;
+  isTest: boolean;
   righe: OrdineRigaProdotto[];
   createdAt: string;
   updatedAt: string;
@@ -284,6 +291,14 @@ export function mapOrdineRow(
     ),
     versione: row.versione,
     documentoStato: row.documento_stato,
+    consegnaTipo: (row.consegna_tipo as "asap" | "data" | null) ?? null,
+    urgente: Boolean(row.urgente),
+    usaMagazzino: Boolean(row.usa_magazzino),
+    usaSabato: Boolean(row.usa_sabato),
+    dataConsegnaStimata: row.data_consegna_stimata ?? null,
+    capacitaSnapshot:
+      (row.capacita_snapshot as Record<string, unknown> | null) ?? {},
+    isTest: row.is_test !== false,
     righe: [...righe]
       .sort((a, b) => a.sort_order - b.sort_order)
       .map(mapOrdineRigaRow),
@@ -376,6 +391,8 @@ export function labelAuditAction(action: string): string {
       return "Allegato caricato";
     case "attachment_remove":
       return "Allegato rimosso";
+    case "purge_test_ordini":
+      return "Pulizia dati test ordini";
     default:
       return action;
   }
