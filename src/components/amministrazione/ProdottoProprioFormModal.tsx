@@ -4,6 +4,10 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { FaCopy } from "react-icons/fa6";
 import {
+  listAttivitaAction,
+  listAttivitaByProdottoAction,
+} from "@/app/actions/attivita";
+import {
   findProdottoProprioByCodice,
   findProdottoProprioByNomeExact,
   findSimilarProdottiPropri,
@@ -11,6 +15,8 @@ import {
   type ProdottoProprio,
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
+import type { Attivita } from "@/lib/amministrazione/attivita";
+
 type Tipologia = "bio" | "convenzionale";
 
 type Props = {
@@ -48,6 +54,21 @@ export function ProdottoProprioFormModal({
   const [ackSimili, setAckSimili] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [attivitaCatalog, setAttivitaCatalog] = useState<Attivita[]>([]);
+  const [attivitaIds, setAttivitaIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      const all = await listAttivitaAction();
+      if (all.success) setAttivitaCatalog(all.attivita);
+      if (initial?.id) {
+        const linked = await listAttivitaByProdottoAction(initial.id);
+        if (linked.success) {
+          setAttivitaIds(linked.attivita.map((a) => a.id));
+        }
+      }
+    })();
+  }, [initial?.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -152,10 +173,31 @@ export function ProdottoProprioFormModal({
         nome: nome.trim(),
         note: note.trim(),
         isBio: tipologia === "bio",
+        attivitaIds,
       });
     } finally {
       setSaving(false);
     }
+  }
+
+  function toggleAttivita(id: string) {
+    setAttivitaIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function moveAttivita(id: string, dir: -1 | 1) {
+    setAttivitaIds((prev) => {
+      const i = prev.indexOf(id);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      const tmp = next[i]!;
+      next[i] = next[j]!;
+      next[j] = tmp;
+      return next;
+    });
   }
 
   const canSubmit =
@@ -330,6 +372,67 @@ export function ProdottoProprioFormModal({
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
             />
           </label>
+
+          <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+            <legend className="px-1 text-sm font-medium">
+              Oltre la lavorazione (attività)
+            </legend>
+            <p className="text-xs text-[var(--muted)]">
+              Seleziona le attività da Schede → Attività. L’ordine elenco è
+              l’ordine nel calendario.
+            </p>
+            {attivitaCatalog.length === 0 ? (
+              <p className="text-xs text-amber-800">
+                Nessuna attività in catalogo. Creane in Schede → Attività.
+              </p>
+            ) : (
+              <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                {attivitaCatalog.map((a) => {
+                  const selected = attivitaIds.includes(a.id);
+                  const ord = attivitaIds.indexOf(a.id);
+                  return (
+                    <li
+                      key={a.id}
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-xs"
+                    >
+                      <label className="flex min-w-0 flex-1 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleAttivita(a.id)}
+                        />
+                        <span className="font-mono font-semibold">{a.codice}</span>
+                        <span className="truncate text-slate-700">{a.titolo}</span>
+                      </label>
+                      {selected ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="tabular-nums text-[var(--muted)]">
+                            #{ord + 1}
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded border border-[var(--border)] px-1.5 py-0.5"
+                            onClick={() => moveAttivita(a.id, -1)}
+                            aria-label="Su"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-[var(--border)] px-1.5 py-0.5"
+                            onClick={() => moveAttivita(a.id, 1)}
+                            aria-label="Giù"
+                          >
+                            ↓
+                          </button>
+                        </span>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </fieldset>
 
           <div className="space-y-2">
             <label className="flex items-center gap-2 text-sm">

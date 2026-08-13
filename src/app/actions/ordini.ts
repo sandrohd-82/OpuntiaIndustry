@@ -739,10 +739,12 @@ export async function createOrdineWizardAction(
     };
   }
   const giorniProduzione = input.giorniProduzione ?? [];
-  const giorniPreparazione = input.giorniPreparazione ?? [];
+  const giorniAttivita =
+    input.giorniAttivita ?? input.giorniPreparazione ?? [];
+  const attivitaSnapshot = input.attivitaSnapshot ?? [];
   const giorniCalendarioImpegno = [
     ...giorniProduzione,
-    ...giorniPreparazione,
+    ...giorniAttivita,
   ];
 
   const trasporto = emptyTrasporto();
@@ -800,7 +802,8 @@ export async function createOrdineWizardAction(
       capacita_snapshot: {
         ...calcRes.calcolo.snapshot,
         giorni_produzione: giorniProduzione,
-        giorni_preparazione: giorniPreparazione,
+        giorni_attivita: giorniAttivita,
+        attivita: attivitaSnapshot,
         data_consegna_calendario: dataConsegna,
       },
       giorni_produzione: giorniProduzione,
@@ -842,12 +845,10 @@ export async function createOrdineWizardAction(
 
     if (giorniCalendarioImpegno.length > 0) {
       const etichettaProd = `${numeroInterno} · ${input.prodottoCodice}`;
-      const etichettaPrep = `${numeroInterno} · Prep/Imballaggio`;
       const linea =
         typeof calcRes.calcolo.snapshot.linea === "string"
           ? calcRes.calcolo.snapshot.linea
           : null;
-      // Soft-delete eventuali impegni già presenti sulle stesse date (forza)
       const nowIso = new Date().toISOString();
       await supabase
         .from("produzione_calendario_impegni")
@@ -859,6 +860,13 @@ export async function createOrdineWizardAction(
         .in("data_giorno", giorniCalendarioImpegno)
         .is("deleted_at", null);
 
+      const dateToAttLabel = new Map<string, string>();
+      for (const seg of attivitaSnapshot) {
+        for (const d of seg.dates) {
+          dateToAttLabel.set(d, `${numeroInterno} · ${seg.codice}`);
+        }
+      }
+
       const rowsImpegno = [
         ...giorniProduzione.map((d) => ({
           data_giorno: d,
@@ -869,12 +877,12 @@ export async function createOrdineWizardAction(
           created_by: auth.userId,
           updated_by: auth.userId,
         })),
-        ...giorniPreparazione.map((d) => ({
+        ...giorniAttivita.map((d) => ({
           data_giorno: d,
           ordine_id: row.id,
           linea_codice: linea,
-          etichetta: etichettaPrep,
-          note: "preparazione_imballaggio",
+          etichetta: dateToAttLabel.get(d) ?? `${numeroInterno} · Attività`,
+          note: "attivita",
           created_by: auth.userId,
           updated_by: auth.userId,
         })),

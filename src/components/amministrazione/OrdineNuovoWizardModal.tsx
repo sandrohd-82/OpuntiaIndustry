@@ -11,6 +11,7 @@ import {
   listCorrieriAction,
   listImballaggiVociAction,
 } from "@/app/actions/imballaggi-spedizioni";
+import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
@@ -20,6 +21,10 @@ import {
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
+import {
+  attivitaToOrdineDraft,
+  type AttivitaOrdineDraft,
+} from "@/lib/amministrazione/attivita";
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import {
   childStadioFor,
@@ -140,7 +145,22 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   const [overridesSeeded, setOverridesSeeded] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
   const [giorniProduzione, setGiorniProduzione] = useState<string[]>([]);
-  const [giorniPreparazione, setGiorniPreparazione] = useState<string[]>([]);
+  const [giorniAttivita, setGiorniAttivita] = useState<string[]>([]);
+  const [attivitaDrafts, setAttivitaDrafts] = useState<AttivitaOrdineDraft[]>(
+    []
+  );
+  const [attivitaSnapshot, setAttivitaSnapshot] = useState<
+    Array<{
+      attivitaId: string;
+      codice: string;
+      titolo: string;
+      dates: string[];
+      kgPerOra?: number;
+      oreGiorno?: number;
+      incastrabileDuranteLavorazione?: boolean;
+      giorniOverride?: number | null;
+    }>
+  >([]);
   const [dataConsegnaCalendario, setDataConsegnaCalendario] = useState<
     string | null
   >(null);
@@ -284,6 +304,31 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
     kgEssiccatore,
   ]);
 
+  useEffect(() => {
+    if (!prodotto?.id) {
+      setAttivitaDrafts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await listAttivitaByProdottoAction(prodotto.id);
+      if (cancelled) return;
+      if (!res.success) {
+        setAttivitaDrafts([]);
+        return;
+      }
+      setAttivitaDrafts(res.attivita.map(attivitaToOrdineDraft));
+      // Reset selezione calendario se cambia prodotto
+      setGiorniProduzione([]);
+      setGiorniAttivita([]);
+      setAttivitaSnapshot([]);
+      setDataConsegnaCalendario(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [prodotto?.id]);
+
   function canNext(): boolean {
     if (step === 1) return Boolean(clienteId && clienteNome && clienteTarga);
     if (step === 2) return Boolean(prodotto);
@@ -293,10 +338,9 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       if (!calcolo || calcolo.giorniLavorativiNecessari <= 0) {
         return Boolean(calcolo?.dataConsegnaStimata);
       }
-      // Operatore deve fissare i giorni sul calendario (verde + giallo)
+      // Operatore deve fissare i giorni sul calendario (verde + eventuali attività)
       return (
         giorniProduzione.length === calcolo.giorniLavorativiNecessari &&
-        giorniPreparazione.length > 0 &&
         Boolean(dataConsegnaCalendario)
       );
     }
@@ -349,7 +393,9 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       spedizionePctAgrinsicilia:
         aCarico === "diviso" ? Number(pctAgrin) : null,
       giorniProduzione,
-      giorniPreparazione,
+      giorniAttivita,
+      giorniPreparazione: giorniAttivita,
+      attivitaSnapshot,
       dataConsegnaCalendario,
       confezionamento: confNorm,
       tipoPagamento: "alla_consegna",
@@ -801,8 +847,8 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                     {giorniProduzione.length > 0 ? (
                       <li className="text-emerald-800">
                         Calendario: {giorniProduzione.length} giorni lavorazione
-                        {giorniPreparazione.length > 0
-                          ? ` + ${giorniPreparazione.length} preparazione/imballaggio`
+                        {giorniAttivita.length > 0
+                          ? ` + ${giorniAttivita.length} attività`
                           : ""}
                         {dataConsegnaCalendario
                           ? ` · consegna ${formatDateIt(dataConsegnaCalendario)}`
@@ -811,7 +857,7 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                     ) : (
                       <li className="text-amber-800">
                         Apri il calendario e seleziona i giorni di lavorazione
-                        (e preparazione) per abilitare Avanti.
+                        per abilitare Avanti.
                       </li>
                     )}
                     {calcolo.avvisi.map((a) => (
@@ -1193,21 +1239,38 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       {calendarioOpen && calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
         <ConsegnaCalendarioModal
           giorniProduzioneNecessari={calcolo.giorniLavorativiNecessari}
+          kgOrdine={quantitaKg}
           usaSabato={usaSabato}
           onToggleSabato={setUsaSabato}
+          attivitaDrafts={attivitaDrafts}
+          onAttivitaDraftsChange={setAttivitaDrafts}
           initialGiorniProduzione={giorniProduzione}
-          initialGiorniPreparazione={giorniPreparazione}
-          initialCountPreparazione={
-            giorniPreparazione.length > 0 ? giorniPreparazione.length : 1
-          }
+          initialGiorniAttivita={giorniAttivita}
+          initialDataConsegna={dataConsegnaCalendario}
           onClose={() => setCalendarioOpen(false)}
           onConfirm={({
             giorniProduzione: days,
-            giorniPreparazione: prep,
+            giorniAttivita: attDays,
+            segmentiAttivita,
             dataConsegna,
+            attivitaDrafts: drafts,
           }) => {
             setGiorniProduzione(days);
-            setGiorniPreparazione(prep);
+            setGiorniAttivita(attDays);
+            setAttivitaDrafts(drafts);
+            setAttivitaSnapshot(
+              segmentiAttivita.map((s) => {
+                const d = drafts.find((x) => x.attivitaId === s.attivitaId);
+                return {
+                  ...s,
+                  kgPerOra: d?.kgPerOra,
+                  oreGiorno: d?.oreGiorno,
+                  incastrabileDuranteLavorazione:
+                    d?.incastrabileDuranteLavorazione,
+                  giorniOverride: d?.giorniOverride ?? null,
+                };
+              })
+            );
             setDataConsegnaCalendario(dataConsegna);
             setCalendarioOpen(false);
           }}

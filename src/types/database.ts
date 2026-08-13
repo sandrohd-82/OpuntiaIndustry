@@ -421,6 +421,67 @@ export interface ProdottoProprioUpdate {
   deleted_by?: string | null;
 }
 
+export type AttivitaDocumentoStato = "bozza" | "approvato" | "chiuso";
+
+export interface AttivitaRow {
+  id: string;
+  codice: string;
+  titolo: string;
+  spiegazione: string;
+  kg_per_ora: number;
+  ore_giorno: number;
+  incastrabile_durante_lavorazione: boolean;
+  documento_stato: AttivitaDocumentoStato;
+  versione: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface AttivitaInsert {
+  id?: string;
+  codice: string;
+  titolo: string;
+  spiegazione?: string;
+  kg_per_ora: number;
+  ore_giorno?: number;
+  incastrabile_durante_lavorazione?: boolean;
+  documento_stato?: AttivitaDocumentoStato;
+  versione?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+}
+
+export interface AttivitaUpdate {
+  codice?: string;
+  titolo?: string;
+  spiegazione?: string;
+  kg_per_ora?: number;
+  ore_giorno?: number;
+  incastrabile_durante_lavorazione?: boolean;
+  documento_stato?: AttivitaDocumentoStato;
+  versione?: number;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
+export interface ProdottoProprioAttivitaRow {
+  id: string;
+  prodotto_id: string;
+  attivita_id: string;
+  sort_order: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
 export type OrdineStato = "ricevuto" | "evaso" | "storico";
 export type OrdineOrigineStorico = "manuale" | "chiusura";
 export type OrdineDocumentoStato =
@@ -1653,6 +1714,25 @@ export interface Database {
           deleted_at?: string | null;
           deleted_by?: string | null;
         };
+        Relationships: [];
+      };
+      attivita: {
+        Row: AttivitaRow;
+        Insert: AttivitaInsert;
+        Update: AttivitaUpdate;
+        Relationships: [];
+      };
+      prodotti_propri_attivita: {
+        Row: ProdottoProprioAttivitaRow;
+        Insert: {
+          id?: string;
+          prodotto_id: string;
+          attivita_id: string;
+          sort_order?: number;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: Partial<ProdottoProprioAttivitaRow>;
         Relationships: [];
       };
       audit_log: {

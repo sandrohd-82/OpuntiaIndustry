@@ -6,6 +6,7 @@ import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/Grafici
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
+import { AttivitaBoard } from "@/components/amministrazione/AttivitaBoard";
 import { ImballaggiSpedizioniBoard } from "@/components/amministrazione/ImballaggiSpedizioniBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
@@ -132,6 +133,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         />
         <div className="p-6">
           <ImballaggiSpedizioniBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "attivita") {
+    return (
+      <>
+        <AppHeader title="Attività" subtitle={page.description} />
+        <div className="p-6">
+          <AttivitaBoard />
         </div>
       </>
     );

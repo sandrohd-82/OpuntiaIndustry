@@ -12,6 +12,7 @@ import {
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { setProdottiPropriAttivitaAction } from "@/app/actions/attivita";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   emptyProdottiPropriFilters,
@@ -243,6 +244,14 @@ export function ProdottiPropriBoard() {
           onSave={async (values) => {
             const created = await addProdotto(values);
             if (created.success) {
+              const link = await setProdottiPropriAttivitaAction({
+                prodottoId: created.prodotto.id,
+                attivitaIds: values.attivitaIds ?? [],
+              });
+              if (!link.success) {
+                setSaveError(link.error);
+                return;
+              }
               setSaveError(null);
               setCreating(false);
             } else {
@@ -261,6 +270,14 @@ export function ProdottiPropriBoard() {
           onSave={async (values) => {
             const updated = await updateProdotto(editing.id, values);
             if (updated.success) {
+              const link = await setProdottiPropriAttivitaAction({
+                prodottoId: editing.id,
+                attivitaIds: values.attivitaIds ?? [],
+              });
+              if (!link.success) {
+                setSaveError(link.error);
+                return;
+              }
               setSaveError(null);
               setEditing(null);
             } else {

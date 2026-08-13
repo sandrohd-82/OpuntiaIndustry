@@ -19,6 +19,8 @@ export type ProdottoProprioInput = {
   nome: string;
   note?: string;
   isBio?: boolean;
+  /** ID attività oltre la lavorazione (ordine = sort). */
+  attivitaIds?: string[];
 };
 
 export function sanitizeCodiceProdottoProprio(value: string): string {

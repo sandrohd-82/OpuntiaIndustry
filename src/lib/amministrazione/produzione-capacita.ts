@@ -135,8 +135,26 @@ export const ordineWizardInputSchema = z
     giorniProduzione: z
       .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
       .optional(),
+    /** @deprecated usare giorniAttivita */
     giorniPreparazione: z
       .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+      .optional(),
+    giorniAttivita: z
+      .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+      .optional(),
+    attivitaSnapshot: z
+      .array(
+        z.object({
+          attivitaId: z.string(),
+          codice: z.string(),
+          titolo: z.string(),
+          dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+          kgPerOra: z.number().optional(),
+          oreGiorno: z.number().optional(),
+          incastrabileDuranteLavorazione: z.boolean().optional(),
+          giorniOverride: z.number().nullable().optional(),
+        })
+      )
       .optional(),
     dataConsegnaCalendario: z
       .string()

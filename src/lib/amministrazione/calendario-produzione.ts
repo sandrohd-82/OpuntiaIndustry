@@ -109,10 +109,21 @@ export function buildWorkingBlock(input: {
   return { days, skippedOccupied, conflicts };
 }
 
+export type SegmentoAttivitaBlocco = {
+  attivitaId: string;
+  codice: string;
+  titolo: string;
+  giorni: number;
+  dates: string[];
+};
+
 export type BloccoCalendarioOrdine = {
   produzione: string[];
+  /** @deprecated usare `attivita` — mantenuto per compatibilità Prep. */
   preparazione: string[];
-  /** Tutti i giorni impegnati (verde + giallo). */
+  /** Segmenti attività oltre la lavorazione (gialli). */
+  attivita: SegmentoAttivitaBlocco[];
+  /** Tutti i giorni impegnati (verde + gialli). */
   tutti: string[];
   dataConsegna: string | null;
   skippedOccupied: string[];
@@ -120,21 +131,43 @@ export type BloccoCalendarioOrdine = {
 };
 
 /**
- * Blocco ordine: N giorni produzione (verdi) + M giorni
- * «Preparazione e imballaggio» (gialli), poi data consegna al
- * primo giorno lavorativo successivo.
+ * Blocco ordine: N giorni produzione (verdi) + segmenti attività (gialli),
+ * poi data consegna al primo giorno lavorativo successivo.
  */
 export function buildBloccoCalendarioOrdine(input: {
   startIso: string;
   giorniProduzione: number;
-  giorniPreparazione: number;
+  /** Legacy: un solo blocco giallo senza metadati. */
+  giorniPreparazione?: number;
+  /** Segmenti attività (giorni richiesti per ciascuno, in ordine). */
+  segmentiAttivita?: Array<{
+    attivitaId: string;
+    codice: string;
+    titolo: string;
+    giorni: number;
+  }>;
   usaSabato: boolean;
   occupiedSet: Set<string>;
   skipOccupied: boolean;
 }): BloccoCalendarioOrdine {
   const nProd = Math.max(0, Math.floor(input.giorniProduzione));
-  const nPrep = Math.max(0, Math.floor(input.giorniPreparazione));
-  const total = nProd + nPrep;
+  const segmentiIn =
+    input.segmentiAttivita && input.segmentiAttivita.length > 0
+      ? input.segmentiAttivita.map((s) => ({
+          ...s,
+          giorni: Math.max(0, Math.floor(s.giorni)),
+        }))
+      : [
+          {
+            attivitaId: "prep",
+            codice: "At-Prep/Imb",
+            titolo: "Preparazione e imballaggio",
+            giorni: Math.max(0, Math.floor(input.giorniPreparazione ?? 0)),
+          },
+        ].filter((s) => s.giorni > 0);
+
+  const nAtt = segmentiIn.reduce((sum, s) => sum + s.giorni, 0);
+  const total = nProd + nAtt;
   const block = buildWorkingBlock({
     startIso: input.startIso,
     giorni: total,
@@ -143,11 +176,21 @@ export function buildBloccoCalendarioOrdine(input: {
     skipOccupied: input.skipOccupied,
   });
   const produzione = block.days.slice(0, nProd);
-  const preparazione = block.days.slice(nProd, nProd + nPrep);
+  let cursor = nProd;
+  const attivita: SegmentoAttivitaBlocco[] = [];
+  for (const seg of segmentiIn) {
+    const dates = block.days.slice(cursor, cursor + seg.giorni);
+    cursor += seg.giorni;
+    if (seg.giorni > 0) {
+      attivita.push({ ...seg, dates });
+    }
+  }
+  const preparazione = attivita.flatMap((a) => a.dates);
   const tutti = [...produzione, ...preparazione];
   return {
     produzione,
     preparazione,
+    attivita,
     tutti,
     dataConsegna: dataConsegnaDaBlocco(tutti, input.usaSabato),
     skippedOccupied: block.skippedOccupied,

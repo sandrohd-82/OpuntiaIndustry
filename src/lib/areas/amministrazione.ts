@@ -56,6 +56,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Catalogo movimentazione, confezione, isolamento e corrieri",
         path: "/app/amministrazione/schede/imballaggi-spedizioni",
       },
+      {
+        slug: "attivita",
+        label: "Attività",
+        description:
+          "Attività oltre la lavorazione (targa At) per calendario consegna",
+        path: "/app/amministrazione/schede/attivita",
+      },
     ],
   },
   {

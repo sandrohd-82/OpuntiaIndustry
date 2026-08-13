@@ -7,30 +7,42 @@ import {
   spostaImpegnoCalendarioAction,
 } from "@/app/actions/calendario-produzione";
 import {
+  ClearableNumberInput,
+} from "@/components/ui/ClearableNumberInput";
+import {
+  calcGiorniAttivita,
+  type AttivitaOrdineDraft,
+} from "@/lib/amministrazione/attivita";
+import {
   buildBloccoCalendarioOrdine,
-  dataConsegnaDaBlocco,
   formatIsoIt,
   monthFromIso,
   monthMatrix,
   type BloccoCalendarioOrdine,
   type CalendarioImpegno,
 } from "@/lib/amministrazione/calendario-produzione";
-import {
-  ClearableNumberInput,
-} from "@/components/ui/ClearableNumberInput";
 
 type Props = {
   giorniProduzioneNecessari: number;
+  kgOrdine: number;
   usaSabato: boolean;
   onToggleSabato: (v: boolean) => void;
+  attivitaDrafts: AttivitaOrdineDraft[];
+  onAttivitaDraftsChange: (next: AttivitaOrdineDraft[]) => void;
   initialGiorniProduzione?: string[];
-  initialGiorniPreparazione?: string[];
-  /** Default 1; ripristinato se già confermato. */
-  initialCountPreparazione?: number;
+  initialGiorniAttivita?: string[];
+  initialDataConsegna?: string | null;
   onConfirm: (payload: {
     giorniProduzione: string[];
-    giorniPreparazione: string[];
+    giorniAttivita: string[];
+    segmentiAttivita: Array<{
+      attivitaId: string;
+      codice: string;
+      titolo: string;
+      dates: string[];
+    }>;
     dataConsegna: string;
+    attivitaDrafts: AttivitaOrdineDraft[];
   }) => void;
   onClose: () => void;
 };
@@ -41,6 +53,7 @@ function emptyBlocco(): BloccoCalendarioOrdine {
   return {
     produzione: [],
     preparazione: [],
+    attivita: [],
     tutti: [],
     dataConsegna: null,
     skippedOccupied: [],
@@ -48,65 +61,66 @@ function emptyBlocco(): BloccoCalendarioOrdine {
   };
 }
 
+function segmentiFromDrafts(
+  drafts: AttivitaOrdineDraft[],
+  kgOrdine: number,
+  giorniProd: number
+) {
+  return drafts
+    .filter((d) => d.enabled)
+    .map((d) => ({
+      attivitaId: d.attivitaId,
+      codice: d.codice,
+      titolo: d.titolo,
+      giorni: calcGiorniAttivita({
+        kgOrdine,
+        giorniProduzione: giorniProd,
+        kgPerOra: d.kgPerOra,
+        oreGiorno: d.oreGiorno,
+        incastrabileDuranteLavorazione: d.incastrabileDuranteLavorazione,
+        giorniOverride: d.giorniOverride,
+      }),
+    }))
+    .filter((s) => s.giorni > 0);
+}
+
 export function ConsegnaCalendarioModal({
   giorniProduzioneNecessari,
+  kgOrdine,
   usaSabato,
   onToggleSabato,
+  attivitaDrafts,
+  onAttivitaDraftsChange,
   initialGiorniProduzione = [],
-  initialGiorniPreparazione = [],
-  initialCountPreparazione,
+  initialGiorniAttivita = [],
+  initialDataConsegna = null,
   onConfirm,
   onClose,
 }: Props) {
   const titleId = useId();
   const today = new Date();
-  const seedConsegna =
-    initialGiorniProduzione.length > 0 &&
-    initialGiorniPreparazione.length > 0
-      ? dataConsegnaDaBlocco(
-          [...initialGiorniProduzione, ...initialGiorniPreparazione],
-          usaSabato
-        )
-      : null;
   const seedIso =
-    seedConsegna ??
-    initialGiorniPreparazione[initialGiorniPreparazione.length - 1] ??
+    initialDataConsegna ??
+    initialGiorniAttivita[initialGiorniAttivita.length - 1] ??
     initialGiorniProduzione[0] ??
     null;
   const seedMonth = seedIso ? monthFromIso(seedIso) : null;
-  const [year, setYear] = useState(
-    seedMonth?.year ?? today.getFullYear()
-  );
-  const [month0, setMonth0] = useState(
-    seedMonth?.month0 ?? today.getMonth()
-  );
+  const [year, setYear] = useState(seedMonth?.year ?? today.getFullYear());
+  const [month0, setMonth0] = useState(seedMonth?.month0 ?? today.getMonth());
   const [impegni, setImpegni] = useState<CalendarioImpegno[]>([]);
   const [hoverIso, setHoverIso] = useState<string | null>(null);
-  const [countPrep, setCountPrep] = useState<number | "">(
-    initialCountPreparazione && initialCountPreparazione > 0
-      ? initialCountPreparazione
-      : initialGiorniPreparazione.length > 0
-        ? initialGiorniPreparazione.length
-        : 1
-  );
   const [produzione, setProduzione] = useState<string[]>(
     initialGiorniProduzione
   );
-  const [preparazione, setPreparazione] = useState<string[]>(
-    initialGiorniPreparazione
+  const [attivitaDates, setAttivitaDates] = useState<string[]>(
+    initialGiorniAttivita
   );
-  const [dataConsegna, setDataConsegna] = useState<string | null>(() => {
-    if (
-      initialGiorniProduzione.length > 0 &&
-      initialGiorniPreparazione.length > 0
-    ) {
-      return dataConsegnaDaBlocco(
-        [...initialGiorniProduzione, ...initialGiorniPreparazione],
-        usaSabato
-      );
-    }
-    return null;
-  });
+  const [segmentiSel, setSegmentiSel] = useState<
+    BloccoCalendarioOrdine["attivita"]
+  >([]);
+  const [dataConsegna, setDataConsegna] = useState<string | null>(
+    initialDataConsegna
+  );
   const [forceMode, setForceMode] = useState(false);
   const [conflictAsk, setConflictAsk] = useState<{
     blocco: BloccoCalendarioOrdine;
@@ -118,7 +132,16 @@ export function ConsegnaCalendarioModal({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const nPrep = typeof countPrep === "number" && countPrep > 0 ? countPrep : 0;
+  const segmentiCalc = useMemo(
+    () =>
+      segmentiFromDrafts(
+        attivitaDrafts,
+        kgOrdine,
+        giorniProduzioneNecessari
+      ),
+    [attivitaDrafts, kgOrdine, giorniProduzioneNecessari]
+  );
+  const giorniAttTotal = segmentiCalc.reduce((s, x) => s + x.giorni, 0);
 
   const range = useMemo(() => {
     const from = `${year}-${String(month0 + 1).padStart(2, "0")}-01`;
@@ -160,10 +183,10 @@ export function ConsegnaCalendarioModal({
 
   function applyBlocco(blocco: BloccoCalendarioOrdine) {
     setProduzione(blocco.produzione);
-    setPreparazione(blocco.preparazione);
+    setAttivitaDates(blocco.preparazione);
+    setSegmentiSel(blocco.attivita);
     setDataConsegna(blocco.dataConsegna);
     setError(null);
-    // Mostra sempre il mese della data consegna (o ultimo giorno del blocco)
     const focus =
       blocco.dataConsegna ??
       blocco.tutti[blocco.tutti.length - 1] ??
@@ -186,41 +209,40 @@ export function ConsegnaCalendarioModal({
     [impegni]
   );
 
-  // Se cambia il n° giorni preparazione con selezione già fatta, riallinea dal primo giorno prod.
+  // Ricalcolo immediato se cambiano attività e c'è già una selezione
   useEffect(() => {
-    if (produzione.length === 0 || nPrep <= 0) return;
-    if (
-      produzione.length === giorniProduzioneNecessari &&
-      preparazione.length === nPrep
-    ) {
-      return;
-    }
+    if (produzione.length === 0) return;
     const start = produzione[0]!;
     const blocco = buildBloccoCalendarioOrdine({
       startIso: start,
       giorniProduzione: giorniProduzioneNecessari,
-      giorniPreparazione: nPrep,
+      segmentiAttivita: segmentiCalc,
       usaSabato,
       occupiedSet,
       skipOccupied: !forceMode,
     });
-    if (
-      blocco.tutti.length === giorniProduzioneNecessari + nPrep &&
-      blocco.skippedOccupied.length === 0
-    ) {
+    const needed = giorniProduzioneNecessari + giorniAttTotal;
+    if (blocco.tutti.length === needed) {
       applyBlocco(blocco);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nPrep, usaSabato]);
+  }, [attivitaDrafts, kgOrdine, giorniProduzioneNecessari, usaSabato]);
+
+  // Ripristino consegna se passata ma non ricalcolata
+  useEffect(() => {
+    if (initialDataConsegna && !dataConsegna) {
+      setDataConsegna(initialDataConsegna);
+      goToIsoMonth(initialDataConsegna);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const preview = useMemo(() => {
-    if (!hoverIso || giorniProduzioneNecessari <= 0 || nPrep <= 0) {
-      return emptyBlocco();
-    }
+    if (!hoverIso || giorniProduzioneNecessari <= 0) return emptyBlocco();
     return buildBloccoCalendarioOrdine({
       startIso: hoverIso,
       giorniProduzione: giorniProduzioneNecessari,
-      giorniPreparazione: nPrep,
+      segmentiAttivita: segmentiCalc,
       usaSabato,
       occupiedSet,
       skipOccupied: !forceMode,
@@ -228,7 +250,7 @@ export function ConsegnaCalendarioModal({
   }, [
     hoverIso,
     giorniProduzioneNecessari,
-    nPrep,
+    segmentiCalc,
     usaSabato,
     occupiedSet,
     forceMode,
@@ -248,17 +270,11 @@ export function ConsegnaCalendarioModal({
     if (dataConsegna === iso) {
       return "bg-sky-500 text-white border-sky-700 ring-4 ring-sky-300 shadow-lg scale-[1.03] z-10 font-bold";
     }
-    if (preparazione.includes(iso)) {
+    if (attivitaDates.includes(iso) || preview.preparazione.includes(iso)) {
       return "bg-amber-300 text-amber-950 border-amber-500 ring-2 ring-amber-400 font-semibold";
     }
-    if (produzione.includes(iso)) {
+    if (produzione.includes(iso) || preview.produzione.includes(iso)) {
       return "bg-emerald-400/90 text-emerald-950 border-emerald-600 ring-2 ring-emerald-300 font-semibold";
-    }
-    if (preview.preparazione.includes(iso)) {
-      return "bg-amber-200/90 text-amber-950 border-amber-400 ring-2 ring-amber-300 font-semibold";
-    }
-    if (preview.produzione.includes(iso)) {
-      return "bg-lime-300/90 text-lime-950 border-lime-500 ring-2 ring-lime-400 font-semibold";
     }
     if (occupiedSet.has(iso)) {
       return "bg-green-600 text-white border-green-800";
@@ -270,14 +286,10 @@ export function ConsegnaCalendarioModal({
   }
 
   function trySelectFrom(startIso: string) {
-    if (nPrep <= 0) {
-      setError("Imposta almeno 1 giorno di preparazione e imballaggio.");
-      return;
-    }
     const blocco = buildBloccoCalendarioOrdine({
       startIso,
       giorniProduzione: giorniProduzioneNecessari,
-      giorniPreparazione: nPrep,
+      segmentiAttivita: segmentiCalc,
       usaSabato,
       occupiedSet,
       skipOccupied: true,
@@ -286,7 +298,7 @@ export function ConsegnaCalendarioModal({
       const forced = buildBloccoCalendarioOrdine({
         startIso,
         giorniProduzione: giorniProduzioneNecessari,
-        giorniPreparazione: nPrep,
+        segmentiAttivita: segmentiCalc,
         usaSabato,
         occupiedSet,
         skipOccupied: false,
@@ -294,7 +306,7 @@ export function ConsegnaCalendarioModal({
       setConflictAsk({ blocco: forced });
       return;
     }
-    const needed = giorniProduzioneNecessari + nPrep;
+    const needed = giorniProduzioneNecessari + giorniAttTotal;
     if (blocco.tutti.length < needed) {
       setError(
         "Impossibile posizionare tutti i giorni lavorativi da questa data."
@@ -325,6 +337,12 @@ export function ConsegnaCalendarioModal({
     } else setMonth0((m) => m + 1);
   }
 
+  function patchDraft(id: string, patch: Partial<AttivitaOrdineDraft>) {
+    onAttivitaDraftsChange(
+      attivitaDrafts.map((d) => (d.attivitaId === id ? { ...d, ...patch } : d))
+    );
+  }
+
   const monthLabel = new Date(year, month0, 1).toLocaleDateString("it-IT", {
     month: "long",
     year: "numeric",
@@ -332,8 +350,7 @@ export function ConsegnaCalendarioModal({
 
   const canConfirm =
     produzione.length === giorniProduzioneNecessari &&
-    preparazione.length === nPrep &&
-    nPrep > 0 &&
+    attivitaDates.length === giorniAttTotal &&
     Boolean(dataConsegna);
 
   const content = (
@@ -353,10 +370,11 @@ export function ConsegnaCalendarioModal({
               Calendario consegna / produzione
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Passa il mouse: {giorniProduzioneNecessari} giorni verdi
-              (lavorazione) + {nPrep || "…"} gialli (preparazione e
-              imballaggio). Clic per fissare. La data consegna (azzurra) è il
-              giorno lavorativo successivo.
+              {giorniProduzioneNecessari} giorni verdi (lavorazione)
+              {giorniAttTotal > 0
+                ? ` + ${giorniAttTotal} gialli (attività)`
+                : ""}
+              . La consegna (azzurro) è il giorno lavorativo successivo.
             </p>
           </div>
           <button
@@ -368,26 +386,134 @@ export function ConsegnaCalendarioModal({
           </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="font-medium">
-              Giorni preparazione e imballaggio
-            </span>
-            <ClearableNumberInput
-              min={1}
-              max={60}
-              value={countPrep}
-              onValueChange={(v) => {
-                if (v === "") {
-                  setCountPrep("");
-                  return;
-                }
-                setCountPrep(Math.max(1, Math.floor(v)));
-              }}
-              emptyAsZeroOnBlur={false}
-              className="w-24 rounded-lg border border-[var(--border)] px-3 py-1.5"
-            />
-          </label>
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-3">
+          <h3 className="text-sm font-semibold text-amber-950">
+            Oltre la lavorazione per ottenere il prodotto occorrerà
+          </h3>
+          {attivitaDrafts.length === 0 ? (
+            <p className="mt-2 text-xs text-amber-900">
+              Nessuna attività collegata al prodotto. Collega attività in Schede
+              → Prodotti Agrinsicilia, oppure procedi solo con la lavorazione.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-3">
+              {attivitaDrafts.map((d) => {
+                const g = calcGiorniAttivita({
+                  kgOrdine,
+                  giorniProduzione: giorniProduzioneNecessari,
+                  kgPerOra: d.kgPerOra,
+                  oreGiorno: d.oreGiorno,
+                  incastrabileDuranteLavorazione:
+                    d.incastrabileDuranteLavorazione,
+                  giorniOverride: d.giorniOverride,
+                });
+                return (
+                  <li
+                    key={d.attivitaId}
+                    className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <label className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={d.enabled}
+                          onChange={(e) =>
+                            patchDraft(d.attivitaId, {
+                              enabled: e.target.checked,
+                            })
+                          }
+                        />
+                        <span>
+                          <span className="font-mono text-xs font-semibold">
+                            {d.codice}
+                          </span>
+                          <span className="ml-2 font-medium">{d.titolo}</span>
+                          {d.spiegazione ? (
+                            <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                              {d.spiegazione}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                      <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-950">
+                        {d.enabled ? `${g} gg` : "off"}
+                      </span>
+                    </div>
+                    {d.enabled ? (
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <label className="text-xs">
+                          <span className="mb-0.5 block text-[var(--muted)]">
+                            kg/ora
+                          </span>
+                          <ClearableNumberInput
+                            value={d.kgPerOra}
+                            onValueChange={(v) =>
+                              patchDraft(d.attivitaId, {
+                                kgPerOra: v === "" ? d.kgPerOra : v,
+                              })
+                            }
+                            className="w-full rounded border border-[var(--border)] px-2 py-1"
+                          />
+                        </label>
+                        <label className="text-xs">
+                          <span className="mb-0.5 block text-[var(--muted)]">
+                            ore/giorno
+                          </span>
+                          <ClearableNumberInput
+                            value={d.oreGiorno}
+                            onValueChange={(v) =>
+                              patchDraft(d.attivitaId, {
+                                oreGiorno: v === "" ? d.oreGiorno : v,
+                              })
+                            }
+                            className="w-full rounded border border-[var(--border)] px-2 py-1"
+                          />
+                        </label>
+                        <label className="text-xs">
+                          <span className="mb-0.5 block text-[var(--muted)]">
+                            Giorni (override)
+                          </span>
+                          <ClearableNumberInput
+                            value={d.giorniOverride ?? ""}
+                            onValueChange={(v) =>
+                              patchDraft(d.attivitaId, {
+                                giorniOverride: v === "" ? null : Math.max(0, Math.floor(v)),
+                              })
+                            }
+                            placeholder="auto"
+                            className="w-full rounded border border-[var(--border)] px-2 py-1"
+                          />
+                        </label>
+                        <label className="flex items-end gap-2 text-xs pb-1">
+                          <input
+                            type="checkbox"
+                            checked={d.incastrabileDuranteLavorazione}
+                            onChange={(e) =>
+                              patchDraft(d.attivitaId, {
+                                incastrabileDuranteLavorazione:
+                                  e.target.checked,
+                              })
+                            }
+                          />
+                          Incastrabile
+                        </label>
+                      </div>
+                    ) : null}
+                    {d.enabled && d.incastrabileDuranteLavorazione ? (
+                      <p className="mt-1 text-[11px] text-amber-900">
+                        Incastrabile: in calendario restano {g} giorno/i extra
+                        per l’ultimo quantitativo dopo la lavorazione.
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={prevMonth}
@@ -395,7 +521,7 @@ export function ConsegnaCalendarioModal({
           >
             ←
           </button>
-          <span className="min-w-[10rem] pb-1.5 text-center text-sm font-semibold capitalize">
+          <span className="min-w-[10rem] text-center text-sm font-semibold capitalize">
             {monthLabel}
           </span>
           <button
@@ -425,32 +551,20 @@ export function ConsegnaCalendarioModal({
 
         <div className="mt-3 flex flex-wrap gap-3 text-xs">
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded border border-slate-200 bg-white/40" />
-            Libero
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-green-600" />
-            Occupato
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-emerald-400 ring-1 ring-emerald-600" />
+            <span className="inline-block h-3.5 w-3.5 rounded bg-emerald-400" />
             Lavorazione
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-amber-300 ring-1 ring-amber-500" />
-            Preparazione e imballaggio
+            <span className="inline-block h-3.5 w-3.5 rounded bg-amber-300" />
+            Attività
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block h-3.5 w-3.5 rounded bg-sky-500 ring-2 ring-sky-300" />
             Consegna
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-slate-200" />
-            Sabato (off)
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-3.5 rounded bg-slate-700" />
-            Domenica
+            <span className="inline-block h-3.5 w-3.5 rounded bg-green-600" />
+            Occupato
           </span>
         </div>
 
@@ -470,7 +584,7 @@ export function ConsegnaCalendarioModal({
                 return (
                   <div
                     key={key}
-                    className="aspect-square rounded-lg border border-transparent bg-transparent"
+                    className="aspect-square rounded-lg border border-transparent"
                   />
                 );
               }
@@ -479,7 +593,10 @@ export function ConsegnaCalendarioModal({
               const occ = occupiedMap.get(iso) ?? [];
               const inPreview = preview.tutti.includes(iso);
               const inSelected =
-                produzione.includes(iso) || preparazione.includes(iso);
+                produzione.includes(iso) || attivitaDates.includes(iso);
+              const segLabel =
+                segmentiSel.find((s) => s.dates.includes(iso))?.titolo ??
+                preview.attivita.find((s) => s.dates.includes(iso))?.titolo;
               return (
                 <button
                   key={key}
@@ -499,26 +616,23 @@ export function ConsegnaCalendarioModal({
                   title={
                     dataConsegna === iso
                       ? `Consegna · ${iso}`
-                      : preparazione.includes(iso)
-                        ? `Preparazione e imballaggio · ${iso}`
-                        : produzione.includes(iso)
-                          ? `Lavorazione · ${iso}`
-                          : occ.length
-                            ? `Occupato: ${occ.map((o) => o.etichetta || o.ordineId).join(", ")}`
-                            : iso
+                      : segLabel
+                        ? `${segLabel} · ${iso}`
+                        : occ.length
+                          ? `Occupato: ${occ.map((o) => o.etichetta || o.ordineId).join(", ")}`
+                          : iso
                   }
                 >
                   <span className="absolute left-1.5 top-1 text-xs tabular-nums">
                     {Number(iso.slice(8, 10))}
                   </span>
                   {dataConsegna === iso ? (
-                    <span className="absolute inset-x-0.5 bottom-0.5 rounded bg-sky-900/40 px-0.5 text-[8px] font-bold uppercase leading-tight tracking-tight">
+                    <span className="absolute inset-x-0.5 bottom-0.5 rounded bg-sky-900/40 px-0.5 text-[8px] font-bold uppercase leading-tight">
                       Consegna
                     </span>
-                  ) : preparazione.includes(iso) ||
-                    preview.preparazione.includes(iso) ? (
-                    <span className="absolute inset-x-0.5 bottom-0.5 rounded bg-amber-900/20 px-0.5 text-[8px] font-bold uppercase leading-tight tracking-tight">
-                      Prep.
+                  ) : segLabel ? (
+                    <span className="absolute inset-x-0.5 bottom-0.5 truncate rounded bg-amber-900/20 px-0.5 text-[8px] font-bold uppercase leading-tight">
+                      {segLabel.slice(0, 10)}
                     </span>
                   ) : occ.length && !inPreview && !inSelected ? (
                     <span className="absolute inset-x-1 bottom-1 truncate text-[9px] font-medium leading-tight opacity-90">
@@ -542,24 +656,11 @@ export function ConsegnaCalendarioModal({
 
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3 text-sm">
           <p>
-            Lavorazione (verdi):{" "}
-            <strong>{produzione.length}</strong> /{" "}
+            Lavorazione: <strong>{produzione.length}</strong> /{" "}
             {giorniProduzioneNecessari}
+            {" · "}
+            Attività: <strong>{attivitaDates.length}</strong> / {giorniAttTotal}
           </p>
-          {produzione.length ? (
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              {produzione.map(formatIsoIt).join(" · ")}
-            </p>
-          ) : null}
-          <p className="mt-2">
-            Preparazione e imballaggio (gialli):{" "}
-            <strong>{preparazione.length}</strong> / {nPrep || "—"}
-          </p>
-          {preparazione.length ? (
-            <p className="mt-1 text-xs text-amber-900">
-              {preparazione.map(formatIsoIt).join(" · ")}
-            </p>
-          ) : null}
           <p className="mt-2">
             Data consegna:{" "}
             <strong className="text-sky-700">
@@ -575,12 +676,6 @@ export function ConsegnaCalendarioModal({
               </button>
             ) : null}
           </p>
-          {preview.skippedOccupied.length > 0 && !forceMode ? (
-            <p className="mt-2 text-xs text-amber-800">
-              Anteprima: saltati {preview.skippedOccupied.length} giorni già
-              impegnati.
-            </p>
-          ) : null}
         </div>
 
         <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -598,8 +693,15 @@ export function ConsegnaCalendarioModal({
               if (!dataConsegna || !canConfirm) return;
               onConfirm({
                 giorniProduzione: produzione,
-                giorniPreparazione: preparazione,
+                giorniAttivita: attivitaDates,
+                segmentiAttivita: segmentiSel.map((s) => ({
+                  attivitaId: s.attivitaId,
+                  codice: s.codice,
+                  titolo: s.titolo,
+                  dates: s.dates,
+                })),
                 dataConsegna,
+                attivitaDrafts,
               });
             }}
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
@@ -616,21 +718,15 @@ export function ConsegnaCalendarioModal({
               Giorni già impegnati
             </h3>
             <p className="mt-2 text-sm text-slate-700">
-              Nel blocco ci sono giorni già occupati. Vuoi modificare forzatamente
-              i giorni (sovrascrivendo / sostituendo gli impegni)?
+              Nel blocco ci sono giorni già occupati. Forzare la selezione?
             </p>
-            <ul className="mt-2 list-inside list-disc text-xs text-amber-900">
-              {conflictAsk.blocco.conflicts.map((d) => (
-                <li key={d}>{formatIsoIt(d)}</li>
-              ))}
-            </ul>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
                 onClick={() => setConflictAsk(null)}
               >
-                No, riposiziona
+                No
               </button>
               <button
                 type="button"
@@ -653,8 +749,7 @@ export function ConsegnaCalendarioModal({
               {displaceAsk.impegno.etichetta
                 ? ` (${displaceAsk.impegno.etichetta})`
                 : ""}
-              . Puoi spostarlo su un altro giorno libero dal calendario oppure
-              sostituirlo con questo ordine.
+              .
             </p>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
@@ -666,21 +761,21 @@ export function ConsegnaCalendarioModal({
               </button>
               <button
                 type="button"
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-950"
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm"
                 onClick={() => {
                   setForceMode(true);
                   trySelectFrom(displaceAsk.targetDay);
                   setDisplaceAsk(null);
                 }}
               >
-                Sostituisci con ordine attuale
+                Sostituisci
               </button>
               <button
                 type="button"
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
                 onClick={() => {
                   const target = window.prompt(
-                    "Nuova data (AAAA-MM-GG) libera per spostare l’impegno:",
+                    "Nuova data (AAAA-MM-GG):",
                     displaceAsk.impegno.dataGiorno
                   );
                   if (!target) return;
@@ -699,7 +794,7 @@ export function ConsegnaCalendarioModal({
                   })();
                 }}
               >
-                Sposta impegno…
+                Sposta…
               </button>
             </div>
           </div>
