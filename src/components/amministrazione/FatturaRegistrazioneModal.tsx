@@ -10,6 +10,7 @@ import {
   listDilazioniFatturaEmessaAction,
   listFattureEmesseClienteAction,
   previewNumeroInternoFatturaAction,
+  updateFatturaAction,
   type DilazioneFatturaOption,
 } from "@/app/actions/fatture";
 import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
@@ -104,10 +105,43 @@ type Props = {
   /** Durante sync: interrompe la coda senza chiudere come “salta documento”. */
   onPause?: () => void;
   prefill?: FatturaRegistrazionePrefill | null;
+  /** Modifica documento esistente (numero interno invariato). */
+  initial?: Fattura | null;
   elevated?: boolean;
   /** Sopra un’altra modale fattura (es. registrazione fattura da NC). */
   stackTop?: boolean;
 };
+
+function seedFromInitialOrPrefill(
+  initial: Fattura | null | undefined,
+  prefill: FatturaRegistrazionePrefill | null
+): FatturaRegistrazionePrefill {
+  if (initial) {
+    return {
+      anagraficaId: initial.anagraficaId ?? undefined,
+      anagraficaRagioneSociale: initial.anagraficaRagioneSociale,
+      anagraficaCodiceTarga: initial.anagraficaCodiceTarga,
+      dataEmissione: initial.dataEmissione,
+      numeroDocumentoEsterno: initial.numeroDocumentoEsterno,
+      ficId: initial.ficId,
+      spedizione: Math.abs(initial.spedizione),
+      spedizioneIvaApplicata: initial.spedizioneIvaApplicata,
+      spedizioneSottraiIncassi: initial.spedizioneSottraiIncassi,
+      ivaPercentuale: initial.ivaPercentuale,
+      statoPagamento: initial.statoPagamento,
+      statoIncassoNc: initial.statoIncassoNc,
+      rimborsoNecessario: initial.rimborsoNecessario,
+      rimborsoMezzo: initial.rimborsoMezzo,
+      fatturaCompensativaId: initial.fatturaCompensativaId,
+      note: initial.note,
+      fatturaCollegataId: initial.fatturaCollegataId,
+      riferimentoFatturaEsterno: initial.riferimentoFatturaEsterno,
+      righe: initial.righe,
+      lockAnagrafica: true,
+    };
+  }
+  return prefill ?? {};
+}
 
 export function FatturaRegistrazioneModal({
   kind,
@@ -115,66 +149,74 @@ export function FatturaRegistrazioneModal({
   onSaved,
   onPause,
   prefill = null,
+  initial = null,
   elevated = false,
   stackTop = false,
 }: Props) {
   const titleId = useId();
+  const isEdit = Boolean(initial?.id);
+  const seed = seedFromInitialOrPrefill(initial, prefill);
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
-  const [anagraficaId, setAnagraficaId] = useState(prefill?.anagraficaId ?? "");
+  const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
-    prefill?.anagraficaRagioneSociale ?? ""
+    seed.anagraficaRagioneSociale ?? ""
   );
   const [anagraficaCodiceTarga, setAnagraficaCodiceTarga] = useState(
-    prefill?.anagraficaCodiceTarga ?? ""
+    seed.anagraficaCodiceTarga ?? ""
   );
   const [dataEmissione, setDataEmissione] = useState(
-    prefill?.dataEmissione || new Date().toISOString().slice(0, 10)
+    seed.dataEmissione || new Date().toISOString().slice(0, 10)
   );
   const [numeroDocumentoEsterno, setNumeroDocumentoEsterno] = useState(
-    prefill?.numeroDocumentoEsterno ?? ""
+    seed.numeroDocumentoEsterno ?? ""
   );
   const [spedizione, setSpedizione] = useState<number | "">(
-    prefill?.spedizione ?? 0
+    seed.spedizione ?? 0
   );
   const [spedizioneIvaApplicata, setSpedizioneIvaApplicata] = useState(
-    prefill?.spedizioneIvaApplicata ?? false
+    seed.spedizioneIvaApplicata ?? false
   );
   const [spedizioneSottraiIncassi, setSpedizioneSottraiIncassi] = useState(
-    prefill?.spedizioneSottraiIncassi ?? true
+    seed.spedizioneSottraiIncassi ?? true
   );
   const [ivaPercentuale, setIvaPercentuale] = useState<number | "">(
-    prefill?.ivaPercentuale ?? 22
+    seed.ivaPercentuale ?? 22
   );
   const isNc = kind === "nota_credito";
   const [statoIncassoNc, setStatoIncassoNc] = useState<FatturaStatoIncassoNc>(
-    prefill?.statoIncassoNc ??
-      (prefill?.statoPagamento === "pagato"
-        ? "gia_incassata"
-        : "non_incassata")
+    seed.statoIncassoNc ??
+      (seed.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
   );
   const [statoPagamento, setStatoPagamento] = useState<FatturaStatoPagamento>(
-    prefill?.statoPagamento ?? "da_pagare"
+    seed.statoPagamento ?? "da_pagare"
   );
   const [rimborsoNecessario, setRimborsoNecessario] = useState(
-    prefill?.rimborsoNecessario ?? false
+    seed.rimborsoNecessario ?? false
   );
   const [rimborsoMezzo, setRimborsoMezzo] = useState<FatturaRimborsoMezzo | "">(
-    prefill?.rimborsoMezzo ?? ""
+    seed.rimborsoMezzo ?? ""
   );
   const [fatturaCompensativaId, setFatturaCompensativaId] = useState(
-    prefill?.fatturaCompensativaId ?? ""
+    seed.fatturaCompensativaId ?? ""
   );
   const [fatturaCollegataId, setFatturaCollegataId] = useState(
-    prefill?.fatturaCollegataId ?? ""
+    seed.fatturaCollegataId ?? ""
   );
   const [modalitaCollegamento, setModalitaCollegamento] =
-    useState<FatturaModalitaCollegamentoNc>("normale");
-  const [fatturaSostitutivaId, setFatturaSostitutivaId] = useState("");
+    useState<FatturaModalitaCollegamentoNc>(
+      initial?.modalitaCollegamento ??
+        (prefill as { modalitaCollegamento?: FatturaModalitaCollegamentoNc })
+          ?.modalitaCollegamento ??
+        "normale"
+    );
+  const [fatturaSostitutivaId, setFatturaSostitutivaId] = useState(
+    initial?.fatturaSostitutivaId ?? ""
+  );
   const [pendingPickerTarget, setPendingPickerTarget] = useState<
     "collegata" | "sostitutiva"
   >("collegata");
   const [riferimentoFatturaEsterno, setRiferimentoFatturaEsterno] = useState(
-    prefill?.riferimentoFatturaEsterno ?? ""
+    seed.riferimentoFatturaEsterno ?? ""
   );
   const [fattureCollegabili, setFattureCollegabili] = useState<
     FatturaCollegabileOption[]
@@ -183,12 +225,12 @@ export function FatturaRegistrazioneModal({
     DilazioneFatturaOption[]
   >([]);
   const [dilazioniAnnullateIds, setDilazioniAnnullateIds] = useState<string[]>(
-    prefill?.dilazioniAnnullateIds ?? []
+    seed.dilazioniAnnullateIds ?? []
   );
-  const [note, setNote] = useState(prefill?.note ?? "");
+  const [note, setNote] = useState(seed.note ?? "");
   const [righe, setRighe] = useState<EditableRiga[]>(() => {
-    if (prefill?.righe?.length) {
-      return prefill.righe.map((r) => {
+    if (seed.righe?.length) {
+      return seed.righe.map((r) => {
         const qty =
           kind === "nota_credito"
             ? normalizeQuantitaNotaCredito(r.quantita)
@@ -210,7 +252,9 @@ export function FatturaRegistrazioneModal({
     ];
   });
   const [ricevuta, setRicevuta] = useState<File | null>(null);
-  const [numeroInterno, setNumeroInterno] = useState("");
+  const [numeroInterno, setNumeroInterno] = useState(
+    initial?.numeroInterno ?? ""
+  );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [creatingProdotto, setCreatingProdotto] = useState(false);
@@ -349,6 +393,10 @@ export function FatturaRegistrazioneModal({
   }, [isNc, isSostituzione, fatturaCollegataId]);
 
   useEffect(() => {
+    if (isEdit) {
+      setNumeroInterno(initial?.numeroInterno ?? "");
+      return;
+    }
     if (!anagraficaId || !anagraficaCodiceTarga || !dataEmissione) {
       setNumeroInterno("");
       return;
@@ -368,7 +416,14 @@ export function FatturaRegistrazioneModal({
     return () => {
       cancelled = true;
     };
-  }, [kind, anagraficaId, anagraficaCodiceTarga, dataEmissione]);
+  }, [
+    kind,
+    anagraficaId,
+    anagraficaCodiceTarga,
+    dataEmissione,
+    isEdit,
+    initial?.numeroInterno,
+  ]);
 
   useEffect(() => {
     if (!anagraficaId) {
@@ -561,7 +616,7 @@ export function FatturaRegistrazioneModal({
           anagraficaCodiceTarga,
           dataEmissione,
           numeroDocumentoEsterno,
-          ficId: prefill?.ficId ?? null,
+          ficId: seed.ficId ?? prefill?.ficId ?? null,
           spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
@@ -610,7 +665,10 @@ export function FatturaRegistrazioneModal({
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
-      const result = await createFatturaAction(kind, fd);
+      const result =
+        isEdit && initial?.id
+          ? await updateFatturaAction(kind, initial.id, fd)
+          : await createFatturaAction(kind, fd);
       if (!result.success) {
         setFormError(result.error);
         return;
@@ -621,8 +679,13 @@ export function FatturaRegistrazioneModal({
     }
   }
 
-  const title =
-    kind === "nota_credito"
+  const title = isEdit
+    ? kind === "nota_credito"
+      ? `Modifica nota di credito ${initial?.numeroInterno ?? ""}`
+      : kind === "emessa"
+        ? `Modifica fattura emessa ${initial?.numeroInterno ?? ""}`
+        : `Modifica fattura ricevuta ${initial?.numeroInterno ?? ""}`
+    : kind === "nota_credito"
       ? "Registrazione nota di credito"
       : kind === "emessa"
         ? "Registrazione fattura emessa"
@@ -683,7 +746,7 @@ export function FatturaRegistrazioneModal({
                 <ClienteSelectField
                   value={anagraficaId}
                   onChange={(c) => {
-                    if (prefill?.lockAnagrafica && anagraficaId) return;
+                    if ((seed.lockAnagrafica || prefill?.lockAnagrafica) && anagraficaId) return;
                     setAnagraficaId(c?.id ?? "");
                     setAnagraficaRagioneSociale(c?.ragioneSociale ?? "");
                     setAnagraficaCodiceTarga(c?.codiceTarga ?? "");
@@ -693,14 +756,14 @@ export function FatturaRegistrazioneModal({
                 <FornitoreSelectField
                   value={anagraficaId}
                   onChange={(f) => {
-                    if (prefill?.lockAnagrafica && anagraficaId) return;
+                    if ((seed.lockAnagrafica || prefill?.lockAnagrafica) && anagraficaId) return;
                     setAnagraficaId(f?.id ?? "");
                     setAnagraficaRagioneSociale(f?.ragioneSociale ?? "");
                     setAnagraficaCodiceTarga(f?.codiceTarga ?? "");
                   }}
                 />
               )}
-              {prefill?.lockAnagrafica ? (
+              {seed.lockAnagrafica || prefill?.lockAnagrafica ? (
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   Intestazione presa dall&apos;anagrafica OpuntiaIndustry.
                 </p>

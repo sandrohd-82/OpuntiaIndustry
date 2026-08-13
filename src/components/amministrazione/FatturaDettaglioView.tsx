@@ -1,3 +1,5 @@
+"use client";
+
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
 import {
   formatDateIt,
@@ -12,9 +14,21 @@ import Link from "next/link";
 
 type Props = {
   fattura: Fattura;
+  /** full = 100% del contenitore (il parent usa tipicamente 94% viewport) */
+  layoutWidth?: "boxed" | "full";
+  variant?: "page" | "preview";
+  previewTitle?: string;
+  onEdit?: () => void;
 };
 
-export function FatturaDettaglioView({ fattura }: Props) {
+export function FatturaDettaglioView({
+  fattura,
+  layoutWidth = "boxed",
+  variant = "page",
+  previewTitle,
+  onEdit,
+}: Props) {
+  const isPreview = variant === "preview";
   const listHref =
     fattura.kind === "nota_credito"
       ? "/app/amministrazione/fatture/note-credito"
@@ -23,18 +37,29 @@ export function FatturaDettaglioView({ fattura }: Props) {
         : "/app/amministrazione/fatture/ricevute";
   const entityLabel =
     fattura.kind === "ricevuta" ? "Fornitore" : "Cliente";
+  const widthClass =
+    layoutWidth === "full" ? "w-full max-w-none" : "mx-auto w-[94%] max-w-none";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6">
+    <div className={`${widthClass} space-y-6`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link
-            href={listHref}
-            className="text-sm text-[var(--muted)] hover:text-slate-800"
+          {!isPreview ? (
+            <Link
+              href={listHref}
+              className="text-sm text-[var(--muted)] hover:text-slate-800"
+            >
+              ← Torna all&apos;elenco
+            </Link>
+          ) : null}
+          {isPreview && previewTitle ? (
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              {previewTitle}
+            </p>
+          ) : null}
+          <h2
+            className={`font-mono font-semibold ${isPreview ? "mt-1 text-lg" : "mt-2 text-xl"}`}
           >
-            ← Torna all&apos;elenco
-          </Link>
-          <h2 className="mt-2 font-mono text-xl font-semibold">
             {fattura.numeroInterno}
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
@@ -42,9 +67,19 @@ export function FatturaDettaglioView({ fattura }: Props) {
             {fattura.numeroDocumentoEsterno
               ? ` · Doc. esterno ${fattura.numeroDocumentoEsterno}`
               : ""}
+            {fattura.versione ? ` · v${fattura.versione}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {onEdit && !isPreview ? (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="inline-flex items-center rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              Modifica
+            </button>
+          ) : null}
           {fattura.kind === "nota_credito" &&
           fattura.modalitaCollegamento === "sostituzione" ? (
             <span className="inline-flex rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-900">
@@ -80,7 +115,7 @@ export function FatturaDettaglioView({ fattura }: Props) {
         </p>
       </section>
 
-      {fattura.kind === "nota_credito" ? (
+      {fattura.kind === "nota_credito" && !isPreview ? (
         <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-sm">
           <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Collegamento
@@ -104,7 +139,7 @@ export function FatturaDettaglioView({ fattura }: Props) {
               </Link>
               <span className="text-[var(--muted)]">
                 {" "}
-                (resta registrata e visibile)
+                (anteprima sotto · resta registrata e visibile)
               </span>
             </p>
           ) : null}
@@ -119,6 +154,7 @@ export function FatturaDettaglioView({ fattura }: Props) {
                 {fattura.fatturaSostitutivaNumeroInterno ||
                   "Fattura di rimpiazzo"}
               </Link>
+              <span className="text-[var(--muted)]"> (anteprima sotto)</span>
             </p>
           ) : null}
         </section>
@@ -128,49 +164,72 @@ export function FatturaDettaglioView({ fattura }: Props) {
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
             <tr>
-              <th className="px-4 py-3">Codice</th>
-              <th className="px-4 py-3">Descrizione</th>
-              <th className="px-4 py-3">Qtà</th>
-              <th className="px-4 py-3">Listino</th>
-              <th className="px-4 py-3">Sconto %</th>
-              <th className="px-4 py-3">Prezzo netto</th>
-              <th className="px-4 py-3">Importo</th>
+              <th className="px-4 py-3 font-medium">Codice</th>
+              <th className="px-4 py-3 font-medium">Descrizione</th>
+              <th className="px-4 py-3 font-medium">Qtà</th>
+              <th className="px-4 py-3 font-medium">Listino</th>
+              <th className="px-4 py-3 font-medium">Sconto %</th>
+              <th className="px-4 py-3 font-medium">Prezzo netto</th>
+              <th className="px-4 py-3 font-medium">Importo</th>
             </tr>
           </thead>
           <tbody>
-            {fattura.righe.map((r, i) => {
-              const netto = prezzoScontatoUnitario(
-                r.prezzoUnitario,
-                r.scontoPercentuale
-              );
-              return (
-                <tr key={r.id ?? i} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3 font-mono text-xs">{r.codice}</td>
-                  <td className="px-4 py-3">{r.descrizione}</td>
-                  <td className="px-4 py-3 tabular-nums">{r.quantita}</td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {r.scontoPercentuale > 0 ? (
-                      <span className="text-[var(--muted)] line-through">
-                        {formatEuro(r.prezzoUnitario)}
-                      </span>
-                    ) : (
-                      formatEuro(r.prezzoUnitario)
-                    )}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {r.scontoPercentuale > 0
-                      ? `${r.scontoPercentuale} %`
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums font-medium">
-                    {formatEuro(netto)}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {formatEuro(r.importo)}
-                  </td>
-                </tr>
-              );
-            })}
+            {fattura.righe.length === 0 ? (
+              <tr className="border-t border-[var(--border)]">
+                <td
+                  colSpan={7}
+                  className="px-4 py-8 text-center text-sm text-[var(--muted)]"
+                >
+                  Nessuna riga prodotto registrata.
+                  {onEdit && !isPreview
+                    ? " Usa «Modifica» per inserire codice, descrizione, quantità e prezzi."
+                    : null}
+                </td>
+              </tr>
+            ) : (
+              fattura.righe.map((r, i) => {
+                const netto = prezzoScontatoUnitario(
+                  r.prezzoUnitario,
+                  r.scontoPercentuale
+                );
+                return (
+                  <tr
+                    key={r.id ?? i}
+                    className="border-t border-[var(--border)]"
+                  >
+                    <td className="px-4 py-3 font-mono text-xs text-slate-900">
+                      {r.codice?.trim() || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-900">
+                      {r.descrizione?.trim() || "—"}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-slate-900">
+                      {r.quantita}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-slate-900">
+                      {r.scontoPercentuale > 0 ? (
+                        <span className="text-[var(--muted)] line-through">
+                          {formatEuro(r.prezzoUnitario)}
+                        </span>
+                      ) : (
+                        formatEuro(r.prezzoUnitario)
+                      )}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-slate-900">
+                      {r.scontoPercentuale > 0
+                        ? `${r.scontoPercentuale} %`
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums font-medium text-slate-900">
+                      {formatEuro(netto)}
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-slate-900">
+                      {formatEuro(r.importo)}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
           </tbody>
         </table>
       </section>
@@ -228,9 +287,9 @@ export function FatturaDettaglioView({ fattura }: Props) {
           <table className="w-full min-w-[480px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
-                <th className="px-4 py-3">Data scadenza</th>
-                <th className="px-4 py-3">Importo</th>
-                <th className="px-4 py-3">Stato</th>
+                <th className="px-4 py-3 font-medium">Data scadenza</th>
+                <th className="px-4 py-3 font-medium">Importo</th>
+                <th className="px-4 py-3 font-medium">Stato</th>
               </tr>
             </thead>
             <tbody>

@@ -658,7 +658,19 @@ export async function createFatturaAction(
         .insert(righeInsert)
         .select("*");
       if (righeErr) {
-        return { success: false, error: righeErr.message };
+        // Evita documenti orfani senza righe (causa tabella vuota in dettaglio)
+        await supabase
+          .from("fatture_emesse")
+          .update({
+            deleted_at: new Date().toISOString(),
+            deleted_by: auth.userId,
+            updated_by: auth.userId,
+          })
+          .eq("id", row.id);
+        return {
+          success: false,
+          error: `Righe documento: ${righeErr.message}`,
+        };
       }
 
       const prodottiAggiuntiScheda = await syncProdottiAcquistatiFromFatturaRighe(
@@ -960,6 +972,310 @@ export async function createFatturaAction(
   }
 }
 
+/**
+ * Modifica documento esistente (note di credito e fatture emesse/ricevute).
+ * ISO: incrementa versione + audit log; sostituisce le righe prodotto.
+ */
+export async function updateFatturaAction(
+  kind: FatturaKind,
+  id: string,
+  formData: FormData
+): Promise<FattureActionResult> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(String(formData.get("payload") ?? "{}"));
+  } catch {
+    return { success: false, error: "Dati fattura non validi." };
+  }
+
+  const parsed = parseFatturaInput(kind, payload);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error };
+  }
+  const input = parsed.data;
+  const totals = calcolaTotaliFattura({
+    righe: input.righe,
+    spedizione: input.spedizione,
+    spedizioneIvaApplicata: input.spedizioneIvaApplicata,
+    spedizioneSottraiIncassi: input.spedizioneSottraiIncassi,
+    notaCredito: kind === "nota_credito",
+    ivaPercentuale: input.ivaPercentuale,
+  });
+
+  if (kind === "nota_credito" && !input.fatturaCollegataId) {
+    return {
+      success: false,
+      error: "Seleziona la fattura collegata alla nota di credito.",
+    };
+  }
+
+  try {
+    if (kind === "emessa" || kind === "nota_credito") {
+      const { data: existing, error: exErr } = await supabase
+        .from("fatture_emesse")
+        .select("*")
+        .eq("id", id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (exErr || !existing) {
+        return {
+          success: false,
+          error: exErr?.message ?? "Documento non trovato.",
+        };
+      }
+      const existingRow = existing as FatturaEmessaRow;
+      if (kind === "nota_credito" && existingRow.tipo_documento !== "nota_credito") {
+        return { success: false, error: "Il documento non è una nota di credito." };
+      }
+      if (kind === "emessa" && existingRow.tipo_documento === "nota_credito") {
+        return {
+          success: false,
+          error: "Usa il percorso note di credito per modificare questa NC.",
+        };
+      }
+
+      const patch = {
+        cliente_id: input.anagraficaId,
+        cliente_ragione_sociale: input.anagraficaRagioneSociale,
+        cliente_codice_targa: input.anagraficaCodiceTarga,
+        data_emissione: input.dataEmissione,
+        numero_documento_esterno: input.numeroDocumentoEsterno,
+        spedizione: input.spedizione,
+        spedizione_iva_applicata: input.spedizioneIvaApplicata,
+        spedizione_sottrai_incassi:
+          kind === "nota_credito" ? input.spedizioneSottraiIncassi : true,
+        imponibile: totals.imponibile,
+        iva_percentuale: input.ivaPercentuale,
+        imposta: totals.imposta,
+        totale: totals.totale,
+        stato_pagamento: input.statoPagamento,
+        stato_incasso_nc:
+          kind === "nota_credito" ? input.statoIncassoNc : null,
+        rimborso_necessario:
+          kind === "nota_credito" ? input.rimborsoNecessario : null,
+        rimborso_mezzo: kind === "nota_credito" ? input.rimborsoMezzo : null,
+        fattura_compensativa_id:
+          kind === "nota_credito" ? input.fatturaCompensativaId : null,
+        modalita_collegamento:
+          kind === "nota_credito" ? input.modalitaCollegamento : null,
+        fattura_sostitutiva_id:
+          kind === "nota_credito" ? input.fatturaSostitutivaId : null,
+        note: input.note,
+        fattura_collegata_id: input.fatturaCollegataId ?? null,
+        riferimento_fattura_esterno: input.riferimentoFatturaEsterno ?? "",
+        versione: (existingRow.versione ?? 1) + 1,
+        updated_by: auth.userId,
+      };
+
+      const { data: updated, error: upErr } = await supabase
+        .from("fatture_emesse")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (upErr || !updated) {
+        return {
+          success: false,
+          error: upErr?.message ?? "Aggiornamento non riuscito.",
+        };
+      }
+
+      const ricevutaFile = formData.get("ricevuta");
+      if (ricevutaFile instanceof File && ricevutaFile.size > 0) {
+        const up = await uploadRicevuta(id, ricevutaFile);
+        if ("error" in up) {
+          return { success: false, error: `Ricevuta: ${up.error}` };
+        }
+        await supabase
+          .from("fatture_emesse")
+          .update({
+            ricevuta_storage_path: up.path,
+            ricevuta_file_name: up.name,
+            updated_by: auth.userId,
+          })
+          .eq("id", id);
+      }
+
+      const { error: delRigheErr } = await supabase
+        .from("fatture_emesse_righe")
+        .delete()
+        .eq("fattura_id", id);
+      if (delRigheErr) {
+        return { success: false, error: `Sostituzione righe: ${delRigheErr.message}` };
+      }
+
+      const righeInsert: FatturaEmessaRigaInsert[] = input.righe.map(
+        (r, i) => ({
+          fattura_id: id,
+          prodotto_id: r.prodottoId,
+          codice: r.codice,
+          descrizione: r.descrizione,
+          quantita: r.quantita,
+          prezzo_unitario: r.prezzoUnitario,
+          sconto_percentuale: r.scontoPercentuale,
+          importo: r.importo,
+          sort_order: i,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+      );
+      const { data: righeData, error: righeErr } = await supabase
+        .from("fatture_emesse_righe")
+        .insert(righeInsert)
+        .select("*");
+      if (righeErr) {
+        return { success: false, error: `Righe documento: ${righeErr.message}` };
+      }
+
+      await writeAuditLog({
+        entity_type: "fatture_emesse",
+        entity_id: id,
+        action: "update",
+        actor_id: auth.userId,
+        summary:
+          kind === "nota_credito"
+            ? `Modificata nota di credito ${existingRow.numero_interno} (v${patch.versione})`
+            : `Modificata fattura emessa ${existingRow.numero_interno} (v${patch.versione})`,
+        payload: {
+          versione: patch.versione,
+          totale: totals.totale,
+          righe: input.righe.length,
+          tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
+          fattura_collegata_id: input.fatturaCollegataId ?? null,
+          fattura_sostitutiva_id: input.fatturaSostitutivaId ?? null,
+          modalita_collegamento: input.modalitaCollegamento,
+        },
+      });
+
+      const { data: dilazioni } = await supabase
+        .from("fatture_emesse_dilazioni")
+        .select("*")
+        .eq("fattura_id", id)
+        .is("deleted_at", null)
+        .order("sort_order", { ascending: true });
+
+      const { data: refreshed } = await supabase
+        .from("fatture_emesse")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      return {
+        success: true,
+        fattura: mapFatturaEmessaRow(
+          (refreshed ?? updated) as FatturaEmessaRow,
+          (righeData ?? []) as FatturaEmessaRigaRow[],
+          (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
+        ),
+      };
+    }
+
+    // Fattura ricevuta
+    const { data: existing, error: exErr } = await supabase
+      .from("fatture_ricevute")
+      .select("*")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (exErr || !existing) {
+      return {
+        success: false,
+        error: exErr?.message ?? "Fattura non trovata.",
+      };
+    }
+    const existingRow = existing as FatturaRicevutaRow;
+
+    const patch = {
+      fornitore_id: input.anagraficaId,
+      fornitore_ragione_sociale: input.anagraficaRagioneSociale,
+      fornitore_codice_targa: input.anagraficaCodiceTarga,
+      data_emissione: input.dataEmissione,
+      numero_documento_esterno: input.numeroDocumentoEsterno,
+      spedizione: input.spedizione,
+      spedizione_iva_applicata: input.spedizioneIvaApplicata,
+      imponibile: totals.imponibile,
+      iva_percentuale: input.ivaPercentuale,
+      imposta: totals.imposta,
+      totale: totals.totale,
+      stato_pagamento: input.statoPagamento,
+      note: input.note,
+      versione: (existingRow.versione ?? 1) + 1,
+      updated_by: auth.userId,
+    };
+
+    const { data: updated, error: upErr } = await supabase
+      .from("fatture_ricevute")
+      .update(patch)
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (upErr || !updated) {
+      return {
+        success: false,
+        error: upErr?.message ?? "Aggiornamento non riuscito.",
+      };
+    }
+
+    await supabase.from("fatture_ricevute_righe").delete().eq("fattura_id", id);
+    const righeInsert: FatturaRicevutaRigaInsert[] = input.righe.map(
+      (r, i) => ({
+        fattura_id: id,
+        prodotto_id: r.prodottoId,
+        codice: r.codice,
+        descrizione: r.descrizione,
+        quantita: r.quantita,
+        prezzo_unitario: r.prezzoUnitario,
+        sconto_percentuale: r.scontoPercentuale,
+        importo: r.importo,
+        sort_order: i,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+    );
+    const { data: righeData, error: righeErr } = await supabase
+      .from("fatture_ricevute_righe")
+      .insert(righeInsert)
+      .select("*");
+    if (righeErr) {
+      return { success: false, error: `Righe documento: ${righeErr.message}` };
+    }
+
+    await writeAuditLog({
+      entity_type: "fatture_ricevute",
+      entity_id: id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Modificata fattura ricevuta ${existingRow.numero_interno} (v${patch.versione})`,
+      payload: { versione: patch.versione, totale: totals.totale },
+    });
+
+    const { data: dilazioni } = await supabase
+      .from("fatture_ricevute_dilazioni")
+      .select("*")
+      .eq("fattura_id", id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+
+    return {
+      success: true,
+      fattura: mapFatturaRicevutaRow(
+        updated as FatturaRicevutaRow,
+        (righeData ?? []) as FatturaRicevutaRigaRow[],
+        (dilazioni ?? []) as FatturaRicevutaDilazioneRow[]
+      ),
+    };
+  } catch (e) {
+    console.error("[updateFatturaAction]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Errore aggiornamento fattura.",
+    };
+  }
+}
+
 export async function getFatturaByIdAction(
   kind: FatturaKind,
   id: string
@@ -978,11 +1294,15 @@ export async function getFatturaByIdAction(
       .maybeSingle();
     if (error) return { success: false, error: error.message };
     if (!data) return { success: false, error: "Documento non trovato." };
-    const { data: righe } = await supabase
+    const { data: righe, error: righeErr } = await supabase
       .from("fatture_emesse_righe")
       .select("*")
       .eq("fattura_id", id)
       .order("sort_order", { ascending: true });
+    if (righeErr) {
+      console.error("[getFatturaByIdAction] righe", righeErr.message);
+      return { success: false, error: `Righe documento: ${righeErr.message}` };
+    }
     const { data: dilazioni } = await supabase
       .from("fatture_emesse_dilazioni")
       .select("*")
