@@ -222,6 +222,45 @@ export async function createCorriereAction(
   return { success: true, item: mapCorriereRow(row) };
 }
 
+export async function updateCorriereAction(
+  id: string,
+  raw: CorriereInput
+): Promise<CorriereResult> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = corriereInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("corrieri")
+    .update({
+      nome: parsed.data.nome.trim(),
+      note: (parsed.data.note ?? "").trim(),
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+  const row = data as CorriereRow;
+  await writeAuditLog({
+    entity_type: "corrieri",
+    entity_id: row.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornato corriere ${row.nome}`,
+    payload: { nome: row.nome },
+  });
+  return { success: true, item: mapCorriereRow(row) };
+}
+
 export async function softDeleteCorriereAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
