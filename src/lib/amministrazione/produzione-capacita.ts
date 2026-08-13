@@ -324,7 +324,7 @@ export function calcolaConsegnaCapacita(
     );
   }
 
-  let usaSabato = input.usaSabato;
+  const usaSabato = input.usaSabato;
   let chiedereSabato = false;
 
   if (
