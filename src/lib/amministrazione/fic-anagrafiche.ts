@@ -185,7 +185,8 @@ export function mergeProposedDraft(
   }
 
   const proposed: AnagraficaSyncDraft = {
-    ragioneSociale: pickFilled(current.ragioneSociale, incoming.ragioneSociale),
+    // Match P.IVA: nome sempre quello del gestionale (mai quello importato FiC).
+    ragioneSociale: current.ragioneSociale.trim() || incoming.ragioneSociale,
     partitaIva: pickFilled(current.partitaIva, incoming.partitaIva),
     email: pickContact(current.email, incoming.email),
     pec: pickContact(current.pec, incoming.pec),
@@ -331,6 +332,14 @@ export function draftToClienteInput(
   };
 }
 
+/**
+ * Chiave P.IVA per matching sync (solo partita IVA, mai il nome).
+ * Normalizza spazi/case e prefisso IT opzionale.
+ */
 export function normalizeVatKey(vat: string): string {
-  return vat.replace(/\s+/g, "").toUpperCase();
+  let key = vat.replace(/[\s.\-\/]/g, "").toUpperCase();
+  if (key.startsWith("IT") && key.length > 2) {
+    key = key.slice(2);
+  }
+  return key;
 }

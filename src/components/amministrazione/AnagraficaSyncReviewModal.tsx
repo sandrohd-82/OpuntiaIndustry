@@ -12,9 +12,11 @@ import { createClienteAction } from "@/app/actions/clienti";
 import {
   clearFicImportCheckpointAction,
   discardFicImportAction,
+  findAnagraficaByPartitaIvaAction,
   markFicImportProgressAction,
   pauseFicImportAction,
   saveFicImportReviewAction,
+  type AnagraficaByVatHit,
 } from "@/app/actions/fic-anagrafiche";
 import { createFornitoreAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
@@ -29,6 +31,8 @@ import type {
 import {
   draftToClientePreview,
   draftToFornitorePreview,
+  mergeProposedDraft,
+  normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import {
   emptySede,
@@ -76,6 +80,8 @@ export function AnagraficaSyncReviewModal({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [transferOpen, setTransferOpen] = useState(false);
+  const [vatHit, setVatHit] = useState<AnagraficaByVatHit | null>(null);
+  const [vatChecking, setVatChecking] = useState(false);
 
   const current = queue[index] ?? null;
   const [draft, setDraft] = useState<AnagraficaSyncDraft | null>(
@@ -88,11 +94,103 @@ export function AnagraficaSyncReviewModal({
     setIndex(0);
     setCompletedIds(initialCompletedIds);
     setDraft(initialItems[0]?.proposed ?? null);
+    setVatHit(null);
   }, [initialItems, initialCompletedIds]);
 
   useEffect(() => {
     setDraft(current?.proposed ?? null);
+    setVatHit(null);
   }, [current]);
+
+  /** Controllo esistenza solo per P.IVA: propone collegamento all’anagrafica gestionale. */
+  useEffect(() => {
+    if (!current || !draft?.partitaIva.trim()) {
+      setVatHit(null);
+      return;
+    }
+    const vat = draft.partitaIva;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      void (async () => {
+        setVatChecking(true);
+        const res = await findAnagraficaByPartitaIvaAction({
+          kind: current.kind,
+          partitaIva: vat,
+        });
+        if (cancelled) return;
+        setVatChecking(false);
+        if (!res.success) {
+          setVatHit(null);
+          return;
+        }
+        setVatHit(res.hit);
+        // Se già in update sulla stessa scheda, allinea subito il nome gestionale.
+        if (
+          res.hit &&
+          current.mode === "update" &&
+          current.existingId === res.hit.id &&
+          draft.ragioneSociale !== res.hit.ragioneSociale
+        ) {
+          setDraft((d) =>
+            d
+              ? {
+                  ...d,
+                  ragioneSociale: res.hit!.ragioneSociale,
+                  partitaIva: res.hit!.partitaIva,
+                }
+              : d
+          );
+        }
+      })();
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo P.IVA / kind
+  }, [current?.kind, current?.existingId, current?.mode, draft?.partitaIva]);
+
+  function collegaAdEsistente(hit: AnagraficaByVatHit) {
+    if (!current || !draft) return;
+    const incomingFromFic = { ...draft, ragioneSociale: hit.ragioneSociale };
+    const { proposed, changedFields } = mergeProposedDraft(
+      incomingFromFic,
+      hit.draft
+    );
+    // Nome sempre gestionale
+    proposed.ragioneSociale = hit.ragioneSociale;
+    proposed.partitaIva = hit.partitaIva;
+
+    setQueue((prev) =>
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              mode: "update",
+              existingId: hit.id,
+              codiceTarga: hit.codiceTarga,
+              current: hit.draft,
+              proposed,
+              changedFields,
+            }
+          : item
+      )
+    );
+    setDraft(proposed);
+    setVatHit(hit);
+    setError(null);
+  }
+
+  const needsLink =
+    Boolean(vatHit) &&
+    (current?.mode === "create" ||
+      (current?.mode === "update" &&
+        current.existingId !== vatHit?.id));
+
+  const linkedToGestionale =
+    Boolean(vatHit) &&
+    current?.mode === "update" &&
+    current.existingId === vatHit?.id;
 
   const runPause = useCallback(() => {
     setError(null);
@@ -224,9 +322,19 @@ export function AnagraficaSyncReviewModal({
 
   function handleSave() {
     if (!current || !draft) return;
-    if (!draft.ragioneSociale.trim() || !draft.partitaIva.trim()) {
+    if (!draft.partitaIva.trim()) {
+      setError("P. IVA obbligatoria (riconoscimento azienda).");
+      return;
+    }
+    if (needsLink && vatHit) {
       setError(
-        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito."
+        `P. IVA già su ${vatHit.codiceTarga}. Usa «Collega» all’azienda gestionale prima di salvare.`
+      );
+      return;
+    }
+    if (!draft.ragioneSociale.trim()) {
+      setError(
+        "Ragione sociale obbligatoria. Se l’azienda esiste, collegalà per usare il nome gestionale."
       );
       return;
     }
@@ -245,20 +353,24 @@ export function AnagraficaSyncReviewModal({
         setError(result.error);
         return;
       }
+      const savedName =
+        vatHit && current.existingId === vatHit.id
+          ? vatHit.ragioneSociale
+          : draft.ragioneSociale;
       const nextCompleted = completedIds.includes(current.ficEntityId)
         ? completedIds
         : [...completedIds, current.ficEntityId];
       setCompletedIds(nextCompleted);
       setLastSaved({
         ficEntityId: current.ficEntityId,
-        name: draft.ragioneSociale,
+        name: savedName,
         vat: draft.partitaIva,
       });
       const mark = await markFicImportProgressAction({
         kind: current.kind,
         completedFicIds: nextCompleted,
         lastSavedFicEntityId: current.ficEntityId,
-        lastSavedName: draft.ragioneSociale,
+        lastSavedName: savedName,
         lastSavedVat: draft.partitaIva,
       });
       if (!mark.success) {
@@ -376,9 +488,52 @@ export function AnagraficaSyncReviewModal({
           <p className="mt-2 text-xs text-[var(--muted)]">
             {current.mode === "create"
               ? "Nuova scheda — anteprima della prossima targa libera; al salvataggio viene assegnata la prima effettivamente libera (non si “saltano” codici per le altre voci in coda)."
-              : "Scheda già presente (stessa P.IVA) — aggiornamento sotto conferma."}
+              : "Scheda già presente (stessa P.IVA) — aggiornamento sotto conferma. La ragione sociale resta quella del gestionale."}
           </p>
         </div>
+
+        {vatChecking ? (
+          <p className="mt-3 text-xs text-[var(--muted)]">
+            Controllo P. IVA nel gestionale…
+          </p>
+        ) : null}
+
+        {needsLink && vatHit ? (
+          <div className="mt-4 rounded-lg border border-sky-300 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+            <p className="font-semibold">P. IVA già presente nel gestionale</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              Trovata{" "}
+              <strong className="font-mono">{vatHit.codiceTarga}</strong> —{" "}
+              <strong>{vatHit.ragioneSociale}</strong>
+              {normalizeVatKey(draft?.partitaIva ?? "") !==
+              normalizeVatKey(vatHit.partitaIva)
+                ? " (stessa P.IVA normalizzata)."
+                : "."}{" "}
+              Il controllo avviene solo per P. IVA. Puoi indirizzare su questa
+              azienda: verrà usato il nome registrato nel gestionale, non quello
+              importato.
+            </p>
+            <button
+              type="button"
+              onClick={() => collegaAdEsistente(vatHit)}
+              className="mt-3 rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-800"
+            >
+              Collega a {vatHit.codiceTarga} — {vatHit.ragioneSociale}
+            </button>
+          </div>
+        ) : null}
+
+        {linkedToGestionale && vatHit ? (
+          <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            <p className="font-semibold">Collegata all’anagrafica gestionale</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              Aggiornamento di{" "}
+              <strong className="font-mono">{vatHit.codiceTarga}</strong>.
+              Ragione sociale bloccata sul valore locale:{" "}
+              <strong>{vatHit.ragioneSociale}</strong>.
+            </p>
+          </div>
+        ) : null}
 
         {current.fromArchivio ? (
           <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
@@ -406,11 +561,26 @@ export function AnagraficaSyncReviewModal({
               </span>
               <input
                 value={draft.ragioneSociale}
+                readOnly={linkedToGestionale}
                 onChange={(e) =>
                   setDraft({ ...draft, ragioneSociale: e.target.value })
                 }
-                className={fieldClass(isChanged(changed, "ragioneSociale"))}
+                className={
+                  linkedToGestionale
+                    ? "w-full rounded-lg border border-emerald-300 bg-emerald-50/80 px-3 py-2 text-emerald-950 outline-none"
+                    : fieldClass(isChanged(changed, "ragioneSociale"))
+                }
+                title={
+                  linkedToGestionale
+                    ? "Nome del gestionale (non modificabile in sync)"
+                    : undefined
+                }
               />
+              {linkedToGestionale ? (
+                <span className="mt-1 block text-xs text-emerald-800">
+                  Nome preso dal gestionale (non dall’import FiC).
+                </span>
+              ) : null}
             </label>
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">
@@ -428,6 +598,9 @@ export function AnagraficaSyncReviewModal({
                 }
                 className={fieldClass(isChanged(changed, "partitaIva"))}
               />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Chiave univoca di riconoscimento: solo P. IVA (non il nome).
+              </span>
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">

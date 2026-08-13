@@ -588,6 +588,72 @@ export async function clearFicImportCheckpointAction(
   }
 }
 
+export type AnagraficaByVatHit = {
+  id: string;
+  codiceTarga: string;
+  ragioneSociale: string;
+  partitaIva: string;
+  draft: AnagraficaSyncDraft;
+};
+
+/** Ricerca anagrafica attiva solo per P.IVA normalizzata (mai per nome). */
+export async function findAnagraficaByPartitaIvaAction(input: {
+  kind: AnagraficaSyncKind;
+  partitaIva: string;
+}): Promise<
+  | { success: true; hit: AnagraficaByVatHit | null }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const vatKey = normalizeVatKey(input.partitaIva);
+  if (!vatKey) return { success: true, hit: null };
+
+  const supabase = await createClient();
+  if (input.kind === "fornitore") {
+    const { data, error } = await supabase
+      .from("fornitori")
+      .select("*")
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    const row = ((data ?? []) as FornitoreRow[]).find(
+      (r) => normalizeVatKey(r.partita_iva) === vatKey
+    );
+    if (!row) return { success: true, hit: null };
+    const f = mapFornitoreRow(row);
+    return {
+      success: true,
+      hit: {
+        id: f.id,
+        codiceTarga: f.codiceTarga,
+        ragioneSociale: f.ragioneSociale,
+        partitaIva: f.partitaIva,
+        draft: draftFromFornitore(f),
+      },
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("clienti")
+    .select("*")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const row = ((data ?? []) as ClienteRow[]).find(
+    (r) => normalizeVatKey(r.partita_iva) === vatKey
+  );
+  if (!row) return { success: true, hit: null };
+  const c = mapClienteRow(row);
+  return {
+    success: true,
+    hit: {
+      id: c.id,
+      codiceTarga: c.codiceTarga,
+      ragioneSociale: c.ragioneSociale,
+      partitaIva: c.partitaIva,
+      draft: draftFromCliente(c),
+    },
+  };
+}
+
 export async function saveFicImportReviewAction(input: {
   kind: AnagraficaSyncKind;
   mode: "create" | "update";
@@ -598,7 +664,34 @@ export async function saveFicImportReviewAction(input: {
   ficEntityId?: number | null;
 }): Promise<{ success: true } | { success: false; error: string }> {
   await requireAreaAccess("amministrazione");
-  const draft = input.draft;
+
+  const vatKey = normalizeVatKey(input.draft.partitaIva);
+  if (!vatKey) {
+    return { success: false, error: "P. IVA obbligatoria per il salvataggio." };
+  }
+
+  // Risoluzione definitiva solo per P.IVA: se esiste → update + nome gestionale.
+  const resolved = await findAnagraficaByPartitaIvaAction({
+    kind: input.kind,
+    partitaIva: input.draft.partitaIva,
+  });
+  if (!resolved.success) return resolved;
+
+  let mode = input.mode;
+  let existingId = input.existingId;
+  let codiceTarga = input.codiceTarga;
+  let draft = { ...input.draft };
+
+  if (resolved.hit) {
+    mode = "update";
+    existingId = resolved.hit.id;
+    codiceTarga = resolved.hit.codiceTarga;
+    draft = {
+      ...draft,
+      ragioneSociale: resolved.hit.ragioneSociale,
+      partitaIva: resolved.hit.partitaIva,
+    };
+  }
 
   async function afterSaveSuccess(): Promise<
     { success: true } | { success: false; error: string }
@@ -625,15 +718,15 @@ export async function saveFicImportReviewAction(input: {
     // Create: non usare la targa “prenotata” in coda — la assegna il server.
     const values = draftToFornitoreInput(
       draft,
-      input.mode === "update" && isValidCodiceTarga(input.codiceTarga, "F")
-        ? input.codiceTarga
+      mode === "update" && isValidCodiceTarga(codiceTarga, "F")
+        ? codiceTarga
         : undefined
     );
     values.archivioId = input.archivioId ?? null;
-    if (input.mode === "update" && input.existingId) {
+    if (mode === "update" && existingId) {
       const fd = new FormData();
       fd.set("input", JSON.stringify(values));
-      const result = await updateFornitoreAction(input.existingId, fd);
+      const result = await updateFornitoreAction(existingId, fd);
       if (!result.success) return { success: false, error: result.error };
       return afterSaveSuccess();
     }
@@ -646,13 +739,13 @@ export async function saveFicImportReviewAction(input: {
 
   const values = draftToClienteInput(
     draft,
-    input.mode === "update" && isValidCodiceTarga(input.codiceTarga, "C")
-      ? input.codiceTarga
+    mode === "update" && isValidCodiceTarga(codiceTarga, "C")
+      ? codiceTarga
       : undefined
   );
   values.archivioId = input.archivioId ?? null;
-  if (input.mode === "update" && input.existingId) {
-    const result = await updateClienteAction(input.existingId, values);
+  if (mode === "update" && existingId) {
+    const result = await updateClienteAction(existingId, values);
     if (!result.success) return { success: false, error: result.error };
     return afterSaveSuccess();
   }
