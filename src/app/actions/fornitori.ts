@@ -280,6 +280,12 @@ export async function createFornitoreAction(
     bio_certificato: "",
     bio_certificato_path: "",
     bio_codice: normalized.bioCodice ?? "",
+    anagrafica_fonte: normalized.anagraficaFonte ?? "manuale",
+    verified_by: normalized.anagraficaVerificata ? auth.userId : null,
+    verified_at: normalized.anagraficaVerificata
+      ? new Date().toISOString()
+      : null,
+    enrichment_snapshot: normalized.enrichmentSnapshot ?? null,
     created_by: auth.userId,
     updated_by: auth.userId,
   };
@@ -347,8 +353,26 @@ export async function createFornitoreAction(
     payload: {
       codice_targa: row.codice_targa,
       ragione_sociale: row.ragione_sociale,
+      anagrafica_fonte: normalized.anagraficaFonte ?? "manuale",
     },
   });
+
+  if (normalized.anagraficaVerificata && normalized.anagraficaFonte) {
+    await writeAuditLog({
+      entity_type: "fornitori",
+      entity_id: row.id,
+      action: "anagrafica_enriched_verified",
+      actor_id: auth.userId,
+      summary: `Anagrafica fornitore ${row.codice_targa} estratta da ${normalized.anagraficaFonte} e verificata dall’operatore`,
+      payload: {
+        fonte: normalized.anagraficaFonte,
+        partita_iva: row.partita_iva,
+        verified_by: auth.userId,
+        verified_at: insert.verified_at,
+        enrichment_snapshot: normalized.enrichmentSnapshot ?? null,
+      },
+    });
+  }
 
   if (input.archivioId) {
     await markAnagraficaArchivioRipescatoAction({

@@ -406,6 +406,102 @@ export async function fetchFicClients(): Promise<FicEntityNormalized[]> {
   return listAllEntities("/entities/clients", "client");
 }
 
+function escapeFicQueryValue(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+/**
+ * Cerca un’entità FiC per P.IVA / codice fiscale (suppliers poi clients).
+ * Usa filtro `q` API v2 — non scarica tutto il catalogo.
+ */
+export async function findFicEntityByVat(
+  vatOrTax: string
+): Promise<FicEntityNormalized | null> {
+  const raw = vatOrTax.replace(/[\s.\-\/]/g, "").toUpperCase();
+  if (!raw || raw.length < 5) return null;
+  const key = raw.startsWith("IT") && raw.length > 2 ? raw.slice(2) : raw;
+  const escaped = escapeFicQueryValue(key);
+  const q = `(vat_number = '${escaped}' or tax_code = '${escaped}')`;
+
+  for (const kind of ["supplier", "client"] as const) {
+    const path =
+      kind === "supplier" ? "/entities/suppliers" : "/entities/clients";
+    try {
+      const res = await ficGet<FicListResponse>(path, {
+        fieldset: "detailed",
+        q,
+        page: 1,
+        per_page: 10,
+      });
+      for (const item of res.data ?? []) {
+        const n = normalizeFicEntity(item, kind);
+        if (!n) continue;
+        const nKey = (n.vat || "").replace(/[\s.\-\/]/g, "").toUpperCase();
+        const nKey2 = nKey.startsWith("IT") ? nKey.slice(2) : nKey;
+        if (nKey2 === key) return n;
+      }
+      // Se la query ha restituito qualcosa senza match esatto, prendi il primo
+      if ((res.data ?? []).length > 0) {
+        const first = normalizeFicEntity(res.data![0], kind);
+        if (first) return first;
+      }
+    } catch {
+      // Continua con l’altra kind / fallback fatture
+    }
+  }
+  return null;
+}
+
+/**
+ * Stub anagrafica da fatture ricevute FiC (entity su documento).
+ */
+export async function findFicEntityFromReceivedInvoices(
+  vatOrTax: string
+): Promise<FicEntityNormalized | null> {
+  const raw = vatOrTax.replace(/[\s.\-\/]/g, "").toUpperCase();
+  if (!raw || raw.length < 5) return null;
+  const key = raw.startsWith("IT") && raw.length > 2 ? raw.slice(2) : raw;
+  const escaped = escapeFicQueryValue(key);
+  const q = `(entity.vat_number = '${escaped}' or entity.tax_code = '${escaped}')`;
+  try {
+    const res = await ficGet<FicListResponse>("/received_documents", {
+      type: "expense",
+      fieldset: "detailed",
+      q,
+      page: 1,
+      per_page: 5,
+      sort: "-updated_at",
+    });
+    for (const item of res.data ?? []) {
+      const doc = asRecord(item);
+      const stub: FicEntityNormalized = {
+        ficId: asNumber(asRecord(doc.entity).id) || asNumber(doc.id),
+        kind: "supplier",
+        name: "",
+        vat: "",
+        email: "",
+        pec: "",
+        phone: "",
+        sdi: "",
+        country: "Italia",
+        province: "",
+        city: "",
+        postalCode: "",
+        street: "",
+        shippingAddress: "",
+      };
+      const enriched = enrichEntityFromInvoiceRaw(stub, doc);
+      if (!enriched.name && !enriched.vat) continue;
+      const nKey = (enriched.vat || "").replace(/[\s.\-\/]/g, "").toUpperCase();
+      const nKey2 = nKey.startsWith("IT") ? nKey.slice(2) : nKey;
+      if (!nKey2 || nKey2 === key) return enriched;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 /**
  * URL temporaneo PDF/allegato documento FiC (da aprire in nuova scheda).
  * Emesse: campo `url`; ricevute: `attachment_url` / preview.

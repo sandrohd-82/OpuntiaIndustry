@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { FaChevronDown } from "react-icons/fa6";
-import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-archivio";
+import { FaChevronDown, FaMagnifyingGlass } from "react-icons/fa6";
+import { lookupFornitoreEnrichmentAction } from "@/app/actions/fornitore-enrichment";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
@@ -10,6 +10,7 @@ import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffert
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
 import { FORNITORE_TIPOLOGIE } from "@/lib/amministrazione/catalogo-offerta";
+import type { FornitoreEnrichmentHit } from "@/lib/amministrazione/fornitore-enrichment";
 import {
   emptySede,
   type Fornitore,
@@ -67,7 +68,11 @@ export function FornitoreFormModal({
   );
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
   const [archivioId, setArchivioId] = useState<string | null>(null);
-  const [archivioHint, setArchivioHint] = useState<string | null>(null);
+  const [enrichmentHit, setEnrichmentHit] =
+    useState<FornitoreEnrichmentHit | null>(null);
+  const [enrichmentLoading, setEnrichmentLoading] = useState(false);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [anagraficaVerificata, setAnagraficaVerificata] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [email, setEmail] = useState(initial?.email ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
@@ -145,23 +150,38 @@ export function FornitoreFormModal({
     };
   }, [isEdit, initial?.codiceTarga]);
 
-  async function checkArchivioByVat(vat: string) {
+  async function runEnrichmentLookup(vat: string) {
     if (isEdit || !vat.trim()) {
       setArchivioId(null);
-      setArchivioHint(null);
+      setEnrichmentHit(null);
+      setEnrichmentError(null);
+      setAnagraficaVerificata(false);
       return;
     }
-    const result = await findAnagraficaArchivioByVatAction("fornitore", vat);
-    if (!result.success || !result.hit) {
+    setEnrichmentLoading(true);
+    setEnrichmentError(null);
+    const result = await lookupFornitoreEnrichmentAction(vat);
+    setEnrichmentLoading(false);
+    if (!result.success) {
+      setEnrichmentHit(null);
+      setEnrichmentError(result.error);
+      return;
+    }
+    if (!result.hit) {
       setArchivioId(null);
-      setArchivioHint(null);
+      setEnrichmentHit(null);
+      setAnagraficaVerificata(false);
+      setEnrichmentError(null);
       return;
     }
     const hit = result.hit;
-    setArchivioId(hit.id);
-    setArchivioHint(
-      `Trovata in archivio come scartata/eliminata: ${hit.ragioneSociale}. Dati riproposti: valuta e salva (ripesca) oppure chiudi.`
-    );
+    setEnrichmentHit(hit);
+    setArchivioId(hit.archivioId);
+    setAnagraficaVerificata(false);
+    if (hit.fonte === "locale") {
+      // Solo avviso: non sovrascrivere per creare un duplicato
+      return;
+    }
     setRagioneSociale(hit.draft.ragioneSociale || ragioneSociale);
     setPartitaIva(hit.draft.partitaIva || vat);
     setEmail(hit.draft.email);
@@ -170,6 +190,16 @@ export function FornitoreFormModal({
     setTelefono(hit.draft.telefono);
     setSitoWeb(hit.draft.sitoWeb);
     setSedeAmministrativa(hit.draft.sedeAmministrativa);
+    if (
+      hit.draft.sedeMagazzino &&
+      (hit.draft.sedeMagazzino.indirizzo ||
+        hit.draft.sedeMagazzino.citta ||
+        hit.draft.sedeMagazzino.cap)
+    ) {
+      setSedeMagazzino(hit.draft.sedeMagazzino);
+      setRitiroOpen(true);
+      setStessaSede(false);
+    }
   }
 
   async function submit(e: FormEvent) {
@@ -178,6 +208,16 @@ export function FornitoreFormModal({
     if (!ragioneSociale.trim() || !partitaIva.trim() || saving) {
       setFormError(
         "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito."
+      );
+      return;
+    }
+    if (enrichmentHit?.fonte === "locale") {
+      setFormError(enrichmentHit.message);
+      return;
+    }
+    if (enrichmentHit?.requiresVerification && !anagraficaVerificata) {
+      setFormError(
+        "Conferma di aver verificato i dati anagrafici precompilati (checkbox ISO)."
       );
       return;
     }
@@ -213,6 +253,18 @@ export function FornitoreFormModal({
             ? prodotti
             : [],
           archivioId,
+          anagraficaFonte: enrichmentHit?.fonte ?? "manuale",
+          anagraficaVerificata: Boolean(
+            enrichmentHit?.requiresVerification && anagraficaVerificata
+          ),
+          enrichmentSnapshot: enrichmentHit
+            ? {
+                fonte: enrichmentHit.fonte,
+                draft: enrichmentHit.draft,
+                ficEntityId: enrichmentHit.ficEntityId,
+                archivioId: enrichmentHit.archivioId,
+              }
+            : null,
           bioCertificatoPath: initial?.bioCertificatoPath ?? "",
           bioCodice: bioCodice.trim(),
           removeBioCertificato: removeBioPdf && !bioPdf,
@@ -289,23 +341,72 @@ export function FornitoreFormModal({
               />
             </label>
             <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">P. IVA</span>
-              <input
-                value={partitaIva}
-                onChange={(e) => {
-                  setPartitaIva(e.target.value);
-                  setArchivioHint(null);
-                  setArchivioId(null);
-                  setFormError(null);
-                }}
-                onBlur={() => void checkArchivioByVat(partitaIva)}
-                required
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-              {archivioHint ? (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  {archivioHint}
+              <span className="mb-1 block font-medium">P. IVA / Codice Fiscale</span>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={partitaIva}
+                  onChange={(e) => {
+                    setPartitaIva(e.target.value);
+                    setEnrichmentHit(null);
+                    setArchivioId(null);
+                    setAnagraficaVerificata(false);
+                    setEnrichmentError(null);
+                    setFormError(null);
+                  }}
+                  onBlur={() => void runEnrichmentLookup(partitaIva)}
+                  required
+                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                />
+                {!isEdit ? (
+                  <button
+                    type="button"
+                    disabled={enrichmentLoading || !partitaIva.trim()}
+                    onClick={() => void runEnrichmentLookup(partitaIva)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <FaMagnifyingGlass size={13} />
+                    {enrichmentLoading ? "Cerco…" : "Cerca anagrafica"}
+                  </button>
+                ) : null}
+              </div>
+              {enrichmentLoading ? (
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  Interrogazione anagrafica (locale → archivio → Fatture in
+                  Cloud)…
                 </p>
+              ) : null}
+              {enrichmentError ? (
+                <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {enrichmentError}
+                </p>
+              ) : null}
+              {enrichmentHit ? (
+                <div
+                  className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                    enrichmentHit.fonte === "locale"
+                      ? "border-red-200 bg-red-50 text-red-900"
+                      : "border-sky-200 bg-sky-50 text-sky-950"
+                  }`}
+                >
+                  <p className="font-semibold">
+                    Fonte: {enrichmentHit.labelFonte}
+                  </p>
+                  <p className="mt-1">{enrichmentHit.message}</p>
+                  {enrichmentHit.requiresVerification ? (
+                    <label className="mt-2 flex items-start gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={anagraficaVerificata}
+                        onChange={(e) =>
+                          setAnagraficaVerificata(e.target.checked)
+                        }
+                      />
+                      Confermo di aver verificato i dati anagrafici estratti
+                      (ISO 9001 — verified_by / verified_at al salvataggio)
+                    </label>
+                  ) : null}
+                </div>
               ) : null}
             </label>
             <label className="block text-sm">

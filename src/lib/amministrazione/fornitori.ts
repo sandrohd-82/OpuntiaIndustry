@@ -58,6 +58,18 @@ export type FornitoreInput = {
   removeBioCertificato?: boolean;
   /** Se ripescata da archivio: id riga fornitori_archivio da chiudere al salvataggio. */
   archivioId?: string | null;
+  /** Fonte enrichment (ISO). */
+  anagraficaFonte?:
+    | "manuale"
+    | "locale"
+    | "archivio"
+    | "fic_supplier"
+    | "fic_client"
+    | "fic_fattura"
+    | null;
+  /** Operatore ha verificato i dati precompilati. */
+  anagraficaVerificata?: boolean;
+  enrichmentSnapshot?: Record<string, unknown> | null;
 };
 
 export function emptySede(): SedeFornitore {
@@ -109,6 +121,10 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     bioCertificatoPath: input.bioCertificatoPath?.trim() ?? "",
     bioCodice: input.bioCodice?.trim() ?? "",
     removeBioCertificato: Boolean(input.removeBioCertificato),
+    archivioId: input.archivioId ?? null,
+    anagraficaFonte: input.anagraficaFonte ?? null,
+    anagraficaVerificata: Boolean(input.anagraficaVerificata),
+    enrichmentSnapshot: input.enrichmentSnapshot ?? null,
   };
 }
 

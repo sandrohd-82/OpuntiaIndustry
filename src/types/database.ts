@@ -145,6 +145,10 @@ export interface FornitoreRow {
   bio_certificato: string;
   bio_certificato_path: string;
   bio_codice: string;
+  anagrafica_fonte: string | null;
+  verified_by: string | null;
+  verified_at: string | null;
+  enrichment_snapshot: Record<string, unknown> | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -180,6 +184,10 @@ export interface FornitoreInsert {
   bio_certificato?: string;
   bio_certificato_path?: string;
   bio_codice?: string;
+  anagrafica_fonte?: string | null;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  enrichment_snapshot?: Record<string, unknown> | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -215,6 +223,10 @@ export interface FornitoreUpdate {
   bio_certificato?: string;
   bio_certificato_path?: string;
   bio_codice?: string;
+  anagrafica_fonte?: string | null;
+  verified_by?: string | null;
+  verified_at?: string | null;
+  enrichment_snapshot?: Record<string, unknown> | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
