@@ -26,24 +26,34 @@ export type FornitoriActionResult =
 
 const MAX_BIO_PDF_BYTES = 10 * 1024 * 1024;
 
-/** Targhe che bloccano la sequenza: attive + soft-delete con materie bio collegate. */
-async function loadUsedCodiciTarga(): Promise<string[]> {
+/** Targhe che bloccano la sequenza: attive + soft-delete con materie bio. */
+export async function getUsedFornitoriCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fornitori")
-    .select("id, codice_targa, deleted_at");
+    .select("id, codice_targa, deleted_at, ragione_sociale, partita_iva");
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as Array<{
     id: string;
     codice_targa: string;
     deleted_at: string | null;
+    ragione_sociale: string | null;
+    partita_iva: string | null;
   }>;
+
+  // Solo attive “vere” (non vuote) + soft-delete con bio
   const active = rows
-    .filter((r) => !r.deleted_at)
+    .filter(
+      (r) =>
+        !r.deleted_at &&
+        (String(r.ragione_sociale ?? "").trim() !== "" ||
+          String(r.partita_iva ?? "").trim() !== "")
+    )
     .map((r) => String(r.codice_targa).toUpperCase());
+
   const softIds = rows.filter((r) => r.deleted_at).map((r) => r.id);
-  if (softIds.length === 0) return active;
+  if (softIds.length === 0) return [...new Set(active)];
 
   const { data: materie, error: matError } = await supabase
     .from("materie_prime")
@@ -62,6 +72,10 @@ async function loadUsedCodiciTarga(): Promise<string[]> {
     .map((r) => String(r.codice_targa).toUpperCase());
 
   return [...new Set([...active, ...softBusy])];
+}
+
+async function loadUsedCodiciTarga(): Promise<string[]> {
+  return getUsedFornitoriCodiciTarga();
 }
 
 async function assertPartitaIvaUnica(
@@ -227,7 +241,20 @@ export async function createFornitoreAction(
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
     return {
       success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
+      error:
+        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
+    };
+  }
+  if (normalized.ragioneSociale.length < 2) {
+    return {
+      success: false,
+      error: "La ragione sociale non può essere vuota o troppo corta.",
+    };
+  }
+  if (normalizeVatKey(normalized.partitaIva).length < 8) {
+    return {
+      success: false,
+      error: "Partita IVA / Codice Fiscale non valido.",
     };
   }
 
@@ -301,11 +328,14 @@ export async function createFornitoreAction(
     if (error?.code === "23505") {
       try {
         const used = await loadUsedCodiciTarga();
+        if (codiceTarga) used.push(codiceTarga);
+        // Escludi anche eventuali collisioni P.IVA già gestite sopra
+        const retryCode = nextSequentialCodiceTarga("F", used);
         const retry = await supabase
           .from("fornitori")
           .insert({
             ...insert,
-            codice_targa: nextSequentialCodiceTarga("F", used),
+            codice_targa: retryCode,
           })
           .select("*")
           .single();
@@ -409,7 +439,20 @@ export async function updateFornitoreAction(
   if (!normalized.ragioneSociale || !normalized.partitaIva) {
     return {
       success: false,
-      error: "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
+      error:
+        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
+    };
+  }
+  if (normalized.ragioneSociale.length < 2) {
+    return {
+      success: false,
+      error: "La ragione sociale non può essere vuota o troppo corta.",
+    };
+  }
+  if (normalizeVatKey(normalized.partitaIva).length < 8) {
+    return {
+      success: false,
+      error: "Partita IVA / Codice Fiscale non valido.",
     };
   }
 

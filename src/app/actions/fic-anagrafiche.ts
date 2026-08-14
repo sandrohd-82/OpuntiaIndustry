@@ -10,6 +10,7 @@ import {
 } from "@/app/actions/clienti";
 import {
   createFornitoreAction,
+  getUsedFornitoriCodiciTarga,
   updateFornitoreAction,
 } from "@/app/actions/fornitori";
 import {
@@ -254,8 +255,8 @@ export async function startFicSyncFornitoriAction(): Promise<FicSyncStartResult>
         .filter((f) => f.partitaIva)
         .map((f) => [normalizeVatKey(f.partitaIva), f] as const)
     );
-    const usedTarghe = locals.map((f) => f.codiceTarga);
-    /** Una sola anteprima: non prenotare C/F progressivi per tutta la coda sync. */
+    const usedTarghe = await getUsedFornitoriCodiciTarga();
+    /** Una sola anteprima: non prenotare F progressivi per tutta la coda sync. */
     const nextTargaPreview = await previewTarga("F", usedTarghe);
     const items: AnagraficaSyncReviewItem[] = [];
 

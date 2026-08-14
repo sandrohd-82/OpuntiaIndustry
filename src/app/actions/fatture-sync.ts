@@ -11,6 +11,7 @@ import {
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
+import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
@@ -295,9 +296,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   const pending = docs.filter((d) => !registered.has(d.ficId));
   const skippedAlreadyRegistered = docs.length - pending.length;
 
-  const usedTarghe = new Set(
-    fornitori.map((f) => f.codice_targa.trim().toUpperCase()).filter(Boolean)
-  );
+  const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
 
   const items: FatturaSyncQueueItem[] = [];
   for (const doc of pending) {
