@@ -67,6 +67,9 @@ export function FornitoreFormModal({
     initial?.ragioneSociale ?? ""
   );
   const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [codiceFiscale, setCodiceFiscale] = useState(
+    initial?.codiceFiscale ?? ""
+  );
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [enrichmentHit, setEnrichmentHit] =
     useState<FornitoreEnrichmentHit | null>(null);
@@ -184,6 +187,7 @@ export function FornitoreFormModal({
     }
     setRagioneSociale(hit.draft.ragioneSociale || ragioneSociale);
     setPartitaIva(hit.draft.partitaIva || vat);
+    setCodiceFiscale(hit.draft.codiceFiscale || hit.draft.partitaIva || "");
     setEmail(hit.draft.email);
     setPec(hit.draft.pec);
     setSdiCode(hit.draft.sdiCode);
@@ -205,9 +209,9 @@ export function FornitoreFormModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim() || saving) {
+    if (!ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim() || saving) {
       setFormError(
-        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito."
+        "Ragione sociale, P. IVA e Codice Fiscale sono obbligatori."
       );
       return;
     }
@@ -233,6 +237,7 @@ export function FornitoreFormModal({
           codiceTarga: codice,
           ragioneSociale: ragioneSociale.trim(),
           partitaIva: partitaIva.trim(),
+          codiceFiscale: codiceFiscale.trim(),
           email: email.trim(),
           pec: pec.trim(),
           sdiCode: sdiCode.trim(),
@@ -340,13 +345,13 @@ export function FornitoreFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">P. IVA / Codice Fiscale</span>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">P. IVA</span>
               <div className="flex flex-wrap gap-2">
                 <input
                   value={partitaIva}
                   onChange={(e) => {
-                    setPartitaIva(e.target.value);
+                    setPartitaIva(e.target.value.toUpperCase());
                     setEnrichmentHit(null);
                     setArchivioId(null);
                     setAnagraficaVerificata(false);
@@ -355,7 +360,9 @@ export function FornitoreFormModal({
                   }}
                   onBlur={() => void runEnrichmentLookup(partitaIva)}
                   required
-                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  spellCheck={false}
+                  placeholder="11 cifre"
+                  className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
                 />
                 {!isEdit ? (
                   <button
@@ -365,24 +372,45 @@ export function FornitoreFormModal({
                     className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
                   >
                     <FaMagnifyingGlass size={13} />
-                    {enrichmentLoading ? "Cerco…" : "Cerca anagrafica"}
+                    {enrichmentLoading ? "Cerco…" : "Cerca"}
                   </button>
                 ) : null}
               </div>
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Codice Fiscale</span>
+              <input
+                value={codiceFiscale}
+                onChange={(e) => {
+                  setCodiceFiscale(e.target.value.toUpperCase());
+                  setFormError(null);
+                }}
+                onBlur={() => {
+                  if (!partitaIva.trim() && codiceFiscale.trim()) {
+                    void runEnrichmentLookup(codiceFiscale);
+                  }
+                }}
+                required
+                spellCheck={false}
+                placeholder="11–16 caratteri"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+            <div className="sm:col-span-2">
               {enrichmentLoading ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">
+                <p className="text-xs text-[var(--muted)]">
                   Interrogazione anagrafica (locale → archivio → Fatture in
                   Cloud)…
                 </p>
               ) : null}
               {enrichmentError ? (
-                <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                   {enrichmentError}
                 </p>
               ) : null}
               {enrichmentHit ? (
                 <div
-                  className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+                  className={`rounded-lg border px-3 py-2 text-xs ${
                     enrichmentHit.fonte === "locale"
                       ? "border-red-200 bg-red-50 text-red-900"
                       : "border-sky-200 bg-sky-50 text-sky-950"
@@ -408,7 +436,7 @@ export function FornitoreFormModal({
                   ) : null}
                 </div>
               ) : null}
-            </label>
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Mail</span>
               <input
@@ -619,7 +647,7 @@ export function FornitoreFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || codiceLoading || codiceTarga.length !== 4 || !ragioneSociale.trim() || !partitaIva.trim()}
+              disabled={saving || codiceLoading || codiceTarga.length !== 4 || !ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim()}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving

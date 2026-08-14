@@ -326,6 +326,10 @@ export function AnagraficaSyncReviewModal({
       setError("P. IVA obbligatoria (riconoscimento azienda).");
       return;
     }
+    if (!draft.codiceFiscale.trim()) {
+      setError("Codice Fiscale obbligatorio.");
+      return;
+    }
     if (needsLink && vatHit) {
       setError(
         `P. IVA già su ${vatHit.codiceTarga}. Usa «Collega» all’azienda gestionale prima di salvare.`
@@ -601,6 +605,26 @@ export function AnagraficaSyncReviewModal({
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 Chiave univoca di riconoscimento: solo P. IVA (non il nome).
               </span>
+            </label>
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">
+                Codice Fiscale
+                {isChanged(changed, "codiceFiscale") ? (
+                  <span className="ml-2 text-xs font-normal text-amber-700">
+                    modificato
+                  </span>
+                ) : null}
+              </span>
+              <input
+                value={draft.codiceFiscale}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    codiceFiscale: e.target.value.toUpperCase(),
+                  })
+                }
+                className={fieldClass(isChanged(changed, "codiceFiscale"))}
+              />
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">

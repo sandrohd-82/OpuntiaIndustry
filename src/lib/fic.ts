@@ -303,6 +303,8 @@ export type FicEntityNormalized = {
   kind: FicEntityKind;
   name: string;
   vat: string;
+  /** Codice fiscale FiC (tax_code), distinto da vat_number. */
+  taxCode: string;
   email: string;
   pec: string;
   phone: string;
@@ -333,6 +335,7 @@ export function normalizeFicEntity(
     kind,
     name,
     vat: asText(doc.vat_number) || asText(doc.tax_code),
+    taxCode: asText(doc.tax_code) || asText(doc.vat_number),
     email: asText(doc.email),
     pec: asText(doc.certified_email),
     phone: asText(doc.phone),
@@ -358,6 +361,7 @@ export function enrichEntityFromInvoiceRaw(
     ...base,
     name: fill(base.name, entity.name),
     vat: fill(base.vat, entity.vat_number ?? entity.tax_code),
+    taxCode: fill(base.taxCode, entity.tax_code ?? entity.vat_number),
     email: fill(base.email, entity.email),
     pec: fill(base.pec, entity.certified_email),
     phone: fill(base.phone, entity.phone),
@@ -479,6 +483,7 @@ export async function findFicEntityFromReceivedInvoices(
         kind: "supplier",
         name: "",
         vat: "",
+        taxCode: "",
         email: "",
         pec: "",
         phone: "",

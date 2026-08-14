@@ -123,6 +123,7 @@ export interface FornitoreRow {
   codice_targa: string;
   ragione_sociale: string;
   partita_iva: string;
+  codice_fiscale: string;
   email: string;
   pec: string;
   sdi_code: string;
@@ -162,6 +163,7 @@ export interface FornitoreInsert {
   codice_targa?: string;
   ragione_sociale: string;
   partita_iva: string;
+  codice_fiscale?: string;
   email?: string;
   pec?: string;
   sdi_code?: string;
@@ -201,6 +203,7 @@ export interface FornitoreUpdate {
   codice_targa?: string;
   ragione_sociale?: string;
   partita_iva?: string;
+  codice_fiscale?: string;
   email?: string;
   pec?: string;
   sdi_code?: string;

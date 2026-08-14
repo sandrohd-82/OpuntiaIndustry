@@ -166,6 +166,7 @@ function entityStubFromDoc(doc: FicDocumentNormalized): FicEntityNormalized {
     kind: doc.type === "issued" ? "client" : "supplier",
     name: doc.entityName,
     vat: doc.entityVat,
+    taxCode: asText(entity.tax_code) || doc.entityVat,
     email: asText(entity.email),
     pec: asText(entity.certified_email),
     phone: asText(entity.phone),

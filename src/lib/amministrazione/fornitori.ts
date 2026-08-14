@@ -19,6 +19,7 @@ export type Fornitore = {
   codiceTarga: string;
   ragioneSociale: string;
   partitaIva: string;
+  codiceFiscale: string;
   email: string;
   pec: string;
   sdiCode: string;
@@ -41,6 +42,7 @@ export type FornitoreInput = {
   codiceTarga?: string;
   ragioneSociale: string;
   partitaIva: string;
+  codiceFiscale: string;
   email?: string;
   pec?: string;
   sdiCode?: string;
@@ -100,7 +102,8 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
         ? codice
         : undefined,
     ragioneSociale: input.ragioneSociale.trim(),
-    partitaIva: input.partitaIva.trim(),
+    partitaIva: input.partitaIva.trim().toUpperCase(),
+    codiceFiscale: (input.codiceFiscale ?? "").trim().toUpperCase(),
     email: (input.email ?? "").trim(),
     pec: (input.pec ?? "").trim(),
     sdiCode: (input.sdiCode ?? "").trim(),
@@ -128,12 +131,32 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
   };
 }
 
+/** Validazione business scheda fornitore (opzione A: P.IVA + CF obbligatori). */
+export function validateFornitoreAnagrafica(
+  input: Pick<FornitoreInput, "ragioneSociale" | "partitaIva" | "codiceFiscale">
+): string | null {
+  if (!input.ragioneSociale.trim() || input.ragioneSociale.trim().length < 2) {
+    return "La ragione sociale è obbligatoria.";
+  }
+  const vat = input.partitaIva.trim().toUpperCase().replace(/[\s.\-\/]/g, "");
+  const vatKey = vat.startsWith("IT") ? vat.slice(2) : vat;
+  if (!/^\d{11}$/.test(vatKey)) {
+    return "La partita IVA è obbligatoria (11 cifre).";
+  }
+  const cf = input.codiceFiscale.trim().toUpperCase().replace(/[\s.\-\/]/g, "");
+  if (!/^[A-Z0-9]{11,16}$/.test(cf)) {
+    return "Il codice fiscale è obbligatorio (11–16 caratteri).";
+  }
+  return null;
+}
+
 export function mapFornitoreRow(row: FornitoreRow): Fornitore {
   return {
     id: row.id,
     codiceTarga: row.codice_targa,
     ragioneSociale: row.ragione_sociale,
     partitaIva: row.partita_iva,
+    codiceFiscale: row.codice_fiscale ?? "",
     email: row.email ?? "",
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",
@@ -265,6 +288,7 @@ export function filterFornitori(
       const haystack = [
         f.ragioneSociale,
         f.partitaIva,
+        f.codiceFiscale,
         f.codiceTarga,
         f.sedeAmministrativa.citta,
         f.sedeAmministrativa.provincia,

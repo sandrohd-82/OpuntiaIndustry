@@ -93,6 +93,9 @@ function FornitoreRow({
         </td>
         <td className="px-4 py-3 font-semibold">{fornitore.ragioneSociale}</td>
         <td className="px-4 py-3 tabular-nums">{fornitore.partitaIva}</td>
+        <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
+          {fornitore.codiceFiscale || "—"}
+        </td>
         <td className="px-4 py-3">
           <span className="text-sm text-slate-700">
             {formatFornitoreOfferta(fornitore.tipologie)}
@@ -558,6 +561,7 @@ export function FornitoriBoard() {
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA</th>
+                <th className="px-4 py-3 font-medium">C.F.</th>
                 <th className="px-4 py-3 font-medium">Offerta</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
                 <th className="px-4 py-3 font-medium">Sede ritiro</th>

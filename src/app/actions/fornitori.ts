@@ -10,6 +10,7 @@ import {
   bioCertificatoStoragePath,
   mapFornitoreRow,
   normalizeFornitoreInput,
+  validateFornitoreAnagrafica,
   type Fornitore,
   type FornitoreInput,
 } from "@/lib/amministrazione/fornitori";
@@ -238,24 +239,9 @@ export async function createFornitoreAction(
   }
 
   const normalized = normalizeFornitoreInput(input);
-  if (!normalized.ragioneSociale || !normalized.partitaIva) {
-    return {
-      success: false,
-      error:
-        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
-    };
-  }
-  if (normalized.ragioneSociale.length < 2) {
-    return {
-      success: false,
-      error: "La ragione sociale non può essere vuota o troppo corta.",
-    };
-  }
-  if (normalizeVatKey(normalized.partitaIva).length < 8) {
-    return {
-      success: false,
-      error: "Partita IVA / Codice Fiscale non valido.",
-    };
+  const anagError = validateFornitoreAnagrafica(normalized);
+  if (anagError) {
+    return { success: false, error: anagError };
   }
 
   const vatError = await assertPartitaIvaUnica(
@@ -285,6 +271,7 @@ export async function createFornitoreAction(
     codice_targa: codiceTarga,
     ragione_sociale: normalized.ragioneSociale,
     partita_iva: normalized.partitaIva,
+    codice_fiscale: normalized.codiceFiscale,
     email: normalized.email ?? "",
     pec: normalized.pec ?? "",
     sdi_code: normalized.sdiCode ?? "",
@@ -436,24 +423,9 @@ export async function updateFornitoreAction(
   }
 
   const normalized = normalizeFornitoreInput(input);
-  if (!normalized.ragioneSociale || !normalized.partitaIva) {
-    return {
-      success: false,
-      error:
-        "Ragione sociale e P. IVA sono obbligatorie. Salvataggio vuoto non consentito.",
-    };
-  }
-  if (normalized.ragioneSociale.length < 2) {
-    return {
-      success: false,
-      error: "La ragione sociale non può essere vuota o troppo corta.",
-    };
-  }
-  if (normalizeVatKey(normalized.partitaIva).length < 8) {
-    return {
-      success: false,
-      error: "Partita IVA / Codice Fiscale non valido.",
-    };
+  const anagError = validateFornitoreAnagrafica(normalized);
+  if (anagError) {
+    return { success: false, error: anagError };
   }
 
   const vatError = await assertPartitaIvaUnica(
@@ -496,6 +468,7 @@ export async function updateFornitoreAction(
     .update({
       ragione_sociale: normalized.ragioneSociale,
       partita_iva: normalized.partitaIva,
+      codice_fiscale: normalized.codiceFiscale,
       email: normalized.email ?? "",
       pec: normalized.pec ?? "",
       sdi_code: normalized.sdiCode ?? "",

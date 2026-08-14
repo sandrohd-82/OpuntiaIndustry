@@ -42,6 +42,9 @@ export function draftFromArchivioSnapshot(
       snap.ragione_sociale ?? fallback?.ragioneSociale ?? ""
     ),
     partitaIva: String(snap.partita_iva ?? fallback?.partitaIva ?? ""),
+    codiceFiscale: String(
+      snap.codice_fiscale ?? snap.partita_iva ?? fallback?.partitaIva ?? ""
+    ),
     email: String(snap.email ?? ""),
     pec: String(snap.pec ?? ""),
     sdiCode: String(snap.sdi_code ?? ""),
@@ -96,6 +99,7 @@ export function draftToArchivioSnapshot(
   return {
     ragione_sociale: draft.ragioneSociale,
     partita_iva: draft.partitaIva,
+    codice_fiscale: draft.codiceFiscale,
     email: draft.email,
     pec: draft.pec,
     sdi_code: draft.sdiCode,

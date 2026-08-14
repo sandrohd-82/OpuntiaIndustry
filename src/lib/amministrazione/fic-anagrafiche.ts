@@ -20,6 +20,7 @@ export type ContattiAnagrafica = {
 export type AnagraficaSyncDraft = {
   ragioneSociale: string;
   partitaIva: string;
+  codiceFiscale: string;
   email: string;
   pec: string;
   sdiCode: string;
@@ -32,6 +33,7 @@ export type AnagraficaSyncDraft = {
 export type ChangedFieldKey =
   | "ragioneSociale"
   | "partitaIva"
+  | "codiceFiscale"
   | "email"
   | "pec"
   | "sdiCode"
@@ -115,6 +117,7 @@ export function draftFromFicEntity(
   return {
     ragioneSociale: entity.name,
     partitaIva: entity.vat,
+    codiceFiscale: entity.taxCode || entity.vat,
     email: entity.email,
     pec: entity.pec,
     sdiCode: entity.sdi,
@@ -129,6 +132,7 @@ export function draftFromFornitore(f: Fornitore): AnagraficaSyncDraft {
   return {
     ragioneSociale: f.ragioneSociale,
     partitaIva: f.partitaIva,
+    codiceFiscale: f.codiceFiscale || f.partitaIva,
     email: f.email,
     pec: f.pec,
     sdiCode: f.sdiCode,
@@ -143,6 +147,7 @@ export function draftFromCliente(c: Cliente): AnagraficaSyncDraft {
   return {
     ragioneSociale: c.ragioneSociale,
     partitaIva: c.partitaIva,
+    codiceFiscale: c.codiceFiscale || c.partitaIva,
     email: c.email,
     pec: c.pec,
     sdiCode: c.sdiCode,
@@ -167,6 +172,7 @@ export function mergeProposedDraft(
       changedFields: [
         "ragioneSociale",
         "partitaIva",
+        "codiceFiscale",
         "email",
         "pec",
         "sdiCode",
@@ -188,6 +194,7 @@ export function mergeProposedDraft(
     // Match P.IVA: nome sempre quello del gestionale (mai quello importato FiC).
     ragioneSociale: current.ragioneSociale.trim() || incoming.ragioneSociale,
     partitaIva: pickFilled(current.partitaIva, incoming.partitaIva),
+    codiceFiscale: pickFilled(current.codiceFiscale, incoming.codiceFiscale),
     email: pickContact(current.email, incoming.email),
     pec: pickContact(current.pec, incoming.pec),
     sdiCode: pickContact(current.sdiCode, incoming.sdiCode),
@@ -216,6 +223,7 @@ export function mergeProposedDraft(
   > = [
     "ragioneSociale",
     "partitaIva",
+    "codiceFiscale",
     "email",
     "pec",
     "sdiCode",
@@ -245,6 +253,7 @@ export function draftToFornitoreInput(
     codiceTarga,
     ragioneSociale: draft.ragioneSociale,
     partitaIva: draft.partitaIva,
+    codiceFiscale: draft.codiceFiscale || draft.partitaIva,
     email: draft.email,
     pec: draft.pec,
     sdiCode: draft.sdiCode,
@@ -269,6 +278,7 @@ export function draftToFornitorePreview(
     codiceTarga,
     ragioneSociale: draft.ragioneSociale,
     partitaIva: draft.partitaIva,
+    codiceFiscale: draft.codiceFiscale || draft.partitaIva,
     email: draft.email,
     pec: draft.pec,
     sdiCode: draft.sdiCode,
@@ -295,7 +305,7 @@ export function draftToClientePreview(
     codiceTarga,
     ragioneSociale: draft.ragioneSociale,
     partitaIva: draft.partitaIva,
-    codiceFiscale: draft.partitaIva,
+    codiceFiscale: draft.codiceFiscale || draft.partitaIva,
     isPrivato: false,
     email: draft.email,
     pec: draft.pec,
@@ -318,7 +328,7 @@ export function draftToClienteInput(
     codiceTarga,
     ragioneSociale: draft.ragioneSociale,
     partitaIva: draft.partitaIva,
-    codiceFiscale: draft.partitaIva,
+    codiceFiscale: draft.codiceFiscale || draft.partitaIva,
     isPrivato: false,
     email: draft.email,
     pec: draft.pec,

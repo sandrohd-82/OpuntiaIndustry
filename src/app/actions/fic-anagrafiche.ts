@@ -196,6 +196,7 @@ function mergeInvoiceEnrichment(
         kind,
         name: "",
         vat: "",
+        taxCode: "",
         email: "",
         pec: "",
         phone: "",
@@ -476,6 +477,7 @@ export async function discardFicImportAction(input: {
   const draft: AnagraficaSyncDraft = input.draft ?? {
     ragioneSociale: input.entityName ?? "",
     partitaIva: input.vatNumber ?? "",
+    codiceFiscale: input.vatNumber ?? "",
     email: "",
     pec: "",
     sdiCode: "",
@@ -669,6 +671,9 @@ export async function saveFicImportReviewAction(input: {
   const vatKey = normalizeVatKey(input.draft.partitaIva);
   if (!vatKey) {
     return { success: false, error: "P. IVA obbligatoria per il salvataggio." };
+  }
+  if (!input.draft.codiceFiscale.trim()) {
+    return { success: false, error: "Codice Fiscale obbligatorio per il salvataggio." };
   }
 
   // Risoluzione definitiva solo per P.IVA: se esiste → update + nome gestionale.
