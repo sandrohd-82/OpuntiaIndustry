@@ -27,6 +27,11 @@ import {
 } from "@/lib/amministrazione/attivita";
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import {
+  imponibileRiga,
+  ivaRiga,
+  totaleRiga,
+} from "@/lib/amministrazione/ordini";
+import {
   childStadioFor,
   emptyConfezionamentoDraft,
   emptyNodo,
@@ -239,6 +244,25 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
   }, [catalogo]);
 
   const quantitaKg = numberOrZero(quantita);
+  const prezzoKg = numberOrZero(prezzoUnitario);
+  const IVA_PCT = 22;
+  const rigaImporti = useMemo(() => {
+    const riga = {
+      id: "wizard-preview",
+      prodottoId: prodotto?.id ?? "",
+      prodottoCodice: prodotto?.codice ?? "",
+      prodottoNome: prodotto?.nome ?? "",
+      quantita: quantitaKg,
+      prezzoUnitario: prezzoKg,
+      ivaPercentuale: IVA_PCT,
+    };
+    return {
+      imponibile: imponibileRiga(riga),
+      iva: ivaRiga(riga),
+      totale: totaleRiga(riga),
+    };
+  }, [quantitaKg, prezzoKg, prodotto?.id, prodotto?.codice, prodotto?.nome]);
+
   const kgConfezionati = useMemo(
     () => totaleKgConfezionati(conf.nodi),
     [conf.nodi]
@@ -659,30 +683,67 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
           )}
 
           {step === 3 && (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">Quantità (kg)</span>
-                <ClearableNumberInput
-                  min={0}
-                  value={quantita}
-                  onValueChange={(v) => {
-                    setQuantita(v);
-                    setOverridesSeeded(false);
-                  }}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              </label>
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">
-                  Prezzo vendita (€/kg)
-                </span>
-                <ClearableNumberInput
-                  min={0}
-                  value={prezzoUnitario}
-                  onValueChange={setPrezzoUnitario}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                />
-              </label>
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">Quantità (kg)</span>
+                  <ClearableNumberInput
+                    min={0}
+                    value={quantita}
+                    onValueChange={(v) => {
+                      setQuantita(v);
+                      setOverridesSeeded(false);
+                    }}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Prezzo vendita (€/kg)
+                  </span>
+                  <ClearableNumberInput
+                    min={0}
+                    value={prezzoUnitario}
+                    onValueChange={setPrezzoUnitario}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3 text-sm">
+                <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Calcolo importi (IVA {IVA_PCT}%)
+                </p>
+                <dl className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <div>
+                    <dt className="text-[var(--muted)]">Imponibile</dt>
+                    <dd className="text-base font-semibold tabular-nums">
+                      {rigaImporti.imponibile.toLocaleString("it-IT", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--muted)]">IVA</dt>
+                    <dd className="text-base font-semibold tabular-nums">
+                      {rigaImporti.iva.toLocaleString("it-IT", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--muted)]">Totale</dt>
+                    <dd className="text-base font-semibold tabular-nums text-emerald-800">
+                      {rigaImporti.totale.toLocaleString("it-IT", {
+                        style: "currency",
+                        currency: "EUR",
+                      })}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
             </div>
           )}
 
