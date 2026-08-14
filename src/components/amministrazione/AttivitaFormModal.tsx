@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/ClearableNumberInput";
 import {
   CODICE_ATTIVITA_PREFIX,
+  QUANTITA_VARIABILE_SIMBOLO,
   composeCodiceAttivita,
   sanitizeCodiceAttivitaBody,
   stripCodiceAttivitaPrefix,
@@ -47,8 +48,26 @@ export function AttivitaFormModal({
   const [oreGiorno, setOreGiorno] = useState<number | "">(
     initial?.oreGiorno ?? 8
   );
-  const [incastrabile, setIncastrabile] = useState(
-    initial?.incastrabileDuranteLavorazione ?? false
+  const [durataFissa, setDurataFissa] = useState(
+    initial?.modalitaTempo === "durata_fissa"
+  );
+  const [oreCiclo, setOreCiclo] = useState<number | "">(
+    initial?.oreCiclo ?? ""
+  );
+  const [quantitaModo, setQuantitaModo] = useState<
+    "fissa" | "range" | "variabile" | "nessuna"
+  >(initial?.quantitaModo ?? "fissa");
+  const [quantitaValore, setQuantitaValore] = useState<number | "">(
+    initial?.quantitaValore ?? ""
+  );
+  const [quantitaDa, setQuantitaDa] = useState<number | "">(
+    initial?.quantitaDa ?? ""
+  );
+  const [quantitaA, setQuantitaA] = useState<number | "">(
+    initial?.quantitaA ?? ""
+  );
+  const [quantitaUnita, setQuantitaUnita] = useState(
+    initial?.quantitaUnita ?? "kg"
   );
   const [prodottiCatalog, setProdottiCatalog] = useState<ProdottoProprio[]>(
     []
@@ -161,13 +180,38 @@ export function AttivitaFormModal({
       setFormError(`Targa già usata: ${codiceDuplicato.codice}`);
       return;
     }
-    if (kgPerOra === "" || Number(kgPerOra) <= 0) {
-      setFormError("Indica i kg medi per ora (> 0).");
-      return;
-    }
-    if (oreGiorno === "" || Number(oreGiorno) <= 0) {
-      setFormError("Indica le ore/giorno (> 0).");
-      return;
+    if (durataFissa) {
+      if (oreCiclo === "" || Number(oreCiclo) <= 0) {
+        setFormError("Indica le ore necessarie al ciclo.");
+        return;
+      }
+      if (quantitaModo === "fissa" && (quantitaValore === "" || Number(quantitaValore) <= 0)) {
+        setFormError("Indica la quantità fissa del ciclo.");
+        return;
+      }
+      if (quantitaModo === "range") {
+        if (quantitaDa === "" || Number(quantitaDa) <= 0) {
+          setFormError("Indica la quantità minima (da).");
+          return;
+        }
+        if (quantitaA === "" || Number(quantitaA) <= 0) {
+          setFormError("Indica la quantità massima (a).");
+          return;
+        }
+        if (Number(quantitaA) < Number(quantitaDa)) {
+          setFormError("La quantità «a» deve essere ≥ «da».");
+          return;
+        }
+      }
+    } else {
+      if (kgPerOra === "" || Number(kgPerOra) <= 0) {
+        setFormError("Indica i kg medi per ora (> 0).");
+        return;
+      }
+      if (oreGiorno === "" || Number(oreGiorno) <= 0) {
+        setFormError("Indica le ore/giorno (> 0).");
+        return;
+      }
     }
     setSaving(true);
     setFormError(null);
@@ -176,9 +220,20 @@ export function AttivitaFormModal({
         codice: codiceCompleto,
         titolo: titolo.trim(),
         spiegazione,
-        kgPerOra: Number(kgPerOra),
-        oreGiorno: Number(oreGiorno),
-        incastrabileDuranteLavorazione: incastrabile,
+        modalitaTempo: durataFissa ? "durata_fissa" : "throughput",
+        kgPerOra: durataFissa ? 1 : Number(kgPerOra),
+        oreGiorno: durataFissa ? 8 : Number(oreGiorno),
+        oreCiclo: durataFissa ? Number(oreCiclo) : null,
+        quantitaModo: durataFissa ? quantitaModo : null,
+        quantitaValore:
+          durataFissa && quantitaModo === "fissa"
+            ? Number(quantitaValore)
+            : null,
+        quantitaDa:
+          durataFissa && quantitaModo === "range" ? Number(quantitaDa) : null,
+        quantitaA:
+          durataFissa && quantitaModo === "range" ? Number(quantitaA) : null,
+        quantitaUnita: quantitaUnita.trim() || "kg",
         documentoStato: "approvato",
         prodottiLinks,
       });
@@ -274,53 +329,160 @@ export function AttivitaFormModal({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">
-                Tempo/quantità media (kg/ora)
-              </span>
-              <ClearableNumberInput
-                value={kgPerOra}
-                onValueChange={setKgPerOra}
-                min={0.001}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+          <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+            <legend className="px-1 text-sm font-medium">Tempo / quantità</legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={durataFissa}
+                onChange={(e) => setDurataFissa(e.target.checked)}
               />
+              Ciclo a durata fissa
             </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Ore/giorno (calcolo)</span>
-              <ClearableNumberInput
-                value={oreGiorno}
-                onValueChange={setOreGiorno}
-                min={0.1}
-                max={24}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-          </div>
+            <p className="text-xs text-[var(--muted)]">
+              Se attivo, annulla kg/ora e ore/giorno: indica le ore del ciclo e
+              come trattare la quantità (fissa, range, variabile o assente).
+            </p>
 
-          <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
-            <legend className="px-1 text-sm font-medium">
-              Incastrabili durante lavorazione di più giorni
-            </legend>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="incastrabile"
-                checked={!incastrabile}
-                onChange={() => setIncastrabile(false)}
-              />
-              No — giorni attività tutti dopo la lavorazione
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="radio"
-                name="incastrabile"
-                checked={incastrabile}
-                onChange={() => setIncastrabile(true)}
-              />
-              Sì — in parallelo alla lavorazione; in calendario resta il giorno
-              (o i giorni) extra per l’ultimo quantitativo
-            </label>
+            {!durataFissa ? (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Tempo/quantità media (kg/ora)
+                  </span>
+                  <ClearableNumberInput
+                    value={kgPerOra}
+                    onValueChange={setKgPerOra}
+                    min={0.001}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Ore/giorno (calcolo)
+                  </span>
+                  <ClearableNumberInput
+                    value={oreGiorno}
+                    onValueChange={setOreGiorno}
+                    min={0.1}
+                    max={24}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Ore necessarie al ciclo
+                  </span>
+                  <ClearableNumberInput
+                    value={oreCiclo}
+                    onValueChange={setOreCiclo}
+                    min={0.01}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                  />
+                  <span className="mt-1 block text-xs text-[var(--muted)]">
+                    Giorni calendario ≈ ceil(ore ÷ 8).
+                  </span>
+                </label>
+
+                <div className="space-y-2">
+                  <span className="block text-sm font-medium">Quantità ciclo</span>
+                  {(
+                    [
+                      ["fissa", "Fissa"],
+                      ["range", "Range da–a"],
+                      ["variabile", `Variabile (${QUANTITA_VARIABILE_SIMBOLO})`],
+                      ["nessuna", "Senza quantità (es. pulizie)"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <label
+                      key={value}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <input
+                        type="radio"
+                        name="quantitaModo"
+                        checked={quantitaModo === value}
+                        onChange={() => setQuantitaModo(value)}
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+
+                {quantitaModo === "fissa" || quantitaModo === "range" ? (
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">Unità</span>
+                    <input
+                      value={quantitaUnita}
+                      onChange={(e) => setQuantitaUnita(e.target.value)}
+                      placeholder="kg"
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    />
+                  </label>
+                ) : null}
+
+                {quantitaModo === "fissa" ? (
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">
+                      Quantità ({quantitaUnita || "kg"})
+                    </span>
+                    <ClearableNumberInput
+                      value={quantitaValore}
+                      onValueChange={setQuantitaValore}
+                      min={0.001}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                    />
+                  </label>
+                ) : null}
+
+                {quantitaModo === "range" ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        Da ({quantitaUnita || "kg"})
+                      </span>
+                      <ClearableNumberInput
+                        value={quantitaDa}
+                        onValueChange={setQuantitaDa}
+                        min={0.001}
+                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                      />
+                    </label>
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        A ({quantitaUnita || "kg"})
+                      </span>
+                      <ClearableNumberInput
+                        value={quantitaA}
+                        onValueChange={setQuantitaA}
+                        min={0.001}
+                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                      />
+                    </label>
+                  </div>
+                ) : null}
+
+                {quantitaModo === "variabile" ? (
+                  <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
+                    Quantità:{" "}
+                    <span className="font-mono text-base font-semibold text-slate-800">
+                      {QUANTITA_VARIABILE_SIMBOLO}
+                    </span>{" "}
+                    (variabile, senza valore numerico)
+                  </p>
+                ) : null}
+
+                {quantitaModo === "nessuna" ? (
+                  <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
+                    Nessuna quantità: adatta ad attività non legate a un carico
+                    (es. pulizie).
+                  </p>
+                ) : null}
+              </div>
+            )}
           </fieldset>
 
           <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">

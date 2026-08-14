@@ -160,9 +160,10 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
       codice: string;
       titolo: string;
       dates: string[];
+      modalitaTempo?: "throughput" | "durata_fissa";
       kgPerOra?: number;
       oreGiorno?: number;
-      incastrabileDuranteLavorazione?: boolean;
+      oreCiclo?: number | null;
       giorniOverride?: number | null;
     }>
   >([]);
@@ -1324,10 +1325,10 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
                 const d = drafts.find((x) => x.attivitaId === s.attivitaId);
                 return {
                   ...s,
+                  modalitaTempo: d?.modalitaTempo,
                   kgPerOra: d?.kgPerOra,
                   oreGiorno: d?.oreGiorno,
-                  incastrabileDuranteLavorazione:
-                    d?.incastrabileDuranteLavorazione,
+                  oreCiclo: d?.oreCiclo ?? null,
                   giorniOverride: d?.giorniOverride ?? null,
                 };
               })

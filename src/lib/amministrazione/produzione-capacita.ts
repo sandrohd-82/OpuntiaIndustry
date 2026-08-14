@@ -149,9 +149,10 @@ export const ordineWizardInputSchema = z
           codice: z.string(),
           titolo: z.string(),
           dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+          modalitaTempo: z.enum(["throughput", "durata_fissa"]).optional(),
           kgPerOra: z.number().optional(),
           oreGiorno: z.number().optional(),
-          incastrabileDuranteLavorazione: z.boolean().optional(),
+          oreCiclo: z.number().nullable().optional(),
           giorniOverride: z.number().nullable().optional(),
         })
       )

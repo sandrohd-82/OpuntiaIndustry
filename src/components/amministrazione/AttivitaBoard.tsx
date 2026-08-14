@@ -7,6 +7,7 @@ import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge"
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useAttivita } from "@/hooks/useAttivita";
 import type { Attivita } from "@/lib/amministrazione/attivita";
+import { formatTempoAttivita } from "@/lib/amministrazione/attivita";
 
 export function AttivitaBoard() {
   const {
@@ -77,8 +78,7 @@ export function AttivitaBoard() {
               <tr>
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">Titolo</th>
-                <th className="px-4 py-3 font-medium">kg/ora</th>
-                <th className="px-4 py-3 font-medium">Incastrabile</th>
+                <th className="px-4 py-3 font-medium">Tempo</th>
                 <th className="px-4 py-3 font-medium text-right">Azioni</th>
               </tr>
             </thead>
@@ -96,14 +96,8 @@ export function AttivitaBoard() {
                       </p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {a.kgPerOra}{" "}
-                    <span className="text-xs text-[var(--muted)]">
-                      ({a.oreGiorno} h/g)
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {a.incastrabileDuranteLavorazione ? "Sì" : "No"}
+                  <td className="px-4 py-3 text-sm text-slate-700">
+                    {formatTempoAttivita(a)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button

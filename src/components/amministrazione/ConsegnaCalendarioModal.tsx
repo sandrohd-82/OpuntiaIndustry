@@ -75,9 +75,10 @@ function segmentiFromDrafts(
       giorni: calcGiorniAttivita({
         kgOrdine,
         giorniProduzione: giorniProd,
+        modalitaTempo: d.modalitaTempo,
         kgPerOra: d.kgPerOra,
         oreGiorno: d.oreGiorno,
-        incastrabileDuranteLavorazione: d.incastrabileDuranteLavorazione,
+        oreCiclo: d.oreCiclo,
         giorniOverride: d.giorniOverride,
       }),
     }))
@@ -401,10 +402,10 @@ export function ConsegnaCalendarioModal({
                 const g = calcGiorniAttivita({
                   kgOrdine,
                   giorniProduzione: giorniProduzioneNecessari,
+                  modalitaTempo: d.modalitaTempo,
                   kgPerOra: d.kgPerOra,
                   oreGiorno: d.oreGiorno,
-                  incastrabileDuranteLavorazione:
-                    d.incastrabileDuranteLavorazione,
+                  oreCiclo: d.oreCiclo,
                   giorniOverride: d.giorniOverride,
                 });
                 return (
@@ -434,6 +435,20 @@ export function ConsegnaCalendarioModal({
                               {d.spiegazione}
                             </span>
                           ) : null}
+                          {d.modalitaTempo === "durata_fissa" ? (
+                            <span className="mt-0.5 block text-xs text-amber-900">
+                              Ciclo fisso: {d.oreCiclo ?? "—"} h
+                              {d.quantitaModo === "variabile"
+                                ? ` · ⌀ ${d.quantitaUnita}`
+                                : d.quantitaModo === "nessuna"
+                                  ? " · senza quantità"
+                                  : d.quantitaModo === "range"
+                                    ? ` · ${d.quantitaDa}–${d.quantitaA} ${d.quantitaUnita}`
+                                    : d.quantitaModo === "fissa"
+                                      ? ` · ${d.quantitaValore} ${d.quantitaUnita}`
+                                      : ""}
+                            </span>
+                          ) : null}
                         </span>
                       </label>
                       <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-950">
@@ -442,34 +457,53 @@ export function ConsegnaCalendarioModal({
                     </div>
                     {d.enabled ? (
                       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        <label className="text-xs">
-                          <span className="mb-0.5 block text-[var(--muted)]">
-                            kg/ora
-                          </span>
-                          <ClearableNumberInput
-                            value={d.kgPerOra}
-                            onValueChange={(v) =>
-                              patchDraft(d.attivitaId, {
-                                kgPerOra: v === "" ? d.kgPerOra : v,
-                              })
-                            }
-                            className="w-full rounded border border-[var(--border)] px-2 py-1"
-                          />
-                        </label>
-                        <label className="text-xs">
-                          <span className="mb-0.5 block text-[var(--muted)]">
-                            ore/giorno
-                          </span>
-                          <ClearableNumberInput
-                            value={d.oreGiorno}
-                            onValueChange={(v) =>
-                              patchDraft(d.attivitaId, {
-                                oreGiorno: v === "" ? d.oreGiorno : v,
-                              })
-                            }
-                            className="w-full rounded border border-[var(--border)] px-2 py-1"
-                          />
-                        </label>
+                        {d.modalitaTempo === "durata_fissa" ? (
+                          <label className="text-xs">
+                            <span className="mb-0.5 block text-[var(--muted)]">
+                              Ore ciclo
+                            </span>
+                            <ClearableNumberInput
+                              value={d.oreCiclo ?? ""}
+                              onValueChange={(v) =>
+                                patchDraft(d.attivitaId, {
+                                  oreCiclo: v === "" ? null : v,
+                                })
+                              }
+                              className="w-full rounded border border-[var(--border)] px-2 py-1"
+                            />
+                          </label>
+                        ) : (
+                          <>
+                            <label className="text-xs">
+                              <span className="mb-0.5 block text-[var(--muted)]">
+                                kg/ora
+                              </span>
+                              <ClearableNumberInput
+                                value={d.kgPerOra}
+                                onValueChange={(v) =>
+                                  patchDraft(d.attivitaId, {
+                                    kgPerOra: v === "" ? d.kgPerOra : v,
+                                  })
+                                }
+                                className="w-full rounded border border-[var(--border)] px-2 py-1"
+                              />
+                            </label>
+                            <label className="text-xs">
+                              <span className="mb-0.5 block text-[var(--muted)]">
+                                ore/giorno
+                              </span>
+                              <ClearableNumberInput
+                                value={d.oreGiorno}
+                                onValueChange={(v) =>
+                                  patchDraft(d.attivitaId, {
+                                    oreGiorno: v === "" ? d.oreGiorno : v,
+                                  })
+                                }
+                                className="w-full rounded border border-[var(--border)] px-2 py-1"
+                              />
+                            </label>
+                          </>
+                        )}
                         <label className="text-xs">
                           <span className="mb-0.5 block text-[var(--muted)]">
                             Giorni (override)
@@ -478,33 +512,17 @@ export function ConsegnaCalendarioModal({
                             value={d.giorniOverride ?? ""}
                             onValueChange={(v) =>
                               patchDraft(d.attivitaId, {
-                                giorniOverride: v === "" ? null : Math.max(0, Math.floor(v)),
+                                giorniOverride:
+                                  v === ""
+                                    ? null
+                                    : Math.max(0, Math.floor(v)),
                               })
                             }
                             placeholder="auto"
                             className="w-full rounded border border-[var(--border)] px-2 py-1"
                           />
                         </label>
-                        <label className="flex items-end gap-2 text-xs pb-1">
-                          <input
-                            type="checkbox"
-                            checked={d.incastrabileDuranteLavorazione}
-                            onChange={(e) =>
-                              patchDraft(d.attivitaId, {
-                                incastrabileDuranteLavorazione:
-                                  e.target.checked,
-                              })
-                            }
-                          />
-                          Incastrabile
-                        </label>
                       </div>
-                    ) : null}
-                    {d.enabled && d.incastrabileDuranteLavorazione ? (
-                      <p className="mt-1 text-[11px] text-amber-900">
-                        Incastrabile: in calendario restano {g} giorno/i extra
-                        per l’ultimo quantitativo dopo la lavorazione.
-                      </p>
                     ) : null}
                   </li>
                 );
