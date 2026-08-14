@@ -33,7 +33,8 @@ export function AttivitaBoard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
           Attività oltre la lavorazione (targa <strong>At</strong>). Collegale
-          alle schede prodotto: nel calendario ordine calcolano i giorni gialli.
+          ai prodotti Agrinsicilia qui o dalla scheda prodotto: nel calendario
+          ordine calcolano i giorni gialli.
         </p>
         <button
           type="button"

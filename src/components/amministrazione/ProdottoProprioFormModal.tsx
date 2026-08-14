@@ -55,7 +55,9 @@ export function ProdottoProprioFormModal({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [attivitaCatalog, setAttivitaCatalog] = useState<Attivita[]>([]);
-  const [attivitaIds, setAttivitaIds] = useState<string[]>([]);
+  const [attivitaLinks, setAttivitaLinks] = useState<
+    Array<{ attivitaId: string; obbligatoria: boolean }>
+  >([]);
 
   useEffect(() => {
     void (async () => {
@@ -64,7 +66,12 @@ export function ProdottoProprioFormModal({
       if (initial?.id) {
         const linked = await listAttivitaByProdottoAction(initial.id);
         if (linked.success) {
-          setAttivitaIds(linked.attivita.map((a) => a.id));
+          setAttivitaLinks(
+            linked.attivita.map((a) => ({
+              attivitaId: a.id,
+              obbligatoria: a.obbligatoria,
+            }))
+          );
         }
       }
     })();
@@ -173,7 +180,7 @@ export function ProdottoProprioFormModal({
         nome: nome.trim(),
         note: note.trim(),
         isBio: tipologia === "bio",
-        attivitaIds,
+        attivitaLinks,
       });
     } finally {
       setSaving(false);
@@ -181,14 +188,22 @@ export function ProdottoProprioFormModal({
   }
 
   function toggleAttivita(id: string) {
-    setAttivitaIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    setAttivitaLinks((prev) => {
+      const existing = prev.find((l) => l.attivitaId === id);
+      if (existing) return prev.filter((l) => l.attivitaId !== id);
+      return [...prev, { attivitaId: id, obbligatoria: true }];
+    });
+  }
+
+  function setAttivitaObbligatoria(id: string, obbligatoria: boolean) {
+    setAttivitaLinks((prev) =>
+      prev.map((l) => (l.attivitaId === id ? { ...l, obbligatoria } : l))
     );
   }
 
   function moveAttivita(id: string, dir: -1 | 1) {
-    setAttivitaIds((prev) => {
-      const i = prev.indexOf(id);
+    setAttivitaLinks((prev) => {
+      const i = prev.findIndex((l) => l.attivitaId === id);
       if (i < 0) return prev;
       const j = i + dir;
       if (j < 0 || j >= prev.length) return prev;
@@ -379,7 +394,8 @@ export function ProdottoProprioFormModal({
             </legend>
             <p className="text-xs text-[var(--muted)]">
               Seleziona le attività da Schede → Attività. L’ordine elenco è
-              l’ordine nel calendario.
+              l’ordine nel calendario. Obbligatoria = attiva di default;
+              Facoltativa = spenta di default.
             </p>
             {attivitaCatalog.length === 0 ? (
               <p className="text-xs text-amber-800">
@@ -388,8 +404,11 @@ export function ProdottoProprioFormModal({
             ) : (
               <ul className="max-h-48 space-y-1.5 overflow-y-auto">
                 {attivitaCatalog.map((a) => {
-                  const selected = attivitaIds.includes(a.id);
-                  const ord = attivitaIds.indexOf(a.id);
+                  const link = attivitaLinks.find((l) => l.attivitaId === a.id);
+                  const selected = Boolean(link);
+                  const ord = attivitaLinks.findIndex(
+                    (l) => l.attivitaId === a.id
+                  );
                   return (
                     <li
                       key={a.id}
@@ -406,6 +425,16 @@ export function ProdottoProprioFormModal({
                       </label>
                       {selected ? (
                         <span className="inline-flex items-center gap-1">
+                          <label className="inline-flex items-center gap-1 text-[var(--muted)]">
+                            <input
+                              type="checkbox"
+                              checked={link?.obbligatoria ?? true}
+                              onChange={(e) =>
+                                setAttivitaObbligatoria(a.id, e.target.checked)
+                              }
+                            />
+                            Obbl.
+                          </label>
                           <span className="tabular-nums text-[var(--muted)]">
                             #{ord + 1}
                           </span>

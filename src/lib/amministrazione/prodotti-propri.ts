@@ -14,13 +14,20 @@ export type ProdottoProprio = {
   createdAt: string;
 };
 
+export type ProdottoAttivitaLinkInput = {
+  attivitaId: string;
+  obbligatoria: boolean;
+};
+
 export type ProdottoProprioInput = {
   codice: string;
   nome: string;
   note?: string;
   isBio?: boolean;
-  /** ID attività oltre la lavorazione (ordine = sort). */
+  /** @deprecated preferire attivitaLinks */
   attivitaIds?: string[];
+  /** Attività oltre la lavorazione (ordine = sort). */
+  attivitaLinks?: ProdottoAttivitaLinkInput[];
 };
 
 export function sanitizeCodiceProdottoProprio(value: string): string {

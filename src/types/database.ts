@@ -489,6 +489,8 @@ export interface ProdottoProprioAttivitaRow {
   prodotto_id: string;
   attivita_id: string;
   sort_order: number;
+  /** true = proposta attiva in calendario; false = facoltativa (off di default) */
+  obbligatoria: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;

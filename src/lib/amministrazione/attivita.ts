@@ -22,6 +22,26 @@ export type Attivita = {
   createdAt: string;
 };
 
+/** Attività collegata a un prodotto (con flag calendario). */
+export type AttivitaLinked = Attivita & {
+  obbligatoria: boolean;
+  sortOrder: number;
+};
+
+/** Prodotto Agrinsicilia collegato a un’attività. */
+export type ProdottoLinkedAdAttivita = {
+  prodottoId: string;
+  codice: string;
+  nome: string;
+  isBio: boolean;
+  obbligatoria: boolean;
+};
+
+export type AttivitaProdottoLinkInput = {
+  prodottoId: string;
+  obbligatoria: boolean;
+};
+
 export type AttivitaInput = {
   codice: string;
   titolo: string;
@@ -30,6 +50,8 @@ export type AttivitaInput = {
   oreGiorno?: number;
   incastrabileDuranteLavorazione?: boolean;
   documentoStato?: "bozza" | "approvato" | "chiuso";
+  /** Collegamenti prodotti Agrinsicilia (salvati dopo create/update). */
+  prodottiLinks?: AttivitaProdottoLinkInput[];
 };
 
 /** Draft modificabile in fase ordine/calendario. */
@@ -128,7 +150,9 @@ export function mapAttivitaRow(row: AttivitaRow): Attivita {
   };
 }
 
-export function attivitaToOrdineDraft(a: Attivita): AttivitaOrdineDraft {
+export function attivitaToOrdineDraft(
+  a: Attivita & { obbligatoria?: boolean }
+): AttivitaOrdineDraft {
   return {
     attivitaId: a.id,
     codice: a.codice,
@@ -138,7 +162,8 @@ export function attivitaToOrdineDraft(a: Attivita): AttivitaOrdineDraft {
     oreGiorno: a.oreGiorno,
     incastrabileDuranteLavorazione: a.incastrabileDuranteLavorazione,
     giorniOverride: null,
-    enabled: true,
+    /** Facoltative: off di default nel calendario ordine. */
+    enabled: a.obbligatoria !== false,
   };
 }
 

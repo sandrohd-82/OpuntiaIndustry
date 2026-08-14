@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
+import { listProdottiByAttivitaAction } from "@/app/actions/attivita";
+import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import {
   ClearableNumberInput,
 } from "@/components/ui/ClearableNumberInput";
@@ -12,7 +14,9 @@ import {
   stripCodiceAttivitaPrefix,
   type Attivita,
   type AttivitaInput,
+  type AttivitaProdottoLinkInput,
 } from "@/lib/amministrazione/attivita";
+import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
 type Props = {
   mode: "create" | "edit";
@@ -46,6 +50,14 @@ export function AttivitaFormModal({
   const [incastrabile, setIncastrabile] = useState(
     initial?.incastrabileDuranteLavorazione ?? false
   );
+  const [prodottiCatalog, setProdottiCatalog] = useState<ProdottoProprio[]>(
+    []
+  );
+  const [prodottiLinks, setProdottiLinks] = useState<
+    AttivitaProdottoLinkInput[]
+  >([]);
+  const [prodottiQuery, setProdottiQuery] = useState("");
+  const [prodottiLoading, setProdottiLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -56,6 +68,32 @@ export function AttivitaFormModal({
       document.body.style.overflow = prev;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      setProdottiLoading(true);
+      const all = await listProdottiPropriAction();
+      if (cancelled) return;
+      if (all.success) setProdottiCatalog(all.prodotti);
+
+      if (initial?.id) {
+        const linked = await listProdottiByAttivitaAction(initial.id);
+        if (!cancelled && linked.success) {
+          setProdottiLinks(
+            linked.prodotti.map((p) => ({
+              prodottoId: p.prodottoId,
+              obbligatoria: p.obbligatoria,
+            }))
+          );
+        }
+      }
+      if (!cancelled) setProdottiLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [initial?.id]);
 
   const codiceCompleto = useMemo(() => {
     const body = sanitizeCodiceAttivitaBody(codiceBody);
@@ -72,6 +110,46 @@ export function AttivitaFormModal({
       ) ?? null
     );
   }, [catalog, codiceCompleto, initial?.id]);
+
+  const selectedIds = useMemo(
+    () => new Set(prodottiLinks.map((l) => l.prodottoId)),
+    [prodottiLinks]
+  );
+
+  const prodottiFiltrati = useMemo(() => {
+    const q = prodottiQuery.trim().toLowerCase();
+    const list = !q
+      ? prodottiCatalog
+      : prodottiCatalog.filter(
+          (p) =>
+            p.codice.toLowerCase().includes(q) ||
+            p.nome.toLowerCase().includes(q)
+        );
+    return [...list].sort((a, b) => {
+      const aSel = selectedIds.has(a.id) ? 0 : 1;
+      const bSel = selectedIds.has(b.id) ? 0 : 1;
+      if (aSel !== bSel) return aSel - bSel;
+      return a.codice.localeCompare(b.codice);
+    });
+  }, [prodottiCatalog, prodottiQuery, selectedIds]);
+
+  function toggleProdotto(prodottoId: string) {
+    setProdottiLinks((prev) => {
+      const existing = prev.find((l) => l.prodottoId === prodottoId);
+      if (existing) {
+        return prev.filter((l) => l.prodottoId !== prodottoId);
+      }
+      return [...prev, { prodottoId, obbligatoria: true }];
+    });
+  }
+
+  function setObbligatoria(prodottoId: string, obbligatoria: boolean) {
+    setProdottiLinks((prev) =>
+      prev.map((l) =>
+        l.prodottoId === prodottoId ? { ...l, obbligatoria } : l
+      )
+    );
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -102,6 +180,7 @@ export function AttivitaFormModal({
         oreGiorno: Number(oreGiorno),
         incastrabileDuranteLavorazione: incastrabile,
         documentoStato: "approvato",
+        prodottiLinks,
       });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Salvataggio fallito.");
@@ -120,7 +199,7 @@ export function AttivitaFormModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-2xl"
+        className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -242,6 +321,76 @@ export function AttivitaFormModal({
               Sì — in parallelo alla lavorazione; in calendario resta il giorno
               (o i giorni) extra per l’ultimo quantitativo
             </label>
+          </fieldset>
+
+          <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+            <legend className="px-1 text-sm font-medium">
+              Prodotti Agrinsicilia collegati
+            </legend>
+            <p className="text-xs text-[var(--muted)]">
+              Seleziona uno o più prodotti.{" "}
+              <strong>Obbligatoria</strong> = già attiva nel calendario ordine;{" "}
+              <strong>Facoltativa</strong> = presente ma spenta di default.
+            </p>
+            <input
+              type="search"
+              value={prodottiQuery}
+              onChange={(e) => setProdottiQuery(e.target.value)}
+              placeholder="Cerca per targa o nome…"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            />
+            {prodottiLoading ? (
+              <p className="text-xs text-[var(--muted)]">Caricamento prodotti…</p>
+            ) : prodottiCatalog.length === 0 ? (
+              <p className="text-xs text-amber-800">
+                Nessun prodotto in catalogo. Creane in Schede → Prodotti.
+              </p>
+            ) : (
+              <ul className="max-h-56 space-y-1.5 overflow-y-auto">
+                {prodottiFiltrati.map((p) => {
+                  const selected = selectedIds.has(p.id);
+                  const link = prodottiLinks.find(
+                    (l) => l.prodottoId === p.id
+                  );
+                  return (
+                    <li
+                      key={p.id}
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-xs"
+                    >
+                      <label className="flex min-w-0 flex-1 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleProdotto(p.id)}
+                        />
+                        <span className="font-mono font-semibold">
+                          {p.codice}
+                        </span>
+                        <span className="truncate text-slate-700">{p.nome}</span>
+                        {p.isBio ? (
+                          <span className="shrink-0 text-emerald-700">BIO</span>
+                        ) : null}
+                      </label>
+                      {selected ? (
+                        <label className="inline-flex items-center gap-1.5 text-[var(--muted)]">
+                          <input
+                            type="checkbox"
+                            checked={link?.obbligatoria ?? true}
+                            onChange={(e) =>
+                              setObbligatoria(p.id, e.target.checked)
+                            }
+                          />
+                          Obbligatoria
+                        </label>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <p className="text-xs text-[var(--muted)]">
+              Selezionati: <strong>{prodottiLinks.length}</strong>
+            </p>
           </fieldset>
 
           {formError ? (

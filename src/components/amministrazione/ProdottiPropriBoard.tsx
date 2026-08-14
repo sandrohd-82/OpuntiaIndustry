@@ -246,7 +246,12 @@ export function ProdottiPropriBoard() {
             if (created.success) {
               const link = await setProdottiPropriAttivitaAction({
                 prodottoId: created.prodotto.id,
-                attivitaIds: values.attivitaIds ?? [],
+                links:
+                  values.attivitaLinks ??
+                  (values.attivitaIds ?? []).map((id) => ({
+                    attivitaId: id,
+                    obbligatoria: true,
+                  })),
               });
               if (!link.success) {
                 setSaveError(link.error);
@@ -272,7 +277,12 @@ export function ProdottiPropriBoard() {
             if (updated.success) {
               const link = await setProdottiPropriAttivitaAction({
                 prodottoId: editing.id,
-                attivitaIds: values.attivitaIds ?? [],
+                links:
+                  values.attivitaLinks ??
+                  (values.attivitaIds ?? []).map((id) => ({
+                    attivitaId: id,
+                    obbligatoria: true,
+                  })),
               });
               if (!link.success) {
                 setSaveError(link.error);
