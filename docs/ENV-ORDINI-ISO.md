@@ -35,8 +35,15 @@ Create/update/soft-delete scrivono su `audit_log`.
 - MIME: PDF, JPEG, PNG, WebP
 - RLS: solo utenti con area `amministrazione` (o superadmin)
 
-## Sicurezza
+## Formazione attività (develop)
 
-- Tabella `ordini`: nessun DELETE fisico via RLS (solo soft delete con `deleted_at`)
+```
+# false in test; true quando la formazione diventa obbligatoria
+ATTIVITA_FORMAZIONE_OBBLIGATORIA=false
+NEXT_PUBLIC_ATTIVITA_FORMAZIONE_OBBLIGATORIA=false
+```
+
+Targa formazione con prefisso `Fo` (es. `Fo-HACCP`).
+
 - `audit_log`: solo INSERT + SELECT (immutabile)
 - Soft delete richiede doppia conferma UI e frase `Elimina [numero_interno]`

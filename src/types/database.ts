@@ -452,6 +452,9 @@ export interface AttivitaRow {
   quantita_da: number | string | null;
   quantita_a: number | string | null;
   quantita_unita: string;
+  operatori_necessari: number;
+  formazione_codice: string | null;
+  tempo_multiplo: boolean;
   incastrabile_durante_lavorazione: boolean;
   documento_stato: AttivitaDocumentoStato;
   versione: number;
@@ -477,6 +480,9 @@ export interface AttivitaInsert {
   quantita_da?: number | null;
   quantita_a?: number | null;
   quantita_unita?: string;
+  operatori_necessari?: number;
+  formazione_codice?: string | null;
+  tempo_multiplo?: boolean;
   incastrabile_durante_lavorazione?: boolean;
   documento_stato?: AttivitaDocumentoStato;
   versione?: number;
@@ -497,12 +503,45 @@ export interface AttivitaUpdate {
   quantita_da?: number | null;
   quantita_a?: number | null;
   quantita_unita?: string;
+  operatori_necessari?: number;
+  formazione_codice?: string | null;
+  tempo_multiplo?: boolean;
   incastrabile_durante_lavorazione?: boolean;
   documento_stato?: AttivitaDocumentoStato;
   versione?: number;
   updated_by?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;
+}
+
+export interface AttivitaTempoOpzioneRow {
+  id: string;
+  attivita_id: string;
+  nome: string;
+  quantita_valore: number;
+  quantita_unita: string;
+  ore: number;
+  minuti: number;
+  sort_order: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface AttivitaTempoOpzioneInsert {
+  id?: string;
+  attivita_id: string;
+  nome: string;
+  quantita_valore: number;
+  quantita_unita?: string;
+  ore?: number;
+  minuti?: number;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
 }
 
 export interface ProdottoProprioAttivitaRow {
@@ -1758,6 +1797,12 @@ export interface Database {
         Row: AttivitaRow;
         Insert: AttivitaInsert;
         Update: AttivitaUpdate;
+        Relationships: [];
+      };
+      attivita_tempo_opzioni: {
+        Row: AttivitaTempoOpzioneRow;
+        Insert: AttivitaTempoOpzioneInsert;
+        Update: Partial<AttivitaTempoOpzioneRow>;
         Relationships: [];
       };
       prodotti_propri_attivita: {

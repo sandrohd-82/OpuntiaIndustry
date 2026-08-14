@@ -4,20 +4,26 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { listProdottiByAttivitaAction } from "@/app/actions/attivita";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
-import {
-  ClearableNumberInput,
-} from "@/components/ui/ClearableNumberInput";
+import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import {
   CODICE_ATTIVITA_PREFIX,
+  CODICE_FORMAZIONE_PREFIX,
   QUANTITA_VARIABILE_SIMBOLO,
   composeCodiceAttivita,
+  composeCodiceFormazione,
+  isFormazioneObbligatoria,
   sanitizeCodiceAttivitaBody,
+  sanitizeCodiceFormazioneBody,
   stripCodiceAttivitaPrefix,
+  stripCodiceFormazionePrefix,
   type Attivita,
   type AttivitaInput,
   type AttivitaProdottoLinkInput,
+  type AttivitaTempoOpzioneInput,
 } from "@/lib/amministrazione/attivita";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
+
+type OpzioneDraft = AttivitaTempoOpzioneInput & { key: string };
 
 type Props = {
   mode: "create" | "edit";
@@ -26,6 +32,17 @@ type Props = {
   onClose: () => void;
   onSave: (values: AttivitaInput) => void | Promise<void>;
 };
+
+function emptyOpzione(): OpzioneDraft {
+  return {
+    key: `new-${Math.random().toString(36).slice(2, 9)}`,
+    nome: "",
+    quantitaValore: 1,
+    quantitaUnita: "kg",
+    ore: 1,
+    minuti: 0,
+  };
+}
 
 export function AttivitaFormModal({
   mode,
@@ -36,12 +53,35 @@ export function AttivitaFormModal({
 }: Props) {
   const titleId = useId();
   const isEdit = mode === "edit";
+  const formazioneRequired = isFormazioneObbligatoria();
 
   const [codiceBody, setCodiceBody] = useState(
     initial ? stripCodiceAttivitaPrefix(initial.codice) : "-"
   );
   const [titolo, setTitolo] = useState(initial?.titolo ?? "");
   const [spiegazione, setSpiegazione] = useState(initial?.spiegazione ?? "");
+  const [operatoriNecessari, setOperatoriNecessari] = useState<number | "">(
+    initial?.operatoriNecessari ?? 1
+  );
+  const [formazioneBody, setFormazioneBody] = useState(
+    initial?.formazioneCodice
+      ? stripCodiceFormazionePrefix(initial.formazioneCodice)
+      : ""
+  );
+  const [tempoMultiplo, setTempoMultiplo] = useState(
+    initial?.tempoMultiplo ?? false
+  );
+  const [opzioni, setOpzioni] = useState<OpzioneDraft[]>(() =>
+    (initial?.tempoOpzioni ?? []).map((o, i) => ({
+      key: o.id ?? `op-${i}`,
+      id: o.id,
+      nome: o.nome,
+      quantitaValore: o.quantitaValore,
+      quantitaUnita: o.quantitaUnita,
+      ore: o.ore,
+      minuti: o.minuti,
+    }))
+  );
   const [kgPerOra, setKgPerOra] = useState<number | "">(
     initial?.kgPerOra ?? 90
   );
@@ -49,7 +89,7 @@ export function AttivitaFormModal({
     initial?.oreGiorno ?? 8
   );
   const [durataFissa, setDurataFissa] = useState(
-    initial?.modalitaTempo === "durata_fissa"
+    initial?.modalitaTempo === "durata_fissa" && !initial?.tempoMultiplo
   );
   const [oreCiclo, setOreCiclo] = useState<number | "">(
     initial?.oreCiclo ?? ""
@@ -119,6 +159,11 @@ export function AttivitaFormModal({
     return body ? composeCodiceAttivita(body) : "";
   }, [codiceBody]);
 
+  const formazioneCompleta = useMemo(() => {
+    const body = sanitizeCodiceFormazioneBody(formazioneBody);
+    return body ? composeCodiceFormazione(body) : "";
+  }, [formazioneBody]);
+
   const codiceDuplicato = useMemo(() => {
     if (!codiceCompleto) return null;
     return (
@@ -170,6 +215,12 @@ export function AttivitaFormModal({
     );
   }
 
+  function patchOpzione(key: string, patch: Partial<OpzioneDraft>) {
+    setOpzioni((prev) =>
+      prev.map((o) => (o.key === key ? { ...o, ...patch } : o))
+    );
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!codiceCompleto || !titolo.trim()) {
@@ -180,12 +231,43 @@ export function AttivitaFormModal({
       setFormError(`Targa già usata: ${codiceDuplicato.codice}`);
       return;
     }
-    if (durataFissa) {
+    if (operatoriNecessari === "" || Number(operatoriNecessari) < 0) {
+      setFormError("Indica il numero di operatori necessari (≥ 0).");
+      return;
+    }
+    if (formazioneRequired && !formazioneCompleta) {
+      setFormError("La formazione necessaria è obbligatoria.");
+      return;
+    }
+
+    if (tempoMultiplo) {
+      if (opzioni.length === 0) {
+        setFormError("Aggiungi almeno un’opzione di tempo/quantità.");
+        return;
+      }
+      for (const op of opzioni) {
+        if (!op.nome.trim()) {
+          setFormError("Ogni opzione deve avere un nome.");
+          return;
+        }
+        if (!(Number(op.quantitaValore) > 0)) {
+          setFormError(`Quantità non valida per «${op.nome}».`);
+          return;
+        }
+        if ((op.ore || 0) <= 0 && (op.minuti || 0) <= 0) {
+          setFormError(`Indica ore/minuti per «${op.nome}».`);
+          return;
+        }
+      }
+    } else if (durataFissa) {
       if (oreCiclo === "" || Number(oreCiclo) <= 0) {
         setFormError("Indica le ore necessarie al ciclo.");
         return;
       }
-      if (quantitaModo === "fissa" && (quantitaValore === "" || Number(quantitaValore) <= 0)) {
+      if (
+        quantitaModo === "fissa" &&
+        (quantitaValore === "" || Number(quantitaValore) <= 0)
+      ) {
         setFormError("Indica la quantità fissa del ciclo.");
         return;
       }
@@ -213,6 +295,7 @@ export function AttivitaFormModal({
         return;
       }
     }
+
     setSaving(true);
     setFormError(null);
     try {
@@ -220,19 +303,38 @@ export function AttivitaFormModal({
         codice: codiceCompleto,
         titolo: titolo.trim(),
         spiegazione,
-        modalitaTempo: durataFissa ? "durata_fissa" : "throughput",
-        kgPerOra: durataFissa ? 1 : Number(kgPerOra),
-        oreGiorno: durataFissa ? 8 : Number(oreGiorno),
-        oreCiclo: durataFissa ? Number(oreCiclo) : null,
-        quantitaModo: durataFissa ? quantitaModo : null,
+        operatoriNecessari: Number(operatoriNecessari),
+        formazioneCodice: formazioneCompleta,
+        tempoMultiplo,
+        tempoOpzioni: tempoMultiplo
+          ? opzioni.map((o) => ({
+              id: o.id,
+              nome: o.nome.trim(),
+              quantitaValore: Number(o.quantitaValore),
+              quantitaUnita: (o.quantitaUnita ?? "kg").trim() || "kg",
+              ore: Number(o.ore) || 0,
+              minuti: Number(o.minuti) || 0,
+            }))
+          : [],
+        modalitaTempo:
+          tempoMultiplo || durataFissa ? "durata_fissa" : "throughput",
+        kgPerOra: tempoMultiplo || durataFissa ? 1 : Number(kgPerOra),
+        oreGiorno: tempoMultiplo || durataFissa ? 8 : Number(oreGiorno),
+        oreCiclo:
+          !tempoMultiplo && durataFissa ? Number(oreCiclo) : null,
+        quantitaModo: !tempoMultiplo && durataFissa ? quantitaModo : null,
         quantitaValore:
-          durataFissa && quantitaModo === "fissa"
+          !tempoMultiplo && durataFissa && quantitaModo === "fissa"
             ? Number(quantitaValore)
             : null,
         quantitaDa:
-          durataFissa && quantitaModo === "range" ? Number(quantitaDa) : null,
+          !tempoMultiplo && durataFissa && quantitaModo === "range"
+            ? Number(quantitaDa)
+            : null,
         quantitaA:
-          durataFissa && quantitaModo === "range" ? Number(quantitaA) : null,
+          !tempoMultiplo && durataFissa && quantitaModo === "range"
+            ? Number(quantitaA)
+            : null,
         quantitaUnita: quantitaUnita.trim() || "kg",
         documentoStato: "approvato",
         prodottiLinks,
@@ -329,159 +431,304 @@ export function AttivitaFormModal({
             />
           </label>
 
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Operatori necessari</span>
+              <ClearableNumberInput
+                value={operatoriNecessari}
+                onValueChange={setOperatoriNecessari}
+                min={0}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">
+                Formazione necessaria{" "}
+                {!formazioneRequired ? (
+                  <span className="font-normal text-[var(--muted)]">
+                    (facoltativa)
+                  </span>
+                ) : null}
+              </span>
+              <div className="flex overflow-hidden rounded-lg border border-[var(--border)]">
+                <span className="inline-flex items-center bg-slate-100 px-3 font-mono text-sm font-semibold">
+                  {CODICE_FORMAZIONE_PREFIX}
+                </span>
+                <input
+                  value={formazioneBody}
+                  onChange={(e) =>
+                    setFormazioneBody(
+                      sanitizeCodiceFormazioneBody(e.target.value)
+                    )
+                  }
+                  spellCheck={false}
+                  placeholder="-HACCP"
+                  className="min-w-0 flex-1 px-3 py-2 font-mono outline-none focus:bg-slate-50"
+                />
+              </div>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Completa:{" "}
+                <span className="font-mono font-semibold">
+                  {formazioneCompleta || "—"}
+                </span>
+              </p>
+            </label>
+          </div>
+
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-3">
             <legend className="px-1 text-sm font-medium">Tempo / quantità</legend>
+
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                checked={durataFissa}
-                onChange={(e) => setDurataFissa(e.target.checked)}
+                checked={tempoMultiplo}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setTempoMultiplo(on);
+                  if (on && opzioni.length === 0) {
+                    setOpzioni([emptyOpzione()]);
+                  }
+                }}
               />
-              Ciclo a durata fissa
+              Tempo/quantità multipla (opzioni nominate)
             </label>
             <p className="text-xs text-[var(--muted)]">
-              Se attivo, annulla kg/ora e ore/giorno: indica le ore del ciclo e
-              come trattare la quantità (fissa, range, variabile o assente).
+              Es. imballaggio: Campionatura, Confezionamento Aboca, Pallet con
+              Bigbag — ciascuna con quantità e tempo propri.
             </p>
 
-            {!durataFissa ? (
-              <div className="grid grid-cols-2 gap-3">
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Tempo/quantità media (kg/ora)
-                  </span>
-                  <ClearableNumberInput
-                    value={kgPerOra}
-                    onValueChange={setKgPerOra}
-                    min={0.001}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                  />
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Ore/giorno (calcolo)
-                  </span>
-                  <ClearableNumberInput
-                    value={oreGiorno}
-                    onValueChange={setOreGiorno}
-                    min={0.1}
-                    max={24}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                  />
-                </label>
+            {tempoMultiplo ? (
+              <div className="space-y-3">
+                {opzioni.map((op, idx) => (
+                  <div
+                    key={op.key}
+                    className="space-y-2 rounded-lg border border-[var(--border)] bg-white p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[var(--muted)]">
+                        Opzione #{idx + 1}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-xs text-red-600 hover:underline"
+                        onClick={() =>
+                          setOpzioni((prev) =>
+                            prev.filter((x) => x.key !== op.key)
+                          )
+                        }
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">Nome</span>
+                      <input
+                        value={op.nome}
+                        onChange={(e) =>
+                          patchOpzione(op.key, { nome: e.target.value })
+                        }
+                        placeholder="Es. Campionatura"
+                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">Quantità</span>
+                        <ClearableNumberInput
+                          value={op.quantitaValore}
+                          onValueChange={(v) =>
+                            patchOpzione(op.key, {
+                              quantitaValore: v === "" ? 0 : v,
+                            })
+                          }
+                          min={0.001}
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">Unità</span>
+                        <input
+                          value={op.quantitaUnita ?? "kg"}
+                          onChange={(e) =>
+                            patchOpzione(op.key, {
+                              quantitaUnita: e.target.value,
+                            })
+                          }
+                          placeholder="kg / lt"
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">Ore</span>
+                        <ClearableNumberInput
+                          value={op.ore}
+                          onValueChange={(v) =>
+                            patchOpzione(op.key, {
+                              ore: v === "" ? 0 : Math.floor(v),
+                            })
+                          }
+                          min={0}
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                        />
+                      </label>
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">Minuti</span>
+                        <ClearableNumberInput
+                          value={op.minuti}
+                          onValueChange={(v) =>
+                            patchOpzione(op.key, {
+                              minuti:
+                                v === ""
+                                  ? 0
+                                  : Math.min(59, Math.max(0, Math.floor(v))),
+                            })
+                          }
+                          min={0}
+                          max={59}
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setOpzioni((prev) => [...prev, emptyOpzione()])}
+                  className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50"
+                >
+                  + Aggiungi opzione
+                </button>
               </div>
             ) : (
-              <div className="space-y-3">
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Ore necessarie al ciclo
-                  </span>
-                  <ClearableNumberInput
-                    value={oreCiclo}
-                    onValueChange={setOreCiclo}
-                    min={0.01}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+              <>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={durataFissa}
+                    onChange={(e) => setDurataFissa(e.target.checked)}
                   />
-                  <span className="mt-1 block text-xs text-[var(--muted)]">
-                    Giorni calendario ≈ ceil(ore ÷ 8).
-                  </span>
+                  Ciclo a durata fissa (unica)
                 </label>
 
-                <div className="space-y-2">
-                  <span className="block text-sm font-medium">Quantità ciclo</span>
-                  {(
-                    [
-                      ["fissa", "Fissa"],
-                      ["range", "Range da–a"],
-                      ["variabile", `Variabile (${QUANTITA_VARIABILE_SIMBOLO})`],
-                      ["nessuna", "Senza quantità (es. pulizie)"],
-                    ] as const
-                  ).map(([value, label]) => (
-                    <label
-                      key={value}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <input
-                        type="radio"
-                        name="quantitaModo"
-                        checked={quantitaModo === value}
-                        onChange={() => setQuantitaModo(value)}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-
-                {quantitaModo === "fissa" || quantitaModo === "range" ? (
-                  <label className="block text-sm">
-                    <span className="mb-1 block font-medium">Unità</span>
-                    <input
-                      value={quantitaUnita}
-                      onChange={(e) => setQuantitaUnita(e.target.value)}
-                      placeholder="kg"
-                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                    />
-                  </label>
-                ) : null}
-
-                {quantitaModo === "fissa" ? (
-                  <label className="block text-sm">
-                    <span className="mb-1 block font-medium">
-                      Quantità ({quantitaUnita || "kg"})
-                    </span>
-                    <ClearableNumberInput
-                      value={quantitaValore}
-                      onValueChange={setQuantitaValore}
-                      min={0.001}
-                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                    />
-                  </label>
-                ) : null}
-
-                {quantitaModo === "range" ? (
+                {!durataFissa ? (
                   <div className="grid grid-cols-2 gap-3">
                     <label className="block text-sm">
                       <span className="mb-1 block font-medium">
-                        Da ({quantitaUnita || "kg"})
+                        Tempo/quantità media (kg/ora)
                       </span>
                       <ClearableNumberInput
-                        value={quantitaDa}
-                        onValueChange={setQuantitaDa}
+                        value={kgPerOra}
+                        onValueChange={setKgPerOra}
                         min={0.001}
                         className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
                       />
                     </label>
                     <label className="block text-sm">
                       <span className="mb-1 block font-medium">
-                        A ({quantitaUnita || "kg"})
+                        Ore/giorno (calcolo)
                       </span>
                       <ClearableNumberInput
-                        value={quantitaA}
-                        onValueChange={setQuantitaA}
-                        min={0.001}
+                        value={oreGiorno}
+                        onValueChange={setOreGiorno}
+                        min={0.1}
+                        max={24}
                         className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
                       />
                     </label>
                   </div>
-                ) : null}
-
-                {quantitaModo === "variabile" ? (
-                  <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
-                    Quantità:{" "}
-                    <span className="font-mono text-base font-semibold text-slate-800">
-                      {QUANTITA_VARIABILE_SIMBOLO}
-                    </span>{" "}
-                    (variabile, senza valore numerico)
-                  </p>
-                ) : null}
-
-                {quantitaModo === "nessuna" ? (
-                  <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)]">
-                    Nessuna quantità: adatta ad attività non legate a un carico
-                    (es. pulizie).
-                  </p>
-                ) : null}
-              </div>
+                ) : (
+                  <div className="space-y-3">
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        Ore necessarie al ciclo
+                      </span>
+                      <ClearableNumberInput
+                        value={oreCiclo}
+                        onValueChange={setOreCiclo}
+                        min={0.01}
+                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                      />
+                    </label>
+                    <div className="space-y-2">
+                      <span className="block text-sm font-medium">
+                        Quantità ciclo
+                      </span>
+                      {(
+                        [
+                          ["fissa", "Fissa"],
+                          ["range", "Range da–a"],
+                          [
+                            "variabile",
+                            `Variabile (${QUANTITA_VARIABILE_SIMBOLO})`,
+                          ],
+                          ["nessuna", "Senza quantità (es. pulizie)"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <label
+                          key={value}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          <input
+                            type="radio"
+                            name="quantitaModo"
+                            checked={quantitaModo === value}
+                            onChange={() => setQuantitaModo(value)}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    {quantitaModo === "fissa" || quantitaModo === "range" ? (
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">Unità</span>
+                        <input
+                          value={quantitaUnita}
+                          onChange={(e) => setQuantitaUnita(e.target.value)}
+                          placeholder="kg"
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                        />
+                      </label>
+                    ) : null}
+                    {quantitaModo === "fissa" ? (
+                      <label className="block text-sm">
+                        <span className="mb-1 block font-medium">
+                          Quantità ({quantitaUnita || "kg"})
+                        </span>
+                        <ClearableNumberInput
+                          value={quantitaValore}
+                          onValueChange={setQuantitaValore}
+                          min={0.001}
+                          className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                        />
+                      </label>
+                    ) : null}
+                    {quantitaModo === "range" ? (
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="block text-sm">
+                          <span className="mb-1 block font-medium">Da</span>
+                          <ClearableNumberInput
+                            value={quantitaDa}
+                            onValueChange={setQuantitaDa}
+                            min={0.001}
+                            className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                          />
+                        </label>
+                        <label className="block text-sm">
+                          <span className="mb-1 block font-medium">A</span>
+                          <ClearableNumberInput
+                            value={quantitaA}
+                            onValueChange={setQuantitaA}
+                            min={0.001}
+                            className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </>
             )}
           </fieldset>
 

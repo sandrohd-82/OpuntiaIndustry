@@ -79,6 +79,7 @@ export function AttivitaBoard() {
                 <th className="px-4 py-3 font-medium">Targa</th>
                 <th className="px-4 py-3 font-medium">Titolo</th>
                 <th className="px-4 py-3 font-medium">Tempo</th>
+                <th className="px-4 py-3 font-medium">Op.</th>
                 <th className="px-4 py-3 font-medium text-right">Azioni</th>
               </tr>
             </thead>
@@ -99,6 +100,7 @@ export function AttivitaBoard() {
                   <td className="px-4 py-3 text-sm text-slate-700">
                     {formatTempoAttivita(a)}
                   </td>
+                  <td className="px-4 py-3 tabular-nums">{a.operatoriNecessari}</td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"

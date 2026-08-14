@@ -5,11 +5,14 @@ import {
   attivitaInputSchema,
   isValidCodiceAttivita,
   mapAttivitaRow,
+  mapTempoOpzioneRow,
   normalizeAttivitaInput,
   type Attivita,
   type AttivitaInput,
   type AttivitaLinked,
   type AttivitaProdottoLinkInput,
+  type AttivitaTempoOpzione,
+  type AttivitaTempoOpzioneInput,
   type ProdottoLinkedAdAttivita,
 } from "@/lib/amministrazione/attivita";
 import { writeAuditLog } from "@/lib/audit";
@@ -18,6 +21,7 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   AttivitaInsert,
   AttivitaRow,
+  AttivitaTempoOpzioneRow,
   ProdottoProprioAttivitaRow,
   ProdottoProprioRow,
 } from "@/types/database";
@@ -25,6 +29,103 @@ import type {
 export type AttivitaActionResult =
   | { success: true; attivita: Attivita }
   | { success: false; error: string };
+
+async function loadTempoOpzioniByAttivitaIds(
+  attivitaIds: string[]
+): Promise<Map<string, AttivitaTempoOpzione[]>> {
+  const map = new Map<string, AttivitaTempoOpzione[]>();
+  if (!attivitaIds.length) return map;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("attivita_tempo_opzioni")
+    .select("*")
+    .in("attivita_id", attivitaIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (error || !data) return map;
+  for (const row of data as AttivitaTempoOpzioneRow[]) {
+    const list = map.get(row.attivita_id) ?? [];
+    list.push(mapTempoOpzioneRow(row));
+    map.set(row.attivita_id, list);
+  }
+  return map;
+}
+
+async function syncAttivitaTempoOpzioni(input: {
+  attivitaId: string;
+  tempoMultiplo: boolean;
+  opzioni: AttivitaTempoOpzioneInput[];
+  userId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const supabase = await createClient();
+  const nowIso = new Date().toISOString();
+  const wanted = input.tempoMultiplo ? input.opzioni : [];
+
+  const { data: existing, error: exErr } = await supabase
+    .from("attivita_tempo_opzioni")
+    .select("id")
+    .eq("attivita_id", input.attivitaId)
+    .is("deleted_at", null);
+  if (exErr) return { success: false, error: exErr.message };
+
+  const currentIds = new Set(
+    ((existing ?? []) as Array<{ id: string }>).map((r) => r.id)
+  );
+  const keepIds = new Set(
+    wanted.map((o) => o.id).filter((id): id is string => Boolean(id))
+  );
+
+  const toRemove = [...currentIds].filter((id) => !keepIds.has(id));
+  if (toRemove.length) {
+    await supabase
+      .from("attivita_tempo_opzioni")
+      .update({
+        deleted_at: nowIso,
+        deleted_by: input.userId,
+        updated_by: input.userId,
+      })
+      .in("id", toRemove);
+  }
+
+  for (let i = 0; i < wanted.length; i += 1) {
+    const op = wanted[i]!;
+    const payload = {
+      nome: op.nome.trim(),
+      quantita_valore: Number(op.quantitaValore),
+      quantita_unita: (op.quantitaUnita ?? "kg").trim() || "kg",
+      ore: Math.max(0, Math.floor(Number(op.ore) || 0)),
+      minuti: Math.min(59, Math.max(0, Math.floor(Number(op.minuti) || 0))),
+      sort_order: i,
+      updated_by: input.userId,
+    };
+    if (op.id && currentIds.has(op.id)) {
+      const { error } = await supabase
+        .from("attivita_tempo_opzioni")
+        .update(payload)
+        .eq("id", op.id)
+        .is("deleted_at", null);
+      if (error) return { success: false, error: error.message };
+    } else {
+      const { error } = await supabase.from("attivita_tempo_opzioni").insert({
+        attivita_id: input.attivitaId,
+        ...payload,
+        created_by: input.userId,
+      });
+      if (error) return { success: false, error: error.message };
+    }
+  }
+
+  await writeAuditLog({
+    entity_type: "attivita_tempo_opzioni",
+    entity_id: input.attivitaId,
+    action: "update",
+    actor_id: input.userId,
+    summary: `Sync opzioni tempo attività (${wanted.length})`,
+    payload: { count: wanted.length, tempoMultiplo: input.tempoMultiplo },
+  });
+
+  return { success: true };
+}
 
 export async function listAttivitaAction(): Promise<
   | { success: true; attivita: Attivita[] }
@@ -38,9 +139,11 @@ export async function listAttivitaAction(): Promise<
     .is("deleted_at", null)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as AttivitaRow[];
+  const opzioniMap = await loadTempoOpzioniByAttivitaIds(rows.map((r) => r.id));
   return {
     success: true,
-    attivita: ((data ?? []) as AttivitaRow[]).map(mapAttivitaRow),
+    attivita: rows.map((r) => mapAttivitaRow(r, opzioniMap.get(r.id) ?? [])),
   };
 }
 
@@ -75,8 +178,10 @@ export async function listAttivitaByProdottoAction(
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
 
+  const rows = (data ?? []) as AttivitaRow[];
+  const opzioniMap = await loadTempoOpzioniByAttivitaIds(rows.map((r) => r.id));
   const byId = new Map(
-    ((data ?? []) as AttivitaRow[]).map((r) => [r.id, mapAttivitaRow(r)])
+    rows.map((r) => [r.id, mapAttivitaRow(r, opzioniMap.get(r.id) ?? [])])
   );
   const ordered: AttivitaLinked[] = [];
   for (const link of linkRows) {
@@ -357,6 +462,9 @@ export async function createAttivitaAction(
     quantita_da: normalized.quantitaDa ?? null,
     quantita_a: normalized.quantitaA ?? null,
     quantita_unita: normalized.quantitaUnita ?? "kg",
+    operatori_necessari: normalized.operatoriNecessari ?? 1,
+    formazione_codice: normalized.formazioneCodice || null,
+    tempo_multiplo: Boolean(normalized.tempoMultiplo),
     incastrabile_durante_lavorazione: false,
     documento_stato: normalized.documentoStato ?? "approvato",
     versione: 1,
@@ -390,6 +498,14 @@ export async function createAttivitaAction(
     payload: { codice: row.codice, titolo: row.titolo },
   });
 
+  const synced = await syncAttivitaTempoOpzioni({
+    attivitaId: row.id,
+    tempoMultiplo: Boolean(normalized.tempoMultiplo),
+    opzioni: normalized.tempoOpzioni ?? [],
+    userId: auth.userId,
+  });
+  if (!synced.success) return { success: false, error: synced.error };
+
   if (input.prodottiLinks?.length) {
     const linked = await setAttivitaProdottiAction({
       attivitaId: row.id,
@@ -400,7 +516,11 @@ export async function createAttivitaAction(
     }
   }
 
-  return { success: true, attivita: mapAttivitaRow(row) };
+  const opzioniMap = await loadTempoOpzioniByAttivitaIds([row.id]);
+  return {
+    success: true,
+    attivita: mapAttivitaRow(row, opzioniMap.get(row.id) ?? []),
+  };
 }
 
 export async function updateAttivitaAction(
@@ -447,6 +567,9 @@ export async function updateAttivitaAction(
       quantita_da: normalized.quantitaDa ?? null,
       quantita_a: normalized.quantitaA ?? null,
       quantita_unita: normalized.quantitaUnita ?? "kg",
+      operatori_necessari: normalized.operatoriNecessari ?? 1,
+      formazione_codice: normalized.formazioneCodice || null,
+      tempo_multiplo: Boolean(normalized.tempoMultiplo),
       incastrabile_durante_lavorazione: false,
       documento_stato: normalized.documentoStato ?? "approvato",
       versione: Number((prev as { versione?: number } | null)?.versione ?? 1) + 1,
@@ -477,6 +600,14 @@ export async function updateAttivitaAction(
     payload: { codice: row.codice, titolo: row.titolo },
   });
 
+  const synced = await syncAttivitaTempoOpzioni({
+    attivitaId: id,
+    tempoMultiplo: Boolean(normalized.tempoMultiplo),
+    opzioni: normalized.tempoOpzioni ?? [],
+    userId: auth.userId,
+  });
+  if (!synced.success) return { success: false, error: synced.error };
+
   if (input.prodottiLinks !== undefined) {
     const linked = await setAttivitaProdottiAction({
       attivitaId: id,
@@ -487,7 +618,11 @@ export async function updateAttivitaAction(
     }
   }
 
-  return { success: true, attivita: mapAttivitaRow(row) };
+  const opzioniMap = await loadTempoOpzioniByAttivitaIds([row.id]);
+  return {
+    success: true,
+    attivita: mapAttivitaRow(row, opzioniMap.get(row.id) ?? []),
+  };
 }
 
 export async function softDeleteAttivitaAction(input: {

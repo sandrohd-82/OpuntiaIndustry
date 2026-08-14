@@ -79,6 +79,9 @@ function segmentiFromDrafts(
         kgPerOra: d.kgPerOra,
         oreGiorno: d.oreGiorno,
         oreCiclo: d.oreCiclo,
+        tempoMultiplo: d.tempoMultiplo,
+        tempoOpzioni: d.tempoOpzioni,
+        selectedOpzioneId: d.selectedOpzioneId,
         giorniOverride: d.giorniOverride,
       }),
     }))
@@ -406,6 +409,9 @@ export function ConsegnaCalendarioModal({
                   kgPerOra: d.kgPerOra,
                   oreGiorno: d.oreGiorno,
                   oreCiclo: d.oreCiclo,
+                  tempoMultiplo: d.tempoMultiplo,
+                  tempoOpzioni: d.tempoOpzioni,
+                  selectedOpzioneId: d.selectedOpzioneId,
                   giorniOverride: d.giorniOverride,
                 });
                 return (
@@ -457,7 +463,29 @@ export function ConsegnaCalendarioModal({
                     </div>
                     {d.enabled ? (
                       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                        {d.modalitaTempo === "durata_fissa" ? (
+                        {d.tempoMultiplo ? (
+                          <label className="col-span-2 text-xs sm:col-span-3">
+                            <span className="mb-0.5 block text-[var(--muted)]">
+                              Opzione tempo/quantità
+                            </span>
+                            <select
+                              value={d.selectedOpzioneId ?? ""}
+                              onChange={(e) =>
+                                patchDraft(d.attivitaId, {
+                                  selectedOpzioneId: e.target.value || null,
+                                })
+                              }
+                              className="w-full rounded border border-[var(--border)] px-2 py-1"
+                            >
+                              {d.tempoOpzioni.map((op) => (
+                                <option key={op.id ?? op.nome} value={op.id ?? ""}>
+                                  {op.nome} · {op.quantitaValore}{" "}
+                                  {op.quantitaUnita} · {op.ore}h {op.minuti}m
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : d.modalitaTempo === "durata_fissa" ? (
                           <label className="text-xs">
                             <span className="mb-0.5 block text-[var(--muted)]">
                               Ore ciclo
