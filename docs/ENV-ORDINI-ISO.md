@@ -35,6 +35,18 @@ Create/update/soft-delete scrivono su `audit_log`.
 - MIME: PDF, JPEG, PNG, WebP
 - RLS: solo utenti con area `amministrazione` (o superadmin)
 
+## Anti-duplicato fatture emesse (sync FiC)
+
+```
+# Tolleranza importo match (default 0.02 €)
+FATTURE_SYNC_TOTALE_TOLLERANZA=0.02
+# Giorni di tolleranza data per match debole (default 3)
+FATTURE_SYNC_DATA_TOLLERANZA_GIORNI=3
+```
+
+Match forte (auto-link `fic_id`): numero documento + P.IVA + anno, oppure numero + data + totale.
+Match debole: stesso cliente + totale + data ±N giorni → conferma operatore in coda.
+
 ## Formazione attività (develop)
 
 ```

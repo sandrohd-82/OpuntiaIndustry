@@ -398,6 +398,7 @@ export async function createAndSendInvoiceAction(
     data_scadenza: parsed.dataScadenza,
     ordine_id: parsed.ordineId,
     courtesy_email_sent: courtesyEmailSent,
+    origine: "emissione_gestionale",
     emissione_errore:
       eiStatus === "send_error"
         ? "Documento creato su FiC ma invio SDI non riuscito. Verifica su Fatture in Cloud."

@@ -296,6 +296,16 @@ export function ClientiBoard() {
           `${result.skippedAlreadyRegistered} fatture già registrate saltate.`
         );
       }
+      if (result.autoLinkedCount > 0) {
+        setSyncInfo((prev) =>
+          [
+            prev,
+            `${result.autoLinkedCount} fatture manuali collegate automaticamente a FiC.`,
+          ]
+            .filter(Boolean)
+            .join(" ")
+        );
+      }
       setSyncItems(result.items);
     });
   }

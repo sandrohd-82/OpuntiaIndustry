@@ -988,6 +988,8 @@ export interface FatturaEmessaRow {
   ordine_id: string | null;
   courtesy_email_sent: boolean;
   emissione_errore: string;
+  /** Origine registrazione: manuale | sync_fic | emissione_gestionale */
+  origine: "manuale" | "sync_fic" | "emissione_gestionale";
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1036,6 +1038,7 @@ export type FatturaEmessaInsert = {
   ordine_id?: string | null;
   courtesy_email_sent?: boolean;
   emissione_errore?: string;
+  origine?: "manuale" | "sync_fic" | "emissione_gestionale";
   created_by?: string | null;
   updated_by?: string | null;
   deleted_at?: string | null;

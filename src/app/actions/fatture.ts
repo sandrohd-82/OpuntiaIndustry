@@ -679,6 +679,7 @@ export async function createFatturaAction(
         tipo_documento: kind === "nota_credito" ? "nota_credito" : "fattura",
         fattura_collegata_id: input.fatturaCollegataId ?? null,
         riferimento_fattura_esterno: input.riferimentoFatturaEsterno ?? "",
+        origine: input.ficId ? "sync_fic" : "manuale",
         created_by: auth.userId,
         updated_by: auth.userId,
       };

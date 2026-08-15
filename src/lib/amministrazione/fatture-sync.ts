@@ -23,6 +23,16 @@ export type FatturaSyncLinkedHint = {
   motivo: string;
 };
 
+export type FatturaSyncDuplicateCandidate = {
+  strength: "weak";
+  fatturaId: string;
+  numeroInterno: string;
+  numeroEsterno: string;
+  dataEmissione: string;
+  totale: number;
+  motivo: string;
+};
+
 export type FatturaSyncQueueItem = {
   ficId: number;
   kind: FatturaKind;
@@ -48,6 +58,8 @@ export type FatturaSyncQueueItem = {
   /** Fattura già in Opuntia collegata a questa NC (o hint testuale). */
   linkedFattura: FatturaSyncLinkedHint | null;
   riferimentoFatturaEsterno: string;
+  /** Possibile duplicato di una fattura manuale (match debole). */
+  duplicateCandidate: FatturaSyncDuplicateCandidate | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -217,11 +229,138 @@ export type RegisteredFatturaHint = {
   id: string;
   numeroInterno: string;
   numeroEsterno: string;
+  numeroFattura?: string;
   clienteId: string;
   entityVat: string;
   dataEmissione: string;
   totale: number;
+  tipoDocumento?: "fattura" | "nota_credito";
+  ficId?: number | null;
 };
+
+export function normalizeFatturaNumeroEsterno(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/^N[\.\º°]?\s*/i, "");
+}
+
+export function fattureSyncTotaleTolleranza(): number {
+  const n = Number(process.env.FATTURE_SYNC_TOTALE_TOLLERANZA ?? "0.02");
+  return Number.isFinite(n) && n >= 0 ? n : 0.02;
+}
+
+export function fattureSyncDataTolleranzaGiorni(): number {
+  const n = Number(process.env.FATTURE_SYNC_DATA_TOLLERANZA_GIORNI ?? "3");
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 3;
+}
+
+function yearFromIsoDate(iso: string): string {
+  return (iso || "").slice(0, 4);
+}
+
+function daysBetweenIso(a: string, b: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) {
+    return null;
+  }
+  const da = Date.parse(`${a}T12:00:00Z`);
+  const db = Date.parse(`${b}T12:00:00Z`);
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return null;
+  return Math.abs(Math.round((da - db) / 86_400_000));
+}
+
+function registeredDocNumeri(f: RegisteredFatturaHint): string[] {
+  return [f.numeroEsterno, f.numeroFattura ?? ""]
+    .map(normalizeFatturaNumeroEsterno)
+    .filter(Boolean);
+}
+
+export type FicRegisteredMatch = {
+  strength: "strong" | "weak";
+  fattura: RegisteredFatturaHint;
+  motivo: string;
+};
+
+/**
+ * Riconosce fattura FiC già presente in Opuntia (anche se inserita a mano senza fic_id).
+ * Forte: (numero+cliente/P.IVA+anno) oppure (numero+data+totale±tol).
+ * Debole: stesso cliente + totale±tol + data ±N giorni (senza numero).
+ */
+export function matchFicDocToRegisteredFattura(
+  doc: FicDocumentNormalized,
+  kind: FatturaKind,
+  fatture: RegisteredFatturaHint[]
+): FicRegisteredMatch | null {
+  const tipoWanted: "fattura" | "nota_credito" =
+    kind === "nota_credito" ? "nota_credito" : "fattura";
+  const pool = fatture.filter((f) => {
+    if (f.ficId != null && Number(f.ficId) > 0) return false;
+    const tipo = f.tipoDocumento ?? "fattura";
+    return tipo === tipoWanted;
+  });
+
+  const docNum = normalizeFatturaNumeroEsterno(doc.number);
+  const vat = normalizeVatKey(doc.entityVat);
+  const date = doc.date || "";
+  const year = yearFromIsoDate(date);
+  const amount = Math.abs(doc.amountGross);
+  const tol = fattureSyncTotaleTolleranza();
+  const dayTol = fattureSyncDataTolleranzaGiorni();
+
+  if (docNum) {
+    for (const f of pool) {
+      const nums = registeredDocNumeri(f);
+      if (!nums.includes(docNum)) continue;
+      const sameVat = Boolean(vat && normalizeVatKey(f.entityVat) === vat);
+      const sameYear = Boolean(year && yearFromIsoDate(f.dataEmissione) === year);
+      const sameDate = Boolean(date && f.dataEmissione === date);
+      const totaleOk =
+        amount > 0 && Math.abs(Math.abs(f.totale) - amount) <= tol;
+
+      if (sameVat && sameYear) {
+        return {
+          strength: "strong",
+          fattura: f,
+          motivo: `Numero ${docNum} + P.IVA + anno ${year} → ${f.numeroInterno}`,
+        };
+      }
+      if (sameDate && totaleOk) {
+        return {
+          strength: "strong",
+          fattura: f,
+          motivo: `Numero ${docNum} + data ${date} + totale (±${tol}€) → ${f.numeroInterno}`,
+        };
+      }
+      if (sameVat && sameDate) {
+        return {
+          strength: "strong",
+          fattura: f,
+          motivo: `Numero ${docNum} + P.IVA + data → ${f.numeroInterno}`,
+        };
+      }
+    }
+  }
+
+  // Debole: cliente + totale + data vicina
+  let bestWeak: FicRegisteredMatch | null = null;
+  for (const f of pool) {
+    const sameVat = vat && normalizeVatKey(f.entityVat) === vat;
+    if (!sameVat) continue;
+    const totaleOk =
+      amount > 0 && Math.abs(Math.abs(f.totale) - amount) <= tol;
+    if (!totaleOk) continue;
+    const days = daysBetweenIso(date, f.dataEmissione);
+    if (days == null || days > dayTol) continue;
+    const candidate: FicRegisteredMatch = {
+      strength: "weak",
+      fattura: f,
+      motivo: `Stesso cliente + totale (±${tol}€) + data ±${dayTol}gg → ${f.numeroInterno} (conferma operatore)`,
+    };
+    if (!bestWeak) bestWeak = candidate;
+  }
+  return bestWeak;
+}
 
 /** Collega NC a fattura già registrata per riferimento / importo / periodo. */
 export function matchCreditNoteToFattura(
@@ -318,6 +457,7 @@ export function buildFatturaSyncQueueItem(input: {
   existingLabel: string | null;
   proposedTarga: string;
   linkedFattura?: FatturaSyncLinkedHint | null;
+  duplicateCandidate?: FatturaSyncDuplicateCandidate | null;
 }): FatturaSyncQueueItem {
   const righeRaw = extractRigheFromFicRaw(input.doc.raw);
   const isNc = input.kind === "nota_credito";
@@ -373,6 +513,7 @@ export function buildFatturaSyncQueueItem(input: {
     linkedFattura: linked,
     riferimentoFatturaEsterno:
       linked?.numeroEsterno || refs[0] || "",
+    duplicateCandidate: input.duplicateCandidate ?? null,
   };
 }
 

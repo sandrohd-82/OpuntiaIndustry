@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  linkFicIdToFatturaEmessaAction,
+} from "@/app/actions/fatture-sync";
+import {
   findNcCompensazioneCandidatesAction,
   type NcCompensazioneCandidate,
 } from "@/app/actions/fatture";
@@ -32,6 +35,7 @@ type Props = {
 
 type Step =
   | { type: "notice-existing" }
+  | { type: "duplicate-weak" }
   | { type: "anagrafica-create" }
   | { type: "compensazione-nc" }
   | { type: "fattura" };
@@ -52,12 +56,18 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const [compChecking, setCompChecking] = useState(false);
   const [collegaComeCompensativaNcId, setCollegaComeCompensativaNcId] =
     useState<string | null>(null);
+  const [dupResolved, setDupResolved] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
+  const [dupError, setDupError] = useState<string | null>(null);
 
   const current = items[index] ?? null;
   const kind = current?.kind ?? "emessa";
 
   const step: Step | null = useMemo(() => {
     if (!current) return null;
+    if (current.duplicateCandidate && !dupResolved) {
+      return { type: "duplicate-weak" };
+    }
     if (current.anagraficaMode === "existing" && !anagraficaId) {
       return { type: "notice-existing" };
     }
@@ -76,6 +86,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     compPromptDone,
     compCandidates.length,
     compChecking,
+    dupResolved,
   ]);
 
   useEffect(() => {
@@ -87,6 +98,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     setCompPromptDone(false);
     setCompChecking(false);
     setCollegaComeCompensativaNcId(null);
+    setDupResolved(false);
+    setDupBusy(false);
+    setDupError(null);
   }, [index, current?.ficId, current?.anagraficaMode, current?.existingId]);
 
   useEffect(() => {
@@ -311,6 +325,86 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             }
           />
         </div>
+
+        {step.type === "duplicate-weak" && current.duplicateCandidate ? (
+          <div className="mt-4 space-y-3">
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <p className="font-semibold">Possibile duplicato (match debole)</p>
+              <p className="mt-1">
+                Esiste già{" "}
+                <strong>{current.duplicateCandidate.numeroInterno}</strong>
+                {current.duplicateCandidate.numeroEsterno
+                  ? ` · rif. ${current.duplicateCandidate.numeroEsterno}`
+                  : ""}{" "}
+                del {formatDateIt(current.duplicateCandidate.dataEmissione)} ·{" "}
+                {formatEuro(current.duplicateCandidate.totale)}
+              </p>
+              <p className="mt-1 text-xs opacity-90">
+                {current.duplicateCandidate.motivo}
+              </p>
+            </div>
+            {dupError ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {dupError}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={dupBusy}
+                onClick={onPaused}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-sm"
+              >
+                Pausa
+              </button>
+              <button
+                type="button"
+                disabled={dupBusy}
+                onClick={() => {
+                  setDupResolved(true);
+                  goNext();
+                }}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
+              >
+                Scarta FiC (già presente)
+              </button>
+              <button
+                type="button"
+                disabled={dupBusy}
+                onClick={() => setDupResolved(true)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
+              >
+                Registra comunque
+              </button>
+              <button
+                type="button"
+                disabled={dupBusy}
+                onClick={() => {
+                  void (async () => {
+                    setDupBusy(true);
+                    setDupError(null);
+                    const res = await linkFicIdToFatturaEmessaAction({
+                      fatturaId: current.duplicateCandidate!.fatturaId,
+                      ficId: current.ficId,
+                      numeroEsterno: current.numeroEsterno,
+                      motivo: current.duplicateCandidate!.motivo,
+                    });
+                    setDupBusy(false);
+                    if (!res.success) {
+                      setDupError(res.error);
+                      return;
+                    }
+                    setRegisteredCount((c) => c + 1);
+                    goNext();
+                  })();
+                }}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {dupBusy ? "Collegamento…" : "Collega a quella esistente"}
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {step.type === "compensazione-nc" ? (
           <div className="mt-4 space-y-3">

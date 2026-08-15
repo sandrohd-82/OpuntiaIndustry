@@ -168,6 +168,11 @@ export function FattureInterneBoard({ kind }: Props) {
           `${result.skippedAlreadyRegistered} documenti già registrati saltati.`
         );
       }
+      if (result.autoLinkedCount > 0) {
+        parts.push(
+          `${result.autoLinkedCount} documenti manuali collegati automaticamente a FiC.`
+        );
+      }
       if (result.creditNotesPending > 0) {
         parts.push(
           `${result.creditNotesPending} note di credito da registrare.`

@@ -5,14 +5,17 @@ import {
   buildFatturaSyncQueueItem,
   creditNotesRelatedToInvoice,
   matchCreditNoteToFattura,
+  matchFicDocToRegisteredFattura,
   normalizeVatKey,
   sortPendingInvoicesByNcAmount,
+  type FatturaSyncDuplicateCandidate,
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
+import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   fetchIssuedCreditNotes,
@@ -29,6 +32,7 @@ export type FattureSyncStartResult =
       success: true;
       items: FatturaSyncQueueItem[];
       skippedAlreadyRegistered: number;
+      autoLinkedCount: number;
       creditNotesPending: number;
     }
   | { success: false; error: string };
@@ -59,7 +63,7 @@ function resolveClienteForDoc(
 }
 
 export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   try {
     getFicConfig();
   } catch (e) {
@@ -87,7 +91,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
       supabase
         .from("fatture_emesse")
         .select(
-          "id, fic_id, numero_interno, numero_documento_esterno, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento"
+          "id, fic_id, numero_interno, numero_documento_esterno, numero_fattura, cliente_id, cliente_codice_targa, data_emissione, totale, tipo_documento, origine"
         )
         .is("deleted_at", null),
     ]);
@@ -114,25 +118,105 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
   }
   const clienteById = new Map(clienti.map((c) => [c.id, c]));
 
-  const registeredFattureOnly: RegisteredFatturaHint[] = registeredRows
-    .filter((r) => (r.tipo_documento ?? "fattura") !== "nota_credito")
-    .map((r) => {
-      const cliente = clienteById.get(String(r.cliente_id));
-      return {
-        id: String(r.id),
-        numeroInterno: String(r.numero_interno ?? ""),
-        numeroEsterno: String(r.numero_documento_esterno ?? ""),
-        clienteId: String(r.cliente_id),
-        entityVat: cliente?.partita_iva ?? "",
-        dataEmissione: String(r.data_emissione ?? ""),
-        totale: Number(r.totale) || 0,
-      };
-    });
+  const registeredHints: RegisteredFatturaHint[] = registeredRows.map((r) => {
+    const cliente = clienteById.get(String(r.cliente_id));
+    return {
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      numeroEsterno: String(r.numero_documento_esterno ?? ""),
+      numeroFattura: String(r.numero_fattura ?? ""),
+      clienteId: String(r.cliente_id),
+      entityVat: cliente?.partita_iva ?? "",
+      dataEmissione: String(r.data_emissione ?? ""),
+      totale: Number(r.totale) || 0,
+      tipoDocumento:
+        (r.tipo_documento ?? "fattura") === "nota_credito"
+          ? "nota_credito"
+          : "fattura",
+      ficId: r.fic_id != null ? Number(r.fic_id) : null,
+    };
+  });
 
-  const pendingInvoices = invoices.filter((d) => !registeredFicIds.has(d.ficId));
-  const pendingCredits = creditNotes.filter(
+  const registeredFattureOnly = registeredHints.filter(
+    (r) => r.tipoDocumento !== "nota_credito"
+  );
+
+  let pendingInvoices = invoices.filter((d) => !registeredFicIds.has(d.ficId));
+  let pendingCredits = creditNotes.filter(
     (d) => !registeredFicIds.has(d.ficId)
   );
+
+  /** Auto-link match forti (manuale senza fic_id ↔ FiC). */
+  let autoLinkedCount = 0;
+  const stillPendingInv: FicDocumentNormalized[] = [];
+  const stillPendingNc: FicDocumentNormalized[] = [];
+  const weakDupByFicId = new Map<number, FatturaSyncDuplicateCandidate>();
+
+  async function tryAutoLink(
+    doc: FicDocumentNormalized,
+    kind: "emessa" | "nota_credito"
+  ): Promise<"linked" | "weak" | "none"> {
+    const match = matchFicDocToRegisteredFattura(doc, kind, registeredHints);
+    if (!match) return "none";
+    if (match.strength === "strong") {
+      const { error } = await supabase
+        .from("fatture_emesse")
+        .update({
+          fic_id: doc.ficId,
+          updated_by: auth.userId,
+          numero_documento_esterno:
+            match.fattura.numeroEsterno?.trim() ||
+            doc.number ||
+            match.fattura.numeroEsterno,
+        })
+        .eq("id", match.fattura.id)
+        .is("deleted_at", null)
+        .is("fic_id", null);
+      if (error) {
+        console.error("[fatture-sync] auto-link failed", error.message);
+        return "none";
+      }
+      registeredFicIds.add(doc.ficId);
+      const hint = registeredHints.find((h) => h.id === match.fattura.id);
+      if (hint) hint.ficId = doc.ficId;
+      await writeAuditLog({
+        entity_type: "fatture_emesse",
+        entity_id: match.fattura.id,
+        action: "sync_auto_link_fic",
+        actor_id: auth.userId,
+        summary: `Collegato FiC #${doc.ficId} a ${match.fattura.numeroInterno}`,
+        payload: {
+          ficId: doc.ficId,
+          motivo: match.motivo,
+          numeroEsterno: doc.number,
+        },
+      });
+      autoLinkedCount += 1;
+      return "linked";
+    }
+    weakDupByFicId.set(doc.ficId, {
+      strength: "weak",
+      fatturaId: match.fattura.id,
+      numeroInterno: match.fattura.numeroInterno,
+      numeroEsterno: match.fattura.numeroEsterno,
+      dataEmissione: match.fattura.dataEmissione,
+      totale: match.fattura.totale,
+      motivo: match.motivo,
+    });
+    return "weak";
+  }
+
+  for (const inv of pendingInvoices) {
+    const r = await tryAutoLink(inv, "emessa");
+    if (r !== "linked") stillPendingInv.push(inv);
+  }
+  for (const nc of pendingCredits) {
+    const r = await tryAutoLink(nc, "nota_credito");
+    if (r !== "linked") stillPendingNc.push(nc);
+  }
+  pendingInvoices = stillPendingInv;
+  pendingCredits = stillPendingNc;
+
   const skippedAlreadyRegistered =
     invoices.length +
     creditNotes.length -
@@ -168,6 +252,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
         kind: "nota_credito",
         ...anag,
         linkedFattura: linked,
+        duplicateCandidate: weakDupByFicId.get(doc.ficId) ?? null,
       })
     );
   }
@@ -207,6 +292,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
             numeroEsterno: inv.number,
             motivo: "Nota di credito correlata alla fattura in registrazione",
           },
+          duplicateCandidate: weakDupByFicId.get(nc.ficId) ?? null,
         })
       );
     }
@@ -218,6 +304,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
         kind: "emessa",
         ...anagInv,
         linkedFattura: null,
+        duplicateCandidate: weakDupByFicId.get(inv.ficId) ?? null,
       })
     );
   }
@@ -236,6 +323,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
         kind: "nota_credito",
         ...anag,
         linkedFattura: linked,
+        duplicateCandidate: weakDupByFicId.get(doc.ficId) ?? null,
       })
     );
   }
@@ -244,6 +332,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     success: true,
     items,
     skippedAlreadyRegistered,
+    autoLinkedCount,
     creditNotesPending: pendingCredits.length,
   };
 }
@@ -329,6 +418,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     success: true,
     items,
     skippedAlreadyRegistered,
+    autoLinkedCount: 0,
     creditNotesPending: 0,
   };
 }
@@ -439,4 +529,69 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   });
 
   return { success: true, items };
+}
+
+/** Collega manualmente un documento FiC a una fattura emessa già registrata (anti-duplicato). */
+export async function linkFicIdToFatturaEmessaAction(input: {
+  fatturaId: string;
+  ficId: number;
+  numeroEsterno?: string;
+  motivo?: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!input.fatturaId || !Number.isFinite(input.ficId) || input.ficId <= 0) {
+    return { success: false, error: "Dati collegamento non validi." };
+  }
+  const supabase = await createClient();
+
+  const { data: clash } = await supabase
+    .from("fatture_emesse")
+    .select("id, numero_interno")
+    .eq("fic_id", input.ficId)
+    .is("deleted_at", null)
+    .neq("id", input.fatturaId)
+    .maybeSingle();
+  if (clash) {
+    return {
+      success: false,
+      error: `FiC #${input.ficId} già collegato a ${(clash as { numero_interno: string }).numero_interno}.`,
+    };
+  }
+
+  const patch: Record<string, unknown> = {
+    fic_id: input.ficId,
+    updated_by: auth.userId,
+  };
+  if (input.numeroEsterno?.trim()) {
+    patch.numero_documento_esterno = input.numeroEsterno.trim();
+  }
+
+  const { data, error } = await supabase
+    .from("fatture_emesse")
+    .update(patch)
+    .eq("id", input.fatturaId)
+    .is("deleted_at", null)
+    .select("id, numero_interno, fic_id")
+    .single();
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message ?? "Collegamento non riuscito.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "fatture_emesse",
+    entity_id: input.fatturaId,
+    action: "sync_link_fic",
+    actor_id: auth.userId,
+    summary: `Collegato FiC #${input.ficId} a ${(data as { numero_interno: string }).numero_interno}`,
+    payload: {
+      ficId: input.ficId,
+      motivo: input.motivo ?? "conferma_operatore",
+      numeroEsterno: input.numeroEsterno ?? "",
+    },
+  });
+
+  return { success: true };
 }
