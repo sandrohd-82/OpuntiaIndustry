@@ -109,8 +109,72 @@ const STOPWORDS = new Set(
     "strumento",
     "strumenti",
     "strumentazione",
+    // temporale (non entra nello SKU)
+    "mese",
+    "mesi",
+    "anno",
+    "anni",
+    "giorno",
+    "giorni",
+    "settimana",
+    "settimane",
+    "periodo",
+    "data",
+    "gennaio",
+    "febbraio",
+    "marzo",
+    "aprile",
+    "maggio",
+    "giugno",
+    "luglio",
+    "agosto",
+    "settembre",
+    "ottobre",
+    "novembre",
+    "dicembre",
+    "gen",
+    "feb",
+    "mar",
+    "apr",
+    "mag",
+    "giu",
+    "lug",
+    "ago",
+    "set",
+    "ott",
+    "nov",
+    "dic",
   ].map((w) => w.toLowerCase())
 );
+
+/** Anni calendariali da ignorare nello SKU (non sono quantità di prodotto). */
+function isCalendarYear(n: number): boolean {
+  return Number.isInteger(n) && n >= 1900 && n <= 2100;
+}
+
+/**
+ * Rimuove date, mesi e anni dal testo prima della generazione SKU.
+ * Es. "BUSTA PAGA MESE DI GIUGNO 2022" → "BUSTA PAGA"
+ */
+export function stripTemporalNoise(text: string): string {
+  let t = stripDiacritics(text);
+  // date numeriche: 01/06/2022, 1-6-22, 2022-06-01
+  t = t.replace(/\b\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}\b/g, " ");
+  // anni 19xx / 20xx
+  t = t.replace(/\b(?:19|20)\d{2}\b/g, " ");
+  // "mese di giugno", "del mese", ecc.
+  t = t.replace(/\bmese\s+di\b/gi, " ");
+  t = t.replace(
+    /\b(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\b/gi,
+    " "
+  );
+  t = t.replace(
+    /\b(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)\.?\b/gi,
+    " "
+  );
+  t = t.replace(/\b(anno|anni|giorno|giorni|settimana|settimane|periodo)\b/gi, " ");
+  return t.replace(/\s+/g, " ").trim();
+}
 
 type MacroRule = {
   macro: string;
@@ -203,6 +267,18 @@ const MACRO_RULES: MacroRule[] = [
   },
   {
     macro: "SRV",
+    tipo: "PAG",
+    patterns: [
+      /\bbusta\s*pag/i,
+      /\bcedolino/i,
+      /\bstipend/i,
+      /\bpayroll/i,
+      /\bretribuz/i,
+      /\bcompenso\s+lavor/i,
+    ],
+  },
+  {
+    macro: "SRV",
     tipo: "SVC",
     patterns: [
       /\bserviz/i,
@@ -211,12 +287,15 @@ const MACRO_RULES: MacroRule[] = [
       /\btrasport/i,
       /\bspedizion/i,
       /\bnoleggi/i,
+      /\bconsulenza\s+del\s+lavoro/i,
+      /\belaborazion/i,
     ],
   },
 ];
 
+/** Solo quantità con unità di misura (mai anni/numeri nudi). */
 const FORMATO_RE =
-  /\b(\d+(?:[.,]\d+)?)\s*(ml|cl|dl|l|lt|kg|g|mg|mm|cm|m|mt|hz|v|w|kw|%)?\b/gi;
+  /\b(\d+(?:[.,]\d+)?)\s*(ml|cl|dl|l|lt|kg|g|mg|mm|cm|m|mt|hz|v|w|kw|%)\b/gi;
 
 function stripDiacritics(value: string): string {
   return value.normalize("NFD").replace(/\p{M}/gu, "");
@@ -229,9 +308,10 @@ export function clipSkuBlock(value: string, fallback = "X"): string {
   return cleaned.slice(0, SKU_BLOCK_MAX_LEN);
 }
 
-/** Token utili per SKU / nome (senza stopword ridondanti). */
+/** Token utili per SKU / nome (senza stopword, date, anni). */
 export function tokenizeInvoiceLine(text: string): string[] {
-  const raw = stripDiacritics(text)
+  const cleaned = stripTemporalNoise(text);
+  const raw = stripDiacritics(cleaned)
     .toLowerCase()
     .replace(/[^a-z0-9\s.\-%/]/g, " ")
     .replace(/\s+/g, " ")
@@ -240,7 +320,12 @@ export function tokenizeInvoiceLine(text: string): string[] {
   return raw
     .split(" ")
     .map((t) => t.trim())
-    .filter((t) => t.length >= 2 && !STOPWORDS.has(t));
+    .filter((t) => {
+      if (t.length < 2 || STOPWORDS.has(t)) return false;
+      if (/^(?:19|20)\d{2}$/.test(t)) return false;
+      if (/^\d{1,2}$/.test(t)) return false; // giorni del mese isolati
+      return true;
+    });
 }
 
 export function normalizeInvoiceLineText(text: string): string {
@@ -316,22 +401,28 @@ export function compactFormatoFromQuantity(
 }
 
 function detectFormato(text: string): string {
-  const matches = [...text.matchAll(FORMATO_RE)];
+  const cleaned = stripTemporalNoise(text);
+  const matches = [...cleaned.matchAll(FORMATO_RE)];
   if (matches.length === 0) return "STD";
-  const last = matches[matches.length - 1];
-  const num = Number((last[1] ?? "").replace(",", "."));
-  const unit = last[2] ?? "ml";
-  return compactFormatoFromQuantity(num, unit);
+  // preferisci l'ultima quantità con unità (non anni)
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const num = Number((matches[i][1] ?? "").replace(",", "."));
+    const unit = matches[i][2] ?? "";
+    if (!unit) continue;
+    if (isCalendarYear(num)) continue;
+    return compactFormatoFromQuantity(num, unit);
+  }
+  return "STD";
 }
 
-/** Dettaglio tipici: PH4, PH7, PUL, CNS, POT — max 3, senza ripetere MACRO/TIPO. */
+/** Dettaglio tipici: PH4, PH7, PUL, CNS, POT, BUS — max 3, senza ripetere MACRO/TIPO. */
 function detectDettaglio(
   text: string,
   tokens: string[],
   macro: string,
   tipo: string
 ): string {
-  const lower = text.toLowerCase();
+  const lower = stripTemporalNoise(text).toLowerCase();
 
   const phMatch =
     lower.match(/\bph\s*[:=]?\s*(\d(?:[.,]\d)?)\b/i) ||
@@ -341,6 +432,9 @@ function detectDettaglio(
     return clipSkuBlock(`PH${n}`, "PH");
   }
 
+  if (/\bbusta\s*pag/i.test(lower) || /\bcedolino/i.test(lower)) {
+    return "BUS";
+  }
   if (/\bconserv/i.test(lower) || /\bstorag/i.test(lower)) {
     return "CNS";
   }
@@ -352,13 +446,26 @@ function detectDettaglio(
   }
 
   const skip = new Set(
-    [macro, tipo, "std", "sol", "mis", "str", "pul", "cns", "pot"].map((s) =>
-      s.toLowerCase()
-    )
+    [
+      macro,
+      tipo,
+      "std",
+      "sol",
+      "mis",
+      "str",
+      "pul",
+      "cns",
+      "pot",
+      "pag",
+      "bus",
+      "srv",
+      "svc",
+    ].map((s) => s.toLowerCase())
   );
   const candidates = tokens.filter((t) => {
     if (skip.has(t)) return false;
     if (/^\d/.test(t)) return false;
+    if (isCalendarYear(Number(t))) return false;
     if (
       /^(ml|cl|dl|l|lt|kg|g|mg|mm|cm|m|mt|hz|v|w|kw|nr|pcs?)$/i.test(t)
     ) {
@@ -372,8 +479,13 @@ function detectDettaglio(
 }
 
 export function suggestCatalogoKind(text: string): CatalogoAcquistoKind {
-  const lower = text.toLowerCase();
-  if (MACRO_RULES.find((r) => r.macro === "SRV")?.patterns.some((re) => re.test(lower))) {
+  const lower = stripTemporalNoise(text).toLowerCase() || text.toLowerCase();
+  if (
+    /\bbusta\s*pag/i.test(lower) ||
+    /\bcedolino/i.test(lower) ||
+    /\bstipend/i.test(lower) ||
+    MACRO_RULES.find((r) => r.macro === "SRV")?.patterns.some((re) => re.test(lower))
+  ) {
     return "servizio";
   }
   if (MACRO_RULES.find((r) => r.macro === "MPR")?.patterns.some((re) => re.test(lower))) {
@@ -390,7 +502,7 @@ export function catalogoKindPrefix(kind: CatalogoAcquistoKind): "Sz" | "Pr" | "M
 
 /** Corpo SKU parlante (senza prefisso Sz/Pr/Mp). */
 export function generateSkuBody(invoiceLineText: string): SkuParts & { body: string } {
-  const text = invoiceLineText.trim() || "articolo";
+  const text = stripTemporalNoise(invoiceLineText.trim() || "articolo") || "articolo";
   const tokens = tokenizeInvoiceLine(text);
   const { macro, tipo } = detectMacroTipo(text);
   const dettaglio = detectDettaglio(text, tokens, macro, tipo);
@@ -411,7 +523,8 @@ export function generateSkuProposal(
   invoiceLineText: string,
   kind?: CatalogoAcquistoKind
 ): SkuProposal {
-  const resolvedKind = kind ?? suggestCatalogoKind(invoiceLineText);
+  const cleaned = stripTemporalNoise(invoiceLineText);
+  const resolvedKind = kind ?? suggestCatalogoKind(cleaned || invoiceLineText);
   const { body, ...parts } = generateSkuBody(invoiceLineText);
   const prefix = catalogoKindPrefix(resolvedKind);
   return {
@@ -421,6 +534,7 @@ export function generateSkuProposal(
     parts,
     nomeNormalizzato:
       normalizeInvoiceLineText(invoiceLineText) ||
+      cleaned ||
       invoiceLineText.trim() ||
       "Articolo",
   };
