@@ -529,7 +529,10 @@ export function buildFatturaSyncQueueItem(input: {
     entityName: input.doc.entityName,
     entityVat: input.doc.entityVat,
     amountGross: input.doc.amountGross,
-    statoPagamento: statoPagamentoFromFic(input.doc.status),
+    statoPagamento:
+      input.kind === "ricevuta"
+        ? "pagato"
+        : statoPagamentoFromFic(input.doc.status),
     spedizione,
     spedizioneIvaApplicata: false,
     ivaPercentuale,

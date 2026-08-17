@@ -256,7 +256,7 @@ export function FatturaRegistrazioneModal({
       (seed.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
   );
   const [statoPagamento, setStatoPagamento] = useState<FatturaStatoPagamento>(
-    seed.statoPagamento ?? "da_pagare"
+    seed.statoPagamento ?? (isRicevuta ? "pagato" : "da_pagare")
   );
   const [naturaDocumento, setNaturaDocumento] =
     useState<FatturaNaturaDocumento>(
@@ -1831,8 +1831,8 @@ export function FatturaRegistrazioneModal({
                   disabled={dilazioni.length > 0}
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 disabled:bg-slate-50"
                 >
-                  <option value="da_pagare">Da pagare</option>
                   <option value="pagato">Pagato</option>
+                  <option value="da_pagare">Da pagare</option>
                 </select>
               )}
               {!isNc && dilazioni.length > 0 ? (
