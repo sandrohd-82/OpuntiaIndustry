@@ -920,6 +920,7 @@ export async function createFatturaAction(
       imposta: totals.imposta,
       totale: totals.totale,
       stato_pagamento: input.statoPagamento,
+      natura_documento: input.naturaDocumento ?? "saldo",
       documento_stato: "registrata",
       note: input.note,
       created_by: auth.userId,
@@ -1028,6 +1029,7 @@ export async function createFatturaAction(
         totale: totals.totale,
         dilazioni: input.dilazioni.length,
         stato_pagamento: input.statoPagamento,
+        natura_documento: input.naturaDocumento ?? "saldo",
         prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
       },
     });
@@ -1360,6 +1362,7 @@ export async function updateFatturaAction(
       imposta: totals.imposta,
       totale: totals.totale,
       stato_pagamento: input.statoPagamento,
+      natura_documento: input.naturaDocumento ?? "saldo",
       note: input.note,
       versione: (existingRow.versione ?? 1) + 1,
       updated_by: auth.userId,
@@ -1448,6 +1451,7 @@ export async function updateFatturaAction(
         versione: patch.versione,
         totale: totals.totale,
         dilazioni: input.dilazioni.length,
+        natura_documento: input.naturaDocumento ?? "saldo",
       },
     });
 

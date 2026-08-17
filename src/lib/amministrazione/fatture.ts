@@ -5,6 +5,7 @@ import type {
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
   FatturaModalitaCollegamentoNc,
+  FatturaNaturaDocumento,
   FatturaRicevutaDilazioneRow,
   FatturaRicevutaRigaRow,
   FatturaRicevutaRow,
@@ -67,6 +68,8 @@ export type Fattura = {
   imposta: number;
   totale: number;
   statoPagamento: FatturaStatoPagamento;
+  /** Solo ricevute: acconto | saldo. Null per emesse/NC. */
+  naturaDocumento: FatturaNaturaDocumento | null;
   statoIncassoNc: FatturaStatoIncassoNc | null;
   rimborsoNecessario: boolean | null;
   rimborsoMezzo: FatturaRimborsoMezzo | null;
@@ -104,6 +107,8 @@ export type FatturaInput = {
   spedizioneSottraiIncassi?: boolean;
   ivaPercentuale: number;
   statoPagamento: FatturaStatoPagamento;
+  /** Solo ricevute. Default saldo. */
+  naturaDocumento?: FatturaNaturaDocumento | null;
   statoIncassoNc?: FatturaStatoIncassoNc | null;
   rimborsoNecessario?: boolean | null;
   rimborsoMezzo?: FatturaRimborsoMezzo | null;
@@ -371,6 +376,7 @@ const fatturaInputObjectSchema = z.object({
   spedizioneSottraiIncassi: z.boolean().optional(),
   ivaPercentuale: z.number().min(0).max(100),
   statoPagamento: z.enum(["pagato", "da_pagare"]),
+  naturaDocumento: z.enum(["acconto", "saldo"]).nullable().optional(),
   statoIncassoNc: z.enum(["gia_incassata", "non_incassata"]).nullable().optional(),
   rimborsoNecessario: z.boolean().nullable().optional(),
   rimborsoMezzo: z
@@ -484,6 +490,13 @@ function transformFatturaInput(
     statoPagamento = statoPagamentoFromDilazioni(dilazioni);
   }
 
+  const naturaDocumento: FatturaNaturaDocumento | null =
+    kind === "ricevuta"
+      ? v.naturaDocumento === "acconto"
+        ? "acconto"
+        : "saldo"
+      : null;
+
   return {
     ...v,
     anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
@@ -499,6 +512,7 @@ function transformFatturaInput(
       ? v.spedizioneSottraiIncassi !== false
       : true,
     statoPagamento,
+    naturaDocumento,
     statoIncassoNc,
     rimborsoNecessario,
     rimborsoMezzo,
@@ -601,6 +615,7 @@ export function mapFatturaEmessaRow(
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
+    naturaDocumento: null,
     statoIncassoNc: row.stato_incasso_nc ?? null,
     rimborsoNecessario: row.rimborso_necessario ?? null,
     rimborsoMezzo: row.rimborso_mezzo ?? null,
@@ -650,6 +665,8 @@ export function mapFatturaRicevutaRow(
     imposta: Number(row.imposta) || 0,
     totale: Number(row.totale) || 0,
     statoPagamento: row.stato_pagamento,
+    naturaDocumento:
+      row.natura_documento === "acconto" ? "acconto" : "saldo",
     statoIncassoNc: null,
     rimborsoNecessario: null,
     rimborsoMezzo: null,
@@ -693,6 +710,12 @@ export function labelStatoPagamento(
     return nc ? `Annullata (${nc})` : "Annullata";
   }
   return stato === "pagato" ? "Pagato" : "Da pagare";
+}
+
+export function labelNaturaDocumento(
+  natura: FatturaNaturaDocumento | null | undefined
+): string {
+  return natura === "acconto" ? "Acconto" : "Saldo";
 }
 
 /**

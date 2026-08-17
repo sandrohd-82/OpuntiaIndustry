@@ -938,6 +938,8 @@ export type FatturaDilazioneStatoPagamento =
   | "pagato"
   | "da_pagare"
   | "annullata";
+/** Solo fatture ricevute: acconto vs saldo. */
+export type FatturaNaturaDocumento = "acconto" | "saldo";
 export type FatturaDocumentoStato = "bozza" | "registrata" | "chiusa";
 export type FatturaTipoDocumento = "fattura" | "nota_credito";
 export type FatturaStatoIncassoNc = "gia_incassata" | "non_incassata";
@@ -1105,6 +1107,7 @@ export interface FatturaRicevutaRow {
   imposta: number;
   totale: number;
   stato_pagamento: FatturaStatoPagamento;
+  natura_documento: FatturaNaturaDocumento;
   ricevuta_storage_path: string;
   ricevuta_file_name: string;
   versione: number;
@@ -1134,6 +1137,7 @@ export type FatturaRicevutaInsert = {
   imposta?: number;
   totale?: number;
   stato_pagamento?: FatturaStatoPagamento;
+  natura_documento?: FatturaNaturaDocumento;
   ricevuta_storage_path?: string;
   ricevuta_file_name?: string;
   versione?: number;

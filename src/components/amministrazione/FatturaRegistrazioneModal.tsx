@@ -64,8 +64,10 @@ import {
 } from "@/lib/amministrazione/fatture";
 import type {
   FatturaModalitaCollegamentoNc,
+  FatturaNaturaDocumento,
   FatturaRimborsoMezzo,
   FatturaStatoIncassoNc,
+  FatturaStatoPagamento,
 } from "@/types/database";
 import {
   fatturaDetailPath,
@@ -73,7 +75,6 @@ import {
   type ProdottoPrezzoStoricoHint,
   type SpedizioneIvaStoricoHint,
 } from "@/lib/amministrazione/fatture-storico";
-import type { FatturaStatoPagamento } from "@/types/database";
 import {
   ClearableNumberInput,
   numberOrZero,
@@ -112,6 +113,7 @@ export type FatturaRegistrazionePrefill = {
   spedizioneSottraiIncassi?: boolean;
   ivaPercentuale?: number;
   statoPagamento?: FatturaStatoPagamento;
+  naturaDocumento?: FatturaNaturaDocumento | null;
   statoIncassoNc?: FatturaStatoIncassoNc | null;
   rimborsoNecessario?: boolean | null;
   rimborsoMezzo?: FatturaRimborsoMezzo | null;
@@ -156,6 +158,7 @@ function seedFromInitialOrPrefill(
       spedizioneSottraiIncassi: initial.spedizioneSottraiIncassi,
       ivaPercentuale: initial.ivaPercentuale,
       statoPagamento: initial.statoPagamento,
+      naturaDocumento: initial.naturaDocumento,
       statoIncassoNc: initial.statoIncassoNc,
       rimborsoNecessario: initial.rimborsoNecessario,
       rimborsoMezzo: initial.rimborsoMezzo,
@@ -255,6 +258,10 @@ export function FatturaRegistrazioneModal({
   const [statoPagamento, setStatoPagamento] = useState<FatturaStatoPagamento>(
     seed.statoPagamento ?? "da_pagare"
   );
+  const [naturaDocumento, setNaturaDocumento] =
+    useState<FatturaNaturaDocumento>(
+      seed.naturaDocumento === "acconto" ? "acconto" : "saldo"
+    );
   const [rimborsoNecessario, setRimborsoNecessario] = useState(
     seed.rimborsoNecessario ?? false
   );
@@ -422,6 +429,9 @@ export function FatturaRegistrazioneModal({
     setSpedizioneSottraiIncassi(doc.spedizioneSottraiIncassi !== false);
     setIvaPercentuale(doc.ivaPercentuale ?? 22);
     setStatoPagamento(doc.statoPagamento);
+    setNaturaDocumento(
+      doc.naturaDocumento === "acconto" ? "acconto" : "saldo"
+    );
     setStatoIncassoNc(
       doc.statoIncassoNc ??
         (doc.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
@@ -924,6 +934,7 @@ export function FatturaRegistrazioneModal({
               : dilazioniNormalizzate.length > 0
                 ? statoPagamentoFromDilazioni(dilazioniNormalizzate)
                 : statoPagamento,
+          naturaDocumento: isRicevuta ? naturaDocumento : null,
           statoIncassoNc:
             isNc && !isSostituzione ? statoIncassoNc : null,
           rimborsoNecessario:
@@ -1777,6 +1788,25 @@ export function FatturaRegistrazioneModal({
 
           {!isSostituzione ? (
           <div className="grid gap-3 sm:grid-cols-2">
+            {isRicevuta ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Natura documento
+                </label>
+                <select
+                  value={naturaDocumento}
+                  onChange={(e) =>
+                    setNaturaDocumento(
+                      e.target.value as FatturaNaturaDocumento
+                    )
+                  }
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                >
+                  <option value="saldo">Saldo</option>
+                  <option value="acconto">Acconto</option>
+                </select>
+              </div>
+            ) : null}
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 {isNc ? "Incasso" : "Stato"}
