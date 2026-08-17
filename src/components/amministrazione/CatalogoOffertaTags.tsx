@@ -93,7 +93,7 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
     setItems((prev) =>
       [...prev, result.item].sort((a, b) => a.nome.localeCompare(b.nome, "it"))
     );
-    // Aggiorna la scheda azienda: seleziona il nuovo codice, lascia aperta la modale genitore
+    // Solo aggiorna i tag selezionati: non chiudere la scheda fornitore/cliente
     onChange([...value, result.item.codice]);
     setCreateOpen(false);
     setPickerOpen(true);

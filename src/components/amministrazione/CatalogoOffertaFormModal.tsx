@@ -149,6 +149,7 @@ export function CatalogoOffertaFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     const body = sanitizeCatalogoBody(kind, codiceBody);
     if (!body || !nome.trim() || !tipologia || saving) return;
 
@@ -245,7 +246,11 @@ export function CatalogoOffertaFormModal({
           </div>
         )}
 
-        <form onSubmit={submit} className="mt-5 space-y-4">
+        <form
+          onSubmit={submit}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-5 space-y-4"
+        >
           <div className="space-y-2">
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Codice interno</span>

@@ -150,6 +150,7 @@ export function ProdottoProprioFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     const codiceClean = sanitizeCodiceProdottoProprio(codice);
     if (!codiceClean || !nome.trim() || !tipologia || saving) return;
 
