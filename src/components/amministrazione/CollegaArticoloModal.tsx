@@ -13,8 +13,11 @@ type Props = {
   fornitoreId: string | null;
   sameInvoiceCodici: string[];
   preferKind?: CatalogoLifecycleKind | null;
+  codiceDaSostituire?: string | null;
+  suggestedHit?: CollegaCatalogoHit | null;
   onClose: () => void;
   onCollega: (hit: CollegaCatalogoHit) => void;
+  onCreaNuovo: (kind: CatalogoLifecycleKind) => void;
 };
 
 const SOURCE_LABEL: Record<CollegaCatalogoHit["source"], string> = {
@@ -23,13 +26,22 @@ const SOURCE_LABEL: Record<CollegaCatalogoHit["source"], string> = {
   catalogo: "Catalogo",
 };
 
+const KIND_LABEL: Record<CatalogoLifecycleKind, string> = {
+  servizio: "Servizio (Sz)",
+  prodotto: "Prodotto (Pr)",
+  materia: "Materia prima (Mp)",
+};
+
 export function CollegaArticoloModal({
   descrizioneRiga,
   fornitoreId,
   sameInvoiceCodici,
   preferKind = null,
+  codiceDaSostituire = null,
+  suggestedHit = null,
   onClose,
   onCollega,
+  onCreaNuovo,
 }: Props) {
   const titleId = useId();
   const [query, setQuery] = useState(descrizioneRiga);
@@ -88,12 +100,40 @@ export function CollegaArticoloModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Collega articolo
+          Cerca codice da collegare
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Prima le voci della stessa fattura, poi quelle dell’azienda, poi
-          ricerca full-text sul catalogo.
+          Opzioni affiancabili: stessa fattura → azienda → catalogo. Tu
+          selezioni, oppure crei un codice nuovo.
         </p>
+        {codiceDaSostituire ? (
+          <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            Codice da sostituire:{" "}
+            <span className="font-mono font-semibold">{codiceDaSostituire}</span>
+          </p>
+        ) : null}
+        {suggestedHit ? (
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">
+                Suggerito dallo scan
+              </p>
+              <p className="truncate font-mono text-xs font-semibold">
+                {suggestedHit.codice}
+              </p>
+              <p className="truncate text-xs text-sky-900/80">
+                {suggestedHit.nome} · {suggestedHit.score}%
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onCollega(suggestedHit)}
+              className="shrink-0 rounded-lg bg-sky-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-900"
+            >
+              Usa
+            </button>
+          </div>
+        ) : null}
         {descrizioneRiga ? (
           <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
             Riga: {descrizioneRiga}
@@ -115,7 +155,7 @@ export function CollegaArticoloModal({
           <p className="mt-2 text-xs text-[var(--muted)]">Ricerca…</p>
         ) : null}
 
-        <div className="mt-4 max-h-80 space-y-4 overflow-y-auto">
+        <div className="mt-4 max-h-72 space-y-4 overflow-y-auto">
           {(
             ["stessa_fattura", "stessa_azienda", "catalogo"] as const
           ).map((src) =>
@@ -136,6 +176,7 @@ export function CollegaArticoloModal({
                         </p>
                         <p className="truncate text-xs text-[var(--muted)]">
                           {h.nome}
+                          {h.score > 0 ? ` · ${h.score}` : ""}
                         </p>
                       </div>
                       <button
@@ -143,7 +184,7 @@ export function CollegaArticoloModal({
                         onClick={() => onCollega(h)}
                         className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
                       >
-                        Collega
+                        Seleziona
                       </button>
                     </li>
                   ))}
@@ -152,10 +193,26 @@ export function CollegaArticoloModal({
             )
           )}
           {!pending && hits.length === 0 ? (
-            <p className="py-6 text-center text-sm text-[var(--muted)]">
+            <p className="py-4 text-center text-sm text-[var(--muted)]">
               Nessun risultato. Digita nella ricerca o crea un nuovo codice.
             </p>
           ) : null}
+        </div>
+
+        <div className="mt-4 rounded-lg border border-dashed border-[var(--border)] bg-slate-50/80 px-3 py-3">
+          <p className="text-xs font-medium text-slate-700">Crea nuovo codice</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(["servizio", "prodotto", "materia"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => onCreaNuovo(k)}
+                className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+              >
+                + {KIND_LABEL[k]}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="mt-4 flex justify-end">

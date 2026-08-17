@@ -25,6 +25,22 @@ export type CollegaCatalogoHit = {
   score: number;
 };
 
+export type RigaCatalogoMatchStatus =
+  | "ok"
+  | "da_sostituire"
+  | "possibile_match"
+  | "nessun_match"
+  | "codice_orfano";
+
+export type RigaCatalogoMatchHint = {
+  key: string;
+  status: RigaCatalogoMatchStatus;
+  best: CollegaCatalogoHit | null;
+};
+
+/** Soglia UI “possibile match” (suggerimento, non auto-link). */
+export const RIGA_MATCH_SUGGEST_SCORE = 55;
+
 function normalizeSearch(q: string): string {
   return q
     .normalize("NFD")
@@ -52,6 +68,122 @@ function scoreText(query: string, codice: string, nome: string): number {
   return Math.min(65, 30 + hit * 12);
 }
 
+type CatalogEntry = {
+  kind: CatalogoLifecycleKind;
+  id: string;
+  codice: string;
+  nome: string;
+};
+
+async function loadAziendaCodes(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fornitoreId: string | null
+): Promise<Set<string>> {
+  const aziendaCodes = new Set<string>();
+  if (!fornitoreId) return aziendaCodes;
+  const { data: forn } = await supabase
+    .from("fornitori")
+    .select("servizi_offerti, prodotti_fornitore, prodotti_acquistati")
+    .eq("id", fornitoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!forn) return aziendaCodes;
+  const row = forn as {
+    servizi_offerti?: string[];
+    prodotti_fornitore?: string[];
+    prodotti_acquistati?: string[];
+  };
+  for (const arr of [
+    row.servizi_offerti,
+    row.prodotti_fornitore,
+    row.prodotti_acquistati,
+  ]) {
+    for (const c of arr ?? []) {
+      if (c?.trim()) aziendaCodes.add(c.trim().toLowerCase());
+    }
+  }
+  return aziendaCodes;
+}
+
+async function loadCatalogEntries(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  preferKind?: CatalogoLifecycleKind | null
+): Promise<{ entries: CatalogEntry[]; error: string | null }> {
+  const tables: Array<{
+    kind: CatalogoLifecycleKind;
+    table: "catalogo_servizi" | "catalogo_prodotti_fornitore" | "materie_prime";
+  }> = [
+    { kind: "servizio", table: "catalogo_servizi" },
+    { kind: "prodotto", table: "catalogo_prodotti_fornitore" },
+    { kind: "materia", table: "materie_prime" },
+  ];
+  const entries: CatalogEntry[] = [];
+  for (const t of tables) {
+    if (preferKind && preferKind !== t.kind) continue;
+    const { data, error } = await supabase
+      .from(t.table)
+      .select("id, codice, nome")
+      .is("deleted_at", null)
+      .order("codice", { ascending: true })
+      .limit(400);
+    if (error) return { entries: [], error: error.message };
+    for (const row of (data ?? []) as Array<{
+      id: string;
+      codice: string;
+      nome: string;
+    }>) {
+      entries.push({
+        kind: t.kind,
+        id: row.id,
+        codice: row.codice,
+        nome: row.nome,
+      });
+    }
+  }
+  return { entries, error: null };
+}
+
+function rankHits(input: {
+  query: string;
+  entries: CatalogEntry[];
+  sameSet: Set<string>;
+  aziendaCodes: Set<string>;
+}): CollegaCatalogoHit[] {
+  const q = input.query.trim();
+  const hits: CollegaCatalogoHit[] = [];
+  for (const row of input.entries) {
+    const codeKey = row.codice.trim().toLowerCase();
+    let source: CollegaCatalogoHit["source"] = "catalogo";
+    let score = q ? scoreText(q, row.codice, row.nome) : 10;
+    if (input.sameSet.has(codeKey)) {
+      source = "stessa_fattura";
+      score = Math.max(score, 95);
+    } else if (input.aziendaCodes.has(codeKey)) {
+      source = "stessa_azienda";
+      score = Math.max(score, q ? score + 15 : 80);
+    } else if (q && score < 30) {
+      continue;
+    } else if (!q && source === "catalogo") {
+      continue;
+    }
+    hits.push({
+      source,
+      catalogoKind: row.kind,
+      catalogoId: row.id,
+      codice: row.codice,
+      nome: row.nome,
+      score,
+    });
+  }
+  hits.sort((a, b) => {
+    const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
+    const d = order[a.source] - order[b.source];
+    if (d !== 0) return d;
+    return b.score - a.score || a.codice.localeCompare(b.codice, "it");
+  });
+  return hits;
+}
+
 /** Cerca voci da collegare: stessa fattura → stessa azienda → catalogo fulltext. */
 export async function searchCollegaCatalogoAction(input: {
   query: string;
@@ -64,95 +196,122 @@ export async function searchCollegaCatalogoAction(input: {
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
-  const q = input.query.trim();
   const sameSet = new Set(
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
-
-  const aziendaCodes = new Set<string>();
-  if (input.fornitoreId) {
-    const { data: forn } = await supabase
-      .from("fornitori")
-      .select("servizi_offerti, prodotti_fornitore, prodotti_acquistati")
-      .eq("id", input.fornitoreId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (forn) {
-      const row = forn as {
-        servizi_offerti?: string[];
-        prodotti_fornitore?: string[];
-        prodotti_acquistati?: string[];
-      };
-      for (const arr of [
-        row.servizi_offerti,
-        row.prodotti_fornitore,
-        row.prodotti_acquistati,
-      ]) {
-        for (const c of arr ?? []) {
-          if (c?.trim()) aziendaCodes.add(c.trim().toLowerCase());
-        }
-      }
-    }
-  }
-
-  const tables: Array<{
-    kind: CatalogoLifecycleKind;
-    table: "catalogo_servizi" | "catalogo_prodotti_fornitore" | "materie_prime";
-  }> = [
-    { kind: "servizio", table: "catalogo_servizi" },
-    { kind: "prodotto", table: "catalogo_prodotti_fornitore" },
-    { kind: "materia", table: "materie_prime" },
-  ];
-
-  const hits: CollegaCatalogoHit[] = [];
-
-  for (const t of tables) {
-    if (input.preferKind && input.preferKind !== t.kind) continue;
-    const { data, error } = await supabase
-      .from(t.table)
-      .select("id, codice, nome")
-      .is("deleted_at", null)
-      .order("codice", { ascending: true })
-      .limit(400);
-    if (error) return { success: false, error: error.message };
-    for (const row of (data ?? []) as Array<{
-      id: string;
-      codice: string;
-      nome: string;
-    }>) {
-      const codeKey = row.codice.trim().toLowerCase();
-      let source: CollegaCatalogoHit["source"] = "catalogo";
-      let score = q ? scoreText(q, row.codice, row.nome) : 10;
-      if (sameSet.has(codeKey)) {
-        source = "stessa_fattura";
-        score = Math.max(score, 95);
-      } else if (aziendaCodes.has(codeKey)) {
-        source = "stessa_azienda";
-        score = Math.max(score, q ? score + 15 : 80);
-      } else if (q && score < 30) {
-        continue;
-      } else if (!q && source === "catalogo") {
-        continue; // senza query: solo stessa fattura / azienda
-      }
-      hits.push({
-        source,
-        catalogoKind: t.kind,
-        catalogoId: row.id,
-        codice: row.codice,
-        nome: row.nome,
-        score,
-      });
-    }
-  }
-
-  hits.sort((a, b) => {
-    const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
-    const d = order[a.source] - order[b.source];
-    if (d !== 0) return d;
-    return b.score - a.score || a.codice.localeCompare(b.codice, "it");
+  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId);
+  const loaded = await loadCatalogEntries(supabase, input.preferKind);
+  if (loaded.error) return { success: false, error: loaded.error };
+  const hits = rankHits({
+    query: input.query,
+    entries: loaded.entries,
+    sameSet,
+    aziendaCodes,
   });
-
   return { success: true, hits: hits.slice(0, 40) };
+}
+
+/**
+ * Scan righe fattura: suggerimenti match descrizione↔catalogo (nessuna auto-associazione).
+ */
+export async function scanFatturaRigheCatalogoAction(input: {
+  fornitoreId: string | null;
+  sameInvoiceCodici: string[];
+  codicePending: string | null;
+  catalogCodiciValidi: string[];
+  righe: Array<{ key: string; descrizione: string; codice: string }>;
+}): Promise<
+  | { success: true; hints: RigaCatalogoMatchHint[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const pending = (input.codicePending ?? "").trim().toLowerCase();
+  const validSet = new Set(
+    input.catalogCodiciValidi.map((c) => c.trim().toLowerCase()).filter(Boolean)
+  );
+  const sameSet = new Set(
+    input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
+  );
+  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId);
+  const loaded = await loadCatalogEntries(supabase, null);
+  if (loaded.error) return { success: false, error: loaded.error };
+
+  // Se non passano catalogCodiciValidi, deriva dagli entries caricati
+  if (validSet.size === 0) {
+    for (const e of loaded.entries) {
+      validSet.add(e.codice.trim().toLowerCase());
+    }
+  }
+
+  const hints: RigaCatalogoMatchHint[] = [];
+
+  for (const riga of input.righe) {
+    const codice = (riga.codice ?? "").trim();
+    const codeKey = codice.toLowerCase();
+    const desc = (riga.descrizione ?? "").trim();
+
+    if (pending && codeKey && codeKey === pending) {
+      hints.push({ key: riga.key, status: "da_sostituire", best: null });
+      continue;
+    }
+
+    const inCatalog =
+      Boolean(codeKey) && codeKey !== "—" && validSet.has(codeKey);
+
+    if (!desc) {
+      hints.push({
+        key: riga.key,
+        status: inCatalog
+          ? "ok"
+          : codeKey && codeKey !== "—"
+            ? "codice_orfano"
+            : "nessun_match",
+        best: null,
+      });
+      continue;
+    }
+
+    const ranked = rankHits({
+      query: desc,
+      entries: loaded.entries,
+      sameSet,
+      aziendaCodes,
+    });
+    const best =
+      ranked.find((h) => h.codice.trim().toLowerCase() !== codeKey) ??
+      ranked[0] ??
+      null;
+    const score = best?.score ?? 0;
+
+    if (inCatalog && best && best.codice.trim().toLowerCase() === codeKey) {
+      hints.push({ key: riga.key, status: "ok", best });
+      continue;
+    }
+
+    if (best && score >= RIGA_MATCH_SUGGEST_SCORE) {
+      if (inCatalog && best.codice.trim().toLowerCase() === codeKey) {
+        hints.push({ key: riga.key, status: "ok", best });
+      } else {
+        hints.push({ key: riga.key, status: "possibile_match", best });
+      }
+      continue;
+    }
+
+    if (inCatalog) {
+      hints.push({ key: riga.key, status: "ok", best: null });
+      continue;
+    }
+
+    if (codeKey && codeKey !== "—") {
+      hints.push({ key: riga.key, status: "codice_orfano", best: null });
+      continue;
+    }
+
+    hints.push({ key: riga.key, status: "nessun_match", best: null });
+  }
+
+  return { success: true, hints };
 }
 
 export async function listFattureDaAggiornareCatalogoAction(): Promise<

@@ -32,6 +32,10 @@ import {
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
 import {
+  scanFatturaRigheCatalogoAction,
+  type RigaCatalogoMatchHint,
+} from "@/app/actions/catalogo-collega";
+import {
   createMateriaPrimaAction,
   listMateriePrimeAction,
 } from "@/app/actions/materie-prime";
@@ -247,6 +251,10 @@ export function FatturaRegistrazioneModal({
     kind: "servizio" | "prodotto" | "materia";
   } | null>(null);
   const [collegaRigaIndex, setCollegaRigaIndex] = useState<number | null>(null);
+  const [matchHints, setMatchHints] = useState<
+    Record<string, RigaCatalogoMatchHint>
+  >({});
+  const [matchScanPending, setMatchScanPending] = useState(false);
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -594,6 +602,53 @@ export function FatturaRegistrazioneModal({
       cancelled = true;
     };
   }, [isRicevuta]);
+
+  /** Scan automatico descrizione ↔ catalogo (solo suggerimenti, nessuna auto-associazione). */
+  useEffect(() => {
+    if (!isRicevuta) {
+      setMatchHints({});
+      return;
+    }
+    if (vociAcquisto.length === 0 && righe.length === 0) return;
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      setMatchScanPending(true);
+      void (async () => {
+        const res = await scanFatturaRigheCatalogoAction({
+          fornitoreId: anagraficaId || null,
+          sameInvoiceCodici: righe
+            .map((r) => r.codice)
+            .filter((c) => Boolean(c?.trim()) && c !== "—"),
+          codicePending: initial?.codiceCatalogoPending ?? null,
+          catalogCodiciValidi: vociAcquisto.map((v) => v.codice),
+          righe: righe.map((r, i) => ({
+            key: String(i),
+            descrizione: r.descrizione ?? "",
+            codice: r.codice ?? "",
+          })),
+        });
+        if (cancelled) return;
+        setMatchScanPending(false);
+        if (!res.success) {
+          setMatchHints({});
+          return;
+        }
+        const next: Record<string, RigaCatalogoMatchHint> = {};
+        for (const h of res.hints) next[h.key] = h;
+        setMatchHints(next);
+      })();
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [
+    isRicevuta,
+    anagraficaId,
+    vociAcquisto,
+    righe,
+    initial?.codiceCatalogoPending,
+  ]);
 
   useEffect(() => {
     if (!isNc || !anagraficaId) {
@@ -1399,6 +1454,30 @@ export function FatturaRegistrazioneModal({
               </div>
             </div>
 
+            {isRicevuta ? (
+              <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs text-sky-950">
+                {matchScanPending ? (
+                  <span>Controllo corrispondenze descrizione ↔ catalogo…</span>
+                ) : (
+                  <span>
+                    Scan automatico: badge sulle righe (possibile match / nessun
+                    match / da sostituire). Usa <strong>Cerca</strong> per
+                    selezionare un codice o crearne uno nuovo — nessuna
+                    associazione automatica.
+                    {Object.values(matchHints).filter(
+                      (h) => h.status !== "ok"
+                    ).length > 0
+                      ? ` · ${
+                          Object.values(matchHints).filter(
+                            (h) => h.status !== "ok"
+                          ).length
+                        } righe da rivedere`
+                      : null}
+                  </span>
+                )}
+              </div>
+            ) : null}
+
             <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
               <table className="w-full min-w-[1100px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
@@ -1490,6 +1569,7 @@ export function FatturaRegistrazioneModal({
                           </td>
                         ) : null}
                         <td className="px-2 py-2">
+                          <div className="flex flex-col gap-1">
                           <div className="flex items-start gap-1.5">
                             {isRicevuta ? (
                               <>
@@ -1583,10 +1663,10 @@ export function FatturaRegistrazioneModal({
                               <button
                                 type="button"
                                 onClick={() => setCollegaRigaIndex(index)}
-                                className="shrink-0 rounded border border-[var(--border)] px-2 py-1.5 text-[10px] font-medium text-[var(--foreground)] hover:bg-[var(--surface)]"
-                                title="Collega codice esistente (stessa fattura → azienda → catalogo)"
+                                className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2 py-1.5 text-[10px] font-medium text-sky-950 hover:bg-sky-100"
+                                title="Cerca codice corrispondente (stessa fattura → azienda → catalogo) o crea nuovo"
                               >
-                                Collega
+                                Cerca
                               </button>
                               </>
                             ) : (
@@ -1627,6 +1707,45 @@ export function FatturaRegistrazioneModal({
                                 condizioni={prezzoHint.condizioni}
                               />
                             ) : null}
+                          </div>
+                          {isRicevuta
+                            ? (() => {
+                                const hint = matchHints[String(index)];
+                                if (!hint || hint.status === "ok") return null;
+                                const label =
+                                  hint.status === "da_sostituire"
+                                    ? "Codice da sostituire"
+                                    : hint.status === "possibile_match"
+                                      ? `Possibile match${
+                                          hint.best
+                                            ? `: ${hint.best.codice}`
+                                            : ""
+                                        }`
+                                      : hint.status === "codice_orfano"
+                                        ? "Codice non in catalogo"
+                                        : "Nessun match";
+                                const cls =
+                                  hint.status === "da_sostituire"
+                                    ? "border-amber-300 bg-amber-50 text-amber-950"
+                                    : hint.status === "possibile_match"
+                                      ? "border-sky-300 bg-sky-50 text-sky-950"
+                                      : "border-slate-300 bg-slate-50 text-slate-700";
+                                return (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCollegaRigaIndex(index)}
+                                    className={`w-fit max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
+                                    title={
+                                      hint.best
+                                        ? `${hint.best.nome} (${hint.best.score})`
+                                        : label
+                                    }
+                                  >
+                                    {label}
+                                  </button>
+                                );
+                              })()
+                            : null}
                           </div>
                         </td>
                         {!isRicevuta ? (
@@ -2449,6 +2568,24 @@ export function FatturaRegistrazioneModal({
                 c !== "—" &&
                 c !== (righe[collegaRigaIndex]?.codice ?? "")
             )}
+          codiceDaSostituire={
+            matchHints[String(collegaRigaIndex)]?.status === "da_sostituire"
+              ? righe[collegaRigaIndex]?.codice ??
+                initial?.codiceCatalogoPending ??
+                null
+              : initial?.codiceCatalogoPending &&
+                  (righe[collegaRigaIndex]?.codice ?? "")
+                    .trim()
+                    .toLowerCase() ===
+                    initial.codiceCatalogoPending.trim().toLowerCase()
+                ? initial.codiceCatalogoPending
+                : null
+          }
+          suggestedHit={
+            matchHints[String(collegaRigaIndex)]?.status === "possibile_match"
+              ? matchHints[String(collegaRigaIndex)]?.best ?? null
+              : null
+          }
           onClose={() => setCollegaRigaIndex(null)}
           onCollega={(hit) => {
             const idx = collegaRigaIndex;
@@ -2460,6 +2597,11 @@ export function FatturaRegistrazioneModal({
             });
             setCollegaRigaIndex(null);
             void refreshVociAcquisto();
+          }}
+          onCreaNuovo={(kind) => {
+            const idx = collegaRigaIndex;
+            setCollegaRigaIndex(null);
+            setCodificaRiga({ index: idx, kind });
           }}
         />
       ) : null}
