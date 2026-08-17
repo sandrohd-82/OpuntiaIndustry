@@ -6,19 +6,36 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   fetchFicDocumentOriginalUrl,
   getFicConfig,
+  hasFicIssuedEInvoiceXml,
 } from "@/lib/fic";
 
+export type FicDocumentViewUrls =
+  | {
+      success: true;
+      /** Cosa apre “Apri fattura” */
+      fatturaUrl: string;
+      /** XML SDI / trasmissione AdE — null = nascondi bottone Apri XML */
+      xmlUrl: string | null;
+      /** @deprecated alias compat */
+      foglioUrl: string;
+      /** @deprecated alias compat */
+      originalUrl: string;
+    }
+  | { success: false; error: string };
+
 /**
- * - foglioUrl: vista Opuntia (foglio da XML SDI)
- * - originalUrl: file originale su Fatture in Cloud (XML S3, PDF, ecc.)
+ * Ricevute:
+ * - fatturaUrl = foglio Opuntia da XML SDI
+ * - xmlUrl = file originale FiC (allegato)
+ *
+ * Emesse / note credito:
+ * - fatturaUrl = PDF/documento su Fatture in Cloud
+ * - xmlUrl = XML trasmissione SDI se presente, altrimenti null
  */
 export async function getFicDocumentViewUrlsAction(input: {
   kind: FatturaKind;
   ficId: number;
-}): Promise<
-  | { success: true; foglioUrl: string; originalUrl: string; xmlUrl: string }
-  | { success: false; error: string }
-> {
+}): Promise<FicDocumentViewUrls> {
   await requireAreaAccess("amministrazione");
   try {
     getFicConfig();
@@ -40,29 +57,57 @@ export async function getFicDocumentViewUrlsAction(input: {
     };
   }
 
+  const ficKind = toFicKind(input.kind);
+
+  if (ficKind === "received") {
+    const foglioUrl = ficDocumentPath(input.kind, ficId, "foglio");
+    try {
+      const originalUrl = await fetchFicDocumentOriginalUrl({
+        kind: "received",
+        ficId,
+      });
+      return {
+        success: true,
+        fatturaUrl: foglioUrl,
+        xmlUrl: originalUrl,
+        foglioUrl,
+        originalUrl,
+      };
+    } catch {
+      return {
+        success: true,
+        fatturaUrl: foglioUrl,
+        xmlUrl: ficDocumentPath(input.kind, ficId, "xml"),
+        foglioUrl,
+        originalUrl: ficDocumentPath(input.kind, ficId, "xml"),
+      };
+    }
+  }
+
+  // Emessa / nota di credito: PDF FiC + XML SDI solo se disponibile
   try {
-    const originalUrl = await fetchFicDocumentOriginalUrl({
-      kind: toFicKind(input.kind),
+    const fatturaUrl = await fetchFicDocumentOriginalUrl({
+      kind: "issued",
       ficId,
     });
-    const foglioUrl = ficDocumentPath(input.kind, ficId, "foglio");
-    // xmlUrl = stesso file originale (compat); preferire originalUrl
+    const hasXml = await hasFicIssuedEInvoiceXml(ficId);
+    const xmlUrl = hasXml
+      ? ficDocumentPath(input.kind, ficId, "xml")
+      : null;
     return {
       success: true,
-      foglioUrl,
-      originalUrl,
-      xmlUrl: originalUrl,
+      fatturaUrl,
+      xmlUrl,
+      foglioUrl: fatturaUrl,
+      originalUrl: fatturaUrl,
     };
   } catch (e) {
-    // Foglio interno può comunque funzionare se c'è XML in cache;
-    // Apri file originale fallisce se FiC non ha allegato.
-    const foglioUrl = ficDocumentPath(input.kind, ficId, "foglio");
-    const xmlFallback = ficDocumentPath(input.kind, ficId, "xml");
     return {
-      success: true,
-      foglioUrl,
-      originalUrl: xmlFallback,
-      xmlUrl: xmlFallback,
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Documento non disponibile su Fatture in Cloud.",
     };
   }
 }

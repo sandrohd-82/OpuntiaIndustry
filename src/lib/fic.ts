@@ -630,6 +630,23 @@ export async function fetchFicDocumentOriginalUrl(input: {
   return fetchFicDocumentPdfUrl(input);
 }
 
+/**
+ * True se FiC espone l’XML di trasmissione SDI (e-fattura) per un documento emesso.
+ */
+export async function hasFicIssuedEInvoiceXml(ficId: number): Promise<boolean> {
+  const id = Number(ficId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  try {
+    const { text } = await ficGetText(
+      `/issued_documents/${id}/e_invoice/xml`,
+      { include_attachment: 0 }
+    );
+    return looksLikeXml(text);
+  } catch {
+    return false;
+  }
+}
+
 function looksLikeXml(text: string): boolean {
   const t = text.trim().replace(/^\uFEFF/, "");
   return t.startsWith("<?xml") || t.startsWith("<");
