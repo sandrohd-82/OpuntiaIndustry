@@ -21,6 +21,10 @@ import {
   catalogoKindPrefix,
   normalizeInvoiceLineText,
 } from "@/lib/sku-generator";
+import {
+  syncFornitoreSchedaDaCodici,
+  syncFornitoreSchedaFromFatturaRicevutaId,
+} from "@/app/actions/fatture";
 
 type RpcMatchRow = {
   catalogo_kind: string;
@@ -278,6 +282,34 @@ export async function confirmCodificaArticoloAction(
       affinitaPercentuale: input.affinitaPercentuale ?? null,
     },
   });
+
+  if (input.fatturaRicevutaId) {
+    try {
+      await syncFornitoreSchedaFromFatturaRicevutaId({
+        fatturaRicevutaId: input.fatturaRicevutaId,
+        userId: auth.userId,
+      });
+      const { data: fat } = await supabase
+        .from("fatture_ricevute")
+        .select("fornitore_id, numero_interno")
+        .eq("id", input.fatturaRicevutaId)
+        .maybeSingle();
+      if (fat?.fornitore_id) {
+        await syncFornitoreSchedaDaCodici({
+          fornitoreId: String(fat.fornitore_id),
+          codici: [codice],
+          userId: auth.userId,
+          fatturaId: input.fatturaRicevutaId,
+          numeroInterno: String(fat.numero_interno ?? ""),
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[codifica] sync scheda fornitore",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
 
   return {
     success: true,
