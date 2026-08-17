@@ -22,6 +22,8 @@ export type PaperParty = {
   pec: string;
   email: string;
   telefono: string;
+  /** Codice SDI / CodiceDestinatario */
+  sdi: string;
 };
 
 export type PaperInvoiceLine = {
@@ -75,6 +77,7 @@ const DESTINATARIO_DEFAULT: PaperParty = {
   pec: "",
   email: "",
   telefono: "",
+  sdi: "",
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -128,6 +131,7 @@ function emptyParty(): PaperParty {
     pec: "",
     email: "",
     telefono: "",
+    sdi: "",
   };
 }
 
@@ -151,6 +155,7 @@ function partyFromEntity(entity: Record<string, unknown>): PaperParty {
     pec: asText(entity.certified_email ?? entity.pec),
     email: asText(entity.email),
     telefono: asText(entity.phone ?? entity.telefono),
+    sdi: asText(entity.ei_code ?? entity.sdi ?? entity.codice_sdi),
   };
 }
 

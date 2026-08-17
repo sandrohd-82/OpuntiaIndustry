@@ -238,7 +238,10 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)]">
+    <aside
+      data-app-sidebar
+      className="flex w-64 shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)] print:hidden"
+    >
       <div className="border-b border-slate-700 px-4 py-5">
         <p className="text-xs uppercase tracking-wider text-[var(--sidebar-muted)]">
           Industry

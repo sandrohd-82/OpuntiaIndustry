@@ -2,44 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { FaArrowUpRightFromSquare, FaFileCode } from "react-icons/fa6";
-import {
-  openFicInvoiceUrlAction,
-  openFicInvoiceXmlAction,
-} from "@/app/actions/fic-document-open";
+import { getFicDocumentViewUrlsAction } from "@/app/actions/fic-document-open";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 
 type Props = {
   kind: FatturaKind;
   ficId: number | null | undefined;
-  /** Variante link compatta (default) o bottone. */
   variant?: "link" | "button";
   className?: string;
-  /** Etichetta del bottone PDF (default: Apri fattura). */
   labelFattura?: string;
   labelXml?: string;
 };
 
-function openXmlInNewTab(xml: string, filename: string) {
-  const blob = new Blob([xml], { type: "application/xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (!opened) {
-    // fallback download
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  return Boolean(opened);
-}
-
 /**
- * Coppia di azioni FiC: Apri fattura (PDF) + Apri XML.
- * Usato in sync, registrazione e nuova anagrafica.
+ * Apri fattura = foglio stilizzato da XML SDI (nuova scheda, stampabile PDF).
+ * Apri XML = XML originale SDI (nuova scheda).
  */
 export function ApriFatturaFicActions({
   kind,
@@ -49,13 +26,13 @@ export function ApriFatturaFicActions({
   labelFattura,
   labelXml = "Apri XML",
 }: Props) {
-  const [pendingPdf, startPdf] = useTransition();
+  const [pendingFoglio, startFoglio] = useTransition();
   const [pendingXml, startXml] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   if (!ficId || ficId <= 0) return null;
 
-  const pdfLabel =
+  const foglioLabel =
     labelFattura ??
     (kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura");
 
@@ -64,10 +41,19 @@ export function ApriFatturaFicActions({
       ? "inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
       : "inline-flex items-center gap-1.5 text-sm font-medium text-[var(--primary)] hover:underline disabled:opacity-60";
 
-  function handlePdf() {
+  function openUrl(url: string, what: string) {
+    const opened = window.open(url, "_blank", "noopener,noreferrer");
+    if (!opened) {
+      setError(
+        `Popup bloccato: consenti le finestre popup per aprire ${what}.`
+      );
+    }
+  }
+
+  function handleFoglio() {
     setError(null);
-    startPdf(async () => {
-      const result = await openFicInvoiceUrlAction({
+    startFoglio(async () => {
+      const result = await getFicDocumentViewUrlsAction({
         kind,
         ficId: Number(ficId),
       });
@@ -75,19 +61,14 @@ export function ApriFatturaFicActions({
         setError(result.error);
         return;
       }
-      const opened = window.open(result.url, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        setError(
-          "Popup bloccato dal browser. Consenti le finestre popup per aprire il PDF."
-        );
-      }
+      openUrl(result.foglioUrl, "la fattura");
     });
   }
 
   function handleXml() {
     setError(null);
     startXml(async () => {
-      const result = await openFicInvoiceXmlAction({
+      const result = await getFicDocumentViewUrlsAction({
         kind,
         ficId: Number(ficId),
       });
@@ -95,10 +76,7 @@ export function ApriFatturaFicActions({
         setError(result.error);
         return;
       }
-      const opened = openXmlInNewTab(result.xml, result.filename);
-      if (!opened) {
-        // download già eseguito come fallback
-      }
+      openUrl(result.xmlUrl, "l'XML");
     });
   }
 
@@ -107,20 +85,20 @@ export function ApriFatturaFicActions({
       <span className="inline-flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={handlePdf}
-          disabled={pendingPdf || pendingXml}
+          onClick={handleFoglio}
+          disabled={pendingFoglio || pendingXml}
           className={`${base} ${className}`}
-          title="Apre il PDF/allegato da Fatture in Cloud"
+          title="Apre il foglio fattura generato dall'XML SDI (puoi stamparlo/salvarlo come PDF dal browser)"
         >
           <FaArrowUpRightFromSquare size={12} />
-          {pendingPdf ? "Apertura…" : pdfLabel}
+          {pendingFoglio ? "Apertura…" : foglioLabel}
         </button>
         <button
           type="button"
           onClick={handleXml}
-          disabled={pendingPdf || pendingXml}
+          disabled={pendingFoglio || pendingXml}
           className={`${base} ${className}`}
-          title="Apre l'XML della fattura elettronica"
+          title="Apre l'XML originale SDI in una nuova scheda"
         >
           <FaFileCode size={12} />
           {pendingXml ? "Apertura XML…" : labelXml}
@@ -133,7 +111,6 @@ export function ApriFatturaFicActions({
   );
 }
 
-/** Alias compatibile: stesso comportamento della sola azione PDF (preferire ApriFatturaFicActions). */
 export function ApriFatturaFicButton(props: {
   kind: FatturaKind;
   ficId: number | null | undefined;
