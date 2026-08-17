@@ -195,13 +195,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
       },
     ],
   },
-  {
-    slug: "dashboard-fiscale",
-    label: "Dashboard fiscale",
-    description:
-      "Commercialista interattivo: liquidazione IVA, utile/stime tasse, scadenzario (Cooperativa Agricola e Sociale A.R.L.)",
-    path: "/app/amministrazione/dashboard-fiscale",
-  },
 ] as const;
 
 export function getFirstAmministrazionePath(): string {

@@ -14,6 +14,7 @@ export type AreaSlug =
   | "magazzino"
   | "acquisti"
   | "hr"
+  | "area-fiscale"
   | "amministrazione"
   | "impostazioni";
 

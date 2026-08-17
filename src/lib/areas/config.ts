@@ -35,6 +35,11 @@ export const AREA_ROUTES: Record<
     label: "Risorse umane",
     description: "Personale e presenze",
   },
+  "area-fiscale": {
+    path: "/app/area-fiscale",
+    label: "Area Fiscale",
+    description: "Dati e calcoli fiscali e spazio commercialista",
+  },
   amministrazione: {
     path: "/app/amministrazione",
     label: "Amministrazione",

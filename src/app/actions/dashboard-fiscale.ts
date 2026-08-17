@@ -63,7 +63,7 @@ export async function getDashboardFiscaleSummaryAction(input: {
   | { success: true; data: DashboardFiscaleSummary }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const profile = await loadProfile(supabase);
   if (!profile) {
@@ -166,7 +166,7 @@ export async function getDashboardFiscaleScadenzarioAction(input?: {
   | { success: true; scadenze: ScadenzaUnificata[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const now = new Date();
   const dal =
@@ -369,7 +369,7 @@ export async function listAdempimentiFiscaliAction(): Promise<
   | { success: true; items: AdempimentoFiscale[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("adempimenti_fiscali")
@@ -400,7 +400,7 @@ export async function upsertAdempimentoFiscaleAction(
   | { success: true; item: AdempimentoFiscale }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("area-fiscale");
   const parsed = adempimentoSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -450,7 +450,7 @@ export async function upsertAdempimentoFiscaleAction(
 export async function softDeleteAdempimentoFiscaleAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const { error } = await supabase
     .from("adempimenti_fiscali")
@@ -473,7 +473,7 @@ export async function saveDashboardFiscaleSnapshotAction(input: {
   | { success: true; id: string }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("dashboard_fiscale_snapshots")
@@ -531,7 +531,7 @@ export async function listDashboardFiscaleSnapshotsAction(): Promise<
     }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAreaAccess("area-fiscale");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("dashboard_fiscale_snapshots")

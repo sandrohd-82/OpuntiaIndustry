@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
+import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
 import { areaPathFromSlug } from "@/lib/areas/config";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
@@ -16,7 +17,7 @@ type Props = {
   roleName: string;
 };
 
-/** Ordine menu: Amministrazione subito sotto Dashboard */
+/** Ordine menu: Area Fiscale sotto Risorse umane, sopra Impostazioni */
 const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
   "amministrazione",
@@ -25,6 +26,7 @@ const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "magazzino",
   "acquisti",
   "hr",
+  "area-fiscale",
   "impostazioni",
 ];
 
@@ -210,6 +212,9 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
           next.add("grafici");
         }
       }
+      if (pathname.startsWith("/app/area-fiscale")) {
+        next.add("area-fiscale");
+      }
       if (pathname.startsWith("/app/commerciale")) {
         next.add("commerciale");
         if (pathname.startsWith("/app/commerciale/clienti-con-storico")) {
@@ -255,7 +260,9 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
                   ? AMMINISTRAZIONE_SECTIONS
                   : area.slug === "commerciale"
                     ? COMMERCIALE_SECTIONS
-                    : null;
+                    : area.slug === "area-fiscale"
+                      ? AREA_FISCALE_SECTIONS
+                      : null;
 
             if (treeSections) {
               const open = openKeys.has(area.slug);
