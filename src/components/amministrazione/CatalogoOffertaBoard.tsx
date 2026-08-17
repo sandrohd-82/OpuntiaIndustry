@@ -201,7 +201,10 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                 >
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <CodiceTargaBadge code={item.codice} />
+                      <CodiceTargaBadge
+                        code={item.codice}
+                        fixedPrefix={catalogoPrefix(kind)}
+                      />
                       {item.pendingDeleteAt ? (
                         <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
                           In eliminazione

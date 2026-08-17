@@ -1,10 +1,40 @@
 type Props = {
   code: string;
-  /** Prefisso fisso (es. Mp). Se omesso, usa la prima lettera uppercased (F/C). */
+  /** Prefisso fisso (es. Mp, Sz, Pr). Se omesso, prova i prefissi noti a 2 lettere, altrimenti 1 (F/C). */
   fixedPrefix?: string;
   size?: "md" | "lg";
   loading?: boolean;
 };
+
+/** Prefissi catalogo/operativi a 2 caratteri (non modificabili). */
+const KNOWN_TWO_CHAR_PREFIXES = ["Sz", "Pr", "Mp", "At", "Pp"] as const;
+
+function resolvePrefix(
+  trimmed: string,
+  fixedPrefix?: string
+): { prefix: string; body: string } {
+  if (fixedPrefix) {
+    const p = fixedPrefix;
+    const body =
+      trimmed.length >= p.length &&
+      trimmed.slice(0, p.length).toLowerCase() === p.toLowerCase()
+        ? trimmed.slice(p.length)
+        : trimmed;
+    return { prefix: p, body };
+  }
+
+  for (const p of KNOWN_TWO_CHAR_PREFIXES) {
+    if (
+      trimmed.length >= 2 &&
+      trimmed.slice(0, 2).toLowerCase() === p.toLowerCase()
+    ) {
+      return { prefix: p, body: trimmed.slice(2) };
+    }
+  }
+
+  const prefix = trimmed.charAt(0).toUpperCase() || "F";
+  return { prefix, body: trimmed.slice(1).toUpperCase() };
+}
 
 /**
  * Targa / codice con prefisso più bombato e colore leggermente diverso.
@@ -16,27 +46,20 @@ export function CodiceTargaBadge({
   loading = false,
 }: Props) {
   const trimmed = code.trim();
-  const prefix = fixedPrefix
-    ? fixedPrefix
-    : trimmed.charAt(0).toUpperCase() || "F";
-  const rawBody = fixedPrefix
-    ? trimmed.startsWith(fixedPrefix)
-      ? trimmed.slice(fixedPrefix.length)
-      : trimmed
-    : trimmed.slice(1).toUpperCase();
+  const { prefix, body: rawBody } = resolvePrefix(trimmed, fixedPrefix);
   const body = rawBody || (loading ? "…" : "–––");
-  const ariaCode = fixedPrefix
-    ? `${prefix}${rawBody}`
-    : `${prefix}${rawBody}`.toUpperCase();
+  const ariaCode = `${prefix}${rawBody}`;
 
   const prefixColor =
     prefix === "C"
       ? "text-sky-700"
-      : prefix === "Mp"
-        ? "text-emerald-800"
-        : prefix === "Pp"
-          ? "text-violet-800"
-          : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
+      : prefix === "Sz" || prefix === "Pr"
+        ? "text-sky-700"
+        : prefix === "Mp"
+          ? "text-emerald-800"
+          : prefix === "Pp"
+            ? "text-violet-800"
+            : "text-[color-mix(in_srgb,var(--primary)_88%,#0f172a)]";
 
   const sizeClasses =
     size === "lg"

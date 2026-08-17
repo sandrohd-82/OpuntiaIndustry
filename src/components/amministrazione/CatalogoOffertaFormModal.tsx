@@ -262,8 +262,8 @@ export function CatalogoOffertaFormModal({
                 }`}
               >
                 <span
-                  className="inline-flex select-none items-center bg-slate-100 px-3 font-mono text-base font-black tracking-wide text-emerald-800"
-                  title="Prefisso fisso"
+                  className="inline-flex select-none items-center bg-slate-100 px-3 font-mono text-base font-black tracking-wide text-sky-700"
+                  title="Prefisso fisso (2 caratteri)"
                 >
                   {prefix}
                 </span>
