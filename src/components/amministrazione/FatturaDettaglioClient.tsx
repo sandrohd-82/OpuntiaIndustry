@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioView } from "@/components/amministrazione/FatturaDettaglioView";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import { PaperInvoiceViewer } from "@/components/PaperInvoiceViewer";
 import type { Fattura } from "@/lib/amministrazione/fatture";
 
 type Props = {
@@ -101,6 +102,10 @@ export function FatturaDettaglioClient({ initial }: Props) {
           })();
         }}
       />
+
+      {fattura.kind === "ricevuta" ? (
+        <PaperInvoiceViewer fattura={fattura} />
+      ) : null}
 
       {previewError ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">

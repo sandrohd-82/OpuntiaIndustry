@@ -81,3 +81,34 @@ body {
     transform: scale(1);
   }
 }
+
+/* Paper Invoice Viewer — stampa solo il foglio A4 */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .paper-invoice-viewer,
+  .paper-invoice-viewer * {
+    visibility: visible !important;
+  }
+
+  .paper-invoice-viewer {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    background: white !important;
+  }
+
+  .paper-invoice-sheet {
+    box-shadow: none !important;
+    outline: none !important;
+    max-width: none !important;
+    width: 100% !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+}
