@@ -39,6 +39,7 @@ import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 import {
   bilancioDilazioni,
   calcolaTotaliFattura,
+  canFlagBeneAmmortizzabile,
   emptyFatturaDilazione,
   emptyFatturaRiga,
   emptyFatturaRigaNotaCredito,
@@ -787,6 +788,9 @@ export function FatturaRegistrazioneModal({
           numberOrZero(next.prezzoUnitario),
           numberOrZero(next.scontoPercentuale)
         );
+        if (!canFlagBeneAmmortizzabile(numberOrZero(next.prezzoUnitario))) {
+          next.isBeneAmmortizzabile = false;
+        }
         return next;
       })
     );
@@ -1445,6 +1449,9 @@ export function FatturaRegistrazioneModal({
                     const showInfo =
                       prezzoHint?.hasParticolari &&
                       (prezzoHint.condizioni.length ?? 0) > 0;
+                    const ammEnabled = canFlagBeneAmmortizzabile(
+                      numberOrZero(riga.prezzoUnitario)
+                    );
                     return (
                       <tr
                         key={index}
@@ -1725,7 +1732,11 @@ export function FatturaRegistrazioneModal({
                             >
                               <input
                                 type="checkbox"
-                                checked={Boolean(riga.isBeneAmmortizzabile)}
+                                checked={
+                                  ammEnabled &&
+                                  Boolean(riga.isBeneAmmortizzabile)
+                                }
+                                disabled={!ammEnabled}
                                 onChange={(e) =>
                                   patchRiga(index, {
                                     isBeneAmmortizzabile: e.target.checked,

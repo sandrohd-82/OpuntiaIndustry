@@ -40,9 +40,21 @@ export type FatturaRiga = {
    * Bene ammortizzabile:
    * - ricevute → ingresso registro cespiti
    * - emesse → uscita registro cespiti
+   * Solo se prezzo unitario di listino ≥ SOGLIA_BENE_AMMORTIZZABILE_EUR.
    */
   isBeneAmmortizzabile?: boolean;
 };
+
+/** Soglia fiscale beni strumentali di basso costo (EUR, listino unitario). */
+export const SOGLIA_BENE_AMMORTIZZABILE_EUR = 516.46;
+
+/** True se il prezzo unitario di listino consente il flag bene ammortizzabile. */
+export function canFlagBeneAmmortizzabile(prezzoUnitario: number): boolean {
+  return (
+    Number.isFinite(prezzoUnitario) &&
+    Math.abs(prezzoUnitario) >= SOGLIA_BENE_AMMORTIZZABILE_EUR
+  );
+}
 
 export type FatturaDilazione = {
   id?: string;
@@ -490,7 +502,10 @@ function transformFatturaInput(
       scontoPercentuale,
       ivaPercentuale: ivaRiga,
       importo: importoRiga(quantita, Math.abs(r.prezzoUnitario), scontoPercentuale),
-      isBeneAmmortizzabile: Boolean(r.isBeneAmmortizzabile),
+      isBeneAmmortizzabile:
+        !isNc &&
+        canFlagBeneAmmortizzabile(Math.abs(r.prezzoUnitario)) &&
+        Boolean(r.isBeneAmmortizzabile),
     };
   });
   const dilazioni = isNc
