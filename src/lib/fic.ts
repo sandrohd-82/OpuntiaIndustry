@@ -237,10 +237,15 @@ export function normalizeReceivedDocument(
   if (!ficId) return null;
   const entity = asRecord(doc.entity);
   const entityVat =
+    pickItalianVat(
+      entity.vat_number,
+      entity.vat,
+      entity.tax_code,
+      extractSupplierVatFromReceivedRaw(doc)
+    ) ||
     asText(entity.vat_number) ||
     asText(entity.tax_code) ||
-    asText(entity.vat) ||
-    extractSupplierVatFromReceivedRaw(doc);
+    asText(entity.vat);
   return {
     ficId,
     type: "received",
@@ -260,25 +265,27 @@ export function extractSupplierVatFromReceivedRaw(
   raw: Record<string, unknown>
 ): string {
   const entity = asRecord(raw.entity);
-  const direct =
-    asText(entity.vat_number) ||
-    asText(entity.tax_code) ||
-    asText(entity.vat) ||
-    asText(entity.vatNumber) ||
-    asText(entity.codice_fiscale) ||
-    asText(entity.partita_iva) ||
-    asText(asRecord(raw.ei_data).vat_number) ||
-    asText(asRecord(raw.ei_data).tax_code) ||
-    asText(asRecord(raw.supplier).vat_number) ||
-    asText(asRecord(raw.supplier).tax_code);
+  const direct = pickItalianVat(
+    entity.vat_number,
+    entity.vat,
+    entity.vatNumber,
+    entity.partita_iva,
+    entity.tax_code,
+    entity.codice_fiscale,
+    asRecord(raw.ei_data).vat_number,
+    asRecord(raw.ei_data).tax_code,
+    asRecord(raw.supplier).vat_number,
+    asRecord(raw.supplier).tax_code
+  );
   if (direct) return direct;
 
   const xml = findXmlBlobInReceivedRaw(raw);
   if (xml) {
     const fromXml = parseCedenteVatFromFatturaPaXml(xml);
-    if (fromXml) return fromXml;
+    if (fromXml && looksLikeItalianVat(fromXml)) return fromXml;
   }
-  return "";
+
+  return deepFindItalianVat(raw);
 }
 
 function findXmlBlobInReceivedRaw(raw: Record<string, unknown>): string | null {
@@ -292,7 +299,9 @@ function findXmlBlobInReceivedRaw(raw: Record<string, unknown>): string | null {
     raw.attachment_xml,
   ];
   for (const c of candidates) {
-    if (typeof c === "string" && looksLikeXml(c)) return c.trim();
+    if (typeof c !== "string") continue;
+    const xml = extractXmlFromPossiblySigned(c);
+    if (xml) return xml;
   }
   return null;
 }
@@ -327,10 +336,9 @@ export function parseCedenteVatFromFatturaPaXml(xml: string): string {
     xmlLocalBlock(xml, "CedentePrestatore") ||
     xmlLocalBlock(xml, "CedentePrestatoreDTE");
   const ivaBlock = xmlLocalBlock(cedente || xml, "IdFiscaleIVA");
-  return (
-    xmlLocalText(ivaBlock, "IdCodice") ||
-    xmlLocalText(cedente || xml, "CodiceFiscale")
-  );
+  const idCodice = xmlLocalText(ivaBlock, "IdCodice");
+  const cf = xmlLocalText(cedente || xml, "CodiceFiscale");
+  return pickItalianVat(idCodice, cf) || idCodice || cf;
 }
 
 /** Dati anagrafici cedente da XML FatturaPA (per prefill scheda fornitore). */
@@ -419,17 +427,17 @@ function mergeCedenteIntoRaw(
 }
 
 /**
- * Arricchisce una ricevuta FiC (lista spesso senza P.IVA/indirizzo):
- * GET dettaglio + anagrafica supplier FiC + XML SDI se necessario.
+ * Arricchisce una ricevuta FiC: dettaglio + supplier + XML SDI.
+ * La P.IVA cedente (11 cifre) è obbligatoria per il match anagrafica.
  */
 export async function enrichReceivedDocument(
   doc: FicDocumentNormalized
 ): Promise<FicDocumentNormalized> {
   let raw = { ...doc.raw };
-  let entityVat = doc.entityVat;
+  let entityVat = pickItalianVat(doc.entityVat);
   let entityName = doc.entityName;
 
-  // 1) Dettaglio documento (fieldset detailed: entity più completa)
+  // 1) Dettaglio documento
   try {
     const res = await ficGet<{ data?: unknown }>(
       `/received_documents/${doc.ficId}`,
@@ -445,20 +453,27 @@ export async function enrichReceivedDocument(
         entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
       };
     }
-  } catch {
-    // dettaglio non disponibile
+  } catch (e) {
+    console.error(
+      "[fic] enrich detail failed",
+      doc.ficId,
+      e instanceof Error ? e.message : e
+    );
   }
 
   entityVat =
-    asText(asRecord(raw.entity).vat_number) ||
-    asText(asRecord(raw.entity).tax_code) ||
-    extractSupplierVatFromReceivedRaw(raw) ||
-    entityVat;
+    pickItalianVat(
+      asRecord(raw.entity).vat_number,
+      asRecord(raw.entity).vat,
+      asRecord(raw.entity).tax_code,
+      extractSupplierVatFromReceivedRaw(raw),
+      entityVat
+    ) || entityVat;
   entityName = asText(asRecord(raw.entity).name) || entityName;
 
-  // 2) Anagrafica supplier FiC per id (lista/entity stub spesso senza P.IVA)
+  // 2) Anagrafica supplier FiC per id
   const supplierId = asNumber(asRecord(raw.entity).id);
-  if (supplierId > 0 && !normalizeVatLoose(entityVat)) {
+  if (supplierId > 0 && !looksLikeItalianVat(entityVat)) {
     try {
       const res = await ficGet<{ data?: unknown }>(
         `/entities/suppliers/${supplierId}`,
@@ -473,43 +488,63 @@ export async function enrichReceivedDocument(
           entity: { ...asRecord(raw.entity), ...supplier },
         };
         entityVat =
-          asText(supplier.vat_number) ||
-          asText(supplier.tax_code) ||
-          entityVat;
+          pickItalianVat(
+            supplier.vat_number,
+            supplier.tax_code,
+            supplier.vat,
+            entityVat
+          ) || entityVat;
         entityName = asText(supplier.name) || entityName;
       }
-    } catch {
-      // supplier non trovato
+    } catch (e) {
+      console.error(
+        "[fic] enrich supplier failed",
+        supplierId,
+        e instanceof Error ? e.message : e
+      );
     }
   }
 
-  // 3) XML SDI: se manca P.IVA o sede
-  const needsXml =
-    !normalizeVatLoose(entityVat) ||
-    !asText(asRecord(raw.entity).address_street) ||
-    !asText(asRecord(raw.entity).address_city);
-
-  if (needsXml) {
-    let xml = findXmlBlobInReceivedRaw(raw);
-    if (!xml) {
-      try {
-        const fetched = await fetchFicDocumentXml({
-          kind: "received",
-          ficId: doc.ficId,
-        });
-        xml = fetched.xml;
-      } catch {
-        xml = null;
-      }
-    }
-    if (xml) {
-      raw = { ...raw, ei_raw: xml };
-      const ced = parseCedenteAnagraficaFromFatturaPaXml(xml);
-      if (ced.vat) entityVat = ced.vat;
-      if (ced.name) entityName = ced.name;
-      raw = mergeCedenteIntoRaw(raw, ced, entityName, entityVat);
+  // 3) XML SDI: SEMPRE (fonte autorevole della P.IVA in fattura)
+  let xml = findXmlBlobInReceivedRaw(raw);
+  if (!xml) {
+    try {
+      const fetched = await fetchFicDocumentXml({
+        kind: "received",
+        ficId: doc.ficId,
+      });
+      xml = fetched.xml;
+    } catch (e) {
+      console.error(
+        "[fic] enrich xml failed",
+        doc.ficId,
+        e instanceof Error ? e.message : e
+      );
+      xml = null;
     }
   }
+  if (xml) {
+    raw = { ...raw, ei_raw: xml };
+    const ced = parseCedenteAnagraficaFromFatturaPaXml(xml);
+    const cedVat = pickItalianVat(ced.vat, ced.taxCode);
+    // Preferisci sempre la P.IVA dell'XML cedente se valida
+    if (cedVat) entityVat = cedVat;
+    if (ced.name) entityName = ced.name;
+    raw = mergeCedenteIntoRaw(raw, ced, entityName, entityVat);
+  }
+
+  if (!looksLikeItalianVat(entityVat)) {
+    entityVat =
+      pickItalianVat(extractSupplierVatFromReceivedRaw(raw), deepFindItalianVat(raw)) ||
+      entityVat;
+  }
+
+  console.info("[fic] enrich ricevuta", {
+    ficId: doc.ficId,
+    entityName,
+    entityVat,
+    hasXml: Boolean(xml),
+  });
 
   return {
     ...doc,
@@ -517,10 +552,6 @@ export async function enrichReceivedDocument(
     entityVat: entityVat || doc.entityVat,
     raw,
   };
-}
-
-function normalizeVatLoose(vat: string): string {
-  return vat.replace(/[\s.\-\/]/g, "").toUpperCase().replace(/^IT/, "");
 }
 
 async function listAllPages(
@@ -925,6 +956,96 @@ function looksLikeXml(text: string): boolean {
   return t.startsWith("<?xml") || t.startsWith("<");
 }
 
+/** Estrae XML SDI anche da allegati .p7m (PKCS#7 con XML embedded). */
+export function extractXmlFromPossiblySigned(text: string): string | null {
+  if (!text || !text.trim()) return null;
+  if (looksLikeXml(text)) return text.trim();
+
+  const markers = [
+    "<?xml",
+    "<FatturaElettronica",
+    "<p:FatturaElettronica",
+    "<ns1:FatturaElettronica",
+    "<ns2:FatturaElettronica",
+    "<ns3:FatturaElettronica",
+  ];
+  let idx = -1;
+  const lower = text;
+  for (const m of markers) {
+    const i = lower.indexOf(m);
+    if (i >= 0 && (idx < 0 || i < idx)) idx = i;
+  }
+  if (idx < 0) {
+    const re = /<\s*(?:[\w.-]+:)?FatturaElettronica\b/i;
+    const m = re.exec(text);
+    if (m?.index != null) idx = m.index;
+  }
+  if (idx < 0) return null;
+
+  let slice = text.slice(idx);
+  // Tag di chiusura tipico
+  const closeRe =
+    /<\/\s*(?:[\w.-]+:)?FatturaElettronica\s*>/i;
+  const close = closeRe.exec(slice);
+  if (close && close.index != null) {
+    slice = slice.slice(0, close.index + close[0].length);
+  }
+  return slice.includes("FatturaElettronica") || looksLikeXml(slice)
+    ? slice.trim()
+    : null;
+}
+
+/** P.IVA italiana (11 cifre), ignora CF/codici non validi come P.IVA. */
+export function looksLikeItalianVat(value: string): boolean {
+  const key = value.replace(/[\s.\-\/]/g, "").toUpperCase().replace(/^IT/, "");
+  return /^\d{11}$/.test(key);
+}
+
+function pickItalianVat(...candidates: unknown[]): string {
+  for (const c of candidates) {
+    const t = asText(c);
+    if (t && looksLikeItalianVat(t)) return t;
+  }
+  return "";
+}
+
+/** Cerca P.IVA cedente in tutto il JSON FiC (chiavi note). */
+function deepFindItalianVat(value: unknown, depth = 0): string {
+  if (depth > 8 || value == null) return "";
+  if (typeof value === "string") {
+    return looksLikeItalianVat(value) ? value : "";
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = deepFindItalianVat(item, depth + 1);
+      if (hit) return hit;
+    }
+    return "";
+  }
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    const preferKeys = [
+      "vat_number",
+      "vatNumber",
+      "partita_iva",
+      "partitaIva",
+      "IdCodice",
+      "id_codice",
+    ];
+    for (const k of preferKeys) {
+      if (k in rec) {
+        const hit = pickItalianVat(rec[k]);
+        if (hit) return hit;
+      }
+    }
+    for (const v of Object.values(rec)) {
+      const hit = deepFindItalianVat(v, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return "";
+}
+
 function extractXmlCandidateFromRecord(
   raw: Record<string, unknown>
 ): string | null {
@@ -937,7 +1058,9 @@ function extractXmlCandidateFromRecord(
     asRecord(raw.e_invoice).xml,
   ];
   for (const c of candidates) {
-    if (typeof c === "string" && looksLikeXml(c)) return c.trim();
+    if (typeof c !== "string") continue;
+    const xml = extractXmlFromPossiblySigned(c);
+    if (xml) return xml;
   }
   return null;
 }
@@ -973,7 +1096,9 @@ export async function fetchFicDocumentXml(input: {
     `/received_documents/${ficId}`,
     { fieldset: "detailed" }
   );
-  const data = asRecord(res.data);
+  const data = asRecord(
+    (res as { data?: unknown }).data ?? (res as unknown)
+  );
   const embedded = extractXmlCandidateFromRecord(data);
   if (embedded) {
     return { xml: embedded, filename: `fattura-ricevuta-${ficId}.xml` };
@@ -988,12 +1113,14 @@ export async function fetchFicDocumentXml(input: {
 
   for (const absolute of ordered) {
     const { ok, text } = await fetchRemoteAttachmentText(absolute);
-    if (ok && looksLikeXml(text)) {
+    if (!ok || !text) continue;
+    const xml = extractXmlFromPossiblySigned(text);
+    if (xml) {
       const nameFromUrl =
         absolute.split("?")[0]?.split("/").pop() ||
         `fattura-ricevuta-${ficId}.xml`;
       return {
-        xml: text.trim(),
+        xml,
         filename: nameFromUrl.includes(".")
           ? nameFromUrl
           : `fattura-ricevuta-${ficId}.xml`,

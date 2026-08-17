@@ -36,20 +36,66 @@ function resolveFornitoreForDoc(
   fornitori: FornitoreRow[]
 ): FornitoreRow | null {
   const vat = normalizeVatKey(doc.entityVat);
-  if (vat && byVat.has(vat)) return byVat.get(vat) ?? null;
+  if (vat) {
+    const byExact = byVat.get(vat);
+    if (byExact) {
+      console.info("[fatture-sync] match fornitore per P.IVA", {
+        ficId: doc.ficId,
+        vat,
+        fornitore: byExact.codice_targa,
+      });
+      return byExact;
+    }
+    // Scan diretta (evita map incompleta se CF/P.IVA invertiti in anagrafica)
+    for (const f of fornitori) {
+      const piva = normalizeVatKey(f.partita_iva ?? "");
+      const cf = normalizeVatKey(f.codice_fiscale ?? "");
+      if (piva === vat || cf === vat) {
+        console.info("[fatture-sync] match fornitore per P.IVA/CF scan", {
+          ficId: doc.ficId,
+          vat,
+          fornitore: f.codice_targa,
+        });
+        return f;
+      }
+    }
+    console.warn("[fatture-sync] P.IVA estratta ma nessun fornitore", {
+      ficId: doc.ficId,
+      vat,
+      entityName: doc.entityName,
+      fornitoriVat: fornitori.map((f) => normalizeVatKey(f.partita_iva ?? "")),
+    });
+  } else {
+    console.warn("[fatture-sync] ricevuta senza P.IVA dopo enrich", {
+      ficId: doc.ficId,
+      entityName: doc.entityName,
+    });
+  }
+
   const name = (doc.entityName || "").trim();
   if (!name) return null;
-  // Match esatto normalizzato, poi fuzzy (contains)
   const exactKey = normalizeCompanyNameKey(name);
   if (exactKey) {
     for (const f of fornitori) {
       if (normalizeCompanyNameKey(f.ragione_sociale ?? "") === exactKey) {
+        console.info("[fatture-sync] match fornitore per nome", {
+          ficId: doc.ficId,
+          name,
+          fornitore: f.codice_targa,
+        });
         return f;
       }
     }
   }
   for (const f of fornitori) {
-    if (companyNamesMatch(name, f.ragione_sociale ?? "")) return f;
+    if (companyNamesMatch(name, f.ragione_sociale ?? "")) {
+      console.info("[fatture-sync] match fornitore per nome fuzzy", {
+        ficId: doc.ficId,
+        name,
+        fornitore: f.codice_targa,
+      });
+      return f;
+    }
   }
   return null;
 }
