@@ -17,7 +17,7 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
     slug: "il-commercialista",
     label: "Il Commercialista",
     description:
-      "Area riservata al commercialista (in preparazione). Accessibile anche al Super Admin.",
+      "Riepilogo trimestrale emesse/ricevute (prodotti, materiale di consumo, beni ammortizzabili). Accessibile anche al Super Admin.",
     path: "/app/area-fiscale/il-commercialista",
   },
 ] as const;

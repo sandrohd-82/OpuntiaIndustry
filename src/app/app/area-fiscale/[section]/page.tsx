@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { CommercialistaBoard } from "@/components/amministrazione/CommercialistaBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -35,6 +36,17 @@ export default async function AreaFiscaleSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <DashboardFiscaleBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "il-commercialista") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <CommercialistaBoard />
         </div>
       </>
     );
