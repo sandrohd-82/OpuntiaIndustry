@@ -25,28 +25,28 @@ function VoceImporti({
   valori: ImportoConIva;
 }) {
   return (
-    <li className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-medium text-slate-800">{label}</span>
-        <span className="text-sm font-semibold tabular-nums text-slate-900">
+    <div className="min-w-0 space-y-2">
+      <div>
+        <p className="text-sm font-medium text-slate-800">{label}</p>
+        <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-900">
           {formatEuro(valori.totale)}
-        </span>
+        </p>
       </div>
-      <div className="grid grid-cols-2 gap-2 pl-1 text-xs text-[var(--muted)]">
-        <div className="flex justify-between gap-2">
-          <span>Imponibile</span>
-          <span className="tabular-nums text-slate-700">
+      <dl className="space-y-1 text-xs text-[var(--muted)]">
+        <div className="flex items-baseline justify-between gap-2">
+          <dt>Imponibile</dt>
+          <dd className="tabular-nums text-slate-700">
             {formatEuro(valori.imponibile)}
-          </span>
+          </dd>
         </div>
-        <div className="flex justify-between gap-2">
-          <span>IVA</span>
-          <span className="tabular-nums text-slate-700">
+        <div className="flex items-baseline justify-between gap-2">
+          <dt>IVA</dt>
+          <dd className="tabular-nums text-slate-700">
             {formatEuro(valori.iva)}
-          </span>
+          </dd>
         </div>
-      </div>
-    </li>
+      </dl>
+    </div>
   );
 }
 
@@ -70,30 +70,36 @@ function ColonnaRiepilogo({
       <h2 className="text-sm font-medium uppercase tracking-wide text-[var(--muted)]">
         {titolo}
       </h2>
-      <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
-        {formatEuro(documenti.totale)}
-      </p>
-      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
-        <div className="flex justify-between gap-2">
-          <span>Imponibile</span>
-          <span className="tabular-nums text-slate-700">
-            {formatEuro(documenti.imponibile)}
-          </span>
+
+      <div className="mt-3 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+            {formatEuro(documenti.totale)}
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            {conteggio} document{conteggio === 1 ? "o" : "i"}
+          </p>
         </div>
-        <div className="flex justify-between gap-2">
-          <span>IVA</span>
-          <span className="tabular-nums text-slate-700">
-            {formatEuro(documenti.iva)}
-          </span>
-        </div>
+        <dl className="shrink-0 space-y-1 text-right text-xs text-[var(--muted)]">
+          <div className="flex items-baseline justify-end gap-3">
+            <dt>Imponibile</dt>
+            <dd className="min-w-[5.5rem] tabular-nums text-sm text-slate-700">
+              {formatEuro(documenti.imponibile)}
+            </dd>
+          </div>
+          <div className="flex items-baseline justify-end gap-3">
+            <dt>IVA</dt>
+            <dd className="min-w-[5.5rem] tabular-nums text-sm text-slate-700">
+              {formatEuro(documenti.iva)}
+            </dd>
+          </div>
+        </dl>
       </div>
-      <p className="mt-2 text-xs text-[var(--muted)]">
-        {conteggio} document{conteggio === 1 ? "o" : "i"}
-      </p>
-      <ul className="mt-5 space-y-4 border-t border-[var(--border)] pt-4">
+
+      <div className="mt-5 grid grid-cols-2 gap-4 border-t border-[var(--border)] pt-4">
         <VoceImporti label={vocePrimariaLabel} valori={vocePrimaria} />
         <VoceImporti label="Beni ammortizzabili" valori={beni} />
-      </ul>
+      </div>
     </section>
   );
 }
