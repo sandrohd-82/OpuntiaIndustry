@@ -1,5 +1,6 @@
 import {
   draftFromFicEntity,
+  normalizeCompanyNameKey,
   normalizeVatKey,
   type AnagraficaSyncDraft,
 } from "@/lib/amministrazione/fic-anagrafiche";
@@ -11,6 +12,7 @@ import {
 } from "@/lib/amministrazione/fatture";
 import {
   enrichEntityFromInvoiceRaw,
+  parseCedenteAnagraficaFromFatturaPaXml,
   type FicDocumentNormalized,
   type FicEntityNormalized,
 } from "@/lib/fic";
@@ -190,10 +192,35 @@ function entityStubFromDoc(doc: FicDocumentNormalized): FicEntityNormalized {
     street: asText(entity.address_street ?? entity.address),
     shippingAddress: asText(entity.shipping_address),
   };
-  const enriched = enrichEntityFromInvoiceRaw(base, doc.raw);
-  if (!enriched.vat.trim() && doc.type === "received") {
-    // lazy import avoided: vat already set on doc via normalizeReceivedDocument
-    return { ...enriched, vat: doc.entityVat || enriched.vat };
+  let enriched = enrichEntityFromInvoiceRaw(base, doc.raw);
+  if (doc.type === "received") {
+    const xml =
+      typeof doc.raw.ei_raw === "string" && doc.raw.ei_raw.includes("<")
+        ? doc.raw.ei_raw
+        : null;
+    if (xml) {
+      const ced = parseCedenteAnagraficaFromFatturaPaXml(xml);
+      const fill = (cur: string, next: string) => (cur.trim() ? cur : next.trim());
+      enriched = {
+        ...enriched,
+        name: fill(enriched.name, ced.name) || doc.entityName,
+        vat: fill(enriched.vat, ced.vat) || doc.entityVat,
+        taxCode: fill(enriched.taxCode, ced.taxCode) || enriched.vat,
+        email: fill(enriched.email, ced.email),
+        pec: fill(enriched.pec, ced.pec),
+        phone: fill(enriched.phone, ced.phone),
+        sdi: fill(enriched.sdi, ced.sdi),
+        street: fill(enriched.street, ced.street),
+        postalCode: fill(enriched.postalCode, ced.postalCode),
+        city: fill(enriched.city, ced.city),
+        province: fill(enriched.province, ced.province),
+        country:
+          fill(enriched.country, ced.country === "IT" ? "Italia" : ced.country) ||
+          "Italia",
+      };
+    } else if (!enriched.vat.trim()) {
+      enriched = { ...enriched, vat: doc.entityVat || enriched.vat };
+    }
   }
   return enriched;
 }
@@ -553,4 +580,4 @@ export function sortPendingInvoicesByNcAmount<
   });
 }
 
-export { normalizeVatKey };
+export { normalizeCompanyNameKey, normalizeVatKey };

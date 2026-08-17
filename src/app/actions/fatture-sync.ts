@@ -6,6 +6,7 @@ import {
   creditNotesRelatedToInvoice,
   matchCreditNoteToFattura,
   matchFicDocToRegisteredFattura,
+  normalizeCompanyNameKey,
   normalizeVatKey,
   sortPendingInvoicesByNcAmount,
   type FatturaSyncDuplicateCandidate,
@@ -18,6 +19,7 @@ import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
+  enrichReceivedDocument,
   fetchIssuedCreditNotes,
   fetchIssuedInvoices,
   fetchReceivedInvoices,
@@ -26,6 +28,18 @@ import {
 } from "@/lib/fic";
 import { createClient } from "@/lib/supabase/server";
 import type { ClienteRow, FornitoreRow } from "@/types/database";
+
+function resolveFornitoreForDoc(
+  doc: FicDocumentNormalized,
+  byVat: Map<string, FornitoreRow>,
+  byName: Map<string, FornitoreRow>
+): FornitoreRow | null {
+  const vat = normalizeVatKey(doc.entityVat);
+  if (vat && byVat.has(vat)) return byVat.get(vat) ?? null;
+  const nameKey = normalizeCompanyNameKey(doc.entityName);
+  if (nameKey && byName.has(nameKey)) return byName.get(nameKey) ?? null;
+  return null;
+}
 
 export type FattureSyncStartResult =
   | {
@@ -372,12 +386,15 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
 
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
   const byVat = new Map<string, FornitoreRow>();
+  const byName = new Map<string, FornitoreRow>();
   const fornitoreById = new Map(fornitori.map((f) => [f.id, f]));
   for (const f of fornitori) {
     const key = normalizeVatKey(f.partita_iva);
     if (key) byVat.set(key, f);
     const cf = normalizeVatKey(f.codice_fiscale ?? "");
     if (cf && !byVat.has(cf)) byVat.set(cf, f);
+    const nameKey = normalizeCompanyNameKey(f.ragione_sociale ?? "");
+    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, f);
   }
 
   const registeredHints: RegisteredFatturaHint[] = (
@@ -466,12 +483,27 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   );
   const skippedAlreadyRegistered = docs.length - pending.length;
 
+  // Lista FiC spesso senza P.IVA: dettaglio + XML SDI prima del match anagrafica
+  const enrichedPending: FicDocumentNormalized[] = [];
+  for (const doc of pending) {
+    try {
+      enrichedPending.push(await enrichReceivedDocument(doc));
+    } catch (e) {
+      console.error(
+        "[fatture-sync] enrich ricevuta failed",
+        doc.ficId,
+        e instanceof Error ? e.message : e
+      );
+      enrichedPending.push(doc);
+    }
+  }
+  pending = enrichedPending;
+
   const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
 
   const items: FatturaSyncQueueItem[] = [];
   for (const doc of pending) {
-    const vat = normalizeVatKey(doc.entityVat);
-    const existing = vat ? byVat.get(vat) ?? null : null;
+    const existing = resolveFornitoreForDoc(doc, byVat, byName);
     let proposedTarga = existing?.codice_targa ?? "";
     if (!existing) {
       proposedTarga = nextSequentialCodiceTarga("F", [...usedTarghe]);

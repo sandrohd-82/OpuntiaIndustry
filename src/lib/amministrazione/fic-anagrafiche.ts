@@ -343,7 +343,7 @@ export function draftToClienteInput(
 }
 
 /**
- * Chiave P.IVA per matching sync (solo partita IVA, mai il nome).
+ * Chiave P.IVA per matching sync.
  * Normalizza spazi/case e prefisso IT opzionale.
  */
 export function normalizeVatKey(vat: string): string {
@@ -352,4 +352,16 @@ export function normalizeVatKey(vat: string): string {
     key = key.slice(2);
   }
   return key;
+}
+
+/**
+ * Chiave ragione sociale per match fallback (es. "Bologna Fiere Spa" ≈ "BolognaFiere spa").
+ */
+export function normalizeCompanyNameKey(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b(s\.?\s*p\.?\s*a\.?|s\.?\s*r\.?\s*l\.?|s\.?\s*n\.?\s*c\.?|s\.?\s*a\.?\s*s\.?|s\.?\s*s\.?)\b/gi, " ")
+    .replace(/[^a-z0-9]/g, "");
 }

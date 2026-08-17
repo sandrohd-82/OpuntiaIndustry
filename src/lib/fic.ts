@@ -264,35 +264,241 @@ export function extractSupplierVatFromReceivedRaw(
     asText(entity.vat_number) ||
     asText(entity.tax_code) ||
     asText(entity.vat) ||
+    asText(entity.vatNumber) ||
+    asText(entity.codice_fiscale) ||
+    asText(entity.partita_iva) ||
     asText(asRecord(raw.ei_data).vat_number) ||
-    asText(asRecord(raw.ei_data).tax_code);
+    asText(asRecord(raw.ei_data).tax_code) ||
+    asText(asRecord(raw.supplier).vat_number) ||
+    asText(asRecord(raw.supplier).tax_code);
   if (direct) return direct;
 
-  const xmlCandidates = [
+  const xml = findXmlBlobInReceivedRaw(raw);
+  if (xml) {
+    const fromXml = parseCedenteVatFromFatturaPaXml(xml);
+    if (fromXml) return fromXml;
+  }
+  return "";
+}
+
+function findXmlBlobInReceivedRaw(raw: Record<string, unknown>): string | null {
+  const candidates = [
     raw.ei_raw,
     raw.e_invoice_xml,
     raw.xml,
     raw.xml_content,
     asRecord(raw.ei_data).xml,
     asRecord(raw.e_invoice).xml,
+    raw.attachment_xml,
   ];
-  for (const c of xmlCandidates) {
-    if (typeof c !== "string" || !c.includes("<")) continue;
-    const cedente =
-      c.match(
-        /<(?:[\w.-]+:)?CedentePrestatore\b[\s\S]*?<\/(?:[\w.-]+:)?CedentePrestatore>/i
-      )?.[0] ?? "";
-    const idCodice =
-      cedente.match(
-        /<(?:[\w.-]+:)?IdCodice(?:\s[^>]*)?>([^<]+)<\/(?:[\w.-]+:)?IdCodice>/i
-      )?.[1] ??
-      c.match(
-        /<(?:[\w.-]+:)?IdFiscaleIVA\b[\s\S]*?<(?:[\w.-]+:)?IdCodice(?:\s[^>]*)?>([^<]+)/i
-      )?.[1];
-    const vat = asText(idCodice);
-    if (vat) return vat;
+  for (const c of candidates) {
+    if (typeof c === "string" && looksLikeXml(c)) return c.trim();
   }
-  return "";
+  return null;
+}
+
+function xmlLocalText(xml: string, localName: string): string {
+  const re = new RegExp(
+    `<(?:[\\w.-]+:)?${localName}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[\\w.-]+:)?${localName}>`,
+    "i"
+  );
+  const m = xml.match(re);
+  if (!m) return "";
+  return m[1]
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .trim();
+}
+
+function xmlLocalBlock(xml: string, localName: string): string {
+  const re = new RegExp(
+    `<(?:[\\w.-]+:)?${localName}\\b[\\s\\S]*?</(?:[\\w.-]+:)?${localName}>`,
+    "i"
+  );
+  return xml.match(re)?.[0] ?? "";
+}
+
+export function parseCedenteVatFromFatturaPaXml(xml: string): string {
+  const cedente =
+    xmlLocalBlock(xml, "CedentePrestatore") ||
+    xmlLocalBlock(xml, "CedentePrestatoreDTE");
+  const ivaBlock = xmlLocalBlock(cedente || xml, "IdFiscaleIVA");
+  return (
+    xmlLocalText(ivaBlock, "IdCodice") ||
+    xmlLocalText(cedente || xml, "CodiceFiscale")
+  );
+}
+
+/** Dati anagrafici cedente da XML FatturaPA (per prefill scheda fornitore). */
+export function parseCedenteAnagraficaFromFatturaPaXml(xml: string): {
+  name: string;
+  vat: string;
+  taxCode: string;
+  pec: string;
+  sdi: string;
+  email: string;
+  phone: string;
+  street: string;
+  postalCode: string;
+  city: string;
+  province: string;
+  country: string;
+} {
+  const cedente =
+    xmlLocalBlock(xml, "CedentePrestatore") ||
+    xmlLocalBlock(xml, "CedentePrestatoreDTE");
+  const anag = xmlLocalBlock(cedente, "Anagrafica");
+  const sede = xmlLocalBlock(cedente, "Sede");
+  const contatti = xmlLocalBlock(cedente, "Contatti");
+  const ivaBlock = xmlLocalBlock(cedente, "IdFiscaleIVA");
+  const vat = xmlLocalText(ivaBlock, "IdCodice");
+  const taxCode = xmlLocalText(cedente, "CodiceFiscale") || vat;
+  const name =
+    xmlLocalText(anag, "Denominazione") ||
+    [xmlLocalText(anag, "Nome"), xmlLocalText(anag, "Cognome")]
+      .filter(Boolean)
+      .join(" ");
+  const street = [
+    xmlLocalText(sede, "Indirizzo"),
+    xmlLocalText(sede, "NumeroCivico"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return {
+    name,
+    vat,
+    taxCode,
+    pec: xmlLocalText(contatti, "Email") || "", // spesso PEC in Email
+    sdi: xmlLocalText(xml, "CodiceDestinatario"),
+    email: xmlLocalText(contatti, "Email"),
+    phone: xmlLocalText(contatti, "Telefono"),
+    street,
+    postalCode: xmlLocalText(sede, "CAP"),
+    city: xmlLocalText(sede, "Comune"),
+    province: xmlLocalText(sede, "Provincia"),
+    country: xmlLocalText(sede, "Nazione") || "IT",
+  };
+}
+
+function mapCountryLabel(code: string): string {
+  const c = code.trim().toUpperCase();
+  if (!c || c === "IT" || c === "ITA") return "Italia";
+  return code.trim() || "Italia";
+}
+
+function mergeCedenteIntoRaw(
+  raw: Record<string, unknown>,
+  ced: ReturnType<typeof parseCedenteAnagraficaFromFatturaPaXml>,
+  entityName: string,
+  entityVat: string
+): Record<string, unknown> {
+  const entity = asRecord(raw.entity);
+  return {
+    ...raw,
+    entity: {
+      ...entity,
+      name: entityName || ced.name || asText(entity.name),
+      vat_number: entityVat || ced.vat || asText(entity.vat_number),
+      tax_code: ced.taxCode || asText(entity.tax_code),
+      email: ced.email || asText(entity.email),
+      certified_email: ced.pec || asText(entity.certified_email),
+      phone: ced.phone || asText(entity.phone),
+      ei_code: ced.sdi || asText(entity.ei_code),
+      address_street: ced.street || asText(entity.address_street),
+      address_postal_code:
+        ced.postalCode || asText(entity.address_postal_code),
+      address_city: ced.city || asText(entity.address_city),
+      address_province: ced.province || asText(entity.address_province),
+      country: mapCountryLabel(ced.country || asText(entity.country)),
+    },
+  };
+}
+
+/**
+ * Arricchisce una ricevuta FiC (lista spesso senza P.IVA/indirizzo):
+ * GET dettaglio + XML SDI allegato se necessario.
+ */
+export async function enrichReceivedDocument(
+  doc: FicDocumentNormalized
+): Promise<FicDocumentNormalized> {
+  let raw = { ...doc.raw };
+  let entityVat = doc.entityVat;
+  let entityName = doc.entityName;
+
+  const needsDetail =
+    !normalizeVatLoose(entityVat) ||
+    !entityName.trim() ||
+    !asText(asRecord(raw.entity).address_street);
+
+  if (needsDetail) {
+    try {
+      const res = await ficGet<{ data?: unknown }>(
+        `/received_documents/${doc.ficId}`,
+        {}
+      );
+      const detail = asRecord(
+        (res as { data?: unknown }).data ?? (res as unknown)
+      );
+      if (Object.keys(detail).length > 0 && asNumber(detail.id)) {
+        raw = {
+          ...raw,
+          ...detail,
+          entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
+        };
+      }
+    } catch {
+      // dettaglio non disponibile: continua con raw lista
+    }
+  }
+
+  entityVat =
+    asText(asRecord(raw.entity).vat_number) ||
+    asText(asRecord(raw.entity).tax_code) ||
+    extractSupplierVatFromReceivedRaw(raw) ||
+    entityVat;
+  entityName = asText(asRecord(raw.entity).name) || entityName;
+
+  const needsXml =
+    !normalizeVatLoose(entityVat) ||
+    !asText(asRecord(raw.entity).address_street) ||
+    !asText(asRecord(raw.entity).address_city);
+
+  if (needsXml) {
+    let xml = findXmlBlobInReceivedRaw(raw);
+    if (!xml) {
+      try {
+        const fetched = await fetchFicDocumentXml({
+          kind: "received",
+          ficId: doc.ficId,
+        });
+        xml = fetched.xml;
+      } catch {
+        xml = null;
+      }
+    }
+    if (xml) {
+      raw = { ...raw, ei_raw: xml };
+      const ced = parseCedenteAnagraficaFromFatturaPaXml(xml);
+      if (ced.vat) entityVat = ced.vat;
+      if (ced.name) entityName = ced.name;
+      raw = mergeCedenteIntoRaw(raw, ced, entityName, entityVat);
+    }
+  }
+
+  return {
+    ...doc,
+    entityName: entityName || doc.entityName,
+    entityVat: entityVat || doc.entityVat,
+    raw,
+  };
+}
+
+function normalizeVatLoose(vat: string): string {
+  return vat.replace(/[\s.\-\/]/g, "").toUpperCase().replace(/^IT/, "");
 }
 
 async function listAllPages(

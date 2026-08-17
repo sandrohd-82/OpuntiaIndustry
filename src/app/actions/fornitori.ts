@@ -13,7 +13,7 @@ import {
 } from "@/lib/amministrazione/fornitori";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
-import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
+import { normalizeCompanyNameKey, normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
@@ -202,16 +202,18 @@ export async function listFornitoriAction(): Promise<
   };
 }
 
-/** Trova fornitore attivo per P.IVA / CF (sync ricevute). */
+/** Trova fornitore attivo per P.IVA / CF / ragione sociale (sync ricevute). */
 export async function findFornitoreByPartitaIvaAction(
-  partitaIva: string
+  partitaIva: string,
+  ragioneSociale?: string
 ): Promise<
   | { success: true; fornitore: Fornitore | null }
   | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
   const vat = normalizeVatKey(partitaIva);
-  if (!vat) return { success: true, fornitore: null };
+  const nameKey = normalizeCompanyNameKey(ragioneSociale ?? "");
+  if (!vat && !nameKey) return { success: true, fornitore: null };
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -220,14 +222,25 @@ export async function findFornitoreByPartitaIvaAction(
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
 
-  const hit = ((data ?? []) as FornitoreRow[]).find((row) => {
-    const piva = normalizeVatKey(row.partita_iva);
-    const cf = normalizeVatKey(row.codice_fiscale ?? "");
-    return piva === vat || cf === vat;
-  });
+  const rows = (data ?? []) as FornitoreRow[];
+  const byVat = vat
+    ? rows.find((row) => {
+        const piva = normalizeVatKey(row.partita_iva);
+        const cf = normalizeVatKey(row.codice_fiscale ?? "");
+        return piva === vat || cf === vat;
+      })
+    : null;
+  if (byVat) {
+    return { success: true, fornitore: mapFornitoreRow(byVat) };
+  }
+  const byName = nameKey
+    ? rows.find(
+        (row) => normalizeCompanyNameKey(row.ragione_sociale ?? "") === nameKey
+      )
+    : null;
   return {
     success: true,
-    fornitore: hit ? mapFornitoreRow(hit) : null,
+    fornitore: byName ? mapFornitoreRow(byName) : null,
   };
 }
 
