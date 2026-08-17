@@ -16,12 +16,26 @@ import {
 } from "@/app/actions/fatture";
 import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
+import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
+import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { NcPendingFatturaPickerModal } from "@/components/amministrazione/NcPendingFatturaPickerModal";
 import { ProdottoPrezzoStoricoInfo } from "@/components/amministrazione/ProdottoPrezzoStoricoInfo";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
+import {
+  createCatalogoProdottoFornitoreAction,
+  createCatalogoServizioAction,
+  listCatalogoProdottiFornitoreAction,
+  listCatalogoServiziAction,
+} from "@/app/actions/catalogo-offerta";
+import {
+  createMateriaPrimaAction,
+  listMateriePrimeAction,
+} from "@/app/actions/materie-prime";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
+import type { CatalogoOffertaItem } from "@/lib/amministrazione/catalogo-offerta";
+import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
 import {
   bilancioDilazioni,
   calcolaTotaliFattura,
@@ -72,6 +86,14 @@ type EditableRiga = Omit<
   quantita: number | "";
   prezzoUnitario: number | "";
   scontoPercentuale: number | "";
+};
+
+/** Catalogo acquisti per fatture ricevute (non prodotti Agrinsicilia). */
+type VoceAcquisto = {
+  kind: "servizio" | "prodotto" | "materia";
+  id: string;
+  codice: string;
+  nome: string;
 };
 
 type EditableDilazione = Omit<FatturaDilazione, "importo"> & {
@@ -188,6 +210,18 @@ export function FatturaRegistrazioneModal({
   const isEdit = Boolean(initial?.id);
   const seed = seedFromInitialOrPrefill(initial, prefill);
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
+  const isRicevuta = kind === "ricevuta";
+  const [vociAcquisto, setVociAcquisto] = useState<VoceAcquisto[]>([]);
+  const [catalogServizi, setCatalogServizi] = useState<CatalogoOffertaItem[]>(
+    []
+  );
+  const [catalogProdottiFornitore, setCatalogProdottiFornitore] = useState<
+    CatalogoOffertaItem[]
+  >([]);
+  const [catalogMaterie, setCatalogMaterie] = useState<MateriaPrima[]>([]);
+  const [creatingAcquistoKind, setCreatingAcquistoKind] = useState<
+    "servizio" | "prodotto" | "materia" | null
+  >(null);
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -473,6 +507,60 @@ export function FatturaRegistrazioneModal({
   }, [isEdit, initial?.id]);
 
   useEffect(() => {
+    if (!isRicevuta) {
+      setVociAcquisto([]);
+      setCatalogServizi([]);
+      setCatalogProdottiFornitore([]);
+      setCatalogMaterie([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const [serviziRes, prodottiRes, materieRes] = await Promise.all([
+        listCatalogoServiziAction(),
+        listCatalogoProdottiFornitoreAction(),
+        listMateriePrimeAction(),
+      ]);
+      if (cancelled) return;
+      const servizi = serviziRes.success ? serviziRes.items : [];
+      const prodottiF = prodottiRes.success ? prodottiRes.items : [];
+      const materie = materieRes.success ? materieRes.materie : [];
+      setCatalogServizi(servizi);
+      setCatalogProdottiFornitore(prodottiF);
+      setCatalogMaterie(materie);
+      setVociAcquisto([
+        ...servizi.map(
+          (i): VoceAcquisto => ({
+            kind: "servizio",
+            id: i.id,
+            codice: i.codice,
+            nome: i.nome,
+          })
+        ),
+        ...prodottiF.map(
+          (i): VoceAcquisto => ({
+            kind: "prodotto",
+            id: i.id,
+            codice: i.codice,
+            nome: i.nome,
+          })
+        ),
+        ...materie.map(
+          (i): VoceAcquisto => ({
+            kind: "materia",
+            id: i.id,
+            codice: i.codice,
+            nome: i.nome,
+          })
+        ),
+      ]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isRicevuta]);
+
+  useEffect(() => {
     if (!isNc || !anagraficaId) {
       if (!isEdit) setFattureCollegabili([]);
       return;
@@ -688,6 +776,59 @@ export function FatturaRegistrazioneModal({
       codice: p.codice,
       descrizione: p.nome,
     });
+  }
+
+  function applyVoceAcquisto(index: number, codice: string) {
+    const v = vociAcquisto.find((x) => x.codice === codice);
+    if (!v) {
+      patchRiga(index, { prodottoId: null, codice: "", descrizione: "" });
+      return;
+    }
+    patchRiga(index, {
+      prodottoId: null,
+      codice: v.codice,
+      descrizione: v.nome,
+    });
+  }
+
+  async function refreshVociAcquisto() {
+    const [serviziRes, prodottiRes, materieRes] = await Promise.all([
+      listCatalogoServiziAction(),
+      listCatalogoProdottiFornitoreAction(),
+      listMateriePrimeAction(),
+    ]);
+    const servizi = serviziRes.success ? serviziRes.items : [];
+    const prodottiF = prodottiRes.success ? prodottiRes.items : [];
+    const materie = materieRes.success ? materieRes.materie : [];
+    setCatalogServizi(servizi);
+    setCatalogProdottiFornitore(prodottiF);
+    setCatalogMaterie(materie);
+    setVociAcquisto([
+      ...servizi.map(
+        (i): VoceAcquisto => ({
+          kind: "servizio",
+          id: i.id,
+          codice: i.codice,
+          nome: i.nome,
+        })
+      ),
+      ...prodottiF.map(
+        (i): VoceAcquisto => ({
+          kind: "prodotto",
+          id: i.id,
+          codice: i.codice,
+          nome: i.nome,
+        })
+      ),
+      ...materie.map(
+        (i): VoceAcquisto => ({
+          kind: "materia",
+          id: i.id,
+          codice: i.codice,
+          nome: i.nome,
+        })
+      ),
+    ]);
   }
 
   async function submit(e: FormEvent) {
@@ -1103,20 +1244,62 @@ export function FatturaRegistrazioneModal({
           <section className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold">
-                {kind === "ricevuta" ? "Prodotti" : "Prodotti venduti"}
+                {isRicevuta
+                  ? "Prodotti / servizi / materie"
+                  : kind === "nota_credito"
+                    ? "Prodotti"
+                    : "Prodotti venduti"}
               </h3>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRigaIndexForNuovo(null);
-                    setCreatingProdotto(true);
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
-                >
-                  <FaPlus size={11} />
-                  Crea nuovo prodotto
-                </button>
+                {isRicevuta ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRigaIndexForNuovo(null);
+                        setCreatingAcquistoKind("servizio");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                    >
+                      <FaPlus size={11} />
+                      Nuovo servizio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRigaIndexForNuovo(null);
+                        setCreatingAcquistoKind("prodotto");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                    >
+                      <FaPlus size={11} />
+                      Nuovo prodotto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRigaIndexForNuovo(null);
+                        setCreatingAcquistoKind("materia");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                    >
+                      <FaPlus size={11} />
+                      Nuova materia
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRigaIndexForNuovo(null);
+                      setCreatingProdotto(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                  >
+                    <FaPlus size={11} />
+                    Crea nuovo prodotto
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() =>
@@ -1155,7 +1338,9 @@ export function FatturaRegistrazioneModal({
                     {!isNc ? (
                       <th className="px-2 py-2">Storno</th>
                     ) : null}
-                    <th className="px-2 py-2">Prodotto</th>
+                    <th className="px-2 py-2">
+                      {isRicevuta ? "Voce catalogo" : "Prodotto"}
+                    </th>
                     <th className="px-2 py-2">Codice</th>
                     <th className="px-2 py-2">Descrizione</th>
                     <th className="px-2 py-2">Qtà</th>
@@ -1227,36 +1412,117 @@ export function FatturaRegistrazioneModal({
                         ) : null}
                         <td className="px-2 py-2">
                           <div className="flex items-start gap-1.5">
-                            <select
-                              value={riga.prodottoId ?? ""}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                if (v === "__new__") {
-                                  setRigaIndexForNuovo(index);
-                                  setCreatingProdotto(true);
-                                  return;
+                            {isRicevuta ? (
+                              <select
+                                value={
+                                  riga.codice &&
+                                  vociAcquisto.some((v) => v.codice === riga.codice)
+                                    ? riga.codice
+                                    : riga.codice
+                                      ? `__orphan__:${riga.codice}`
+                                      : ""
                                 }
-                                applyProdotto(index, v);
-                              }}
-                              className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
-                            >
-                              <option value="">Seleziona…</option>
-                              {riga.prodottoId &&
-                              !prodotti.some((p) => p.id === riga.prodottoId) ? (
-                                <option value={riga.prodottoId}>
-                                  {riga.codice || "—"} —{" "}
-                                  {riga.descrizione || "Prodotto salvato"}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "__new_servizio__") {
+                                    setRigaIndexForNuovo(index);
+                                    setCreatingAcquistoKind("servizio");
+                                    return;
+                                  }
+                                  if (v === "__new_prodotto__") {
+                                    setRigaIndexForNuovo(index);
+                                    setCreatingAcquistoKind("prodotto");
+                                    return;
+                                  }
+                                  if (v === "__new_materia__") {
+                                    setRigaIndexForNuovo(index);
+                                    setCreatingAcquistoKind("materia");
+                                    return;
+                                  }
+                                  if (v.startsWith("__orphan__:")) return;
+                                  applyVoceAcquisto(index, v);
+                                }}
+                                className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                              >
+                                <option value="">Seleziona…</option>
+                                {riga.codice &&
+                                !vociAcquisto.some(
+                                  (v) => v.codice === riga.codice
+                                ) ? (
+                                  <option value={`__orphan__:${riga.codice}`}>
+                                    {riga.codice} —{" "}
+                                    {riga.descrizione || "Voce salvata"}
+                                  </option>
+                                ) : null}
+                                <optgroup label="Servizi">
+                                  {vociAcquisto
+                                    .filter((v) => v.kind === "servizio")
+                                    .map((v) => (
+                                      <option key={v.id} value={v.codice}>
+                                        {v.codice} — {v.nome}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Prodotti fornitore">
+                                  {vociAcquisto
+                                    .filter((v) => v.kind === "prodotto")
+                                    .map((v) => (
+                                      <option key={v.id} value={v.codice}>
+                                        {v.codice} — {v.nome}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                                <optgroup label="Materie prime">
+                                  {vociAcquisto
+                                    .filter((v) => v.kind === "materia")
+                                    .map((v) => (
+                                      <option key={v.id} value={v.codice}>
+                                        {v.codice} — {v.nome}
+                                      </option>
+                                    ))}
+                                </optgroup>
+                                <option value="__new_servizio__">
+                                  + Nuovo servizio
                                 </option>
-                              ) : null}
-                              {prodotti.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.codice} — {p.nome}
+                                <option value="__new_prodotto__">
+                                  + Nuovo prodotto
                                 </option>
-                              ))}
-                              <option value="__new__">
-                                + Crea nuovo prodotto
-                              </option>
-                            </select>
+                                <option value="__new_materia__">
+                                  + Nuova materia prima
+                                </option>
+                              </select>
+                            ) : (
+                              <select
+                                value={riga.prodottoId ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  if (v === "__new__") {
+                                    setRigaIndexForNuovo(index);
+                                    setCreatingProdotto(true);
+                                    return;
+                                  }
+                                  applyProdotto(index, v);
+                                }}
+                                className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                              >
+                                <option value="">Seleziona…</option>
+                                {riga.prodottoId &&
+                                !prodotti.some((p) => p.id === riga.prodottoId) ? (
+                                  <option value={riga.prodottoId}>
+                                    {riga.codice || "—"} —{" "}
+                                    {riga.descrizione || "Prodotto salvato"}
+                                  </option>
+                                ) : null}
+                                {prodotti.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.codice} — {p.nome}
+                                  </option>
+                                ))}
+                                <option value="__new__">
+                                  + Crea nuovo prodotto
+                                </option>
+                              </select>
+                            )}
                             {showInfo && prezzoHint ? (
                               <ProdottoPrezzoStoricoInfo
                                 kind={kind}
@@ -1938,7 +2204,7 @@ export function FatturaRegistrazioneModal({
         </form>
       </div>
 
-      {creatingProdotto && (
+      {creatingProdotto && !isRicevuta ? (
         <ProdottoProprioFormModal
           mode="create"
           elevated
@@ -1985,7 +2251,68 @@ export function FatturaRegistrazioneModal({
             setRigaIndexForNuovo(null);
           }}
         />
-      )}
+      ) : null}
+
+      {creatingAcquistoKind === "servizio" ||
+      creatingAcquistoKind === "prodotto" ? (
+        <CatalogoOffertaFormModal
+          kind={creatingAcquistoKind}
+          mode="create"
+          catalog={
+            creatingAcquistoKind === "servizio"
+              ? catalogServizi
+              : catalogProdottiFornitore
+          }
+          onClose={() => {
+            setCreatingAcquistoKind(null);
+            setRigaIndexForNuovo(null);
+          }}
+          onSave={async (values) => {
+            const result =
+              creatingAcquistoKind === "servizio"
+                ? await createCatalogoServizioAction(values)
+                : await createCatalogoProdottoFornitoreAction(values);
+            if (!result.success) throw new Error(result.error);
+            await refreshVociAcquisto();
+            const idx =
+              rigaIndexForNuovo ?? (righe.length > 0 ? righe.length - 1 : 0);
+            applyProdottoToLocal(
+              idx,
+              "",
+              result.item.codice,
+              result.item.nome
+            );
+            setCreatingAcquistoKind(null);
+            setRigaIndexForNuovo(null);
+          }}
+        />
+      ) : null}
+
+      {creatingAcquistoKind === "materia" ? (
+        <MateriaPrimaFormModal
+          mode="create"
+          catalog={catalogMaterie}
+          onClose={() => {
+            setCreatingAcquistoKind(null);
+            setRigaIndexForNuovo(null);
+          }}
+          onSave={async (values) => {
+            const result = await createMateriaPrimaAction(values);
+            if (!result.success) throw new Error(result.error);
+            await refreshVociAcquisto();
+            const idx =
+              rigaIndexForNuovo ?? (righe.length > 0 ? righe.length - 1 : 0);
+            applyProdottoToLocal(
+              idx,
+              "",
+              result.materia.codice,
+              result.materia.nome
+            );
+            setCreatingAcquistoKind(null);
+            setRigaIndexForNuovo(null);
+          }}
+        />
+      ) : null}
 
       {isNc && showPendingPicker && anagraficaId ? (
         <NcPendingFatturaPickerModal
@@ -2062,7 +2389,7 @@ export function FatturaRegistrazioneModal({
         i === index
           ? {
               ...r,
-              prodottoId: id,
+              prodottoId: id || null,
               codice,
               descrizione: nome,
               importo: importoRiga(
