@@ -15,7 +15,7 @@ type Props = {
 
 /**
  * Coda revisione documenti riaperti (stesso pattern della sync FiC):
- * un documento alla volta → apri registrazione → salva → successivo.
+ * barra in alto + un documento alla volta in registrazione.
  */
 export function DocumentiCatalogoQueueModal({
   fatture,
@@ -27,11 +27,13 @@ export function DocumentiCatalogoQueueModal({
   const [updatedCount, setUpdatedCount] = useState(0);
   const [editing, setEditing] = useState<Fattura | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     setQueue(fatture);
     setIndex(0);
     setUpdatedCount(0);
+    setEditing(null);
   }, [fatture]);
 
   const current = queue[index] ?? null;
@@ -42,10 +44,13 @@ export function DocumentiCatalogoQueueModal({
       return;
     }
     let cancelled = false;
+    setEditing(null);
+    setLoading(true);
+    setLoadError(null);
     void (async () => {
-      setLoadError(null);
       const res = await getFatturaByIdAction("ricevuta", current.id);
       if (cancelled) return;
+      setLoading(false);
       if (!res.success) {
         setLoadError(res.error);
         return;
@@ -55,6 +60,7 @@ export function DocumentiCatalogoQueueModal({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambio documento
   }, [current?.id]);
 
   useEffect(() => {
@@ -81,60 +87,79 @@ export function DocumentiCatalogoQueueModal({
 
   if (!current) return null;
 
-  const shell = (
-    <div
-      data-nested-modal="coda-catalogo"
-      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-slate-950/50 px-4 py-8"
-      role="presentation"
-    >
-      <div className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-lg font-semibold">Documenti da aggiornare</h2>
-            <p className="text-sm text-[var(--muted)]">
-              {index + 1} / {queue.length} — riassegna i codici (Collega) come in
-              sync, poi salva.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onPaused}
-            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
-          >
-            Metti in pausa
-          </button>
-        </div>
-        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          <span className="font-mono font-semibold">{current.numeroInterno}</span>
-          {" · "}
-          {formatDateIt(current.dataEmissione)} · {current.anagraficaRagioneSociale}
-          {" · "}
-          {formatEuro(current.totale)}
-          {current.codiceCatalogoPending ? (
-            <span className="ml-2">
-              Codice da sostituire:{" "}
-              <span className="font-mono font-semibold">
-                {current.codiceCatalogoPending}
-              </span>
+  const pauseBar = (
+    <div className="fixed inset-x-0 top-0 z-[110] flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 shadow-sm">
+      <p className="min-w-0 flex-1 text-sm text-amber-950">
+        Documenti da aggiornare —{" "}
+        <strong className="tabular-nums">
+          {index + 1} / {queue.length}
+        </strong>
+        {" · "}
+        <span className="font-mono font-semibold">{current.numeroInterno}</span>
+        {" · "}
+        {formatDateIt(current.dataEmissione)} · {current.anagraficaRagioneSociale}
+        {" · "}
+        {formatEuro(current.totale)}
+        {current.codiceCatalogoPending ? (
+          <>
+            {" · Codice da sostituire: "}
+            <span className="font-mono font-semibold">
+              {current.codiceCatalogoPending}
             </span>
-          ) : null}
-        </div>
-        {loadError ? (
-          <p className="mt-2 text-sm text-red-700">{loadError}</p>
+          </>
         ) : null}
-      </div>
+        . Usa <strong>Collega</strong>, poi salva.
+      </p>
+      <button
+        type="button"
+        onClick={onPaused}
+        className="shrink-0 rounded-lg border border-amber-300 bg-white px-4 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
+      >
+        Pausa
+      </button>
     </div>
   );
 
+  const loadingOrError =
+    loading || loadError ? (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4 pt-16">
+        <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl">
+          {loadError ? (
+            <>
+              <p className="text-sm text-red-700">{loadError}</p>
+              <button
+                type="button"
+                onClick={onPaused}
+                className="mt-3 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-slate-50"
+              >
+                Chiudi
+              </button>
+            </>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">
+              Apertura documento {current.numeroInterno}…
+            </p>
+          )}
+        </div>
+      </div>
+    ) : null;
+
   return (
     <>
-      {typeof document !== "undefined" ? createPortal(shell, document.body) : null}
+      {typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {pauseBar}
+              {loadingOrError}
+            </>,
+            document.body
+          )
+        : null}
       {editing ? (
         <FatturaRegistrazioneModal
           kind="ricevuta"
           initial={editing}
           elevated
-          stackTop
           onClose={() => {
             setEditing(null);
             onPaused();
