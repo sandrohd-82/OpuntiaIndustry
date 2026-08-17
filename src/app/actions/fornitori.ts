@@ -1,10 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import {
-  isValidCodiceTarga,
-  nextSequentialCodiceTarga,
-} from "@/lib/amministrazione/codice-targa";
+import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
   FORNITORI_BIO_BUCKET,
   bioCertificatoStoragePath,
@@ -257,16 +254,11 @@ export async function createFornitoreAction(
   );
   if (vatError) return { success: false, error: vatError };
 
-  let codiceTarga = normalized.codiceTarga?.toUpperCase();
+  let codiceTarga: string;
   try {
+    // Create: ignora targa “prenotata” dalla coda sync — sempre la prima libera (F001…).
     const used = await loadUsedCodiciTarga();
-    if (
-      !codiceTarga ||
-      !isValidCodiceTarga(codiceTarga, "F") ||
-      used.includes(codiceTarga)
-    ) {
-      codiceTarga = nextSequentialCodiceTarga("F", used);
-    }
+    codiceTarga = nextSequentialCodiceTarga("F", used);
   } catch (e) {
     return {
       success: false,

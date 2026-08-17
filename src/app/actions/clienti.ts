@@ -1,10 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import {
-  isValidCodiceTarga,
-  nextSequentialCodiceTarga,
-} from "@/lib/amministrazione/codice-targa";
+import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
   consegneToDb,
   mapClienteRow,
@@ -188,16 +185,11 @@ export async function createClienteAction(
   );
   if (cfError) return { success: false, error: cfError };
 
-  let codiceTarga = normalized.codiceTarga?.toUpperCase();
+  let codiceTarga: string;
   try {
+    // Create: ignora targa prenotata dalla coda — sempre la prima libera (C001…).
     const used = await loadUsedCodiciTarga();
-    if (
-      !codiceTarga ||
-      !isValidCodiceTarga(codiceTarga, "C") ||
-      used.includes(codiceTarga)
-    ) {
-      codiceTarga = nextSequentialCodiceTarga("C", used);
-    }
+    codiceTarga = nextSequentialCodiceTarga("C", used);
   } catch (e) {
     return {
       success: false,

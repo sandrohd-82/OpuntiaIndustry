@@ -382,7 +382,10 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     if (key) byVat.set(key, f);
   }
 
-  const pending = docs.filter((d) => !registered.has(d.ficId));
+  const pending = docs
+    .filter((d) => !registered.has(d.ficId))
+    // Cronologico: dalla più lontana nel tempo alla più vicina a oggi
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   const skippedAlreadyRegistered = docs.length - pending.length;
 
   const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
@@ -409,10 +412,6 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
       })
     );
   }
-
-  items.sort((a, b) =>
-    (b.dataEmissione || "").localeCompare(a.dataEmissione || "")
-  );
 
   return {
     success: true,
