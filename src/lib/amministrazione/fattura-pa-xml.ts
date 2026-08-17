@@ -198,7 +198,7 @@ export function parseFatturaPaXml(xml: string): PaperInvoiceModel {
   );
 
   let imponibile = castelletto.reduce((s, c) => s + c.imponibile, 0);
-  let iva = castelletto.reduce((s, c) => s + c.imposta, 0);
+  const iva = castelletto.reduce((s, c) => s + c.imposta, 0);
   if (imponibile === 0 && righe.length) {
     imponibile = righe.reduce((s, r) => s + r.importo, 0);
   }
