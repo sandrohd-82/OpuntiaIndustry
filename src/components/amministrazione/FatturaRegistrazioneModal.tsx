@@ -82,11 +82,12 @@ import {
 
 type EditableRiga = Omit<
   FatturaRiga,
-  "quantita" | "prezzoUnitario" | "scontoPercentuale"
+  "quantita" | "prezzoUnitario" | "scontoPercentuale" | "ivaPercentuale"
 > & {
   quantita: number | "";
   prezzoUnitario: number | "";
   scontoPercentuale: number | "";
+  ivaPercentuale: number | "";
 };
 
 /** Catalogo acquisti per fatture ricevute (non prodotti Agrinsicilia). */
@@ -173,6 +174,17 @@ function seedFromInitialOrPrefill(
   return prefill ?? {};
 }
 
+function asEditableRiga(r: FatturaRiga): EditableRiga {
+  return {
+    ...r,
+    quantita: r.quantita,
+    unitaMisura: r.unitaMisura || "NR",
+    prezzoUnitario: r.prezzoUnitario,
+    scontoPercentuale: r.scontoPercentuale ?? 0,
+    ivaPercentuale: r.ivaPercentuale ?? 22,
+  };
+}
+
 function toEditableRighe(
   source: FatturaRiga[] | undefined,
   kind: FatturaKind
@@ -185,17 +197,19 @@ function toEditableRighe(
           : r.quantita;
       const scontoPercentuale = r.scontoPercentuale ?? 0;
       const prezzoUnitario = Math.abs(r.prezzoUnitario);
-      return {
+      return asEditableRiga({
         ...r,
         quantita: qty,
         prezzoUnitario,
         scontoPercentuale,
         importo: importoRiga(qty, prezzoUnitario, scontoPercentuale),
-      };
+      });
     });
   }
   return [
-    kind === "nota_credito" ? emptyFatturaRigaNotaCredito() : emptyFatturaRiga(),
+    asEditableRiga(
+      kind === "nota_credito" ? emptyFatturaRigaNotaCredito() : emptyFatturaRiga()
+    ),
   ];
 }
 
@@ -339,12 +353,14 @@ export function FatturaRegistrazioneModal({
           quantita: numberOrZero(r.quantita),
           prezzoUnitario: numberOrZero(r.prezzoUnitario),
           scontoPercentuale: numberOrZero(r.scontoPercentuale),
+          ivaPercentuale: numberOrZero(r.ivaPercentuale || ivaPercentuale),
         })),
         spedizione: numberOrZero(spedizione),
         spedizioneIvaApplicata,
         spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
         notaCredito: isNc,
         ivaPercentuale: numberOrZero(ivaPercentuale),
+        ivaPerRiga: isRicevuta,
       }),
     [
       righe,
@@ -353,6 +369,7 @@ export function FatturaRegistrazioneModal({
       spedizioneSottraiIncassi,
       ivaPercentuale,
       isNc,
+      isRicevuta,
     ]
   );
 
@@ -927,8 +944,12 @@ export function FatturaRegistrazioneModal({
         return {
           ...r,
           quantita,
+          unitaMisura: (r.unitaMisura || "NR").trim() || "NR",
           prezzoUnitario,
           scontoPercentuale,
+          ivaPercentuale: isRicevuta
+            ? numberOrZero(r.ivaPercentuale || ivaPercentuale)
+            : undefined,
           importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
         };
       });
@@ -944,7 +965,9 @@ export function FatturaRegistrazioneModal({
           spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
-          ivaPercentuale: numberOrZero(ivaPercentuale),
+          ivaPercentuale: isRicevuta
+            ? totals.ivaPercentualePrevalente
+            : numberOrZero(ivaPercentuale),
           statoPagamento: isSostituzione
             ? "pagato"
             : isNc
@@ -1334,9 +1357,11 @@ export function FatturaRegistrazioneModal({
                   onClick={() =>
                     setRighe((prev) => [
                       ...prev,
-                      isNc
-                        ? emptyFatturaRigaNotaCredito()
-                        : emptyFatturaRiga(),
+                      asEditableRiga(
+                        isNc
+                          ? emptyFatturaRigaNotaCredito()
+                          : emptyFatturaRiga()
+                      ),
                     ])
                   }
                   className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
@@ -1348,7 +1373,10 @@ export function FatturaRegistrazioneModal({
                   <button
                     type="button"
                     onClick={() =>
-                      setRighe((prev) => [...prev, emptyFatturaRigaStorno()])
+                      setRighe((prev) => [
+                        ...prev,
+                        asEditableRiga(emptyFatturaRigaStorno()),
+                      ])
                     }
                     className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
                     title="Aggiunge una voce con quantità negativa che riduce il totale"
@@ -1361,20 +1389,28 @@ export function FatturaRegistrazioneModal({
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[1020px] text-left text-sm">
+              <table className="w-full min-w-[1100px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
                   <tr>
                     {!isNc ? (
                       <th className="px-2 py-2">Storno</th>
                     ) : null}
                     <th className="px-2 py-2">
-                      {isRicevuta ? "Voce catalogo" : "Prodotto"}
+                      {isRicevuta ? "Codice" : "Prodotto"}
                     </th>
-                    <th className="px-2 py-2">Codice</th>
+                    {!isRicevuta ? (
+                      <th className="px-2 py-2">Codice</th>
+                    ) : null}
                     <th className="px-2 py-2">Descrizione</th>
                     <th className="px-2 py-2">Qtà</th>
+                    {isRicevuta ? (
+                      <th className="px-2 py-2">Unità</th>
+                    ) : null}
                     <th className="px-2 py-2">Prezzo u.</th>
                     <th className="px-2 py-2">Sconto %</th>
+                    {isRicevuta ? (
+                      <th className="px-2 py-2">IVA %</th>
+                    ) : null}
                     <th className="px-2 py-2">Importo</th>
                     {!isNc ? (
                       <th
@@ -1445,9 +1481,10 @@ export function FatturaRegistrazioneModal({
                               <select
                                 value={
                                   riga.codice &&
+                                  riga.codice !== "—" &&
                                   vociAcquisto.some((v) => v.codice === riga.codice)
                                     ? riga.codice
-                                    : riga.codice
+                                    : riga.codice && riga.codice !== "—"
                                       ? `__orphan__:${riga.codice}`
                                       : ""
                                 }
@@ -1471,10 +1508,12 @@ export function FatturaRegistrazioneModal({
                                   if (v.startsWith("__orphan__:")) return;
                                   applyVoceAcquisto(index, v);
                                 }}
-                                className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 text-xs"
+                                className="w-full min-w-[160px] rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
+                                required
                               >
-                                <option value="">Seleziona…</option>
+                                <option value="">Seleziona codice…</option>
                                 {riga.codice &&
+                                riga.codice !== "—" &&
                                 !vociAcquisto.some(
                                   (v) => v.codice === riga.codice
                                 ) ? (
@@ -1560,28 +1599,25 @@ export function FatturaRegistrazioneModal({
                             ) : null}
                           </div>
                         </td>
-                        <td className="px-2 py-2">
-                          <input
-                            value={riga.codice === "—" ? "" : riga.codice}
-                            placeholder={
-                              isRicevuta ? "Codice interno" : undefined
-                            }
-                            onChange={(e) =>
-                              patchRiga(index, {
-                                codice: e.target.value.trim() || "—",
-                              })
-                            }
-                            className="w-24 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
-                            required
-                          />
-                        </td>
+                        {!isRicevuta ? (
+                          <td className="px-2 py-2">
+                            <input
+                              value={riga.codice}
+                              onChange={(e) =>
+                                patchRiga(index, { codice: e.target.value })
+                              }
+                              className="w-24 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
+                              required
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2">
                           <input
                             value={riga.descrizione}
                             onChange={(e) =>
                               patchRiga(index, { descrizione: e.target.value })
                             }
-                            className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5"
+                            className="w-full min-w-[160px] rounded border border-[var(--border)] px-2 py-1.5"
                             required
                           />
                         </td>
@@ -1609,6 +1645,22 @@ export function FatturaRegistrazioneModal({
                             }
                           />
                         </td>
+                        {isRicevuta ? (
+                          <td className="px-2 py-2">
+                            <input
+                              value={riga.unitaMisura || "NR"}
+                              onChange={(e) =>
+                                patchRiga(index, {
+                                  unitaMisura:
+                                    e.target.value.trim().toUpperCase() || "NR",
+                                })
+                              }
+                              className="w-16 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs uppercase"
+                              title="Unità di misura (es. NR, KG, H)"
+                              required
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2">
                           <ClearableNumberInput
                             min={0}
@@ -1644,6 +1696,20 @@ export function FatturaRegistrazioneModal({
                             className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
                           />
                         </td>
+                        {isRicevuta ? (
+                          <td className="px-2 py-2">
+                            <ClearableNumberInput
+                              min={0}
+                              max={100}
+                              value={riga.ivaPercentuale}
+                              onValueChange={(v) =>
+                                patchRiga(index, { ivaPercentuale: v })
+                              }
+                              className="w-20 rounded border border-[var(--border)] px-2 py-1.5"
+                              required
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2 tabular-nums">
                           {formatEuro(riga.importo)}
                         </td>
@@ -1783,19 +1849,34 @@ export function FatturaRegistrazioneModal({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                % IVA
+                {isRicevuta ? "IVA (riepilogo)" : "% IVA"}
               </label>
-              <ClearableNumberInput
-                min={0}
-                max={100}
-                value={ivaPercentuale}
-                onValueChange={setIvaPercentuale}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
-                {formatEuro(totals.imposta)}
-              </p>
+              {isRicevuta ? (
+                <>
+                  <input
+                    readOnly
+                    value={`${totals.ivaPercentualePrevalente} %`}
+                    className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Aliquote sulle righe · Imposta: {formatEuro(totals.imposta)}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <ClearableNumberInput
+                    min={0}
+                    max={100}
+                    value={ivaPercentuale}
+                    onValueChange={setIvaPercentuale}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                  />
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
+                    {formatEuro(totals.imposta)}
+                  </p>
+                </>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -2291,13 +2372,13 @@ export function FatturaRegistrazioneModal({
             } else {
               setRighe((prev) => [
                 ...prev,
-                {
+                asEditableRiga({
                   ...emptyFatturaRigaNotaCredito(),
                   prodottoId: result.prodotto.id,
                   codice: result.prodotto.codice,
                   descrizione: result.prodotto.nome,
                   quantita: isNc ? -1 : 1,
-                },
+                }),
               ]);
             }
             setCreatingProdotto(false);
@@ -2438,21 +2519,21 @@ export function FatturaRegistrazioneModal({
     nome: string
   ) {
     setRighe((prev) =>
-      prev.map((r, i) =>
-        i === index
-          ? {
-              ...r,
-              prodottoId: id || null,
-              codice,
-              descrizione: nome,
-              importo: importoRiga(
-                numberOrZero(r.quantita),
-                numberOrZero(r.prezzoUnitario),
-                numberOrZero(r.scontoPercentuale)
-              ),
-            }
-          : r
-      )
+      prev.map((r, i) => {
+        if (i !== index) return r;
+        const keepDesc = (r.descrizione ?? "").trim();
+        return {
+          ...r,
+          prodottoId: id || null,
+          codice,
+          ...(keepDesc ? {} : { descrizione: nome }),
+          importo: importoRiga(
+            numberOrZero(r.quantita),
+            numberOrZero(r.prezzoUnitario),
+            numberOrZero(r.scontoPercentuale)
+          ),
+        };
+      })
     );
   }
 

@@ -604,6 +604,7 @@ export async function createFatturaAction(
     spedizioneSottraiIncassi: input.spedizioneSottraiIncassi,
     notaCredito: kind === "nota_credito",
     ivaPercentuale: input.ivaPercentuale,
+    ivaPerRiga: kind === "ricevuta",
   });
 
   if (kind === "nota_credito" && !input.fatturaCollegataId) {
@@ -659,7 +660,7 @@ export async function createFatturaAction(
         spedizione_sottrai_incassi:
           kind === "nota_credito" ? input.spedizioneSottraiIncassi : true,
         imponibile: totals.imponibile,
-        iva_percentuale: input.ivaPercentuale,
+        iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
         imposta: totals.imposta,
         totale: totals.totale,
         stato_pagamento: input.statoPagamento,
@@ -916,7 +917,7 @@ export async function createFatturaAction(
       spedizione: input.spedizione,
       spedizione_iva_applicata: input.spedizioneIvaApplicata,
       imponibile: totals.imponibile,
-      iva_percentuale: input.ivaPercentuale,
+      iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
       totale: totals.totale,
       stato_pagamento: input.statoPagamento,
@@ -965,8 +966,10 @@ export async function createFatturaAction(
         codice: r.codice,
         descrizione: r.descrizione,
         quantita: r.quantita,
+        unita_misura: r.unitaMisura || "NR",
         prezzo_unitario: r.prezzoUnitario,
         sconto_percentuale: r.scontoPercentuale,
+        iva_percentuale: r.ivaPercentuale ?? input.ivaPercentuale ?? 22,
         importo: r.importo,
         sort_order: i,
         is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
@@ -1081,6 +1084,7 @@ export async function updateFatturaAction(
     spedizioneSottraiIncassi: input.spedizioneSottraiIncassi,
     notaCredito: kind === "nota_credito",
     ivaPercentuale: input.ivaPercentuale,
+    ivaPerRiga: kind === "ricevuta",
   });
 
   if (kind === "nota_credito" && !input.fatturaCollegataId) {
@@ -1145,7 +1149,7 @@ export async function updateFatturaAction(
         spedizione_sottrai_incassi:
           kind === "nota_credito" ? input.spedizioneSottraiIncassi : true,
         imponibile: totals.imponibile,
-        iva_percentuale: input.ivaPercentuale,
+        iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
         imposta: totals.imposta,
         totale: totals.totale,
         // Non togliere "annullata" se già stornata da NC
@@ -1358,7 +1362,7 @@ export async function updateFatturaAction(
       spedizione: input.spedizione,
       spedizione_iva_applicata: input.spedizioneIvaApplicata,
       imponibile: totals.imponibile,
-      iva_percentuale: input.ivaPercentuale,
+      iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
       totale: totals.totale,
       stato_pagamento: input.statoPagamento,
@@ -1389,8 +1393,10 @@ export async function updateFatturaAction(
         codice: r.codice,
         descrizione: r.descrizione,
         quantita: r.quantita,
+        unita_misura: r.unitaMisura || "NR",
         prezzo_unitario: r.prezzoUnitario,
         sconto_percentuale: r.scontoPercentuale,
+        iva_percentuale: r.ivaPercentuale ?? input.ivaPercentuale ?? 22,
         importo: r.importo,
         sort_order: i,
         is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),

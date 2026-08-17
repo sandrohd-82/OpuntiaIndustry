@@ -1158,8 +1158,10 @@ export interface FatturaRicevutaRigaRow {
   codice: string;
   descrizione: string;
   quantita: number;
+  unita_misura: string;
   prezzo_unitario: number;
   sconto_percentuale: number;
+  iva_percentuale: number;
   importo: number;
   sort_order: number;
   is_bene_ammortizzabile: boolean;
@@ -1176,8 +1178,10 @@ export type FatturaRicevutaRigaInsert = {
   codice?: string;
   descrizione?: string;
   quantita?: number;
+  unita_misura?: string;
   prezzo_unitario?: number;
   sconto_percentuale?: number;
+  iva_percentuale?: number;
   importo?: number;
   sort_order?: number;
   is_bene_ammortizzabile?: boolean;

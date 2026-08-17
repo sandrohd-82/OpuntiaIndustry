@@ -114,13 +114,19 @@ export function extractRigheFromFicRaw(
       100,
       Math.max(0, asNumber(r.discount ?? r.discount_percent ?? r.sconto))
     );
+    const ivaPercentuale =
+      asNumber(r.vat ?? r.vat_rate ?? r.tax_rate ?? r.iva) || 22;
+    const unitaMisura =
+      asText(r.mu ?? r.measure ?? r.unit ?? r.unita_misura) || "NR";
     righe.push({
       prodottoId: null,
       codice,
       descrizione,
       quantita,
+      unitaMisura,
       prezzoUnitario,
       scontoPercentuale,
+      ivaPercentuale,
       importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
     });
   }
@@ -133,8 +139,10 @@ export function extractRigheFromFicRaw(
         codice: "—",
         descrizione: asText(raw.subject ?? raw.description) || "Documento FiC",
         quantita: 1,
+        unitaMisura: "NR",
         prezzoUnitario: gross,
         scontoPercentuale: 0,
+        ivaPercentuale: 22,
         importo: gross,
       });
     }
@@ -158,13 +166,18 @@ function extractRigheFromSdiXml(raw: Record<string, unknown>): FatturaRiga[] {
       const prezzoUnitario = Math.abs(line.prezzo);
       const scontoPercentuale = line.scontoPercentuale ?? 0;
       const descrizione = (line.descrizione || "Voce").trim() || "Voce";
+      const ivaPercentuale =
+        line.ivaPercentuale > 0 ? line.ivaPercentuale : 22;
+      const unitaMisura = (line.unitaMisura || "NR").trim() || "NR";
       return {
         prodottoId: null,
         codice: "—",
         descrizione,
         quantita,
+        unitaMisura,
         prezzoUnitario,
         scontoPercentuale,
+        ivaPercentuale,
         importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
       };
     });
@@ -574,6 +587,7 @@ export function buildFatturaSyncQueueItem(input: {
     notaCredito: isNc,
     spedizioneSottraiIncassi: true,
     ivaPercentuale,
+    ivaPerRiga: input.kind === "ricevuta",
   });
   const entity = entityStubFromDoc(input.doc);
   const draft = draftFromFicEntity(entity);
@@ -595,7 +609,7 @@ export function buildFatturaSyncQueueItem(input: {
         : statoPagamentoFromFic(input.doc.status),
     spedizione,
     spedizioneIvaApplicata: false,
-    ivaPercentuale,
+    ivaPercentuale: totals.ivaPercentualePrevalente || ivaPercentuale,
     imponibile: totals.imponibile,
     imposta: totals.imposta,
     totale: totals.totale || Math.abs(input.doc.amountGross),

@@ -205,8 +205,14 @@ export function FatturaDettaglioView({
               <th className="px-4 py-3 font-medium">Codice</th>
               <th className="px-4 py-3 font-medium">Descrizione</th>
               <th className="px-4 py-3 font-medium">Qtà</th>
+              {fattura.kind === "ricevuta" ? (
+                <th className="px-4 py-3 font-medium">Unità</th>
+              ) : null}
               <th className="px-4 py-3 font-medium">Listino</th>
               <th className="px-4 py-3 font-medium">Sconto %</th>
+              {fattura.kind === "ricevuta" ? (
+                <th className="px-4 py-3 font-medium">IVA %</th>
+              ) : null}
               <th className="px-4 py-3 font-medium">Prezzo netto</th>
               <th className="px-4 py-3 font-medium">Importo</th>
             </tr>
@@ -215,7 +221,7 @@ export function FatturaDettaglioView({
             {fattura.righe.length === 0 ? (
               <tr className="border-t border-[var(--border)]">
                 <td
-                  colSpan={7}
+                  colSpan={fattura.kind === "ricevuta" ? 9 : 7}
                   className="px-4 py-8 text-center text-sm text-[var(--muted)]"
                 >
                   Nessuna riga prodotto registrata.
@@ -254,6 +260,11 @@ export function FatturaDettaglioView({
                     <td className="px-4 py-3 tabular-nums text-slate-900">
                       {r.quantita}
                     </td>
+                    {fattura.kind === "ricevuta" ? (
+                      <td className="px-4 py-3 font-mono text-xs text-slate-900">
+                        {r.unitaMisura || "NR"}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3 tabular-nums text-slate-900">
                       {r.scontoPercentuale > 0 ? (
                         <span className="text-[var(--muted)] line-through">
@@ -268,6 +279,13 @@ export function FatturaDettaglioView({
                         ? `${r.scontoPercentuale} %`
                         : "—"}
                     </td>
+                    {fattura.kind === "ricevuta" ? (
+                      <td className="px-4 py-3 tabular-nums text-slate-900">
+                        {r.ivaPercentuale != null
+                          ? `${r.ivaPercentuale} %`
+                          : "—"}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3 tabular-nums font-medium text-slate-900">
                       {formatEuro(netto)}
                     </td>

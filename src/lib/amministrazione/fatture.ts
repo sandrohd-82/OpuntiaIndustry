@@ -27,10 +27,14 @@ export type FatturaRiga = {
   codice: string;
   descrizione: string;
   quantita: number;
+  /** Unità di misura quantità (ricevute / SDI). Default NR. */
+  unitaMisura?: string;
   /** Prezzo di listino (unitario). */
   prezzoUnitario: number;
   /** Sconto % sul listino (0–100). */
   scontoPercentuale: number;
+  /** Aliquota IVA della riga (ricevute: per prodotto). */
+  ivaPercentuale?: number;
   importo: number;
   /**
    * Bene ammortizzabile:
@@ -167,6 +171,8 @@ export function calcolaTotaliFattura(input: {
     quantita: number;
     prezzoUnitario: number;
     scontoPercentuale?: number;
+    /** Se presente su almeno una riga, l’imposta è calcolata per riga. */
+    ivaPercentuale?: number;
   }>;
   spedizione: number;
   spedizioneIvaApplicata?: boolean;
@@ -174,17 +180,50 @@ export function calcolaTotaliFattura(input: {
   spedizioneSottraiIncassi?: boolean;
   /** Nota di credito: quantità negative → totali negativi; spedizione in valore assoluto. */
   notaCredito?: boolean;
+  /** Fallback IVA documento / spedizione / righe senza aliquota. */
   ivaPercentuale: number;
-}): { imponibile: number; baseIva: number; imposta: number; totale: number } {
-  const prodotti = input.righe.reduce(
-    (sum, r) =>
-      sum +
-      importoRiga(r.quantita, r.prezzoUnitario, r.scontoPercentuale ?? 0),
-    0
-  );
+  /** Forza calcolo IVA per riga (fatture ricevute). */
+  ivaPerRiga?: boolean;
+}): {
+  imponibile: number;
+  baseIva: number;
+  imposta: number;
+  totale: number;
+  /** Aliquota prevalente (per persistenza header). */
+  ivaPercentualePrevalente: number;
+} {
+  const fallbackIva = Number(input.ivaPercentuale) || 0;
+  const usePerRiga =
+    Boolean(input.ivaPerRiga) ||
+    input.righe.some((r) => r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale));
+
+  let prodotti = 0;
+  let impostaRighe = 0;
+  const weightByRate = new Map<number, number>();
+
+  for (const r of input.righe) {
+    const imp = importoRiga(
+      r.quantita,
+      r.prezzoUnitario,
+      r.scontoPercentuale ?? 0
+    );
+    prodotti += imp;
+    const rate = usePerRiga
+      ? Number(r.ivaPercentuale ?? fallbackIva) || 0
+      : fallbackIva;
+    if (usePerRiga) {
+      impostaRighe += (imp * rate) / 100;
+    }
+    const absImp = Math.abs(imp);
+    if (absImp > 0) {
+      weightByRate.set(rate, (weightByRate.get(rate) ?? 0) + absImp);
+    }
+  }
+  prodotti = roundMoney(prodotti);
+
   const spedAbs = Math.abs(Number(input.spedizione) || 0);
   const includeSped =
-    spedAbs > 0 && (input.spedizioneSottraiIncassi !== false);
+    spedAbs > 0 && input.spedizioneSottraiIncassi !== false;
   const spedizione = !includeSped
     ? 0
     : input.notaCredito
@@ -194,14 +233,33 @@ export function calcolaTotaliFattura(input: {
   const baseIva = roundMoney(
     prodotti + (input.spedizioneIvaApplicata ? spedizione : 0)
   );
-  const imposta = roundMoney(
-    (baseIva * (Number(input.ivaPercentuale) || 0)) / 100
-  );
+
+  let imposta: number;
+  if (usePerRiga) {
+    const spedIva =
+      input.spedizioneIvaApplicata && spedizione !== 0
+        ? (spedizione * fallbackIva) / 100
+        : 0;
+    imposta = roundMoney(impostaRighe + spedIva);
+  } else {
+    imposta = roundMoney((baseIva * fallbackIva) / 100);
+  }
+
+  let ivaPercentualePrevalente = fallbackIva;
+  let bestW = -1;
+  for (const [rate, w] of weightByRate) {
+    if (w > bestW) {
+      bestW = w;
+      ivaPercentualePrevalente = rate;
+    }
+  }
+
   return {
     imponibile,
     baseIva,
     imposta,
     totale: roundMoney(imponibile + imposta),
+    ivaPercentualePrevalente,
   };
 }
 
@@ -350,8 +408,10 @@ const rigaSchemaBase = z.object({
   codice: z.string().trim().min(1, "Codice prodotto obbligatorio"),
   descrizione: z.string().trim().min(1, "Descrizione obbligatoria"),
   quantita: z.number().refine((n) => n !== 0, "Quantità non valida"),
+  unitaMisura: z.string().trim().max(16).optional(),
   prezzoUnitario: z.number().min(0, "Prezzo non valido"),
   scontoPercentuale: z.number().min(0).max(100).optional(),
+  ivaPercentuale: z.number().min(0).max(100).optional(),
   importo: z.number().optional(),
   isBeneAmmortizzabile: z.boolean().optional(),
 });
@@ -401,6 +461,7 @@ function transformFatturaInput(
 ) {
   const today = todayIsoDate();
   const isNc = kind === "nota_credito";
+  const isRicevuta = kind === "ricevuta";
   const righe = v.righe.map((r) => {
     const scontoPercentuale = clampSconto(r.scontoPercentuale ?? 0);
     const quantita = isNc
@@ -412,14 +473,22 @@ function transformFatturaInput(
         "Quantità non valida: usa un valore diverso da zero (negativo = storno)."
       );
     }
+    const ivaRiga =
+      r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale)
+        ? Math.min(100, Math.max(0, r.ivaPercentuale))
+        : isRicevuta
+          ? Math.min(100, Math.max(0, Number(v.ivaPercentuale) || 22))
+          : undefined;
     return {
       id: r.id,
       prodottoId: r.prodottoId ?? null,
       codice: r.codice.trim(),
       descrizione: r.descrizione.trim(),
       quantita,
+      unitaMisura: (r.unitaMisura ?? "NR").trim() || "NR",
       prezzoUnitario: Math.abs(r.prezzoUnitario),
       scontoPercentuale,
+      ivaPercentuale: ivaRiga,
       importo: importoRiga(quantita, Math.abs(r.prezzoUnitario), scontoPercentuale),
       isBeneAmmortizzabile: Boolean(r.isBeneAmmortizzabile),
     };
@@ -497,6 +566,16 @@ function transformFatturaInput(
         : "saldo"
       : null;
 
+  const totalsPreview = calcolaTotaliFattura({
+    righe,
+    spedizione: Math.abs(Number(v.spedizione) || 0),
+    spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
+    spedizioneSottraiIncassi: isNc ? v.spedizioneSottraiIncassi !== false : true,
+    notaCredito: isNc,
+    ivaPercentuale: Number(v.ivaPercentuale) || 22,
+    ivaPerRiga: isRicevuta,
+  });
+
   return {
     ...v,
     anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
@@ -513,6 +592,9 @@ function transformFatturaInput(
       : true,
     statoPagamento,
     naturaDocumento,
+    ivaPercentuale: isRicevuta
+      ? totalsPreview.ivaPercentualePrevalente
+      : Number(v.ivaPercentuale) || 0,
     statoIncassoNc,
     rimborsoNecessario,
     rimborsoMezzo,
@@ -557,17 +639,28 @@ function mapRighe(
 ): FatturaRiga[] {
   return [...righe]
     .sort((a, b) => a.sort_order - b.sort_order)
-    .map((r) => ({
-      id: r.id,
-      prodottoId: r.prodotto_id,
-      codice: r.codice,
-      descrizione: r.descrizione,
-      quantita: Number(r.quantita) || 0,
-      prezzoUnitario: Number(r.prezzo_unitario) || 0,
-      scontoPercentuale: Number(r.sconto_percentuale) || 0,
-      importo: Number(r.importo) || 0,
-      isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
-    }));
+    .map((r) => {
+      const ricevuta = r as FatturaRicevutaRigaRow;
+      return {
+        id: r.id,
+        prodottoId: r.prodotto_id,
+        codice: r.codice,
+        descrizione: r.descrizione,
+        quantita: Number(r.quantita) || 0,
+        unitaMisura:
+          "unita_misura" in ricevuta
+            ? String(ricevuta.unita_misura || "NR")
+            : "NR",
+        prezzoUnitario: Number(r.prezzo_unitario) || 0,
+        scontoPercentuale: Number(r.sconto_percentuale) || 0,
+        ivaPercentuale:
+          "iva_percentuale" in ricevuta
+            ? Number(ricevuta.iva_percentuale) || 22
+            : undefined,
+        importo: Number(r.importo) || 0,
+        isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+      };
+    });
 }
 
 function mapDilazioni(
@@ -740,8 +833,10 @@ export function emptyFatturaRigaNotaCredito(): FatturaRiga {
     codice: "",
     descrizione: "",
     quantita: -1,
+    unitaMisura: "NR",
     prezzoUnitario: 0,
     scontoPercentuale: 0,
+    ivaPercentuale: 22,
     importo: 0,
     isBeneAmmortizzabile: false,
   };
@@ -754,8 +849,10 @@ export function emptyFatturaRigaStorno(): FatturaRiga {
     codice: "",
     descrizione: "Storno / annullamento",
     quantita: -1,
+    unitaMisura: "NR",
     prezzoUnitario: 0,
     scontoPercentuale: 0,
+    ivaPercentuale: 22,
     importo: 0,
     isBeneAmmortizzabile: false,
   };
@@ -783,8 +880,10 @@ export function emptyFatturaRiga(): FatturaRiga {
     codice: "",
     descrizione: "",
     quantita: 1,
+    unitaMisura: "NR",
     prezzoUnitario: 0,
     scontoPercentuale: 0,
+    ivaPercentuale: 22,
     importo: 0,
     isBeneAmmortizzabile: false,
   };
