@@ -46,7 +46,7 @@ export function ProfiloFiscaleForm() {
 
   // editable local state
   const [regimeIva, setRegimeIva] =
-    useState<CompanyFiscalProfile["regimeIva"]>("speciale_agricolo_art34");
+    useState<CompanyFiscalProfile["regimeIva"]>("ordinario");
   const [ivaPeriodo, setIvaPeriodo] =
     useState<CompanyFiscalProfile["ivaPeriodo"]>("trimestrale");
   const [l381, setL381] = useState(true);

@@ -1,9 +1,13 @@
 import { z } from "zod";
+import { roundMoney } from "@/lib/amministrazione/fatture";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import {
   dateRangeForTrimestre,
   labelTrimestre,
 } from "@/lib/amministrazione/trimestre-commerciale";
+
+/** Aliquota IVA aziendale standard (commercializzazione). */
+export const IVA_AZIENDALE_PCT = 22;
 
 export const commercialistaSummarySchema = z.object({
   anno: z.number().int().min(2000).max(2100),
@@ -19,10 +23,16 @@ export type CommercialistaSummaryInput = z.infer<
   typeof commercialistaSummarySchema
 >;
 
+export type ImportoConIva = {
+  imponibile: number;
+  iva: number;
+  totale: number;
+};
+
 export type CommercialistaColonnaTotali = {
-  totaleDocumenti: number;
-  vocePrimaria: number;
-  beniAmmortizzabili: number;
+  documenti: ImportoConIva;
+  vocePrimaria: ImportoConIva;
+  beniAmmortizzabili: ImportoConIva;
   conteggioDocumenti: number;
 };
 
@@ -32,15 +42,20 @@ export type CommercialistaSummary = {
   labelTrimestre: string;
   dal: string;
   al: string;
+  ivaAliquotaDefaultPct: number;
   emesse: CommercialistaColonnaTotali;
   ricevute: CommercialistaColonnaTotali;
 };
 
+export function emptyImportoConIva(): ImportoConIva {
+  return { imponibile: 0, iva: 0, totale: 0 };
+}
+
 export function emptyColonna(): CommercialistaColonnaTotali {
   return {
-    totaleDocumenti: 0,
-    vocePrimaria: 0,
-    beniAmmortizzabili: 0,
+    documenti: emptyImportoConIva(),
+    vocePrimaria: emptyImportoConIva(),
+    beniAmmortizzabili: emptyImportoConIva(),
     conteggioDocumenti: 0,
   };
 }
@@ -54,16 +69,63 @@ export function buildPeriodoLabel(anno: number, trim: TrimestreNumero) {
   };
 }
 
-/** Aggrega importi riga: ammortizzabili vs resto (prodotti / materiale consumo). */
-export function aggregateRigheImporti(
-  righe: Array<{ importo: number; isBeneAmmortizzabile: boolean }>
-): { vocePrimaria: number; beniAmmortizzabili: number } {
-  let vocePrimaria = 0;
-  let beniAmmortizzabili = 0;
-  for (const r of righe) {
-    const importo = Number(r.importo) || 0;
-    if (r.isBeneAmmortizzabile) beniAmmortizzabili += importo;
-    else vocePrimaria += importo;
+export function resolveIvaPercentuale(raw: unknown): number {
+  const n = Number(raw);
+  if (Number.isFinite(n) && n > 0) return n;
+  return IVA_AZIENDALE_PCT;
+}
+
+export function ivaDaImponibile(
+  imponibile: number,
+  ivaPercentuale: number
+): number {
+  return roundMoney((imponibile * ivaPercentuale) / 100);
+}
+
+export function toImportoConIva(
+  imponibile: number,
+  ivaPercentuale: number
+): ImportoConIva {
+  const imp = roundMoney(imponibile);
+  const iva = ivaDaImponibile(imp, ivaPercentuale);
+  return {
+    imponibile: imp,
+    iva,
+    totale: roundMoney(imp + iva),
+  };
+}
+
+export function sumImportiConIva(parts: ImportoConIva[]): ImportoConIva {
+  let imponibile = 0;
+  let iva = 0;
+  for (const p of parts) {
+    imponibile += p.imponibile;
+    iva += p.iva;
   }
-  return { vocePrimaria, beniAmmortizzabili };
+  return {
+    imponibile: roundMoney(imponibile),
+    iva: roundMoney(iva),
+    totale: roundMoney(imponibile + iva),
+  };
+}
+
+/** Aggrega importi riga: ammortizzabili vs resto, con IVA da aliquota documento. */
+export function aggregateRigheConIva(
+  righe: Array<{
+    importo: number;
+    isBeneAmmortizzabile: boolean;
+    ivaPercentuale: number;
+  }>
+): { vocePrimaria: ImportoConIva; beniAmmortizzabili: ImportoConIva } {
+  const primaria: ImportoConIva[] = [];
+  const beni: ImportoConIva[] = [];
+  for (const r of righe) {
+    const row = toImportoConIva(r.importo, r.ivaPercentuale);
+    if (r.isBeneAmmortizzabile) beni.push(row);
+    else primaria.push(row);
+  }
+  return {
+    vocePrimaria: sumImportiConIva(primaria),
+    beniAmmortizzabili: sumImportiConIva(beni),
+  };
 }

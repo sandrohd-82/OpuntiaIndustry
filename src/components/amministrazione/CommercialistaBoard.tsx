@@ -5,7 +5,10 @@ import {
   getCommercialistaSummaryAction,
   type CommercialistaSummaryResult,
 } from "@/app/actions/commercialista";
-import type { CommercialistaSummary } from "@/lib/amministrazione/commercialista";
+import type {
+  CommercialistaSummary,
+  ImportoConIva,
+} from "@/lib/amministrazione/commercialista";
 import { formatEuro } from "@/lib/amministrazione/fatture";
 import {
   labelTrimestre,
@@ -14,19 +17,52 @@ import {
 
 const TRIMESTRI: TrimestreNumero[] = [1, 2, 3, 4];
 
+function VoceImporti({
+  label,
+  valori,
+}: {
+  label: string;
+  valori: ImportoConIva;
+}) {
+  return (
+    <li className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-slate-800">{label}</span>
+        <span className="text-sm font-semibold tabular-nums text-slate-900">
+          {formatEuro(valori.totale)}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 pl-1 text-xs text-[var(--muted)]">
+        <div className="flex justify-between gap-2">
+          <span>Imponibile</span>
+          <span className="tabular-nums text-slate-700">
+            {formatEuro(valori.imponibile)}
+          </span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span>IVA</span>
+          <span className="tabular-nums text-slate-700">
+            {formatEuro(valori.iva)}
+          </span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 function ColonnaRiepilogo({
   titolo,
-  totale,
+  documenti,
   vocePrimariaLabel,
   vocePrimaria,
   beni,
   conteggio,
 }: {
   titolo: string;
-  totale: number;
+  documenti: ImportoConIva;
   vocePrimariaLabel: string;
-  vocePrimaria: number;
-  beni: number;
+  vocePrimaria: ImportoConIva;
+  beni: ImportoConIva;
   conteggio: number;
 }) {
   return (
@@ -35,24 +71,28 @@ function ColonnaRiepilogo({
         {titolo}
       </h2>
       <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
-        {formatEuro(totale)}
+        {formatEuro(documenti.totale)}
       </p>
-      <p className="mt-1 text-xs text-[var(--muted)]">
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
+        <div className="flex justify-between gap-2">
+          <span>Imponibile</span>
+          <span className="tabular-nums text-slate-700">
+            {formatEuro(documenti.imponibile)}
+          </span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span>IVA</span>
+          <span className="tabular-nums text-slate-700">
+            {formatEuro(documenti.iva)}
+          </span>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-[var(--muted)]">
         {conteggio} document{conteggio === 1 ? "o" : "i"}
       </p>
-      <ul className="mt-5 space-y-3 border-t border-[var(--border)] pt-4">
-        <li className="flex items-baseline justify-between gap-3">
-          <span className="text-sm text-slate-700">{vocePrimariaLabel}</span>
-          <span className="text-sm font-medium tabular-nums text-slate-900">
-            {formatEuro(vocePrimaria)}
-          </span>
-        </li>
-        <li className="flex items-baseline justify-between gap-3">
-          <span className="text-sm text-slate-700">Beni ammortizzabili</span>
-          <span className="text-sm font-medium tabular-nums text-slate-900">
-            {formatEuro(beni)}
-          </span>
-        </li>
+      <ul className="mt-5 space-y-4 border-t border-[var(--border)] pt-4">
+        <VoceImporti label={vocePrimariaLabel} valori={vocePrimaria} />
+        <VoceImporti label="Beni ammortizzabili" valori={beni} />
       </ul>
     </section>
   );
@@ -90,9 +130,10 @@ export function CommercialistaBoard() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Riepilogo trimestrale per il commercialista. I totali documento sono
-          la somma delle fatture; le sottovoci sommano gli importi riga
-          (prodotti / materiale vs beni ammortizzabili).
+          Riepilogo trimestrale (regime IVA ordinario{" "}
+          {data?.ivaAliquotaDefaultPct ?? 22}%). Per ogni voce: imponibile e
+          IVA. I totali documento usano i campi delle fatture; le sottovoci
+          ripartiscono gli importi riga.
         </p>
         <div className="flex flex-wrap gap-2">
           <label className="block text-sm">
@@ -139,7 +180,7 @@ export function CommercialistaBoard() {
         <div className="grid gap-4 lg:grid-cols-2">
           <ColonnaRiepilogo
             titolo="Fatture emesse"
-            totale={data.emesse.totaleDocumenti}
+            documenti={data.emesse.documenti}
             vocePrimariaLabel="Prodotti venduti"
             vocePrimaria={data.emesse.vocePrimaria}
             beni={data.emesse.beniAmmortizzabili}
@@ -147,7 +188,7 @@ export function CommercialistaBoard() {
           />
           <ColonnaRiepilogo
             titolo="Fatture ricevute"
-            totale={data.ricevute.totaleDocumenti}
+            documenti={data.ricevute.documenti}
             vocePrimariaLabel="Materiale di consumo"
             vocePrimaria={data.ricevute.vocePrimaria}
             beni={data.ricevute.beniAmmortizzabili}

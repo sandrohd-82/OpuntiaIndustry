@@ -1,19 +1,47 @@
 "use server";
 
 import {
-  aggregateRigheImporti,
+  aggregateRigheConIva,
   buildPeriodoLabel,
   commercialistaSummarySchema,
   emptyColonna,
+  IVA_AZIENDALE_PCT,
+  resolveIvaPercentuale,
   type CommercialistaSummary,
+  type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
-import { includeInContabilitaFatturaEmessa } from "@/lib/amministrazione/fatture";
+import {
+  includeInContabilitaFatturaEmessa,
+  roundMoney,
+} from "@/lib/amministrazione/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 
 export type CommercialistaSummaryResult =
   | { success: true; data: CommercialistaSummary }
   | { success: false; error: string };
+
+function documentiDaTestate(
+  rows: Array<{
+    imponibile?: number | null;
+    imposta?: number | null;
+    totale?: number | null;
+  }>
+): ImportoConIva {
+  let imponibile = 0;
+  let iva = 0;
+  let totale = 0;
+  for (const r of rows) {
+    imponibile += Number(r.imponibile) || 0;
+    iva += Number(r.imposta) || 0;
+    totale += Number(r.totale) || 0;
+  }
+  return {
+    imponibile: roundMoney(imponibile),
+    iva: roundMoney(iva),
+    totale: roundMoney(totale),
+  };
+}
 
 export async function getCommercialistaSummaryAction(
   raw: unknown
@@ -34,7 +62,7 @@ export async function getCommercialistaSummaryAction(
   const { data: emesseRows, error: emesseErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, totale, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno"
+      "id, imponibile, imposta, totale, iva_percentuale, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno"
     )
     .is("deleted_at", null)
     .gte("data_emissione", dal)
@@ -54,7 +82,7 @@ export async function getCommercialistaSummaryAction(
 
   const { data: ricevuteRows, error: ricevuteErr } = await supabase
     .from("fatture_ricevute")
-    .select("id, totale")
+    .select("id, imponibile, imposta, totale, iva_percentuale")
     .is("deleted_at", null)
     .gte("data_emissione", dal)
     .lte("data_emissione", al);
@@ -62,28 +90,52 @@ export async function getCommercialistaSummaryAction(
 
   const ricevuteOk = ricevuteRows ?? [];
 
-  const emesseIds = emesseOk.map((r) => String(r.id));
-  const ricevuteIds = ricevuteOk.map((r) => String(r.id));
+  const emesseIvaById = new Map(
+    emesseOk.map((r) => [
+      String(r.id),
+      resolveIvaPercentuale(r.iva_percentuale),
+    ])
+  );
+  const ricevuteIvaById = new Map(
+    ricevuteOk.map((r) => [
+      String(r.id),
+      resolveIvaPercentuale(r.iva_percentuale),
+    ])
+  );
+
+  const emesseIds = [...emesseIvaById.keys()];
+  const ricevuteIds = [...ricevuteIvaById.keys()];
 
   let emesseRighe: Array<{
     importo: number;
     isBeneAmmortizzabile: boolean;
+    ivaPercentuale: number;
   }> = [];
   if (emesseIds.length > 0) {
     const { data: righe, error } = await supabase
       .from("fatture_emesse_righe")
-      .select("importo, is_bene_ammortizzabile, fattura_id")
+      .select("importo, is_bene_ammortizzabile, fattura_id, iva_percentuale")
       .in("fattura_id", emesseIds);
     if (error) return { success: false, error: error.message };
-    emesseRighe = (righe ?? []).map((r) => ({
-      importo: Number(r.importo) || 0,
-      isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
-    }));
+    emesseRighe = (righe ?? []).map((r) => {
+      const fatturaId = String(r.fattura_id);
+      const fromRiga = Number(r.iva_percentuale);
+      const ivaPercentuale =
+        Number.isFinite(fromRiga) && fromRiga > 0
+          ? fromRiga
+          : (emesseIvaById.get(fatturaId) ?? IVA_AZIENDALE_PCT);
+      return {
+        importo: Number(r.importo) || 0,
+        isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+        ivaPercentuale,
+      };
+    });
   }
 
   let ricevuteRighe: Array<{
     importo: number;
     isBeneAmmortizzabile: boolean;
+    ivaPercentuale: number;
   }> = [];
   if (ricevuteIds.length > 0) {
     const { data: righe, error } = await supabase
@@ -94,27 +146,23 @@ export async function getCommercialistaSummaryAction(
     ricevuteRighe = (righe ?? []).map((r) => ({
       importo: Number(r.importo) || 0,
       isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+      ivaPercentuale:
+        ricevuteIvaById.get(String(r.fattura_id)) ?? IVA_AZIENDALE_PCT,
     }));
   }
 
-  const emesseAgg = aggregateRigheImporti(emesseRighe);
-  const ricevuteAgg = aggregateRigheImporti(ricevuteRighe);
+  const emesseAgg = aggregateRigheConIva(emesseRighe);
+  const ricevuteAgg = aggregateRigheConIva(ricevuteRighe);
 
   const emesse = emptyColonna();
   emesse.conteggioDocumenti = emesseOk.length;
-  emesse.totaleDocumenti = emesseOk.reduce(
-    (s, r) => s + (Number(r.totale) || 0),
-    0
-  );
+  emesse.documenti = documentiDaTestate(emesseOk);
   emesse.vocePrimaria = emesseAgg.vocePrimaria;
   emesse.beniAmmortizzabili = emesseAgg.beniAmmortizzabili;
 
   const ricevute = emptyColonna();
   ricevute.conteggioDocumenti = ricevuteOk.length;
-  ricevute.totaleDocumenti = ricevuteOk.reduce(
-    (s, r) => s + (Number(r.totale) || 0),
-    0
-  );
+  ricevute.documenti = documentiDaTestate(ricevuteOk);
   ricevute.vocePrimaria = ricevuteAgg.vocePrimaria;
   ricevute.beniAmmortizzabili = ricevuteAgg.beniAmmortizzabili;
 
@@ -126,6 +174,7 @@ export async function getCommercialistaSummaryAction(
       labelTrimestre,
       dal,
       al,
+      ivaAliquotaDefaultPct: IVA_AZIENDALE_PCT,
       emesse,
       ricevute,
     },
