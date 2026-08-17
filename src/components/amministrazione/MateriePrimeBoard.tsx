@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaLink, FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { MateriePrimeFiltersPanel } from "@/components/amministrazione/MateriePrimeFiltersPanel";
@@ -35,6 +36,7 @@ export function MateriePrimeBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
   const [deleting, setDeleting] = useState<MateriaPrima | null>(null);
+  const [linking, setLinking] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [codaFatture, setCodaFatture] = useState<Fattura[] | null>(null);
@@ -202,6 +204,18 @@ export function MateriePrimeBoard() {
                         type="button"
                         onClick={() => {
                           setSaveError(null);
+                          setLinking(m);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50"
+                        title="Articoli collegati"
+                      >
+                        <FaLink size={11} />
+                        Legami
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSaveError(null);
                           setEditing(m);
                         }}
                         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-[var(--primary)] hover:bg-slate-50"
@@ -261,6 +275,16 @@ export function MateriePrimeBoard() {
             setEditing(null);
             await refresh();
           }}
+        />
+      )}
+
+      {linking && (
+        <ArticoloCollegatiManageModal
+          kind="materia"
+          id={linking.id}
+          codice={linking.codice}
+          nome={linking.nome}
+          onClose={() => setLinking(null)}
         />
       )}
 

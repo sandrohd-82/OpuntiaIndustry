@@ -100,11 +100,12 @@ export function CollegaArticoloModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Cerca codice da collegare
+          Cerca codice da assegnare
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Opzioni affiancabili: stessa fattura → azienda → catalogo. Tu
-          selezioni, oppure crei un codice nuovo.
+          Opzioni: stessa fattura → azienda → catalogo. Seleziona un codice
+          esistente oppure creane uno nuovo. (I legami tra articoli diversi si
+          gestiscono dalla scheda catalogo con l’icona di collegamento.)
         </p>
         {codiceDaSostituire ? (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">

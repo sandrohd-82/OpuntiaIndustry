@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaLink, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
@@ -10,6 +10,7 @@ import {
   softDeleteCatalogoProdottoFornitoreAction,
   softDeleteCatalogoServizioAction,
 } from "@/app/actions/catalogo-offerta";
+import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -34,6 +35,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CatalogoOffertaItem | null>(null);
   const [deleting, setDeleting] = useState<CatalogoOffertaItem | null>(null);
+  const [linking, setLinking] = useState<CatalogoOffertaItem | null>(null);
   const [codaFatture, setCodaFatture] = useState<Fattura[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -225,6 +227,18 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                         type="button"
                         onClick={() => {
                           setError(null);
+                          setLinking(item);
+                        }}
+                        className="rounded p-2 text-violet-700 hover:bg-violet-50"
+                        aria-label={`Articoli collegati a ${item.codice}`}
+                        title="Articoli collegati"
+                      >
+                        <FaLink size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
                           setEditing(item);
                         }}
                         className="rounded p-2 text-slate-600 hover:bg-slate-100"
@@ -287,6 +301,16 @@ export function CatalogoOffertaBoard({ kind }: Props) {
             await refresh();
             setEditing(null);
           }}
+        />
+      ) : null}
+
+      {linking ? (
+        <ArticoloCollegatiManageModal
+          kind={kind}
+          id={linking.id}
+          codice={linking.codice}
+          nome={linking.nome}
+          onClose={() => setLinking(null)}
         />
       ) : null}
 

@@ -36,9 +36,14 @@ import {
   type RigaCatalogoMatchHint,
 } from "@/app/actions/catalogo-collega";
 import {
+  listCollegamentiByCodiciAction,
+  type ArticoloRef,
+} from "@/app/actions/catalogo-collegamenti";
+import {
   createMateriaPrimaAction,
   listMateriePrimeAction,
 } from "@/app/actions/materie-prime";
+import { ArticoloCollegatiNuvola } from "@/components/amministrazione/ArticoloCollegatiNuvola";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { CatalogoOffertaItem } from "@/lib/amministrazione/catalogo-offerta";
 import type { MateriaPrima } from "@/lib/amministrazione/materie-prime";
@@ -255,6 +260,9 @@ export function FatturaRegistrazioneModal({
     Record<string, RigaCatalogoMatchHint>
   >({});
   const [matchScanPending, setMatchScanPending] = useState(false);
+  const [collegatiByCodice, setCollegatiByCodice] = useState<
+    Record<string, ArticoloRef[]>
+  >({});
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -649,6 +657,37 @@ export function FatturaRegistrazioneModal({
     righe,
     initial?.codiceCatalogoPending,
   ]);
+
+  /** Carica legami articolo↔articolo per le targhe sulle righe (nuvola in fattura). */
+  useEffect(() => {
+    if (!isRicevuta) {
+      setCollegatiByCodice({});
+      return;
+    }
+    const codes = [
+      ...new Set(
+        righe
+          .map((r) => (r.codice ?? "").trim())
+          .filter((c) => c && c !== "—")
+      ),
+    ];
+    if (codes.length === 0) {
+      setCollegatiByCodice({});
+      return;
+    }
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        const res = await listCollegamentiByCodiciAction(codes);
+        if (cancelled) return;
+        if (res.success) setCollegatiByCodice(res.byCodice);
+      })();
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [isRicevuta, righe]);
 
   useEffect(() => {
     if (!isNc || !anagraficaId) {
@@ -1462,8 +1501,9 @@ export function FatturaRegistrazioneModal({
                   <span>
                     Scan automatico: badge sulle righe (possibile match / nessun
                     match / da sostituire). Usa <strong>Cerca</strong> per
-                    selezionare un codice o crearne uno nuovo — nessuna
-                    associazione automatica.
+                    assegnare un codice o crearne uno nuovo. L’icona{" "}
+                    <strong>legame</strong> mostra articoli collegati (relazione
+                    diversa dallo stesso codice).
                     {Object.values(matchHints).filter(
                       (h) => h.status !== "ok"
                     ).length > 0
@@ -1664,10 +1704,22 @@ export function FatturaRegistrazioneModal({
                                 type="button"
                                 onClick={() => setCollegaRigaIndex(index)}
                                 className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2 py-1.5 text-[10px] font-medium text-sky-950 hover:bg-sky-100"
-                                title="Cerca codice corrispondente (stessa fattura → azienda → catalogo) o crea nuovo"
+                                title="Cerca codice corrispondente da assegnare alla riga, o crea nuovo"
                               >
                                 Cerca
                               </button>
+                              <ArticoloCollegatiNuvola
+                                linked={
+                                  riga.codice && riga.codice !== "—"
+                                    ? collegatiByCodice[riga.codice] ?? []
+                                    : []
+                                }
+                                sourceCodice={
+                                  riga.codice && riga.codice !== "—"
+                                    ? riga.codice
+                                    : undefined
+                                }
+                              />
                               </>
                             ) : (
                               <select
