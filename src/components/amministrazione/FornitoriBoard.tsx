@@ -599,12 +599,13 @@ export function FornitoriBoard() {
           onClose={() => setCreating(false)}
           onSave={async (values, bioPdf) => {
             const created = await addFornitore(values, bioPdf);
-            if (created) {
-              setSaveError(null);
-              setCreating(false);
-            } else {
-              setSaveError(error || "Salvataggio non riuscito. Riprova.");
+            if (!created.success) {
+              setSaveError(created.error);
+              return created.error;
             }
+            setSaveError(null);
+            setCreating(false);
+            return true;
           }}
         />
       )}
@@ -616,15 +617,13 @@ export function FornitoriBoard() {
           onClose={() => setEditing(null)}
           onSave={async (values, bioPdf) => {
             const updated = await updateFornitore(editing.id, values, bioPdf);
-            if (updated) {
-              setSaveError(null);
-              setEditing(null);
-            } else {
-              setSaveError(
-                error ||
-                  "Aggiornamento non riuscito. Controlla i dati e riprova."
-              );
+            if (!updated.success) {
+              setSaveError(updated.error);
+              return updated.error;
             }
+            setSaveError(null);
+            setEditing(null);
+            return true;
           }}
         />
       )}

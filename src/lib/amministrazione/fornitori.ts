@@ -151,12 +151,15 @@ export function validateFornitoreAnagrafica(
 }
 
 export function mapFornitoreRow(row: FornitoreRow): Fornitore {
+  const snap = (row.enrichment_snapshot ?? {}) as Record<string, unknown>;
+  const cfFromSnap =
+    typeof snap.codiceFiscale === "string" ? snap.codiceFiscale : "";
   return {
     id: row.id,
     codiceTarga: row.codice_targa,
     ragioneSociale: row.ragione_sociale,
     partitaIva: row.partita_iva,
-    codiceFiscale: row.codice_fiscale ?? "",
+    codiceFiscale: row.codice_fiscale || cfFromSnap || "",
     email: row.email ?? "",
     pec: row.pec ?? "",
     sdiCode: row.sdi_code ?? "",

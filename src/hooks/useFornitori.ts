@@ -35,32 +35,35 @@ export function useFornitori() {
     void refresh().finally(() => setReady(true));
   }, [refresh]);
 
-  async function addFornitore(input: FornitoreInput, bioPdf?: File | null) {
+  async function addFornitore(
+    input: FornitoreInput,
+    bioPdf?: File | null
+  ): Promise<{ success: true; fornitore: Fornitore } | { success: false; error: string }> {
     const result = await createFornitoreAction(toFormData(input, bioPdf));
     if (!result.success) {
       setError(result.error);
-      return null;
+      return { success: false, error: result.error };
     }
     setFornitori((prev) => [result.fornitore, ...prev]);
     setError(null);
-    return result.fornitore;
+    return { success: true, fornitore: result.fornitore };
   }
 
   async function updateFornitore(
     id: string,
     input: FornitoreInput,
     bioPdf?: File | null
-  ) {
+  ): Promise<{ success: true; fornitore: Fornitore } | { success: false; error: string }> {
     const result = await updateFornitoreAction(id, toFormData(input, bioPdf));
     if (!result.success) {
       setError(result.error);
-      return null;
+      return { success: false, error: result.error };
     }
     setFornitori((prev) =>
       prev.map((item) => (item.id === id ? result.fornitore : item))
     );
     setError(null);
-    return result.fornitore;
+    return { success: true, fornitore: result.fornitore };
   }
 
   async function removeFornitore(

@@ -27,30 +27,37 @@ export type FornitoriActionResult =
 
 const MAX_BIO_PDF_BYTES = 10 * 1024 * 1024;
 
-/** Targhe che bloccano la sequenza: attive + soft-delete con materie bio. */
+function isMissingCodiceFiscaleColumn(error: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  if (!error) return false;
+  const msg = String(error.message ?? "").toLowerCase();
+  return (
+    msg.includes("codice_fiscale") &&
+    (msg.includes("does not exist") ||
+      msg.includes("schema cache") ||
+      msg.includes("could not find"))
+  );
+}
+
+/** Targhe che bloccano la sequenza: TUTTE le attive + soft-delete con materie bio. */
 export async function getUsedFornitoriCodiciTarga(): Promise<string[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fornitori")
-    .select("id, codice_targa, deleted_at, ragione_sociale, partita_iva");
+    .select("id, codice_targa, deleted_at");
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as Array<{
     id: string;
     codice_targa: string;
     deleted_at: string | null;
-    ragione_sociale: string | null;
-    partita_iva: string | null;
   }>;
 
-  // Solo attive “vere” (non vuote) + soft-delete con bio
+  // Tutte le attive (anche incomplete): allineato all’indice unique
   const active = rows
-    .filter(
-      (r) =>
-        !r.deleted_at &&
-        (String(r.ragione_sociale ?? "").trim() !== "" ||
-          String(r.partita_iva ?? "").trim() !== "")
-    )
+    .filter((r) => !r.deleted_at)
     .map((r) => String(r.codice_targa).toUpperCase());
 
   const softIds = rows.filter((r) => r.deleted_at).map((r) => r.id);
@@ -267,11 +274,15 @@ export async function createFornitoreAction(
     };
   }
 
-  const insert: FornitoreInsert = {
+  const enrichmentSnapshot = {
+    ...(normalized.enrichmentSnapshot ?? {}),
+    codiceFiscale: normalized.codiceFiscale,
+  };
+
+  const insertBase: FornitoreInsert = {
     codice_targa: codiceTarga,
     ragione_sociale: normalized.ragioneSociale,
     partita_iva: normalized.partitaIva,
-    codice_fiscale: normalized.codiceFiscale,
     email: normalized.email ?? "",
     pec: normalized.pec ?? "",
     sdi_code: normalized.sdiCode ?? "",
@@ -299,46 +310,59 @@ export async function createFornitoreAction(
     verified_at: normalized.anagraficaVerificata
       ? new Date().toISOString()
       : null,
-    enrichment_snapshot: normalized.enrichmentSnapshot ?? null,
+    enrichment_snapshot: enrichmentSnapshot,
     created_by: auth.userId,
     updated_by: auth.userId,
   };
 
-  const { data, error } = await supabase
-    .from("fornitori")
-    .insert(insert)
-    .select("*")
-    .single();
+  async function tryInsert(
+    payload: FornitoreInsert,
+    withCf: boolean
+  ): Promise<{ row: FornitoreRow | null; error: { code?: string; message?: string } | null }> {
+    const body = withCf
+      ? { ...payload, codice_fiscale: normalized.codiceFiscale }
+      : payload;
+    const res = await supabase.from("fornitori").insert(body).select("*").single();
+    return {
+      row: res.data ? (res.data as FornitoreRow) : null,
+      error: res.error,
+    };
+  }
 
-  let row = data as FornitoreRow | null;
-  if (error || !row) {
-    if (error?.code === "23505") {
-      try {
-        const used = await loadUsedCodiciTarga();
-        if (codiceTarga) used.push(codiceTarga);
-        // Escludi anche eventuali collisioni P.IVA già gestite sopra
-        const retryCode = nextSequentialCodiceTarga("F", used);
-        const retry = await supabase
-          .from("fornitori")
-          .insert({
-            ...insert,
-            codice_targa: retryCode,
-          })
-          .select("*")
-          .single();
-        if (!retry.error && retry.data) {
-          row = retry.data as FornitoreRow;
-        }
-      } catch {
-        // fall through
+  let withCf = true;
+  let { row, error } = await tryInsert(insertBase, withCf);
+  if (!row && isMissingCodiceFiscaleColumn(error)) {
+    withCf = false;
+    ({ row, error } = await tryInsert(insertBase, false));
+  }
+
+  if ((!row || error) && error?.code === "23505") {
+    const used = await loadUsedCodiciTarga();
+    for (let attempt = 0; attempt < 12 && !row; attempt++) {
+      if (codiceTarga) used.push(codiceTarga);
+      codiceTarga = nextSequentialCodiceTarga("F", used);
+      const retry = await tryInsert(
+        { ...insertBase, codice_targa: codiceTarga },
+        withCf
+      );
+      row = retry.row;
+      error = retry.error;
+      if (row) break;
+      if (isMissingCodiceFiscaleColumn(error)) {
+        withCf = false;
+        continue;
       }
+      if (error?.code !== "23505") break;
     }
-    if (!row) {
-      return {
-        success: false,
-        error: error?.message ?? "Salvataggio fornitore non riuscito.",
-      };
-    }
+  }
+
+  if (!row) {
+    return {
+      success: false,
+      error:
+        error?.message ??
+        "Salvataggio fornitore non riuscito. Controlla i dati obbligatori.",
+    };
   }
 
   if (bioPdf) {
@@ -385,8 +409,8 @@ export async function createFornitoreAction(
         fonte: normalized.anagraficaFonte,
         partita_iva: row.partita_iva,
         verified_by: auth.userId,
-        verified_at: insert.verified_at,
-        enrichment_snapshot: normalized.enrichmentSnapshot ?? null,
+        verified_at: row.verified_at,
+        enrichment_snapshot: enrichmentSnapshot,
       },
     });
   }
@@ -437,7 +461,7 @@ export async function updateFornitoreAction(
 
   const { data: existing, error: existingError } = await supabase
     .from("fornitori")
-    .select("bio_certificato_path, deleted_at")
+    .select("bio_certificato_path, deleted_at, enrichment_snapshot")
     .eq("id", id)
     .maybeSingle();
 
@@ -463,40 +487,58 @@ export async function updateFornitoreAction(
     nextPath = uploaded.path;
   }
 
-  const { data, error } = await supabase
+  const updatePayload: Record<string, unknown> = {
+    ragione_sociale: normalized.ragioneSociale,
+    partita_iva: normalized.partitaIva,
+    codice_fiscale: normalized.codiceFiscale,
+    email: normalized.email ?? "",
+    pec: normalized.pec ?? "",
+    sdi_code: normalized.sdiCode ?? "",
+    telefono: normalized.telefono ?? "",
+    sito_web: normalized.sitoWeb ?? "",
+    tipologie: normalized.tipologie ?? [],
+    servizi_offerti: normalized.serviziOfferti ?? [],
+    prodotti_fornitore: normalized.prodottiFornitore ?? [],
+    sede_amm_nazione: normalized.sedeAmministrativa.nazione,
+    sede_amm_provincia: normalized.sedeAmministrativa.provincia,
+    sede_amm_citta: normalized.sedeAmministrativa.citta,
+    sede_amm_cap: normalized.sedeAmministrativa.cap,
+    sede_amm_indirizzo: normalized.sedeAmministrativa.indirizzo,
+    sede_mag_nazione: normalized.sedeMagazzino.nazione,
+    sede_mag_provincia: normalized.sedeMagazzino.provincia,
+    sede_mag_citta: normalized.sedeMagazzino.citta,
+    sede_mag_cap: normalized.sedeMagazzino.cap,
+    sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
+    prodotti_acquistati: normalized.prodottiAcquistati,
+    bio_certificato: "",
+    bio_certificato_path: nextPath,
+    bio_codice: normalized.bioCodice ?? "",
+    enrichment_snapshot: {
+      ...((existing as { enrichment_snapshot?: Record<string, unknown> | null })
+        .enrichment_snapshot ?? {}),
+      codiceFiscale: normalized.codiceFiscale,
+    },
+    updated_by: auth.userId,
+  };
+
+  let { data, error } = await supabase
     .from("fornitori")
-    .update({
-      ragione_sociale: normalized.ragioneSociale,
-      partita_iva: normalized.partitaIva,
-      codice_fiscale: normalized.codiceFiscale,
-      email: normalized.email ?? "",
-      pec: normalized.pec ?? "",
-      sdi_code: normalized.sdiCode ?? "",
-      telefono: normalized.telefono ?? "",
-      sito_web: normalized.sitoWeb ?? "",
-      tipologie: normalized.tipologie ?? [],
-      servizi_offerti: normalized.serviziOfferti ?? [],
-      prodotti_fornitore: normalized.prodottiFornitore ?? [],
-      sede_amm_nazione: normalized.sedeAmministrativa.nazione,
-      sede_amm_provincia: normalized.sedeAmministrativa.provincia,
-      sede_amm_citta: normalized.sedeAmministrativa.citta,
-      sede_amm_cap: normalized.sedeAmministrativa.cap,
-      sede_amm_indirizzo: normalized.sedeAmministrativa.indirizzo,
-      sede_mag_nazione: normalized.sedeMagazzino.nazione,
-      sede_mag_provincia: normalized.sedeMagazzino.provincia,
-      sede_mag_citta: normalized.sedeMagazzino.citta,
-      sede_mag_cap: normalized.sedeMagazzino.cap,
-      sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
-      prodotti_acquistati: normalized.prodottiAcquistati,
-      bio_certificato: "",
-      bio_certificato_path: nextPath,
-      bio_codice: normalized.bioCodice ?? "",
-      updated_by: auth.userId,
-    })
+    .update(updatePayload)
     .eq("id", id)
     .is("deleted_at", null)
     .select("*")
     .single();
+
+  if (error && isMissingCodiceFiscaleColumn(error)) {
+    const { codice_fiscale: _omit, ...withoutCf } = updatePayload;
+    ({ data, error } = await supabase
+      .from("fornitori")
+      .update(withoutCf)
+      .eq("id", id)
+      .is("deleted_at", null)
+      .select("*")
+      .single());
+  }
 
   if (error || !data) {
     return {

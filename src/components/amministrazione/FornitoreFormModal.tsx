@@ -28,7 +28,7 @@ type Props = {
   onSave: (
     values: FornitoreInput,
     bioPdf?: File | null
-  ) => void | Promise<void>;
+  ) => boolean | string | void | Promise<boolean | string | void>;
   /** Sopra un’altra modale (es. sync clienti → passa a fornitori). */
   elevated?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
@@ -213,13 +213,15 @@ export function FornitoreFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     const codice = codiceTarga.trim().toUpperCase();
-    if (!ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim() || saving) {
+    if (!ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim()) {
       setFormError(
         "Ragione sociale, P. IVA e Codice Fiscale sono obbligatori."
       );
       return;
     }
+    if (saving || codiceLoading) return;
     if (enrichmentHit?.fonte === "locale") {
       setFormError(enrichmentHit.message);
       return;
@@ -237,7 +239,7 @@ export function FornitoreFormModal({
     setFormError(null);
     setSaving(true);
     try {
-      await onSave(
+      const ok = await onSave(
         {
           codiceTarga: codice,
           ragioneSociale: ragioneSociale.trim(),
@@ -280,6 +282,19 @@ export function FornitoreFormModal({
           removeBioCertificato: removeBioPdf && !bioPdf,
         },
         bioPdf
+      );
+      if (typeof ok === "string" && ok.trim()) {
+        setFormError(ok);
+      } else if (ok === false) {
+        setFormError(
+          "Salvataggio non riuscito. Controlla i dati obbligatori e riprova."
+        );
+      }
+    } catch (err) {
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : "Salvataggio non riuscito. Riprova."
       );
     } finally {
       setSaving(false);
@@ -661,7 +676,7 @@ export function FornitoreFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || codiceLoading || codiceTarga.length !== 4 || !ragioneSociale.trim() || !partitaIva.trim() || !codiceFiscale.trim()}
+              disabled={saving || codiceLoading}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving

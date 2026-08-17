@@ -124,7 +124,8 @@ export interface FornitoreRow {
   codice_targa: string;
   ragione_sociale: string;
   partita_iva: string;
-  codice_fiscale: string;
+  /** Presente dopo migrazione 20260814120000; opzionale finché non applicata in prod. */
+  codice_fiscale?: string;
   email: string;
   pec: string;
   sdi_code: string;

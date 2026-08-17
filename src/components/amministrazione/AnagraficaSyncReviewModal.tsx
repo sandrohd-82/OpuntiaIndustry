@@ -264,15 +264,15 @@ export function AnagraficaSyncReviewModal({
   async function handleTransferFornitoreSave(
     values: FornitoreInput,
     bioPdf?: File | null
-  ) {
-    if (!current || !draft) return;
+  ): Promise<boolean | string> {
+    if (!current || !draft) return "Dati sync non disponibili.";
     const fd = new FormData();
     fd.set("input", JSON.stringify(values));
     if (bioPdf) fd.set("bioPdf", bioPdf);
     const created = await createFornitoreAction(fd);
     if (!created.success) {
       setError(created.error);
-      return;
+      return created.error;
     }
     const discarded = await discardFicImportAction({
       kind: "cliente",
@@ -283,7 +283,7 @@ export function AnagraficaSyncReviewModal({
     });
     if (!discarded.success) {
       setError(discarded.error);
-      return;
+      return discarded.error;
     }
     setTransferOpen(false);
     await completeCurrentAsDone(
@@ -291,6 +291,7 @@ export function AnagraficaSyncReviewModal({
       values.ragioneSociale,
       values.partitaIva
     );
+    return true;
   }
 
   async function handleTransferClienteSave(values: ClienteInput) {

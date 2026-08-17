@@ -88,13 +88,14 @@ export function FornitoreSelectField({
           onClose={() => setCreating(false)}
           onSave={async (values, bioPdf) => {
             const created = await addFornitore(values, bioPdf);
-            if (!created) {
-              setSaveError("Salvataggio fornitore non riuscito. Riprova.");
-              return;
+            if (!created.success) {
+              setSaveError(created.error);
+              return created.error;
             }
             setSaveError(null);
-            onChange(created);
+            onChange(created.fornitore);
             setCreating(false);
+            return true;
           }}
         />
       )}

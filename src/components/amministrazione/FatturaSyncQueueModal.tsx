@@ -594,13 +594,14 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
               },
               bioPdf
             );
-            if (!created) return;
-            setAnagraficaId(created.id);
-            setAnagraficaTarga(created.codiceTarga);
-            setAnagraficaNome(created.ragioneSociale);
+            if (!created.success) return created.error;
+            setAnagraficaId(created.fornitore.id);
+            setAnagraficaTarga(created.fornitore.codiceTarga);
+            setAnagraficaNome(created.fornitore.ragioneSociale);
             setAnagraficaLabel(
-              `${created.codiceTarga} — ${created.ragioneSociale}`
+              `${created.fornitore.codiceTarga} — ${created.fornitore.ragioneSociale}`
             );
+            return true;
           }}
         />
       ) : null}
