@@ -859,7 +859,7 @@ export function FatturaRegistrazioneModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-5xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-[85vw] max-w-[85vw] rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1152,7 +1152,7 @@ export function FatturaRegistrazioneModal({
             </div>
 
             <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-              <table className="w-full min-w-[920px] text-left text-sm">
+              <table className="w-full min-w-[1020px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
                   <tr>
                     {!isNc ? (
@@ -1165,6 +1165,18 @@ export function FatturaRegistrazioneModal({
                     <th className="px-2 py-2">Prezzo u.</th>
                     <th className="px-2 py-2">Sconto %</th>
                     <th className="px-2 py-2">Importo</th>
+                    {!isNc ? (
+                      <th
+                        className="px-2 py-2"
+                        title={
+                          kind === "ricevuta"
+                            ? "Ingresso registro cespiti"
+                            : "Uscita registro cespiti"
+                        }
+                      >
+                        Beni amm.
+                      </th>
+                    ) : null}
                     <th className="px-2 py-2" />
                   </tr>
                 </thead>
@@ -1338,6 +1350,32 @@ export function FatturaRegistrazioneModal({
                         <td className="px-2 py-2 tabular-nums">
                           {formatEuro(riga.importo)}
                         </td>
+                        {!isNc ? (
+                          <td className="px-2 py-2 align-middle">
+                            <label
+                              className="inline-flex items-center gap-1.5 text-xs text-slate-700"
+                              title={
+                                kind === "ricevuta"
+                                  ? "Beni ammortizzabili: ingresso registro cespiti"
+                                  : "Beni ammortizzabili: uscita registro cespiti"
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                checked={Boolean(riga.isBeneAmmortizzabile)}
+                                onChange={(e) =>
+                                  patchRiga(index, {
+                                    isBeneAmmortizzabile: e.target.checked,
+                                  })
+                                }
+                                className="rounded border-[var(--border)]"
+                              />
+                              <span className="sr-only">
+                                Beni ammortizzabili
+                              </span>
+                            </label>
+                          </td>
+                        ) : null}
                         <td className="px-2 py-2 text-right">
                           <button
                             type="button"

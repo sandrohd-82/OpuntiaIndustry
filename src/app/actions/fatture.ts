@@ -726,6 +726,7 @@ export async function createFatturaAction(
           sconto_percentuale: r.scontoPercentuale,
           importo: r.importo,
           sort_order: i,
+          is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
           created_by: auth.userId,
           updated_by: auth.userId,
         })
@@ -967,6 +968,7 @@ export async function createFatturaAction(
         sconto_percentuale: r.scontoPercentuale,
         importo: r.importo,
         sort_order: i,
+        is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
         created_by: auth.userId,
         updated_by: auth.userId,
       })
@@ -1215,6 +1217,7 @@ export async function updateFatturaAction(
           sconto_percentuale: r.scontoPercentuale,
           importo: r.importo,
           sort_order: i,
+          is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
           created_by: auth.userId,
           updated_by: auth.userId,
         })
@@ -1387,6 +1390,7 @@ export async function updateFatturaAction(
         sconto_percentuale: r.scontoPercentuale,
         importo: r.importo,
         sort_order: i,
+        is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
         created_by: auth.userId,
         updated_by: auth.userId,
       })

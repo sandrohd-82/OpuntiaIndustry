@@ -55,3 +55,26 @@ export function isoInDateRange(
   if (al && isoDate > al) return false;
   return true;
 }
+
+/** Intervallo ISO YYYY-MM-DD inclusivo per un trimestre commerciale. */
+export function dateRangeForTrimestre(
+  anno: number,
+  trim: TrimestreNumero
+): { dal: string; al: string } {
+  const startMonth = (trim - 1) * 3 + 1;
+  const endMonth = startMonth + 2;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const lastDay = new Date(anno, endMonth, 0).getDate();
+  return {
+    dal: `${anno}-${pad(startMonth)}-01`,
+    al: `${anno}-${pad(endMonth)}-${pad(lastDay)}`,
+  };
+}
+
+export function parseTrimestreKey(
+  key: string
+): { anno: number; trim: TrimestreNumero } | null {
+  const m = /^(\d{4})-([1-4])$/.exec(key.trim());
+  if (!m) return null;
+  return { anno: Number(m[1]), trim: Number(m[2]) as TrimestreNumero };
+}

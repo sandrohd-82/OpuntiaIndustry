@@ -1061,6 +1061,7 @@ export interface FatturaEmessaRigaRow {
   iva_percentuale: number;
   is_spedizione: boolean;
   note: string;
+  is_bene_ammortizzabile: boolean;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1081,6 +1082,7 @@ export type FatturaEmessaRigaInsert = {
   iva_percentuale?: number;
   is_spedizione?: boolean;
   note?: string;
+  is_bene_ammortizzabile?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 };
@@ -1154,6 +1156,7 @@ export interface FatturaRicevutaRigaRow {
   sconto_percentuale: number;
   importo: number;
   sort_order: number;
+  is_bene_ammortizzabile: boolean;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1171,9 +1174,82 @@ export type FatturaRicevutaRigaInsert = {
   sconto_percentuale?: number;
   importo?: number;
   sort_order?: number;
+  is_bene_ammortizzabile?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 };
+
+export type ElaborazioneContabileKind = "emessa" | "ricevuta";
+export type ElaborazioneContabileDocumentoStato =
+  | "bozza"
+  | "approvato"
+  | "chiuso";
+
+export interface ElaborazioneContabileRow {
+  id: string;
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: number;
+  documento_stato: ElaborazioneContabileDocumentoStato;
+  versione: number;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type ElaborazioneContabileInsert = {
+  id?: string;
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: number;
+  documento_stato?: ElaborazioneContabileDocumentoStato;
+  versione?: number;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type ElaborazioneContabileUpdate =
+  Partial<ElaborazioneContabileInsert> & {
+    deleted_at?: string | null;
+    deleted_by?: string | null;
+  };
+
+export interface ElaborazioneContabileVoceRow {
+  id: string;
+  elaborazione_id: string;
+  fattura_id: string;
+  numera_con_vignetta: boolean;
+  numero_vignetta: number | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type ElaborazioneContabileVoceInsert = {
+  id?: string;
+  elaborazione_id: string;
+  fattura_id: string;
+  numera_con_vignetta?: boolean;
+  numero_vignetta?: number | null;
+  sort_order?: number;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type ElaborazioneContabileVoceUpdate =
+  Partial<ElaborazioneContabileVoceInsert> & {
+    deleted_at?: string | null;
+    deleted_by?: string | null;
+  };
 
 export interface FatturaEmessaDilazioneRow {
   id: string;
@@ -1849,6 +1925,18 @@ export interface Database {
         Row: FatturaRicevutaRigaRow;
         Insert: FatturaRicevutaRigaInsert;
         Update: Partial<FatturaRicevutaRigaInsert>;
+        Relationships: [];
+      };
+      elaborazioni_contabili: {
+        Row: ElaborazioneContabileRow;
+        Insert: ElaborazioneContabileInsert;
+        Update: ElaborazioneContabileUpdate;
+        Relationships: [];
+      };
+      elaborazioni_contabili_voci: {
+        Row: ElaborazioneContabileVoceRow;
+        Insert: ElaborazioneContabileVoceInsert;
+        Update: ElaborazioneContabileVoceUpdate;
         Relationships: [];
       };
       fatture_emesse_dilazioni: {

@@ -7,7 +7,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { FaArrowsRotate, FaPlus } from "react-icons/fa6";
+import { FaArrowsRotate, FaCalculator, FaPlus } from "react-icons/fa6";
 import {
   getFatturaByIdAction,
   listFattureAction,
@@ -18,6 +18,7 @@ import {
   startFattureRicevuteSyncAction,
 } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
+import { ElaboraContabilitaModal } from "@/components/amministrazione/ElaboraContabilitaModal";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import { SortableTh } from "@/components/ui/SortableTh";
@@ -109,6 +110,7 @@ export function FattureInterneBoard({ kind }: Props) {
   );
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
+  const [elaboraOpen, setElaboraOpen] = useState(false);
 
   const [sort, setSort] = useState<SortState<SortKey> | null>({
     key: "dataEmissione",
@@ -274,6 +276,16 @@ export function FattureInterneBoard({ kind }: Props) {
           <p className="text-sm text-[var(--muted)]">{titleHint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {kind === "emessa" || kind === "ricevuta" ? (
+            <button
+              type="button"
+              onClick={() => setElaboraOpen(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            >
+              <FaCalculator size={14} />
+              Elabora contabilità
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleSync}
@@ -466,6 +478,14 @@ export function FattureInterneBoard({ kind }: Props) {
             setEditing(null);
             load();
           }}
+        />
+      ) : null}
+
+      {elaboraOpen && (kind === "emessa" || kind === "ricevuta") ? (
+        <ElaboraContabilitaModal
+          kind={kind}
+          isoDates={fatture.map((f) => f.dataEmissione)}
+          onClose={() => setElaboraOpen(false)}
         />
       ) : null}
 

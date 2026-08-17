@@ -31,6 +31,12 @@ export type FatturaRiga = {
   /** Sconto % sul listino (0–100). */
   scontoPercentuale: number;
   importo: number;
+  /**
+   * Bene ammortizzabile:
+   * - ricevute → ingresso registro cespiti
+   * - emesse → uscita registro cespiti
+   */
+  isBeneAmmortizzabile?: boolean;
 };
 
 export type FatturaDilazione = {
@@ -342,6 +348,7 @@ const rigaSchemaBase = z.object({
   prezzoUnitario: z.number().min(0, "Prezzo non valido"),
   scontoPercentuale: z.number().min(0).max(100).optional(),
   importo: z.number().optional(),
+  isBeneAmmortizzabile: z.boolean().optional(),
 });
 
 const dilazioneSchema = z.object({
@@ -408,6 +415,7 @@ function transformFatturaInput(
       prezzoUnitario: Math.abs(r.prezzoUnitario),
       scontoPercentuale,
       importo: importoRiga(quantita, Math.abs(r.prezzoUnitario), scontoPercentuale),
+      isBeneAmmortizzabile: Boolean(r.isBeneAmmortizzabile),
     };
   });
   const dilazioni = isNc
@@ -544,6 +552,7 @@ function mapRighe(
       prezzoUnitario: Number(r.prezzo_unitario) || 0,
       scontoPercentuale: Number(r.sconto_percentuale) || 0,
       importo: Number(r.importo) || 0,
+      isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
     }));
 }
 
@@ -711,6 +720,7 @@ export function emptyFatturaRigaNotaCredito(): FatturaRiga {
     prezzoUnitario: 0,
     scontoPercentuale: 0,
     importo: 0,
+    isBeneAmmortizzabile: false,
   };
 }
 
@@ -724,6 +734,7 @@ export function emptyFatturaRigaStorno(): FatturaRiga {
     prezzoUnitario: 0,
     scontoPercentuale: 0,
     importo: 0,
+    isBeneAmmortizzabile: false,
   };
 }
 
@@ -752,5 +763,6 @@ export function emptyFatturaRiga(): FatturaRiga {
     prezzoUnitario: 0,
     scontoPercentuale: 0,
     importo: 0,
+    isBeneAmmortizzabile: false,
   };
 }
