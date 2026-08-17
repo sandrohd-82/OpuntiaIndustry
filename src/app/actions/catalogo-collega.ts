@@ -39,7 +39,7 @@ export type RigaCatalogoMatchHint = {
 };
 
 /** Soglia UI “possibile match” (suggerimento, non auto-link). */
-export const RIGA_MATCH_SUGGEST_SCORE = 55;
+const RIGA_MATCH_SUGGEST_SCORE = 55;
 
 function normalizeSearch(q: string): string {
   return q
