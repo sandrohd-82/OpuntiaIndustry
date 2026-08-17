@@ -9,6 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { FaArrowsRotate } from "react-icons/fa6";
 import {
   confirmCodificaArticoloAction,
   matchCatalogoAcquistiAction,
@@ -68,11 +69,13 @@ export function CodificaArticoloRevisioneModal({
 
   const prefix = catalogoKindPrefix(kind);
   const codiceProposto = `${prefix}${codiceBody.replace(/[^A-Za-z0-9\-_\/]/g, "")}`;
+  const codiceOutOfSync = proposal.body !== codiceBody;
 
-  // Ricalcolo corpo SKU al variare del testo o del tipo catalogo
-  useEffect(() => {
-    setCodiceBody(generateSkuProposal(testoSorgente, kind).body);
-  }, [testoSorgente, kind]);
+  function refreshCodiceFromTesto() {
+    const next = generateSkuProposal(testoSorgente, kind);
+    setCodiceBody(next.body);
+    if (!initialKind) setKind(next.kind);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -196,7 +199,7 @@ export function CodificaArticoloRevisioneModal({
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Deduplica catalogo acquisti (soglia {CODIFICA_SIMILARITY_THRESHOLD_PCT}
-          %). Il codice servirà anche per ripristino magazzino e fogli ordine.
+          %). SKU a blocchi MACRO-TIPO-DETTAGLIO-FORMATO (max 3 car. ciascuno).
         </p>
 
         <label className="mt-4 block text-sm">
@@ -270,7 +273,10 @@ export function CodificaArticoloRevisioneModal({
           ) : null}
         </div>
 
-        <form onSubmit={submitNuovo} className="mt-6 space-y-3 border-t border-[var(--border)] pt-4">
+        <form
+          onSubmit={submitNuovo}
+          className="mt-6 space-y-3 border-t border-[var(--border)] pt-4"
+        >
           <h3 className="text-sm font-medium">Proposta nuovo codice</h3>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm">
@@ -287,7 +293,7 @@ export function CodificaArticoloRevisioneModal({
                 <option value="servizio">Servizio (Sz)</option>
               </select>
             </label>
-            <label className="block text-sm">
+            <div className="block text-sm">
               <span className="mb-1 block font-medium">Corpo SKU parlante</span>
               <div className="flex overflow-hidden rounded-lg border border-[var(--border)]">
                 <span className="bg-slate-100 px-2.5 py-2 font-mono text-xs font-semibold text-slate-700">
@@ -297,17 +303,37 @@ export function CodificaArticoloRevisioneModal({
                   value={codiceBody}
                   onChange={(e) =>
                     setCodiceBody(
-                      e.target.value.replace(/[^A-Za-z0-9\-_\/]/g, "").toUpperCase()
+                      e.target.value
+                        .replace(/[^A-Za-z0-9\-_\/]/g, "")
+                        .toUpperCase()
                     )
                   }
                   className="min-w-0 flex-1 px-2 py-2 font-mono text-sm outline-none"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={refreshCodiceFromTesto}
+                  title="Aggiorna codice dal testo sorgente"
+                  aria-label="Aggiorna codice dal testo sorgente"
+                  className={`inline-flex items-center justify-center border-l border-[var(--border)] px-2.5 transition-colors ${
+                    codiceOutOfSync
+                      ? "bg-amber-50 text-amber-900 hover:bg-amber-100"
+                      : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  <FaArrowsRotate size={14} />
+                </button>
               </div>
-            </label>
+            </div>
           </div>
           <p className="font-mono text-xs text-[var(--muted)]">
             Codice completo: {codiceProposto || "—"}
+            {codiceOutOfSync ? (
+              <span className="ml-2 text-amber-800">
+                (testo modificato — premi aggiorna)
+              </span>
+            ) : null}
           </p>
           <p className="text-xs text-[var(--muted)]">
             Nome anagrafica: {proposal.nomeNormalizzato || "—"}
