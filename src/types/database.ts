@@ -1663,6 +1663,46 @@ export type AnagraficaArchivioMotivo =
   | "scartata_sync"
   | "pulizia";
 
+export type FatturaRicevutaCodificaKind =
+  | "servizio"
+  | "prodotto"
+  | "materia";
+
+export type FatturaRicevutaCodificaAzione =
+  | "associa_esistente"
+  | "crea_nuovo";
+
+export interface FatturaRicevutaCodificaArticoloRow {
+  id: string;
+  fattura_ricevuta_id: string | null;
+  fattura_riga_id: string | null;
+  testo_originale: string;
+  testo_normalizzato: string;
+  codice_assegnato: string;
+  catalogo_kind: FatturaRicevutaCodificaKind;
+  catalogo_id: string | null;
+  affinita_percentuale: number | null;
+  azione: FatturaRicevutaCodificaAzione;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type FatturaRicevutaCodificaArticoloInsert = {
+  id?: string;
+  fattura_ricevuta_id?: string | null;
+  fattura_riga_id?: string | null;
+  testo_originale: string;
+  testo_normalizzato?: string;
+  codice_assegnato: string;
+  catalogo_kind: FatturaRicevutaCodificaKind;
+  catalogo_id?: string | null;
+  affinita_percentuale?: number | null;
+  azione: FatturaRicevutaCodificaAzione;
+  note?: string;
+  created_by?: string | null;
+};
+
 export interface ClienteArchivioRow {
   id: string;
   partita_iva: string;
@@ -1935,6 +1975,12 @@ export interface Database {
         Row: FatturaRicevutaRigaRow;
         Insert: FatturaRicevutaRigaInsert;
         Update: Partial<FatturaRicevutaRigaInsert>;
+        Relationships: [];
+      };
+      fatture_ricevute_codifica_articoli: {
+        Row: FatturaRicevutaCodificaArticoloRow;
+        Insert: FatturaRicevutaCodificaArticoloInsert;
+        Update: never;
         Relationships: [];
       };
       elaborazioni_contabili: {

@@ -17,6 +17,7 @@ import {
 import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
+import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
@@ -240,6 +241,10 @@ export function FatturaRegistrazioneModal({
   const [creatingAcquistoKind, setCreatingAcquistoKind] = useState<
     "servizio" | "prodotto" | "materia" | null
   >(null);
+  const [codificaRiga, setCodificaRiga] = useState<{
+    index: number;
+    kind: "servizio" | "prodotto" | "materia";
+  } | null>(null);
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -1498,18 +1503,24 @@ export function FatturaRegistrazioneModal({
                                 onChange={(e) => {
                                   const v = e.target.value;
                                   if (v === "__new_servizio__") {
-                                    setRigaIndexForNuovo(index);
-                                    setCreatingAcquistoKind("servizio");
+                                    setCodificaRiga({
+                                      index,
+                                      kind: "servizio",
+                                    });
                                     return;
                                   }
                                   if (v === "__new_prodotto__") {
-                                    setRigaIndexForNuovo(index);
-                                    setCreatingAcquistoKind("prodotto");
+                                    setCodificaRiga({
+                                      index,
+                                      kind: "prodotto",
+                                    });
                                     return;
                                   }
                                   if (v === "__new_materia__") {
-                                    setRigaIndexForNuovo(index);
-                                    setCreatingAcquistoKind("materia");
+                                    setCodificaRiga({
+                                      index,
+                                      kind: "materia",
+                                    });
                                     return;
                                   }
                                   if (v.startsWith("__orphan__:")) return;
@@ -2394,6 +2405,22 @@ export function FatturaRegistrazioneModal({
             }
             setCreatingProdotto(false);
             setRigaIndexForNuovo(null);
+          }}
+        />
+      ) : null}
+
+      {codificaRiga ? (
+        <CodificaArticoloRevisioneModal
+          initialText={righe[codificaRiga.index]?.descrizione ?? ""}
+          initialKind={codificaRiga.kind}
+          fatturaRicevutaId={initial?.id ?? null}
+          fatturaRigaId={righe[codificaRiga.index]?.id ?? null}
+          onClose={() => setCodificaRiga(null)}
+          onConfirmed={async (result) => {
+            const idx = codificaRiga.index;
+            await refreshVociAcquisto();
+            applyProdottoToLocal(idx, "", result.codice, result.nome);
+            setCodificaRiga(null);
           }}
         />
       ) : null}
