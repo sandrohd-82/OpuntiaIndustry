@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   linkFicIdToFatturaEmessaAction,
+  linkFicIdToFatturaRicevutaAction,
 } from "@/app/actions/fatture-sync";
+import { findFornitoreByPartitaIvaAction } from "@/app/actions/fornitori";
 import {
   findNcCompensazioneCandidatesAction,
   type NcCompensazioneCandidate,
@@ -21,6 +23,7 @@ import { useFornitori } from "@/hooks/useFornitori";
 import {
   draftToClientePreview,
   draftToFornitorePreview,
+  normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
@@ -43,6 +46,7 @@ type Step =
 export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const { addCliente } = useClienti();
   const { addFornitore } = useFornitori();
+  const [queueItems, setQueueItems] = useState(items);
   const [index, setIndex] = useState(0);
   const [registeredCount, setRegisteredCount] = useState(0);
   const [anagraficaId, setAnagraficaId] = useState<string | null>(null);
@@ -60,7 +64,13 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const [dupBusy, setDupBusy] = useState(false);
   const [dupError, setDupError] = useState<string | null>(null);
 
-  const current = items[index] ?? null;
+  useEffect(() => {
+    setQueueItems(items);
+    setIndex(0);
+    setRegisteredCount(0);
+  }, [items]);
+
+  const current = queueItems[index] ?? null;
   const kind = current?.kind ?? "emessa";
 
   const step: Step | null = useMemo(() => {
@@ -102,6 +112,63 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     setDupBusy(false);
     setDupError(null);
   }, [index, current?.ficId, current?.anagraficaMode, current?.existingId]);
+
+  /** Fornitore/cliente già in anagrafica: collega subito senza chiedere di nuovo. */
+  useEffect(() => {
+    if (!current) return;
+    if (current.anagraficaMode !== "existing" || !current.existingId) return;
+    setAnagraficaId(current.existingId);
+    setAnagraficaLabel(current.existingLabel);
+    setAnagraficaTarga(current.proposedTarga);
+    const nome = current.existingLabel?.includes("—")
+      ? current.existingLabel.split("—").slice(1).join("—").trim()
+      : current.entityName;
+    setAnagraficaNome(nome || current.entityName);
+  }, [
+    current?.ficId,
+    current?.anagraficaMode,
+    current?.existingId,
+    current?.existingLabel,
+    current?.proposedTarga,
+    current?.entityName,
+  ]);
+
+  /**
+   * Ricevute in modalità create: se la P.IVA è già in DB (anche da fattura precedente
+   * nella stessa sessione), passa a existing senza riaprire la scheda fornitore.
+   */
+  useEffect(() => {
+    if (kind !== "ricevuta" || !current) return;
+    if (current.anagraficaMode !== "create" || anagraficaId) return;
+    const vat = current.entityVat?.trim();
+    if (!vat) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await findFornitoreByPartitaIvaAction(vat);
+      if (cancelled || !res.success || !res.fornitore) return;
+      const f = res.fornitore;
+      const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
+      setQueueItems((prev) =>
+        prev.map((it) => {
+          if (normalizeVatKey(it.entityVat) !== normalizeVatKey(vat)) return it;
+          return {
+            ...it,
+            anagraficaMode: "existing" as const,
+            existingId: f.id,
+            existingLabel: label,
+            proposedTarga: f.codiceTarga,
+          };
+        })
+      );
+      setAnagraficaId(f.id);
+      setAnagraficaLabel(label);
+      setAnagraficaTarga(f.codiceTarga);
+      setAnagraficaNome(f.ragioneSociale);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, current?.ficId, current?.anagraficaMode, current?.entityVat, anagraficaId]);
 
   useEffect(() => {
     if (kind !== "emessa" || !anagraficaId || !current) {
@@ -157,7 +224,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
 
   function goNext() {
     resetAnagrafica();
-    if (index + 1 >= items.length) {
+    if (index + 1 >= queueItems.length) {
       onFinished(registeredCount);
       return;
     }
@@ -208,8 +275,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     : null;
 
   const progressLabel = current
-    ? `${index + 1} di ${items.length}`
-    : `0 di ${items.length}`;
+    ? `${index + 1} di ${queueItems.length}`
+    : `0 di ${queueItems.length}`;
 
   const docKindLabel =
     kind === "nota_credito"
@@ -377,12 +444,20 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
                   void (async () => {
                     setDupBusy(true);
                     setDupError(null);
-                    const res = await linkFicIdToFatturaEmessaAction({
-                      fatturaId: current.duplicateCandidate!.fatturaId,
-                      ficId: current.ficId,
-                      numeroEsterno: current.numeroEsterno,
-                      motivo: current.duplicateCandidate!.motivo,
-                    });
+                    const res =
+                      kind === "ricevuta"
+                        ? await linkFicIdToFatturaRicevutaAction({
+                            fatturaId: current.duplicateCandidate!.fatturaId,
+                            ficId: current.ficId,
+                            numeroEsterno: current.numeroEsterno,
+                            motivo: current.duplicateCandidate!.motivo,
+                          })
+                        : await linkFicIdToFatturaEmessaAction({
+                            fatturaId: current.duplicateCandidate!.fatturaId,
+                            ficId: current.ficId,
+                            numeroEsterno: current.numeroEsterno,
+                            motivo: current.duplicateCandidate!.motivo,
+                          });
                     setDupBusy(false);
                     if (!res.success) {
                       setDupError(res.error);
@@ -595,12 +670,27 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
               bioPdf
             );
             if (!created.success) return created.error;
-            setAnagraficaId(created.fornitore.id);
-            setAnagraficaTarga(created.fornitore.codiceTarga);
-            setAnagraficaNome(created.fornitore.ragioneSociale);
-            setAnagraficaLabel(
-              `${created.fornitore.codiceTarga} — ${created.fornitore.ragioneSociale}`
+            const f = created.fornitore;
+            const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
+            const vat = normalizeVatKey(f.partitaIva || current.entityVat);
+            setQueueItems((prev) =>
+              prev.map((it) => {
+                if (vat && normalizeVatKey(it.entityVat) === vat) {
+                  return {
+                    ...it,
+                    anagraficaMode: "existing" as const,
+                    existingId: f.id,
+                    existingLabel: label,
+                    proposedTarga: f.codiceTarga,
+                  };
+                }
+                return it;
+              })
             );
+            setAnagraficaId(f.id);
+            setAnagraficaTarga(f.codiceTarga);
+            setAnagraficaNome(f.ragioneSociale);
+            setAnagraficaLabel(label);
             return true;
           }}
         />
@@ -619,7 +709,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             const nextCount = registeredCount + 1;
             setRegisteredCount(nextCount);
             resetAnagrafica();
-            if (index + 1 >= items.length) {
+            if (index + 1 >= queueItems.length) {
               onFinished(nextCount);
               return;
             }

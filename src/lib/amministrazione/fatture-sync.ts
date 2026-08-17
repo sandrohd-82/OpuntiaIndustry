@@ -190,7 +190,12 @@ function entityStubFromDoc(doc: FicDocumentNormalized): FicEntityNormalized {
     street: asText(entity.address_street ?? entity.address),
     shippingAddress: asText(entity.shipping_address),
   };
-  return enrichEntityFromInvoiceRaw(base, doc.raw);
+  const enriched = enrichEntityFromInvoiceRaw(base, doc.raw);
+  if (!enriched.vat.trim() && doc.type === "received") {
+    // lazy import avoided: vat already set on doc via normalizeReceivedDocument
+    return { ...enriched, vat: doc.entityVat || enriched.vat };
+  }
+  return enriched;
 }
 
 /** Riferimenti fattura citati in una nota di credito (es. 20/2025). */

@@ -202,6 +202,35 @@ export async function listFornitoriAction(): Promise<
   };
 }
 
+/** Trova fornitore attivo per P.IVA / CF (sync ricevute). */
+export async function findFornitoreByPartitaIvaAction(
+  partitaIva: string
+): Promise<
+  | { success: true; fornitore: Fornitore | null }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const vat = normalizeVatKey(partitaIva);
+  if (!vat) return { success: true, fornitore: null };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("*")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const hit = ((data ?? []) as FornitoreRow[]).find((row) => {
+    const piva = normalizeVatKey(row.partita_iva);
+    const cf = normalizeVatKey(row.codice_fiscale ?? "");
+    return piva === vat || cf === vat;
+  });
+  return {
+    success: true,
+    fornitore: hit ? mapFornitoreRow(hit) : null,
+  };
+}
+
 export async function getBioCertificatoSignedUrlAction(
   path: string
 ): Promise<{ success: true; url: string } | { success: false; error: string }> {

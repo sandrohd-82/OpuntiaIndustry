@@ -236,18 +236,63 @@ export function normalizeReceivedDocument(
   const ficId = asNumber(doc.id);
   if (!ficId) return null;
   const entity = asRecord(doc.entity);
+  const entityVat =
+    asText(entity.vat_number) ||
+    asText(entity.tax_code) ||
+    asText(entity.vat) ||
+    extractSupplierVatFromReceivedRaw(doc);
   return {
     ficId,
     type: "received",
     number: String(doc.invoice_number ?? doc.number ?? ""),
     entityName: String(entity.name ?? ""),
-    entityVat: String(entity.vat_number ?? entity.tax_code ?? ""),
+    entityVat,
     amountGross: asNumber(doc.amount_gross),
     date: asDateOnly(doc.date),
     dueDate: asDateOnly(doc.next_due_date),
     status: paymentStatusFromPayments(doc.payments_list),
     raw: doc,
   };
+}
+
+/** P.IVA cedente da campi FiC / XML SDI (ricevute spesso incomplete in entity). */
+export function extractSupplierVatFromReceivedRaw(
+  raw: Record<string, unknown>
+): string {
+  const entity = asRecord(raw.entity);
+  const direct =
+    asText(entity.vat_number) ||
+    asText(entity.tax_code) ||
+    asText(entity.vat) ||
+    asText(asRecord(raw.ei_data).vat_number) ||
+    asText(asRecord(raw.ei_data).tax_code);
+  if (direct) return direct;
+
+  const xmlCandidates = [
+    raw.ei_raw,
+    raw.e_invoice_xml,
+    raw.xml,
+    raw.xml_content,
+    asRecord(raw.ei_data).xml,
+    asRecord(raw.e_invoice).xml,
+  ];
+  for (const c of xmlCandidates) {
+    if (typeof c !== "string" || !c.includes("<")) continue;
+    const cedente =
+      c.match(
+        /<(?:[\w.-]+:)?CedentePrestatore\b[\s\S]*?<\/(?:[\w.-]+:)?CedentePrestatore>/i
+      )?.[0] ?? "";
+    const idCodice =
+      cedente.match(
+        /<(?:[\w.-]+:)?IdCodice(?:\s[^>]*)?>([^<]+)<\/(?:[\w.-]+:)?IdCodice>/i
+      )?.[1] ??
+      c.match(
+        /<(?:[\w.-]+:)?IdFiscaleIVA\b[\s\S]*?<(?:[\w.-]+:)?IdCodice(?:\s[^>]*)?>([^<]+)/i
+      )?.[1];
+    const vat = asText(idCodice);
+    if (vat) return vat;
+  }
+  return "";
 }
 
 async function listAllPages(

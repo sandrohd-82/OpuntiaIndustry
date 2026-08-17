@@ -338,7 +338,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
 }
 
 export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStartResult> {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   try {
     getFicConfig();
   } catch (e) {
@@ -357,9 +357,10 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     supabase.from("fornitori").select("*").is("deleted_at", null),
     supabase
       .from("fatture_ricevute")
-      .select("fic_id")
-      .is("deleted_at", null)
-      .not("fic_id", "is", null),
+      .select(
+        "id, numero_interno, numero_documento_esterno, fornitore_id, data_emissione, totale, fic_id"
+      )
+      .is("deleted_at", null),
   ]);
 
   if (fornitoriRes.error) {
@@ -369,23 +370,100 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     return { success: false, error: registeredRes.error.message };
   }
 
-  const registered = new Set(
-    (registeredRes.data ?? [])
-      .map((r) => Number(r.fic_id))
-      .filter((n) => Number.isFinite(n) && n > 0)
-  );
-
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
   const byVat = new Map<string, FornitoreRow>();
+  const fornitoreById = new Map(fornitori.map((f) => [f.id, f]));
   for (const f of fornitori) {
     const key = normalizeVatKey(f.partita_iva);
     if (key) byVat.set(key, f);
+    const cf = normalizeVatKey(f.codice_fiscale ?? "");
+    if (cf && !byVat.has(cf)) byVat.set(cf, f);
   }
 
-  const pending = docs
-    .filter((d) => !registered.has(d.ficId))
-    // Cronologico: dalla più lontana nel tempo alla più vicina a oggi
-    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const registeredHints: RegisteredFatturaHint[] = (
+    registeredRes.data ?? []
+  ).map((r) => {
+    const forn = fornitoreById.get(String(r.fornitore_id));
+    return {
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      numeroEsterno: String(r.numero_documento_esterno ?? ""),
+      clienteId: String(r.fornitore_id),
+      entityVat: forn?.partita_iva ?? "",
+      dataEmissione: String(r.data_emissione ?? ""),
+      totale: Number(r.totale) || 0,
+      tipoDocumento: "fattura" as const,
+      ficId: r.fic_id != null ? Number(r.fic_id) : null,
+    };
+  });
+
+  const registeredFicIds = new Set(
+    registeredHints
+      .map((r) => Number(r.ficId))
+      .filter((n) => Number.isFinite(n) && n > 0)
+  );
+
+  let pending = docs.filter((d) => !registeredFicIds.has(d.ficId));
+  let autoLinkedCount = 0;
+  const stillPending: FicDocumentNormalized[] = [];
+  const weakDupByFicId = new Map<number, FatturaSyncDuplicateCandidate>();
+
+  for (const doc of pending) {
+    const match = matchFicDocToRegisteredFattura(doc, "ricevuta", registeredHints);
+    if (!match) {
+      stillPending.push(doc);
+      continue;
+    }
+    if (match.strength === "strong") {
+      const { error } = await supabase
+        .from("fatture_ricevute")
+        .update({
+          fic_id: doc.ficId,
+          updated_by: auth.userId,
+          numero_documento_esterno:
+            match.fattura.numeroEsterno?.trim() ||
+            doc.number ||
+            match.fattura.numeroEsterno,
+        })
+        .eq("id", match.fattura.id)
+        .is("deleted_at", null)
+        .is("fic_id", null);
+      if (error) {
+        console.error("[fatture-sync] auto-link ricevuta failed", error.message);
+        stillPending.push(doc);
+        continue;
+      }
+      registeredFicIds.add(doc.ficId);
+      autoLinkedCount += 1;
+      await writeAuditLog({
+        entity_type: "fatture_ricevute",
+        entity_id: match.fattura.id,
+        action: "sync_auto_link_fic",
+        actor_id: auth.userId,
+        summary: `Collegato FiC #${doc.ficId} a ${match.fattura.numeroInterno}`,
+        payload: {
+          ficId: doc.ficId,
+          motivo: match.motivo,
+          numeroEsterno: doc.number,
+        },
+      });
+      continue;
+    }
+    weakDupByFicId.set(doc.ficId, {
+      strength: "weak",
+      fatturaId: match.fattura.id,
+      numeroInterno: match.fattura.numeroInterno,
+      numeroEsterno: match.fattura.numeroEsterno,
+      dataEmissione: match.fattura.dataEmissione,
+      totale: match.fattura.totale,
+      motivo: match.motivo,
+    });
+    stillPending.push(doc);
+  }
+
+  pending = stillPending.sort((a, b) =>
+    (a.date || "").localeCompare(b.date || "")
+  );
   const skippedAlreadyRegistered = docs.length - pending.length;
 
   const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
@@ -409,6 +487,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
           : null,
         proposedTarga,
         linkedFattura: null,
+        duplicateCandidate: weakDupByFicId.get(doc.ficId) ?? null,
       })
     );
   }
@@ -417,7 +496,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     success: true,
     items,
     skippedAlreadyRegistered,
-    autoLinkedCount: 0,
+    autoLinkedCount,
     creditNotesPending: 0,
   };
 }
@@ -581,6 +660,71 @@ export async function linkFicIdToFatturaEmessaAction(input: {
 
   await writeAuditLog({
     entity_type: "fatture_emesse",
+    entity_id: input.fatturaId,
+    action: "sync_link_fic",
+    actor_id: auth.userId,
+    summary: `Collegato FiC #${input.ficId} a ${(data as { numero_interno: string }).numero_interno}`,
+    payload: {
+      ficId: input.ficId,
+      motivo: input.motivo ?? "conferma_operatore",
+      numeroEsterno: input.numeroEsterno ?? "",
+    },
+  });
+
+  return { success: true };
+}
+
+/** Collega FiC a fattura ricevuta già registrata (anti-duplicato). */
+export async function linkFicIdToFatturaRicevutaAction(input: {
+  fatturaId: string;
+  ficId: number;
+  numeroEsterno?: string;
+  motivo?: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!input.fatturaId || !Number.isFinite(input.ficId) || input.ficId <= 0) {
+    return { success: false, error: "Dati collegamento non validi." };
+  }
+  const supabase = await createClient();
+
+  const { data: clash } = await supabase
+    .from("fatture_ricevute")
+    .select("id, numero_interno")
+    .eq("fic_id", input.ficId)
+    .is("deleted_at", null)
+    .neq("id", input.fatturaId)
+    .maybeSingle();
+  if (clash) {
+    return {
+      success: false,
+      error: `FiC #${input.ficId} già collegato a ${(clash as { numero_interno: string }).numero_interno}.`,
+    };
+  }
+
+  const patch: Record<string, unknown> = {
+    fic_id: input.ficId,
+    updated_by: auth.userId,
+  };
+  if (input.numeroEsterno?.trim()) {
+    patch.numero_documento_esterno = input.numeroEsterno.trim();
+  }
+
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .update(patch)
+    .eq("id", input.fatturaId)
+    .is("deleted_at", null)
+    .select("id, numero_interno, fic_id")
+    .single();
+  if (error || !data) {
+    return {
+      success: false,
+      error: error?.message ?? "Collegamento non riuscito.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "fatture_ricevute",
     entity_id: input.fatturaId,
     action: "sync_link_fic",
     actor_id: auth.userId,
