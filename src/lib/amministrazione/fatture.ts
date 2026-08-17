@@ -103,6 +103,9 @@ export type Fattura = {
   versione: number;
   documentoStato: FatturaDocumentoStato;
   note: string;
+  /** Coda revisione post-eliminazione/modifica catalogo (ricevute). */
+  richiedeAggiornamentoCatalogo?: boolean;
+  codiceCatalogoPending?: string | null;
   fatturaCollegataId: string | null;
   riferimentoFatturaEsterno: string;
   righe: FatturaRiga[];
@@ -790,6 +793,13 @@ export function mapFatturaRicevutaRow(
     versione: row.versione,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
+    richiedeAggiornamentoCatalogo: Boolean(
+      (row as { richiede_aggiornamento_catalogo?: boolean })
+        .richiede_aggiornamento_catalogo
+    ),
+    codiceCatalogoPending:
+      (row as { codice_catalogo_pending?: string | null })
+        .codice_catalogo_pending ?? null,
     fatturaCollegataId: null,
     riferimentoFatturaEsterno: "",
     righe: mapRighe(righe),

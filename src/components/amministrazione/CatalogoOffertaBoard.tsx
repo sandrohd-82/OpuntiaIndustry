@@ -9,12 +9,14 @@ import {
   listCatalogoServiziAction,
   softDeleteCatalogoProdottoFornitoreAction,
   softDeleteCatalogoServizioAction,
-  updateCatalogoProdottoFornitoreAction,
-  updateCatalogoServizioAction,
 } from "@/app/actions/catalogo-offerta";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
+import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
+import type { Fattura } from "@/lib/amministrazione/fatture";
 import type {
   CatalogoOffertaInput,
   CatalogoOffertaItem,
@@ -32,6 +34,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<CatalogoOffertaItem | null>(null);
   const [deleting, setDeleting] = useState<CatalogoOffertaItem | null>(null);
+  const [codaFatture, setCodaFatture] = useState<Fattura[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -86,28 +89,11 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     );
   }
 
-  async function handleUpdate(values: CatalogoOffertaInput) {
-    if (!editing) return;
-    setError(null);
-    const result =
-      kind === "servizio"
-        ? await updateCatalogoServizioAction(editing.id, values)
-        : await updateCatalogoProdottoFornitoreAction(editing.id, values);
-    if (!result.success) {
-      setError(result.error);
-      throw new Error(result.error);
+  async function openCodaSeServe() {
+    const res = await listFattureDaAggiornareCatalogoAction();
+    if (res.success && res.count > 0) {
+      setCodaFatture(res.fatture);
     }
-    setItems((prev) =>
-      prev
-        .map((i) => (i.id === editing.id ? result.item : i))
-        .sort((a, b) => a.codice.localeCompare(b.codice, "it"))
-    );
-    if (result.cascade && (result.cascade.fatture > 0 || result.cascade.fornitori > 0)) {
-      setInfo(
-        `Aggiornati ${result.cascade.fatture} documenti e ${result.cascade.fornitori} schede fornitore.`
-      );
-    }
-    setEditing(null);
   }
 
   async function handleDelete(confermaTestuale: string) {
@@ -136,6 +122,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     setInfo(result.message);
     await refresh();
     setDeleting(null);
+    await openCodaSeServe();
     return { success: true as const };
   }
 
@@ -279,13 +266,45 @@ export function CatalogoOffertaBoard({ kind }: Props) {
       ) : null}
 
       {editing ? (
-        <CatalogoOffertaFormModal
-          kind={kind}
-          mode="edit"
-          initial={editing}
-          catalog={items}
+        <CodificaArticoloRevisioneModal
+          mode="rename"
+          lockKind
+          renameId={editing.id}
+          renameNote={editing.note}
+          renameIsBio={editing.isBio}
+          initialText={editing.nome}
+          initialKind={kind}
           onClose={() => setEditing(null)}
-          onSave={handleUpdate}
+          onConfirmed={async (result) => {
+            setInfo(
+              result.renamed
+                ? `Targa aggiornata: ${result.codice}`
+                : `Associato: ${result.codice}`
+            );
+            await refresh();
+            setEditing(null);
+          }}
+        />
+      ) : null}
+
+      {codaFatture ? (
+        <DocumentiCatalogoQueueModal
+          fatture={codaFatture}
+          onFinished={(n) => {
+            setCodaFatture(null);
+            setInfo(
+              n > 0
+                ? `Coda completata (${n} documenti). Puoi riprovare l'eliminazione del codice.`
+                : "Coda chiusa."
+            );
+            void refresh();
+          }}
+          onPaused={() => {
+            setCodaFatture(null);
+            setInfo(
+              "Coda in pausa. I documenti restano in bozza da aggiornare."
+            );
+          }}
         />
       ) : null}
 

@@ -6,7 +6,11 @@ import { FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
 import { MateriePrimeFiltersPanel } from "@/components/amministrazione/MateriePrimeFiltersPanel";
+import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
+import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
+import type { Fattura } from "@/lib/amministrazione/fatture";
 import { useMateriePrime } from "@/hooks/useMateriePrime";
 import {
   CODICE_MATERIA_PRIMA_PREFIX,
@@ -26,12 +30,14 @@ export function MateriePrimeBoard() {
     addMateria,
     updateMateria,
     removeMateria,
+    refresh,
   } = useMateriePrime();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
   const [deleting, setDeleting] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [codaFatture, setCodaFatture] = useState<Fattura[] | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<MateriePrimeFilters>(
     emptyMateriePrimeFilters()
@@ -241,22 +247,38 @@ export function MateriePrimeBoard() {
       )}
 
       {editing && (
-        <MateriaPrimaFormModal
-          mode="edit"
-          initial={editing}
-          catalog={materie}
+        <CodificaArticoloRevisioneModal
+          mode="rename"
+          lockKind
+          renameId={editing.id}
+          renameNote={editing.note}
+          renameIsBio={editing.isBio}
+          initialText={editing.nome}
+          initialKind="materia"
           onClose={() => setEditing(null)}
-          onSave={async (values) => {
-            const updated = await updateMateria(editing.id, values);
-            if (updated.success) {
-              setSaveError(null);
-              setEditing(null);
-            } else {
-              setSaveError(updated.error);
-            }
+          onConfirmed={async (result) => {
+            setInfo(`Targa aggiornata: ${result.codice}`);
+            setEditing(null);
+            await refresh();
           }}
         />
       )}
+
+      {codaFatture ? (
+        <DocumentiCatalogoQueueModal
+          fatture={codaFatture}
+          onFinished={() => {
+            setCodaFatture(null);
+            setInfo(
+              "Coda completata. Puoi riprovare l'eliminazione del codice."
+            );
+          }}
+          onPaused={() => {
+            setCodaFatture(null);
+            setInfo("Coda in pausa.");
+          }}
+        />
+      ) : null}
 
       {deleting && (
         <SoftDeleteConfirmModal
@@ -270,6 +292,8 @@ export function MateriePrimeBoard() {
             }
             if (!result.deleted && result.pending) {
               setInfo(result.message);
+              const coda = await listFattureDaAggiornareCatalogoAction();
+              if (coda.success && coda.count > 0) setCodaFatture(coda.fatture);
             }
             setDeleting(null);
           }}

@@ -254,6 +254,14 @@ export async function reopenFattureRicevuteToBozza(input: {
       note: string | null;
     };
     if (row.documento_stato === "bozza") {
+      await input.supabase
+        .from("fatture_ricevute")
+        .update({
+          richiede_aggiornamento_catalogo: true,
+          codice_catalogo_pending: input.codice,
+          updated_by: input.userId,
+        })
+        .eq("id", id);
       n += 1;
       continue;
     }
@@ -265,6 +273,8 @@ export async function reopenFattureRicevuteToBozza(input: {
         documento_stato: "bozza",
         versione: (Number(row.versione) || 1) + 1,
         note,
+        richiede_aggiornamento_catalogo: true,
+        codice_catalogo_pending: input.codice,
         updated_by: input.userId,
       })
       .eq("id", id);

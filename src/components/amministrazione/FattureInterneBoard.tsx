@@ -21,6 +21,8 @@ import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFi
 import { ElaboraContabilitaModal } from "@/components/amministrazione/ElaboraContabilitaModal";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
+import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
+import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
 import { SortableTh } from "@/components/ui/SortableTh";
 import {
   formatDateIt,
@@ -111,6 +113,9 @@ export function FattureInterneBoard({ kind }: Props) {
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
   const [elaboraOpen, setElaboraOpen] = useState(false);
+  const [codaCatalogo, setCodaCatalogo] = useState<Fattura[] | null>(null);
+  const [codaCatalogoInfo, setCodaCatalogoInfo] = useState<string | null>(null);
+  const [codaCatalogoCount, setCodaCatalogoCount] = useState(0);
 
   const [sort, setSort] = useState<SortState<SortKey> | null>({
     key: "dataEmissione",
@@ -142,6 +147,22 @@ export function FattureInterneBoard({ kind }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (kind !== "ricevuta") {
+      setCodaCatalogoCount(0);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const res = await listFattureDaAggiornareCatalogoAction();
+      if (cancelled) return;
+      if (res.success) setCodaCatalogoCount(res.count);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, ready, fatture]);
 
   useEffect(() => {
     setFiltroDal("");
@@ -311,6 +332,40 @@ export function FattureInterneBoard({ kind }: Props) {
         </div>
       </div>
 
+      {kind === "ricevuta" && codaCatalogoCount > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p>
+            <span className="font-semibold">{codaCatalogoCount}</span> documenti
+            da aggiornare dopo modifica/eliminazione catalogo (come sync).
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              startTransition(async () => {
+                const res = await listFattureDaAggiornareCatalogoAction();
+                if (!res.success) {
+                  setError(res.error);
+                  return;
+                }
+                if (res.count === 0) {
+                  setCodaCatalogoCount(0);
+                  setCodaCatalogoInfo("Nessun documento in coda.");
+                  return;
+                }
+                setCodaCatalogo(res.fatture);
+              });
+            }}
+            className="rounded-lg bg-amber-800 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-900"
+          >
+            Apri coda
+          </button>
+        </div>
+      ) : null}
+
+      {codaCatalogoInfo ? (
+        <p className="text-sm text-[var(--muted)]">{codaCatalogoInfo}</p>
+      ) : null}
+
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -454,6 +509,28 @@ export function FattureInterneBoard({ kind }: Props) {
               );
               load();
             })();
+          }}
+        />
+      ) : null}
+
+      {codaCatalogo && codaCatalogo.length > 0 ? (
+        <DocumentiCatalogoQueueModal
+          fatture={codaCatalogo}
+          onFinished={(n) => {
+            setCodaCatalogo(null);
+            setCodaCatalogoInfo(
+              n > 0
+                ? `Coda catalogo completata: ${n} documenti aggiornati.`
+                : "Coda catalogo chiusa."
+            );
+            load();
+          }}
+          onPaused={() => {
+            setCodaCatalogo(null);
+            setCodaCatalogoInfo(
+              "Coda catalogo in pausa. I documenti restano da aggiornare."
+            );
+            load();
           }}
         />
       ) : null}
@@ -629,9 +706,19 @@ export function FattureInterneBoard({ kind }: Props) {
                         ) : null}
                       </span>
                     ) : (
-                      labelStatoPagamento(f.statoPagamento, f.kind, {
-                        annullataDaNcNumeroInterno: f.annullataDaNcNumeroInterno,
-                      })
+                      <span className="inline-flex flex-col gap-0.5">
+                        <span>
+                          {labelStatoPagamento(f.statoPagamento, f.kind, {
+                            annullataDaNcNumeroInterno:
+                              f.annullataDaNcNumeroInterno,
+                          })}
+                        </span>
+                        {f.richiedeAggiornamentoCatalogo ? (
+                          <span className="inline-flex w-fit rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+                            Da aggiornare
+                          </span>
+                        ) : null}
+                      </span>
                     )}
                   </td>
                   <td className="px-4 py-3">

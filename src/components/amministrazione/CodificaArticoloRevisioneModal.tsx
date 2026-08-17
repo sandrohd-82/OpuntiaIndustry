@@ -15,6 +15,11 @@ import {
   matchCatalogoAcquistiAction,
 } from "@/app/actions/codifica-articoli";
 import {
+  updateCatalogoProdottoFornitoreAction,
+  updateCatalogoServizioAction,
+} from "@/app/actions/catalogo-offerta";
+import { updateMateriaPrimaAction } from "@/app/actions/materie-prime";
+import {
   CODIFICA_SIMILARITY_THRESHOLD_PCT,
   type CatalogoMatchHit,
 } from "@/lib/amministrazione/codifica-articoli";
@@ -27,6 +32,12 @@ import {
 type Props = {
   initialText: string;
   initialKind?: CatalogoAcquistoKind;
+  /** rename: aggiorna voce esistente via SKU intelligente (no create duplicato). */
+  mode?: "create" | "rename";
+  renameId?: string | null;
+  renameNote?: string;
+  renameIsBio?: boolean;
+  lockKind?: boolean;
   fatturaRicevutaId?: string | null;
   fatturaRigaId?: string | null;
   onClose: () => void;
@@ -35,12 +46,18 @@ type Props = {
     nome: string;
     catalogoKind: CatalogoAcquistoKind;
     catalogoId: string | null;
+    renamed?: boolean;
   }) => void;
 };
 
 export function CodificaArticoloRevisioneModal({
   initialText,
   initialKind,
+  mode = "create",
+  renameId = null,
+  renameNote = "",
+  renameIsBio = false,
+  lockKind = false,
   fatturaRicevutaId = null,
   fatturaRigaId = null,
   onClose,
@@ -74,7 +91,7 @@ export function CodificaArticoloRevisioneModal({
   function refreshCodiceFromTesto() {
     const next = generateSkuProposal(testoSorgente, kind);
     setCodiceBody(next.body);
-    if (!initialKind) setKind(next.kind);
+    if (!initialKind && !lockKind) setKind(next.kind);
   }
 
   useEffect(() => {
@@ -154,6 +171,47 @@ export function CodificaArticoloRevisioneModal({
     }
     setFormError(null);
     startTransition(async () => {
+      const nome = proposal.nomeNormalizzato || testoSorgente.trim();
+
+      if (mode === "rename" && renameId) {
+        const payload = {
+          codice: codiceProposto,
+          nome,
+          note: renameNote,
+          isBio: renameIsBio,
+        };
+        const res =
+          kind === "servizio"
+            ? await updateCatalogoServizioAction(renameId, payload)
+            : kind === "materia"
+              ? await updateMateriaPrimaAction(renameId, payload)
+              : await updateCatalogoProdottoFornitoreAction(renameId, payload);
+        if (!res.success) {
+          setFormError(res.error);
+          return;
+        }
+        const codice =
+          "item" in res
+            ? res.item.codice
+            : "materia" in res
+              ? res.materia.codice
+              : codiceProposto;
+        const nomeOut =
+          "item" in res
+            ? res.item.nome
+            : "materia" in res
+              ? res.materia.nome
+              : nome;
+        onConfirmed({
+          codice,
+          nome: nomeOut,
+          catalogoKind: kind,
+          catalogoId: renameId,
+          renamed: true,
+        });
+        return;
+      }
+
       const res = await confirmCodificaArticoloAction({
         testoOriginale: initialText.trim() || testoSorgente.trim(),
         testoNormalizzato: proposal.nomeNormalizzato,
@@ -162,7 +220,7 @@ export function CodificaArticoloRevisioneModal({
         catalogoId: null,
         affinitaPercentuale: null,
         azione: "crea_nuovo",
-        nomeArticolo: proposal.nomeNormalizzato || testoSorgente.trim(),
+        nomeArticolo: nome,
         note: "Codificato da fattura ricevuta — uso ripristino magazzino / fogli ordine",
         fatturaRicevutaId,
         fatturaRigaId,
@@ -195,7 +253,9 @@ export function CodificaArticoloRevisioneModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Revisione e codifica articolo
+          {mode === "rename"
+            ? "Modifica targa (codifica intelligente)"
+            : "Revisione e codifica articolo"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Deduplica catalogo acquisti (soglia {CODIFICA_SIMILARITY_THRESHOLD_PCT}
@@ -261,7 +321,7 @@ export function CodificaArticoloRevisioneModal({
               ))}
             </ul>
           ) : null}
-          {selectedMatch ? (
+          {selectedMatch && mode !== "rename" ? (
             <button
               type="button"
               disabled={pending}
@@ -283,10 +343,11 @@ export function CodificaArticoloRevisioneModal({
               <span className="mb-1 block font-medium">Tipo catalogo</span>
               <select
                 value={kind}
+                disabled={lockKind || mode === "rename"}
                 onChange={(e) =>
                   setKind(e.target.value as CatalogoAcquistoKind)
                 }
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:bg-slate-50"
               >
                 <option value="prodotto">Prodotto fornitore (Pr)</option>
                 <option value="materia">Materia prima (Mp)</option>
@@ -357,7 +418,11 @@ export function CodificaArticoloRevisioneModal({
               disabled={pending}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {pending ? "Salvataggio…" : "Crea nuovo codice"}
+              {pending
+                ? "Salvataggio…"
+                : mode === "rename"
+                  ? "Applica nuova targa"
+                  : "Crea nuovo codice"}
             </button>
           </div>
         </form>

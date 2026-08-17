@@ -18,6 +18,7 @@ import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
+import { CollegaArticoloModal } from "@/components/amministrazione/CollegaArticoloModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
@@ -245,6 +246,7 @@ export function FatturaRegistrazioneModal({
     index: number;
     kind: "servizio" | "prodotto" | "materia";
   } | null>(null);
+  const [collegaRigaIndex, setCollegaRigaIndex] = useState<number | null>(null);
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -1490,6 +1492,7 @@ export function FatturaRegistrazioneModal({
                         <td className="px-2 py-2">
                           <div className="flex items-start gap-1.5">
                             {isRicevuta ? (
+                              <>
                               <select
                                 value={
                                   riga.codice &&
@@ -1526,7 +1529,7 @@ export function FatturaRegistrazioneModal({
                                   if (v.startsWith("__orphan__:")) return;
                                   applyVoceAcquisto(index, v);
                                 }}
-                                className="w-full min-w-[160px] rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
+                                className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
                                 required
                               >
                                 <option value="">Seleziona codice…</option>
@@ -1577,6 +1580,15 @@ export function FatturaRegistrazioneModal({
                                   + Nuova materia prima
                                 </option>
                               </select>
+                              <button
+                                type="button"
+                                onClick={() => setCollegaRigaIndex(index)}
+                                className="shrink-0 rounded border border-[var(--border)] px-2 py-1.5 text-[10px] font-medium text-[var(--foreground)] hover:bg-[var(--surface)]"
+                                title="Collega codice esistente (stessa fattura → azienda → catalogo)"
+                              >
+                                Collega
+                              </button>
+                              </>
                             ) : (
                               <select
                                 value={riga.prodottoId ?? ""}
@@ -2421,6 +2433,33 @@ export function FatturaRegistrazioneModal({
             await refreshVociAcquisto();
             applyProdottoToLocal(idx, "", result.codice, result.nome);
             setCodificaRiga(null);
+          }}
+        />
+      ) : null}
+
+      {collegaRigaIndex !== null ? (
+        <CollegaArticoloModal
+          descrizioneRiga={righe[collegaRigaIndex]?.descrizione ?? ""}
+          fornitoreId={anagraficaId || null}
+          sameInvoiceCodici={righe
+            .map((r) => r.codice)
+            .filter(
+              (c) =>
+                Boolean(c?.trim()) &&
+                c !== "—" &&
+                c !== (righe[collegaRigaIndex]?.codice ?? "")
+            )}
+          onClose={() => setCollegaRigaIndex(null)}
+          onCollega={(hit) => {
+            const idx = collegaRigaIndex;
+            const keepDesc = (righe[idx]?.descrizione ?? "").trim();
+            patchRiga(idx, {
+              prodottoId: null,
+              codice: hit.codice,
+              ...(keepDesc ? {} : { descrizione: hit.nome }),
+            });
+            setCollegaRigaIndex(null);
+            void refreshVociAcquisto();
           }}
         />
       ) : null}

@@ -1703,10 +1703,21 @@ export async function updateFatturaAction(
       },
     });
 
+    const { maybeClearFatturaCodaCatalogo } = await import(
+      "@/app/actions/catalogo-collega"
+    );
+    await maybeClearFatturaCodaCatalogo(id, auth.userId);
+
+    const { data: refreshed } = await supabase
+      .from("fatture_ricevute")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
     return {
       success: true,
       fattura: mapFatturaRicevutaRow(
-        updated as FatturaRicevutaRow,
+        (refreshed ?? updated) as FatturaRicevutaRow,
         (righeData ?? []) as FatturaRicevutaRigaRow[],
         dilazioniData
       ),

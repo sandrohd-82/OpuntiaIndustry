@@ -1115,6 +1115,8 @@ export interface FatturaRicevutaRow {
   versione: number;
   documento_stato: FatturaDocumentoStato;
   note: string;
+  richiede_aggiornamento_catalogo: boolean;
+  codice_catalogo_pending: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
