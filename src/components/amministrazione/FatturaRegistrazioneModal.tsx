@@ -1792,35 +1792,29 @@ export function FatturaRegistrazioneModal({
                           {isRicevuta
                             ? (() => {
                                 const hint = matchHints[String(index)];
-                                if (!hint || hint.status === "ok") return null;
+                                if (
+                                  !hint ||
+                                  hint.status === "ok" ||
+                                  hint.status === "possibile_match"
+                                ) {
+                                  return null;
+                                }
                                 const label =
                                   hint.status === "da_sostituire"
                                     ? "Codice da sostituire"
-                                    : hint.status === "possibile_match"
-                                      ? `Possibile match${
-                                          hint.best
-                                            ? `: ${hint.best.codice}`
-                                            : ""
-                                        }`
-                                      : hint.status === "codice_orfano"
-                                        ? "Codice non in catalogo"
-                                        : "Nessun match";
+                                    : hint.status === "codice_orfano"
+                                      ? "Codice non in catalogo"
+                                      : "Nessun match";
                                 const cls =
                                   hint.status === "da_sostituire"
                                     ? "border-amber-300 bg-amber-50 text-amber-950"
-                                    : hint.status === "possibile_match"
-                                      ? "border-sky-300 bg-sky-50 text-sky-950"
-                                      : "border-slate-300 bg-slate-50 text-slate-700";
+                                    : "border-slate-300 bg-slate-50 text-slate-700";
                                 return (
                                   <button
                                     type="button"
                                     onClick={() => setCollegaRigaIndex(index)}
                                     className={`w-fit max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] font-medium ${cls}`}
-                                    title={
-                                      hint.best
-                                        ? `${hint.best.nome} (${hint.best.score})`
-                                        : label
-                                    }
+                                    title={label}
                                   >
                                     {label}
                                   </button>
