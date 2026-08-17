@@ -10,8 +10,10 @@ import {
   type FatturaKind,
   type FatturaRiga,
 } from "@/lib/amministrazione/fatture";
+import { parseFatturaPaXml } from "@/lib/amministrazione/fattura-pa-xml";
 import {
   enrichEntityFromInvoiceRaw,
+  extractXmlFromPossiblySigned,
   parseCedenteAnagraficaFromFatturaPaXml,
   type FicDocumentNormalized,
   type FicEntityNormalized,
@@ -83,10 +85,13 @@ function asText(value: unknown): string {
       : "";
 }
 
-/** Estrae righe prodotto da payload FiC (fieldset detailed). */
+/** Estrae righe prodotto da payload FiC (fieldset detailed) o XML SDI. */
 export function extractRigheFromFicRaw(
   raw: Record<string, unknown>
 ): FatturaRiga[] {
+  const fromXml = extractRigheFromSdiXml(raw);
+  if (fromXml.length > 0) return fromXml;
+
   const items = Array.isArray(raw.items_list)
     ? raw.items_list
     : Array.isArray(raw.items)
@@ -119,6 +124,7 @@ export function extractRigheFromFicRaw(
       importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
     });
   }
+
   if (righe.length === 0) {
     const gross = asNumber(raw.amount_net ?? raw.amount_gross);
     if (gross > 0) {
@@ -134,6 +140,41 @@ export function extractRigheFromFicRaw(
     }
   }
   return righe;
+}
+
+/** Righe da DettaglioLinee (XML/p7m già in raw.ei_raw dopo enrich). */
+function extractRigheFromSdiXml(raw: Record<string, unknown>): FatturaRiga[] {
+  const xmlRaw =
+    (typeof raw.ei_raw === "string" && raw.ei_raw) ||
+    (typeof raw.e_invoice_xml === "string" && raw.e_invoice_xml) ||
+    (typeof raw.xml === "string" && raw.xml) ||
+    "";
+  const xml = xmlRaw ? extractXmlFromPossiblySigned(xmlRaw) : null;
+  if (!xml) return [];
+  try {
+    const paper = parseFatturaPaXml(xml);
+    return paper.righe.map((line) => {
+      const quantita = line.quantita || 1;
+      const prezzoUnitario = Math.abs(line.prezzo);
+      const scontoPercentuale = line.scontoPercentuale ?? 0;
+      const descrizione = (line.descrizione || "Voce").trim() || "Voce";
+      return {
+        prodottoId: null,
+        codice: "—",
+        descrizione,
+        quantita,
+        prezzoUnitario,
+        scontoPercentuale,
+        importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
+      };
+    });
+  } catch (e) {
+    console.error(
+      "[fatture-sync] parse DettaglioLinee XML failed",
+      e instanceof Error ? e.message : e
+    );
+    return [];
+  }
 }
 
 export function extractSpedizioneFromFicRaw(
@@ -164,7 +205,26 @@ export function extractIvaPercentFromFicRaw(
     if (rate > 0) return rate;
   }
   const global = asNumber(raw.vat_rate ?? asRecord(raw.vat).value);
-  return global > 0 ? global : 22;
+  if (global > 0) return global;
+
+  const xmlRaw =
+    (typeof raw.ei_raw === "string" && raw.ei_raw) ||
+    (typeof raw.e_invoice_xml === "string" && raw.e_invoice_xml) ||
+    (typeof raw.xml === "string" && raw.xml) ||
+    "";
+  const xml = xmlRaw ? extractXmlFromPossiblySigned(xmlRaw) : null;
+  if (xml) {
+    try {
+      const paper = parseFatturaPaXml(xml);
+      const fromCastelletto = paper.castelletto.find((c) => c.aliquota > 0);
+      if (fromCastelletto) return fromCastelletto.aliquota;
+      const fromLine = paper.righe.find((r) => r.ivaPercentuale > 0);
+      if (fromLine) return fromLine.ivaPercentuale;
+    } catch {
+      // ignore
+    }
+  }
+  return 22;
 }
 
 export function statoPagamentoFromFic(

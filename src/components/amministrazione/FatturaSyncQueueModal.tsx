@@ -303,6 +303,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         spedizioneIvaApplicata: current.spedizioneIvaApplicata,
         ivaPercentuale: current.ivaPercentuale,
         statoPagamento: current.statoPagamento,
+        naturaDocumento: kind === "ricevuta" ? "saldo" : null,
         righe: current.righe,
         lockAnagrafica: true,
         fatturaCollegataId: current.linkedFattura?.fatturaId ?? null,

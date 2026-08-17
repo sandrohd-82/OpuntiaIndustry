@@ -777,6 +777,8 @@ export function FatturaRegistrazioneModal({
 
   function applyProdotto(index: number, prodottoId: string) {
     const p = prodotti.find((x) => x.id === prodottoId);
+    const current = righe[index];
+    const keepDesc = (current?.descrizione ?? "").trim();
     if (!p) {
       patchRiga(index, { prodottoId: null });
       return;
@@ -784,20 +786,24 @@ export function FatturaRegistrazioneModal({
     patchRiga(index, {
       prodottoId: p.id,
       codice: p.codice,
-      descrizione: p.nome,
+      // Non sovrascrivere la descrizione già presa dalla fattura/XML
+      ...(keepDesc ? {} : { descrizione: p.nome }),
     });
   }
 
   function applyVoceAcquisto(index: number, codice: string) {
     const v = vociAcquisto.find((x) => x.codice === codice);
+    const current = righe[index];
+    const keepDesc = (current?.descrizione ?? "").trim();
     if (!v) {
-      patchRiga(index, { prodottoId: null, codice: "", descrizione: "" });
+      // Deselezione: togli solo il collegamento, non la descrizione fattura
+      patchRiga(index, { prodottoId: null, codice: keepDesc ? "—" : "" });
       return;
     }
     patchRiga(index, {
       prodottoId: null,
       codice: v.codice,
-      descrizione: v.nome,
+      ...(keepDesc ? {} : { descrizione: v.nome }),
     });
   }
 
@@ -849,6 +855,18 @@ export function FatturaRegistrazioneModal({
         kind === "ricevuta"
           ? "Seleziona un fornitore (intestazione)."
           : "Seleziona un cliente (intestazione)."
+      );
+      return;
+    }
+    if (
+      isRicevuta &&
+      righe.some((r) => {
+        const c = String(r.codice ?? "").trim();
+        return !c || c === "—";
+      })
+    ) {
+      setFormError(
+        "Assegna il codice interno Opuntia a ogni riga (la descrizione resta quella della fattura)."
       );
       return;
     }
@@ -1544,9 +1562,14 @@ export function FatturaRegistrazioneModal({
                         </td>
                         <td className="px-2 py-2">
                           <input
-                            value={riga.codice}
+                            value={riga.codice === "—" ? "" : riga.codice}
+                            placeholder={
+                              isRicevuta ? "Codice interno" : undefined
+                            }
                             onChange={(e) =>
-                              patchRiga(index, { codice: e.target.value })
+                              patchRiga(index, {
+                                codice: e.target.value.trim() || "—",
+                              })
                             }
                             className="w-24 rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
                             required
