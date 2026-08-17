@@ -15,7 +15,7 @@ import {
   type DilazioneFatturaOption,
 } from "@/app/actions/fatture";
 import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
-import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
+import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
 import { NcPendingFatturaPickerModal } from "@/components/amministrazione/NcPendingFatturaPickerModal";
@@ -888,15 +888,12 @@ export function FatturaRegistrazioneModal({
             ) : null}
           </div>
           {(editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId) ? (
-            <ApriFatturaFicButton
+            <ApriFatturaFicActions
               kind={kind}
               ficId={
                 (editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId) as number
               }
               variant="button"
-              label={
-                kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
-              }
             />
           ) : null}
         </div>

@@ -9,7 +9,7 @@ import {
   findNcCompensazioneCandidatesAction,
   type NcCompensazioneCandidate,
 } from "@/app/actions/fatture";
-import { ApriFatturaFicButton } from "@/components/amministrazione/ApriFatturaFicButton";
+import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import {
@@ -237,14 +237,11 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
       </p>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {current ? (
-          <ApriFatturaFicButton
+          <ApriFatturaFicActions
             kind={kind}
             ficId={current.ficId}
             variant="button"
             className="border-amber-300 bg-white"
-            label={
-              kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
-            }
           />
         ) : null}
         <button
@@ -316,13 +313,10 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
           </div>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <ApriFatturaFicButton
+          <ApriFatturaFicActions
             kind={kind}
             ficId={current.ficId}
             variant="button"
-            label={
-              kind === "nota_credito" ? "Apri nota di credito" : "Apri fattura"
-            }
           />
         </div>
 
@@ -562,6 +556,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         <ClienteFormModal
           mode="create"
           elevated
+          ficDocument={{ kind, ficId: current.ficId }}
           initial={draftToClientePreview(current.draft, current.proposedTarga)}
           onClose={onPaused}
           onSave={async (values) => {
@@ -585,6 +580,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         <FornitoreFormModal
           mode="create"
           elevated
+          ficDocument={{ kind, ficId: current.ficId }}
           initial={draftToFornitorePreview(
             current.draft,
             current.proposedTarga

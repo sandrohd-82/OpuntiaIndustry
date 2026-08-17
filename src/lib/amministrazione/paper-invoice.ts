@@ -205,6 +205,17 @@ function extractXmlFromRaw(raw: Record<string, unknown>): string | null {
   return null;
 }
 
+export function extractXmlFromRawSafe(
+  raw: Record<string, unknown> | null | undefined
+): string | null {
+  if (!raw) return null;
+  const xml = extractXmlFromRaw(raw);
+  if (!xml) return null;
+  const t = xml.trim();
+  if (!(t.startsWith("<?xml") || t.startsWith("<"))) return null;
+  return t;
+}
+
 function lineVatPercent(
   item: Record<string, unknown>,
   fallback: number

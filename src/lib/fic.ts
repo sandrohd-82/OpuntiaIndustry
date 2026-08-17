@@ -131,6 +131,37 @@ async function ficRequest<T>(
   return (await res.json()) as T;
 }
 
+/** GET che restituisce testo grezzo (es. XML e-fattura). */
+async function ficGetText(
+  path: string,
+  query: Record<string, string | number | undefined> = {}
+): Promise<{ text: string; contentType: string }> {
+  const { token, companyId } = getFicConfig();
+  const url = new URL(`${FIC_API_BASE}/c/${companyId}${path}`);
+  for (const [k, v] of Object.entries(query)) {
+    if (v === undefined || v === "") continue;
+    url.searchParams.set(k, String(v));
+  }
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/xml, text/xml, application/json, */*",
+    },
+    cache: "no-store",
+  });
+
+  const contentType = res.headers.get("content-type") ?? "";
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    throw new Error(
+      `Fatture in Cloud ha risposto con errore ${res.status}: ${text.slice(0, 600)}`
+    );
+  }
+  return { text, contentType };
+}
+
 async function ficGet<T>(
   path: string,
   query: Record<string, string | number | undefined>
@@ -547,6 +578,99 @@ export async function fetchFicDocumentPdfUrl(input: {
 
   throw new Error(
     "Fatture in Cloud non ha restituito un link PDF per questo documento (allegato assente o non disponibile)."
+  );
+}
+
+function looksLikeXml(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith("<?xml") || t.startsWith("<");
+}
+
+function extractXmlCandidateFromRecord(
+  raw: Record<string, unknown>
+): string | null {
+  const candidates = [
+    raw.ei_raw,
+    raw.e_invoice_xml,
+    raw.xml,
+    raw.xml_content,
+    asRecord(raw.ei_data).xml,
+    asRecord(raw.e_invoice).xml,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && looksLikeXml(c)) return c.trim();
+  }
+  return null;
+}
+
+/**
+ * XML fattura elettronica da FiC.
+ * - Emesse: GET …/issued_documents/{id}/e_invoice/xml
+ * - Ricevute: campi XML nel documento / allegato .xml / cache locale (gestita dal caller)
+ */
+export async function fetchFicDocumentXml(input: {
+  kind: FicInvoiceKind;
+  ficId: number;
+}): Promise<{ xml: string; filename: string }> {
+  const ficId = Number(input.ficId);
+  if (!Number.isFinite(ficId) || ficId <= 0) {
+    throw new Error("ID documento Fatture in Cloud non valido.");
+  }
+
+  if (input.kind === "issued") {
+    const { text } = await ficGetText(
+      `/issued_documents/${ficId}/e_invoice/xml`,
+      { include_attachment: 0 }
+    );
+    if (!looksLikeXml(text)) {
+      throw new Error(
+        "Fatture in Cloud non ha restituito un XML valido per questo documento emesso."
+      );
+    }
+    return { xml: text.trim(), filename: `fattura-emessa-${ficId}.xml` };
+  }
+
+  const res = await ficGet<{ data?: unknown }>(
+    `/received_documents/${ficId}`,
+    {}
+  );
+  const data = asRecord(res.data);
+  const embedded = extractXmlCandidateFromRecord(data);
+  if (embedded) {
+    return { xml: embedded, filename: `fattura-ricevuta-${ficId}.xml` };
+  }
+
+  const attachmentCandidates = [
+    data.attachment_url,
+    data.attachmentUrl,
+    data.url,
+    data.ai_url,
+    data.aiUrl,
+  ];
+  for (const c of attachmentCandidates) {
+    const url = asText(c);
+    if (!url) continue;
+    if (!/\.xml(\?|$)/i.test(url)) continue;
+    const absolute =
+      url.startsWith("http://") || url.startsWith("https://")
+        ? url
+        : url.startsWith("/")
+          ? `https://api-v2.fattureincloud.it${url}`
+          : "";
+    if (!absolute) continue;
+    const { token } = getFicConfig();
+    const fileRes = await fetch(absolute, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
+      cache: "no-store",
+    });
+    const text = await fileRes.text().catch(() => "");
+    if (fileRes.ok && looksLikeXml(text)) {
+      return { xml: text.trim(), filename: `fattura-ricevuta-${ficId}.xml` };
+    }
+  }
+
+  throw new Error(
+    "XML non disponibile per questa fattura ricevuta su Fatture in Cloud (né nel documento né come allegato)."
   );
 }
 

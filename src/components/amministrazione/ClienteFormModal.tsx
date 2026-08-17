@@ -7,8 +7,10 @@ import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
 import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-archivio";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
+import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptyConsegnaAltraAzienda,
   emptySede,
@@ -28,6 +30,8 @@ type Props = {
   onSave: (values: ClienteInput) => boolean | Promise<boolean>;
   /** Sopra un’altra modale (es. ordine storico). */
   elevated?: boolean;
+  /** Documento FiC da consultare durante la sync (PDF + XML). */
+  ficDocument?: { kind: FatturaKind; ficId: number } | null;
 };
 
 function sameSede(a: SedeCliente, b: SedeCliente) {
@@ -66,6 +70,7 @@ export function ClienteFormModal({
   onClose,
   onSave,
   elevated = false,
+  ficDocument = null,
 }: Props) {
   const router = useRouter();
   const titleId = useId();
@@ -353,6 +358,15 @@ export function ClienteFormModal({
             ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
             : "Compila i dati anagrafici e i prodotti acquistati."}
         </p>
+        {ficDocument ? (
+          <div className="mt-3">
+            <ApriFatturaFicActions
+              kind={ficDocument.kind}
+              ficId={ficDocument.ficId}
+              variant="button"
+            />
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">

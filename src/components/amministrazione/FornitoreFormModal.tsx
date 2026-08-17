@@ -5,12 +5,14 @@ import { FaChevronDown, FaMagnifyingGlass } from "react-icons/fa6";
 import { lookupFornitoreEnrichmentAction } from "@/app/actions/fornitore-enrichment";
 import { previewNextCodiceTargaAction } from "@/app/actions/fornitori";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertificatoPdfField";
 import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffertaTags";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
 import { FORNITORE_TIPOLOGIE } from "@/lib/amministrazione/catalogo-offerta";
 import type { FornitoreEnrichmentHit } from "@/lib/amministrazione/fornitore-enrichment";
+import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptySede,
   type Fornitore,
@@ -29,6 +31,8 @@ type Props = {
   ) => void | Promise<void>;
   /** Sopra un’altra modale (es. sync clienti → passa a fornitori). */
   elevated?: boolean;
+  /** Documento FiC da consultare durante la sync (PDF + XML). */
+  ficDocument?: { kind: FatturaKind; ficId: number } | null;
 };
 
 function sameSede(a: SedeFornitore, b: SedeFornitore) {
@@ -57,6 +61,7 @@ export function FornitoreFormModal({
   onClose,
   onSave,
   elevated = false,
+  ficDocument = null,
 }: Props) {
   const titleId = useId();
   const isEdit = mode === "edit";
@@ -311,6 +316,15 @@ export function FornitoreFormModal({
             ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
             : "Compila i dati anagrafici e i prodotti acquistati."}
         </p>
+        {ficDocument ? (
+          <div className="mt-3">
+            <ApriFatturaFicActions
+              kind={ficDocument.kind}
+              ficId={ficDocument.ficId}
+              variant="button"
+            />
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
