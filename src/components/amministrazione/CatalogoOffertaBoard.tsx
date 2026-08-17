@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FaPlus } from "react-icons/fa6";
+import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
   listCatalogoProdottiFornitoreAction,
   listCatalogoServiziAction,
+  softDeleteCatalogoProdottoFornitoreAction,
+  softDeleteCatalogoServizioAction,
+  updateCatalogoProdottoFornitoreAction,
+  updateCatalogoServizioAction,
 } from "@/app/actions/catalogo-offerta";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type {
   CatalogoOffertaInput,
   CatalogoOffertaItem,
@@ -25,12 +30,14 @@ export function CatalogoOffertaBoard({ kind }: Props) {
   const [items, setItems] = useState<CatalogoOffertaItem[]>([]);
   const [ready, setReady] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<CatalogoOffertaItem | null>(null);
+  const [deleting, setDeleting] = useState<CatalogoOffertaItem | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   const prefix = catalogoPrefix(kind);
-  const title =
-    kind === "servizio" ? "Servizi" : "Prodotti";
+  const title = kind === "servizio" ? "Servizi" : "Prodotti";
   const entityLabel = kind === "servizio" ? "servizio" : "prodotto";
 
   async function refresh() {
@@ -79,6 +86,59 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     );
   }
 
+  async function handleUpdate(values: CatalogoOffertaInput) {
+    if (!editing) return;
+    setError(null);
+    const result =
+      kind === "servizio"
+        ? await updateCatalogoServizioAction(editing.id, values)
+        : await updateCatalogoProdottoFornitoreAction(editing.id, values);
+    if (!result.success) {
+      setError(result.error);
+      throw new Error(result.error);
+    }
+    setItems((prev) =>
+      prev
+        .map((i) => (i.id === editing.id ? result.item : i))
+        .sort((a, b) => a.codice.localeCompare(b.codice, "it"))
+    );
+    if (result.cascade && (result.cascade.fatture > 0 || result.cascade.fornitori > 0)) {
+      setInfo(
+        `Aggiornati ${result.cascade.fatture} documenti e ${result.cascade.fornitori} schede fornitore.`
+      );
+    }
+    setEditing(null);
+  }
+
+  async function handleDelete(confermaTestuale: string) {
+    if (!deleting) return { success: false as const, error: "Nessuna voce." };
+    setError(null);
+    setInfo(null);
+    const result =
+      kind === "servizio"
+        ? await softDeleteCatalogoServizioAction({
+            id: deleting.id,
+            confermaTestuale,
+          })
+        : await softDeleteCatalogoProdottoFornitoreAction({
+            id: deleting.id,
+            confermaTestuale,
+          });
+    if (!result.success) {
+      setError(result.error);
+      return { success: false as const, error: result.error };
+    }
+    if (result.deleted) {
+      setItems((prev) => prev.filter((i) => i.id !== deleting.id));
+      setDeleting(null);
+      return { success: true as const };
+    }
+    setInfo(result.message);
+    await refresh();
+    setDeleting(null);
+    return { success: true as const };
+  }
+
   if (!ready) {
     return (
       <p className="text-sm text-[var(--muted)]">
@@ -91,8 +151,8 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Catalogo {title.toLowerCase()} con targa {prefix}. Usato nei tag
-          fornitore (Schede → Fornitori).
+          Catalogo {title.toLowerCase()} con targa {prefix}. Modifica aggiorna
+          fatture e schede collegate; eliminazione richiede documenti aggiornati.
         </p>
         <button
           type="button"
@@ -110,6 +170,11 @@ export function CatalogoOffertaBoard({ kind }: Props) {
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
+        </p>
+      ) : null}
+      {info ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {info}
         </p>
       ) : null}
 
@@ -138,6 +203,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                 <th className="px-4 py-3 font-medium">Nome</th>
                 <th className="px-4 py-3 font-medium">Tipo</th>
                 <th className="px-4 py-3 font-medium">Note</th>
+                <th className="px-4 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
@@ -147,7 +213,14 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                   className="border-b border-[var(--border)] last:border-0"
                 >
                   <td className="px-4 py-3">
-                    <CodiceTargaBadge code={item.codice} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CodiceTargaBadge code={item.codice} />
+                      {item.pendingDeleteAt ? (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                          In eliminazione
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-medium">{item.nome}</td>
                   <td className="px-4 py-3 text-[var(--muted)]">
@@ -155,6 +228,33 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                   </td>
                   <td className="max-w-xs truncate px-4 py-3 text-[var(--muted)]">
                     {item.note || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="inline-flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setEditing(item);
+                        }}
+                        className="rounded p-2 text-slate-600 hover:bg-slate-100"
+                        aria-label={`Modifica ${item.codice}`}
+                      >
+                        <FaPen size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null);
+                          setInfo(null);
+                          setDeleting(item);
+                        }}
+                        className="rounded p-2 text-red-600 hover:bg-red-50"
+                        aria-label={`Elimina ${item.codice}`}
+                      >
+                        <FaTrash size={12} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -175,6 +275,29 @@ export function CatalogoOffertaBoard({ kind }: Props) {
           catalog={items}
           onClose={() => setCreating(false)}
           onSave={handleCreate}
+        />
+      ) : null}
+
+      {editing ? (
+        <CatalogoOffertaFormModal
+          kind={kind}
+          mode="edit"
+          initial={editing}
+          catalog={items}
+          onClose={() => setEditing(null)}
+          onSave={handleUpdate}
+        />
+      ) : null}
+
+      {deleting ? (
+        <SoftDeleteConfirmModal
+          entityLabel={entityLabel}
+          confirmCode={deleting.codice}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (conferma) => {
+            const res = await handleDelete(conferma);
+            if (!res.success) throw new Error(res.error);
+          }}
         />
       ) : null}
     </div>

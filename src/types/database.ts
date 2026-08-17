@@ -360,6 +360,8 @@ export interface MateriaPrimaRow {
   updated_at: string;
   deleted_at: string | null;
   deleted_by: string | null;
+  pending_delete_at: string | null;
+  pending_delete_by: string | null;
 }
 
 export interface MateriaPrimaInsert {
@@ -1612,6 +1614,8 @@ export interface CatalogoServizioRow {
   updated_at: string;
   deleted_at: string | null;
   deleted_by: string | null;
+  pending_delete_at: string | null;
+  pending_delete_by: string | null;
 }
 
 export type CatalogoServizioInsert = {
@@ -1627,6 +1631,8 @@ export type CatalogoServizioInsert = {
 export type CatalogoServizioUpdate = Partial<CatalogoServizioInsert> & {
   deleted_at?: string | null;
   deleted_by?: string | null;
+  pending_delete_at?: string | null;
+  pending_delete_by?: string | null;
 };
 
 export interface CatalogoProdottoFornitoreRow {
@@ -1641,6 +1647,8 @@ export interface CatalogoProdottoFornitoreRow {
   updated_at: string;
   deleted_at: string | null;
   deleted_by: string | null;
+  pending_delete_at: string | null;
+  pending_delete_by: string | null;
 }
 
 export type CatalogoProdottoFornitoreInsert = {
@@ -1656,6 +1664,8 @@ export type CatalogoProdottoFornitoreInsert = {
 export type CatalogoProdottoFornitoreUpdate = Partial<CatalogoProdottoFornitoreInsert> & {
   deleted_at?: string | null;
   deleted_by?: string | null;
+  pending_delete_at?: string | null;
+  pending_delete_by?: string | null;
 };
 
 export type AnagraficaArchivioMotivo =

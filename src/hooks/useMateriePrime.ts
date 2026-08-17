@@ -67,15 +67,29 @@ export function useMateriePrime() {
   async function removeMateria(
     id: string,
     confermaTestuale: string
-  ): Promise<{ success: true } | { success: false; error: string }> {
+  ): Promise<
+    | { success: true; deleted: true }
+    | { success: true; deleted: false; pending: true; message: string }
+    | { success: false; error: string }
+  > {
     const result = await softDeleteMateriaPrimaAction({ id, confermaTestuale });
     if (!result.success) {
       setError(result.error);
       return { success: false, error: result.error };
     }
-    setMaterie((prev) => prev.filter((item) => item.id !== id));
+    if (result.deleted) {
+      setMaterie((prev) => prev.filter((item) => item.id !== id));
+      setError(null);
+      return { success: true, deleted: true };
+    }
+    await refresh();
     setError(null);
-    return { success: true };
+    return {
+      success: true,
+      deleted: false,
+      pending: true,
+      message: result.message,
+    };
   }
 
   return {

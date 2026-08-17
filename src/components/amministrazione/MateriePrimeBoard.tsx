@@ -31,6 +31,7 @@ export function MateriePrimeBoard() {
   const [editing, setEditing] = useState<MateriaPrima | null>(null);
   const [deleting, setDeleting] = useState<MateriaPrima | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<MateriePrimeFilters>(
     emptyMateriePrimeFilters()
@@ -101,6 +102,11 @@ export function MateriePrimeBoard() {
           {saveError || error}
         </p>
       )}
+      {info ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {info}
+        </p>
+      ) : null}
 
       {materie.length > 0 && filtersOpen && (
         <MateriePrimeFiltersPanel
@@ -156,11 +162,18 @@ export function MateriePrimeBoard() {
               {filtered.map((m) => (
                 <tr key={m.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3">
-                    <CodiceTargaBadge
-                      code={m.codice}
-                      fixedPrefix={CODICE_MATERIA_PRIMA_PREFIX}
-                      size="md"
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CodiceTargaBadge
+                        code={m.codice}
+                        fixedPrefix={CODICE_MATERIA_PRIMA_PREFIX}
+                        size="md"
+                      />
+                      {m.pendingDeleteAt ? (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                          In eliminazione
+                        </span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-medium">{m.nome}</td>
                   <td className="px-4 py-3 text-xs">
@@ -254,6 +267,9 @@ export function MateriePrimeBoard() {
             const result = await removeMateria(deleting.id, confermaTestuale);
             if (!result.success) {
               throw new Error(result.error);
+            }
+            if (!result.deleted && result.pending) {
+              setInfo(result.message);
             }
             setDeleting(null);
           }}

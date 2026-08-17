@@ -17,6 +17,7 @@ export type CatalogoOffertaItem = {
   note: string;
   isBio: boolean;
   createdAt: string;
+  pendingDeleteAt: string | null;
 };
 
 export type CatalogoOffertaInput = {
@@ -131,6 +132,7 @@ export function mapCatalogoServizio(row: CatalogoServizioRow): CatalogoOffertaIt
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
+    pendingDeleteAt: row.pending_delete_at ?? null,
   };
 }
 
@@ -144,6 +146,7 @@ export function mapCatalogoProdottoFornitore(
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
+    pendingDeleteAt: row.pending_delete_at ?? null,
   };
 }
 

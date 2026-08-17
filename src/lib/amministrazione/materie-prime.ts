@@ -15,6 +15,7 @@ export type MateriaPrima = {
   note: string;
   isBio: boolean;
   createdAt: string;
+  pendingDeleteAt: string | null;
 };
 
 export type MateriaPrimaInput = {
@@ -76,6 +77,7 @@ export function mapMateriaPrimaRow(row: MateriaPrimaRow): MateriaPrima {
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
+    pendingDeleteAt: row.pending_delete_at ?? null,
   };
 }
 
