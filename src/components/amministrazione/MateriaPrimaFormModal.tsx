@@ -135,6 +135,7 @@ export function MateriaPrimaFormModal({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     const body = sanitizeCodiceMateriaPrimaBody(codiceBody);
     if (!body || !nome.trim() || !tipologia || saving) return;
 
