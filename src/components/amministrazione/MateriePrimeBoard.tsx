@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { FaLink, FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaShareNodes, FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { MateriaPrimaFormModal } from "@/components/amministrazione/MateriaPrimaFormModal";
@@ -209,7 +209,7 @@ export function MateriePrimeBoard() {
                         className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-50"
                         title="Articoli collegati"
                       >
-                        <FaLink size={11} />
+                        <FaShareNodes size={11} />
                         Legami
                       </button>
                       <button

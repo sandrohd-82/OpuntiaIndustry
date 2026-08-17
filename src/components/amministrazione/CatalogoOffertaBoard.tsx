@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FaLink, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaShareNodes, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
@@ -233,7 +233,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                         aria-label={`Articoli collegati a ${item.codice}`}
                         title="Articoli collegati"
                       >
-                        <FaLink size={12} />
+                        <FaShareNodes size={12} />
                       </button>
                       <button
                         type="button"

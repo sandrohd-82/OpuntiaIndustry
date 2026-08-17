@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { FaShareNodes } from "react-icons/fa6";
 import {
   createArticoloCollegamentoAction,
   listArticoloCollegamentiAction,
@@ -10,7 +11,6 @@ import {
   type ArticoloCollegamento,
   type ArticoloRef,
 } from "@/app/actions/catalogo-collegamenti";
-import { ArticoloCollegatiNuvola } from "@/components/amministrazione/ArticoloCollegatiNuvola";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 
 type Props = {
@@ -90,11 +90,13 @@ export function ArticoloCollegatiManageModal({
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id={titleId} className="text-lg font-semibold">
+            <h2 id={titleId} className="flex items-center gap-2 text-lg font-semibold">
+              <FaShareNodes className="text-violet-700" aria-hidden />
               Articoli collegati
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Legame operativo (es. folcone ↔ bastone), non lo stesso codice.
+              Qui aggiungi o scolleghi prodotti collegati da entrambi i lati.
             </p>
             <p className="mt-2 font-mono text-sm font-semibold">
               {codice}{" "}
@@ -103,11 +105,6 @@ export function ArticoloCollegatiManageModal({
               </span>
             </p>
           </div>
-          <ArticoloCollegatiNuvola
-            linked={items.map((i) => i.linked)}
-            sourceCodice={codice}
-            size="md"
-          />
         </div>
 
         {error ? (

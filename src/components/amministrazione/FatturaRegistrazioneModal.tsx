@@ -43,6 +43,7 @@ import {
   createMateriaPrimaAction,
   listMateriePrimeAction,
 } from "@/app/actions/materie-prime";
+import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { ArticoloCollegatiNuvola } from "@/components/amministrazione/ArticoloCollegatiNuvola";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { CatalogoOffertaItem } from "@/lib/amministrazione/catalogo-offerta";
@@ -263,6 +264,12 @@ export function FatturaRegistrazioneModal({
   const [collegatiByCodice, setCollegatiByCodice] = useState<
     Record<string, ArticoloRef[]>
   >({});
+  const [linkingArticolo, setLinkingArticolo] = useState<{
+    kind: "servizio" | "prodotto" | "materia";
+    id: string;
+    codice: string;
+    nome: string;
+  } | null>(null);
   const [anagraficaId, setAnagraficaId] = useState(seed.anagraficaId ?? "");
   const [anagraficaRagioneSociale, setAnagraficaRagioneSociale] = useState(
     seed.anagraficaRagioneSociale ?? ""
@@ -1501,9 +1508,9 @@ export function FatturaRegistrazioneModal({
                   <span>
                     Scan automatico: badge sulle righe (possibile match / nessun
                     match / da sostituire). Usa <strong>Cerca</strong> per
-                    assegnare un codice o crearne uno nuovo. L’icona{" "}
-                    <strong>legame</strong> mostra articoli collegati (relazione
-                    diversa dallo stesso codice).
+                    assegnare un codice o crearne uno nuovo. Il bottone{" "}
+                    <strong>nodi collegati</strong> apre la gestione dei legami
+                    tra articoli diversi.
                     {Object.values(matchHints).filter(
                       (h) => h.status !== "ok"
                     ).length > 0
@@ -1719,6 +1726,28 @@ export function FatturaRegistrazioneModal({
                                     ? riga.codice
                                     : undefined
                                 }
+                                disabled={
+                                  !riga.codice ||
+                                  riga.codice === "—" ||
+                                  !vociAcquisto.some((v) => v.codice === riga.codice)
+                                }
+                                disabledReason={
+                                  !riga.codice || riga.codice === "—"
+                                    ? "Assegna prima un codice alla riga (Cerca)"
+                                    : "Codice non in catalogo: assegna un codice valido"
+                                }
+                                onManage={() => {
+                                  const v = vociAcquisto.find(
+                                    (x) => x.codice === riga.codice
+                                  );
+                                  if (!v) return;
+                                  setLinkingArticolo({
+                                    kind: v.kind,
+                                    id: v.id,
+                                    codice: v.codice,
+                                    nome: v.nome,
+                                  });
+                                }}
                               />
                               </>
                             ) : (
@@ -2654,6 +2683,30 @@ export function FatturaRegistrazioneModal({
             const idx = collegaRigaIndex;
             setCollegaRigaIndex(null);
             setCodificaRiga({ index: idx, kind });
+          }}
+        />
+      ) : null}
+
+      {linkingArticolo ? (
+        <ArticoloCollegatiManageModal
+          kind={linkingArticolo.kind}
+          id={linkingArticolo.id}
+          codice={linkingArticolo.codice}
+          nome={linkingArticolo.nome}
+          onClose={() => {
+            setLinkingArticolo(null);
+            // refresh badge counts
+            const codes = [
+              ...new Set(
+                righe
+                  .map((r) => (r.codice ?? "").trim())
+                  .filter((c) => c && c !== "—")
+              ),
+            ];
+            if (codes.length === 0) return;
+            void listCollegamentiByCodiciAction(codes).then((res) => {
+              if (res.success) setCollegatiByCodice(res.byCodice);
+            });
           }}
         />
       ) : null}
