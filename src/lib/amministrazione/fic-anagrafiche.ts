@@ -356,12 +356,28 @@ export function normalizeVatKey(vat: string): string {
 
 /**
  * Chiave ragione sociale per match fallback (es. "Bologna Fiere Spa" ≈ "BolognaFiere spa").
+ * Rimuove forme societarie anche attaccate al nome (es. BolognaFiereSPA).
  */
 export function normalizeCompanyNameKey(name: string): string {
-  return name
+  let key = name
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\b(s\.?\s*p\.?\s*a\.?|s\.?\s*r\.?\s*l\.?|s\.?\s*n\.?\s*c\.?|s\.?\s*a\.?\s*s\.?|s\.?\s*s\.?)\b/gi, " ")
     .replace(/[^a-z0-9]/g, "");
+  // Forme societarie in coda (anche senza spazi/punti)
+  key = key.replace(/(societaperazioni|societaaresponsabilitalimitata)$/g, "");
+  key = key.replace(/(spa|srl|snc|sas|ss)$/g, "");
+  return key;
+}
+
+/** Match robusto: uguale, oppure una chiave contiene l’altra (min 6 caratteri). */
+export function companyNamesMatch(a: string, b: string): boolean {
+  const ka = normalizeCompanyNameKey(a);
+  const kb = normalizeCompanyNameKey(b);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+  if (ka.length >= 6 && kb.length >= 6 && (ka.includes(kb) || kb.includes(ka))) {
+    return true;
+  }
+  return false;
 }

@@ -23,6 +23,7 @@ import { useFornitori } from "@/hooks/useFornitori";
 import {
   draftToClientePreview,
   draftToFornitorePreview,
+  companyNamesMatch,
   normalizeCompanyNameKey,
   normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
@@ -40,6 +41,7 @@ type Props = {
 type Step =
   | { type: "notice-existing" }
   | { type: "duplicate-weak" }
+  | { type: "anagrafica-lookup" }
   | { type: "anagrafica-create" }
   | { type: "compensazione-nc" }
   | { type: "fattura" };
@@ -64,6 +66,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const [dupResolved, setDupResolved] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
   const [dupError, setDupError] = useState<string | null>(null);
+  /** Evita di aprire “crea azienda” prima del match P.IVA/nome. */
+  const [anagraficaLookupDone, setAnagraficaLookupDone] = useState(false);
 
   useEffect(() => {
     setQueueItems(items);
@@ -83,6 +87,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
       return { type: "notice-existing" };
     }
     if (current.anagraficaMode === "create" && !anagraficaId) {
+      if (kind === "ricevuta" && !anagraficaLookupDone) {
+        return { type: "anagrafica-lookup" };
+      }
       return { type: "anagrafica-create" };
     }
     if (kind === "emessa" && anagraficaId && !compPromptDone) {
@@ -98,8 +105,10 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     compCandidates.length,
     compChecking,
     dupResolved,
+    anagraficaLookupDone,
   ]);
 
+  // Solo al cambio documento: non resettare quando il match aggiorna mode create→existing
   useEffect(() => {
     setAnagraficaId(null);
     setAnagraficaLabel(null);
@@ -112,7 +121,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     setDupResolved(false);
     setDupBusy(false);
     setDupError(null);
-  }, [index, current?.ficId, current?.anagraficaMode, current?.existingId]);
+    setAnagraficaLookupDone(current?.anagraficaMode !== "create");
+  }, [index, current?.ficId]);
 
   /** Fornitore/cliente già in anagrafica: collega subito senza chiedere di nuovo. */
   useEffect(() => {
@@ -139,45 +149,61 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
    * già in archivio (anche da fattura precedente nella stessa sessione), passa a existing.
    */
   useEffect(() => {
-    if (kind !== "ricevuta" || !current) return;
-    if (current.anagraficaMode !== "create" || anagraficaId) return;
+    if (kind !== "ricevuta" || !current) {
+      setAnagraficaLookupDone(true);
+      return;
+    }
+    if (current.anagraficaMode !== "create" || anagraficaId) {
+      setAnagraficaLookupDone(true);
+      return;
+    }
     const vat = current.entityVat?.trim() || current.draft?.partitaIva?.trim() || "";
     const nome =
       current.draft?.ragioneSociale?.trim() || current.entityName?.trim() || "";
-    if (!vat && !nome) return;
+    if (!vat && !nome) {
+      setAnagraficaLookupDone(true);
+      return;
+    }
     let cancelled = false;
+    setAnagraficaLookupDone(false);
     void (async () => {
-      const res = await findFornitoreByPartitaIvaAction(vat, nome);
-      if (cancelled || !res.success || !res.fornitore) return;
-      const f = res.fornitore;
-      const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
-      const vatKey = normalizeVatKey(vat || f.partitaIva);
-      const nameKey = normalizeCompanyNameKey(nome || f.ragioneSociale);
-      setQueueItems((prev) =>
-        prev.map((it) => {
-          const sameVat =
-            vatKey &&
-            (normalizeVatKey(it.entityVat) === vatKey ||
-              normalizeVatKey(it.draft?.partitaIva ?? "") === vatKey);
-          const sameName =
-            nameKey &&
-            (normalizeCompanyNameKey(it.entityName) === nameKey ||
-              normalizeCompanyNameKey(it.draft?.ragioneSociale ?? "") ===
-                nameKey);
-          if (!sameVat && !sameName) return it;
-          return {
-            ...it,
-            anagraficaMode: "existing" as const,
-            existingId: f.id,
-            existingLabel: label,
-            proposedTarga: f.codiceTarga,
-          };
-        })
-      );
-      setAnagraficaId(f.id);
-      setAnagraficaLabel(label);
-      setAnagraficaTarga(f.codiceTarga);
-      setAnagraficaNome(f.ragioneSociale);
+      try {
+        const res = await findFornitoreByPartitaIvaAction(vat, nome);
+        if (cancelled || !res.success || !res.fornitore) return;
+        const f = res.fornitore;
+        const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
+        const vatKey = normalizeVatKey(vat || f.partitaIva);
+        const nameKey = normalizeCompanyNameKey(nome || f.ragioneSociale);
+        setQueueItems((prev) =>
+          prev.map((it) => {
+            const sameVat =
+              vatKey &&
+              (normalizeVatKey(it.entityVat) === vatKey ||
+                normalizeVatKey(it.draft?.partitaIva ?? "") === vatKey);
+            const sameName =
+              nameKey &&
+              (normalizeCompanyNameKey(it.entityName) === nameKey ||
+                normalizeCompanyNameKey(it.draft?.ragioneSociale ?? "") ===
+                  nameKey ||
+                companyNamesMatch(nome, it.entityName) ||
+                companyNamesMatch(nome, it.draft?.ragioneSociale ?? ""));
+            if (!sameVat && !sameName) return it;
+            return {
+              ...it,
+              anagraficaMode: "existing" as const,
+              existingId: f.id,
+              existingLabel: label,
+              proposedTarga: f.codiceTarga,
+            };
+          })
+        );
+        setAnagraficaId(f.id);
+        setAnagraficaLabel(label);
+        setAnagraficaTarga(f.codiceTarga);
+        setAnagraficaNome(f.ragioneSociale);
+      } finally {
+        if (!cancelled) setAnagraficaLookupDone(true);
+      }
     })();
     return () => {
       cancelled = true;
@@ -593,6 +619,23 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
               >
                 Continua
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {step.type === "anagrafica-lookup" ? (
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-slate-700">
+              Verifica se l&apos;azienda è già presente in anagrafica…
+            </p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onPaused}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
+              >
+                Pausa
               </button>
             </div>
           </div>

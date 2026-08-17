@@ -13,7 +13,7 @@ import {
 } from "@/lib/amministrazione/fornitori";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
-import { normalizeCompanyNameKey, normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
+import { normalizeCompanyNameKey, normalizeVatKey, companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
@@ -233,11 +233,16 @@ export async function findFornitoreByPartitaIvaAction(
   if (byVat) {
     return { success: true, fornitore: mapFornitoreRow(byVat) };
   }
-  const byName = nameKey
-    ? rows.find(
-        (row) => normalizeCompanyNameKey(row.ragione_sociale ?? "") === nameKey
+  const byName = ragioneSociale?.trim()
+    ? rows.find((row) =>
+        companyNamesMatch(ragioneSociale, row.ragione_sociale ?? "")
       )
-    : null;
+    : nameKey
+      ? rows.find(
+          (row) =>
+            normalizeCompanyNameKey(row.ragione_sociale ?? "") === nameKey
+        )
+      : null;
   return {
     success: true,
     fornitore: byName ? mapFornitoreRow(byName) : null,

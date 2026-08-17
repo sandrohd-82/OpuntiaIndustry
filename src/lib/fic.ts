@@ -420,7 +420,7 @@ function mergeCedenteIntoRaw(
 
 /**
  * Arricchisce una ricevuta FiC (lista spesso senza P.IVA/indirizzo):
- * GET dettaglio + XML SDI allegato se necessario.
+ * GET dettaglio + anagrafica supplier FiC + XML SDI se necessario.
  */
 export async function enrichReceivedDocument(
   doc: FicDocumentNormalized
@@ -429,30 +429,24 @@ export async function enrichReceivedDocument(
   let entityVat = doc.entityVat;
   let entityName = doc.entityName;
 
-  const needsDetail =
-    !normalizeVatLoose(entityVat) ||
-    !entityName.trim() ||
-    !asText(asRecord(raw.entity).address_street);
-
-  if (needsDetail) {
-    try {
-      const res = await ficGet<{ data?: unknown }>(
-        `/received_documents/${doc.ficId}`,
-        {}
-      );
-      const detail = asRecord(
-        (res as { data?: unknown }).data ?? (res as unknown)
-      );
-      if (Object.keys(detail).length > 0 && asNumber(detail.id)) {
-        raw = {
-          ...raw,
-          ...detail,
-          entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
-        };
-      }
-    } catch {
-      // dettaglio non disponibile: continua con raw lista
+  // 1) Dettaglio documento (fieldset detailed: entity più completa)
+  try {
+    const res = await ficGet<{ data?: unknown }>(
+      `/received_documents/${doc.ficId}`,
+      { fieldset: "detailed" }
+    );
+    const detail = asRecord(
+      (res as { data?: unknown }).data ?? (res as unknown)
+    );
+    if (Object.keys(detail).length > 0 && asNumber(detail.id)) {
+      raw = {
+        ...raw,
+        ...detail,
+        entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
+      };
     }
+  } catch {
+    // dettaglio non disponibile
   }
 
   entityVat =
@@ -462,6 +456,34 @@ export async function enrichReceivedDocument(
     entityVat;
   entityName = asText(asRecord(raw.entity).name) || entityName;
 
+  // 2) Anagrafica supplier FiC per id (lista/entity stub spesso senza P.IVA)
+  const supplierId = asNumber(asRecord(raw.entity).id);
+  if (supplierId > 0 && !normalizeVatLoose(entityVat)) {
+    try {
+      const res = await ficGet<{ data?: unknown }>(
+        `/entities/suppliers/${supplierId}`,
+        { fieldset: "detailed" }
+      );
+      const supplier = asRecord(
+        (res as { data?: unknown }).data ?? (res as unknown)
+      );
+      if (Object.keys(supplier).length > 0) {
+        raw = {
+          ...raw,
+          entity: { ...asRecord(raw.entity), ...supplier },
+        };
+        entityVat =
+          asText(supplier.vat_number) ||
+          asText(supplier.tax_code) ||
+          entityVat;
+        entityName = asText(supplier.name) || entityName;
+      }
+    } catch {
+      // supplier non trovato
+    }
+  }
+
+  // 3) XML SDI: se manca P.IVA o sede
   const needsXml =
     !normalizeVatLoose(entityVat) ||
     !asText(asRecord(raw.entity).address_street) ||
@@ -949,7 +971,7 @@ export async function fetchFicDocumentXml(input: {
 
   const res = await ficGet<{ data?: unknown }>(
     `/received_documents/${ficId}`,
-    {}
+    { fieldset: "detailed" }
   );
   const data = asRecord(res.data);
   const embedded = extractXmlCandidateFromRecord(data);

@@ -13,6 +13,7 @@ import {
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
 } from "@/lib/amministrazione/fatture-sync";
+import { companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
@@ -32,12 +33,24 @@ import type { ClienteRow, FornitoreRow } from "@/types/database";
 function resolveFornitoreForDoc(
   doc: FicDocumentNormalized,
   byVat: Map<string, FornitoreRow>,
-  byName: Map<string, FornitoreRow>
+  fornitori: FornitoreRow[]
 ): FornitoreRow | null {
   const vat = normalizeVatKey(doc.entityVat);
   if (vat && byVat.has(vat)) return byVat.get(vat) ?? null;
-  const nameKey = normalizeCompanyNameKey(doc.entityName);
-  if (nameKey && byName.has(nameKey)) return byName.get(nameKey) ?? null;
+  const name = (doc.entityName || "").trim();
+  if (!name) return null;
+  // Match esatto normalizzato, poi fuzzy (contains)
+  const exactKey = normalizeCompanyNameKey(name);
+  if (exactKey) {
+    for (const f of fornitori) {
+      if (normalizeCompanyNameKey(f.ragione_sociale ?? "") === exactKey) {
+        return f;
+      }
+    }
+  }
+  for (const f of fornitori) {
+    if (companyNamesMatch(name, f.ragione_sociale ?? "")) return f;
+  }
   return null;
 }
 
@@ -386,15 +399,12 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
 
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
   const byVat = new Map<string, FornitoreRow>();
-  const byName = new Map<string, FornitoreRow>();
   const fornitoreById = new Map(fornitori.map((f) => [f.id, f]));
   for (const f of fornitori) {
     const key = normalizeVatKey(f.partita_iva);
     if (key) byVat.set(key, f);
     const cf = normalizeVatKey(f.codice_fiscale ?? "");
     if (cf && !byVat.has(cf)) byVat.set(cf, f);
-    const nameKey = normalizeCompanyNameKey(f.ragione_sociale ?? "");
-    if (nameKey && !byName.has(nameKey)) byName.set(nameKey, f);
   }
 
   const registeredHints: RegisteredFatturaHint[] = (
@@ -503,7 +513,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
 
   const items: FatturaSyncQueueItem[] = [];
   for (const doc of pending) {
-    const existing = resolveFornitoreForDoc(doc, byVat, byName);
+    const existing = resolveFornitoreForDoc(doc, byVat, fornitori);
     let proposedTarga = existing?.codice_targa ?? "";
     if (!existing) {
       proposedTarga = nextSequentialCodiceTarga("F", [...usedTarghe]);
