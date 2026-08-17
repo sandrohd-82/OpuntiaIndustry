@@ -16,7 +16,7 @@ type Props = {
 
 /**
  * Apri fattura = foglio stilizzato da XML SDI (nuova scheda, stampabile PDF).
- * Apri XML = XML originale SDI (nuova scheda).
+ * Apri XML = file originale su Fatture in Cloud (XML S3, PDF, altro) in nuova scheda.
  */
 export function ApriFatturaFicActions({
   kind,
@@ -76,7 +76,7 @@ export function ApriFatturaFicActions({
         setError(result.error);
         return;
       }
-      openUrl(result.xmlUrl, "l'XML");
+      openUrl(result.originalUrl || result.xmlUrl, "il file originale");
     });
   }
 
@@ -98,10 +98,10 @@ export function ApriFatturaFicActions({
           onClick={handleXml}
           disabled={pendingFoglio || pendingXml}
           className={`${base} ${className}`}
-          title="Apre l'XML originale SDI in una nuova scheda"
+          title="Apre il file originale su Fatture in Cloud (XML, PDF o altro) in una nuova scheda"
         >
           <FaFileCode size={12} />
-          {pendingXml ? "Apertura XML…" : labelXml}
+          {pendingXml ? "Apertura…" : labelXml}
         </button>
       </span>
       {error ? (

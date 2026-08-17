@@ -1,18 +1,22 @@
 "use server";
 
-import { ficDocumentPath } from "@/lib/amministrazione/fic-document-xml";
+import { ficDocumentPath, toFicKind } from "@/lib/amministrazione/fic-document-xml";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { getFicConfig } from "@/lib/fic";
+import {
+  fetchFicDocumentOriginalUrl,
+  getFicConfig,
+} from "@/lib/fic";
 
 /**
- * URL interni Opuntia per aprire foglio (da XML) o XML grezzo in nuova scheda.
+ * - foglioUrl: vista Opuntia (foglio da XML SDI)
+ * - originalUrl: file originale su Fatture in Cloud (XML S3, PDF, ecc.)
  */
 export async function getFicDocumentViewUrlsAction(input: {
   kind: FatturaKind;
   ficId: number;
 }): Promise<
-  | { success: true; foglioUrl: string; xmlUrl: string }
+  | { success: true; foglioUrl: string; originalUrl: string; xmlUrl: string }
   | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
@@ -36,9 +40,29 @@ export async function getFicDocumentViewUrlsAction(input: {
     };
   }
 
-  return {
-    success: true,
-    foglioUrl: ficDocumentPath(input.kind, ficId, "foglio"),
-    xmlUrl: ficDocumentPath(input.kind, ficId, "xml"),
-  };
+  try {
+    const originalUrl = await fetchFicDocumentOriginalUrl({
+      kind: toFicKind(input.kind),
+      ficId,
+    });
+    const foglioUrl = ficDocumentPath(input.kind, ficId, "foglio");
+    // xmlUrl = stesso file originale (compat); preferire originalUrl
+    return {
+      success: true,
+      foglioUrl,
+      originalUrl,
+      xmlUrl: originalUrl,
+    };
+  } catch (e) {
+    // Foglio interno può comunque funzionare se c'è XML in cache;
+    // Apri file originale fallisce se FiC non ha allegato.
+    const foglioUrl = ficDocumentPath(input.kind, ficId, "foglio");
+    const xmlFallback = ficDocumentPath(input.kind, ficId, "xml");
+    return {
+      success: true,
+      foglioUrl,
+      originalUrl: xmlFallback,
+      xmlUrl: xmlFallback,
+    };
+  }
 }

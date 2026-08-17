@@ -538,9 +538,66 @@ export async function findFicEntityFromReceivedInvoices(
   return null;
 }
 
+function documentAttachmentCandidates(
+  data: Record<string, unknown>
+): string[] {
+  const raw = [
+    data.url,
+    data.attachment_url,
+    data.attachmentUrl,
+    data.attachment_preview_url,
+    data.attachmentPreviewUrl,
+    data.ai_url,
+    data.aiUrl,
+  ];
+  const out: string[] = [];
+  for (const c of raw) {
+    const url = asText(c);
+    if (!url) continue;
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      out.push(url);
+      continue;
+    }
+    if (url.startsWith("/")) {
+      out.push(`https://api-v2.fattureincloud.it${url}`);
+    }
+  }
+  return out;
+}
+
+function absoluteUrlLooksLikeXml(url: string): boolean {
+  const path = url.split("?")[0] ?? url;
+  return /\.(xml|p7m)(\.|$)/i.test(path) || /\.xml$/i.test(path);
+}
+
 /**
- * URL temporaneo PDF/allegato documento FiC (da aprire in nuova scheda).
- * Emesse: campo `url`; ricevute: `attachment_url` / preview.
+ * Scarica testo allegato. Gli URL S3 pre-firmati NON devono avere
+ * Authorization Bearer (rompe la firma AWS).
+ */
+async function fetchRemoteAttachmentText(
+  absoluteUrl: string
+): Promise<{ ok: boolean; text: string }> {
+  const isFicApi =
+    absoluteUrl.includes("api-v2.fattureincloud.it") ||
+    absoluteUrl.includes("api.fattureincloud.it");
+  const headers: Record<string, string> = {
+    Accept: "application/xml, text/xml, application/json, */*",
+  };
+  if (isFicApi) {
+    const { token } = getFicConfig();
+    headers.Authorization = `Bearer ${token}`;
+  }
+  const fileRes = await fetch(absoluteUrl, {
+    headers,
+    cache: "no-store",
+  });
+  const text = await fileRes.text().catch(() => "");
+  return { ok: fileRes.ok, text };
+}
+
+/**
+ * URL temporaneo file originale documento FiC (PDF, XML SDI, ecc.) da aprire in nuova scheda.
+ * Emesse: campo `url`; ricevute: `attachment_url` / preview (spesso XML su S3).
  */
 export async function fetchFicDocumentPdfUrl(input: {
   kind: FicInvoiceKind;
@@ -557,32 +614,24 @@ export async function fetchFicDocumentPdfUrl(input: {
       : `/received_documents/${ficId}`;
 
   const res = await ficGet<{ data?: unknown }>(path, {});
-  const data = asRecord(res.data);
-  const candidates = [
-    data.url,
-    data.attachment_url,
-    data.attachmentUrl,
-    data.attachment_preview_url,
-    data.attachmentPreviewUrl,
-    data.ai_url,
-    data.aiUrl,
-  ];
-
-  for (const c of candidates) {
-    const url = asText(c);
-    if (!url) continue;
-    if (url.startsWith("http://") || url.startsWith("https://")) return url;
-    // Alcune risposte espongono path relativi
-    if (url.startsWith("/")) return `https://api-v2.fattureincloud.it${url}`;
-  }
+  const candidates = documentAttachmentCandidates(asRecord(res.data));
+  if (candidates[0]) return candidates[0];
 
   throw new Error(
-    "Fatture in Cloud non ha restituito un link PDF per questo documento (allegato assente o non disponibile)."
+    "Fatture in Cloud non ha restituito un link al file originale per questo documento (allegato assente o non disponibile)."
   );
 }
 
+/** Alias semantico: file originale FiC (XML/PDF/altro), non solo PDF. */
+export async function fetchFicDocumentOriginalUrl(input: {
+  kind: FicInvoiceKind;
+  ficId: number;
+}): Promise<string> {
+  return fetchFicDocumentPdfUrl(input);
+}
+
 function looksLikeXml(text: string): boolean {
-  const t = text.trim();
+  const t = text.trim().replace(/^\uFEFF/, "");
   return t.startsWith("<?xml") || t.startsWith("<");
 }
 
@@ -606,7 +655,7 @@ function extractXmlCandidateFromRecord(
 /**
  * XML fattura elettronica da FiC.
  * - Emesse: GET …/issued_documents/{id}/e_invoice/xml
- * - Ricevute: campi XML nel documento / allegato .xml / cache locale (gestita dal caller)
+ * - Ricevute: campi XML nel documento / allegato (URL S3 firmato, senza Bearer)
  */
 export async function fetchFicDocumentXml(input: {
   kind: FicInvoiceKind;
@@ -640,37 +689,30 @@ export async function fetchFicDocumentXml(input: {
     return { xml: embedded, filename: `fattura-ricevuta-${ficId}.xml` };
   }
 
-  const attachmentCandidates = [
-    data.attachment_url,
-    data.attachmentUrl,
-    data.url,
-    data.ai_url,
-    data.aiUrl,
+  const candidates = documentAttachmentCandidates(data);
+  // Prima URL che sembrano XML/p7m, poi gli altri (contenuto potrebbe essere XML)
+  const ordered = [
+    ...candidates.filter(absoluteUrlLooksLikeXml),
+    ...candidates.filter((u) => !absoluteUrlLooksLikeXml(u)),
   ];
-  for (const c of attachmentCandidates) {
-    const url = asText(c);
-    if (!url) continue;
-    if (!/\.xml(\?|$)/i.test(url)) continue;
-    const absolute =
-      url.startsWith("http://") || url.startsWith("https://")
-        ? url
-        : url.startsWith("/")
-          ? `https://api-v2.fattureincloud.it${url}`
-          : "";
-    if (!absolute) continue;
-    const { token } = getFicConfig();
-    const fileRes = await fetch(absolute, {
-      headers: { Authorization: `Bearer ${token}`, Accept: "*/*" },
-      cache: "no-store",
-    });
-    const text = await fileRes.text().catch(() => "");
-    if (fileRes.ok && looksLikeXml(text)) {
-      return { xml: text.trim(), filename: `fattura-ricevuta-${ficId}.xml` };
+
+  for (const absolute of ordered) {
+    const { ok, text } = await fetchRemoteAttachmentText(absolute);
+    if (ok && looksLikeXml(text)) {
+      const nameFromUrl =
+        absolute.split("?")[0]?.split("/").pop() ||
+        `fattura-ricevuta-${ficId}.xml`;
+      return {
+        xml: text.trim(),
+        filename: nameFromUrl.includes(".")
+          ? nameFromUrl
+          : `fattura-ricevuta-${ficId}.xml`,
+      };
     }
   }
 
   throw new Error(
-    "XML non disponibile per questa fattura ricevuta su Fatture in Cloud (né nel documento né come allegato)."
+    "File XML/SDI non disponibile per questa fattura ricevuta su Fatture in Cloud (né nel documento né come allegato scaricabile)."
   );
 }
 

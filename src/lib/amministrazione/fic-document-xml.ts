@@ -41,7 +41,22 @@ export function ficDocumentPath(
   return mode === "xml" ? `${base}/xml` : base;
 }
 
-/** Recupera XML SDI (cache ricevute → API FiC). */
+async function loadCachedRaw(
+  ficId: number,
+  ficKind: "issued" | "received"
+): Promise<Record<string, unknown> | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fic_invoices")
+    .select("raw_data")
+    .eq("fic_id", ficId)
+    .eq("type", ficKind)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return (data?.raw_data ?? null) as Record<string, unknown> | null;
+}
+
+/** Recupera XML SDI (cache → API FiC / allegato S3). */
 export async function resolveFicDocumentXml(input: {
   kind: FatturaKind;
   ficId: number;
@@ -53,37 +68,10 @@ export async function resolveFicDocumentXml(input: {
   }
   const ficKind = toFicKind(input.kind);
 
-  if (ficKind === "received") {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("fic_invoices")
-      .select("raw_data")
-      .eq("fic_id", ficId)
-      .eq("type", "received")
-      .is("deleted_at", null)
-      .maybeSingle();
-    const raw = (data?.raw_data ?? null) as Record<string, unknown> | null;
-    const fromCache = extractXmlFromRawSafe(raw);
-    if (fromCache) {
-      return { xml: fromCache, filename: `fattura-sdi-${ficId}.xml` };
-    }
-  }
-
-  // Anche per emesse: prova cache
-  {
-    const supabase = await createClient();
-    const { data } = await supabase
-      .from("fic_invoices")
-      .select("raw_data")
-      .eq("fic_id", ficId)
-      .eq("type", ficKind)
-      .is("deleted_at", null)
-      .maybeSingle();
-    const raw = (data?.raw_data ?? null) as Record<string, unknown> | null;
-    const fromCache = extractXmlFromRawSafe(raw);
-    if (fromCache) {
-      return { xml: fromCache, filename: `fattura-sdi-${ficId}.xml` };
-    }
+  const raw = await loadCachedRaw(ficId, ficKind);
+  const fromCache = extractXmlFromRawSafe(raw);
+  if (fromCache) {
+    return { xml: fromCache, filename: `fattura-sdi-${ficId}.xml` };
   }
 
   return fetchFicDocumentXml({ kind: ficKind, ficId });
