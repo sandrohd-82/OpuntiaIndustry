@@ -177,9 +177,11 @@ function rankHits(input: {
     } else if (input.aziendaCodes.has(codeKey)) {
       source = "stessa_azienda";
       score = Math.max(score, q ? score + 15 : 80);
-    } else if (!includeAll && q && score < 30) {
+    } else if (!includeAll) {
+      // Circuito contestuale: solo stessa fattura / stessa azienda
       continue;
-    } else if (!includeAll && !q && source === "catalogo") {
+    } else if (q && score < 1) {
+      // Intero sistema con query: scarta affinità nulla
       continue;
     }
     hits.push({

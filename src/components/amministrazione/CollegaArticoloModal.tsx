@@ -6,7 +6,6 @@ import {
   searchCollegaCatalogoAction,
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
-import { DROPDOWN_MATCH_THRESHOLD_PCT } from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 
 type Props = {
@@ -51,7 +50,7 @@ export function CollegaArticoloModal({
   onCreaNuovo,
 }: Props) {
   const titleId = useId();
-  const [query, setQuery] = useState(descrizioneRiga);
+  const [query, setQuery] = useState("");
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({
       servizio: !preferKind || preferKind === "servizio",
@@ -59,7 +58,7 @@ export function CollegaArticoloModal({
       materia: !preferKind || preferKind === "materia",
     })
   );
-  /** false = contesto (fattura/azienda + match ≥70%); true = tutto il catalogo. */
+  /** false = solo stessa fattura → stessa azienda; true = catalogo completo su richiesta. */
   const [cercaInteroSistema, setCercaInteroSistema] = useState(false);
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -85,14 +84,14 @@ export function CollegaArticoloModal({
         }
         const searchQuery =
           query.trim() ||
-          (cercaInteroSistema ? descrizioneRiga.trim() : query);
+          (cercaInteroSistema ? descrizioneRiga.trim() : "");
         const res = await searchCollegaCatalogoAction({
           query: searchQuery,
           fornitoreId,
           sameInvoiceCodici,
           kinds: activeKinds,
           includeAll: cercaInteroSistema,
-          limit: cercaInteroSistema ? 800 : 50,
+          limit: cercaInteroSistema ? 800 : 200,
         });
         if (cancelled) return;
         if (!res.success) {
@@ -120,14 +119,11 @@ export function CollegaArticoloModal({
 
   const visibleHits = useMemo(() => {
     if (cercaInteroSistema) {
-      // Già ordinati per % dal server; mantieni ordine
       return hits;
     }
+    // Contestuale: solo stessa fattura / stessa azienda (niente catalogo generico)
     return hits.filter(
-      (h) =>
-        h.source === "stessa_fattura" ||
-        h.source === "stessa_azienda" ||
-        h.score >= DROPDOWN_MATCH_THRESHOLD_PCT
+      (h) => h.source === "stessa_fattura" || h.source === "stessa_azienda"
     );
   }, [hits, cercaInteroSistema]);
 
@@ -202,7 +198,7 @@ export function CollegaArticoloModal({
         <p className="mt-1 text-sm text-[var(--muted)]">
           {cercaInteroSistema
             ? "Tutti i codici del sistema, ordinati per % di affinità alla descrizione. Screma con le check Servizi / Prodotti / Materia prima."
-            : `Circuito contestuale: stessa fattura, stessa azienda e match ≥ ${DROPDOWN_MATCH_THRESHOLD_PCT}%.`}
+            : "Solo codici già usati da questa azienda: prima quelli della stessa fattura, poi gli altri della scheda fornitore."}
         </p>
         {cercaInteroSistema ? (
           <button
@@ -302,18 +298,17 @@ export function CollegaArticoloModal({
               </div>
             ) : null
           ) : (
-            (["stessa_fattura", "stessa_azienda", "catalogo"] as const).map(
-              (src) =>
-                grouped[src].length === 0 ? null : (
-                  <div key={src}>
-                    <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                      {SOURCE_LABEL[src]}
-                    </h3>
-                    <ul className="space-y-1.5">
-                      {grouped[src].map((h) => renderHitRow(h))}
-                    </ul>
-                  </div>
-                )
+            (["stessa_fattura", "stessa_azienda"] as const).map((src) =>
+              grouped[src].length === 0 ? null : (
+                <div key={src}>
+                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    {SOURCE_LABEL[src]}
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {grouped[src].map((h) => renderHitRow(h))}
+                  </ul>
+                </div>
+              )
             )
           )}
           {!pending && visibleHits.length === 0 ? (
@@ -321,25 +316,28 @@ export function CollegaArticoloModal({
               <p className="text-sm text-[var(--muted)]">
                 {cercaInteroSistema
                   ? "Nessun codice per i filtri selezionati. Attiva Servizi/Prodotti/Materia o crea un nuovo codice."
-                  : "Nessun risultato nel circuito contestuale."}
+                  : "Nessun codice di questa azienda / fattura. Estendi la ricerca o crea un nuovo codice."}
               </p>
-              {!cercaInteroSistema ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!query.trim() && descrizioneRiga.trim()) {
-                      setQuery(descrizioneRiga);
-                    }
-                    setCercaInteroSistema(true);
-                  }}
-                  className="rounded-lg bg-sky-800 px-3 py-2 text-sm font-medium text-white hover:bg-sky-900"
-                >
-                  Cerca sull’intero sistema
-                </button>
-              ) : null}
             </div>
           ) : null}
         </div>
+
+        {!cercaInteroSistema ? (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => {
+                if (!query.trim() && descrizioneRiga.trim()) {
+                  setQuery(descrizioneRiga);
+                }
+                setCercaInteroSistema(true);
+              }}
+              className="w-full rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-950 hover:bg-sky-100"
+            >
+              Estendi ricerca sull’intero sistema
+            </button>
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-lg border border-dashed border-[var(--border)] bg-slate-50/80 px-3 py-3">
           <p className="text-xs font-medium text-slate-700">Crea nuovo codice</p>
