@@ -27,6 +27,12 @@ const SOURCE_LABEL: Record<CollegaCatalogoHit["source"], string> = {
 };
 
 const KIND_LABEL: Record<CatalogoLifecycleKind, string> = {
+  servizio: "Servizi",
+  prodotto: "Prodotti",
+  materia: "Materia prima",
+};
+
+const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
   servizio: "Servizio (Sz)",
   prodotto: "Prodotto (Pr)",
   materia: "Materia prima (Mp)",
@@ -45,19 +51,41 @@ export function CollegaArticoloModal({
 }: Props) {
   const titleId = useId();
   const [query, setQuery] = useState(descrizioneRiga);
+  const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
+    () => ({
+      servizio: !preferKind || preferKind === "servizio",
+      prodotto: !preferKind || preferKind === "prodotto",
+      materia: !preferKind || preferKind === "materia",
+    })
+  );
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const activeKinds = useMemo(
+    () =>
+      (Object.keys(kinds) as CatalogoLifecycleKind[]).filter((k) => kinds[k]),
+    [kinds]
+  );
+  const activeKindsKey = activeKinds.slice().sort().join(",");
 
   useEffect(() => {
     let cancelled = false;
     const handle = window.setTimeout(() => {
       startTransition(async () => {
+        if (activeKinds.length === 0) {
+          if (!cancelled) {
+            setHits([]);
+            setError(null);
+          }
+          return;
+        }
         const res = await searchCollegaCatalogoAction({
           query,
           fornitoreId,
           sameInvoiceCodici,
-          preferKind,
+          kinds: activeKinds,
+          limit: 50,
         });
         if (cancelled) return;
         if (!res.success) {
@@ -73,7 +101,8 @@ export function CollegaArticoloModal({
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, fornitoreId, sameInvoiceCodici, preferKind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeKindsKey stabilizza l’array kinds
+  }, [query, fornitoreId, sameInvoiceCodici, activeKindsKey]);
 
   const grouped = useMemo(() => {
     const g: Record<CollegaCatalogoHit["source"], CollegaCatalogoHit[]> = {
@@ -84,6 +113,17 @@ export function CollegaArticoloModal({
     for (const h of hits) g[h.source].push(h);
     return g;
   }, [hits]);
+
+  function toggleKind(k: CatalogoLifecycleKind) {
+    setKinds((prev) => {
+      const next = { ...prev, [k]: !prev[k] };
+      // Evita di spegnere tutti: se resta uno solo e lo spegni, non farlo
+      if (!next.servizio && !next.prodotto && !next.materia) {
+        return prev;
+      }
+      return next;
+    });
+  }
 
   const overlay = (
     <div
@@ -100,13 +140,22 @@ export function CollegaArticoloModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Cerca codice da assegnare
+          Cerca su intero sistema
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Opzioni: stessa fattura → azienda → catalogo. Seleziona un codice
-          esistente oppure creane uno nuovo. (I legami tra articoli diversi si
-          gestiscono dalla scheda catalogo con l’icona di collegamento.)
+          Ricerca sul catalogo salvato. Filtra per tipo, cerca per descrizione o
+          codice, oppure crea un nuovo codice.
         </p>
+
+        {descrizioneRiga ? (
+          <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+              Descrizione riga
+            </p>
+            <p className="mt-0.5 text-sm text-slate-800">{descrizioneRiga}</p>
+          </div>
+        ) : null}
+
         {codiceDaSostituire ? (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             Codice da sostituire:{" "}
@@ -135,17 +184,34 @@ export function CollegaArticoloModal({
             </button>
           </div>
         ) : null}
-        {descrizioneRiga ? (
-          <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
-            Riga: {descrizioneRiga}
-          </p>
-        ) : null}
+
+        <fieldset className="mt-4">
+          <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Filtri catalogo
+          </legend>
+          <div className="flex flex-wrap gap-3">
+            {(["servizio", "prodotto", "materia"] as const).map((k) => (
+              <label
+                key={k}
+                className="inline-flex items-center gap-1.5 text-sm text-slate-800"
+              >
+                <input
+                  type="checkbox"
+                  checked={kinds[k]}
+                  onChange={() => toggleKind(k)}
+                  className="rounded border-[var(--border)]"
+                />
+                {KIND_LABEL[k]}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca per codice o nome…"
-          className="mt-4 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          placeholder="Cerca per descrizione o codice…"
+          className="mt-3 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           autoFocus
         />
 
@@ -157,45 +223,47 @@ export function CollegaArticoloModal({
         ) : null}
 
         <div className="mt-4 max-h-72 space-y-4 overflow-y-auto">
-          {(
-            ["stessa_fattura", "stessa_azienda", "catalogo"] as const
-          ).map((src) =>
-            grouped[src].length === 0 ? null : (
-              <div key={src}>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  {SOURCE_LABEL[src]}
-                </h3>
-                <ul className="space-y-1.5">
-                  {grouped[src].map((h) => (
-                    <li
-                      key={`${h.catalogoKind}:${h.catalogoId}`}
-                      className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-xs font-semibold">
-                          {h.codice}
-                        </p>
-                        <p className="truncate text-xs text-[var(--muted)]">
-                          {h.nome}
-                          {h.score > 0 ? ` · ${h.score}` : ""}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onCollega(h)}
-                        className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
+          {(["stessa_fattura", "stessa_azienda", "catalogo"] as const).map(
+            (src) =>
+              grouped[src].length === 0 ? null : (
+                <div key={src}>
+                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    {SOURCE_LABEL[src]}
+                  </h3>
+                  <ul className="space-y-1.5">
+                    {grouped[src].map((h) => (
+                      <li
+                        key={`${h.catalogoKind}:${h.catalogoId}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
                       >
-                        Seleziona
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )
+                        <div className="min-w-0">
+                          <p className="truncate font-mono text-xs font-semibold">
+                            {h.codice}
+                          </p>
+                          <p className="truncate text-xs text-[var(--muted)]">
+                            {h.nome}
+                            {h.score > 0 ? ` · ${Math.round(h.score)}%` : ""}
+                            {" · "}
+                            {KIND_LABEL[h.catalogoKind]}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onCollega(h)}
+                          className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
+                        >
+                          Seleziona
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
           )}
           {!pending && hits.length === 0 ? (
             <p className="py-4 text-center text-sm text-[var(--muted)]">
-              Nessun risultato. Digita nella ricerca o crea un nuovo codice.
+              Nessun risultato. Modifica la ricerca, i filtri, o crea un nuovo
+              codice.
             </p>
           ) : null}
         </div>
@@ -210,7 +278,7 @@ export function CollegaArticoloModal({
                 onClick={() => onCreaNuovo(k)}
                 className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
               >
-                + {KIND_LABEL[k]}
+                + {KIND_CREATE_LABEL[k]}
               </button>
             ))}
           </div>

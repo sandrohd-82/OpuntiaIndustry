@@ -18,6 +18,7 @@ import type { PendingFicInvoiceCandidate } from "@/app/actions/fatture-sync";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
+import { CodiceRigaAcquistoSelect } from "@/components/amministrazione/CodiceRigaAcquistoSelect";
 import { CollegaArticoloModal } from "@/components/amministrazione/CollegaArticoloModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { FornitoreSelectField } from "@/components/amministrazione/FornitoreSelectField";
@@ -956,8 +957,11 @@ export function FatturaRegistrazioneModal({
     const current = righe[index];
     const keepDesc = (current?.descrizione ?? "").trim();
     if (!v) {
-      // Deselezione: togli solo il collegamento, non la descrizione fattura
-      patchRiga(index, { prodottoId: null, codice: keepDesc ? "—" : "" });
+      // Codice da match dropdown/modale non ancora in cache locale
+      patchRiga(index, {
+        prodottoId: null,
+        codice,
+      });
       return;
     }
     patchRiga(index, {
@@ -1660,101 +1664,25 @@ export function FatturaRegistrazioneModal({
                           <div className="flex items-start gap-1.5">
                             {isRicevuta ? (
                               <>
-                              <select
-                                value={
-                                  riga.codice &&
-                                  riga.codice !== "—" &&
-                                  vociAcquisto.some((v) => v.codice === riga.codice)
-                                    ? riga.codice
-                                    : riga.codice && riga.codice !== "—"
-                                      ? `__orphan__:${riga.codice}`
-                                      : ""
+                              <CodiceRigaAcquistoSelect
+                                descrizione={riga.descrizione ?? ""}
+                                codice={riga.codice ?? ""}
+                                fornitoreId={anagraficaId || null}
+                                sameInvoiceCodici={righe
+                                  .map((r) => r.codice)
+                                  .filter(
+                                    (c) =>
+                                      Boolean(c?.trim()) &&
+                                      c !== "—" &&
+                                      c !== (riga.codice ?? "")
+                                  )}
+                                onSelectCodice={(cod) =>
+                                  applyVoceAcquisto(index, cod)
                                 }
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  if (v === "__new_servizio__") {
-                                    setCodificaRiga({
-                                      index,
-                                      kind: "servizio",
-                                    });
-                                    return;
-                                  }
-                                  if (v === "__new_prodotto__") {
-                                    setCodificaRiga({
-                                      index,
-                                      kind: "prodotto",
-                                    });
-                                    return;
-                                  }
-                                  if (v === "__new_materia__") {
-                                    setCodificaRiga({
-                                      index,
-                                      kind: "materia",
-                                    });
-                                    return;
-                                  }
-                                  if (v.startsWith("__orphan__:")) return;
-                                  applyVoceAcquisto(index, v);
-                                }}
-                                className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
-                                required
-                              >
-                                <option value="">Seleziona codice…</option>
-                                {riga.codice &&
-                                riga.codice !== "—" &&
-                                !vociAcquisto.some(
-                                  (v) => v.codice === riga.codice
-                                ) ? (
-                                  <option value={`__orphan__:${riga.codice}`}>
-                                    {riga.codice} —{" "}
-                                    {riga.descrizione || "Voce salvata"}
-                                  </option>
-                                ) : null}
-                                <optgroup label="Servizi">
-                                  {vociAcquisto
-                                    .filter((v) => v.kind === "servizio")
-                                    .map((v) => (
-                                      <option key={v.id} value={v.codice}>
-                                        {v.codice} — {v.nome}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Prodotti fornitore">
-                                  {vociAcquisto
-                                    .filter((v) => v.kind === "prodotto")
-                                    .map((v) => (
-                                      <option key={v.id} value={v.codice}>
-                                        {v.codice} — {v.nome}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                                <optgroup label="Materie prime">
-                                  {vociAcquisto
-                                    .filter((v) => v.kind === "materia")
-                                    .map((v) => (
-                                      <option key={v.id} value={v.codice}>
-                                        {v.codice} — {v.nome}
-                                      </option>
-                                    ))}
-                                </optgroup>
-                                <option value="__new_servizio__">
-                                  + Nuovo servizio
-                                </option>
-                                <option value="__new_prodotto__">
-                                  + Nuovo prodotto
-                                </option>
-                                <option value="__new_materia__">
-                                  + Nuova materia prima
-                                </option>
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() => setCollegaRigaIndex(index)}
-                                className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2 py-1.5 text-[10px] font-medium text-sky-950 hover:bg-sky-100"
-                                title="Cerca codice corrispondente da assegnare alla riga, o crea nuovo"
-                              >
-                                Cerca
-                              </button>
+                                onCercaSistema={() =>
+                                  setCollegaRigaIndex(index)
+                                }
+                              />
                               <ArticoloCollegatiNuvola
                                 linked={
                                   riga.codice && riga.codice !== "—"
@@ -1773,7 +1701,7 @@ export function FatturaRegistrazioneModal({
                                 }
                                 disabledReason={
                                   !riga.codice || riga.codice === "—"
-                                    ? "Assegna prima un codice alla riga (Cerca)"
+                                    ? "Assegna prima un codice alla riga (Cerca su intero sistema)"
                                     : "Codice non in catalogo: assegna un codice valido"
                                 }
                                 onManage={() => {

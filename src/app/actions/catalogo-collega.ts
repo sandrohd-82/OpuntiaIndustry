@@ -41,6 +41,15 @@ export type RigaCatalogoMatchHint = {
 /** Soglia UI “possibile match” (suggerimento, non auto-link). */
 const RIGA_MATCH_SUGGEST_SCORE = 55;
 
+/** Soglia dropdown codice riga: solo voci già salvate con affinità ≥ 70%. */
+export const DROPDOWN_MATCH_THRESHOLD_PCT = 70;
+
+const ALL_KINDS: CatalogoLifecycleKind[] = [
+  "servizio",
+  "prodotto",
+  "materia",
+];
+
 function normalizeSearch(q: string): string {
   return q
     .normalize("NFD")
@@ -59,13 +68,15 @@ function scoreText(query: string, codice: string, nome: string): number {
   if (c === q || n === q) return 100;
   if (c.startsWith(q) || n.startsWith(q)) return 85;
   if (c.includes(q) || n.includes(q)) return 70;
-  const tokens = q.split(" ").filter(Boolean);
+  const tokens = q.split(" ").filter((t) => t.length >= 2);
+  if (tokens.length === 0) return 0;
   let hit = 0;
   for (const t of tokens) {
     if (c.includes(t) || n.includes(t)) hit += 1;
   }
   if (hit === 0) return 0;
-  return Math.min(65, 30 + hit * 12);
+  // 2 token → ~70, 3+ → fino a 90
+  return Math.min(90, Math.round(40 + (hit / tokens.length) * 55));
 }
 
 type CatalogEntry = {
@@ -107,8 +118,12 @@ async function loadAziendaCodes(
 
 async function loadCatalogEntries(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  preferKind?: CatalogoLifecycleKind | null
+  kinds?: CatalogoLifecycleKind[] | null
 ): Promise<{ entries: CatalogEntry[]; error: string | null }> {
+  const allowed =
+    kinds && kinds.length > 0
+      ? new Set(kinds)
+      : new Set<CatalogoLifecycleKind>(ALL_KINDS);
   const tables: Array<{
     kind: CatalogoLifecycleKind;
     table: "catalogo_servizi" | "catalogo_prodotti_fornitore" | "materie_prime";
@@ -119,7 +134,7 @@ async function loadCatalogEntries(
   ];
   const entries: CatalogEntry[] = [];
   for (const t of tables) {
-    if (preferKind && preferKind !== t.kind) continue;
+    if (!allowed.has(t.kind)) continue;
     const { data, error } = await supabase
       .from(t.table)
       .select("id, codice, nome")
@@ -184,12 +199,16 @@ function rankHits(input: {
   return hits;
 }
 
-/** Cerca voci da collegare: stessa fattura → stessa azienda → catalogo fulltext. */
+/** Cerca voci: stessa fattura → stessa azienda → catalogo. Filtri kind + soglia score. */
 export async function searchCollegaCatalogoAction(input: {
   query: string;
   fornitoreId: string | null;
   sameInvoiceCodici: string[];
+  /** @deprecated usa `kinds` */
   preferKind?: CatalogoLifecycleKind | null;
+  kinds?: CatalogoLifecycleKind[] | null;
+  minScore?: number;
+  limit?: number;
 }): Promise<
   | { success: true; hits: CollegaCatalogoHit[] }
   | { success: false; error: string }
@@ -200,15 +219,162 @@ export async function searchCollegaCatalogoAction(input: {
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
   const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId);
-  const loaded = await loadCatalogEntries(supabase, input.preferKind);
+  const kinds =
+    input.kinds && input.kinds.length > 0
+      ? input.kinds
+      : input.preferKind
+        ? [input.preferKind]
+        : ALL_KINDS;
+  const loaded = await loadCatalogEntries(supabase, kinds);
   if (loaded.error) return { success: false, error: loaded.error };
-  const hits = rankHits({
+  let hits = rankHits({
     query: input.query,
     entries: loaded.entries,
     sameSet,
     aziendaCodes,
   });
-  return { success: true, hits: hits.slice(0, 40) };
+  const minScore = input.minScore ?? 0;
+  if (minScore > 0) {
+    hits = hits.filter((h) => h.score >= minScore);
+  }
+  const limit = Math.min(Math.max(input.limit ?? 40, 1), 80);
+  return { success: true, hits: hits.slice(0, limit) };
+}
+
+/**
+ * Suggerimenti per il menu a tendina della riga: solo codici salvati
+ * con affinità descrizione ≥ 70% (pg_trgm + boost stessa fattura/azienda).
+ */
+export async function suggestCodiciRigaDropdownAction(input: {
+  descrizione: string;
+  fornitoreId: string | null;
+  sameInvoiceCodici: string[];
+  codiceCorrente?: string | null;
+}): Promise<
+  | { success: true; hits: CollegaCatalogoHit[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const descrizione = (input.descrizione ?? "").trim();
+  const codiceCorrente = (input.codiceCorrente ?? "").trim();
+  if (!descrizione && !codiceCorrente) {
+    return { success: true, hits: [] };
+  }
+
+  const supabase = await createClient();
+  const sameSet = new Set(
+    input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
+  );
+  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId);
+  const byKey = new Map<string, CollegaCatalogoHit>();
+
+  const mergeHit = (hit: CollegaCatalogoHit) => {
+    const key = hit.codice.trim().toLowerCase();
+    if (!key) return;
+    const prev = byKey.get(key);
+    if (!prev || hit.score > prev.score) {
+      byKey.set(key, hit);
+      return;
+    }
+    // Preferisci source più “vicina”
+    const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
+    if (order[hit.source] < order[prev.source]) byKey.set(key, hit);
+  };
+
+  if (descrizione) {
+    const threshold = DROPDOWN_MATCH_THRESHOLD_PCT / 100;
+    const { data, error } = await supabase.rpc("match_catalogo_acquisti", {
+      p_query: descrizione,
+      p_threshold: threshold,
+      p_limit: 12,
+    });
+    if (error) {
+      console.error("[dropdown] match_catalogo_acquisti", error.message);
+      return { success: false, error: error.message };
+    }
+    for (const row of (data ?? []) as Array<{
+      catalogo_kind: string;
+      catalogo_id: string;
+      codice: string;
+      nome: string;
+      affinita_percentuale: number | string;
+    }>) {
+      const kind = row.catalogo_kind;
+      if (kind !== "servizio" && kind !== "prodotto" && kind !== "materia") {
+        continue;
+      }
+      const codeKey = String(row.codice ?? "")
+        .trim()
+        .toLowerCase();
+      let source: CollegaCatalogoHit["source"] = "catalogo";
+      let score = Number(row.affinita_percentuale) || 0;
+      if (sameSet.has(codeKey)) {
+        source = "stessa_fattura";
+        score = Math.max(score, 95);
+      } else if (aziendaCodes.has(codeKey)) {
+        source = "stessa_azienda";
+        score = Math.max(score, score + 5);
+      }
+      if (score < DROPDOWN_MATCH_THRESHOLD_PCT && source === "catalogo") {
+        continue;
+      }
+      mergeHit({
+        source,
+        catalogoKind: kind,
+        catalogoId: row.catalogo_id,
+        codice: row.codice,
+        nome: row.nome,
+        score,
+      });
+    }
+
+    // Fallback testuale (codice/nome) se trgm non basta
+    const loaded = await loadCatalogEntries(supabase, ALL_KINDS);
+    if (!loaded.error) {
+      for (const h of rankHits({
+        query: descrizione,
+        entries: loaded.entries,
+        sameSet,
+        aziendaCodes,
+      })) {
+        if (h.score >= DROPDOWN_MATCH_THRESHOLD_PCT) mergeHit(h);
+      }
+    }
+  }
+
+  // Codice già assegnato: sempre in lista
+  if (codiceCorrente && codiceCorrente !== "—") {
+    const key = codiceCorrente.toLowerCase();
+    if (!byKey.has(key)) {
+      const loaded = await loadCatalogEntries(supabase, ALL_KINDS);
+      const found = loaded.entries.find(
+        (e) => e.codice.trim().toLowerCase() === key
+      );
+      if (found) {
+        mergeHit({
+          source: sameSet.has(key)
+            ? "stessa_fattura"
+            : aziendaCodes.has(key)
+              ? "stessa_azienda"
+              : "catalogo",
+          catalogoKind: found.kind,
+          catalogoId: found.id,
+          codice: found.codice,
+          nome: found.nome,
+          score: 100,
+        });
+      }
+    }
+  }
+
+  const hits = [...byKey.values()].sort((a, b) => {
+    const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
+    const d = order[a.source] - order[b.source];
+    if (d !== 0) return d;
+    return b.score - a.score || a.codice.localeCompare(b.codice, "it");
+  });
+
+  return { success: true, hits: hits.slice(0, 12) };
 }
 
 /**
