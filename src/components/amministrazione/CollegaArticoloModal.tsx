@@ -83,12 +83,16 @@ export function CollegaArticoloModal({
           }
           return;
         }
+        const searchQuery =
+          query.trim() ||
+          (cercaInteroSistema ? descrizioneRiga.trim() : query);
         const res = await searchCollegaCatalogoAction({
-          query,
+          query: searchQuery,
           fornitoreId,
           sameInvoiceCodici,
           kinds: activeKinds,
-          limit: 50,
+          includeAll: cercaInteroSistema,
+          limit: cercaInteroSistema ? 800 : 50,
         });
         if (cancelled) return;
         if (!res.success) {
@@ -105,10 +109,20 @@ export function CollegaArticoloModal({
       window.clearTimeout(handle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeKindsKey stabilizza l’array kinds
-  }, [query, fornitoreId, sameInvoiceCodici, activeKindsKey]);
+  }, [
+    query,
+    fornitoreId,
+    sameInvoiceCodici,
+    activeKindsKey,
+    cercaInteroSistema,
+    descrizioneRiga,
+  ]);
 
   const visibleHits = useMemo(() => {
-    if (cercaInteroSistema) return hits;
+    if (cercaInteroSistema) {
+      // Già ordinati per % dal server; mantieni ordine
+      return hits;
+    }
     return hits.filter(
       (h) =>
         h.source === "stessa_fattura" ||
@@ -127,13 +141,6 @@ export function CollegaArticoloModal({
     return g;
   }, [visibleHits]);
 
-  const hasHiddenCatalogHits =
-    !cercaInteroSistema &&
-    hits.some(
-      (h) =>
-        h.source === "catalogo" && h.score < DROPDOWN_MATCH_THRESHOLD_PCT
-    );
-
   function toggleKind(k: CatalogoLifecycleKind) {
     setKinds((prev) => {
       const next = { ...prev, [k]: !prev[k] };
@@ -142,6 +149,37 @@ export function CollegaArticoloModal({
       }
       return next;
     });
+  }
+
+  function renderHitRow(h: CollegaCatalogoHit) {
+    return (
+      <li
+        key={`${h.catalogoKind}:${h.catalogoId}`}
+        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
+      >
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-mono text-xs font-semibold">
+              {h.codice}
+            </p>
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-700">
+              {Math.round(h.score)}%
+            </span>
+            <span className="text-[10px] text-[var(--muted)]">
+              {KIND_LABEL[h.catalogoKind]}
+            </span>
+          </div>
+          <p className="truncate text-xs text-[var(--muted)]">{h.nome}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onCollega(h)}
+          className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
+        >
+          Seleziona
+        </button>
+      </li>
+    );
   }
 
   const overlay = (
@@ -163,7 +201,7 @@ export function CollegaArticoloModal({
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {cercaInteroSistema
-            ? "Ricerca sull’intero catalogo. Filtra per tipo, descrizione o codice."
+            ? "Tutti i codici del sistema, ordinati per % di affinità alla descrizione. Screma con le check Servizi / Prodotti / Materia prima."
             : `Circuito contestuale: stessa fattura, stessa azienda e match ≥ ${DROPDOWN_MATCH_THRESHOLD_PCT}%.`}
         </p>
         {cercaInteroSistema ? (
@@ -251,66 +289,53 @@ export function CollegaArticoloModal({
           <p className="mt-2 text-xs text-[var(--muted)]">Ricerca…</p>
         ) : null}
 
-        <div className="mt-4 max-h-72 space-y-4 overflow-y-auto">
-          {(["stessa_fattura", "stessa_azienda", "catalogo"] as const).map(
-            (src) =>
-              grouped[src].length === 0 ? null : (
-                <div key={src}>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    {SOURCE_LABEL[src]}
-                  </h3>
-                  <ul className="space-y-1.5">
-                    {grouped[src].map((h) => (
-                      <li
-                        key={`${h.catalogoKind}:${h.catalogoId}`}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border)] px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-mono text-xs font-semibold">
-                            {h.codice}
-                          </p>
-                          <p className="truncate text-xs text-[var(--muted)]">
-                            {h.nome}
-                            {h.score > 0 ? ` · ${Math.round(h.score)}%` : ""}
-                            {" · "}
-                            {KIND_LABEL[h.catalogoKind]}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onCollega(h)}
-                          className="shrink-0 rounded-lg bg-slate-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-800"
-                        >
-                          Seleziona
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )
+        <div className="mt-4 max-h-80 space-y-4 overflow-y-auto">
+          {cercaInteroSistema ? (
+            visibleHits.length > 0 ? (
+              <div>
+                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Tutti i codici · per affinità ({visibleHits.length})
+                </h3>
+                <ul className="space-y-1.5">
+                  {visibleHits.map((h) => renderHitRow(h))}
+                </ul>
+              </div>
+            ) : null
+          ) : (
+            (["stessa_fattura", "stessa_azienda", "catalogo"] as const).map(
+              (src) =>
+                grouped[src].length === 0 ? null : (
+                  <div key={src}>
+                    <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                      {SOURCE_LABEL[src]}
+                    </h3>
+                    <ul className="space-y-1.5">
+                      {grouped[src].map((h) => renderHitRow(h))}
+                    </ul>
+                  </div>
+                )
+            )
           )}
           {!pending && visibleHits.length === 0 ? (
             <div className="space-y-3 py-3 text-center">
               <p className="text-sm text-[var(--muted)]">
                 {cercaInteroSistema
-                  ? "Nessun risultato sull’intero sistema. Modifica filtri/testo oppure crea un nuovo codice."
+                  ? "Nessun codice per i filtri selezionati. Attiva Servizi/Prodotti/Materia o crea un nuovo codice."
                   : "Nessun risultato nel circuito contestuale."}
               </p>
               {!cercaInteroSistema ? (
                 <button
                   type="button"
-                  onClick={() => setCercaInteroSistema(true)}
+                  onClick={() => {
+                    if (!query.trim() && descrizioneRiga.trim()) {
+                      setQuery(descrizioneRiga);
+                    }
+                    setCercaInteroSistema(true);
+                  }}
                   className="rounded-lg bg-sky-800 px-3 py-2 text-sm font-medium text-white hover:bg-sky-900"
                 >
                   Cerca sull’intero sistema
                 </button>
-              ) : null}
-              {!cercaInteroSistema && hasHiddenCatalogHits ? (
-                <p className="text-[11px] text-[var(--muted)]">
-                  Ci sono voci di catalogo sotto la soglia{" "}
-                  {DROPDOWN_MATCH_THRESHOLD_PCT}%: verranno mostrate con la
-                  ricerca completa.
-                </p>
               ) : null}
             </div>
           ) : null}

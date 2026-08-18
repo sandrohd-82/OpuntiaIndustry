@@ -138,7 +138,7 @@ async function loadCatalogEntries(
       .select("id, codice, nome")
       .is("deleted_at", null)
       .order("codice", { ascending: true })
-      .limit(400);
+      .limit(800);
     if (error) return { entries: [], error: error.message };
     for (const row of (data ?? []) as Array<{
       id: string;
@@ -161,22 +161,25 @@ function rankHits(input: {
   entries: CatalogEntry[];
   sameSet: Set<string>;
   aziendaCodes: Set<string>;
+  /** Se true: tutti i codici (anche score 0), ordinati per % affinità. */
+  includeAll?: boolean;
 }): CollegaCatalogoHit[] {
   const q = input.query.trim();
+  const includeAll = Boolean(input.includeAll);
   const hits: CollegaCatalogoHit[] = [];
   for (const row of input.entries) {
     const codeKey = row.codice.trim().toLowerCase();
     let source: CollegaCatalogoHit["source"] = "catalogo";
-    let score = q ? scoreText(q, row.codice, row.nome) : 10;
+    let score = q ? scoreText(q, row.codice, row.nome) : includeAll ? 0 : 10;
     if (input.sameSet.has(codeKey)) {
       source = "stessa_fattura";
-      score = Math.max(score, 95);
+      score = Math.max(score, q ? Math.max(score, 95) : 95);
     } else if (input.aziendaCodes.has(codeKey)) {
       source = "stessa_azienda";
       score = Math.max(score, q ? score + 15 : 80);
-    } else if (q && score < 30) {
+    } else if (!includeAll && q && score < 30) {
       continue;
-    } else if (!q && source === "catalogo") {
+    } else if (!includeAll && !q && source === "catalogo") {
       continue;
     }
     hits.push({
@@ -185,15 +188,22 @@ function rankHits(input: {
       catalogoId: row.id,
       codice: row.codice,
       nome: row.nome,
-      score,
+      score: Math.min(100, Math.round(score)),
     });
   }
-  hits.sort((a, b) => {
-    const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
-    const d = order[a.source] - order[b.source];
-    if (d !== 0) return d;
-    return b.score - a.score || a.codice.localeCompare(b.codice, "it");
-  });
+  if (includeAll) {
+    // Intero sistema: priorità alla % di appartenenza alla descrizione
+    hits.sort(
+      (a, b) => b.score - a.score || a.codice.localeCompare(b.codice, "it")
+    );
+  } else {
+    hits.sort((a, b) => {
+      const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
+      const d = order[a.source] - order[b.source];
+      if (d !== 0) return d;
+      return b.score - a.score || a.codice.localeCompare(b.codice, "it");
+    });
+  }
   return hits;
 }
 
@@ -207,6 +217,11 @@ export async function searchCollegaCatalogoAction(input: {
   kinds?: CatalogoLifecycleKind[] | null;
   minScore?: number;
   limit?: number;
+  /**
+   * Intero sistema: tutti i codici dei kind attivi, ordinati per % affinità
+   * (nessuno scarto sotto soglia score).
+   */
+  includeAll?: boolean;
 }): Promise<
   | { success: true; hits: CollegaCatalogoHit[] }
   | { success: false; error: string }
@@ -230,12 +245,15 @@ export async function searchCollegaCatalogoAction(input: {
     entries: loaded.entries,
     sameSet,
     aziendaCodes,
+    includeAll: input.includeAll,
   });
   const minScore = input.minScore ?? 0;
-  if (minScore > 0) {
+  if (minScore > 0 && !input.includeAll) {
     hits = hits.filter((h) => h.score >= minScore);
   }
-  const limit = Math.min(Math.max(input.limit ?? 40, 1), 80);
+  const limit = input.includeAll
+    ? Math.min(Math.max(input.limit ?? 800, 1), 1200)
+    : Math.min(Math.max(input.limit ?? 40, 1), 80);
   return { success: true, hits: hits.slice(0, limit) };
 }
 
