@@ -1551,8 +1551,9 @@ export function FatturaRegistrazioneModal({
                 ) : (
                   <span>
                     Scan automatico: badge sulle righe (possibile match / nessun
-                    match / da sostituire). Usa <strong>Cerca</strong> per
-                    assegnare un codice o crearne uno nuovo. Il bottone{" "}
+                    match / da sostituire). Il menu mostra solo match ≥70%; usa{" "}
+                    <strong>Cerca su intero sistema</strong> per ricercare o
+                    creare un codice. Il bottone{" "}
                     <strong>nodi collegati</strong> apre la gestione dei legami
                     tra articoli diversi.
                     {Object.values(matchHints).filter(
