@@ -6,10 +6,12 @@ import {
   calcolaAndamentoMultiAnno,
   coloreAziendaByIndex,
   emptySerieAnno,
+  emptySerieInteraVita,
   graficiIncassiFiltroSchema,
   graficiOrdiniFiltroSchema,
   graficiPeriodoSchema,
   isInteraVita,
+  labelProdottoGrafico,
   MESI_IT,
   type GraficiFonteIncassi,
   type GraficiIncassiDettaglio,
@@ -47,6 +49,10 @@ function applyDateRange<T extends DateFilterQuery>(
   return query.gte(column, range.from).lte(column, range.to) as T;
 }
 
+function roundMoney(v: number): number {
+  return Math.round((v + Number.EPSILON) * 100) / 100;
+}
+
 function accumulateByMonth(
   anno: number,
   rows: { dateStr: string; amount: number }[],
@@ -65,6 +71,45 @@ function accumulateByMonth(
   }
   base.totale = base.serie.reduce((acc, s) => acc + s.valore, 0);
   return base;
+}
+
+/** Intera vita: una barra/punto per anno solare (opz. filtro mese su tutti gli anni). */
+function accumulateByYear(
+  rows: { dateStr: string; amount: number }[],
+  meseFilter: number | null | undefined
+): GraficiKpi {
+  const byYear = new Map<number, number>();
+  for (const row of rows) {
+    if (!row.dateStr || row.dateStr.length < 4) continue;
+    const y = Number(row.dateStr.slice(0, 4));
+    if (!Number.isFinite(y) || y < 1990 || y > 2100) continue;
+    if (meseFilter != null) {
+      const m = Number(row.dateStr.slice(5, 7));
+      if (m !== meseFilter) continue;
+    }
+    byYear.set(y, (byYear.get(y) ?? 0) + row.amount);
+  }
+  const years = [...byYear.keys()].sort((a, b) => a - b);
+  if (years.length === 0) return emptySerieInteraVita();
+  const serie = years.map((y) => ({
+    mese: y,
+    label: String(y),
+    valore: roundMoney(byYear.get(y) ?? 0),
+  }));
+  return {
+    anno: 0,
+    totale: roundMoney(serie.reduce((a, s) => a + s.valore, 0)),
+    serie,
+  };
+}
+
+function accumulatePeriodo(
+  anno: number,
+  rows: { dateStr: string; amount: number }[],
+  meseFilter: number | null | undefined
+): GraficiKpi {
+  if (isInteraVita(anno)) return accumulateByYear(rows, meseFilter);
+  return accumulateByMonth(anno, rows, meseFilter);
 }
 
 async function loadIncassiAnno(
@@ -135,7 +180,7 @@ async function loadIncassiAnno(
     }
   }
 
-  return { ok: true, data: accumulateByMonth(anno, rows, mese) };
+  return { ok: true, data: accumulatePeriodo(anno, rows, mese) };
 }
 
 async function loadIncassiDettaglioAnno(
@@ -256,51 +301,57 @@ async function loadIncassiDettaglioAnno(
     }));
 
   const indexById = new Map(aziendeSorted.map((a, i) => [a.id, i]));
-  const mesiList =
-    mese != null
-      ? [{ mese, label: MESI_IT[mese - 1] }]
-      : MESI_IT.map((label, i) => ({ mese: i + 1, label }));
+  const vita = isInteraVita(anno);
+  const granularita = vita ? ("anno" as const) : ("mese" as const);
 
-  const matrix: number[][] = mesiList.map(() =>
+  let periodiList: { key: number; label: string }[];
+  if (vita) {
+    const years = new Set<number>();
+    for (const r of rows) {
+      const y = Number(r.dateStr.slice(0, 4));
+      if (Number.isFinite(y) && y >= 1990 && y <= 2100) years.add(y);
+    }
+    periodiList = [...years]
+      .sort((a, b) => a - b)
+      .map((y) => ({ key: y, label: String(y) }));
+  } else if (mese != null) {
+    periodiList = [{ key: mese, label: MESI_IT[mese - 1] }];
+  } else {
+    periodiList = MESI_IT.map((label, i) => ({ key: i + 1, label }));
+  }
+
+  const matrix: number[][] = periodiList.map(() =>
     aziendeSorted.map(() => 0)
   );
 
   for (const r of rows) {
     const ai = indexById.get(r.clienteId);
     if (ai == null) continue;
-    const m = Number(r.dateStr.slice(5, 7));
-    const mi = mesiList.findIndex((x) => x.mese === m);
+    const bucket = vita
+      ? Number(r.dateStr.slice(0, 4))
+      : Number(r.dateStr.slice(5, 7));
+    const mi = periodiList.findIndex((x) => x.key === bucket);
     if (mi < 0) continue;
     matrix[mi][ai] += r.amount;
   }
 
-  const mesi = mesiList.map((m, mi) => {
-    const perAzienda = matrix[mi].map((v) =>
-      Math.round((v + Number.EPSILON) * 100) / 100
-    );
+  const mesi = periodiList.map((p, mi) => {
+    const perAzienda = matrix[mi].map((v) => roundMoney(v));
     const totale = perAzienda.reduce((a, b) => a + b, 0);
     return {
-      mese: m.mese,
-      label: m.label,
-      totale: Math.round((totale + Number.EPSILON) * 100) / 100,
+      mese: p.key,
+      label: p.label,
+      totale: roundMoney(totale),
       perAzienda,
     };
   });
 
+  const periodiLabels = periodiList.map((p) => p.label);
+
   const andamentoAziende = aziendeSorted.map((a, ai) => {
-    const valori = Array.from({ length: 12 }, (_, i) => {
-      if (mese != null && i + 1 !== mese) {
-        // In filtro mese: solo quel mese ha valore, gli altri 0 per la linea annualizzata
-        return 0;
-      }
-      const mi = mesiList.findIndex((x) => x.mese === i + 1);
-      if (mi < 0) return 0;
-      return matrix[mi][ai] ?? 0;
-    });
-    // Se filtro mese singolo, costruisci serie a 12 mesi con solo quel mese valorizzato
-    if (mese != null) {
+    if (!vita && mese != null) {
       const only = Array.from({ length: 12 }, () => 0);
-      only[mese - 1] = matrix[0]?.[ai] ?? 0;
+      only[mese - 1] = roundMoney(matrix[0]?.[ai] ?? 0);
       return {
         aziendaId: a.id,
         label: a.label,
@@ -308,11 +359,14 @@ async function loadIncassiDettaglioAnno(
         valori: only,
       };
     }
+    const valori = periodiList.map((_, mi) =>
+      roundMoney(matrix[mi]?.[ai] ?? 0)
+    );
     return {
       aziendaId: a.id,
       label: a.label,
       color: a.color,
-      valori: valori.map((v) => Math.round((v + Number.EPSILON) * 100) / 100),
+      valori,
     };
   });
 
@@ -342,7 +396,7 @@ async function loadIncassiDettaglioAnno(
           if (prev) prev.valore += add;
           else
             prodottiMap.set(key, {
-              label: desc ? `${codice} — ${desc}` : codice,
+              label: labelProdottoGrafico(codice, desc),
               valore: add,
             });
         }
@@ -380,7 +434,7 @@ async function loadIncassiDettaglioAnno(
         if (prev) prev.valore += add;
         else
           prodottiMap.set(codice, {
-            label: nome ? `${codice} — ${nome}` : codice,
+            label: labelProdottoGrafico(codice, nome),
             valore: add,
           });
       }
@@ -393,7 +447,7 @@ async function loadIncassiDettaglioAnno(
     .map(([codice, meta], index) => ({
       codice,
       label: meta.label,
-      valore: Math.round((meta.valore + Number.EPSILON) * 100) / 100,
+      valore: roundMoney(meta.valore),
       color: coloreAziendaByIndex(index),
     }));
 
@@ -403,10 +457,15 @@ async function loadIncassiDettaglioAnno(
     ok: true,
     data: {
       anno,
-      totale: Math.round((totale + Number.EPSILON) * 100) / 100,
+      granularita,
+      totale: roundMoney(totale),
       aziende: aziendeSorted,
       mesi,
       andamentoAziende,
+      periodiLabels:
+        !vita && mese != null
+          ? MESI_IT.map((l) => l)
+          : periodiLabels,
       prodotti: prodottiSorted,
     },
   };
@@ -457,7 +516,7 @@ async function loadOrdiniQtyAnno(
     amount: Number(r.quantita) || 0,
   }));
 
-  return { ok: true, data: accumulateByMonth(anno, rows, mese) };
+  return { ok: true, data: accumulatePeriodo(anno, rows, mese) };
 }
 
 export async function getGraficiIncassiAction(

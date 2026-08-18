@@ -16,10 +16,29 @@ export const MESI_IT = [
 ] as const;
 
 export type GraficiSerieMese = {
-  mese: number; // 1-12
+  /** Mese 1–12, oppure anno solare se granularità annuale (Intera vita). */
+  mese: number;
   label: string;
   valore: number;
 };
+
+/** Codice prodotto generico in fattura: titolo fisso in torta/grafici. */
+export const CODICE_PRODOTTO_GNRC = "GNRC";
+export const LABEL_PRODOTTO_GNRC =
+  "Incassi da Attività o Prodotti generici";
+
+/** Etichetta slice torta: Gnrc ha titolo fisso, non la descrizione riga. */
+export function labelProdottoGrafico(
+  codice: string,
+  descrizione: string
+): string {
+  const code = codice.trim() || "N/D";
+  if (code.toUpperCase() === CODICE_PRODOTTO_GNRC) {
+    return `${code} — ${LABEL_PRODOTTO_GNRC}`;
+  }
+  const desc = descrizione.trim();
+  return desc ? `${code} — ${desc}` : code;
+}
 
 export type GraficiKpi = {
   totale: number;
@@ -82,6 +101,15 @@ export function emptySerieAnno(anno: number): GraficiKpi {
       label,
       valore: 0,
     })),
+  };
+}
+
+/** Serie vuota per Intera vita (nessun anno ancora noto). */
+export function emptySerieInteraVita(): GraficiKpi {
+  return {
+    anno: ANNO_INTERA_VITA,
+    totale: 0,
+    serie: [],
   };
 }
 
@@ -191,7 +219,10 @@ export type GraficiAziendaMeta = {
   color: string;
 };
 
+export type GraficiGranularita = "mese" | "anno";
+
 export type GraficiMeseStacked = {
+  /** Mese 1–12 oppure anno solare (granularità annuale). */
   mese: number;
   label: string;
   totale: number;
@@ -208,16 +239,23 @@ export type GraficiProdottoSlice = {
 
 export type GraficiIncassiDettaglio = {
   anno: number;
+  /** `anno` = Intera vita (barre/linee per anno); `mese` = mesi dell’anno. */
+  granularita: GraficiGranularita;
   totale: number;
   aziende: GraficiAziendaMeta[];
   mesi: GraficiMeseStacked[];
-  /** Serie mensile per azienda (12 valori, 0 se nessun incasso). */
+  /**
+   * Serie per azienda: 12 mesi (anno singolo) oppure N anni (Intera vita).
+   * Valori = importo del periodo (non cumulati).
+   */
   andamentoAziende: Array<{
     aziendaId: string;
     label: string;
     color: string;
     valori: number[];
   }>;
+  /** Etichette asse X allineate a `andamentoAziende.valori`. */
+  periodiLabels: string[];
   prodotti: GraficiProdottoSlice[];
 };
 

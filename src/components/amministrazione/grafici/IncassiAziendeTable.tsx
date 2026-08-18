@@ -4,15 +4,21 @@ import {
   formatEuro,
   MESI_IT,
   type GraficiAziendaMeta,
+  type GraficiGranularita,
   type GraficiMeseStacked,
 } from "@/lib/amministrazione/grafici";
 
 type Props = {
   aziende: GraficiAziendaMeta[];
   mesi: GraficiMeseStacked[];
+  granularita?: GraficiGranularita;
 };
 
-export function IncassiAziendeTable({ aziende, mesi }: Props) {
+export function IncassiAziendeTable({
+  aziende,
+  mesi,
+  granularita = "mese",
+}: Props) {
   if (aziende.length === 0) {
     return (
       <p className="text-sm text-[var(--muted)]">
@@ -21,20 +27,24 @@ export function IncassiAziendeTable({ aziende, mesi }: Props) {
     );
   }
 
+  // Anno singolo: completa a 12 mesi se manca qualche colonna.
+  // Intera vita: colonne = anni restituiti (niente padding a 12).
   const mesiCols =
-    mesi.length === 12
+    granularita === "anno"
       ? mesi
-      : MESI_IT.map((label, i) => {
-          const found = mesi.find((m) => m.mese === i + 1);
-          return (
-            found ?? {
-              mese: i + 1,
-              label,
-              totale: 0,
-              perAzienda: aziende.map(() => 0),
-            }
-          );
-        });
+      : mesi.length === 12
+        ? mesi
+        : MESI_IT.map((label, i) => {
+            const found = mesi.find((m) => m.mese === i + 1);
+            return (
+              found ?? {
+                mese: i + 1,
+                label,
+                totale: 0,
+                perAzienda: aziende.map(() => 0),
+              }
+            );
+          });
 
   return (
     <div className="overflow-x-auto rounded-lg border border-[var(--border)]">

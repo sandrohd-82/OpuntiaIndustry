@@ -19,6 +19,7 @@ import {
   formatEuro,
   isInteraVita,
   labelAndamento,
+  MESI_IT,
   type GraficiAndamento,
   type GraficiFonteIncassi,
   type GraficiIncassiDettaglio,
@@ -34,17 +35,22 @@ function badgeClass(a: GraficiAndamento): string {
 }
 
 function emptyDettaglio(anno: number): GraficiIncassiDettaglio {
+  const vita = isInteraVita(anno);
   return {
     anno,
+    granularita: vita ? "anno" : "mese",
     totale: 0,
     aziende: [],
-    mesi: emptySerieAnno(anno).serie.map((s) => ({
-      mese: s.mese,
-      label: s.label,
-      totale: 0,
-      perAzienda: [],
-    })),
+    mesi: vita
+      ? []
+      : emptySerieAnno(anno).serie.map((s) => ({
+          mese: s.mese,
+          label: s.label,
+          totale: 0,
+          perAzienda: [],
+        })),
     andamentoAziende: [],
+    periodiLabels: vita ? [] : [...MESI_IT],
     prodotti: [],
   };
 }
@@ -219,7 +225,9 @@ export function GraficiIncassiBoard() {
 
         <div className="mt-4">
           <h3 className="mb-2 text-sm font-semibold text-slate-800">
-            Incassi mensili per azienda
+            {dettaglio.granularita === "anno"
+              ? "Incassi annuali per azienda"
+              : "Incassi mensili per azienda"}
           </h3>
           <StackedBarChart
             mesi={dettaglio.mesi}
@@ -233,11 +241,14 @@ export function GraficiIncassiBoard() {
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="mb-3 text-sm font-semibold text-slate-800">
-          Dettaglio per azienda e mese
+          {dettaglio.granularita === "anno"
+            ? "Dettaglio per azienda e anno"
+            : "Dettaglio per azienda e mese"}
         </h3>
         <IncassiAziendeTable
           aziende={dettaglio.aziende}
           mesi={dettaglio.mesi}
+          granularita={dettaglio.granularita}
         />
       </div>
 
@@ -250,12 +261,14 @@ export function GraficiIncassiBoard() {
         </div>
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h3 className="mb-3 text-sm font-semibold text-slate-800">
-            Crescita aziende (slideshow)
+            Andamento aziende (slideshow)
           </h3>
           <CompanyLineChart
             series={dettaglio.andamentoAziende}
+            periodLabels={dettaglio.periodiLabels}
+            granularita={dettaglio.granularita}
             height={260}
-            emptyLabel="Nessuna crescita nel periodo"
+            emptyLabel="Nessun andamento nel periodo"
             secondsPerCompany={5}
           />
         </div>

@@ -35,8 +35,9 @@ export function GraficiPeriodoFilters({
 
   function handleAnnoChange(next: number) {
     onAnnoChange(next);
-    if (isInteraVita(next) && onAnniConfrontoChange) {
-      onAnniConfrontoChange([]);
+    if (isInteraVita(next)) {
+      onMeseChange(null);
+      if (onAnniConfrontoChange) onAnniConfrontoChange([]);
     }
   }
 
@@ -74,12 +75,20 @@ export function GraficiPeriodoFilters({
           <span className="mb-1 block font-medium">Mese</span>
           <select
             value={mese ?? ""}
+            disabled={interaVita}
             onChange={(e) =>
               onMeseChange(e.target.value ? Number(e.target.value) : null)
             }
-            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-[var(--muted)]"
+            title={
+              interaVita
+                ? "Con Intera vita il grafico usa gli anni, non i mesi"
+                : undefined
+            }
           >
-            <option value="">Tutti i mesi</option>
+            <option value="">
+              {interaVita ? "Tutti gli anni" : "Tutti i mesi"}
+            </option>
             {MESI_IT.map((label, i) => (
               <option key={label} value={i + 1}>
                 {label}

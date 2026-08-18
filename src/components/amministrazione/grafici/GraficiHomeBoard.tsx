@@ -10,6 +10,7 @@ import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
   currentAnno,
   emptySerieAnno,
+  emptySerieInteraVita,
   formatEuro,
   formatQty,
   isInteraVita,
@@ -105,8 +106,11 @@ export function GraficiHomeBoard() {
       if (cancelled) return;
       if (!result.success) {
         setError(result.error);
-        setOrdini(emptySerieAnno(anno));
-        setIncassi(emptySerieAnno(anno));
+        const empty = isInteraVita(anno)
+          ? emptySerieInteraVita()
+          : emptySerieAnno(anno);
+        setOrdini(empty);
+        setIncassi(empty);
       } else {
         setOrdini(result.ordini);
         setIncassi(result.incassi);
@@ -120,7 +124,9 @@ export function GraficiHomeBoard() {
     };
   }, [anno, mese, clienteId]);
 
-  const emptyProd = emptySerieAnno(anno);
+  const emptyProd = isInteraVita(anno)
+    ? emptySerieInteraVita()
+    : emptySerieAnno(anno);
   const periodoLabel = mese
     ? `${MESI_IT[mese - 1]} ${isInteraVita(anno) ? "— intera vita" : anno}`
     : labelPeriodoAnno(anno);

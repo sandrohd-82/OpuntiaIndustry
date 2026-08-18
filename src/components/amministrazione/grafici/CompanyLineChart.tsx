@@ -4,11 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   formatEuro,
   MESI_IT,
+  type GraficiGranularita,
   type GraficiIncassiDettaglio,
 } from "@/lib/amministrazione/grafici";
 
 type Props = {
   series: GraficiIncassiDettaglio["andamentoAziende"];
+  /** Etichette asse X allineate a `valori` (mesi o anni). */
+  periodLabels?: string[];
+  granularita?: GraficiGranularita;
   height?: number;
   emptyLabel?: string;
   /** Secondi di visualizzazione per azienda. */
@@ -16,37 +20,34 @@ type Props = {
 };
 
 type HoverInfo = {
-  meseIndex: number;
-  incremento: number;
-  cumulato: number;
+  index: number;
+  valore: number;
   xPct: number;
   yPct: number;
 };
 
-function toCumulative(monthly: number[]): number[] {
-  let sum = 0;
-  return monthly.map((v) => {
-    sum += Number(v) || 0;
-    return Math.round((sum + Number.EPSILON) * 100) / 100;
-  });
-}
-
-/** Slideshow crescita cumulata: una azienda ogni N secondi, pausa su hover/click. */
+/** Slideshow aziende: importo del periodo (sale/scende), non cumulato. */
 export function CompanyLineChart({
   series,
+  periodLabels,
+  granularita = "mese",
   height = 280,
-  emptyLabel = "Nessuna crescita disponibile",
+  emptyLabel = "Nessun andamento disponibile",
   secondsPerCompany = 5,
 }: Props) {
+  const labels = useMemo(() => {
+    if (periodLabels && periodLabels.length > 0) return periodLabels;
+    return [...MESI_IT];
+  }, [periodLabels]);
+
   const prepared = useMemo(
     () =>
       series
         .map((s) => {
-          const incrementi = s.valori.map((v) => Number(v) || 0);
-          const cumulativi = toCumulative(incrementi);
-          return { ...s, incrementi, cumulativi };
+          const valori = s.valori.map((v) => Number(v) || 0);
+          return { ...s, valori };
         })
-        .filter((s) => s.cumulativi.some((v) => v > 0)),
+        .filter((s) => s.valori.some((v) => v !== 0)),
     [series]
   );
 
@@ -94,21 +95,27 @@ export function CompanyLineChart({
 
   const safeIndex = activeIndex % prepared.length;
   const active = prepared[safeIndex];
-  const max = Math.max(...active.cumulativi, 0) || 1;
+  const n = Math.max(active.valori.length, labels.length, 1);
+  const valoriPlot =
+    active.valori.length === n
+      ? active.valori
+      : Array.from({ length: n }, (_, i) => active.valori[i] ?? 0);
+  const max = Math.max(...valoriPlot, 0) || 1;
+  const periodoWord = granularita === "anno" ? "anno" : "mese";
 
   const pad = { top: 20, right: 16, bottom: 28, left: 52 };
   const w = 720;
   const h = height;
   const plotW = w - pad.left - pad.right;
   const plotH = h - pad.top - pad.bottom;
-  const n = 12;
 
-  const xAt = (i: number) => pad.left + (i / (n - 1)) * plotW;
+  const xAt = (i: number) =>
+    n <= 1 ? pad.left + plotW / 2 : pad.left + (i / (n - 1)) * plotW;
   const yAt = (v: number) =>
     pad.top + plotH - (max > 0 ? (v / max) * plotH : 0);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * max);
 
-  const pathD = active.cumulativi
+  const pathD = valoriPlot
     .map((v, i) => `${i === 0 ? "M" : "L"} ${xAt(i)} ${yAt(v)}`)
     .join(" ");
 
@@ -135,7 +142,7 @@ export function CompanyLineChart({
     >
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--muted)]">
         <p>
-          Crescita cumulata · una azienda ogni {secondsPerCompany}s
+          Andamento per {periodoWord} · una azienda ogni {secondsPerCompany}s
           {paused ? (
             <span className="ml-2 font-medium text-amber-700">In pausa</span>
           ) : (
@@ -155,7 +162,7 @@ export function CompanyLineChart({
           viewBox={`0 0 ${w} ${h}`}
           className="h-auto w-full"
           role="img"
-          aria-label={`Crescita cumulata ${active.label}`}
+          aria-label={`Andamento ${active.label}`}
         >
           {ticks.map((t) => {
             const y = yAt(t);
@@ -182,16 +189,16 @@ export function CompanyLineChart({
             );
           })}
 
-          {MESI_IT.map((label, i) => (
+          {Array.from({ length: n }, (_, i) => (
             <text
-              key={label}
+              key={`${labels[i] ?? i}-${i}`}
               x={xAt(i)}
               y={h - 8}
               textAnchor="middle"
               className="fill-slate-500"
               fontSize={10}
             >
-              {label}
+              {labels[i] ?? String(i + 1)}
             </text>
           ))}
 
@@ -210,31 +217,27 @@ export function CompanyLineChart({
               strokeLinecap="round"
             />
 
-            {active.cumulativi.map((cum, i) => {
-              const inc = active.incrementi[i] ?? 0;
-              return (
-                <circle
-                  key={`${active.aziendaId}-${i}`}
-                  cx={xAt(i)}
-                  cy={yAt(cum)}
-                  r={inc > 0 ? 5 : 3.2}
-                  fill={active.color}
-                  stroke="#fff"
-                  strokeWidth={1.5}
-                  className="cursor-pointer"
-                  onMouseEnter={() => {
-                    setHover({
-                      meseIndex: i,
-                      incremento: inc,
-                      cumulato: cum,
-                      xPct: (xAt(i) / w) * 100,
-                      yPct: (yAt(cum) / h) * 100,
-                    });
-                  }}
-                  onMouseLeave={() => setHover(null)}
-                />
-              );
-            })}
+            {valoriPlot.map((val, i) => (
+              <circle
+                key={`${active.aziendaId}-${i}`}
+                cx={xAt(i)}
+                cy={yAt(val)}
+                r={val !== 0 ? 5 : 3.2}
+                fill={active.color}
+                stroke="#fff"
+                strokeWidth={1.5}
+                className="cursor-pointer"
+                onMouseEnter={() => {
+                  setHover({
+                    index: i,
+                    valore: val,
+                    xPct: (xAt(i) / w) * 100,
+                    yPct: (yAt(val) / h) * 100,
+                  });
+                }}
+                onMouseLeave={() => setHover(null)}
+              />
+            ))}
           </g>
         </svg>
 
@@ -247,18 +250,12 @@ export function CompanyLineChart({
             }}
           >
             <p className="font-semibold text-slate-800">
-              {MESI_IT[hover.meseIndex]} · {active.label}
+              {labels[hover.index] ?? ""} · {active.label}
             </p>
             <p className="mt-0.5 text-slate-600">
-              Fatturato del mese:{" "}
+              Fatturato del {periodoWord}:{" "}
               <span className="font-medium tabular-nums text-slate-900">
-                {formatEuro(hover.incremento)}
-              </span>
-            </p>
-            <p className="text-slate-600">
-              Somma fino a qui:{" "}
-              <span className="font-medium tabular-nums text-slate-900">
-                {formatEuro(hover.cumulato)}
+                {formatEuro(hover.valore)}
               </span>
             </p>
           </div>
