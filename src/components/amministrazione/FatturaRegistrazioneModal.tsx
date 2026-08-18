@@ -1561,8 +1561,8 @@ export function FatturaRegistrazioneModal({
                   <span>
                     Scan automatico: badge sulle righe (possibile match / nessun
                     match / da sostituire). Il menu mostra solo match ≥70%; usa{" "}
-                    <strong>Cerca su intero sistema</strong> per ricercare o
-                    creare un codice. Il bottone{" "}
+                    <strong>Cerca</strong> per il circuito di ricerca (intero
+                    sistema solo se non trovi nulla). Il bottone{" "}
                     <strong>nodi collegati</strong> apre la gestione dei legami
                     tra articoli diversi.
                     {Object.values(matchHints).filter(
@@ -1689,9 +1689,7 @@ export function FatturaRegistrazioneModal({
                                 onSelectCodice={(cod) =>
                                   applyVoceAcquisto(index, cod)
                                 }
-                                onCercaSistema={() =>
-                                  setCollegaRigaIndex(index)
-                                }
+                                onCerca={() => setCollegaRigaIndex(index)}
                               />
                               <ArticoloCollegatiNuvola
                                 linked={
@@ -1711,7 +1709,7 @@ export function FatturaRegistrazioneModal({
                                 }
                                 disabledReason={
                                   !riga.codice || riga.codice === "—"
-                                    ? "Assegna prima un codice alla riga (Cerca su intero sistema)"
+                                    ? "Assegna prima un codice alla riga (Cerca)"
                                     : "Codice non in catalogo: assegna un codice valido"
                                 }
                                 onManage={() => {

@@ -13,7 +13,7 @@ type Props = {
   fornitoreId: string | null;
   sameInvoiceCodici: string[];
   onSelectCodice: (codice: string) => void;
-  onCercaSistema: () => void;
+  onCerca: () => void;
 };
 
 const KIND_GROUP: Record<CollegaCatalogoHit["catalogoKind"], string> = {
@@ -24,7 +24,7 @@ const KIND_GROUP: Record<CollegaCatalogoHit["catalogoKind"], string> = {
 
 /**
  * Menu a tendina snello: solo codici salvati con match descrizione ≥ 70%.
- * La ricerca completa è sul bottone «Cerca su intero sistema».
+ * «Cerca» apre la modale (circuito contestuale; intero sistema solo se vuoto).
  */
 export function CodiceRigaAcquistoSelect({
   descrizione,
@@ -32,7 +32,7 @@ export function CodiceRigaAcquistoSelect({
   fornitoreId,
   sameInvoiceCodici,
   onSelectCodice,
-  onCercaSistema,
+  onCerca,
 }: Props) {
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -156,21 +156,18 @@ export function CodiceRigaAcquistoSelect({
         </select>
         <button
           type="button"
-          onClick={onCercaSistema}
-          className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2 py-1.5 text-[10px] font-medium leading-tight text-sky-950 hover:bg-sky-100"
-          title="Apre la ricerca su tutto il catalogo con filtri e crea nuovo"
+          onClick={onCerca}
+          className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-950 hover:bg-sky-100"
+          title="Apre la ricerca codice (filtri, crea nuovo)"
         >
-          Cerca su
-          <br />
-          intero sistema
+          Cerca
         </button>
       </div>
       {error ? (
         <p className="text-[10px] text-red-700">{error}</p>
       ) : !pending && loaded && hits.length === 0 && !orphan ? (
         <p className="text-[10px] text-[var(--muted)]">
-          Nessun codice ≥{DROPDOWN_MATCH_THRESHOLD_PCT}%. Usa «Cerca su intero
-          sistema».
+          Nessun codice ≥{DROPDOWN_MATCH_THRESHOLD_PCT}%. Usa «Cerca».
         </p>
       ) : null}
     </div>

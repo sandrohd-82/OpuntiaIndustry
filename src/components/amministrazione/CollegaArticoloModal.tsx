@@ -6,6 +6,7 @@ import {
   searchCollegaCatalogoAction,
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
+import { DROPDOWN_MATCH_THRESHOLD_PCT } from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 
 type Props = {
@@ -58,6 +59,8 @@ export function CollegaArticoloModal({
       materia: !preferKind || preferKind === "materia",
     })
   );
+  /** false = contesto (fattura/azienda + match ≥70%); true = tutto il catalogo. */
+  const [cercaInteroSistema, setCercaInteroSistema] = useState(false);
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -104,20 +107,36 @@ export function CollegaArticoloModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeKindsKey stabilizza l’array kinds
   }, [query, fornitoreId, sameInvoiceCodici, activeKindsKey]);
 
+  const visibleHits = useMemo(() => {
+    if (cercaInteroSistema) return hits;
+    return hits.filter(
+      (h) =>
+        h.source === "stessa_fattura" ||
+        h.source === "stessa_azienda" ||
+        h.score >= DROPDOWN_MATCH_THRESHOLD_PCT
+    );
+  }, [hits, cercaInteroSistema]);
+
   const grouped = useMemo(() => {
     const g: Record<CollegaCatalogoHit["source"], CollegaCatalogoHit[]> = {
       stessa_fattura: [],
       stessa_azienda: [],
       catalogo: [],
     };
-    for (const h of hits) g[h.source].push(h);
+    for (const h of visibleHits) g[h.source].push(h);
     return g;
-  }, [hits]);
+  }, [visibleHits]);
+
+  const hasHiddenCatalogHits =
+    !cercaInteroSistema &&
+    hits.some(
+      (h) =>
+        h.source === "catalogo" && h.score < DROPDOWN_MATCH_THRESHOLD_PCT
+    );
 
   function toggleKind(k: CatalogoLifecycleKind) {
     setKinds((prev) => {
       const next = { ...prev, [k]: !prev[k] };
-      // Evita di spegnere tutti: se resta uno solo e lo spegni, non farlo
       if (!next.servizio && !next.prodotto && !next.materia) {
         return prev;
       }
@@ -140,12 +159,22 @@ export function CollegaArticoloModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Cerca su intero sistema
+          Cerca codice
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Ricerca sul catalogo salvato. Filtra per tipo, cerca per descrizione o
-          codice, oppure crea un nuovo codice.
+          {cercaInteroSistema
+            ? "Ricerca sull’intero catalogo. Filtra per tipo, descrizione o codice."
+            : `Circuito contestuale: stessa fattura, stessa azienda e match ≥ ${DROPDOWN_MATCH_THRESHOLD_PCT}%.`}
         </p>
+        {cercaInteroSistema ? (
+          <button
+            type="button"
+            onClick={() => setCercaInteroSistema(false)}
+            className="mt-1 text-xs font-medium text-[var(--primary)] hover:underline"
+          >
+            Torna al circuito contestuale
+          </button>
+        ) : null}
 
         {descrizioneRiga ? (
           <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
@@ -260,11 +289,30 @@ export function CollegaArticoloModal({
                 </div>
               )
           )}
-          {!pending && hits.length === 0 ? (
-            <p className="py-4 text-center text-sm text-[var(--muted)]">
-              Nessun risultato. Modifica la ricerca, i filtri, o crea un nuovo
-              codice.
-            </p>
+          {!pending && visibleHits.length === 0 ? (
+            <div className="space-y-3 py-3 text-center">
+              <p className="text-sm text-[var(--muted)]">
+                {cercaInteroSistema
+                  ? "Nessun risultato sull’intero sistema. Modifica filtri/testo oppure crea un nuovo codice."
+                  : "Nessun risultato nel circuito contestuale."}
+              </p>
+              {!cercaInteroSistema ? (
+                <button
+                  type="button"
+                  onClick={() => setCercaInteroSistema(true)}
+                  className="rounded-lg bg-sky-800 px-3 py-2 text-sm font-medium text-white hover:bg-sky-900"
+                >
+                  Cerca sull’intero sistema
+                </button>
+              ) : null}
+              {!cercaInteroSistema && hasHiddenCatalogHits ? (
+                <p className="text-[11px] text-[var(--muted)]">
+                  Ci sono voci di catalogo sotto la soglia{" "}
+                  {DROPDOWN_MATCH_THRESHOLD_PCT}%: verranno mostrate con la
+                  ricerca completa.
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
