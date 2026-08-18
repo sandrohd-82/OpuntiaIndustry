@@ -492,7 +492,7 @@ function transformFatturaInput(
       r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale)
         ? Math.min(100, Math.max(0, r.ivaPercentuale))
         : isRicevuta
-          ? Math.min(100, Math.max(0, Number(v.ivaPercentuale) || 22))
+          ? 0
           : undefined;
     return {
       id: r.id,
