@@ -4,6 +4,7 @@ import {
   findCodiceRiferimenti,
   type CatalogoLifecycleKind,
 } from "@/lib/amministrazione/catalogo-lifecycle";
+import { DROPDOWN_MATCH_THRESHOLD_PCT } from "@/lib/amministrazione/catalogo-collega";
 import {
   mapFatturaRicevutaRow,
   type Fattura,
@@ -40,9 +41,6 @@ export type RigaCatalogoMatchHint = {
 
 /** Soglia UI “possibile match” (suggerimento, non auto-link). */
 const RIGA_MATCH_SUGGEST_SCORE = 55;
-
-/** Soglia dropdown codice riga: solo voci già salvate con affinità ≥ 70%. */
-export const DROPDOWN_MATCH_THRESHOLD_PCT = 70;
 
 const ALL_KINDS: CatalogoLifecycleKind[] = [
   "servizio",

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
-  DROPDOWN_MATCH_THRESHOLD_PCT,
   suggestCodiciRigaDropdownAction,
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
+import { DROPDOWN_MATCH_THRESHOLD_PCT } from "@/lib/amministrazione/catalogo-collega";
 
 type Props = {
   descrizione: string;
