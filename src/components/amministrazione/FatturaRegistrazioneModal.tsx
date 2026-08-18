@@ -1966,48 +1966,59 @@ export function FatturaRegistrazioneModal({
             </div>
           </section>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                Spedizione
-              </label>
-              <ClearableNumberInput
-                min={0}
-                value={spedizione}
-                onValueChange={setSpedizione}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-              <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
-                <input
-                  type="checkbox"
-                  checked={spedizioneIvaApplicata}
-                  onChange={(e) => setSpedizioneIvaApplicata(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span>
-                  Applica IVA anche sulla spedizione
-                  <span className="mt-0.5 block text-[11px] opacity-80">
-                    Di default l&apos;IVA non è applicata al trasporto. Il % sotto
-                    vale solo per la spedizione, non per le righe.
-                  </span>
-                </span>
-              </label>
-              {spedizioneIvaApplicata ? (
-                <div className="mt-2">
-                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
-                    % IVA spedizione
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0 flex-1 space-y-3">
+              <div>
+                <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Spedizione
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label
+                    className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--border)] bg-slate-50 px-2.5 py-2 text-xs text-slate-700"
+                    title="IVA solo sulla spedizione, non sulle righe"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={spedizioneIvaApplicata}
+                      onChange={(e) =>
+                        setSpedizioneIvaApplicata(e.target.checked)
+                      }
+                      className="rounded border-[var(--border)]"
+                    />
+                    <span className="font-medium whitespace-nowrap">
+                      Applica IVA
+                    </span>
                   </label>
                   <ClearableNumberInput
                     min={0}
-                    max={100}
-                    value={spedizioneIvaPercentuale}
-                    onValueChange={setSpedizioneIvaPercentuale}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                    value={spedizione}
+                    onValueChange={setSpedizione}
+                    className="min-w-[140px] flex-1 rounded-lg border border-[var(--border)] px-3 py-2"
+                    aria-label="Importo spedizione"
                   />
+                  {spedizioneIvaApplicata ? (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <span className="text-xs font-medium text-[var(--muted)]">
+                        %
+                      </span>
+                      <ClearableNumberInput
+                        min={0}
+                        max={100}
+                        value={spedizioneIvaPercentuale}
+                        onValueChange={setSpedizioneIvaPercentuale}
+                        className="w-[4.5rem] rounded-lg border border-[var(--border)] px-2 py-2 text-center"
+                        aria-label="Percentuale IVA spedizione"
+                      />
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+                <p className="mt-1 text-[11px] text-[var(--muted)]">
+                  Se attivo, il % vale solo per la spedizione (non per le
+                  righe).
+                </p>
+              </div>
               {isNc ? (
-                <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
+                <label className="flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
                   <input
                     type="checkbox"
                     checked={spedizioneSottraiIncassi}
@@ -2026,7 +2037,7 @@ export function FatturaRegistrazioneModal({
                 </label>
               ) : null}
               {spedizioneIvaHint?.applicataInPassato ? (
-                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
                   <p className="font-medium">
                     Nota: a questa anagrafica è già stata applicata l&apos;IVA
                     sulla spedizione
@@ -2056,112 +2067,117 @@ export function FatturaRegistrazioneModal({
                 </div>
               ) : null}
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                Imponibile totale
-              </label>
-              <input
-                readOnly
-                value={formatEuro(totals.imponibile)}
-                className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
-              />
-            </div>
-            {isRicevuta ? (
+
+            <div className="w-full shrink-0 space-y-3 sm:max-w-xs lg:ml-auto lg:w-64">
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Tot. imponibile
+                </label>
+                <input
+                  readOnly
+                  value={formatEuro(totals.imponibile)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right tabular-nums"
+                />
+              </div>
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Imposta IVA
                 </label>
+                {!isRicevuta ? (
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <span className="text-[11px] text-[var(--muted)]">
+                      % doc.
+                    </span>
+                    <ClearableNumberInput
+                      min={0}
+                      max={100}
+                      value={ivaPercentuale}
+                      onValueChange={setIvaPercentuale}
+                      className="w-20 rounded-lg border border-[var(--border)] px-2 py-1.5 text-center text-sm"
+                      aria-label="Percentuale IVA documento"
+                    />
+                  </div>
+                ) : null}
                 <input
                   readOnly
                   value={formatEuro(totals.imposta)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
+                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right tabular-nums"
                 />
-                <p className="mt-1 text-xs text-[var(--muted)]">
-                  Calcolata dalle aliquote sulle singole righe (nessun % globale).
-                </p>
-              </div>
-            ) : (
-              <div>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  % IVA
-                </label>
-                <ClearableNumberInput
-                  min={0}
-                  max={100}
-                  value={ivaPercentuale}
-                  onValueChange={setIvaPercentuale}
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                />
-                <p className="mt-1 text-xs text-[var(--muted)]">
-                  Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
-                  {formatEuro(totals.imposta)}
-                </p>
-              </div>
-            )}
-            <div>
-              <div className="mb-1 flex items-center gap-2">
-                <label className="block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                  Totale
-                </label>
                 {isRicevuta ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (totaleEditUnlocked) return;
-                      const ok = window.confirm(
-                        "Attenzione: modificando il totale non sarà più allineato alle righe inserite (errore contabile volontario, es. allineamento a Fatture in Cloud).\n\nVuoi abilitare la modifica?"
-                      );
-                      if (!ok) return;
-                      setTotaleManuale(true);
-                      setTotaleEditUnlocked(true);
-                      setTotaleOverride(totals.totale);
-                    }}
-                    className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                    title="Modifica totale (allineamento FiC)"
-                    aria-label="Modifica totale"
-                  >
-                    <FaPen size={11} />
-                  </button>
-                ) : null}
-                {isRicevuta && totaleManuale ? (
-                  <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
-                    Totale forzato
-                  </span>
-                ) : null}
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Dalle aliquote sulle righe (+ spedizione se attiva).
+                  </p>
+                ) : (
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Base IVA: {formatEuro(totals.baseIva)}
+                  </p>
+                )}
               </div>
-              {isRicevuta && totaleEditUnlocked ? (
-                <>
-                  <ClearableNumberInput
-                    min={0}
-                    step="0.01"
-                    value={totaleOverride}
-                    onValueChange={setTotaleOverride}
-                    className="w-full rounded-lg border border-amber-300 bg-amber-50/40 px-3 py-2 font-semibold"
-                  />
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-amber-900">
-                      Calcolato dalle righe: {formatEuro(totals.totale)}
-                    </p>
+              <div>
+                <div className="mb-1 flex items-center gap-2">
+                  <label className="block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    Totale
+                  </label>
+                  {isRicevuta ? (
                     <button
                       type="button"
                       onClick={() => {
-                        setTotaleManuale(false);
-                        setTotaleEditUnlocked(false);
-                        setTotaleOverride("");
+                        if (totaleEditUnlocked) return;
+                        const ok = window.confirm(
+                          "Attenzione: modificando il totale non sarà più allineato alle righe inserite (errore contabile volontario, es. allineamento a Fatture in Cloud).\n\nVuoi abilitare la modifica?"
+                        );
+                        if (!ok) return;
+                        setTotaleManuale(true);
+                        setTotaleEditUnlocked(true);
+                        setTotaleOverride(totals.totale);
                       }}
-                      className="text-xs font-medium text-[var(--primary)] hover:underline"
+                      className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                      title="Modifica totale (allineamento FiC)"
+                      aria-label="Modifica totale"
                     >
-                      Ripristina da righe
+                      <FaPen size={11} />
                     </button>
-                  </div>
-                </>
-              ) : (
-                <input
-                  readOnly
-                  value={formatEuro(totaleEffettivo)}
-                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-semibold"
-                />
-              )}
+                  ) : null}
+                  {isRicevuta && totaleManuale ? (
+                    <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                      Totale forzato
+                    </span>
+                  ) : null}
+                </div>
+                {isRicevuta && totaleEditUnlocked ? (
+                  <>
+                    <ClearableNumberInput
+                      min={0}
+                      step="0.01"
+                      value={totaleOverride}
+                      onValueChange={setTotaleOverride}
+                      className="w-full rounded-lg border border-amber-300 bg-amber-50/40 px-3 py-2 text-right font-semibold tabular-nums"
+                    />
+                    <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-amber-900">
+                        Calcolato dalle righe: {formatEuro(totals.totale)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTotaleManuale(false);
+                          setTotaleEditUnlocked(false);
+                          setTotaleOverride("");
+                        }}
+                        className="text-xs font-medium text-[var(--primary)] hover:underline"
+                      >
+                        Ripristina da righe
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <input
+                    readOnly
+                    value={formatEuro(totaleEffettivo)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right font-semibold tabular-nums"
+                  />
+                )}
+              </div>
             </div>
           </div>
 
