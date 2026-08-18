@@ -384,13 +384,20 @@ export function FatturaRegistrazioneModal({
           quantita: numberOrZero(r.quantita),
           prezzoUnitario: numberOrZero(r.prezzoUnitario),
           scontoPercentuale: numberOrZero(r.scontoPercentuale),
-          ivaPercentuale: numberOrZero(r.ivaPercentuale || ivaPercentuale),
+          // Non usare `|| fallback`: IVA 0% diventerebbe 22%
+          ivaPercentuale: isRicevuta
+            ? numberOrZero(
+                r.ivaPercentuale === "" || r.ivaPercentuale == null
+                  ? 0
+                  : r.ivaPercentuale
+              )
+            : numberOrZero(r.ivaPercentuale || ivaPercentuale),
         })),
         spedizione: numberOrZero(spedizione),
         spedizioneIvaApplicata,
         spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
         notaCredito: isNc,
-        ivaPercentuale: numberOrZero(ivaPercentuale),
+        ivaPercentuale: isRicevuta ? 0 : numberOrZero(ivaPercentuale),
         ivaPerRiga: isRicevuta,
       }),
     [
@@ -1060,7 +1067,11 @@ export function FatturaRegistrazioneModal({
           prezzoUnitario,
           scontoPercentuale,
           ivaPercentuale: isRicevuta
-            ? numberOrZero(r.ivaPercentuale || ivaPercentuale)
+            ? numberOrZero(
+                r.ivaPercentuale === "" || r.ivaPercentuale == null
+                  ? 0
+                  : r.ivaPercentuale
+              )
             : undefined,
           importo: importoRiga(quantita, prezzoUnitario, scontoPercentuale),
         };
@@ -2075,37 +2086,38 @@ export function FatturaRegistrazioneModal({
                 className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                {isRicevuta ? "IVA (riepilogo)" : "% IVA"}
-              </label>
-              {isRicevuta ? (
-                <>
-                  <input
-                    readOnly
-                    value={`${totals.ivaPercentualePrevalente} %`}
-                    className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
-                  />
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Aliquote sulle righe · Imposta: {formatEuro(totals.imposta)}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <ClearableNumberInput
-                    min={0}
-                    max={100}
-                    value={ivaPercentuale}
-                    onValueChange={setIvaPercentuale}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                  />
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
-                    {formatEuro(totals.imposta)}
-                  </p>
-                </>
-              )}
-            </div>
+            {isRicevuta ? (
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Imposta IVA
+                </label>
+                <input
+                  readOnly
+                  value={formatEuro(totals.imposta)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2"
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Calcolata dalle aliquote sulle singole righe (nessun % globale).
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  % IVA
+                </label>
+                <ClearableNumberInput
+                  min={0}
+                  max={100}
+                  value={ivaPercentuale}
+                  onValueChange={setIvaPercentuale}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Base IVA: {formatEuro(totals.baseIva)} · Imposta:{" "}
+                  {formatEuro(totals.imposta)}
+                </p>
+              </div>
+            )}
             <div>
               <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                 Totale
