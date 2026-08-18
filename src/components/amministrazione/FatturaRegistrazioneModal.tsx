@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createFatturaAction,
   getFatturaByIdAction,
@@ -307,6 +307,15 @@ export function FatturaRegistrazioneModal({
     useState<FatturaNaturaDocumento>(
       seed.naturaDocumento === "acconto" ? "acconto" : "saldo"
     );
+  const [totaleManuale, setTotaleManuale] = useState(
+    Boolean(initial?.totaleManuale)
+  );
+  const [totaleEditUnlocked, setTotaleEditUnlocked] = useState(
+    Boolean(initial?.totaleManuale)
+  );
+  const [totaleOverride, setTotaleOverride] = useState<number | "">(
+    initial?.totaleManuale ? initial.totale : ""
+  );
   const [rimborsoNecessario, setRimborsoNecessario] = useState(
     seed.rimborsoNecessario ?? false
   );
@@ -411,6 +420,18 @@ export function FatturaRegistrazioneModal({
     ]
   );
 
+  const totaleEffettivo = useMemo(() => {
+    if (
+      isRicevuta &&
+      totaleManuale &&
+      totaleOverride !== "" &&
+      Number.isFinite(Number(totaleOverride))
+    ) {
+      return Math.abs(Number(totaleOverride));
+    }
+    return totals.totale;
+  }, [isRicevuta, totaleManuale, totaleOverride, totals.totale]);
+
   const dilazioniNormalizzate = useMemo(
     () =>
       dilazioni.map((d) => ({
@@ -433,10 +454,10 @@ export function FatturaRegistrazioneModal({
   const dilazioniBilancio = useMemo(
     () =>
       bilancioDilazioni(
-        totals.totale,
+        totaleEffettivo,
         dilazioniNormalizzate.map((d) => d.importo)
       ),
-    [totals.totale, dilazioniNormalizzate]
+    [totaleEffettivo, dilazioniNormalizzate]
   );
 
   useEffect(() => {
@@ -487,6 +508,9 @@ export function FatturaRegistrazioneModal({
     setNaturaDocumento(
       doc.naturaDocumento === "acconto" ? "acconto" : "saldo"
     );
+    setTotaleManuale(Boolean(doc.totaleManuale));
+    setTotaleEditUnlocked(Boolean(doc.totaleManuale));
+    setTotaleOverride(doc.totaleManuale ? doc.totale : "");
     setStatoIncassoNc(
       doc.statoIncassoNc ??
         (doc.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
@@ -1091,6 +1115,11 @@ export function FatturaRegistrazioneModal({
           ivaPercentuale: isRicevuta
             ? totals.ivaPercentualePrevalente
             : numberOrZero(ivaPercentuale),
+          totaleManuale: isRicevuta ? totaleManuale : false,
+          totaleOverride:
+            isRicevuta && totaleManuale
+              ? numberOrZero(totaleOverride)
+              : null,
           statoPagamento: isSostituzione
             ? "pagato"
             : isNc
@@ -2119,14 +2148,69 @@ export function FatturaRegistrazioneModal({
               </div>
             )}
             <div>
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-                Totale
-              </label>
-              <input
-                readOnly
-                value={formatEuro(totals.totale)}
-                className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-semibold"
-              />
+              <div className="mb-1 flex items-center gap-2">
+                <label className="block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                  Totale
+                </label>
+                {isRicevuta ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (totaleEditUnlocked) return;
+                      const ok = window.confirm(
+                        "Attenzione: modificando il totale non sarà più allineato alle righe inserite (errore contabile volontario, es. allineamento a Fatture in Cloud).\n\nVuoi abilitare la modifica?"
+                      );
+                      if (!ok) return;
+                      setTotaleManuale(true);
+                      setTotaleEditUnlocked(true);
+                      setTotaleOverride(totals.totale);
+                    }}
+                    className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                    title="Modifica totale (allineamento FiC)"
+                    aria-label="Modifica totale"
+                  >
+                    <FaPen size={11} />
+                  </button>
+                ) : null}
+                {isRicevuta && totaleManuale ? (
+                  <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                    Totale forzato
+                  </span>
+                ) : null}
+              </div>
+              {isRicevuta && totaleEditUnlocked ? (
+                <>
+                  <ClearableNumberInput
+                    min={0}
+                    step="0.01"
+                    value={totaleOverride}
+                    onValueChange={setTotaleOverride}
+                    className="w-full rounded-lg border border-amber-300 bg-amber-50/40 px-3 py-2 font-semibold"
+                  />
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-amber-900">
+                      Calcolato dalle righe: {formatEuro(totals.totale)}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTotaleManuale(false);
+                        setTotaleEditUnlocked(false);
+                        setTotaleOverride("");
+                      }}
+                      className="text-xs font-medium text-[var(--primary)] hover:underline"
+                    >
+                      Ripristina da righe
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <input
+                  readOnly
+                  value={formatEuro(totaleEffettivo)}
+                  className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-semibold"
+                />
+              )}
             </div>
           </div>
 
@@ -2357,12 +2441,12 @@ export function FatturaRegistrazioneModal({
                     );
                     const residuo = Math.max(
                       0,
-                      Math.round((totals.totale - sommaAttuale) * 100) / 100
+                      Math.round((totaleEffettivo - sommaAttuale) * 100) / 100
                     );
                     return [
                       ...prev,
                       emptyFatturaDilazione(
-                        prev.length === 0 ? totals.totale : residuo
+                        prev.length === 0 ? totaleEffettivo : residuo
                       ),
                     ];
                   })

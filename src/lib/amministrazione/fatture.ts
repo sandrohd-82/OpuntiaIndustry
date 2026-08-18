@@ -86,6 +86,8 @@ export type Fattura = {
   statoPagamento: FatturaStatoPagamento;
   /** Solo ricevute: acconto | saldo. Null per emesse/NC. */
   naturaDocumento: FatturaNaturaDocumento | null;
+  /** Solo ricevute: totale forzato manualmente (può non allinearsi alle righe). */
+  totaleManuale?: boolean;
   statoIncassoNc: FatturaStatoIncassoNc | null;
   rimborsoNecessario: boolean | null;
   rimborsoMezzo: FatturaRimborsoMezzo | null;
@@ -128,6 +130,10 @@ export type FatturaInput = {
   statoPagamento: FatturaStatoPagamento;
   /** Solo ricevute. Default saldo. */
   naturaDocumento?: FatturaNaturaDocumento | null;
+  /** Solo ricevute: forza il totale documento (allineamento FiC). */
+  totaleManuale?: boolean;
+  /** Valore totale se totaleManuale. */
+  totaleOverride?: number | null;
   statoIncassoNc?: FatturaStatoIncassoNc | null;
   rimborsoNecessario?: boolean | null;
   rimborsoMezzo?: FatturaRimborsoMezzo | null;
@@ -452,6 +458,8 @@ const fatturaInputObjectSchema = z.object({
   ivaPercentuale: z.number().min(0).max(100),
   statoPagamento: z.enum(["pagato", "da_pagare"]),
   naturaDocumento: z.enum(["acconto", "saldo"]).nullable().optional(),
+  totaleManuale: z.boolean().optional(),
+  totaleOverride: z.number().min(0).nullable().optional(),
   statoIncassoNc: z.enum(["gia_incassata", "non_incassata"]).nullable().optional(),
   rimborsoNecessario: z.boolean().nullable().optional(),
   rimborsoMezzo: z
@@ -594,6 +602,16 @@ function transformFatturaInput(
     ivaPerRiga: isRicevuta,
   });
 
+  const totaleManuale = isRicevuta && Boolean(v.totaleManuale);
+  let totaleOverride: number | null = null;
+  if (totaleManuale) {
+    const raw = v.totaleOverride;
+    if (raw == null || !Number.isFinite(Number(raw))) {
+      throw new Error("Totale manuale: inserisci un importo valido.");
+    }
+    totaleOverride = roundMoney(Math.abs(Number(raw)));
+  }
+
   return {
     ...v,
     anagraficaRagioneSociale: v.anagraficaRagioneSociale.trim(),
@@ -613,6 +631,8 @@ function transformFatturaInput(
     ivaPercentuale: isRicevuta
       ? totalsPreview.ivaPercentualePrevalente
       : Number(v.ivaPercentuale) || 0,
+    totaleManuale,
+    totaleOverride,
     statoIncassoNc,
     rimborsoNecessario,
     rimborsoMezzo,
@@ -778,6 +798,9 @@ export function mapFatturaRicevutaRow(
     statoPagamento: row.stato_pagamento,
     naturaDocumento:
       row.natura_documento === "acconto" ? "acconto" : "saldo",
+    totaleManuale: Boolean(
+      (row as { totale_manuale?: boolean }).totale_manuale
+    ),
     statoIncassoNc: null,
     rimborsoNecessario: null,
     rimborsoMezzo: null,

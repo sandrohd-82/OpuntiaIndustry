@@ -1137,11 +1137,19 @@ export async function createFatturaAction(
       imponibile: totals.imponibile,
       iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
-      totale: totals.totale,
+      totale:
+        input.totaleManuale && input.totaleOverride != null
+          ? input.totaleOverride
+          : totals.totale,
       stato_pagamento: input.statoPagamento,
       natura_documento: input.naturaDocumento ?? "saldo",
       documento_stato: "registrata",
       note: input.note,
+      totale_manuale: Boolean(input.totaleManuale),
+      totale_forzato_at: input.totaleManuale
+        ? new Date().toISOString()
+        : null,
+      totale_forzato_by: input.totaleManuale ? auth.userId : null,
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -1247,7 +1255,12 @@ export async function createFatturaAction(
       payload: {
         fic_id: input.ficId,
         fornitore_id: input.anagraficaId,
-        totale: totals.totale,
+        totale:
+          input.totaleManuale && input.totaleOverride != null
+            ? input.totaleOverride
+            : totals.totale,
+        totale_calcolato: totals.totale,
+        totale_manuale: Boolean(input.totaleManuale),
         dilazioni: input.dilazioni.length,
         stato_pagamento: input.statoPagamento,
         natura_documento: input.naturaDocumento ?? "saldo",
@@ -1594,10 +1607,18 @@ export async function updateFatturaAction(
       imponibile: totals.imponibile,
       iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
-      totale: totals.totale,
+      totale:
+        input.totaleManuale && input.totaleOverride != null
+          ? input.totaleOverride
+          : totals.totale,
       stato_pagamento: input.statoPagamento,
       natura_documento: input.naturaDocumento ?? "saldo",
       note: input.note,
+      totale_manuale: Boolean(input.totaleManuale),
+      totale_forzato_at: input.totaleManuale
+        ? new Date().toISOString()
+        : null,
+      totale_forzato_by: input.totaleManuale ? auth.userId : null,
       versione: (existingRow.versione ?? 1) + 1,
       updated_by: auth.userId,
     };
@@ -1696,7 +1717,12 @@ export async function updateFatturaAction(
       summary: `Modificata fattura ricevuta ${existingRow.numero_interno} (v${patch.versione})`,
       payload: {
         versione: patch.versione,
-        totale: totals.totale,
+        totale:
+          input.totaleManuale && input.totaleOverride != null
+            ? input.totaleOverride
+            : totals.totale,
+        totale_calcolato: totals.totale,
+        totale_manuale: Boolean(input.totaleManuale),
         dilazioni: input.dilazioni.length,
         natura_documento: input.naturaDocumento ?? "saldo",
         prodotti_aggiunti_scheda: prodottiAggiuntiScheda,

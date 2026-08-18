@@ -1117,6 +1117,9 @@ export interface FatturaRicevutaRow {
   note: string;
   richiede_aggiornamento_catalogo: boolean;
   codice_catalogo_pending: string | null;
+  totale_manuale: boolean;
+  totale_forzato_at: string | null;
+  totale_forzato_by: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1147,6 +1150,9 @@ export type FatturaRicevutaInsert = {
   versione?: number;
   documento_stato?: FatturaDocumentoStato;
   note?: string;
+  totale_manuale?: boolean;
+  totale_forzato_at?: string | null;
+  totale_forzato_by?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   deleted_at?: string | null;
