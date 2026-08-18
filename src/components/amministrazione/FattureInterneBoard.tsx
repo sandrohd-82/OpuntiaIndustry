@@ -12,6 +12,7 @@ import {
   getFatturaByIdAction,
   listFattureAction,
   rinumeraTutteFattureEmesseAction,
+  rinumeraTutteFattureRicevuteAction,
 } from "@/app/actions/fatture";
 import {
   startFattureEmesseSyncAction,
@@ -202,7 +203,7 @@ export function FattureInterneBoard({ kind }: Props) {
         );
       }
       parts.push(
-        "Coda in ordine cronologico (dalla data più lontana a oggi); i progressivi interni vengono riallineati per azienda."
+        "Coda dalla data più recente a quella più lontana; i progressivi interni si riallineano per azienda a ogni salvataggio/sync."
       );
       setSyncInfo(parts.join(" "));
       setSyncItems(result.items);
@@ -212,10 +213,10 @@ export function FattureInterneBoard({ kind }: Props) {
   const entityLabel = kind === "ricevuta" ? "Fornitore" : "Cliente";
   const titleHint =
     kind === "nota_credito"
-      ? "Storico note di credito. Sync dalla fattura più vecchia; i numeri interni (targa) si riorganizzano sempre per data."
+      ? "Storico note di credito. Sync dalla fattura più recente; i numeri interni (targa) si riorganizzano sempre per data."
       : kind === "emessa"
-        ? "Storico fatture emesse. Sync cronologica (vecchie → recenti); i progressivi Ft/Nc si riallineano per azienda a ogni sync."
-        : "Storico fatture ricevute. Sincronizza = stesso flusso della pagina Fornitori.";
+        ? "Storico fatture emesse. Sync dalla più recente a ritroso; i progressivi Ft/Nc si riallineano per azienda a ogni sync."
+        : "Storico fatture ricevute. Sync dalla più recente a ritroso; i progressivi Ft si riallineano per fornitore a ogni salvataggio/sync.";
 
   const emptyLabel =
     kind === "nota_credito"
@@ -488,6 +489,8 @@ export function FattureInterneBoard({ kind }: Props) {
             void (async () => {
               if (kind === "emessa" || kind === "nota_credito") {
                 await rinumeraTutteFattureEmesseAction();
+              } else if (kind === "ricevuta") {
+                await rinumeraTutteFattureRicevuteAction();
               }
               setSyncItems(null);
               setSyncInfo(
@@ -502,6 +505,8 @@ export function FattureInterneBoard({ kind }: Props) {
             void (async () => {
               if (kind === "emessa" || kind === "nota_credito") {
                 await rinumeraTutteFattureEmesseAction();
+              } else if (kind === "ricevuta") {
+                await rinumeraTutteFattureRicevuteAction();
               }
               setSyncItems(null);
               setSyncInfo(

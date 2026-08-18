@@ -11,6 +11,7 @@ import {
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
+import { rinumeraTutteFattureRicevuteAction } from "@/app/actions/fatture";
 import { startFattureRicevuteSyncAction } from "@/app/actions/fatture-sync";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -462,20 +463,26 @@ export function FornitoriBoard() {
         <FatturaSyncQueueModal
           items={syncItems}
           onFinished={(n) => {
-            setSyncItems(null);
-            setSyncInfo(
-              n > 0
-                ? `Sync completata: ${n} fatture ricevute registrate.`
-                : "Sync completata senza nuove registrazioni."
-            );
-            void refresh();
+            void (async () => {
+              await rinumeraTutteFattureRicevuteAction();
+              setSyncItems(null);
+              setSyncInfo(
+                n > 0
+                  ? `Sync completata: ${n} fatture ricevute registrate. Progressivi riallineati per data.`
+                  : "Sync completata senza nuove registrazioni. Progressivi riallineati per data."
+              );
+              void refresh();
+            })();
           }}
           onPaused={() => {
-            setSyncItems(null);
-            setSyncInfo(
-              "Sync in pausa. Al prossimo Sincronizza riparti dalle fatture ricevute non ancora registrate."
-            );
-            void refresh();
+            void (async () => {
+              await rinumeraTutteFattureRicevuteAction();
+              setSyncItems(null);
+              setSyncInfo(
+                "Sync in pausa. Progressivi riallineati. Al prossimo Sincronizza riparti dalle fatture ricevute non ancora registrate."
+              );
+              void refresh();
+            })();
           }}
         />
       ) : null}

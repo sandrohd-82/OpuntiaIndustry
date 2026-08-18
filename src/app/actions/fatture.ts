@@ -23,7 +23,9 @@ import {
 } from "@/lib/amministrazione/fatture-storico";
 import {
   planRinumeraFattureEmesse,
+  planRinumeraFattureRicevute,
   tempNumeroInterno,
+  type FatturaRicevutaRinumeraRow,
   type FatturaRinumeraRow,
 } from "@/lib/amministrazione/fatture-rinumerazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
@@ -168,6 +170,78 @@ export async function rinumeraFattureEmesseClienteInternal(
   return { ok: true, changed: changes.length };
 }
 
+/**
+ * Rinumera Ft ricevute di un fornitore in ordine di data emissione.
+ * Due fasi (TMP → definitivo) per unicità di numero_interno.
+ */
+export async function rinumeraFattureRicevuteFornitoreInternal(
+  supabase: SupabaseServer,
+  actorId: string | null,
+  fornitoreId: string
+): Promise<{ ok: true; changed: number } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select(
+      "id, fornitore_id, fornitore_codice_targa, data_emissione, numero_interno, created_at"
+    )
+    .eq("fornitore_id", fornitoreId)
+    .is("deleted_at", null);
+  if (error) return { ok: false, error: error.message };
+
+  const rows: FatturaRicevutaRinumeraRow[] = (data ?? []).map((r) => ({
+    id: String(r.id),
+    fornitoreId: String(r.fornitore_id),
+    codiceTarga: String(r.fornitore_codice_targa ?? ""),
+    dataEmissione: String(r.data_emissione ?? ""),
+    numeroInterno: String(r.numero_interno ?? ""),
+    createdAt: String(r.created_at ?? ""),
+  }));
+
+  const changes = planRinumeraFattureRicevute(rows);
+  if (changes.length === 0) return { ok: true, changed: 0 };
+
+  for (const ch of changes) {
+    const { error: e1 } = await supabase
+      .from("fatture_ricevute")
+      .update({
+        numero_interno: tempNumeroInterno(ch.id),
+        updated_by: actorId,
+      })
+      .eq("id", ch.id);
+    if (e1) return { ok: false, error: e1.message };
+  }
+
+  for (const ch of changes) {
+    const { error: e2 } = await supabase
+      .from("fatture_ricevute")
+      .update({
+        numero_interno: ch.a,
+        updated_by: actorId,
+      })
+      .eq("id", ch.id);
+    if (e2) return { ok: false, error: e2.message };
+  }
+
+  await writeAuditLog({
+    entity_type: "fatture_ricevute",
+    entity_id: fornitoreId,
+    action: "rinumera_per_data_emissione",
+    actor_id: actorId,
+    summary: `Rinumerate ${changes.length} ricevute fornitore per data emissione`,
+    payload: {
+      fornitore_id: fornitoreId,
+      changes: changes.map((c) => ({
+        id: c.id,
+        da: c.da,
+        a: c.a,
+        data_emissione: c.dataEmissione,
+      })),
+    },
+  });
+
+  return { ok: true, changed: changes.length };
+}
+
 /** Rinumerazione di tutti i clienti (sync / manutenzione). */
 export async function rinumeraTutteFattureEmesseAction(): Promise<
   | { success: true; clienti: number; changed: number }
@@ -219,6 +293,41 @@ export async function rinumeraFattureEmesseClienteAction(
   );
   if (!res.ok) return { success: false, error: res.error };
   return { success: true, changed: res.changed };
+}
+
+/** Rinumerazione di tutti i fornitori (sync ricevute / manutenzione). */
+export async function rinumeraTutteFattureRicevuteAction(): Promise<
+  | { success: true; fornitori: number; changed: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("fornitore_id")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const fornitoreIds = [
+    ...new Set(
+      (data ?? [])
+        .map((r) => String(r.fornitore_id ?? ""))
+        .filter(Boolean)
+    ),
+  ];
+
+  let changed = 0;
+  for (const fornitoreId of fornitoreIds) {
+    const res = await rinumeraFattureRicevuteFornitoreInternal(
+      supabase,
+      auth.userId,
+      fornitoreId
+    );
+    if (!res.ok) return { success: false, error: res.error };
+    changed += res.changed;
+  }
+
+  return { success: true, fornitori: fornitoreIds.length, changed };
 }
 
 async function nextSeqFattura(
@@ -1354,10 +1463,24 @@ export async function createFatturaAction(
       },
     });
 
+    // Progressivi allineati alla data (anche se si registrano a ritroso)
+    await rinumeraFattureRicevuteFornitoreInternal(
+      supabase,
+      auth.userId,
+      input.anagraficaId
+    );
+
+    const { data: refreshed } = await supabase
+      .from("fatture_ricevute")
+      .select("*")
+      .eq("id", row.id)
+      .maybeSingle();
+    const finalRow = (refreshed ?? row) as FatturaRicevutaRow;
+
     return {
       success: true,
       fattura: mapFatturaRicevutaRow(
-        row,
+        finalRow,
         (righeData ?? []) as FatturaRicevutaRigaRow[],
         dilazioniData,
         contributiData
@@ -1881,6 +2004,16 @@ export async function updateFatturaAction(
       "@/app/actions/catalogo-collega"
     );
     await maybeClearFatturaCodaCatalogo(id, auth.userId);
+
+    const fornitoreIdRinum =
+      input.anagraficaId || String(existingRow.fornitore_id ?? "");
+    if (fornitoreIdRinum) {
+      await rinumeraFattureRicevuteFornitoreInternal(
+        supabase,
+        auth.userId,
+        fornitoreIdRinum
+      );
+    }
 
     const { data: refreshed } = await supabase
       .from("fatture_ricevute")

@@ -76,6 +76,56 @@ export function planRinumeraFattureEmesse(
   return changes;
 }
 
+export type FatturaRicevutaRinumeraRow = {
+  id: string;
+  fornitoreId: string;
+  codiceTarga: string;
+  dataEmissione: string;
+  numeroInterno: string;
+  createdAt: string;
+};
+
+/**
+ * Progressivi Ft ricevute per fornitore in ordine di data emissione
+ * (anche se registrate a ritroso dalla più recente).
+ */
+export function planRinumeraFattureRicevute(
+  rows: FatturaRicevutaRinumeraRow[]
+): RinumeraChange[] {
+  const byFornitore = new Map<string, FatturaRicevutaRinumeraRow[]>();
+  for (const r of rows) {
+    const key = r.fornitoreId;
+    if (!key) continue;
+    const list = byFornitore.get(key) ?? [];
+    list.push(r);
+    byFornitore.set(key, list);
+  }
+
+  const changes: RinumeraChange[] = [];
+  for (const [, list] of byFornitore) {
+    list.sort(compareFatturaCronologica);
+    let seq = 1;
+    for (const row of list) {
+      const next = buildNumeroInternoFattura({
+        dataEmissione: row.dataEmissione,
+        codiceTarga: row.codiceTarga,
+        seq,
+        kind: "ricevuta",
+      });
+      seq += 1;
+      if (next !== row.numeroInterno) {
+        changes.push({
+          id: row.id,
+          da: row.numeroInterno,
+          a: next,
+          dataEmissione: row.dataEmissione,
+        });
+      }
+    }
+  }
+  return changes;
+}
+
 export function tempNumeroInterno(id: string): string {
   return `TMP-${id}`;
 }

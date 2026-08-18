@@ -304,9 +304,9 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     }))
     .filter((x) => x.linked?.fatturaId);
 
-  // Cronologico: dalla data più lontana a quella più vicina a oggi
+  // Cronologico inverso: dalla data più vicina a oggi verso le più lontane
   linkedToRegistered.sort((a, b) =>
-    (a.doc.date || "").localeCompare(b.doc.date || "")
+    (b.doc.date || "").localeCompare(a.doc.date || "")
   );
 
   for (const { doc, linked } of linkedToRegistered) {
@@ -323,15 +323,15 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     );
   }
 
-  // 2) Per ogni fattura pendente (più vecchia prima): NC correlate, poi fattura
+  // 2) Per ogni fattura pendente (più recente prima): NC correlate, poi fattura
   const invoicesSorted = [...pendingInvoices].sort((a, b) =>
-    (a.date || "").localeCompare(b.date || "")
+    (b.date || "").localeCompare(a.date || "")
   );
 
   for (const inv of invoicesSorted) {
     const related = creditNotesRelatedToInvoice(inv, pendingCredits)
       .filter((nc) => !usedNcFicIds.has(nc.ficId))
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     for (const nc of related) {
       usedNcFicIds.add(nc.ficId);
       const anag = resolveClienteForDoc(nc, byVat, usedTarghe);
@@ -375,10 +375,10 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     );
   }
 
-  // 3) NC residue (senza match forte) — ancora dalla più vecchia
+  // 3) NC residue (senza match forte) — ancora dalla più recente
   const orphanCredits = pendingCredits
     .filter((d) => !usedNcFicIds.has(d.ficId))
-    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   for (const doc of orphanCredits) {
     const anag = resolveClienteForDoc(doc, byVat, usedTarghe);
@@ -573,7 +573,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   }
 
   pending = stillPending.sort((a, b) =>
-    (a.date || "").localeCompare(b.date || "")
+    (b.date || "").localeCompare(a.date || "")
   );
   const skippedAlreadyRegistered = docs.length - pending.length;
 
