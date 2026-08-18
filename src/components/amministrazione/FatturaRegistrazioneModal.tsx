@@ -2059,8 +2059,8 @@ export function FatturaRegistrazioneModal({
             </div>
           </section>
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex flex-col gap-3">
+            <div className="space-y-3">
               <div>
                 <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Spedizione
@@ -2086,7 +2086,7 @@ export function FatturaRegistrazioneModal({
                     min={0}
                     value={spedizione}
                     onValueChange={setSpedizione}
-                    className="min-w-[140px] flex-1 rounded-lg border border-[var(--border)] px-3 py-2"
+                    className="min-w-[140px] flex-1 rounded-lg border border-[var(--border)] px-3 py-2 sm:max-w-xs"
                     aria-label="Importo spedizione"
                   />
                   {spedizioneIvaApplicata ? (
@@ -2162,45 +2162,22 @@ export function FatturaRegistrazioneModal({
             </div>
 
             {isRicevuta ? (
-              <div className="w-full basis-full space-y-2 border-t border-[var(--border)] pt-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              <div className="w-full border-t border-[var(--border)] pt-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
                     Casse previdenziali
                   </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CASSE_PREVIDENZIALI_SUGGERITE.slice(0, 4).map((s) => (
-                      <button
-                        key={s.codice}
-                        type="button"
-                        onClick={() => {
-                          const base = Math.abs(totals.imponibile);
-                          const empty = emptyFatturaContributoCassa(base, s);
-                          setContributiCassa((prev) => [
-                            ...prev,
-                            {
-                              ...empty,
-                              percentuale: empty.percentuale,
-                              baseImporto: empty.baseImporto,
-                              importo: empty.importo,
-                              importoBloccato: false,
-                            },
-                          ]);
-                        }}
-                        className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] hover:bg-slate-50"
-                      >
-                        + {s.codice} {s.percentuale}%
-                      </button>
-                    ))}
+                  {CASSE_PREVIDENZIALI_SUGGERITE.slice(0, 4).map((s) => (
                     <button
+                      key={s.codice}
                       type="button"
                       onClick={() => {
                         const base = Math.abs(totals.imponibile);
-                        const empty = emptyFatturaContributoCassa(base);
+                        const empty = emptyFatturaContributoCassa(base, s);
                         setContributiCassa((prev) => [
                           ...prev,
                           {
                             ...empty,
-                            codice: "",
                             percentuale: empty.percentuale,
                             baseImporto: empty.baseImporto,
                             importo: empty.importo,
@@ -2208,22 +2185,51 @@ export function FatturaRegistrazioneModal({
                           },
                         ]);
                       }}
-                      className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-[11px] font-medium hover:bg-slate-50"
+                      className="rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 hover:bg-slate-50"
                     >
-                      <FaPlus size={9} /> Altra cassa
+                      + {s.codice} {s.percentuale}%
                     </button>
-                  </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const base = Math.abs(totals.imponibile);
+                      const empty = emptyFatturaContributoCassa(base);
+                      setContributiCassa((prev) => [
+                        ...prev,
+                        {
+                          ...empty,
+                          codice: "",
+                          percentuale: empty.percentuale,
+                          baseImporto: empty.baseImporto,
+                          importo: empty.importo,
+                          importoBloccato: false,
+                        },
+                      ]);
+                    }}
+                    className="inline-flex items-center gap-0.5 rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 font-medium hover:bg-slate-50"
+                  >
+                    <FaPlus size={8} /> Altra
+                  </button>
+                  {contributiCassa.length > 0 ? (
+                    <span className="ml-auto text-[11px] text-[var(--muted)]">
+                      Tot.{" "}
+                      <span className="font-semibold tabular-nums text-slate-800">
+                        {formatEuro(totals.contributiImporto)}
+                      </span>
+                    </span>
+                  ) : null}
                 </div>
                 {contributiCassa.length === 0 ? (
-                  <p className="text-xs text-[var(--muted)]">
-                    Nessun contributo. Usa i pulsanti per ENPAB / altre casse.
+                  <p className="mt-0.5 text-[11px] leading-4 text-[var(--muted)]">
+                    Nessun contributo — usa i pulsanti sopra.
                   </p>
                 ) : (
-                  <ul className="space-y-2">
+                  <ul className="mt-1 divide-y divide-[var(--border)] border border-[var(--border)]">
                     {contributiCassa.map((c, idx) => (
                       <li
                         key={c.id ?? `cassa-${idx}`}
-                        className="grid gap-2 rounded-lg border border-[var(--border)] bg-slate-50/60 p-2 sm:grid-cols-[minmax(0,1.2fr)_4.5rem_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                        className="flex flex-wrap items-center gap-1 px-1.5 py-0.5"
                       >
                         <input
                           value={c.codice}
@@ -2235,8 +2241,8 @@ export function FatturaRegistrazioneModal({
                               )
                             );
                           }}
-                          placeholder="Codice (es. ENPAB)"
-                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                          placeholder="Codice"
+                          className="h-7 min-w-[5.5rem] flex-1 rounded border border-[var(--border)] bg-white px-1.5 text-xs leading-none sm:max-w-[9rem]"
                           list={`casse-suggerite-${idx}`}
                         />
                         <datalist id={`casse-suggerite-${idx}`}>
@@ -2266,9 +2272,10 @@ export function FatturaRegistrazioneModal({
                               })
                             );
                           }}
-                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-center text-sm"
+                          className="h-7 w-14 rounded border border-[var(--border)] bg-white px-1 text-center text-xs leading-none"
                           aria-label="Percentuale cassa"
                         />
+                        <span className="text-[10px] text-[var(--muted)]">%</span>
                         <ClearableNumberInput
                           min={0}
                           step="0.01"
@@ -2290,8 +2297,9 @@ export function FatturaRegistrazioneModal({
                               })
                             );
                           }}
-                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+                          className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs tabular-nums leading-none"
                           aria-label="Base contributo"
+                          title="Base imponibile"
                         />
                         <ClearableNumberInput
                           min={0}
@@ -2310,7 +2318,7 @@ export function FatturaRegistrazioneModal({
                               )
                             );
                           }}
-                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-right text-sm font-medium tabular-nums"
+                          className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs font-medium tabular-nums leading-none"
                           aria-label="Importo contributo"
                         />
                         <button
@@ -2320,27 +2328,19 @@ export function FatturaRegistrazioneModal({
                               prev.filter((_, i) => i !== idx)
                             )
                           }
-                          className="rounded p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-700"
+                          className="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
                           aria-label="Rimuovi contributo"
                         >
-                          <FaTrash size={11} />
+                          <FaTrash size={10} />
                         </button>
                       </li>
                     ))}
                   </ul>
                 )}
-                {contributiCassa.length > 0 ? (
-                  <p className="text-right text-xs text-[var(--muted)]">
-                    Tot. contributi:{" "}
-                    <span className="font-semibold tabular-nums text-slate-800">
-                      {formatEuro(totals.contributiImporto)}
-                    </span>
-                  </p>
-                ) : null}
               </div>
             ) : null}
 
-            <div className="w-full shrink-0 space-y-3 sm:max-w-xs lg:ml-auto lg:w-64">
+            <div className="ml-auto w-full space-y-3 sm:max-w-xs lg:w-64">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Tot. imponibile
