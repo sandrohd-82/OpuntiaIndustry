@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  hydrateFatturaSyncQueueItemAction,
   linkFicIdToFatturaEmessaAction,
   linkFicIdToFatturaRicevutaAction,
 } from "@/app/actions/fatture-sync";
@@ -68,6 +69,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   const [dupError, setDupError] = useState<string | null>(null);
   /** Evita di aprire “crea azienda” prima del match P.IVA/nome. */
   const [anagraficaLookupDone, setAnagraficaLookupDone] = useState(false);
+  const [hydrating, setHydrating] = useState(false);
+  const [hydrateError, setHydrateError] = useState<string | null>(null);
 
   useEffect(() => {
     setQueueItems(items);
@@ -80,6 +83,12 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
 
   const step: Step | null = useMemo(() => {
     if (!current) return null;
+    if (current.needsHydration || hydrating) {
+      return { type: "anagrafica-lookup" }; // riusa schermo attesa (sotto override testo)
+    }
+    if (hydrateError) {
+      return { type: "anagrafica-lookup" };
+    }
     if (current.duplicateCandidate && !dupResolved) {
       return { type: "duplicate-weak" };
     }
@@ -106,6 +115,8 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     compChecking,
     dupResolved,
     anagraficaLookupDone,
+    hydrating,
+    hydrateError,
   ]);
 
   // Solo al cambio documento: non resettare quando il match aggiorna mode create→existing
@@ -121,8 +132,56 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     setDupResolved(false);
     setDupBusy(false);
     setDupError(null);
+    setHydrateError(null);
     setAnagraficaLookupDone(current?.anagraficaMode !== "create");
   }, [index, current?.ficId]);
+
+  /** Lazy hydrate: dettaglio/XML solo per il documento corrente (+ prefetch successivo). */
+  useEffect(() => {
+    if (!current?.needsHydration) {
+      setHydrating(false);
+      return;
+    }
+    let cancelled = false;
+    setHydrating(true);
+    setHydrateError(null);
+    void (async () => {
+      try {
+        const res = await hydrateFatturaSyncQueueItemAction(current);
+        if (cancelled) return;
+        if (!res.success) {
+          setHydrateError(res.error);
+          setHydrating(false);
+          return;
+        }
+        setQueueItems((prev) =>
+          prev.map((it) => (it.ficId === res.item.ficId ? res.item : it))
+        );
+        setHydrating(false);
+
+        // Prefetch prossimo (non blocca UI)
+        const nextItem = queueItems[index + 1];
+        if (nextItem?.needsHydration) {
+          void hydrateFatturaSyncQueueItemAction(nextItem).then((r) => {
+            if (!r.success) return;
+            setQueueItems((prev) =>
+              prev.map((it) => (it.ficId === r.item.ficId ? r.item : it))
+            );
+          });
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setHydrateError(
+          e instanceof Error ? e.message : "Errore caricamento documento FiC."
+        );
+        setHydrating(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate solo al cambio ficId/needsHydration
+  }, [current?.ficId, current?.needsHydration]);
 
   /** Fornitore/cliente già in anagrafica: collega subito senza chiedere di nuovo. */
   useEffect(() => {
@@ -149,6 +208,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
    * già in archivio (anche da fattura precedente nella stessa sessione), passa a existing.
    */
   useEffect(() => {
+    if (hydrating || current?.needsHydration || hydrateError) {
+      return;
+    }
     if (kind !== "ricevuta" || !current) {
       setAnagraficaLookupDone(true);
       return;
@@ -248,7 +310,14 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [kind, anagraficaId, current]);
+  }, [
+    kind,
+    anagraficaId,
+    current?.ficId,
+    current?.amountGross,
+    current?.totale,
+    current?.numeroEsterno,
+  ]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -627,18 +696,53 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
 
         {step.type === "anagrafica-lookup" ? (
           <div className="mt-4 space-y-3">
-            <p className="text-sm text-slate-700">
-              Verifica se l&apos;azienda è già presente in anagrafica…
-            </p>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={onPaused}
-                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
-              >
-                Pausa
-              </button>
-            </div>
+            {hydrateError ? (
+              <>
+                <p className="text-sm text-red-700">{hydrateError}</p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHydrateError(null);
+                      setQueueItems((prev) =>
+                        prev.map((it, i) =>
+                          i === index
+                            ? { ...it, needsHydration: true }
+                            : it
+                        )
+                      );
+                    }}
+                    className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    Riprova
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onPaused}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
+                  >
+                    Pausa
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-700">
+                  {hydrating || current?.needsHydration
+                    ? "Caricamento dettaglio documento da Fatture in Cloud…"
+                    : "Verifica se l\u2019azienda è già presente in anagrafica…"}
+                </p>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={onPaused}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900"
+                  >
+                    Pausa
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : null}
 

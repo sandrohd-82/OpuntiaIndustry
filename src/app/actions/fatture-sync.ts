@@ -16,7 +16,6 @@ import {
 import { companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
-import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
@@ -39,37 +38,15 @@ function resolveFornitoreForDoc(
   if (vat) {
     const byExact = byVat.get(vat);
     if (byExact) {
-      console.info("[fatture-sync] match fornitore per P.IVA", {
-        ficId: doc.ficId,
-        vat,
-        fornitore: byExact.codice_targa,
-      });
       return byExact;
     }
-    // Scan diretta (evita map incompleta se CF/P.IVA invertiti in anagrafica)
     for (const f of fornitori) {
       const piva = normalizeVatKey(f.partita_iva ?? "");
       const cf = normalizeVatKey(f.codice_fiscale ?? "");
       if (piva === vat || cf === vat) {
-        console.info("[fatture-sync] match fornitore per P.IVA/CF scan", {
-          ficId: doc.ficId,
-          vat,
-          fornitore: f.codice_targa,
-        });
         return f;
       }
     }
-    console.warn("[fatture-sync] P.IVA estratta ma nessun fornitore", {
-      ficId: doc.ficId,
-      vat,
-      entityName: doc.entityName,
-      fornitoriVat: fornitori.map((f) => normalizeVatKey(f.partita_iva ?? "")),
-    });
-  } else {
-    console.warn("[fatture-sync] ricevuta senza P.IVA dopo enrich", {
-      ficId: doc.ficId,
-      entityName: doc.entityName,
-    });
   }
 
   const name = (doc.entityName || "").trim();
@@ -78,26 +55,39 @@ function resolveFornitoreForDoc(
   if (exactKey) {
     for (const f of fornitori) {
       if (normalizeCompanyNameKey(f.ragione_sociale ?? "") === exactKey) {
-        console.info("[fatture-sync] match fornitore per nome", {
-          ficId: doc.ficId,
-          name,
-          fornitore: f.codice_targa,
-        });
         return f;
       }
     }
   }
   for (const f of fornitori) {
     if (companyNamesMatch(name, f.ragione_sociale ?? "")) {
-      console.info("[fatture-sync] match fornitore per nome fuzzy", {
-        ficId: doc.ficId,
-        name,
-        fornitore: f.codice_targa,
-      });
       return f;
     }
   }
   return null;
+}
+
+/** Esegue async su pool con concorrenza limitata (ordine risultati preservato). */
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), items.length) },
+    async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= items.length) return;
+        results[i] = await fn(items[i]!, i);
+      }
+    }
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 export type FattureSyncStartResult =
@@ -149,11 +139,7 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     };
   }
 
-  // Prima della coda: riallinea sempre i progressivi alla data di emissione
-  const rinum = await rinumeraTutteFattureEmesseAction();
-  if (!rinum.success) {
-    return { success: false, error: `Rinumerazione: ${rinum.error}` };
-  }
+  // Rinumerazione spostata a fine/pausa sync (UI board): non bloccare l'apertura coda.
 
   const supabase = await createClient();
   const [invoices, creditNotes, clientiRes, registeredRes] =
@@ -264,7 +250,6 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
           numeroEsterno: doc.number,
         },
       });
-      autoLinkedCount += 1;
       return "linked";
     }
     weakDupByFicId.set(doc.ficId, {
@@ -279,13 +264,21 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     return "weak";
   }
 
-  for (const inv of pendingInvoices) {
+  const invLinkResults = await mapPool(pendingInvoices, 8, async (inv) => {
     const r = await tryAutoLink(inv, "emessa");
-    if (r !== "linked") stillPendingInv.push(inv);
+    return { inv, r };
+  });
+  for (const { inv, r } of invLinkResults) {
+    if (r === "linked") autoLinkedCount += 1;
+    else stillPendingInv.push(inv);
   }
-  for (const nc of pendingCredits) {
+  const ncLinkResults = await mapPool(pendingCredits, 8, async (nc) => {
     const r = await tryAutoLink(nc, "nota_credito");
-    if (r !== "linked") stillPendingNc.push(nc);
+    return { nc, r };
+  });
+  for (const { nc, r } of ncLinkResults) {
+    if (r === "linked") autoLinkedCount += 1;
+    else stillPendingNc.push(nc);
   }
   pendingInvoices = stillPendingInv;
   pendingCredits = stillPendingNc;
@@ -477,61 +470,106 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   );
 
   let pending = docs.filter((d) => !registeredFicIds.has(d.ficId));
-  let autoLinkedCount = 0;
   const stillPending: FicDocumentNormalized[] = [];
   const weakDupByFicId = new Map<number, FatturaSyncDuplicateCandidate>();
 
-  for (const doc of pending) {
-    const match = matchFicDocToRegisteredFattura(doc, "ricevuta", registeredHints);
-    if (!match) {
-      stillPending.push(doc);
-      continue;
-    }
-    if (match.strength === "strong") {
-      const { error } = await supabase
-        .from("fatture_ricevute")
-        .update({
-          fic_id: doc.ficId,
-          updated_by: auth.userId,
-          numero_documento_esterno:
-            match.fattura.numeroEsterno?.trim() ||
-            doc.number ||
-            match.fattura.numeroEsterno,
-        })
-        .eq("id", match.fattura.id)
-        .is("deleted_at", null)
-        .is("fic_id", null);
-      if (error) {
-        console.error("[fatture-sync] auto-link ricevuta failed", error.message);
-        stillPending.push(doc);
-        continue;
+  type RicevutaLinkPlan =
+    | { doc: FicDocumentNormalized; outcome: "none" }
+    | {
+        doc: FicDocumentNormalized;
+        outcome: "strong";
+        fatturaId: string;
+        numeroInterno: string;
+        numeroEsterno: string;
+        motivo: string;
       }
-      registeredFicIds.add(doc.ficId);
-      autoLinkedCount += 1;
-      await writeAuditLog({
-        entity_type: "fatture_ricevute",
-        entity_id: match.fattura.id,
-        action: "sync_auto_link_fic",
-        actor_id: auth.userId,
-        summary: `Collegato FiC #${doc.ficId} a ${match.fattura.numeroInterno}`,
-        payload: {
-          ficId: doc.ficId,
-          motivo: match.motivo,
-          numeroEsterno: doc.number,
-        },
-      });
-      continue;
+    | {
+        doc: FicDocumentNormalized;
+        outcome: "weak";
+        candidate: FatturaSyncDuplicateCandidate;
+      };
+
+  const linkPlans: RicevutaLinkPlan[] = pending.map((doc) => {
+    const match = matchFicDocToRegisteredFattura(
+      doc,
+      "ricevuta",
+      registeredHints
+    );
+    if (!match) return { doc, outcome: "none" as const };
+    if (match.strength === "strong") {
+      return {
+        doc,
+        outcome: "strong" as const,
+        fatturaId: match.fattura.id,
+        numeroInterno: match.fattura.numeroInterno,
+        numeroEsterno: match.fattura.numeroEsterno,
+        motivo: match.motivo,
+      };
     }
-    weakDupByFicId.set(doc.ficId, {
-      strength: "weak",
-      fatturaId: match.fattura.id,
-      numeroInterno: match.fattura.numeroInterno,
-      numeroEsterno: match.fattura.numeroEsterno,
-      dataEmissione: match.fattura.dataEmissione,
-      totale: match.fattura.totale,
-      motivo: match.motivo,
+    return {
+      doc,
+      outcome: "weak" as const,
+      candidate: {
+        strength: "weak" as const,
+        fatturaId: match.fattura.id,
+        numeroInterno: match.fattura.numeroInterno,
+        numeroEsterno: match.fattura.numeroEsterno,
+        dataEmissione: match.fattura.dataEmissione,
+        totale: match.fattura.totale,
+        motivo: match.motivo,
+      },
+    };
+  });
+
+  const strongPlans = linkPlans.filter(
+    (p): p is Extract<RicevutaLinkPlan, { outcome: "strong" }> =>
+      p.outcome === "strong"
+  );
+  const strongResults = await mapPool(strongPlans, 8, async (plan) => {
+    const { error } = await supabase
+      .from("fatture_ricevute")
+      .update({
+        fic_id: plan.doc.ficId,
+        updated_by: auth.userId,
+        numero_documento_esterno:
+          plan.numeroEsterno?.trim() ||
+          plan.doc.number ||
+          plan.numeroEsterno,
+      })
+      .eq("id", plan.fatturaId)
+      .is("deleted_at", null)
+      .is("fic_id", null);
+    if (error) {
+      console.error("[fatture-sync] auto-link ricevuta failed", error.message);
+      return { plan, ok: false as const };
+    }
+    registeredFicIds.add(plan.doc.ficId);
+    await writeAuditLog({
+      entity_type: "fatture_ricevute",
+      entity_id: plan.fatturaId,
+      action: "sync_auto_link_fic",
+      actor_id: auth.userId,
+      summary: `Collegato FiC #${plan.doc.ficId} a ${plan.numeroInterno}`,
+      payload: {
+        ficId: plan.doc.ficId,
+        motivo: plan.motivo,
+        numeroEsterno: plan.doc.number,
+      },
     });
-    stillPending.push(doc);
+    return { plan, ok: true as const };
+  });
+
+  for (const r of strongResults) {
+    if (!r.ok) stillPending.push(r.plan.doc);
+  }
+  const autoLinkedCount = strongResults.filter((r) => r.ok).length;
+
+  for (const plan of linkPlans) {
+    if (plan.outcome === "strong") continue;
+    if (plan.outcome === "weak") {
+      weakDupByFicId.set(plan.doc.ficId, plan.candidate);
+    }
+    stillPending.push(plan.doc);
   }
 
   pending = stillPending.sort((a, b) =>
@@ -539,24 +577,12 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   );
   const skippedAlreadyRegistered = docs.length - pending.length;
 
-  // Lista FiC spesso senza P.IVA: dettaglio + XML SDI prima del match anagrafica
-  const enrichedPending: FicDocumentNormalized[] = [];
-  for (const doc of pending) {
-    try {
-      enrichedPending.push(await enrichReceivedDocument(doc));
-    } catch (e) {
-      console.error(
-        "[fatture-sync] enrich ricevuta failed",
-        doc.ficId,
-        e instanceof Error ? e.message : e
-      );
-      enrichedPending.push(doc);
-    }
-  }
-  pending = enrichedPending;
-
   const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
 
+  /**
+   * Coda snella: niente enrich di massa (era O(N) chiamate FiC sequenziali ≈ minuti).
+   * Dettaglio/XML/righe via hydrateFatturaSyncQueueItemAction al documento corrente.
+   */
   const items: FatturaSyncQueueItem[] = [];
   for (const doc of pending) {
     const existing = resolveFornitoreForDoc(doc, byVat, fornitori);
@@ -565,19 +591,39 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
       proposedTarga = nextSequentialCodiceTarga("F", [...usedTarghe]);
       usedTarghe.add(proposedTarga);
     }
-    items.push(
-      buildFatturaSyncQueueItem({
-        doc,
-        kind: "ricevuta",
-        existingId: existing?.id ?? null,
-        existingLabel: existing
-          ? `${existing.codice_targa} — ${existing.ragione_sociale}`
-          : null,
-        proposedTarga,
-        linkedFattura: null,
-        duplicateCandidate: weakDupByFicId.get(doc.ficId) ?? null,
-      })
-    );
+    const item = buildFatturaSyncQueueItem({
+      doc,
+      kind: "ricevuta",
+      existingId: existing?.id ?? null,
+      existingLabel: existing
+        ? `${existing.codice_targa} — ${existing.ragione_sociale}`
+        : null,
+      proposedTarga,
+      linkedFattura: null,
+      duplicateCandidate: weakDupByFicId.get(doc.ficId) ?? null,
+    });
+    items.push({
+      ...item,
+      needsHydration: true,
+      // Evita payload enorme: le righe arriveranno dall'hydrate
+      righe: [],
+    });
+  }
+
+  // Prefetch solo i primi 2 (apertura immediata + documento successivo)
+  const prefetch = items.slice(0, 2);
+  const hydratedPrefetch = await mapPool(prefetch, 2, async (slim) => {
+    const res = await hydrateRicevutaQueueItemInternal({
+      slim,
+      byVat,
+      fornitori,
+      usedTarghe,
+    });
+    return res;
+  });
+  for (let i = 0; i < hydratedPrefetch.length; i++) {
+    const h = hydratedPrefetch[i];
+    if (h) items[i] = h;
   }
 
   return {
@@ -587,6 +633,118 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     autoLinkedCount,
     creditNotesPending: 0,
   };
+}
+
+async function hydrateRicevutaQueueItemInternal(input: {
+  slim: FatturaSyncQueueItem;
+  byVat: Map<string, FornitoreRow>;
+  fornitori: FornitoreRow[];
+  usedTarghe: Set<string>;
+}): Promise<FatturaSyncQueueItem> {
+  const slim = input.slim;
+  const stub: FicDocumentNormalized = {
+    ficId: slim.ficId,
+    type: "received",
+    number: slim.numeroEsterno,
+    date: slim.dataEmissione,
+    dueDate: null,
+    entityName: slim.entityName,
+    entityVat: slim.entityVat,
+    amountGross: slim.amountGross,
+    status: "paid",
+    raw: {},
+  };
+  let enriched: FicDocumentNormalized;
+  try {
+    enriched = await enrichReceivedDocument(stub);
+  } catch (e) {
+    console.error(
+      "[fatture-sync] hydrate enrich failed",
+      slim.ficId,
+      e instanceof Error ? e.message : e
+    );
+    enriched = stub;
+  }
+
+  const existing = resolveFornitoreForDoc(
+    enriched,
+    input.byVat,
+    input.fornitori
+  );
+  let proposedTarga = existing?.codice_targa ?? slim.proposedTarga;
+  if (!existing && !proposedTarga) {
+    proposedTarga = nextSequentialCodiceTarga("F", [...input.usedTarghe]);
+    input.usedTarghe.add(proposedTarga);
+  }
+
+  const full = buildFatturaSyncQueueItem({
+    doc: enriched,
+    kind: "ricevuta",
+    existingId: existing?.id ?? slim.existingId,
+    existingLabel: existing
+      ? `${existing.codice_targa} — ${existing.ragione_sociale}`
+      : slim.existingLabel,
+    proposedTarga: existing?.codice_targa ?? proposedTarga,
+    linkedFattura: slim.linkedFattura,
+    duplicateCandidate: slim.duplicateCandidate,
+  });
+  return { ...full, needsHydration: false };
+}
+
+/**
+ * Carica dettaglio/XML/righe per un solo documento in coda (lazy).
+ * Evita di arricchire tutta la coda all'avvio sync.
+ */
+export async function hydrateFatturaSyncQueueItemAction(
+  slim: FatturaSyncQueueItem
+): Promise<
+  | { success: true; item: FatturaSyncQueueItem }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!slim.needsHydration) {
+    return { success: true, item: { ...slim, needsHydration: false } };
+  }
+  if (slim.kind !== "ricevuta") {
+    return { success: true, item: { ...slim, needsHydration: false } };
+  }
+
+  try {
+    getFicConfig();
+  } catch (e) {
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Configurazione Fatture in Cloud mancante.",
+    };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("*")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const fornitori = (data ?? []) as FornitoreRow[];
+  const byVat = new Map<string, FornitoreRow>();
+  for (const f of fornitori) {
+    const key = normalizeVatKey(f.partita_iva);
+    if (key) byVat.set(key, f);
+    const cf = normalizeVatKey(f.codice_fiscale ?? "");
+    if (cf && !byVat.has(cf)) byVat.set(cf, f);
+  }
+  const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());
+
+  const item = await hydrateRicevutaQueueItemInternal({
+    slim,
+    byVat,
+    fornitori,
+    usedTarghe,
+  });
+  return { success: true, item };
 }
 
 export type PendingFicInvoiceCandidate = FatturaSyncQueueItem & {

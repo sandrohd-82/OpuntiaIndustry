@@ -437,28 +437,35 @@ export async function enrichReceivedDocument(
   let entityVat = pickItalianVat(doc.entityVat);
   let entityName = doc.entityName;
 
-  // 1) Dettaglio documento
-  try {
-    const res = await ficGet<{ data?: unknown }>(
-      `/received_documents/${doc.ficId}`,
-      { fieldset: "detailed" }
-    );
-    const detail = asRecord(
-      (res as { data?: unknown }).data ?? (res as unknown)
-    );
-    if (Object.keys(detail).length > 0 && asNumber(detail.id)) {
-      raw = {
-        ...raw,
-        ...detail,
-        entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
-      };
+  const hasItems =
+    (Array.isArray(raw.items_list) && raw.items_list.length > 0) ||
+    (Array.isArray(raw.items) && raw.items.length > 0);
+  const hasEntity = Object.keys(asRecord(raw.entity)).length > 0;
+
+  // 1) Dettaglio documento — salta se la lista FiC ha già portato fieldset detailed
+  if (!hasItems || !hasEntity) {
+    try {
+      const res = await ficGet<{ data?: unknown }>(
+        `/received_documents/${doc.ficId}`,
+        { fieldset: "detailed" }
+      );
+      const detail = asRecord(
+        (res as { data?: unknown }).data ?? (res as unknown)
+      );
+      if (Object.keys(detail).length > 0 && asNumber(detail.id)) {
+        raw = {
+          ...raw,
+          ...detail,
+          entity: { ...asRecord(raw.entity), ...asRecord(detail.entity) },
+        };
+      }
+    } catch (e) {
+      console.error(
+        "[fic] enrich detail failed",
+        doc.ficId,
+        e instanceof Error ? e.message : e
+      );
     }
-  } catch (e) {
-    console.error(
-      "[fic] enrich detail failed",
-      doc.ficId,
-      e instanceof Error ? e.message : e
-    );
   }
 
   entityVat =
@@ -505,9 +512,10 @@ export async function enrichReceivedDocument(
     }
   }
 
-  // 3) XML SDI: SEMPRE (fonte autorevole della P.IVA in fattura)
+  // 3) XML SDI: solo se manca P.IVA italiana o non c'è già XML in raw
   let xml = findXmlBlobInReceivedRaw(raw);
-  if (!xml) {
+  const needXml = !xml && (!looksLikeItalianVat(entityVat) || !hasItems);
+  if (needXml) {
     try {
       const fetched = await fetchFicDocumentXml({
         kind: "received",
@@ -527,7 +535,6 @@ export async function enrichReceivedDocument(
     raw = { ...raw, ei_raw: xml };
     const ced = parseCedenteAnagraficaFromFatturaPaXml(xml);
     const cedVat = pickItalianVat(ced.vat, ced.taxCode);
-    // Preferisci sempre la P.IVA dell'XML cedente se valida
     if (cedVat) entityVat = cedVat;
     if (ced.name) entityName = ced.name;
     raw = mergeCedenteIntoRaw(raw, ced, entityName, entityVat);
@@ -538,13 +545,6 @@ export async function enrichReceivedDocument(
       pickItalianVat(extractSupplierVatFromReceivedRaw(raw), deepFindItalianVat(raw)) ||
       entityVat;
   }
-
-  console.info("[fic] enrich ricevuta", {
-    ficId: doc.ficId,
-    entityName,
-    entityVat,
-    hasXml: Boolean(xml),
-  });
 
   return {
     ...doc,

@@ -64,6 +64,11 @@ export type FatturaSyncQueueItem = {
   riferimentoFatturaEsterno: string;
   /** Possibile duplicato di una fattura manuale (match debole). */
   duplicateCandidate: FatturaSyncDuplicateCandidate | null;
+  /**
+   * true = metadati snelli da lista FiC; dettaglio/XML/righe si caricano
+   * al momento (lazy hydrate) per non bloccare l'apertura coda.
+   */
+  needsHydration?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -623,6 +628,7 @@ export function buildFatturaSyncQueueItem(input: {
     riferimentoFatturaEsterno:
       linked?.numeroEsterno || refs[0] || "",
     duplicateCandidate: input.duplicateCandidate ?? null,
+    needsHydration: false,
   };
 }
 
