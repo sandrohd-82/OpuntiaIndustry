@@ -1249,6 +1249,39 @@ export type ElaborazioneContabileUpdate =
     deleted_by?: string | null;
   };
 
+/** Date personalizzate trimestre commercialista (ISO 9001). */
+export interface TrimestreCommercialistaRow {
+  id: string;
+  anno: number;
+  trimestre: number;
+  dal: string;
+  al: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type TrimestreCommercialistaInsert = {
+  id?: string;
+  anno: number;
+  trimestre: number;
+  dal: string;
+  al: string;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type TrimestreCommercialistaUpdate =
+  Partial<TrimestreCommercialistaInsert> & {
+    deleted_at?: string | null;
+    deleted_by?: string | null;
+  };
+
 export interface ElaborazioneContabileVoceRow {
   id: string;
   elaborazione_id: string;
@@ -2048,6 +2081,12 @@ export interface Database {
         Row: ElaborazioneContabileRow;
         Insert: ElaborazioneContabileInsert;
         Update: ElaborazioneContabileUpdate;
+        Relationships: [];
+      };
+      trimestri_commercialista: {
+        Row: TrimestreCommercialistaRow;
+        Insert: TrimestreCommercialistaInsert;
+        Update: TrimestreCommercialistaUpdate;
         Relationships: [];
       };
       elaborazioni_contabili_voci: {

@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
   getCommercialistaSummaryAction,
+  resetTrimestreCommercialistaAction,
+  upsertTrimestreCommercialistaAction,
   type CommercialistaSummaryResult,
 } from "@/app/actions/commercialista";
 import type {
   CommercialistaSummary,
   ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
-import { formatEuro } from "@/lib/amministrazione/fatture";
+import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 import {
+  dateRangeForTrimestre,
   labelTrimestre,
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
@@ -112,10 +115,20 @@ export function CommercialistaBoard() {
   const [data, setData] = useState<CommercialistaSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [dalEdit, setDalEdit] = useState("");
+  const [alEdit, setAlEdit] = useState("");
+  const [periodoMsg, setPeriodoMsg] = useState<string | null>(null);
+  const [savingPeriodo, startSavePeriodo] = useTransition();
+
+  const calendarDefault = useMemo(
+    () => dateRangeForTrimestre(anno, trimestre),
+    [anno, trimestre]
+  );
 
   const load = useCallback(async () => {
     setReady(false);
     setError(null);
+    setPeriodoMsg(null);
     const res: CommercialistaSummaryResult =
       await getCommercialistaSummaryAction({ anno, trimestre });
     if (!res.success) {
@@ -125,6 +138,8 @@ export function CommercialistaBoard() {
       return;
     }
     setData(res.data);
+    setDalEdit(res.data.dal);
+    setAlEdit(res.data.al);
     setReady(true);
   }, [anno, trimestre]);
 
@@ -132,14 +147,47 @@ export function CommercialistaBoard() {
     void load();
   }, [load]);
 
+  function savePeriodo() {
+    setPeriodoMsg(null);
+    startSavePeriodo(async () => {
+      const res = await upsertTrimestreCommercialistaAction({
+        anno,
+        trimestre,
+        dal: dalEdit,
+        al: alEdit,
+      });
+      if (!res.success) {
+        setPeriodoMsg(res.error);
+        return;
+      }
+      setPeriodoMsg("Periodo aggiornato.");
+      await load();
+    });
+  }
+
+  function resetPeriodo() {
+    setPeriodoMsg(null);
+    startSavePeriodo(async () => {
+      const res = await resetTrimestreCommercialistaAction({
+        anno,
+        trimestre,
+      });
+      if (!res.success) {
+        setPeriodoMsg(res.error);
+        return;
+      }
+      setPeriodoMsg("Ripristinate le date di calendario.");
+      await load();
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-[var(--muted)]">
-          Riepilogo trimestrale (regime IVA ordinario{" "}
-          {data?.ivaAliquotaDefaultPct ?? 22}%). Per ogni voce: imponibile e
-          IVA. I totali documento usano i campi delle fatture; le sottovoci
-          ripartiscono gli importi riga.
+        <p className="max-w-2xl text-sm text-[var(--muted)]">
+          Riepilogo trimestrale (IVA ordinario{" "}
+          {data?.ivaAliquotaDefaultPct ?? 22}%). I KPI usano i totali documento;
+          sotto trovi imponibile/IVA e ripartizione righe sugli stessi documenti.
         </p>
         <div className="flex flex-wrap gap-2">
           <label className="block text-sm">
@@ -174,6 +222,70 @@ export function CommercialistaBoard() {
         </div>
       </div>
 
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+              Periodo {labelTrimestre(anno, trimestre)}
+              {data?.periodoPersonalizzato ? (
+                <span className="ml-2 rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-amber-900">
+                  Personalizzato
+                </span>
+              ) : (
+                <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-[var(--muted)]">
+                  Calendario
+                </span>
+              )}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <label className="text-sm">
+                <span className="sr-only">Dal</span>
+                <input
+                  type="date"
+                  value={dalEdit}
+                  onChange={(e) => setDalEdit(e.target.value)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                />
+              </label>
+              <span className="text-xs text-[var(--muted)]">→</span>
+              <label className="text-sm">
+                <span className="sr-only">Al</span>
+                <input
+                  type="date"
+                  value={alEdit}
+                  onChange={(e) => setAlEdit(e.target.value)}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={savingPeriodo || !dalEdit || !alEdit}
+                onClick={savePeriodo}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Salva periodo
+              </button>
+              <button
+                type="button"
+                disabled={savingPeriodo || !data?.periodoPersonalizzato}
+                onClick={resetPeriodo}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-40"
+                title={`Default: ${calendarDefault.dal} → ${calendarDefault.al}`}
+              >
+                Ripristina calendario
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              Default calendario: {formatDateIt(calendarDefault.dal)} –{" "}
+              {formatDateIt(calendarDefault.al)}
+            </p>
+            {periodoMsg ? (
+              <p className="mt-1 text-xs text-slate-700">{periodoMsg}</p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
@@ -183,24 +295,53 @@ export function CommercialistaBoard() {
       {!ready ? (
         <p className="text-sm text-[var(--muted)]">Caricamento…</p>
       ) : data ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <ColonnaRiepilogo
-            titolo="Fatture emesse"
-            documenti={data.emesse.documenti}
-            vocePrimariaLabel="Prodotti venduti"
-            vocePrimaria={data.emesse.vocePrimaria}
-            beni={data.emesse.beniAmmortizzabili}
-            conteggio={data.emesse.conteggioDocumenti}
-          />
-          <ColonnaRiepilogo
-            titolo="Fatture ricevute"
-            documenti={data.ricevute.documenti}
-            vocePrimariaLabel="Materiale di consumo"
-            vocePrimaria={data.ricevute.vocePrimaria}
-            beni={data.ricevute.beniAmmortizzabili}
-            conteggio={data.ricevute.conteggioDocumenti}
-          />
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-emerald-900/70">
+                Totale incassi
+              </p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-emerald-950">
+                {formatEuro(data.totaleIncassi)}
+              </p>
+              <p className="mt-1 text-xs text-emerald-900/70">
+                Fatture emesse nel periodo ({data.emesse.conteggioDocumenti}{" "}
+                doc.) · {formatDateIt(data.dal)} – {formatDateIt(data.al)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-5">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
+                Totale fatture ricevute
+              </p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
+                {formatEuro(data.totaleRicevute)}
+              </p>
+              <p className="mt-1 text-xs text-slate-600">
+                Ricevute nel periodo ({data.ricevute.conteggioDocumenti} doc.) ·{" "}
+                {formatDateIt(data.dal)} – {formatDateIt(data.al)}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ColonnaRiepilogo
+              titolo="Dettaglio incassi (emesse)"
+              documenti={data.emesse.documenti}
+              vocePrimariaLabel="Prodotti venduti"
+              vocePrimaria={data.emesse.vocePrimaria}
+              beni={data.emesse.beniAmmortizzabili}
+              conteggio={data.emesse.conteggioDocumenti}
+            />
+            <ColonnaRiepilogo
+              titolo="Dettaglio fatture ricevute"
+              documenti={data.ricevute.documenti}
+              vocePrimariaLabel="Materiale di consumo"
+              vocePrimaria={data.ricevute.vocePrimaria}
+              beni={data.ricevute.beniAmmortizzabili}
+              conteggio={data.ricevute.conteggioDocumenti}
+            />
+          </div>
+        </>
       ) : null}
     </div>
   );

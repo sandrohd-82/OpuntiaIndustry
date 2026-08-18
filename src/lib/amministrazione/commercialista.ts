@@ -42,7 +42,13 @@ export type CommercialistaSummary = {
   labelTrimestre: string;
   dal: string;
   al: string;
+  /** true se dal/al sono personalizzati (tabella trimestri_commercialista). */
+  periodoPersonalizzato: boolean;
   ivaAliquotaDefaultPct: number;
+  /** KPI: totale fatture emesse (incassi) del periodo. */
+  totaleIncassi: number;
+  /** KPI: totale fatture ricevute del periodo. */
+  totaleRicevute: number;
   emesse: CommercialistaColonnaTotali;
   ricevute: CommercialistaColonnaTotali;
 };
@@ -68,6 +74,28 @@ export function buildPeriodoLabel(anno: number, trim: TrimestreNumero) {
     al,
   };
 }
+
+export const upsertTrimestreCommercialistaSchema = z
+  .object({
+    anno: z.number().int().min(2000).max(2100),
+    trimestre: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+    ]),
+    dal: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inizio non valida"),
+    al: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data fine non valida"),
+    note: z.string().max(500).optional(),
+  })
+  .refine((v) => v.dal <= v.al, {
+    message: "La data inizio deve essere ≤ data fine.",
+    path: ["al"],
+  });
+
+export type UpsertTrimestreCommercialistaInput = z.infer<
+  typeof upsertTrimestreCommercialistaSchema
+>;
 
 export function resolveIvaPercentuale(raw: unknown): number {
   const n = Number(raw);
