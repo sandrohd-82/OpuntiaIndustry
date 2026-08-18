@@ -1111,6 +1111,10 @@ export interface FatturaRicevutaRow {
   iva_percentuale: number;
   imposta: number;
   totale: number;
+  /** Totale lordo da Fatture in Cloud (amount_gross), se noto. */
+  totale_fic: number | null;
+  /** Differenza totale documento − totale_fic. */
+  totale_scarto: number | null;
   stato_pagamento: FatturaStatoPagamento;
   natura_documento: FatturaNaturaDocumento;
   ricevuta_storage_path: string;
@@ -1147,6 +1151,8 @@ export type FatturaRicevutaInsert = {
   iva_percentuale?: number;
   imposta?: number;
   totale?: number;
+  totale_fic?: number | null;
+  totale_scarto?: number | null;
   stato_pagamento?: FatturaStatoPagamento;
   natura_documento?: FatturaNaturaDocumento;
   ricevuta_storage_path?: string;
@@ -1331,6 +1337,39 @@ export type FatturaRicevutaDilazioneInsert = {
   data_scadenza: string;
   importo?: number;
   stato_pagamento?: FatturaStatoPagamento;
+  sort_order?: number;
+  note?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+};
+
+/** Contributo cassa previdenziale su fattura ricevuta (es. ENPAB 4%). */
+export interface FatturaRicevutaContributoCassaRow {
+  id: string;
+  fattura_id: string;
+  codice: string;
+  percentuale: number;
+  base_importo: number;
+  importo: number;
+  sort_order: number;
+  note: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export type FatturaRicevutaContributoCassaInsert = {
+  id?: string;
+  fattura_id: string;
+  codice?: string;
+  percentuale?: number;
+  base_importo?: number;
+  importo?: number;
   sort_order?: number;
   note?: string;
   created_by?: string | null;
@@ -2027,6 +2066,12 @@ export interface Database {
         Row: FatturaRicevutaDilazioneRow;
         Insert: FatturaRicevutaDilazioneInsert;
         Update: Partial<FatturaRicevutaDilazioneInsert>;
+        Relationships: [];
+      };
+      fatture_ricevute_contributi_cassa: {
+        Row: FatturaRicevutaContributoCassaRow;
+        Insert: FatturaRicevutaContributoCassaInsert;
+        Update: Partial<FatturaRicevutaContributoCassaInsert>;
         Relationships: [];
       };
       company_fiscal_profile: {

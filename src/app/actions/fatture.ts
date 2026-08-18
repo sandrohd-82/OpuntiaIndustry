@@ -10,6 +10,7 @@ import {
   mapFatturaEmessaRow,
   mapFatturaRicevutaRow,
   parseFatturaInput,
+  scartoTotaleFic,
   type Fattura,
   type FatturaCollegabileOption,
   type FatturaKind,
@@ -34,6 +35,8 @@ import type {
   FatturaEmessaRigaInsert,
   FatturaEmessaRigaRow,
   FatturaEmessaRow,
+  FatturaRicevutaContributoCassaInsert,
+  FatturaRicevutaContributoCassaRow,
   FatturaRicevutaDilazioneInsert,
   FatturaRicevutaDilazioneRow,
   FatturaRicevutaInsert,
@@ -43,6 +46,34 @@ import type {
 } from "@/types/database";
 
 const RICEVUTA_BUCKET = "fatture-ricevute-pagamenti";
+
+function resolveTotaleDocumento(
+  totals: { totale: number },
+  input: { totaleManuale?: boolean; totaleOverride?: number | null }
+): number {
+  if (input.totaleManuale && input.totaleOverride != null) {
+    return input.totaleOverride;
+  }
+  return totals.totale;
+}
+
+function assertScartoFicOk(input: {
+  totaleManuale?: boolean;
+  totaleOverride?: number | null;
+  totaleFic?: number | null;
+  confermaScartoFic?: boolean;
+  contributiCassa?: unknown[];
+}, totals: { totale: number }): { ok: true } | { ok: false; error: string } {
+  const totaleDoc = resolveTotaleDocumento(totals, input);
+  const check = scartoTotaleFic(totaleDoc, input.totaleFic);
+  if (check.haRiferimento && !check.allineato && !input.confermaScartoFic) {
+    return {
+      ok: false,
+      error: `Scarto tra totale documento (${formatEuro(totaleDoc)}) e totale FiC (${formatEuro(Math.abs(Number(input.totaleFic)))}): ${formatEuro(Math.abs(check.scarto ?? 0))}. Conferma esplicitamente per salvare.`,
+    };
+  }
+  return { ok: true };
+}
 
 export type FattureActionResult =
   | { success: true; fattura: Fattura }
@@ -760,6 +791,7 @@ export async function listFattureAction(
   const ids = rows.map((r) => r.id);
   const righeBy = new Map<string, FatturaRicevutaRigaRow[]>();
   const dilBy = new Map<string, FatturaRicevutaDilazioneRow[]>();
+  const contribBy = new Map<string, FatturaRicevutaContributoCassaRow[]>();
   if (ids.length > 0) {
     const { data: righe } = await supabase
       .from("fatture_ricevute_righe")
@@ -780,6 +812,16 @@ export async function listFattureAction(
       list.push(d);
       dilBy.set(d.fattura_id, list);
     }
+    const { data: contributi } = await supabase
+      .from("fatture_ricevute_contributi_cassa")
+      .select("*")
+      .in("fattura_id", ids)
+      .is("deleted_at", null);
+    for (const c of (contributi ?? []) as FatturaRicevutaContributoCassaRow[]) {
+      const list = contribBy.get(c.fattura_id) ?? [];
+      list.push(c);
+      contribBy.set(c.fattura_id, list);
+    }
   }
   return {
     success: true,
@@ -787,7 +829,8 @@ export async function listFattureAction(
       mapFatturaRicevutaRow(
         row,
         righeBy.get(row.id) ?? [],
-        dilBy.get(row.id) ?? []
+        dilBy.get(row.id) ?? [],
+        contribBy.get(row.id) ?? []
       )
     ),
   };
@@ -824,6 +867,7 @@ export async function createFatturaAction(
     notaCredito: kind === "nota_credito",
     ivaPercentuale: input.ivaPercentuale,
     ivaPerRiga: kind === "ricevuta",
+    contributiCassa: kind === "ricevuta" ? input.contributiCassa : [],
   });
 
   if (kind === "nota_credito" && !input.fatturaCollegataId) {
@@ -833,9 +877,16 @@ export async function createFatturaAction(
     };
   }
 
+  if (kind === "ricevuta") {
+    const ficCheck = assertScartoFicOk(input, totals);
+    if (!ficCheck.ok) return { success: false, error: ficCheck.error };
+  }
+
+  const totaleDocumento = resolveTotaleDocumento(totals, input);
+
   if (input.dilazioni.length > 0) {
     const bil = bilancioDilazioni(
-      totals.totale,
+      totaleDocumento,
       input.dilazioni.map((d) => d.importo)
     );
     if (!bil.equilibrato) {
@@ -1140,10 +1191,12 @@ export async function createFatturaAction(
       imponibile: totals.imponibile,
       iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
-      totale:
-        input.totaleManuale && input.totaleOverride != null
-          ? input.totaleOverride
-          : totals.totale,
+      totale: totaleDocumento,
+      totale_fic: input.totaleFic ?? null,
+      totale_scarto: (() => {
+        const c = scartoTotaleFic(totaleDocumento, input.totaleFic);
+        return c.haRiferimento ? c.scarto : null;
+      })(),
       stato_pagamento: input.statoPagamento,
       natura_documento: input.naturaDocumento ?? "saldo",
       documento_stato: "registrata",
@@ -1249,6 +1302,31 @@ export async function createFatturaAction(
       dilazioniData = (dilRows ?? []) as FatturaRicevutaDilazioneRow[];
     }
 
+    let contributiData: FatturaRicevutaContributoCassaRow[] = [];
+    if (input.contributiCassa.length > 0) {
+      const cInsert: FatturaRicevutaContributoCassaInsert[] =
+        input.contributiCassa.map((c, i) => ({
+          fattura_id: row.id,
+          codice: c.codice,
+          percentuale: c.percentuale,
+          base_importo: c.baseImporto,
+          importo: c.importo,
+          sort_order: i,
+          note: c.note ?? "",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        }));
+      const { data: cRows, error: cErr } = await supabase
+        .from("fatture_ricevute_contributi_cassa")
+        .insert(cInsert)
+        .select("*");
+      if (cErr) {
+        return { success: false, error: `Contributi cassa: ${cErr.message}` };
+      }
+      contributiData = (cRows ?? []) as FatturaRicevutaContributoCassaRow[];
+    }
+
+    const ficCheck = scartoTotaleFic(totaleDocumento, input.totaleFic);
     await writeAuditLog({
       entity_type: "fatture_ricevute",
       entity_id: row.id,
@@ -1258,12 +1336,17 @@ export async function createFatturaAction(
       payload: {
         fic_id: input.ficId,
         fornitore_id: input.anagraficaId,
-        totale:
-          input.totaleManuale && input.totaleOverride != null
-            ? input.totaleOverride
-            : totals.totale,
+        totale: totaleDocumento,
         totale_calcolato: totals.totale,
         totale_manuale: Boolean(input.totaleManuale),
+        totale_fic: input.totaleFic ?? null,
+        totale_scarto: ficCheck.haRiferimento ? ficCheck.scarto : null,
+        conferma_scarto_fic: Boolean(input.confermaScartoFic),
+        contributi_cassa: input.contributiCassa.map((c) => ({
+          codice: c.codice,
+          percentuale: c.percentuale,
+          importo: c.importo,
+        })),
         dilazioni: input.dilazioni.length,
         stato_pagamento: input.statoPagamento,
         natura_documento: input.naturaDocumento ?? "saldo",
@@ -1276,7 +1359,8 @@ export async function createFatturaAction(
       fattura: mapFatturaRicevutaRow(
         row,
         (righeData ?? []) as FatturaRicevutaRigaRow[],
-        dilazioniData
+        dilazioniData,
+        contributiData
       ),
     };
   } catch (e) {
@@ -1320,6 +1404,7 @@ export async function updateFatturaAction(
     notaCredito: kind === "nota_credito",
     ivaPercentuale: input.ivaPercentuale,
     ivaPerRiga: kind === "ricevuta",
+    contributiCassa: kind === "ricevuta" ? input.contributiCassa : [],
   });
 
   if (kind === "nota_credito" && !input.fatturaCollegataId) {
@@ -1329,9 +1414,16 @@ export async function updateFatturaAction(
     };
   }
 
+  if (kind === "ricevuta") {
+    const ficCheck = assertScartoFicOk(input, totals);
+    if (!ficCheck.ok) return { success: false, error: ficCheck.error };
+  }
+
+  const totaleDocumento = resolveTotaleDocumento(totals, input);
+
   if (kind !== "nota_credito" && input.dilazioni.length > 0) {
     const bil = bilancioDilazioni(
-      totals.totale,
+      totaleDocumento,
       input.dilazioni.map((d) => d.importo)
     );
     if (!bil.equilibrato) {
@@ -1613,10 +1705,17 @@ export async function updateFatturaAction(
       imponibile: totals.imponibile,
       iva_percentuale: totals.ivaPercentualePrevalente ?? input.ivaPercentuale,
       imposta: totals.imposta,
-      totale:
-        input.totaleManuale && input.totaleOverride != null
-          ? input.totaleOverride
-          : totals.totale,
+      totale: totaleDocumento,
+      totale_fic: input.totaleFic ?? existingRow.totale_fic ?? null,
+      totale_scarto: (() => {
+        const fic =
+          input.totaleFic ??
+          (existingRow.totale_fic != null
+            ? Number(existingRow.totale_fic)
+            : null);
+        const c = scartoTotaleFic(totaleDocumento, fic);
+        return c.haRiferimento ? c.scarto : null;
+      })(),
       stato_pagamento: input.statoPagamento,
       natura_documento: input.naturaDocumento ?? "saldo",
       note: input.note,
@@ -1715,6 +1814,44 @@ export async function updateFatturaAction(
       dilazioniData = (dilRows ?? []) as FatturaRicevutaDilazioneRow[];
     }
 
+    await supabase
+      .from("fatture_ricevute_contributi_cassa")
+      .update({
+        deleted_at: nowIso,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("fattura_id", id)
+      .is("deleted_at", null);
+
+    let contributiData: FatturaRicevutaContributoCassaRow[] = [];
+    if (input.contributiCassa.length > 0) {
+      const cInsert: FatturaRicevutaContributoCassaInsert[] =
+        input.contributiCassa.map((c, i) => ({
+          fattura_id: id,
+          codice: c.codice,
+          percentuale: c.percentuale,
+          base_importo: c.baseImporto,
+          importo: c.importo,
+          sort_order: i,
+          note: c.note ?? "",
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        }));
+      const { data: cRows, error: cErr } = await supabase
+        .from("fatture_ricevute_contributi_cassa")
+        .insert(cInsert)
+        .select("*");
+      if (cErr) {
+        return { success: false, error: `Contributi cassa: ${cErr.message}` };
+      }
+      contributiData = (cRows ?? []) as FatturaRicevutaContributoCassaRow[];
+    }
+
+    const ficRef =
+      input.totaleFic ??
+      (existingRow.totale_fic != null ? Number(existingRow.totale_fic) : null);
+    const ficCheck = scartoTotaleFic(totaleDocumento, ficRef);
     await writeAuditLog({
       entity_type: "fatture_ricevute",
       entity_id: id,
@@ -1723,12 +1860,17 @@ export async function updateFatturaAction(
       summary: `Modificata fattura ricevuta ${existingRow.numero_interno} (v${patch.versione})`,
       payload: {
         versione: patch.versione,
-        totale:
-          input.totaleManuale && input.totaleOverride != null
-            ? input.totaleOverride
-            : totals.totale,
+        totale: totaleDocumento,
         totale_calcolato: totals.totale,
         totale_manuale: Boolean(input.totaleManuale),
+        totale_fic: ficRef,
+        totale_scarto: ficCheck.haRiferimento ? ficCheck.scarto : null,
+        conferma_scarto_fic: Boolean(input.confermaScartoFic),
+        contributi_cassa: input.contributiCassa.map((c) => ({
+          codice: c.codice,
+          percentuale: c.percentuale,
+          importo: c.importo,
+        })),
         dilazioni: input.dilazioni.length,
         natura_documento: input.naturaDocumento ?? "saldo",
         prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
@@ -1751,7 +1893,8 @@ export async function updateFatturaAction(
       fattura: mapFatturaRicevutaRow(
         (refreshed ?? updated) as FatturaRicevutaRow,
         (righeData ?? []) as FatturaRicevutaRigaRow[],
-        dilazioniData
+        dilazioniData,
+        contributiData
       ),
     };
   } catch (e) {
@@ -1859,12 +2002,19 @@ export async function getFatturaByIdAction(
     .eq("fattura_id", id)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
+  const { data: contributi } = await supabase
+    .from("fatture_ricevute_contributi_cassa")
+    .select("*")
+    .eq("fattura_id", id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
   return {
     success: true,
     fattura: mapFatturaRicevutaRow(
       data as FatturaRicevutaRow,
       (righe ?? []) as FatturaRicevutaRigaRow[],
-      (dilazioni ?? []) as FatturaRicevutaDilazioneRow[]
+      (dilazioni ?? []) as FatturaRicevutaDilazioneRow[],
+      (contributi ?? []) as FatturaRicevutaContributoCassaRow[]
     ),
   };
 }

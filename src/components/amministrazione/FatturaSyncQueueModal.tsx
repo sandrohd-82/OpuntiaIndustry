@@ -368,6 +368,7 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         dataEmissione: current.dataEmissione,
         numeroDocumentoEsterno: current.numeroEsterno,
         ficId: current.ficId,
+        totaleFic: Math.abs(Number(current.amountGross) || 0),
         spedizione: current.spedizione,
         spedizioneIvaApplicata: current.spedizioneIvaApplicata,
         spedizioneIvaPercentuale: current.spedizioneIvaPercentuale ?? 22,

@@ -53,6 +53,8 @@ import {
   bilancioDilazioni,
   calcolaTotaliFattura,
   canFlagBeneAmmortizzabile,
+  CASSE_PREVIDENZIALI_SUGGERITE,
+  emptyFatturaContributoCassa,
   emptyFatturaDilazione,
   emptyFatturaRiga,
   emptyFatturaRigaNotaCredito,
@@ -67,11 +69,14 @@ import {
   normalizeQuantitaNotaCredito,
   normalizeQuantitaPositiva,
   prezzoScontatoUnitario,
+  roundMoney,
+  scartoTotaleFic,
   statoPagamentoFromDilazioni,
   statoPagamentoFromIncassoNc,
   todayIsoDate,
   type Fattura,
   type FatturaCollegabileOption,
+  type FatturaContributoCassa,
   type FatturaDilazione,
   type FatturaKind,
   type FatturaRiga,
@@ -116,6 +121,17 @@ type EditableDilazione = Omit<FatturaDilazione, "importo"> & {
   importo: number | "";
 };
 
+type EditableContributoCassa = Omit<
+  FatturaContributoCassa,
+  "percentuale" | "baseImporto" | "importo"
+> & {
+  percentuale: number | "";
+  baseImporto: number | "";
+  importo: number | "";
+  /** Se true, importo non ricalcola da base×% */
+  importoBloccato?: boolean;
+};
+
 export type FatturaRegistrazionePrefill = {
   anagraficaId?: string;
   anagraficaRagioneSociale?: string;
@@ -123,6 +139,8 @@ export type FatturaRegistrazionePrefill = {
   dataEmissione?: string;
   numeroDocumentoEsterno?: string;
   ficId?: number | null;
+  /** Totale lordo FiC (amount_gross) per controllo incrociato. */
+  totaleFic?: number | null;
   spedizione?: number;
   spedizioneIvaApplicata?: boolean;
   spedizioneIvaPercentuale?: number;
@@ -140,6 +158,7 @@ export type FatturaRegistrazionePrefill = {
   riferimentoFatturaEsterno?: string;
   dilazioniAnnullateIds?: string[];
   righe?: FatturaRiga[];
+  contributiCassa?: FatturaContributoCassa[];
   lockAnagrafica?: boolean;
 };
 
@@ -169,6 +188,7 @@ function seedFromInitialOrPrefill(
       dataEmissione: initial.dataEmissione,
       numeroDocumentoEsterno: initial.numeroDocumentoEsterno,
       ficId: initial.ficId,
+      totaleFic: initial.totaleFic ?? null,
       spedizione: Math.abs(initial.spedizione),
       spedizioneIvaApplicata: initial.spedizioneIvaApplicata,
       spedizioneIvaPercentuale: initial.spedizioneIvaPercentuale,
@@ -184,6 +204,7 @@ function seedFromInitialOrPrefill(
       fatturaCollegataId: initial.fatturaCollegataId,
       riferimentoFatturaEsterno: initial.riferimentoFatturaEsterno,
       righe: initial.righe ?? [],
+      contributiCassa: initial.contributiCassa ?? [],
       lockAnagrafica: true,
     };
   }
@@ -322,6 +343,12 @@ export function FatturaRegistrazioneModal({
   const [totaleOverride, setTotaleOverride] = useState<number | "">(
     initial?.totaleManuale ? initial.totale : ""
   );
+  const [totaleFic, setTotaleFic] = useState<number | null>(() => {
+    const raw = initial?.totaleFic ?? seed.totaleFic;
+    return raw != null && Number.isFinite(Number(raw))
+      ? Math.abs(Number(raw))
+      : null;
+  });
   const [rimborsoNecessario, setRimborsoNecessario] = useState(
     seed.rimborsoNecessario ?? false
   );
@@ -388,6 +415,17 @@ export function FatturaRegistrazioneModal({
       importo: d.importo,
     }))
   );
+  const [contributiCassa, setContributiCassa] = useState<
+    EditableContributoCassa[]
+  >(() =>
+    (initial?.contributiCassa ?? seed.contributiCassa ?? []).map((c) => ({
+      ...c,
+      percentuale: c.percentuale,
+      baseImporto: c.baseImporto,
+      importo: c.importo,
+      importoBloccato: false,
+    }))
+  );
   const [showPendingPicker, setShowPendingPicker] = useState(false);
   const [pendingInvoiceToRegister, setPendingInvoiceToRegister] =
     useState<PendingFicInvoiceCandidate | null>(null);
@@ -415,6 +453,13 @@ export function FatturaRegistrazioneModal({
         notaCredito: isNc,
         ivaPercentuale: isRicevuta ? 0 : numberOrZero(ivaPercentuale),
         ivaPerRiga: isRicevuta,
+        contributiCassa: isRicevuta
+          ? contributiCassa.map((c) => ({
+              percentuale: numberOrZero(c.percentuale),
+              baseImporto: numberOrZero(c.baseImporto),
+              importo: numberOrZero(c.importo),
+            }))
+          : [],
       }),
     [
       righe,
@@ -425,6 +470,7 @@ export function FatturaRegistrazioneModal({
       ivaPercentuale,
       isNc,
       isRicevuta,
+      contributiCassa,
     ]
   );
 
@@ -439,6 +485,11 @@ export function FatturaRegistrazioneModal({
     }
     return totals.totale;
   }, [isRicevuta, totaleManuale, totaleOverride, totals.totale]);
+
+  const confrontoFic = useMemo(
+    () => scartoTotaleFic(totaleEffettivo, totaleFic),
+    [totaleEffettivo, totaleFic]
+  );
 
   const dilazioniNormalizzate = useMemo(
     () =>
@@ -520,6 +571,11 @@ export function FatturaRegistrazioneModal({
     setTotaleManuale(Boolean(doc.totaleManuale));
     setTotaleEditUnlocked(Boolean(doc.totaleManuale));
     setTotaleOverride(doc.totaleManuale ? doc.totale : "");
+    setTotaleFic(
+      doc.totaleFic != null && Number.isFinite(Number(doc.totaleFic))
+        ? Math.abs(Number(doc.totaleFic))
+        : null
+    );
     setStatoIncassoNc(
       doc.statoIncassoNc ??
         (doc.statoPagamento === "pagato" ? "gia_incassata" : "non_incassata")
@@ -538,6 +594,15 @@ export function FatturaRegistrazioneModal({
       (doc.dilazioni ?? []).map((d) => ({
         ...d,
         importo: d.importo,
+      }))
+    );
+    setContributiCassa(
+      (doc.contributiCassa ?? []).map((c) => ({
+        ...c,
+        percentuale: c.percentuale,
+        baseImporto: c.baseImporto,
+        importo: c.importo,
+        importoBloccato: false,
       }))
     );
     // Opzioni select collegamento: includi subito le fatture già collegate
@@ -1086,6 +1151,20 @@ export function FatturaRegistrazioneModal({
       }
       return;
     }
+
+    let confermaScartoFic = false;
+    if (
+      isRicevuta &&
+      confrontoFic.haRiferimento &&
+      !confrontoFic.allineato
+    ) {
+      const ok = window.confirm(
+        `Attenzione: il totale documento (${formatEuro(totaleEffettivo)}) non coincide con il totale Fatture in Cloud (${formatEuro(Math.abs(Number(totaleFic)))}).\nScarto: ${formatEuro(Math.abs(confrontoFic.scarto ?? 0))}.\n\nVuoi salvare comunque? (verrà registrato in audit)`
+      );
+      if (!ok) return;
+      confermaScartoFic = true;
+    }
+
     setSaving(true);
     setFormError(null);
     try {
@@ -1133,6 +1212,8 @@ export function FatturaRegistrazioneModal({
             isRicevuta && totaleManuale
               ? numberOrZero(totaleOverride)
               : null,
+          totaleFic: isRicevuta ? totaleFic : null,
+          confermaScartoFic: isRicevuta ? confermaScartoFic : false,
           statoPagamento: isSostituzione
             ? "pagato"
             : isNc
@@ -1175,6 +1256,18 @@ export function FatturaRegistrazioneModal({
           riferimentoFatturaEsterno: isNc ? riferimentoFatturaEsterno : "",
           righe: righePayload,
           dilazioni: isNc ? [] : dilazioniNormalizzate,
+          contributiCassa: isRicevuta
+            ? contributiCassa
+                .filter((c) => String(c.codice ?? "").trim())
+                .map((c) => ({
+                  id: c.id,
+                  codice: String(c.codice).trim(),
+                  percentuale: numberOrZero(c.percentuale),
+                  baseImporto: numberOrZero(c.baseImporto),
+                  importo: numberOrZero(c.importo),
+                  note: c.note ?? "",
+                }))
+            : [],
         })
       );
       if (ricevuta) fd.set("ricevuta", ricevuta);
@@ -2068,6 +2161,185 @@ export function FatturaRegistrazioneModal({
               ) : null}
             </div>
 
+            {isRicevuta ? (
+              <div className="w-full basis-full space-y-2 border-t border-[var(--border)] pt-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+                    Casse previdenziali
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CASSE_PREVIDENZIALI_SUGGERITE.slice(0, 4).map((s) => (
+                      <button
+                        key={s.codice}
+                        type="button"
+                        onClick={() => {
+                          const base = Math.abs(totals.imponibile);
+                          const empty = emptyFatturaContributoCassa(base, s);
+                          setContributiCassa((prev) => [
+                            ...prev,
+                            {
+                              ...empty,
+                              percentuale: empty.percentuale,
+                              baseImporto: empty.baseImporto,
+                              importo: empty.importo,
+                              importoBloccato: false,
+                            },
+                          ]);
+                        }}
+                        className="rounded border border-[var(--border)] px-2 py-0.5 text-[11px] hover:bg-slate-50"
+                      >
+                        + {s.codice} {s.percentuale}%
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const base = Math.abs(totals.imponibile);
+                        const empty = emptyFatturaContributoCassa(base);
+                        setContributiCassa((prev) => [
+                          ...prev,
+                          {
+                            ...empty,
+                            codice: "",
+                            percentuale: empty.percentuale,
+                            baseImporto: empty.baseImporto,
+                            importo: empty.importo,
+                            importoBloccato: false,
+                          },
+                        ]);
+                      }}
+                      className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-[11px] font-medium hover:bg-slate-50"
+                    >
+                      <FaPlus size={9} /> Altra cassa
+                    </button>
+                  </div>
+                </div>
+                {contributiCassa.length === 0 ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    Nessun contributo. Usa i pulsanti per ENPAB / altre casse.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {contributiCassa.map((c, idx) => (
+                      <li
+                        key={c.id ?? `cassa-${idx}`}
+                        className="grid gap-2 rounded-lg border border-[var(--border)] bg-slate-50/60 p-2 sm:grid-cols-[minmax(0,1.2fr)_4.5rem_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                      >
+                        <input
+                          value={c.codice}
+                          onChange={(e) => {
+                            const codice = e.target.value;
+                            setContributiCassa((prev) =>
+                              prev.map((row, i) =>
+                                i === idx ? { ...row, codice } : row
+                              )
+                            );
+                          }}
+                          placeholder="Codice (es. ENPAB)"
+                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                          list={`casse-suggerite-${idx}`}
+                        />
+                        <datalist id={`casse-suggerite-${idx}`}>
+                          {CASSE_PREVIDENZIALI_SUGGERITE.map((s) => (
+                            <option key={s.codice} value={s.codice} />
+                          ))}
+                        </datalist>
+                        <ClearableNumberInput
+                          min={0}
+                          max={100}
+                          step="0.01"
+                          value={c.percentuale}
+                          onValueChange={(v) => {
+                            setContributiCassa((prev) =>
+                              prev.map((row, i) => {
+                                if (i !== idx) return row;
+                                const percentuale = v;
+                                const base = numberOrZero(row.baseImporto);
+                                const pct = numberOrZero(percentuale);
+                                return {
+                                  ...row,
+                                  percentuale,
+                                  importo: row.importoBloccato
+                                    ? row.importo
+                                    : roundMoney((base * pct) / 100),
+                                };
+                              })
+                            );
+                          }}
+                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-center text-sm"
+                          aria-label="Percentuale cassa"
+                        />
+                        <ClearableNumberInput
+                          min={0}
+                          step="0.01"
+                          value={c.baseImporto}
+                          onValueChange={(v) => {
+                            setContributiCassa((prev) =>
+                              prev.map((row, i) => {
+                                if (i !== idx) return row;
+                                const baseImporto = v;
+                                const base = numberOrZero(baseImporto);
+                                const pct = numberOrZero(row.percentuale);
+                                return {
+                                  ...row,
+                                  baseImporto,
+                                  importo: row.importoBloccato
+                                    ? row.importo
+                                    : roundMoney((base * pct) / 100),
+                                };
+                              })
+                            );
+                          }}
+                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-right text-sm tabular-nums"
+                          aria-label="Base contributo"
+                        />
+                        <ClearableNumberInput
+                          min={0}
+                          step="0.01"
+                          value={c.importo}
+                          onValueChange={(v) => {
+                            setContributiCassa((prev) =>
+                              prev.map((row, i) =>
+                                i === idx
+                                  ? {
+                                      ...row,
+                                      importo: v,
+                                      importoBloccato: true,
+                                    }
+                                  : row
+                              )
+                            );
+                          }}
+                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-right text-sm font-medium tabular-nums"
+                          aria-label="Importo contributo"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setContributiCassa((prev) =>
+                              prev.filter((_, i) => i !== idx)
+                            )
+                          }
+                          className="rounded p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-700"
+                          aria-label="Rimuovi contributo"
+                        >
+                          <FaTrash size={11} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {contributiCassa.length > 0 ? (
+                  <p className="text-right text-xs text-[var(--muted)]">
+                    Tot. contributi:{" "}
+                    <span className="font-semibold tabular-nums text-slate-800">
+                      {formatEuro(totals.contributiImporto)}
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="w-full shrink-0 space-y-3 sm:max-w-xs lg:ml-auto lg:w-64">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -2177,6 +2449,36 @@ export function FatturaRegistrazioneModal({
                     className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-right font-semibold tabular-nums"
                   />
                 )}
+                {isRicevuta && confrontoFic.haRiferimento ? (
+                  <div
+                    className={`mt-2 rounded-lg border px-2.5 py-2 text-xs ${
+                      confrontoFic.allineato
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                        : "border-amber-300 bg-amber-50 text-amber-950"
+                    }`}
+                  >
+                    <p className="font-semibold uppercase tracking-wide">
+                      {confrontoFic.allineato
+                        ? "Allineato a FiC"
+                        : "Scarto vs FiC"}
+                    </p>
+                    <p className="mt-0.5 tabular-nums">
+                      FiC: {formatEuro(Math.abs(Number(totaleFic)))}
+                      {" · "}
+                      Doc: {formatEuro(totaleEffettivo)}
+                      {!confrontoFic.allineato ? (
+                        <>
+                          {" · "}
+                          Δ {formatEuro(Math.abs(confrontoFic.scarto ?? 0))}
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                ) : isRicevuta ? (
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">
+                    Totale FiC non disponibile (documento non da sync Cloud).
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>

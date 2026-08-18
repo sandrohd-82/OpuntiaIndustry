@@ -6,6 +6,7 @@ import type {
   FatturaEmessaRow,
   FatturaModalitaCollegamentoNc,
   FatturaNaturaDocumento,
+  FatturaRicevutaContributoCassaRow,
   FatturaRicevutaDilazioneRow,
   FatturaRicevutaRigaRow,
   FatturaRicevutaRow,
@@ -64,6 +65,53 @@ export type FatturaDilazione = {
   note?: string;
 };
 
+/** Contributo cassa previdenziale (solo ricevute). */
+export type FatturaContributoCassa = {
+  id?: string;
+  codice: string;
+  percentuale: number;
+  baseImporto: number;
+  importo: number;
+  note?: string;
+};
+
+/** Suggerimenti casse comuni (codice + % tipica). */
+export const CASSE_PREVIDENZIALI_SUGGERITE: ReadonlyArray<{
+  codice: string;
+  percentuale: number;
+}> = [
+  { codice: "ENPAB", percentuale: 4 },
+  { codice: "ENPAM", percentuale: 4 },
+  { codice: "ENPAPI", percentuale: 4 },
+  { codice: "Cassa Forense", percentuale: 4 },
+  { codice: "INARCASSA", percentuale: 4 },
+  { codice: "CIPAG", percentuale: 4 },
+];
+
+/** Tolleranza confronto totale Opuntia vs FiC (€). */
+export const TOTALE_FIC_TOLLERANZA_EUR = 0.01;
+
+export function scartoTotaleFic(
+  totaleDocumento: number,
+  totaleFic: number | null | undefined
+): {
+  haRiferimento: boolean;
+  scarto: number | null;
+  allineato: boolean;
+} {
+  if (totaleFic == null || !Number.isFinite(Number(totaleFic))) {
+    return { haRiferimento: false, scarto: null, allineato: true };
+  }
+  const scarto = roundMoney(
+    Math.abs(Number(totaleDocumento)) - Math.abs(Number(totaleFic))
+  );
+  return {
+    haRiferimento: true,
+    scarto,
+    allineato: Math.abs(scarto) <= TOTALE_FIC_TOLLERANZA_EUR,
+  };
+}
+
 export type Fattura = {
   id: string;
   kind: FatturaKind;
@@ -90,6 +138,10 @@ export type Fattura = {
   naturaDocumento: FatturaNaturaDocumento | null;
   /** Solo ricevute: totale forzato manualmente (può non allinearsi alle righe). */
   totaleManuale?: boolean;
+  /** Solo ricevute: totale lordo da FiC per controllo incrociato. */
+  totaleFic?: number | null;
+  /** Solo ricevute: totale documento − totale FiC. */
+  totaleScarto?: number | null;
   statoIncassoNc: FatturaStatoIncassoNc | null;
   rimborsoNecessario: boolean | null;
   rimborsoMezzo: FatturaRimborsoMezzo | null;
@@ -114,6 +166,8 @@ export type Fattura = {
   riferimentoFatturaEsterno: string;
   righe: FatturaRiga[];
   dilazioni: FatturaDilazione[];
+  /** Solo ricevute. */
+  contributiCassa: FatturaContributoCassa[];
   createdAt: string;
   updatedAt: string;
 };
@@ -138,6 +192,10 @@ export type FatturaInput = {
   totaleManuale?: boolean;
   /** Valore totale se totaleManuale. */
   totaleOverride?: number | null;
+  /** Solo ricevute: totale FiC (amount_gross) per controllo. */
+  totaleFic?: number | null;
+  /** Conferma esplicita salvataggio con scarto vs FiC. */
+  confermaScartoFic?: boolean;
   statoIncassoNc?: FatturaStatoIncassoNc | null;
   rimborsoNecessario?: boolean | null;
   rimborsoMezzo?: FatturaRimborsoMezzo | null;
@@ -153,6 +211,8 @@ export type FatturaInput = {
   riferimentoFatturaEsterno?: string;
   righe: FatturaRiga[];
   dilazioni?: FatturaDilazione[];
+  /** Solo ricevute. */
+  contributiCassa?: FatturaContributoCassa[];
 };
 
 export type FatturaCollegabileOption = {
@@ -214,10 +274,21 @@ export function calcolaTotaliFattura(input: {
   ivaPercentuale: number;
   /** Forza calcolo IVA per riga (fatture ricevute). */
   ivaPerRiga?: boolean;
+  /**
+   * Solo ricevute: contributi cassa previdenziale.
+   * Se `importo` è valorizzato lo usa; altrimenti calcola base×%/100
+   * (base default = imponibile prodotti+spedizione).
+   */
+  contributiCassa?: Array<{
+    percentuale?: number;
+    baseImporto?: number | null;
+    importo?: number | null;
+  }>;
 }): {
   imponibile: number;
   baseIva: number;
   imposta: number;
+  contributiImporto: number;
   totale: number;
   /** Aliquota prevalente sulle righe (per persistenza header). */
   ivaPercentualePrevalente: number;
@@ -294,11 +365,31 @@ export function calcolaTotaliFattura(input: {
     }
   }
 
+  const baseDefault = Math.abs(imponibile);
+  let contributiImporto = 0;
+  for (const c of input.contributiCassa ?? []) {
+    if (c.importo != null && Number.isFinite(Number(c.importo))) {
+      contributiImporto += Math.abs(Number(c.importo));
+      continue;
+    }
+    const base =
+      c.baseImporto != null && Number.isFinite(Number(c.baseImporto))
+        ? Math.abs(Number(c.baseImporto))
+        : baseDefault;
+    const pct = Math.min(100, Math.max(0, Number(c.percentuale) || 0));
+    contributiImporto += (base * pct) / 100;
+  }
+  contributiImporto = roundMoney(contributiImporto);
+  if (input.notaCredito && contributiImporto > 0) {
+    contributiImporto = -contributiImporto;
+  }
+
   return {
     imponibile,
     baseIva,
     imposta,
-    totale: roundMoney(imponibile + imposta),
+    contributiImporto,
+    totale: roundMoney(imponibile + imposta + contributiImporto),
     ivaPercentualePrevalente,
   };
 }
@@ -396,6 +487,21 @@ export function emptyFatturaDilazione(
   };
 }
 
+export function emptyFatturaContributoCassa(
+  baseImporto = 0,
+  preset?: { codice?: string; percentuale?: number }
+): FatturaContributoCassa {
+  const percentuale = preset?.percentuale ?? 4;
+  const base = Math.max(0, roundMoney(baseImporto));
+  return {
+    codice: preset?.codice ?? "ENPAB",
+    percentuale,
+    baseImporto: base,
+    importo: roundMoney((base * percentuale) / 100),
+    note: "",
+  };
+}
+
 export type DilazioniBilancio = {
   sommaDilazioni: number;
   totaleFattura: number;
@@ -464,6 +570,15 @@ const dilazioneSchema = z.object({
   note: z.string().optional(),
 });
 
+const contributoCassaSchema = z.object({
+  id: z.string().optional(),
+  codice: z.string().trim().min(1, "Codice cassa obbligatorio").max(64),
+  percentuale: z.number().min(0).max(100),
+  baseImporto: z.number().min(0),
+  importo: z.number().min(0),
+  note: z.string().optional(),
+});
+
 const fatturaInputObjectSchema = z.object({
   anagraficaId: z.string().uuid("Anagrafica non valida"),
   anagraficaRagioneSociale: z.string().trim().min(1),
@@ -480,6 +595,8 @@ const fatturaInputObjectSchema = z.object({
   naturaDocumento: z.enum(["acconto", "saldo"]).nullable().optional(),
   totaleManuale: z.boolean().optional(),
   totaleOverride: z.number().min(0).nullable().optional(),
+  totaleFic: z.number().min(0).nullable().optional(),
+  confermaScartoFic: z.boolean().optional(),
   statoIncassoNc: z.enum(["gia_incassata", "non_incassata"]).nullable().optional(),
   rimborsoNecessario: z.boolean().nullable().optional(),
   rimborsoMezzo: z
@@ -496,6 +613,7 @@ const fatturaInputObjectSchema = z.object({
   riferimentoFatturaEsterno: z.string().optional(),
   righe: z.array(rigaSchemaBase).min(1, "Aggiungi almeno un prodotto"),
   dilazioni: z.array(dilazioneSchema).optional(),
+  contributiCassa: z.array(contributoCassaSchema).optional(),
 });
 
 function transformFatturaInput(
@@ -552,6 +670,17 @@ function transformFatturaInput(
         ),
         note: (d.note ?? "").trim(),
       }));
+
+  const contributiCassa = isRicevuta
+    ? (v.contributiCassa ?? []).map((c) => ({
+        id: c.id,
+        codice: c.codice.trim(),
+        percentuale: Math.min(100, Math.max(0, Number(c.percentuale) || 0)),
+        baseImporto: roundMoney(Math.abs(Number(c.baseImporto) || 0)),
+        importo: roundMoney(Math.abs(Number(c.importo) || 0)),
+        note: (c.note ?? "").trim(),
+      }))
+    : [];
 
   let statoIncassoNc: FatturaStatoIncassoNc | null = null;
   let rimborsoNecessario: boolean | null = null;
@@ -624,6 +753,7 @@ function transformFatturaInput(
     notaCredito: isNc,
     ivaPercentuale: Number(v.ivaPercentuale) || 22,
     ivaPerRiga: isRicevuta,
+    contributiCassa: isRicevuta ? contributiCassa : [],
   });
 
   const totaleManuale = isRicevuta && Boolean(v.totaleManuale);
@@ -635,6 +765,11 @@ function transformFatturaInput(
     }
     totaleOverride = roundMoney(Math.abs(Number(raw)));
   }
+
+  const totaleFic =
+    isRicevuta && v.totaleFic != null && Number.isFinite(Number(v.totaleFic))
+      ? roundMoney(Math.abs(Number(v.totaleFic)))
+      : null;
 
   return {
     ...v,
@@ -666,6 +801,8 @@ function transformFatturaInput(
       : Number(v.ivaPercentuale) || 0,
     totaleManuale,
     totaleOverride,
+    totaleFic,
+    confermaScartoFic: Boolean(v.confermaScartoFic),
     statoIncassoNc,
     rimborsoNecessario,
     rimborsoMezzo,
@@ -676,6 +813,7 @@ function transformFatturaInput(
     collegaComeCompensativaNcId: v.collegaComeCompensativaNcId ?? null,
     righe,
     dilazioni,
+    contributiCassa,
   };
 }
 
@@ -753,6 +891,22 @@ function mapDilazioni(
     }));
 }
 
+function mapContributiCassa(
+  rows: FatturaRicevutaContributoCassaRow[]
+): FatturaContributoCassa[] {
+  return [...rows]
+    .filter((r) => !r.deleted_at)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((r) => ({
+      id: r.id,
+      codice: r.codice ?? "",
+      percentuale: Number(r.percentuale) || 0,
+      baseImporto: Number(r.base_importo) || 0,
+      importo: Number(r.importo) || 0,
+      note: r.note ?? "",
+    }));
+}
+
 export function mapFatturaEmessaRow(
   row: FatturaEmessaRow,
   righe: FatturaEmessaRigaRow[],
@@ -806,6 +960,7 @@ export function mapFatturaEmessaRow(
     riferimentoFatturaEsterno: row.riferimento_fattura_esterno ?? "",
     righe: mapRighe(righe),
     dilazioni: mapDilazioni(dilazioni),
+    contributiCassa: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -814,8 +969,12 @@ export function mapFatturaEmessaRow(
 export function mapFatturaRicevutaRow(
   row: FatturaRicevutaRow,
   righe: FatturaRicevutaRigaRow[],
-  dilazioni: FatturaRicevutaDilazioneRow[] = []
+  dilazioni: FatturaRicevutaDilazioneRow[] = [],
+  contributiCassa: FatturaRicevutaContributoCassaRow[] = []
 ): Fattura {
+  const totaleFicRaw = (row as { totale_fic?: number | null }).totale_fic;
+  const totaleScartoRaw = (row as { totale_scarto?: number | null })
+    .totale_scarto;
   return {
     id: row.id,
     kind: "ricevuta",
@@ -844,6 +1003,14 @@ export function mapFatturaRicevutaRow(
     totaleManuale: Boolean(
       (row as { totale_manuale?: boolean }).totale_manuale
     ),
+    totaleFic:
+      totaleFicRaw != null && Number.isFinite(Number(totaleFicRaw))
+        ? Number(totaleFicRaw)
+        : null,
+    totaleScarto:
+      totaleScartoRaw != null && Number.isFinite(Number(totaleScartoRaw))
+        ? Number(totaleScartoRaw)
+        : null,
     statoIncassoNc: null,
     rimborsoNecessario: null,
     rimborsoMezzo: null,
@@ -870,6 +1037,7 @@ export function mapFatturaRicevutaRow(
     riferimentoFatturaEsterno: "",
     righe: mapRighe(righe),
     dilazioni: mapDilazioni(dilazioni),
+    contributiCassa: mapContributiCassa(contributiCassa),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
