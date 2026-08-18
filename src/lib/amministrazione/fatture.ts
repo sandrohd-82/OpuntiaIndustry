@@ -77,6 +77,8 @@ export type Fattura = {
   spedizione: number;
   /** Default false: IVA non applicata alla spedizione. */
   spedizioneIvaApplicata: boolean;
+  /** Aliquota IVA solo sulla spedizione (non sulle righe). */
+  spedizioneIvaPercentuale: number;
   /** NC: se false il trasporto non riduce gli incassi. */
   spedizioneSottraiIncassi: boolean;
   imponibile: number;
@@ -125,6 +127,8 @@ export type FatturaInput = {
   ficId?: number | null;
   spedizione: number;
   spedizioneIvaApplicata: boolean;
+  /** Aliquota IVA solo spedizione; default 22 se omessa. */
+  spedizioneIvaPercentuale?: number;
   spedizioneSottraiIncassi?: boolean;
   ivaPercentuale: number;
   statoPagamento: FatturaStatoPagamento;
@@ -197,11 +201,16 @@ export function calcolaTotaliFattura(input: {
   }>;
   spedizione: number;
   spedizioneIvaApplicata?: boolean;
+  /** Aliquota IVA solo sulla spedizione (mai sulle righe). */
+  spedizioneIvaPercentuale?: number;
   /** Default true. Se false (NC) il trasporto non entra nei totali/incassi. */
   spedizioneSottraiIncassi?: boolean;
   /** Nota di credito: quantità negative → totali negativi; spedizione in valore assoluto. */
   notaCredito?: boolean;
-  /** Fallback IVA documento / spedizione / righe senza aliquota. */
+  /**
+   * Aliquota documento per emesse (tutte le righe se non ivaPerRiga).
+   * Non usata per l’IVA spedizione.
+   */
   ivaPercentuale: number;
   /** Forza calcolo IVA per riga (fatture ricevute). */
   ivaPerRiga?: boolean;
@@ -210,13 +219,19 @@ export function calcolaTotaliFattura(input: {
   baseIva: number;
   imposta: number;
   totale: number;
-  /** Aliquota prevalente (per persistenza header). */
+  /** Aliquota prevalente sulle righe (per persistenza header). */
   ivaPercentualePrevalente: number;
 } {
   const fallbackIva = Number(input.ivaPercentuale) || 0;
+  const spedIvaPct = Math.min(
+    100,
+    Math.max(0, Number(input.spedizioneIvaPercentuale ?? 22) || 0)
+  );
   const usePerRiga =
     Boolean(input.ivaPerRiga) ||
-    input.righe.some((r) => r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale));
+    input.righe.some(
+      (r) => r.ivaPercentuale != null && Number.isFinite(r.ivaPercentuale)
+    );
 
   let prodotti = 0;
   let impostaRighe = 0;
@@ -229,8 +244,11 @@ export function calcolaTotaliFattura(input: {
       r.scontoPercentuale ?? 0
     );
     prodotti += imp;
+    // Righe: mai usare spedizioneIvaPercentuale come fallback
     const rate = usePerRiga
-      ? Number(r.ivaPercentuale ?? fallbackIva) || 0
+      ? r.ivaPercentuale != null && Number.isFinite(Number(r.ivaPercentuale))
+        ? Number(r.ivaPercentuale) || 0
+        : 0
       : fallbackIva;
     if (usePerRiga) {
       impostaRighe += (imp * rate) / 100;
@@ -255,15 +273,16 @@ export function calcolaTotaliFattura(input: {
     prodotti + (input.spedizioneIvaApplicata ? spedizione : 0)
   );
 
+  const spedIva =
+    input.spedizioneIvaApplicata && spedizione !== 0
+      ? (spedizione * spedIvaPct) / 100
+      : 0;
+
   let imposta: number;
   if (usePerRiga) {
-    const spedIva =
-      input.spedizioneIvaApplicata && spedizione !== 0
-        ? (spedizione * fallbackIva) / 100
-        : 0;
     imposta = roundMoney(impostaRighe + spedIva);
   } else {
-    imposta = roundMoney((baseIva * fallbackIva) / 100);
+    imposta = roundMoney((prodotti * fallbackIva) / 100 + spedIva);
   }
 
   let ivaPercentualePrevalente = fallbackIva;
@@ -454,6 +473,7 @@ const fatturaInputObjectSchema = z.object({
   ficId: z.number().int().positive().nullable().optional(),
   spedizione: z.number().min(0),
   spedizioneIvaApplicata: z.boolean().optional(),
+  spedizioneIvaPercentuale: z.number().min(0).max(100).optional(),
   spedizioneSottraiIncassi: z.boolean().optional(),
   ivaPercentuale: z.number().min(0).max(100),
   statoPagamento: z.enum(["pagato", "da_pagare"]),
@@ -596,6 +616,10 @@ function transformFatturaInput(
     righe,
     spedizione: Math.abs(Number(v.spedizione) || 0),
     spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
+    spedizioneIvaPercentuale:
+      v.spedizioneIvaPercentuale != null
+        ? Number(v.spedizioneIvaPercentuale)
+        : 22,
     spedizioneSottraiIncassi: isNc ? v.spedizioneSottraiIncassi !== false : true,
     notaCredito: isNc,
     ivaPercentuale: Number(v.ivaPercentuale) || 22,
@@ -623,6 +647,15 @@ function transformFatturaInput(
     ficId: v.ficId ?? null,
     spedizione: Math.abs(Number(v.spedizione) || 0),
     spedizioneIvaApplicata: Boolean(v.spedizioneIvaApplicata),
+    spedizioneIvaPercentuale: Math.min(
+      100,
+      Math.max(
+        0,
+        Number(
+          v.spedizioneIvaPercentuale != null ? v.spedizioneIvaPercentuale : 22
+        ) || 0
+      )
+    ),
     spedizioneSottraiIncassi: isNc
       ? v.spedizioneSottraiIncassi !== false
       : true,
@@ -740,6 +773,11 @@ export function mapFatturaEmessaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
+    spedizioneIvaPercentuale:
+      Number(
+        (row as { spedizione_iva_percentuale?: number })
+          .spedizione_iva_percentuale
+      ) || 22,
     spedizioneSottraiIncassi: row.spedizione_sottrai_incassi !== false,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,
@@ -790,6 +828,11 @@ export function mapFatturaRicevutaRow(
     ficId: row.fic_id,
     spedizione: Number(row.spedizione) || 0,
     spedizioneIvaApplicata: Boolean(row.spedizione_iva_applicata),
+    spedizioneIvaPercentuale:
+      Number(
+        (row as { spedizione_iva_percentuale?: number })
+          .spedizione_iva_percentuale
+      ) || 22,
     spedizioneSottraiIncassi: true,
     imponibile: Number(row.imponibile) || 0,
     ivaPercentuale: Number(row.iva_percentuale) || 0,

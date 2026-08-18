@@ -49,6 +49,7 @@ export type FatturaSyncQueueItem = {
   spedizione: number;
   /** Default false in sync: IVA non applicata al trasporto. */
   spedizioneIvaApplicata: boolean;
+  spedizioneIvaPercentuale?: number;
   ivaPercentuale: number;
   imponibile: number;
   imposta: number;
@@ -614,6 +615,7 @@ export function buildFatturaSyncQueueItem(input: {
         : statoPagamentoFromFic(input.doc.status),
     spedizione,
     spedizioneIvaApplicata: false,
+    spedizioneIvaPercentuale: 22,
     ivaPercentuale: totals.ivaPercentualePrevalente || ivaPercentuale,
     imponibile: totals.imponibile,
     imposta: totals.imposta,

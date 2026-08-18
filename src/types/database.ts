@@ -962,6 +962,7 @@ export interface FatturaEmessaRow {
   fic_id: number | null;
   spedizione: number;
   spedizione_iva_applicata: boolean;
+  spedizione_iva_percentuale: number;
   spedizione_sottrai_incassi: boolean;
   imponibile: number;
   iva_percentuale: number;
@@ -1015,6 +1016,7 @@ export type FatturaEmessaInsert = {
   fic_id?: number | null;
   spedizione?: number;
   spedizione_iva_applicata?: boolean;
+  spedizione_iva_percentuale?: number;
   spedizione_sottrai_incassi?: boolean;
   imponibile?: number;
   iva_percentuale?: number;
@@ -1104,6 +1106,7 @@ export interface FatturaRicevutaRow {
   fic_id: number | null;
   spedizione: number;
   spedizione_iva_applicata: boolean;
+  spedizione_iva_percentuale: number;
   imponibile: number;
   iva_percentuale: number;
   imposta: number;
@@ -1139,6 +1142,7 @@ export type FatturaRicevutaInsert = {
   fic_id?: number | null;
   spedizione?: number;
   spedizione_iva_applicata?: boolean;
+  spedizione_iva_percentuale?: number;
   imponibile?: number;
   iva_percentuale?: number;
   imposta?: number;

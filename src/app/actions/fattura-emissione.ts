@@ -381,6 +381,9 @@ export async function createAndSendInvoiceAction(
     fic_id: created.ficId,
     spedizione,
     spedizione_iva_applicata: spedizioneIva,
+    spedizione_iva_percentuale: spedizioneIva
+      ? Number(spedizioneRiga?.ivaPercentuale) || 22
+      : 22,
     imponibile: totals.imponibile,
     iva_percentuale: ivaHeader,
     imposta: totals.imposta,

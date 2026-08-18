@@ -125,6 +125,7 @@ export type FatturaRegistrazionePrefill = {
   ficId?: number | null;
   spedizione?: number;
   spedizioneIvaApplicata?: boolean;
+  spedizioneIvaPercentuale?: number;
   spedizioneSottraiIncassi?: boolean;
   ivaPercentuale?: number;
   statoPagamento?: FatturaStatoPagamento;
@@ -170,6 +171,7 @@ function seedFromInitialOrPrefill(
       ficId: initial.ficId,
       spedizione: Math.abs(initial.spedizione),
       spedizioneIvaApplicata: initial.spedizioneIvaApplicata,
+      spedizioneIvaPercentuale: initial.spedizioneIvaPercentuale,
       spedizioneSottraiIncassi: initial.spedizioneSottraiIncassi,
       ivaPercentuale: initial.ivaPercentuale,
       statoPagamento: initial.statoPagamento,
@@ -290,6 +292,9 @@ export function FatturaRegistrazioneModal({
   const [spedizioneIvaApplicata, setSpedizioneIvaApplicata] = useState(
     seed.spedizioneIvaApplicata ?? false
   );
+  const [spedizioneIvaPercentuale, setSpedizioneIvaPercentuale] = useState<
+    number | ""
+  >(seed.spedizioneIvaPercentuale ?? 22);
   const [spedizioneSottraiIncassi, setSpedizioneSottraiIncassi] = useState(
     seed.spedizioneSottraiIncassi ?? true
   );
@@ -405,6 +410,7 @@ export function FatturaRegistrazioneModal({
         })),
         spedizione: numberOrZero(spedizione),
         spedizioneIvaApplicata,
+        spedizioneIvaPercentuale: numberOrZero(spedizioneIvaPercentuale || 22),
         spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
         notaCredito: isNc,
         ivaPercentuale: isRicevuta ? 0 : numberOrZero(ivaPercentuale),
@@ -414,6 +420,7 @@ export function FatturaRegistrazioneModal({
       righe,
       spedizione,
       spedizioneIvaApplicata,
+      spedizioneIvaPercentuale,
       spedizioneSottraiIncassi,
       ivaPercentuale,
       isNc,
@@ -503,6 +510,7 @@ export function FatturaRegistrazioneModal({
     setNumeroDocumentoEsterno(doc.numeroDocumentoEsterno || "");
     setSpedizione(Math.abs(doc.spedizione) || 0);
     setSpedizioneIvaApplicata(Boolean(doc.spedizioneIvaApplicata));
+    setSpedizioneIvaPercentuale(doc.spedizioneIvaPercentuale ?? 22);
     setSpedizioneSottraiIncassi(doc.spedizioneSottraiIncassi !== false);
     setIvaPercentuale(doc.ivaPercentuale ?? 22);
     setStatoPagamento(doc.statoPagamento);
@@ -1115,6 +1123,7 @@ export function FatturaRegistrazioneModal({
           ficId: editSnapshot?.ficId ?? seed.ficId ?? prefill?.ficId ?? null,
           spedizione: Math.abs(numberOrZero(spedizione)),
           spedizioneIvaApplicata,
+          spedizioneIvaPercentuale: numberOrZero(spedizioneIvaPercentuale || 22),
           spedizioneSottraiIncassi: isNc ? spedizioneSottraiIncassi : true,
           ivaPercentuale: isRicevuta
             ? totals.ivaPercentualePrevalente
@@ -1980,10 +1989,25 @@ export function FatturaRegistrazioneModal({
                 <span>
                   Applica IVA anche sulla spedizione
                   <span className="mt-0.5 block text-[11px] opacity-80">
-                    Di default l&apos;IVA non è applicata al trasporto.
+                    Di default l&apos;IVA non è applicata al trasporto. Il % sotto
+                    vale solo per la spedizione, non per le righe.
                   </span>
                 </span>
               </label>
+              {spedizioneIvaApplicata ? (
+                <div className="mt-2">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                    % IVA spedizione
+                  </label>
+                  <ClearableNumberInput
+                    min={0}
+                    max={100}
+                    value={spedizioneIvaPercentuale}
+                    onValueChange={setSpedizioneIvaPercentuale}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                  />
+                </div>
+              ) : null}
               {isNc ? (
                 <label className="mt-2 flex cursor-pointer items-start gap-2 text-xs text-[var(--muted)]">
                   <input
@@ -2823,6 +2847,8 @@ export function FatturaRegistrazioneModal({
             spedizione: pendingInvoiceToRegister.spedizione,
             spedizioneIvaApplicata:
               pendingInvoiceToRegister.spedizioneIvaApplicata,
+            spedizioneIvaPercentuale:
+              pendingInvoiceToRegister.spedizioneIvaPercentuale ?? 22,
             ivaPercentuale: pendingInvoiceToRegister.ivaPercentuale,
             statoPagamento: pendingInvoiceToRegister.statoPagamento,
             righe: pendingInvoiceToRegister.righe,

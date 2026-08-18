@@ -393,7 +393,9 @@ export function mapOpuntiaFatturaToPaperInvoice(
       unitaMisura: "nr",
       prezzo: fattura.spedizione,
       scontoPercentuale: 0,
-      ivaPercentuale: fattura.spedizioneIvaApplicata ? ivaPct : 0,
+      ivaPercentuale: fattura.spedizioneIvaApplicata
+        ? fattura.spedizioneIvaPercentuale || 22
+        : 0,
       importo: fattura.spedizione,
     });
   }

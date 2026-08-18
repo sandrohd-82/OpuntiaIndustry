@@ -310,7 +310,7 @@ export function FatturaDettaglioView({
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
             {fattura.spedizioneIvaApplicata
-              ? "IVA applicata anche sulla spedizione"
+              ? `IVA spedizione ${fattura.spedizioneIvaPercentuale ?? 22}% (solo trasporto)`
               : "IVA non applicata sulla spedizione"}
             {fattura.kind === "nota_credito"
               ? fattura.spedizioneSottraiIncassi
