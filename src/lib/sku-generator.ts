@@ -147,6 +147,74 @@ const STOPWORDS = new Set(
   ].map((w) => w.toLowerCase())
 );
 
+/**
+ * Parole deboli per i blocchi SKU (restano nel nome normalizzato).
+ * Es. "Full" non diventa FUL nello SKU se ci sono termini più parlanti.
+ */
+const WEAK_SKU_WORDS = new Set(
+  [
+    "full",
+    "completo",
+    "completa",
+    "standard",
+    "std",
+    "basic",
+    "premium",
+    "classic",
+    "classico",
+    "classica",
+    "normale",
+    "normal",
+    "special",
+    "speciale",
+    "extra",
+    "maxi",
+    "mini",
+    "super",
+    "ultra",
+    "pack",
+    "kit",
+    "set",
+    "lotto",
+    "versione",
+    "version",
+    "edition",
+    "edizione",
+    "gen",
+    "art",
+    "prodotto",
+    "servizio",
+    "generico",
+    "generica",
+  ].map((w) => w.toLowerCase())
+);
+
+/** Abbreviazioni note per termini comuni (meglio di un taglio grezzo). */
+const TOKEN_ABBREV: Record<string, string> = {
+  professional: "PRO",
+  professionale: "PRO",
+  professionista: "PRF",
+  plus: "PLS",
+  costo: "COS",
+  costi: "COS",
+  cost: "COS",
+  service: "SVC",
+  services: "SVC",
+  trasporto: "TRS",
+  transport: "TRS",
+  consulting: "CNS",
+  consulenza: "CNS",
+  maintenance: "MNT",
+  manutenzione: "MNT",
+  software: "SFT",
+  license: "LIC",
+  licenza: "LIC",
+  annual: "ANN",
+  annuale: "ANN",
+  monthly: "MEN",
+  mensile: "MEN",
+};
+
 /** Anni calendariali da ignorare nello SKU (non sono quantità di prodotto). */
 function isCalendarYear(n: number): boolean {
   return Number.isInteger(n) && n >= 1900 && n <= 2100;
@@ -308,6 +376,84 @@ export function clipSkuBlock(value: string, fallback = "X"): string {
   return cleaned.slice(0, SKU_BLOCK_MAX_LEN);
 }
 
+/**
+ * Abbrevia una parola a max 3 caratteri in modo parlante:
+ * - mappa nota (Plus→PLS, Professional→PRO)
+ * - parole corte: prima lettera + consonanti (Plus→PLS)
+ * - altrimenti primi 3 caratteri (Costo→COS, Professional→PRO)
+ */
+export function abbreviateSkuToken(word: string): string {
+  const raw = stripDiacritics(word).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!raw) return "X";
+  const mapped = TOKEN_ABBREV[raw];
+  if (mapped) return clipSkuBlock(mapped, "X");
+
+  const upper = raw.toUpperCase();
+  if (upper.length <= SKU_BLOCK_MAX_LEN) return upper;
+
+  // 4–5 lettere: prima + consonanti (evita PLU per Plus → PLS)
+  if (upper.length <= 5) {
+    const vowels = new Set(["A", "E", "I", "O", "U"]);
+    const chars = [upper[0]];
+    for (let i = 1; i < upper.length && chars.length < SKU_BLOCK_MAX_LEN; i++) {
+      if (!vowels.has(upper[i])) chars.push(upper[i]);
+    }
+    if (chars.length >= SKU_BLOCK_MAX_LEN) {
+      return chars.slice(0, SKU_BLOCK_MAX_LEN).join("");
+    }
+  }
+
+  return upper.slice(0, SKU_BLOCK_MAX_LEN);
+}
+
+const UNIT_TOKENS = new Set([
+  "ml",
+  "cl",
+  "dl",
+  "l",
+  "lt",
+  "kg",
+  "g",
+  "mg",
+  "mm",
+  "cm",
+  "m",
+  "mt",
+  "hz",
+  "v",
+  "w",
+  "kw",
+  "nr",
+  "pc",
+  "pcs",
+]);
+
+/**
+ * Token significativi per i blocchi SKU, in ordine di comparsa.
+ * Scarta filler (full, standard, …), numeri e unità.
+ */
+export function pickSignificantTokens(
+  tokens: string[],
+  opts?: { skip?: Iterable<string>; limit?: number }
+): string[] {
+  const skip = new Set(
+    [...(opts?.skip ?? [])].map((s) => s.toLowerCase())
+  );
+  const limit = opts?.limit ?? 8;
+  const out: string[] = [];
+  for (const t of tokens) {
+    const low = t.toLowerCase();
+    if (skip.has(low) || WEAK_SKU_WORDS.has(low)) continue;
+    if (/^\d/.test(low)) continue;
+    if (isCalendarYear(Number(low))) continue;
+    if (UNIT_TOKENS.has(low)) continue;
+    if (out.some((x) => x.toLowerCase() === low)) continue;
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Token utili per SKU / nome (senza stopword, date, anni). */
 export function tokenizeInvoiceLine(text: string): string[] {
   const cleaned = stripTemporalNoise(text);
@@ -445,37 +591,22 @@ function detectDettaglio(
     return "POT";
   }
 
-  const skip = new Set(
-    [
-      macro,
-      tipo,
-      "std",
-      "sol",
-      "mis",
-      "str",
-      "pul",
-      "cns",
-      "pot",
-      "pag",
-      "bus",
-      "srv",
-      "svc",
-    ].map((s) => s.toLowerCase())
-  );
-  const candidates = tokens.filter((t) => {
-    if (skip.has(t)) return false;
-    if (/^\d/.test(t)) return false;
-    if (isCalendarYear(Number(t))) return false;
-    if (
-      /^(ml|cl|dl|l|lt|kg|g|mg|mm|cm|m|mt|hz|v|w|kw|nr|pcs?)$/i.test(t)
-    ) {
-      return false;
-    }
-    return true;
+  const candidates = pickSignificantTokens(tokens, {
+    skip: [macro, tipo, "std", "sol", "mis", "str", "pul", "cns", "pot", "pag", "bus", "srv", "svc"],
   });
-
   if (candidates.length === 0) return "GEN";
-  return clipSkuBlock(candidates[0], "GEN");
+  return abbreviateSkuToken(candidates[0]);
+}
+
+function buildGenericPartsFromWords(tokens: string[]): SkuParts {
+  const significant = pickSignificantTokens(tokens, { limit: 6 });
+  const abbr = significant.map(abbreviateSkuToken);
+  return {
+    macro: "GEN",
+    tipo: abbr[0] ?? "ART",
+    dettaglio: abbr[1] ?? (abbr[0] ? "GEN" : "ART"),
+    formato: abbr[2] ?? "STD",
+  };
 }
 
 export function suggestCatalogoKind(text: string): CatalogoAcquistoKind {
@@ -504,15 +635,25 @@ export function catalogoKindPrefix(kind: CatalogoAcquistoKind): "Sz" | "Pr" | "M
 export function generateSkuBody(invoiceLineText: string): SkuParts & { body: string } {
   const text = stripTemporalNoise(invoiceLineText.trim() || "articolo") || "articolo";
   const tokens = tokenizeInvoiceLine(text);
-  const { macro, tipo } = detectMacroTipo(text);
-  const dettaglio = detectDettaglio(text, tokens, macro, tipo);
-  const formato = detectFormato(text);
-  const parts = {
-    macro: clipSkuBlock(macro, "GEN"),
-    tipo: clipSkuBlock(tipo, "ART"),
-    dettaglio: clipSkuBlock(dettaglio, "GEN"),
-    formato: clipSkuBlock(formato, "STD"),
-  };
+  const detected = detectMacroTipo(text);
+  const isGenericFallback =
+    detected.macro === "GEN" && detected.tipo === "ART";
+
+  let parts: SkuParts;
+  if (isGenericFallback) {
+    // Nessuna categoria nota: usa le parole più importanti della descrizione
+    parts = buildGenericPartsFromWords(tokens);
+  } else {
+    const dettaglio = detectDettaglio(text, tokens, detected.macro, detected.tipo);
+    const formato = detectFormato(text);
+    parts = {
+      macro: clipSkuBlock(detected.macro, "GEN"),
+      tipo: clipSkuBlock(detected.tipo, "ART"),
+      dettaglio: clipSkuBlock(dettaglio, "GEN"),
+      formato: clipSkuBlock(formato, "STD"),
+    };
+  }
+
   const body = [parts.macro, parts.tipo, parts.dettaglio, parts.formato].join(
     "-"
   );
