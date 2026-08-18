@@ -2059,8 +2059,8 @@ export function FatturaRegistrazioneModal({
             </div>
           </section>
 
-          <div className="flex flex-col gap-3">
-            <div className="space-y-3">
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+            <div className="min-w-0 w-full space-y-3 sm:max-w-[70%]">
               <div>
                 <p className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Spedizione
@@ -2159,25 +2159,46 @@ export function FatturaRegistrazioneModal({
                   </ul>
                 </div>
               ) : null}
-            </div>
 
-            {isRicevuta ? (
-              <div className="w-full border-t border-[var(--border)] pt-2">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
-                    Casse previdenziali
-                  </p>
-                  {CASSE_PREVIDENZIALI_SUGGERITE.slice(0, 4).map((s) => (
+              {isRicevuta ? (
+                <div className="w-full border-t border-[var(--border)] pt-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--muted)]">
+                      Casse previdenziali
+                    </p>
+                    {CASSE_PREVIDENZIALI_SUGGERITE.slice(0, 4).map((s) => (
+                      <button
+                        key={s.codice}
+                        type="button"
+                        onClick={() => {
+                          const base = Math.abs(totals.imponibile);
+                          const empty = emptyFatturaContributoCassa(base, s);
+                          setContributiCassa((prev) => [
+                            ...prev,
+                            {
+                              ...empty,
+                              percentuale: empty.percentuale,
+                              baseImporto: empty.baseImporto,
+                              importo: empty.importo,
+                              importoBloccato: false,
+                            },
+                          ]);
+                        }}
+                        className="rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 hover:bg-slate-50"
+                      >
+                        + {s.codice} {s.percentuale}%
+                      </button>
+                    ))}
                     <button
-                      key={s.codice}
                       type="button"
                       onClick={() => {
                         const base = Math.abs(totals.imponibile);
-                        const empty = emptyFatturaContributoCassa(base, s);
+                        const empty = emptyFatturaContributoCassa(base);
                         setContributiCassa((prev) => [
                           ...prev,
                           {
                             ...empty,
+                            codice: "",
                             percentuale: empty.percentuale,
                             baseImporto: empty.baseImporto,
                             importo: empty.importo,
@@ -2185,162 +2206,143 @@ export function FatturaRegistrazioneModal({
                           },
                         ]);
                       }}
-                      className="rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 hover:bg-slate-50"
+                      className="inline-flex items-center gap-0.5 rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 font-medium hover:bg-slate-50"
                     >
-                      + {s.codice} {s.percentuale}%
+                      <FaPlus size={8} /> Altra
                     </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const base = Math.abs(totals.imponibile);
-                      const empty = emptyFatturaContributoCassa(base);
-                      setContributiCassa((prev) => [
-                        ...prev,
-                        {
-                          ...empty,
-                          codice: "",
-                          percentuale: empty.percentuale,
-                          baseImporto: empty.baseImporto,
-                          importo: empty.importo,
-                          importoBloccato: false,
-                        },
-                      ]);
-                    }}
-                    className="inline-flex items-center gap-0.5 rounded border border-[var(--border)] px-1.5 py-0 text-[10px] leading-5 font-medium hover:bg-slate-50"
-                  >
-                    <FaPlus size={8} /> Altra
-                  </button>
-                  {contributiCassa.length > 0 ? (
-                    <span className="ml-auto text-[11px] text-[var(--muted)]">
-                      Tot.{" "}
-                      <span className="font-semibold tabular-nums text-slate-800">
-                        {formatEuro(totals.contributiImporto)}
+                    {contributiCassa.length > 0 ? (
+                      <span className="ml-auto text-[11px] text-[var(--muted)]">
+                        Tot.{" "}
+                        <span className="font-semibold tabular-nums text-slate-800">
+                          {formatEuro(totals.contributiImporto)}
+                        </span>
                       </span>
-                    </span>
-                  ) : null}
-                </div>
-                {contributiCassa.length === 0 ? (
-                  <p className="mt-0.5 text-[11px] leading-4 text-[var(--muted)]">
-                    Nessun contributo — usa i pulsanti sopra.
-                  </p>
-                ) : (
-                  <ul className="mt-1 divide-y divide-[var(--border)] border border-[var(--border)]">
-                    {contributiCassa.map((c, idx) => (
-                      <li
-                        key={c.id ?? `cassa-${idx}`}
-                        className="flex flex-wrap items-center gap-1 px-1.5 py-0.5"
-                      >
-                        <input
-                          value={c.codice}
-                          onChange={(e) => {
-                            const codice = e.target.value;
-                            setContributiCassa((prev) =>
-                              prev.map((row, i) =>
-                                i === idx ? { ...row, codice } : row
-                              )
-                            );
-                          }}
-                          placeholder="Codice"
-                          className="h-7 min-w-[5.5rem] flex-1 rounded border border-[var(--border)] bg-white px-1.5 text-xs leading-none sm:max-w-[9rem]"
-                          list={`casse-suggerite-${idx}`}
-                        />
-                        <datalist id={`casse-suggerite-${idx}`}>
-                          {CASSE_PREVIDENZIALI_SUGGERITE.map((s) => (
-                            <option key={s.codice} value={s.codice} />
-                          ))}
-                        </datalist>
-                        <ClearableNumberInput
-                          min={0}
-                          max={100}
-                          step="0.01"
-                          value={c.percentuale}
-                          onValueChange={(v) => {
-                            setContributiCassa((prev) =>
-                              prev.map((row, i) => {
-                                if (i !== idx) return row;
-                                const percentuale = v;
-                                const base = numberOrZero(row.baseImporto);
-                                const pct = numberOrZero(percentuale);
-                                return {
-                                  ...row,
-                                  percentuale,
-                                  importo: row.importoBloccato
-                                    ? row.importo
-                                    : roundMoney((base * pct) / 100),
-                                };
-                              })
-                            );
-                          }}
-                          className="h-7 w-14 rounded border border-[var(--border)] bg-white px-1 text-center text-xs leading-none"
-                          aria-label="Percentuale cassa"
-                        />
-                        <span className="text-[10px] text-[var(--muted)]">%</span>
-                        <ClearableNumberInput
-                          min={0}
-                          step="0.01"
-                          value={c.baseImporto}
-                          onValueChange={(v) => {
-                            setContributiCassa((prev) =>
-                              prev.map((row, i) => {
-                                if (i !== idx) return row;
-                                const baseImporto = v;
-                                const base = numberOrZero(baseImporto);
-                                const pct = numberOrZero(row.percentuale);
-                                return {
-                                  ...row,
-                                  baseImporto,
-                                  importo: row.importoBloccato
-                                    ? row.importo
-                                    : roundMoney((base * pct) / 100),
-                                };
-                              })
-                            );
-                          }}
-                          className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs tabular-nums leading-none"
-                          aria-label="Base contributo"
-                          title="Base imponibile"
-                        />
-                        <ClearableNumberInput
-                          min={0}
-                          step="0.01"
-                          value={c.importo}
-                          onValueChange={(v) => {
-                            setContributiCassa((prev) =>
-                              prev.map((row, i) =>
-                                i === idx
-                                  ? {
-                                      ...row,
-                                      importo: v,
-                                      importoBloccato: true,
-                                    }
-                                  : row
-                              )
-                            );
-                          }}
-                          className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs font-medium tabular-nums leading-none"
-                          aria-label="Importo contributo"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setContributiCassa((prev) =>
-                              prev.filter((_, i) => i !== idx)
-                            )
-                          }
-                          className="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
-                          aria-label="Rimuovi contributo"
+                    ) : null}
+                  </div>
+                  {contributiCassa.length === 0 ? (
+                    <p className="mt-0.5 text-[11px] leading-4 text-[var(--muted)]">
+                      Nessun contributo — usa i pulsanti sopra.
+                    </p>
+                  ) : (
+                    <ul className="mt-1 divide-y divide-[var(--border)] border border-[var(--border)]">
+                      {contributiCassa.map((c, idx) => (
+                        <li
+                          key={c.id ?? `cassa-${idx}`}
+                          className="flex flex-wrap items-center gap-1 px-1.5 py-0.5"
                         >
-                          <FaTrash size={10} />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
+                          <input
+                            value={c.codice}
+                            onChange={(e) => {
+                              const codice = e.target.value;
+                              setContributiCassa((prev) =>
+                                prev.map((row, i) =>
+                                  i === idx ? { ...row, codice } : row
+                                )
+                              );
+                            }}
+                            placeholder="Codice"
+                            className="h-7 min-w-[5.5rem] flex-1 rounded border border-[var(--border)] bg-white px-1.5 text-xs leading-none sm:max-w-[9rem]"
+                            list={`casse-suggerite-${idx}`}
+                          />
+                          <datalist id={`casse-suggerite-${idx}`}>
+                            {CASSE_PREVIDENZIALI_SUGGERITE.map((s) => (
+                              <option key={s.codice} value={s.codice} />
+                            ))}
+                          </datalist>
+                          <ClearableNumberInput
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={c.percentuale}
+                            onValueChange={(v) => {
+                              setContributiCassa((prev) =>
+                                prev.map((row, i) => {
+                                  if (i !== idx) return row;
+                                  const percentuale = v;
+                                  const base = numberOrZero(row.baseImporto);
+                                  const pct = numberOrZero(percentuale);
+                                  return {
+                                    ...row,
+                                    percentuale,
+                                    importo: row.importoBloccato
+                                      ? row.importo
+                                      : roundMoney((base * pct) / 100),
+                                  };
+                                })
+                              );
+                            }}
+                            className="h-7 w-14 rounded border border-[var(--border)] bg-white px-1 text-center text-xs leading-none"
+                            aria-label="Percentuale cassa"
+                          />
+                          <span className="text-[10px] text-[var(--muted)]">
+                            %
+                          </span>
+                          <ClearableNumberInput
+                            min={0}
+                            step="0.01"
+                            value={c.baseImporto}
+                            onValueChange={(v) => {
+                              setContributiCassa((prev) =>
+                                prev.map((row, i) => {
+                                  if (i !== idx) return row;
+                                  const baseImporto = v;
+                                  const base = numberOrZero(baseImporto);
+                                  const pct = numberOrZero(row.percentuale);
+                                  return {
+                                    ...row,
+                                    baseImporto,
+                                    importo: row.importoBloccato
+                                      ? row.importo
+                                      : roundMoney((base * pct) / 100),
+                                  };
+                                })
+                              );
+                            }}
+                            className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs tabular-nums leading-none"
+                            aria-label="Base contributo"
+                            title="Base imponibile"
+                          />
+                          <ClearableNumberInput
+                            min={0}
+                            step="0.01"
+                            value={c.importo}
+                            onValueChange={(v) => {
+                              setContributiCassa((prev) =>
+                                prev.map((row, i) =>
+                                  i === idx
+                                    ? {
+                                        ...row,
+                                        importo: v,
+                                        importoBloccato: true,
+                                      }
+                                    : row
+                                )
+                              );
+                            }}
+                            className="h-7 w-[5.5rem] rounded border border-[var(--border)] bg-white px-1 text-right text-xs font-medium tabular-nums leading-none"
+                            aria-label="Importo contributo"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setContributiCassa((prev) =>
+                                prev.filter((_, i) => i !== idx)
+                              )
+                            }
+                            className="rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-700"
+                            aria-label="Rimuovi contributo"
+                          >
+                            <FaTrash size={10} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </div>
 
-            <div className="ml-auto w-full space-y-3 sm:max-w-xs lg:w-64">
+            <div className="w-full shrink-0 space-y-3 sm:w-64 sm:max-w-[30%] sm:self-start">
               <div>
                 <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Tot. imponibile
