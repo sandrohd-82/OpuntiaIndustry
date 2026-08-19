@@ -444,6 +444,6 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
   };
 }
 
-export function getWebmailProviderPresetsAction() {
+export async function getWebmailProviderPresetsAction() {
   return WEBMAIL_PROVIDER_PRESETS;
 }
