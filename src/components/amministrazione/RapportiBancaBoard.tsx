@@ -314,10 +314,11 @@ export function RapportiBancaBoard() {
             Carica solo il PDF dell’estratto conto. Data operazione e data
             valuta di ogni movimento sono lette dal documento; non serve
             selezionare un periodo prima. Se hai{" "}
-            Carica il PDF dell’estratto BCC. Su Vercel con{" "}
-            <code>OPENAI_API_KEY</code> l’AI legge le colonne Mov.DARE/AVERE; poi
-            le regole forzano: solo AVERE / Storno / Bonifico a vs favore /
-            Incasso = +, il resto = −. I casi in contrasto non vengono importati.
+            Carica il PDF dell’estratto BCC. Con OpenAI (consigliato modello{" "}
+            <code>gpt-4o</code> via <code>BANK_OPENAI_MODEL</code>) legge le
+            colonne Mov.DARE/AVERE e gli importi in formato italiano (
+            <code>25,28</code>). I saldi non vengono importati; senza colonna
+            AVERE il segno è −.
           </p>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>

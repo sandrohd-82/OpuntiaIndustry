@@ -7,16 +7,17 @@ export type ParsedBankLine = {
   description: string;
   counterpartyName: string;
   trnOrCro: string;
-  /** Colonna estratto se nota. */
+  /** Colonna estratto se nota dal layout (mai inventata dal segno). */
   column?: "DARE" | "AVERE" | null;
   /** Come è stato deciso il segno. */
   signSource?: string;
+  /** Importo grezzo italiano dal PDF/AI (audit). */
+  amountIt?: string;
 };
 
 export type ParseBankStatementResult = {
   text: string;
   lines: ParsedBankLine[];
-  /** Voci escluse per contrasto AI/regole. */
   doubtful: Array<{
     description: string;
     aiAmount: number;
@@ -26,48 +27,97 @@ export type ParseBankStatementResult = {
   notes: string;
 };
 
-/** Importo italiano: `.` = migliaia, `,` = centesimi (es. 1.234,56 → 1234.56). */
-export function parseItAmount(raw: string): number | null {
-  let s = raw.trim().replace(/\s/g, "").replace(/€|EUR/gi, "");
+const DATE_RE = /\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}/g;
+
+/**
+ * Token importo IT: migliaia con `.`, decimali con `,` (obbligatori 2 cifre).
+ * Non cattura date né percentuali; limite cifra intera per evitare glue PDF.
+ */
+export const IT_AMOUNT_RE =
+  /(?<![\d.,])(?:\d{1,3}(?:\.\d{3})+|\d{1,7}),\d{2}(?![\d,])/g;
+
+const MAX_PLAUSIBLE_AMOUNT = Number(
+  process.env.BANK_IMPORT_MAX_AMOUNT ?? 500_000
+);
+
+/**
+ * Parsing importi italiani.
+ * - `1.234,56` → 1234.56
+ * - `25,28` → 25.28
+ * - `25.280` senza virgola: AMBIGUO → null in strict (evita 25,28→25280)
+ */
+export function parseItAmount(
+  raw: string,
+  opts?: { strict?: boolean }
+): number | null {
+  const s0 = String(raw ?? "")
+    .replace(/\u00A0/g, " ")
+    .trim();
+  if (!s0) return null;
+  const neg = /^-|-$|^\(/.test(s0) || /^-/.test(s0.replace(/\s/g, ""));
+  let s = s0
+    .replace(/\s/g, "")
+    .replace(/€|EUR/gi, "")
+    .replace(/^[+\-(]+/, "")
+    .replace(/[)\-]+$/, "");
   if (!s) return null;
-  const neg = s.startsWith("-") || s.endsWith("-") || s.startsWith("(");
-  s = s.replace(/[()\-+]/g, "");
-  if (!s.includes(",")) {
-    if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) {
-      const n = Number(s.replace(/\./g, ""));
-      return Number.isFinite(n) ? (neg ? -n : n) : null;
-    }
-    const n = Number(s);
-    return Number.isFinite(n) ? (neg ? -Math.abs(n) : n) : null;
+
+  // Formato IT classico con decimali
+  if (/^\d{1,3}(?:\.\d{3})*,\d{1,2}$/.test(s) || /^\d+,\d{1,2}$/.test(s)) {
+    const n = Number(s.replace(/\./g, "").replace(",", "."));
+    if (!Number.isFinite(n)) return null;
+    return neg ? -Math.abs(n) : n;
   }
-  const normalized = s.replace(/\./g, "").replace(",", ".");
-  const n = Number(normalized);
-  if (!Number.isFinite(n)) return null;
-  return neg ? -Math.abs(n) : n;
+
+  // Solo intero
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return neg ? -Math.abs(n) : n;
+  }
+
+  // Solo punti: tipo 25.280 — in IT = migliaia, ma confondibile con 25.28 EN.
+  // In strict (input AI) NON indovinare.
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(s)) {
+    if (opts?.strict) return null;
+    const n = Number(s.replace(/\./g, ""));
+    if (!Number.isFinite(n)) return null;
+    return neg ? -Math.abs(n) : n;
+  }
+
+  // Punto come decimale US (es. 25.28) — solo se esattamente 1–2 decimali e non migliaia
+  if (/^\d+\.\d{1,2}$/.test(s) && !/^\d{1,3}(?:\.\d{3})+/.test(s)) {
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return neg ? -Math.abs(n) : n;
+  }
+
+  return null;
 }
 
-const IT_AMOUNT_RE = /\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/g;
-
-/** Causali tipiche di ENTRATA (Mov.AVERE) → segno +. */
+/**
+ * Causali ENTRATA — ristrette (niente "versamento" generico: F24 VERSAMENTO = uscita).
+ * Storno da solo NON forza +: la colonna PDF decide; qui solo tie-breaker senza colonna.
+ */
 const AVERE_CAUSAL_RE =
-  /\bstorno\b|bonifico\s+a\s+v\.?\s*s\.?\s+favore|bonifico\s+a\s+vs\.?\s+favore|bonifico\s+a\s+vostro\s+favore|a\s+vs\.?\s+favore|a\s+vostro\s+favore|\bincasso\b|accredito|versamento|bonifico\s+(da|ricevuto)|giroconto\s+in\s+entrata|rientro|ricavo/i;
+  /bonifico\s+a\s+v\.?\s*s\.?\s+favore|bonifico\s+a\s+vs\.?\s+favore|bonifico\s+a\s+vostro\s+favore|a\s+vs\.?\s+favore|a\s+vostro\s+favore|\bbonifico\s+(?:da|ricevuto)\b|\bgiroconto\s+in\s+entrata\b|\b(?:accredit\w*)\b|\bincassi?\b(?!\s+(?:sdd|rid|commiss))/i;
 
-/** Causali tipiche di USCITA (Mov.DARE) → segno −. */
+/** Causali tipiche USCITA. */
 const DARE_CAUSAL_RE =
-  /bonifico\s+(a|verso)|pagamento|addebito|prelievo|canone|commiss| RID\b|sdd|sepa\s*direct|assegno\s*emesso|utenze|f24|mav|rav|bollettino|giroconto\s+in\s+uscita/i;
+  /\b(?:pagament\w*|addebit\w*|preliev\w*|canon\w*|commission\w*|\brid\b|\bsdd\b|\bmav\b|\brav\b|\bf24\b|bollettin\w*|utenz\w*|delega)\b|\bbonifico\s+(?:a|verso)\b(?!\s+v\.?\s*s|\s+vs|\s+vostro)|\bsepa\s*direct\b|\bassegno\s+emesso\b|\bgiroconto\s+in\s+uscita\b|\bversamento\s+unitario\b/i;
 
 export function isAvereCausal(text: string): boolean {
   return AVERE_CAUSAL_RE.test(text);
 }
 
 export function isDareCausal(text: string): boolean {
-  return DARE_CAUSAL_RE.test(text) && !isAvereCausal(text);
+  return DARE_CAUSAL_RE.test(text);
 }
 
 /**
- * Regole di segno (autoritative rispetto all'AI quando c'è contrasto chiaro):
- * - + solo se colonna AVERE oppure causale whitelist (Storno, Bonifico a vs favore, Incasso…)
- * - default / DARE / dubbio senza evidenza AVERE → −
+ * Regole segno — COLONNA PDF prima di tutto.
+ * + solo con colonna AVERE (o causale AVERE se colonna assente).
+ * Default senza evidenza: DARE (−). Mai inventare entrate.
  */
 export function applySignRules(input: {
   description: string;
@@ -89,54 +139,42 @@ export function applySignRules(input: {
     };
   }
 
-  const text = `${input.description} ${input.column ?? ""}`;
+  const text = input.description;
+  const col = input.column ?? null;
   const avereCausal = isAvereCausal(text);
   const dareCausal = isDareCausal(text);
-  const col = input.column ?? null;
-  const aiPositive = input.amount > 0;
 
-  // Causali whitelist: sempre prioritarie
-  if (avereCausal && !dareCausal) {
-    return { amount: mag, signSource: "causal-avere", doubtful: false };
-  }
-  if (dareCausal && !avereCausal) {
-    if (aiPositive && col === "AVERE") {
-      return {
-        amount: mag,
-        signSource: "conflict",
-        doubtful: true,
-        reason:
-          "Contrasto: causale da uscita ma colonna/AI AVERE — escluso da import automatico",
-      };
-    }
-    return { amount: -mag, signSource: "causal-dare", doubtful: false };
-  }
-  if (avereCausal && dareCausal) {
-    return {
-      amount: aiPositive ? mag : -mag,
-      signSource: "conflict",
-      doubtful: true,
-      reason: "Causale ambigua (entrate e uscite) — escluso",
-    };
-  }
-
-  // Colonna esplicita dall'AI / layout
-  if (col === "AVERE") {
-    return { amount: mag, signSource: "column-avere", doubtful: false };
-  }
+  // 1) Colonna PDF = fonte di verità assoluta (niente override da causali)
   if (col === "DARE") {
     return { amount: -mag, signSource: "column-dare", doubtful: false };
   }
+  if (col === "AVERE") {
+    return { amount: mag, signSource: "column-avere", doubtful: false };
+  }
 
-  // Nessuna colonna: default DARE (−). Se AI aveva messo + senza evidenza → correggi a −
-  if (aiPositive) {
+  // 2) Senza colonna: causali; ambiguità → escluso
+  if (avereCausal && dareCausal) {
     return {
       amount: -mag,
-      signSource: "default-dare-corrected",
-      doubtful: false,
+      signSource: "ambiguous",
+      doubtful: true,
+      reason: "Causale ambigua (entrata + uscita) — escluso",
     };
   }
-  return { amount: -mag, signSource: "default-dare", doubtful: false };
+  if (avereCausal) {
+    return { amount: mag, signSource: "causal-avere", doubtful: false };
+  }
+  if (dareCausal) {
+    return { amount: -mag, signSource: "causal-dare", doubtful: false };
+  }
+
+  // 3) Nessuna evidenza: mai inventare +
+  return {
+    amount: -mag,
+    signSource:
+      input.amount > 0 ? "default-dare-corrected" : "default-dare",
+    doubtful: false,
+  };
 }
 
 function toIsoFromIt(d: string): string | null {
@@ -166,7 +204,6 @@ export function hashBankLine(line: ParsedBankLine): string {
   return lineHash(line);
 }
 
-/** Estrae testo da buffer PDF (pdf-parse). */
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const pdfParse = require("pdf-parse") as (
@@ -177,59 +214,102 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
 }
 
 function extractDates(line: string): string[] {
-  const dateRe = /(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g;
-  return [...line.matchAll(dateRe)].map((m) => m[1]);
+  return [...line.matchAll(DATE_RE)].map((m) => m[0]);
 }
 
-function extractItAmounts(line: string): string[] {
-  return [...line.matchAll(IT_AMOUNT_RE)].map((m) => m[0]);
+export function extractItAmounts(line: string): string[] {
+  const cleaned = line
+    .replace(DATE_RE, " ")
+    .replace(/\d+(?:[.,]\d+)?\s*%/g, " ");
+  return [...cleaned.matchAll(IT_AMOUNT_RE)].map((m) => m[0]);
+}
+
+function isNoiseLine(line: string): boolean {
+  return /^(saldo|totale|totali|pagina|estratto|iban|abi|cab|mov\.?\s*dare|mov\.?\s*avere|data\s*valuta|data\s*contabile|riepilogo|segue)\b/i.test(
+    line
+  ) || /\b(saldo|totale|totali|riepilogo)\b/i.test(line);
 }
 
 /**
- * Segno da colonne Mov.DARE (−) / Mov.AVERE (+).
- * Default senza evidenza AVERE: uscita (−).
+ * Una riga = un movimento. Ultimo importo spesso è SALDO → non trattarlo come AVERE.
  */
 function resolveDareAvereAmounts(
   line: string,
   amountTokens: string[]
-): number[] {
+): Array<{ amount: number; column: "DARE" | "AVERE" | null; amountIt: string }> {
   const lower = line.toLowerCase().replace(/\s+/g, " ");
-  const results: number[] = [];
+  const hasLayout =
+    /mov\.?\s*dare/.test(lower) && /mov\.?\s*avere/.test(lower);
+  const hasSaldoWord = /\bsaldo\b/.test(lower);
 
-  if (amountTokens.length >= 2) {
-    const dareRaw = amountTokens[amountTokens.length - 2];
-    const avereRaw = amountTokens[amountTokens.length - 1];
+  let tokens = [...amountTokens];
+  if (hasSaldoWord && tokens.length > 1) {
+    tokens = tokens.slice(0, -1);
+  }
+  // Tipico: data + dare + avere + saldo → 3 importi; scarta l'ultimo (saldo)
+  if (!hasLayout && tokens.length >= 3) {
+    tokens = tokens.slice(0, -1);
+  }
+
+  const out: Array<{
+    amount: number;
+    column: "DARE" | "AVERE" | null;
+    amountIt: string;
+  }> = [];
+
+  if (tokens.length >= 2 && hasLayout) {
+    const dareRaw = tokens[tokens.length - 2];
+    const avereRaw = tokens[tokens.length - 1];
     const dare = parseItAmount(dareRaw);
     const avere = parseItAmount(avereRaw);
-    if (dare != null && dare !== 0) results.push(-Math.abs(dare));
-    if (avere != null && avere !== 0) results.push(Math.abs(avere));
-    return results;
+    if (dare != null && dare !== 0) {
+      out.push({
+        amount: -Math.abs(dare),
+        column: "DARE",
+        amountIt: dareRaw,
+      });
+    }
+    if (avere != null && avere !== 0) {
+      out.push({
+        amount: Math.abs(avere),
+        column: "AVERE",
+        amountIt: avereRaw,
+      });
+    }
+    return out;
   }
 
-  if (amountTokens.length === 1) {
-    const abs = parseItAmount(amountTokens[0]);
+  // Due importi senza header esplicito: primo=movimento, secondo=saldo → solo il primo
+  if (tokens.length >= 2) {
+    tokens = [tokens[0]];
+  }
+
+  if (tokens.length === 1) {
+    const raw = tokens[0];
+    const abs = parseItAmount(raw);
     if (abs == null || abs === 0) return [];
-    const mag = Math.abs(abs);
+    const colOnLine = /mov\.?\s*avere/i.test(lower)
+      ? ("AVERE" as const)
+      : /mov\.?\s*dare/i.test(lower)
+        ? ("DARE" as const)
+        : null;
     const signed = applySignRules({
       description: line,
-      amount: mag,
-      column: /mov\.?\s*avere|\bavere\b/i.test(lower)
-        ? "AVERE"
-        : /mov\.?\s*dare|\bdare\b/i.test(lower)
-          ? "DARE"
-          : null,
+      amount: Math.abs(abs),
+      column: colOnLine,
     });
-    if (!signed.doubtful && signed.amount !== 0) results.push(signed.amount);
-    return results;
+    if (!signed.doubtful && signed.amount !== 0) {
+      out.push({
+        amount: signed.amount,
+        column: colOnLine,
+        amountIt: raw,
+      });
+    }
   }
 
-  return results;
+  return out;
 }
 
-/**
- * Parser euristico di fallback (solo se AI assente/fallisce).
- * Default: Mov.DARE (−); + solo AVERE / causali whitelist.
- */
 export function parseBankStatementHeuristic(text: string): ParsedBankLine[] {
   const lines = text
     .split("\n")
@@ -237,17 +317,14 @@ export function parseBankStatementHeuristic(text: string): ParsedBankLine[] {
     .filter(Boolean);
 
   const out: ParsedBankLine[] = [];
-  const skipLine =
-    /^(saldo|totale|pagina|estratto|iban|abi|cab|mov\.?\s*dare|mov\.?\s*avere|data\s*valuta|data\s*contabile)/i;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (skipLine.test(line) && extractItAmounts(line).length === 0) continue;
+    if (isNoiseLine(line)) continue;
 
     const dates = extractDates(line);
     const amountTokens = extractItAmounts(line);
     if (!dates.length || !amountTokens.length) continue;
-    if (/saldo\s*(contabile|disponibile|iniziale|finale)/i.test(line)) continue;
 
     const txDate = toIsoFromIt(dates[0]);
     if (!txDate) continue;
@@ -257,7 +334,7 @@ export function parseBankStatementHeuristic(text: string): ParsedBankLine[] {
     if (!signedAmounts.length) continue;
 
     let description = line
-      .replace(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g, " ")
+      .replace(DATE_RE, " ")
       .replace(IT_AMOUNT_RE, " ")
       .replace(/mov\.?\s*dare|mov\.?\s*avere/gi, " ")
       .replace(/\s+/g, " ")
@@ -265,25 +342,28 @@ export function parseBankStatementHeuristic(text: string): ParsedBankLine[] {
     if (description.length < 3 && lines[i + 1]) {
       const next = lines[i + 1];
       if (!extractDates(next).length || extractItAmounts(next).length === 0) {
-        description = `${description} ${next}`.trim();
+        if (!isNoiseLine(next)) {
+          description = `${description} ${next}`.trim();
+        }
       }
     }
 
     const trn =
       line.match(/\b(?:TRN|CRO|CUP|ID)[:\s]*([A-Z0-9]+)/i)?.[1] || "";
 
-    for (const amount of signedAmounts) {
+    for (const row of signedAmounts) {
       out.push({
         transactionDate: txDate,
         valutaDate,
-        amount,
+        amount: row.amount,
         description:
           description ||
-          (amount < 0 ? "Mov.DARE (uscita)" : "Mov.AVERE (entrata)"),
+          (row.amount < 0 ? "Mov.DARE (uscita)" : "Mov.AVERE (entrata)"),
         counterpartyName: "",
         trnOrCro: trn,
-        column: amount < 0 ? "DARE" : "AVERE",
+        column: row.column,
         signSource: "heuristic",
+        amountIt: row.amountIt,
       });
     }
   }
@@ -297,43 +377,133 @@ export function parseBankStatementHeuristic(text: string): ParsedBankLine[] {
   });
 }
 
-function normalizeAiColumn(
-  raw: unknown
-): "DARE" | "AVERE" | null {
+export function normalizeAiColumn(raw: unknown): "DARE" | "AVERE" | null {
   const s = String(raw ?? "")
     .trim()
     .toUpperCase();
-  if (s.includes("AVERE") || s === "C" || s === "CREDIT") return "AVERE";
-  if (s.includes("DARE") || s === "D" || s === "DEBIT") return "DARE";
+  if (!s) return null;
+  if (/AVERE|CREDIT|ENTRAT|^\+$|^C$/.test(s)) return "AVERE";
+  if (/DARE|DEBIT|USCIT|ADDEBIT|^-$|^D$/.test(s)) return "DARE";
   return null;
 }
 
-/** Usa OpenAI per scorporare le voci (modalità B: AI prima). */
+/**
+ * Priorità amountIt (stringa IT) → dareIt/avereIt → mai fidarsi di float JSON
+ * che confondono 25,28 con 25.280.
+ */
+function resolveAiAmount(r: Record<string, unknown>): {
+  amount: number;
+  column: "DARE" | "AVERE" | null;
+  amountIt: string;
+} | null {
+  const col = normalizeAiColumn(r.column);
+
+  const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
+  const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
+  if (dareIt && parseItAmount(dareIt, { strict: true }) != null) {
+    const n = parseItAmount(dareIt, { strict: true })!;
+    if (n !== 0) {
+      return { amount: -Math.abs(n), column: "DARE", amountIt: dareIt };
+    }
+  }
+  if (avereIt && parseItAmount(avereIt, { strict: true }) != null) {
+    const n = parseItAmount(avereIt, { strict: true })!;
+    if (n !== 0) {
+      return { amount: Math.abs(n), column: "AVERE", amountIt: avereIt };
+    }
+  }
+
+  const amountIt = String(r.amountIt ?? r.importoIt ?? "").trim();
+  if (amountIt) {
+    const n = parseItAmount(amountIt, { strict: true });
+    if (n == null || n === 0) return null;
+    return {
+      amount: Math.abs(n) * (col === "AVERE" ? 1 : -1),
+      column: col,
+      amountIt,
+    };
+  }
+
+  // Fallback numerico: solo se intero/decimale chiaro, mai "25.280" ambigua
+  const rawAmount = r.amount;
+  if (typeof rawAmount === "string") {
+    const n = parseItAmount(rawAmount, { strict: true });
+    if (n == null || n === 0) return null;
+    const signed =
+      col === "AVERE"
+        ? Math.abs(n)
+        : col === "DARE"
+          ? -Math.abs(n)
+          : n > 0 && col == null
+            ? -Math.abs(n) // senza colonna: non fidarsi del +
+            : n;
+    return { amount: signed, column: col, amountIt: rawAmount };
+  }
+  if (typeof rawAmount === "number" && Number.isFinite(rawAmount)) {
+    // Float JSON: sospetto se ha molti zeri (possibile ×1000 da 25.28→25280)
+    const mag = Math.abs(rawAmount);
+    if (mag === 0) return null;
+    if (mag >= 1000 && Number.isInteger(mag) && mag % 1000 === 0) {
+      // sospetto gonfiamento: richiedi amountIt
+      return null;
+    }
+    const signed =
+      col === "AVERE"
+        ? mag
+        : col === "DARE"
+          ? -mag
+          : rawAmount > 0
+            ? -mag
+            : -mag;
+    return {
+      amount: signed,
+      column: col,
+      amountIt: mag.toFixed(2).replace(".", ","),
+    };
+  }
+
+  return null;
+}
+
 export async function parseBankStatementWithAi(
   text: string
 ): Promise<{ lines: ParsedBankLine[]; modelName: string } | null> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return null;
 
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
-  const excerpt = text.slice(0, 28000);
-  const system = `Sei un estrattore PRECISIONE di movimenti da estratto conto bancario italiano (BCC / simili).
-Rispondi SOLO JSON:
-{"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":"YYYY-MM-DD|null","amount":number,"column":"DARE"|"AVERE","description":"...","counterpartyName":"...","trnOrCro":"..."}]}
+  const model =
+    process.env.BANK_OPENAI_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    "gpt-4o";
+  const excerpt = text.slice(0, 32000);
+  const system = `Sei un estrattore CONTABILE di movimenti da estratto conto italiano (BCC).
+Errori di importo o segno causano gravi problemi: sii pedante.
 
-REGOLE SEGNO (CRITICHE — un errore crea gravi problemi contabili):
-1. Colonna Mov.DARE / DARE = USCITA → amount DEVE essere NEGATIVO (es. -150.00)
-2. Colonna Mov.AVERE / AVERE = ENTRATA → amount DEVE essere POSITIVO (es. 150.00)
-3. Il campo "column" è OBBLIGATORIO: "DARE" o "AVERE" in base a dove sta l'importo sul PDF.
-4. Se l'importo è nella colonna DARE → column="DARE" e amount negativo.
-5. Se l'importo è nella colonna AVERE → column="AVERE" e amount positivo.
-6. Causali tipiche ENTRATA (+): "Storno", "Bonifico a vs favore", "Bonifico a vs. favore", "Incasso", "Accredito", "Versamento".
-7. Causali tipiche USCITA (−): pagamenti, bonifici in uscita, addebiti, canoni, F24, RID, commissioni.
-8. DEFAULT se non sei sicuro della colonna: tratta come DARE (amount NEGATIVO). NON inventare entrate.
-9. Numeri italiani: "." = migliaia, "," = centesimi. 1.234,56 → 1234.56 ; 50,00 → 50
-10. Ignora saldi, intestazioni, totali, piè di pagina.
-11. Una riga estratto = un movimento. Se sulla stessa riga ci sono DARE e AVERE valorizzati, crea DUE oggetti.
-12. Se non trovi movimenti: {"lines":[]}`;
+Rispondi SOLO JSON:
+{"lines":[{
+  "transactionDate":"YYYY-MM-DD",
+  "valutaDate":"YYYY-MM-DD|null",
+  "amountIt":"25,28",
+  "dareIt":null,
+  "avereIt":null,
+  "column":"DARE"|"AVERE",
+  "description":"...",
+  "counterpartyName":"...",
+  "trnOrCro":"..."
+}]}
+
+REGOLE OBBLIGATORIE:
+1. amountIt = stringa ITALIANA esatta dal PDF (virgola = centesimi, punto = migliaia).
+   Esempi: "25,28" ; "1.234,56" ; "50,00". MAI float JSON. MAI "25.28". MAI "25280".
+2. column = "DARE" se l'importo è in Mov.DARE (uscita); "AVERE" se in Mov.AVERE (entrata).
+3. Se vedi entrambe le colonne valorizzate sulla stessa riga, usa dareIt e avereIt e crea DUE elementi (uno DARE, uno AVERE).
+4. IGNORA completamente: Saldo, Saldo contabile, Saldo disponibile, Totali, intestazioni, piè di pagina.
+   NON importare mai un saldo come movimento (es. non trasformare un saldo 25.280,00 in un movimento).
+5. "Storno" NON decide il segno da solo: conta SOLO la colonna DARE/AVERE del PDF.
+6. "Bonifico a vs favore" / "Bonifico a vs. favore" / incassi in colonna AVERE → AVERE.
+7. F24, pagamenti, addebiti, commissioni, RID, "versamento unitario" → di solito DARE.
+8. Se non sei sicuro della colonna → column="DARE" (mai inventare entrate).
+9. Se non trovi movimenti: {"lines":[]}`;
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -350,13 +520,17 @@ REGOLE SEGNO (CRITICHE — un errore crea gravi problemi contabili):
           { role: "system", content: system },
           {
             role: "user",
-            content: `Estrai i movimenti. Ricorda: SOLO Mov.AVERE e causali tipo Storno/Bonifico a vs favore/Incasso hanno segno +. Tutto il resto è −.\n\n${excerpt}`,
+            content: `Estrai SOLO i movimenti (no saldi/totali). amountIt obbligatorio in formato italiano.\n\n${excerpt}`,
           },
         ],
       }),
     });
     if (!res.ok) {
-      console.error("[bank-pdf-ai]", res.status, await res.text().catch(() => ""));
+      console.error(
+        "[bank-pdf-ai]",
+        res.status,
+        await res.text().catch(() => "")
+      );
       return null;
     }
     const json = (await res.json()) as {
@@ -366,34 +540,74 @@ REGOLE SEGNO (CRITICHE — un errore crea gravi problemi contabili):
     if (!content) return null;
     const parsed = JSON.parse(content) as { lines?: unknown[] };
     const lines: ParsedBankLine[] = [];
+
     for (const row of parsed.lines ?? []) {
       if (!row || typeof row !== "object") continue;
       const r = row as Record<string, unknown>;
       const transactionDate = String(r.transactionDate ?? "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) continue;
-      let amount = Number(r.amount);
-      if (!Number.isFinite(amount) || amount === 0) {
-        const fromIt = parseItAmount(String(r.amount ?? ""));
-        if (fromIt == null || fromIt === 0) continue;
-        amount = fromIt;
-      }
+
+      // Preferisci due colonne esplicite → due movimenti
+      const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
+      const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
       const valutaRaw =
         r.valutaDate == null ? null : String(r.valutaDate).slice(0, 10);
-      const column = normalizeAiColumn(r.column);
-      // Se manca column, inferisci dal segno AI (poi le regole correggono)
-      const inferredCol =
-        column ?? (amount > 0 ? "AVERE" : amount < 0 ? "DARE" : null);
+      const valutaDate =
+        valutaRaw && /^\d{4}-\d{2}-\d{2}$/.test(valutaRaw) ? valutaRaw : null;
+      const description =
+        String(r.description ?? "").trim() || "Movimento PDF";
+      const counterpartyName = String(r.counterpartyName ?? "").trim();
+      const trnOrCro = String(r.trnOrCro ?? "").trim();
+
+      if (dareIt || avereIt) {
+        if (dareIt) {
+          const n = parseItAmount(dareIt, { strict: true });
+          if (n != null && n !== 0) {
+            lines.push({
+              transactionDate,
+              valutaDate,
+              amount: -Math.abs(n),
+              description,
+              counterpartyName,
+              trnOrCro,
+              column: "DARE",
+              signSource: "openai-dareIt",
+              amountIt: dareIt,
+            });
+          }
+        }
+        if (avereIt) {
+          const n = parseItAmount(avereIt, { strict: true });
+          if (n != null && n !== 0) {
+            lines.push({
+              transactionDate,
+              valutaDate,
+              amount: Math.abs(n),
+              description,
+              counterpartyName,
+              trnOrCro,
+              column: "AVERE",
+              signSource: "openai-avereIt",
+              amountIt: avereIt,
+            });
+          }
+        }
+        continue;
+      }
+
+      const resolved = resolveAiAmount(r);
+      if (!resolved) continue;
 
       lines.push({
         transactionDate,
-        valutaDate:
-          valutaRaw && /^\d{4}-\d{2}-\d{2}$/.test(valutaRaw) ? valutaRaw : null,
-        amount,
-        description: String(r.description ?? "").trim() || "Movimento PDF",
-        counterpartyName: String(r.counterpartyName ?? "").trim(),
-        trnOrCro: String(r.trnOrCro ?? "").trim(),
-        column: inferredCol,
-        signSource: "openai-raw",
+        valutaDate,
+        amount: resolved.amount,
+        description,
+        counterpartyName,
+        trnOrCro,
+        column: resolved.column,
+        signSource: resolved.column ? "openai-column" : "openai-nocolumn",
+        amountIt: resolved.amountIt,
       });
     }
     return { lines, modelName: model };
@@ -403,7 +617,11 @@ REGOLE SEGNO (CRITICHE — un errore crea gravi problemi contabili):
   }
 }
 
-function validateLines(raw: ParsedBankLine[]): {
+function looksLikeBalanceDescription(desc: string): boolean {
+  return /\b(saldo|totale|totali|riepilogo)\b/i.test(desc);
+}
+
+export function validateLines(raw: ParsedBankLine[]): {
   lines: ParsedBankLine[];
   doubtful: ParseBankStatementResult["doubtful"];
   corrected: number;
@@ -413,9 +631,43 @@ function validateLines(raw: ParsedBankLine[]): {
   let corrected = 0;
 
   for (const row of raw) {
+    if (looksLikeBalanceDescription(row.description)) {
+      doubtful.push({
+        description: row.description.slice(0, 160),
+        aiAmount: row.amount,
+        reason: "Sembra saldo/totale — escluso",
+      });
+      continue;
+    }
+
+    // amountIt: unica fonte affidabile della magnitudine (strict IT)
+    let amount = row.amount;
+    if (row.amountIt) {
+      const fromIt = parseItAmount(row.amountIt, { strict: true });
+      if (fromIt == null) {
+        doubtful.push({
+          description: row.description.slice(0, 160),
+          aiAmount: row.amount,
+          reason: `amountIt non parsabile in IT strict: «${row.amountIt}»`,
+        });
+        continue;
+      }
+      // Segno lo decide applySignRules via colonna/causali
+      amount = Math.abs(fromIt);
+    }
+
+    if (Math.abs(amount) > MAX_PLAUSIBLE_AMOUNT) {
+      doubtful.push({
+        description: row.description.slice(0, 160),
+        aiAmount: amount,
+        reason: `Importo fuori soglia (${amount}) — possibile saldo letto come movimento`,
+      });
+      continue;
+    }
+
     const ruled = applySignRules({
       description: row.description,
-      amount: row.amount,
+      amount,
       column: row.column ?? null,
     });
     if (ruled.doubtful || ruled.amount === 0) {
@@ -426,13 +678,13 @@ function validateLines(raw: ParsedBankLine[]): {
       });
       continue;
     }
-    if (Math.sign(ruled.amount) !== Math.sign(row.amount)) {
+    if (Math.sign(ruled.amount) !== Math.sign(row.amount) && row.amount !== 0) {
       corrected += 1;
     }
     lines.push({
       ...row,
       amount: ruled.amount,
-      column: ruled.amount > 0 ? "AVERE" : "DARE",
+      // NON riscrivere column inventandola: tieni quella di origine
       signSource: ruled.signSource,
     });
   }
@@ -448,10 +700,6 @@ function validateLines(raw: ParsedBankLine[]): {
   return { lines: unique, doubtful, corrected };
 }
 
-/**
- * Opzione B: OpenAI prima (se OPENAI_API_KEY), poi regole di segno.
- * Euristica solo come fallback.
- */
 export async function parseBankStatementPdf(
   buffer: Buffer
 ): Promise<ParseBankStatementResult> {
@@ -471,14 +719,14 @@ export async function parseBankStatementPdf(
   if (ai && ai.lines.length > 0) {
     const validated = validateLines(ai.lines);
     const notes = [
-      `AI (${ai.modelName}) + regole segno: ${validated.lines.length} voci importabili.`,
+      `AI (${ai.modelName}) + regole: ${validated.lines.length} voci.`,
       validated.corrected
-        ? `${validated.corrected} segni corretti dalle regole (default DARE / causali).`
+        ? `${validated.corrected} segni corretti (colonna/default DARE).`
         : null,
       validated.doubtful.length
-        ? `${validated.doubtful.length} voci escluse per contrasto (non importate).`
+        ? `${validated.doubtful.length} escluse (saldo/contrasto/importo dubbio).`
         : null,
-      "Mov.AVERE / Storno / Bonifico a vs favore / Incasso = +; resto = −.",
+      "amountIt IT; colonna DARE/AVERE prioritaria; saldi ignorati.",
     ]
       .filter(Boolean)
       .join(" ");
@@ -487,7 +735,7 @@ export async function parseBankStatementPdf(
       text,
       lines: validated.lines,
       doubtful: validated.doubtful,
-      parserModel: `${ai.modelName}+rules`,
+      parserModel: `${ai.modelName}+rules-v2`,
       notes,
     };
   }
@@ -499,13 +747,13 @@ export async function parseBankStatementPdf(
     lines: validated.lines,
     doubtful: validated.doubtful,
     parserModel: process.env.OPENAI_API_KEY?.trim()
-      ? "heuristic-fallback"
-      : "heuristic-dare-avere",
+      ? "heuristic-fallback-v2"
+      : "heuristic-dare-avere-v2",
     notes: [
       ai
-        ? "AI senza voci utili — usato fallback euristico."
-        : "OPENAI_API_KEY assente o errore AI — usato fallback euristico.",
-      `${validated.lines.length} voci; default DARE (−); AVERE solo con colonna/causali.`,
+        ? "AI senza voci utili — fallback euristico v2."
+        : "OPENAI_API_KEY assente/errore — fallback euristico v2.",
+      `${validated.lines.length} voci; saldi esclusi; default DARE.`,
       validated.doubtful.length
         ? `${validated.doubtful.length} escluse.`
         : null,

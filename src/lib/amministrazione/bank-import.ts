@@ -185,6 +185,7 @@ export async function importBankStatementPdf(input: {
           line_hash: hash,
           column: line.column ?? null,
           sign_source: line.signSource ?? null,
+          amount_it: line.amountIt ?? null,
         },
         source: "bank_pdf",
         import_batch_id: batch.id,
@@ -233,7 +234,20 @@ export async function importBankStatementPdf(input: {
         created_by: input.userId,
       });
       rowsMatched += 1;
-      if (status === "auto_matched" && best.inv.status !== "paid") {
+      // Non segnare fattura pagata se il segno è solo default/euristica debole
+      const strongSign =
+        line.signSource === "column-dare" ||
+        line.signSource === "column-avere" ||
+        line.signSource === "openai-dareIt" ||
+        line.signSource === "openai-avereIt" ||
+        line.signSource === "openai-column" ||
+        line.signSource === "causal-avere" ||
+        line.signSource === "causal-dare";
+      if (
+        status === "auto_matched" &&
+        strongSign &&
+        best.inv.status !== "paid"
+      ) {
         await input.supabase
           .from("fic_invoices")
           .update({ status: "paid", updated_by: input.userId })
