@@ -49,6 +49,7 @@ export async function importBankStatementPdfAction(
       rowsImported: number;
       rowsSkipped: number;
       rowsMatched: number;
+      rowsDoubtful: number;
       parserModel: string;
       notes: string;
       dateFrom: string | null;

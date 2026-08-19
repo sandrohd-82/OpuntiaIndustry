@@ -14,6 +14,7 @@ export type BankPdfImportResult = {
   rowsImported: number;
   rowsSkipped: number;
   rowsMatched: number;
+  rowsDoubtful: number;
   parserModel: string;
   notes: string;
   /** Range date preso dal PDF (min/max transactionDate). */
@@ -84,6 +85,19 @@ export async function importBankStatementPdf(input: {
   const pdfDateFrom = dates[0] ?? null;
   const pdfDateTo = dates[dates.length - 1] ?? null;
 
+  const rowsDoubtful = parsed.doubtful.length;
+  const parseNotes = [
+    parsed.notes,
+    rowsDoubtful
+      ? `Dubbi: ${parsed.doubtful
+          .slice(0, 8)
+          .map((d) => `${d.description.slice(0, 40)}… (${d.reason})`)
+          .join(" | ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const { data: batch, error: batchErr } = await input.supabase
     .from("bank_import_batches")
     .insert({
@@ -93,7 +107,7 @@ export async function importBankStatementPdf(input: {
       documento_stato: parsed.lines.length ? "processato" : "errore",
       account_name: accountName,
       rows_total: parsed.lines.length,
-      parse_notes: parsed.notes,
+      parse_notes: parseNotes,
       raw_text_excerpt: parsed.text.slice(0, 8000),
       parser_model: parsed.parserModel,
       created_by: input.userId,
@@ -169,6 +183,8 @@ export async function importBankStatementPdf(input: {
           trn_or_cro: line.trnOrCro,
           file_name: input.fileName,
           line_hash: hash,
+          column: line.column ?? null,
+          sign_source: line.signSource ?? null,
         },
         source: "bank_pdf",
         import_batch_id: batch.id,
@@ -244,8 +260,9 @@ export async function importBankStatementPdf(input: {
     rowsImported,
     rowsSkipped,
     rowsMatched,
+    rowsDoubtful,
     parserModel: parsed.parserModel,
-    notes: parsed.notes,
+    notes: parseNotes,
     dateFrom: pdfDateFrom,
     dateTo: pdfDateTo,
   };

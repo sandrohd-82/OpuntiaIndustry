@@ -153,6 +153,9 @@ export function RapportiBancaBoard() {
       setInfo(
         `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
           (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
+          (res.rowsDoubtful
+            ? ` (${res.rowsDoubtful} escluse per segno dubbio)`
+            : "") +
           `, match: ${res.rowsMatched}.` +
           (res.dateFrom && res.dateTo
             ? ` Periodo dal PDF: ${formatDateIt(res.dateFrom)} – ${formatDateIt(res.dateTo)}.`
@@ -311,7 +314,10 @@ export function RapportiBancaBoard() {
             Carica solo il PDF dell’estratto conto. Data operazione e data
             valuta di ogni movimento sono lette dal documento; non serve
             selezionare un periodo prima. Se hai{" "}
-            <code>OPENAI_API_KEY</code> lo scorporo è più preciso.
+            Carica il PDF dell’estratto BCC. Su Vercel con{" "}
+            <code>OPENAI_API_KEY</code> l’AI legge le colonne Mov.DARE/AVERE; poi
+            le regole forzano: solo AVERE / Storno / Bonifico a vs favore /
+            Incasso = +, il resto = −. I casi in contrasto non vengono importati.
           </p>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>
