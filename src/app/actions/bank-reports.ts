@@ -1,6 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { importBankStatementPdf } from "@/lib/amministrazione/bank-import";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -37,6 +38,78 @@ export type BankTransactionView = {
     invoiceStatus: string;
   } | null;
 };
+
+export async function importBankStatementPdfAction(
+  formData: FormData
+): Promise<
+  | {
+      success: true;
+      batchId: string;
+      rowsTotal: number;
+      rowsImported: number;
+      rowsSkipped: number;
+      rowsMatched: number;
+      parserModel: string;
+      notes: string;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { success: false, error: "Seleziona un file PDF." };
+  }
+  if (file.type && file.type !== "application/pdf") {
+    return { success: false, error: "Il file deve essere un PDF." };
+  }
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    return { success: false, error: "Estensione richiesta: .pdf" };
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return { success: false, error: "PDF troppo grande (max 15 MB)." };
+  }
+
+  const accountName = String(formData.get("accountName") ?? "").trim() ||
+    "BCC Don Rizzo";
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const supabase = await createClient();
+    const result = await importBankStatementPdf({
+      supabase,
+      userId: auth.userId,
+      fileName: file.name,
+      buffer,
+      accountName,
+    });
+
+    await writeAuditLog({
+      entity_type: "bank_import_batches",
+      entity_id: result.batchId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Import PDF estratto conto «${file.name}»: ${result.rowsImported} nuovi / ${result.rowsTotal} rilevati`,
+      payload: result,
+    });
+
+    if (result.rowsTotal === 0) {
+      return {
+        success: false,
+        error:
+          result.notes ||
+          "Nessun movimento riconosciuto nel PDF. Usa un estratto testuale (non solo immagine) o configura OPENAI_API_KEY.",
+      };
+    }
+
+    return { success: true, ...result };
+  } catch (e) {
+    console.error("[bank pdf import]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Import PDF fallito.",
+    };
+  }
+}
 
 export async function syncBankReportsAction(raw: unknown): Promise<
   | {

@@ -10,7 +10,7 @@ import {
 } from "react-icons/fa6";
 import {
   listBankTransactionsAction,
-  syncBankReportsAction,
+  importBankStatementPdfAction,
   verifyBankMatchAction,
   type BankTransactionView,
 } from "@/app/actions/bank-reports";
@@ -67,6 +67,9 @@ export function RapportiBancaBoard() {
   const [pending, startTransition] = useTransition();
   const [detail, setDetail] = useState<BankTransactionView | null>(null);
   const [compare, setCompare] = useState<BankTransactionView | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [accountName, setAccountName] = useState("BCC Don Rizzo");
   const [printUser] = useState("Operatore area fiscale");
 
   useEffect(() => {
@@ -115,21 +118,36 @@ export function RapportiBancaBoard() {
     void load();
   }, [load]);
 
-  function sync() {
+  function openSyncModal() {
+    setError(null);
+    setInfo(null);
+    setPdfFile(null);
+    setImportOpen(true);
+  }
+
+  function runPdfImport() {
+    if (!pdfFile) {
+      setError("Seleziona un PDF di estratto conto.");
+      return;
+    }
     setInfo(null);
     startTransition(async () => {
-      const res = await syncBankReportsAction({ dateFrom, dateTo });
+      const fd = new FormData();
+      fd.set("file", pdfFile);
+      fd.set("accountName", accountName);
+      const res = await importBankStatementPdfAction(fd);
       if (!res.success) {
         setError(res.error);
         return;
       }
+      setImportOpen(false);
+      setPdfFile(null);
       setInfo(
-        `Periodo ${formatDateIt(dateFrom)}–${formatDateIt(dateTo)}: ` +
-          `${res.fetched} movimenti totali (prima nota FiC: ${res.fromCashbook}, ` +
-          `pagamenti fatture: ${res.fromDocumentPayments}` +
-          (res.skippedNoDate ? `, senza data: ${res.skippedNoDate}` : "") +
-          `). Scritti nuovi: ${res.upserted}, match: ${res.matched}.`
+        `PDF «processato»: ${res.rowsImported} nuovi movimenti su ${res.rowsTotal} rilevati` +
+          (res.rowsSkipped ? `, ${res.rowsSkipped} già presenti` : "") +
+          `, match fatture: ${res.rowsMatched}. Parser: ${res.parserModel}. ${res.notes}`
       );
+      // Allarga il filtro date al range importato se fuori periodo corrente
       await load();
     });
   }
@@ -142,20 +160,20 @@ export function RapportiBancaBoard() {
     <div className="bank-report-root space-y-4">
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Movimenti da Fatture in Cloud (cashbook / TS Pay → BCC Don Rizzo),
-          riconciliazione con fatture locali e stampa report ISO 9001.
-          Il periodo sotto vale sia per la <strong>visualizzazione</strong> sia
-          per la <strong>sincronizzazione</strong>.
+          Movimenti da estratto conto PDF (BCC / banca), riconciliazione con
+          fatture locali e stampa report ISO 9001. Clicca{" "}
+          <strong>Sincronizza</strong> e carica il PDF: il sistema scorpora le
+          voci una per una.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             disabled={pending}
-            onClick={sync}
+            onClick={openSyncModal}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FaArrowsRotate size={13} />
-            Sincronizza da Fatture in Cloud
+            Sincronizza (carica PDF)
           </button>
           <button
             type="button"
@@ -269,11 +287,65 @@ export function RapportiBancaBoard() {
           </label>
         </div>
         <p className="text-[11px] text-[var(--muted)]">
-          Per scegliere date a mano: seleziona «Personalizzato». Con Mese/Trimestre
-          usa ← → per cambiare periodo, poi «Sincronizza» per scaricare i
-          movimenti di quel intervallo da FiC.
+          Il periodo filtra la tabella. Per importare i movimenti:{" "}
+          <strong>Sincronizza (carica PDF)</strong> con l’estratto conto della
+          banca, poi eventualmente allarga le date per vederli tutti.
         </p>
       </div>
+
+      {importOpen ? (
+        <Modal
+          title="Sincronizza da estratto conto PDF"
+          onClose={() => !pending && setImportOpen(false)}
+        >
+          <p className="mb-3 text-sm text-[var(--muted)]">
+            Carica il PDF dell’estratto conto (BCC Don Rizzo o altro). Il
+            sistema estrae il testo, scorpora ogni movimento e lo salva con
+            audit ISO. Se hai <code>OPENAI_API_KEY</code> lo scorporo è più
+            preciso; altrimenti usa regole euristiche.
+          </p>
+          <label className="mb-3 block text-sm">
+            <span className="mb-1 block text-xs font-medium">Nome conto</span>
+            <input
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="mb-4 block text-sm">
+            <span className="mb-1 block text-xs font-medium">File PDF</span>
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+              className="w-full text-sm"
+            />
+            {pdfFile ? (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                {pdfFile.name} · {(pdfFile.size / 1024).toFixed(0)} KB
+              </span>
+            ) : null}
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending || !pdfFile}
+              onClick={runPdfImport}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {pending ? "Elaborazione…" : "Carica e processa voci"}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setImportOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              Annulla
+            </button>
+          </div>
+        </Modal>
+      ) : null}
 
       {error ? (
         <p className="print:hidden rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
