@@ -122,6 +122,25 @@ async function ficRequest<T>(
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    const lower = body.toLowerCase();
+    if (
+      res.status === 403 &&
+      (lower.includes("no_permission") || lower.includes("no permission"))
+    ) {
+      if (path.includes("/cashbook") || path.includes("payment_accounts")) {
+        throw new Error(
+          "Fatture in Cloud: permesso mancante sulla Prima nota (cashbook). " +
+            "Rigenera il token API con lo scope «cashbook:r» (e «settings:r» per i conti). " +
+            "Pannello sviluppatori FiC → App → Scopes → cashbook:r → nuovo token → " +
+            "incollalo in Vercel come FIC_API_TOKEN → Redeploy. " +
+            "Se usi un utente secondario FiC, l’admin deve anche abilitare Prima nota in Utenti e permessi."
+        );
+      }
+      throw new Error(
+        "Fatture in Cloud: token senza permesso (403 NO_PERMISSION) sull’endpoint " +
+          `${path}. Aggiungi gli scope mancanti e rigenera FIC_API_TOKEN.`
+      );
+    }
     throw new Error(
       `Fatture in Cloud ha risposto con errore ${res.status}: ${body.slice(0, 600)}`
     );
