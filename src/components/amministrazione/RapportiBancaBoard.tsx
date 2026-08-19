@@ -142,13 +142,23 @@ export function RapportiBancaBoard() {
       }
       setImportOpen(false);
       setPdfFile(null);
+
+      // Date sempre dal PDF: allinea il filtro tabella al periodo dell'estratto
+      if (res.dateFrom && res.dateTo) {
+        setPreset("personalizzato");
+        setDateFrom(res.dateFrom);
+        setDateTo(res.dateTo);
+      }
+
       setInfo(
-        `PDF «processato»: ${res.rowsImported} nuovi movimenti su ${res.rowsTotal} rilevati` +
-          (res.rowsSkipped ? `, ${res.rowsSkipped} già presenti` : "") +
-          `, match fatture: ${res.rowsMatched}. Parser: ${res.parserModel}. ${res.notes}`
+        `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
+          (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
+          `, match: ${res.rowsMatched}.` +
+          (res.dateFrom && res.dateTo
+            ? ` Periodo dal PDF: ${formatDateIt(res.dateFrom)} – ${formatDateIt(res.dateTo)}.`
+            : "") +
+          ` Parser: ${res.parserModel}. ${res.notes}`
       );
-      // Allarga il filtro date al range importato se fuori periodo corrente
-      await load();
     });
   }
 
@@ -160,10 +170,9 @@ export function RapportiBancaBoard() {
     <div className="bank-report-root space-y-4">
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Movimenti da estratto conto PDF (BCC / banca), riconciliazione con
-          fatture locali e stampa report ISO 9001. Clicca{" "}
-          <strong>Sincronizza</strong> e carica il PDF: il sistema scorpora le
-          voci una per una.
+          Movimenti da estratto conto PDF: le <strong>date di ogni voce</strong>{" "}
+          le prende il sistema dal file (non vanno impostate a mano). Dopo
+          l’import il filtro periodo si allinea automaticamente all’estratto.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -287,9 +296,9 @@ export function RapportiBancaBoard() {
           </label>
         </div>
         <p className="text-[11px] text-[var(--muted)]">
-          Il periodo filtra la tabella. Per importare i movimenti:{" "}
-          <strong>Sincronizza (carica PDF)</strong> con l’estratto conto della
-          banca, poi eventualmente allarga le date per vederli tutti.
+          Il filtro date serve solo a <strong>visualizzare</strong> la tabella.
+          All’import PDF il periodo viene impostato da solo in base alle date
+          trovate nel file.
         </p>
       </div>
 
@@ -299,10 +308,10 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Carica il PDF dell’estratto conto (BCC Don Rizzo o altro). Il
-            sistema estrae il testo, scorpora ogni movimento e lo salva con
-            audit ISO. Se hai <code>OPENAI_API_KEY</code> lo scorporo è più
-            preciso; altrimenti usa regole euristiche.
+            Carica solo il PDF dell’estratto conto. Data operazione e data
+            valuta di ogni movimento sono lette dal documento; non serve
+            selezionare un periodo prima. Se hai{" "}
+            <code>OPENAI_API_KEY</code> lo scorporo è più preciso.
           </p>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>

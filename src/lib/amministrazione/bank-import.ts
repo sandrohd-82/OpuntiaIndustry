@@ -16,6 +16,9 @@ export type BankPdfImportResult = {
   rowsMatched: number;
   parserModel: string;
   notes: string;
+  /** Range date preso dal PDF (min/max transactionDate). */
+  dateFrom: string | null;
+  dateTo: string | null;
 };
 
 function scoreMatch(input: {
@@ -73,6 +76,13 @@ export async function importBankStatementPdf(input: {
   const fileSha = createHash("sha256").update(input.buffer).digest("hex");
   const parsed = await parseBankStatementPdf(input.buffer);
   const accountName = input.accountName?.trim() || "BCC Don Rizzo";
+
+  const dates = parsed.lines
+    .map((l) => l.transactionDate)
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+  const pdfDateFrom = dates[0] ?? null;
+  const pdfDateTo = dates[dates.length - 1] ?? null;
 
   const { data: batch, error: batchErr } = await input.supabase
     .from("bank_import_batches")
@@ -236,5 +246,7 @@ export async function importBankStatementPdf(input: {
     rowsMatched,
     parserModel: parsed.parserModel,
     notes: parsed.notes,
+    dateFrom: pdfDateFrom,
+    dateTo: pdfDateTo,
   };
 }

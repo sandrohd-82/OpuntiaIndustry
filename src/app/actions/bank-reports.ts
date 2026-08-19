@@ -51,6 +51,8 @@ export async function importBankStatementPdfAction(
       rowsMatched: number;
       parserModel: string;
       notes: string;
+      dateFrom: string | null;
+      dateTo: string | null;
     }
   | { success: false; error: string }
 > {
