@@ -204,9 +204,45 @@ function asNumber(value: unknown): number {
 }
 
 function asDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return toIsoDateUtc(value);
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const d = new Date(value);
+    return Number.isFinite(d.getTime()) ? toIsoDateUtc(d) : null;
+  }
   if (typeof value !== "string" || !value.trim()) return null;
   const d = value.trim().slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+function toIsoDateUtc(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+function pickAmount(...candidates: unknown[]): number {
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n) && n !== 0) return n;
+  }
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+function dateInRange(
+  date: string | null,
+  from: string,
+  to: string
+): boolean {
+  if (!date) return false;
+  return date >= from && date <= to;
 }
 
 function paymentStatusFromPayments(payments: unknown): FicPaymentStatus {
@@ -1213,10 +1249,9 @@ export type FicCashbookEntry = {
 };
 
 /**
- * Primanota / movimenti cassa-banca FiC (TS Pay → conto BCC).
- * date_from / date_to obbligatori (YYYY-MM-DD).
- * Paginazione ufficiale: page + per_page (max 100).
- * Di default NON filtra per payment_account_id (tutti i conti); passare id solo se serve.
+ * Primanota / movimenti cassa-banca FiC.
+ * Nota: ListCashbookEntriesResponse espone solo `data` (niente last_page) —
+ * non forziamo paginazione; `type=all` viene omesso (parametro opzionale).
  */
 export async function fetchFicCashbook(input: {
   dateFrom: string;
@@ -1224,71 +1259,159 @@ export async function fetchFicCashbook(input: {
   paymentAccountId?: number;
   type?: "all" | "in" | "out";
 }): Promise<FicCashbookEntry[]> {
+  const query: Record<string, string | number | undefined> = {
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+  };
+  if (input.type && input.type !== "all") {
+    query.type = input.type;
+  }
+  if (input.paymentAccountId) {
+    query.payment_account_id = input.paymentAccountId;
+  }
+
+  const res = await ficGet<{ data?: unknown[] }>("/cashbook", query);
   const out: FicCashbookEntry[] = [];
-  let page = 1;
-  let lastPage = 1;
 
-  do {
-    const query: Record<string, string | number | undefined> = {
-      date_from: input.dateFrom,
-      date_to: input.dateTo,
-      type: input.type ?? "all",
-      page,
-      per_page: 100,
-    };
-    if (input.paymentAccountId) {
-      query.payment_account_id = input.paymentAccountId;
-    }
-    const res = await ficGet<{
-      data?: unknown[];
-      last_page?: number;
-      current_page?: number;
-    }>("/cashbook", query);
-    lastPage = Number(res.last_page ?? 1) || 1;
-
-    for (const item of res.data ?? []) {
-      const r = asRecord(item);
-      const amountIn = asNumber(r.amount_in);
-      const amountOut = asNumber(r.amount_out);
-      const amount =
-        amountIn > 0
-          ? amountIn
-          : amountOut > 0
-            ? -amountOut
-            : asNumber(r.amount);
-      const payIn = asRecord(r.payment_account_in);
-      const payOut = asRecord(r.payment_account_out);
-      const accountName =
-        asText(payIn.name) ||
-        asText(payOut.name) ||
-        (amount >= 0 ? "Entrata" : "Uscita");
-      const accountId =
-        asNumber(payIn.id) || asNumber(payOut.id) || 0;
-      const doc = asRecord(r.document);
-      const rawId = asText(r.id);
-      const ficId =
-        rawId ||
-        [
-          asDateOnly(r.date) ?? "x",
-          amount,
-          accountId,
-          asText(r.type) || asText(r.kind),
-          asText(r.description).slice(0, 48),
-        ].join("|");
-      out.push({
-        ficId: String(ficId),
-        date: asDateOnly(r.date),
+  for (const [idx, item] of (res.data ?? []).entries()) {
+    const r = asRecord(item);
+    const amountIn = pickAmount(r.amount_in, r.amountIn);
+    const amountOut = pickAmount(r.amount_out, r.amountOut);
+    const amount =
+      amountIn > 0 ? amountIn : amountOut > 0 ? -amountOut : pickAmount(r.amount);
+    const payIn = asRecord(r.payment_account_in ?? r.paymentAccountIn);
+    const payOut = asRecord(r.payment_account_out ?? r.paymentAccountOut);
+    const accountName =
+      asText(payIn.name) ||
+      asText(payOut.name) ||
+      (amount >= 0 ? "Entrata" : "Uscita");
+    const accountId = asNumber(payIn.id) || asNumber(payOut.id) || 0;
+    const doc = asRecord(r.document);
+    const rawId = asText(r.id);
+    const date =
+      asDateOnly(r.date) ||
+      asDateOnly(r.date_start) ||
+      asDateOnly(r.created_at);
+    const ficId =
+      rawId ||
+      [
+        "cb",
+        date ?? "x",
         amount,
-        description: asText(r.description),
-        entityName: asText(r.entity_name),
-        kind: asText(r.kind) || asText(r.type),
-        documentId: asNumber(doc.id) || asNumber(r.document_id) || null,
-        paymentAccountName: accountName,
-        raw: r,
+        accountId,
+        asText(r.type) || asText(r.kind),
+        asText(r.description).slice(0, 48),
+        idx,
+      ].join("|");
+    out.push({
+      ficId: String(ficId),
+      date,
+      amount,
+      description: asText(r.description),
+      entityName: asText(r.entity_name ?? r.entityName),
+      kind: asText(r.kind) || asText(r.type) || "cashbook",
+      documentId: asNumber(doc.id) || asNumber(r.document_id) || null,
+      paymentAccountName: accountName,
+      raw: { ...r, _source: "cashbook" },
+    });
+  }
+  return out;
+}
+
+/**
+ * Pagamenti “paid” da fatture emesse/ricevute FiC nel periodo.
+ * Utile quando la Prima nota (cashbook) è incompleta rispetto ai saldi documenti.
+ */
+export async function fetchFicPaidDocumentPayments(input: {
+  dateFrom: string;
+  dateTo: string;
+}): Promise<FicCashbookEntry[]> {
+  const out: FicCashbookEntry[] = [];
+
+  async function collect(
+    path: string,
+    type: "issued" | "received",
+    docType: string
+  ) {
+    let page = 1;
+    let lastPage = 1;
+    do {
+      const res = await ficGet<{
+        data?: unknown[];
+        last_page?: number;
+      }>(path, {
+        type: docType,
+        fieldset: "detailed",
+        page,
+        per_page: 100,
       });
-    }
-    page += 1;
-  } while (page <= lastPage && page <= 50);
+      lastPage = Number(res.last_page ?? 1) || 1;
+      for (const item of res.data ?? []) {
+        const doc = asRecord(item);
+        const ficDocId = asNumber(doc.id);
+        if (!ficDocId) continue;
+        const entity = asRecord(doc.entity);
+        const entityName = asText(entity.name) || asText(doc.entity_name);
+        const number = asText(doc.number) || String(ficDocId);
+        const payments = Array.isArray(doc.payments_list)
+          ? doc.payments_list
+          : Array.isArray(doc.payments)
+            ? doc.payments
+            : [];
+        payments.forEach((p, idx) => {
+          const pay = asRecord(p);
+          const status = asText(pay.status).toLowerCase();
+          if (status && status !== "paid") return;
+          const paidDate =
+            asDateOnly(pay.paid_date) ||
+            asDateOnly(pay.paidDate) ||
+            asDateOnly(pay.due_date) ||
+            asDateOnly(pay.dueDate) ||
+            asDateOnly(doc.date);
+          if (!dateInRange(paidDate, input.dateFrom, input.dateTo)) return;
+          const amountAbs = Math.abs(
+            pickAmount(pay.amount, pay.amount_gross, doc.amount_gross)
+          );
+          if (amountAbs <= 0) return;
+          const amount = type === "issued" ? amountAbs : -amountAbs;
+          const account = asRecord(
+            pay.payment_account ?? pay.paymentAccount
+          );
+          const accountName =
+            asText(account.name) ||
+            (type === "issued" ? "Incasso documento" : "Pagamento documento");
+          const payId = asText(pay.id) || String(asNumber(pay.id) || idx);
+          out.push({
+            ficId: `docpay:${type}:${ficDocId}:${payId}`,
+            date: paidDate,
+            amount,
+            description: `Fatt. ${number} · ${asText(pay.payment_terms) || status || "paid"}`,
+            entityName,
+            kind: "document_payment",
+            documentId: ficDocId,
+            paymentAccountName: accountName,
+            raw: {
+              ...pay,
+              _source: "document_payment",
+              _document_type: type,
+              _document_id: ficDocId,
+              _document_number: number,
+            },
+          });
+        });
+      }
+      page += 1;
+    } while (page <= lastPage && page <= 40);
+  }
+
+  await collect("/issued_documents", "issued", "invoice");
+  await collect("/received_documents", "received", "expense");
+  // anche note di credito / self invoice se presenti come movimenti
+  try {
+    await collect("/issued_documents", "issued", "credit_note");
+  } catch {
+    /* scope opzionale */
+  }
 
   return out;
 }

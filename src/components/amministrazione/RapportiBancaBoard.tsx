@@ -124,7 +124,11 @@ export function RapportiBancaBoard() {
         return;
       }
       setInfo(
-        `Sincronizzati ${res.fetched} movimenti dal ${formatDateIt(dateFrom)} al ${formatDateIt(dateTo)} (${res.accountName}). Nuovi/aggiornati inserimenti: ${res.upserted}, match: ${res.matched}.`
+        `Periodo ${formatDateIt(dateFrom)}–${formatDateIt(dateTo)}: ` +
+          `${res.fetched} movimenti totali (prima nota FiC: ${res.fromCashbook}, ` +
+          `pagamenti fatture: ${res.fromDocumentPayments}` +
+          (res.skippedNoDate ? `, senza data: ${res.skippedNoDate}` : "") +
+          `). Scritti nuovi: ${res.upserted}, match: ${res.matched}.`
       );
       await load();
     });

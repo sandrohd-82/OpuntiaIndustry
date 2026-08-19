@@ -46,6 +46,9 @@ export async function syncBankReportsAction(raw: unknown): Promise<
       matched: number;
       invoicesMarkedPaid: number;
       accountName: string;
+      fromCashbook: number;
+      fromDocumentPayments: number;
+      skippedNoDate: number;
     }
   | { success: false; error: string }
 > {

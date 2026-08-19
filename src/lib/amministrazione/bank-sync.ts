@@ -1,5 +1,6 @@
 import {
   fetchFicCashbook,
+  fetchFicPaidDocumentPayments,
   fetchFicPaymentAccounts,
   type FicCashbookEntry,
 } from "@/lib/fic";
@@ -13,6 +14,9 @@ export type BankSyncResult = {
   matched: number;
   invoicesMarkedPaid: number;
   accountName: string;
+  fromCashbook: number;
+  fromDocumentPayments: number;
+  skippedNoDate: number;
 };
 
 function normalizeName(s: string): string {
@@ -97,13 +101,41 @@ export async function syncBankReportsFromFic(input: {
   const preferred = accounts.find((a) =>
     /don\s*rizzo|bcc/i.test(a.name)
   );
-  const entries = await fetchFicCashbook({
-    dateFrom: input.dateFrom,
-    dateTo: input.dateTo,
-    paymentAccountId:
-      input.onlyPreferredBank && preferred?.id ? preferred.id : undefined,
-    type: "all",
-  });
+
+  const [cashbookEntries, documentPayments] = await Promise.all([
+    fetchFicCashbook({
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo,
+      paymentAccountId:
+        input.onlyPreferredBank && preferred?.id ? preferred.id : undefined,
+    }),
+    fetchFicPaidDocumentPayments({
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo,
+    }).catch((e) => {
+      console.error("[bank sync document payments]", e);
+      return [] as FicCashbookEntry[];
+    }),
+  ]);
+
+  // Unisci: cashbook prima; aggiungi pagamenti documenti non già coperti
+  const mergedByFicId = new Map<string, FicCashbookEntry>();
+  for (const e of cashbookEntries) {
+    mergedByFicId.set(e.ficId, e);
+  }
+  for (const e of documentPayments) {
+    const clash = [...mergedByFicId.values()].find(
+      (c) =>
+        Boolean(c.documentId) &&
+        Boolean(e.documentId) &&
+        c.documentId === e.documentId &&
+        c.date === e.date &&
+        Math.abs(Math.abs(c.amount) - Math.abs(e.amount)) < 0.02
+    );
+    if (clash) continue;
+    if (!mergedByFicId.has(e.ficId)) mergedByFicId.set(e.ficId, e);
+  }
+  const entries = [...mergedByFicId.values()];
   const accountName = resolveAccountName(entries, accounts);
 
   const { data: invoices, error: invErr } = await input.supabase
@@ -130,11 +162,18 @@ export async function syncBankReportsFromFic(input: {
   let upserted = 0;
   let matched = 0;
   let invoicesMarkedPaid = 0;
+  let skippedNoDate = 0;
   const paidInvoiceIds = new Set<string>();
 
   for (const entry of entries) {
-    if (!entry.date) continue;
-    const ficPaymentId = `cashbook:${entry.ficId}`;
+    if (!entry.date) {
+      skippedNoDate += 1;
+      continue;
+    }
+    const ficPaymentId =
+      entry.ficId.startsWith("docpay:") || entry.ficId.startsWith("cashbook:")
+        ? entry.ficId
+        : `cashbook:${entry.ficId}`;
 
     const { data: existing } = await input.supabase
       .from("bank_transactions")
@@ -274,5 +313,8 @@ export async function syncBankReportsFromFic(input: {
     matched,
     invoicesMarkedPaid,
     accountName,
+    fromCashbook: cashbookEntries.length,
+    fromDocumentPayments: documentPayments.length,
+    skippedNoDate,
   };
 }
