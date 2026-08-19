@@ -89,11 +89,14 @@ body {
   }
 
   .paper-invoice-viewer,
-  .paper-invoice-viewer * {
+  .paper-invoice-viewer *,
+  .commercialista-print-root,
+  .commercialista-print-root * {
     visibility: visible !important;
   }
 
-  .paper-invoice-viewer {
+  .paper-invoice-viewer,
+  .commercialista-print-root {
     position: absolute;
     inset: 0;
     margin: 0;
@@ -106,6 +109,11 @@ body {
     outline: none !important;
     max-width: none !important;
     width: 100% !important;
+  }
+
+  .commercialista-print-break {
+    break-after: page;
+    page-break-after: always;
   }
 
   .print\:hidden {

@@ -17,8 +17,17 @@ import {
 import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import {
   includeInContabilitaFatturaEmessa,
+  mapFatturaEmessaRow,
+  mapFatturaRicevutaRow,
   roundMoney,
+  type Fattura,
 } from "@/lib/amministrazione/fatture";
+import {
+  defaultDestinatarioCooperativa,
+  mapFicRawToPaperInvoice,
+  mapOpuntiaFatturaToPaperInvoice,
+  type PaperInvoiceModel,
+} from "@/lib/amministrazione/paper-invoice";
 import {
   dateRangeForTrimestre,
   labelTrimestre,
@@ -30,6 +39,13 @@ import type {
   ElaborazioneContabileInsert,
   ElaborazioneContabileKind,
   ElaborazioneContabileVoceInsert,
+  FatturaEmessaDilazioneRow,
+  FatturaEmessaRigaRow,
+  FatturaEmessaRow,
+  FatturaRicevutaContributoCassaRow,
+  FatturaRicevutaDilazioneRow,
+  FatturaRicevutaRigaRow,
+  FatturaRicevutaRow,
   TrimestreCommercialistaRow,
 } from "@/types/database";
 
@@ -767,3 +783,261 @@ export async function applySequenzaCommercialistaAction(input: {
 
   return { success: true, assegnati: numbered.length };
 }
+
+export type CommercialistaPaperDoc = {
+  id: string;
+  numeroInterno: string;
+  dataEmissione: string;
+  anagraficaRagioneSociale: string;
+  numeroSequenza: number | null;
+  model: PaperInvoiceModel;
+};
+
+async function loadFatturaCompletaForPaper(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  kind: ElaborazioneContabileKind,
+  id: string
+): Promise<
+  | { ok: true; fattura: Fattura }
+  | { ok: false; error: string }
+> {
+  if (kind === "emessa") {
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select("*")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    if (!data) return { ok: false, error: "Documento non trovato." };
+    const { data: righe, error: righeErr } = await supabase
+      .from("fatture_emesse_righe")
+      .select("*")
+      .eq("fattura_id", id)
+      .order("sort_order", { ascending: true });
+    if (righeErr) return { ok: false, error: righeErr.message };
+    const { data: dilazioni } = await supabase
+      .from("fatture_emesse_dilazioni")
+      .select("*")
+      .eq("fattura_id", id)
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: true });
+    return {
+      ok: true,
+      fattura: mapFatturaEmessaRow(
+        data as FatturaEmessaRow,
+        (righe ?? []) as FatturaEmessaRigaRow[],
+        (dilazioni ?? []) as FatturaEmessaDilazioneRow[]
+      ),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("fatture_ricevute")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "Fattura non trovata." };
+  const { data: righe, error: righeErr } = await supabase
+    .from("fatture_ricevute_righe")
+    .select("*")
+    .eq("fattura_id", id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { ok: false, error: righeErr.message };
+  const { data: dilazioni } = await supabase
+    .from("fatture_ricevute_dilazioni")
+    .select("*")
+    .eq("fattura_id", id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  const { data: contributi } = await supabase
+    .from("fatture_ricevute_contributi_cassa")
+    .select("*")
+    .eq("fattura_id", id)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  return {
+    ok: true,
+    fattura: mapFatturaRicevutaRow(
+      data as FatturaRicevutaRow,
+      (righe ?? []) as FatturaRicevutaRigaRow[],
+      (dilazioni ?? []) as FatturaRicevutaDilazioneRow[],
+      (contributi ?? []) as FatturaRicevutaContributoCassaRow[]
+    ),
+  };
+}
+
+async function buildPaperModelForFattura(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  fattura: Fattura
+): Promise<PaperInvoiceModel> {
+  const destinatario = defaultDestinatarioCooperativa();
+  if (
+    fattura.kind === "ricevuta" &&
+    fattura.ficId &&
+    Number.isFinite(fattura.ficId) &&
+    fattura.ficId > 0
+  ) {
+    const { data } = await supabase
+      .from("fic_invoices")
+      .select("raw_data")
+      .eq("fic_id", fattura.ficId)
+      .eq("type", "received")
+      .is("deleted_at", null)
+      .maybeSingle();
+    const raw = (data?.raw_data ?? null) as Record<string, unknown> | null;
+    if (raw && Object.keys(raw).length > 0) {
+      return mapFicRawToPaperInvoice(raw, destinatario);
+    }
+  }
+  return mapOpuntiaFatturaToPaperInvoice(fattura, destinatario);
+}
+
+/**
+ * Carica i fogli stampabili del periodo (ordine data) con eventuale n. sequenza matita.
+ */
+export async function getCommercialistaPaperBatchAction(input: {
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: TrimestreNumero;
+}): Promise<
+  | {
+      success: true;
+      docs: CommercialistaPaperDoc[];
+      senzaSequenza: number;
+      labelPeriodo: string;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const parsed = commercialistaSummarySchema.safeParse({
+    anno: input.anno,
+    trimestre: input.trimestre,
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
+    };
+  }
+  const { anno, trimestre } = parsed.data;
+  const periodoRes = await resolvePeriodoTrimestre(anno, trimestre);
+  if (!periodoRes.ok) return { success: false, error: periodoRes.error };
+  const { dal, al, labelTrimestre: label } = periodoRes.periodo;
+  const supabase = await createClient();
+  const sequenza = await loadSequenzaMap(supabase, input.kind, anno, trimestre);
+
+  type Testata = {
+    id: string;
+    numero_interno: string;
+    data_emissione: string;
+    ragione: string;
+  };
+  let testate: Testata[] = [];
+
+  if (input.kind === "emessa") {
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select(
+        "id, numero_interno, data_emissione, cliente_ragione_sociale, tipo_documento, stato_pagamento, fattura_collegata_id"
+      )
+      .is("deleted_at", null)
+      .gte("data_emissione", dal)
+      .lte("data_emissione", al)
+      .order("data_emissione", { ascending: true })
+      .order("numero_interno", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    testate = (data ?? [])
+      .filter((r) => {
+        if (String(r.numero_interno ?? "").toUpperCase().startsWith("NC-")) {
+          return false;
+        }
+        return includeInContabilitaFatturaEmessa({
+          tipo_documento: r.tipo_documento,
+          stato_pagamento: r.stato_pagamento,
+          fattura_collegata_id: r.fattura_collegata_id,
+        });
+      })
+      .map((r) => ({
+        id: String(r.id),
+        numero_interno: String(r.numero_interno ?? ""),
+        data_emissione: String(r.data_emissione ?? ""),
+        ragione: String(r.cliente_ragione_sociale ?? ""),
+      }));
+  } else {
+    const { data, error } = await supabase
+      .from("fatture_ricevute")
+      .select(
+        "id, numero_interno, data_emissione, fornitore_ragione_sociale"
+      )
+      .is("deleted_at", null)
+      .gte("data_emissione", dal)
+      .lte("data_emissione", al)
+      .order("data_emissione", { ascending: true })
+      .order("numero_interno", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    testate = (data ?? []).map((r) => ({
+      id: String(r.id),
+      numero_interno: String(r.numero_interno ?? ""),
+      data_emissione: String(r.data_emissione ?? ""),
+      ragione: String(r.fornitore_ragione_sociale ?? ""),
+    }));
+  }
+
+  const docs: CommercialistaPaperDoc[] = [];
+  for (const t of testate) {
+    const loaded = await loadFatturaCompletaForPaper(supabase, input.kind, t.id);
+    if (!loaded.ok) {
+      console.error("[commercialista paper]", t.id, loaded.error);
+      continue;
+    }
+    const model = await buildPaperModelForFattura(supabase, loaded.fattura);
+    docs.push({
+      id: t.id,
+      numeroInterno: t.numero_interno,
+      dataEmissione: t.data_emissione,
+      anagraficaRagioneSociale: t.ragione,
+      numeroSequenza: sequenza.get(t.id) ?? null,
+      model,
+    });
+  }
+
+  return {
+    success: true,
+    docs,
+    senzaSequenza: docs.filter((d) => d.numeroSequenza == null).length,
+    labelPeriodo: label,
+  };
+}
+
+export async function auditCommercialistaPaperAction(input: {
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: TrimestreNumero;
+  mode: "elabora_apri" | "stampa_batch" | "stampa_singola";
+  documenti: number;
+  mostraSequenza: boolean;
+  fatturaId?: string | null;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  await writeAuditLog({
+    entity_type: "commercialista_stampa",
+    entity_id: input.fatturaId ?? `${input.kind}-${input.anno}-T${input.trimestre}`,
+    action: "export",
+    actor_id: auth.userId,
+    summary: `Commercialista ${input.mode} ${input.kind} ${input.anno}-T${input.trimestre} (${input.documenti} doc)`,
+    payload: {
+      kind: input.kind,
+      anno: input.anno,
+      trimestre: input.trimestre,
+      mode: input.mode,
+      documenti: input.documenti,
+      mostra_sequenza: input.mostraSequenza,
+      fattura_id: input.fatturaId ?? null,
+    },
+  });
+  return { success: true };
+}
+

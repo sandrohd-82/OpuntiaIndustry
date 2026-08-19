@@ -16,6 +16,8 @@ import {
   upsertTrimestreCommercialistaAction,
   type CommercialistaSummaryResult,
 } from "@/app/actions/commercialista";
+import { CommercialistaElaboraFattureModal } from "@/components/amministrazione/CommercialistaElaboraFattureModal";
+import { CommercialistaStampaFattureModal } from "@/components/amministrazione/CommercialistaStampaFattureModal";
 import type {
   CommercialistaColonnaTotali,
   CommercialistaSummary,
@@ -104,6 +106,8 @@ function ColonnaCommercialista({
   const [openDocs, setOpenDocs] = useState(false);
   const [seqMsg, setSeqMsg] = useState<string | null>(null);
   const [seqPending, startSeq] = useTransition();
+  const [elaboraOpen, setElaboraOpen] = useState(false);
+  const [stampaOpen, setStampaOpen] = useState(false);
 
   function applySequenza() {
     setSeqMsg(null);
@@ -178,6 +182,25 @@ function ColonnaCommercialista({
         {seqMsg ? (
           <p className="text-xs text-slate-600">{seqMsg}</p>
         ) : null}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={colonna.conteggioDocumenti === 0}
+            onClick={() => setElaboraOpen(true)}
+            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+          >
+            Elabora fatture
+          </button>
+          <button
+            type="button"
+            disabled={colonna.conteggioDocumenti === 0}
+            onClick={() => setStampaOpen(true)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Stampa fatture
+          </button>
+        </div>
 
         <button
           type="button"
@@ -308,6 +331,23 @@ function ColonnaCommercialista({
           </dl>
         ) : null}
       </div>
+
+      {elaboraOpen ? (
+        <CommercialistaElaboraFattureModal
+          kind={kind}
+          anno={anno}
+          trimestre={trimestre}
+          onClose={() => setElaboraOpen(false)}
+        />
+      ) : null}
+      {stampaOpen ? (
+        <CommercialistaStampaFattureModal
+          kind={kind}
+          anno={anno}
+          trimestre={trimestre}
+          onClose={() => setStampaOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }
