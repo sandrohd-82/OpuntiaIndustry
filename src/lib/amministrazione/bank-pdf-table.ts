@@ -222,7 +222,7 @@ export async function extractBankTableFromPdf(
 
       if (!amounts.length) continue;
 
-      let description = text
+      const description = text
         .replace(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/g, " ")
         .replace(IT_AMOUNT_RE, " ")
         .replace(/mov\.?\s*dare|mov\.?\s*avere/gi, " ")
