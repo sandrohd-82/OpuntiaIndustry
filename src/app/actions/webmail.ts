@@ -1,5 +1,6 @@
 "use server";
 
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -67,10 +68,17 @@ export async function listWebmailCategorieAction(): Promise<
 }
 
 export async function listWebmailAccountsAction(): Promise<
-  | { success: true; accounts: WebmailAccountPublic[] }
+  | {
+      success: true;
+      accounts: WebmailAccountPublic[];
+      canManageAccounts: boolean;
+    }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("commerciale");
+  const { auth } = await requireAreaAccess("commerciale");
+  const canManageAccounts =
+    isAdminLikeProfile(auth.profile) ||
+    auth.areas.some((a) => a.slug === "amministrazione");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_accounts")
@@ -83,6 +91,7 @@ export async function listWebmailAccountsAction(): Promise<
   return {
     success: true,
     accounts: (data ?? []).map((r) => mapAccount(r as Record<string, unknown>)),
+    canManageAccounts,
   };
 }
 
@@ -179,6 +188,14 @@ export async function upsertWebmailAccountAction(
     .single();
   if (error) return { success: false, error: error.message };
 
+  await supabase.from("webmail_account_grants").insert({
+    account_id: data.id,
+    user_id: auth.userId,
+    can_send: true,
+    created_by: auth.userId,
+    updated_by: auth.userId,
+  });
+
   await writeAuditLog({
     entity_type: "webmail_accounts",
     entity_id: data.id,
@@ -189,6 +206,163 @@ export async function upsertWebmailAccountAction(
   });
 
   return { success: true, account: mapAccount(data as Record<string, unknown>) };
+}
+
+export type WebmailOperatorOption = {
+  id: string;
+  email: string;
+  fullName: string;
+};
+
+export type WebmailAccountGrantPublic = {
+  id: string;
+  accountId: string;
+  userId: string;
+  canSend: boolean;
+  email: string;
+  fullName: string;
+};
+
+export async function listWebmailOperatorsAction(): Promise<
+  | { success: true; operators: WebmailOperatorOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("profiles")
+    .select("id, email, full_name, first_name, last_name, is_active")
+    .eq("is_active", true)
+    .order("email", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    operators: (data ?? []).map((r) => ({
+      id: String(r.id),
+      email: String(r.email ?? ""),
+      fullName:
+        [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ||
+        String(r.full_name ?? r.email ?? ""),
+    })),
+  };
+}
+
+export async function listWebmailAccountGrantsAction(
+  accountId: string
+): Promise<
+  | { success: true; grants: WebmailAccountGrantPublic[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  if (!accountId) return { success: false, error: "Casella non valida." };
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("webmail_account_grants")
+    .select("id, account_id, user_id, can_send")
+    .eq("account_id", accountId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const userIds = [...new Set((data ?? []).map((g) => String(g.user_id)))];
+  const profileMap = new Map<string, { email: string; fullName: string }>();
+  if (userIds.length > 0) {
+    const { data: profiles } = await service
+      .from("profiles")
+      .select("id, email, full_name, first_name, last_name")
+      .in("id", userIds);
+    for (const p of profiles ?? []) {
+      profileMap.set(String(p.id), {
+        email: String(p.email ?? ""),
+        fullName:
+          [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
+          String(p.full_name ?? p.email ?? ""),
+      });
+    }
+  }
+
+  return {
+    success: true,
+    grants: (data ?? []).map((g) => {
+      const profile = profileMap.get(String(g.user_id));
+      return {
+        id: String(g.id),
+        accountId: String(g.account_id),
+        userId: String(g.user_id),
+        canSend: Boolean(g.can_send),
+        email: profile?.email ?? "",
+        fullName: profile?.fullName ?? "",
+      };
+    }),
+  };
+}
+
+export async function setWebmailAccountGrantsAction(input: {
+  accountId: string;
+  userIds: string[];
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const accountId = input.accountId?.trim();
+  if (!accountId) return { success: false, error: "Casella non valida." };
+  const wanted = [
+    ...new Set(
+      (input.userIds ?? []).map((id) => id.trim()).filter(Boolean)
+    ),
+  ];
+
+  const supabase = await createClient();
+  const { data: existing, error: exErr } = await supabase
+    .from("webmail_account_grants")
+    .select("id, user_id")
+    .eq("account_id", accountId)
+    .is("deleted_at", null);
+  if (exErr) return { success: false, error: exErr.message };
+
+  const currentIds = new Set((existing ?? []).map((g) => String(g.user_id)));
+  const wantedSet = new Set(wanted);
+  const now = new Date().toISOString();
+
+  const toRemove = (existing ?? []).filter(
+    (g) => !wantedSet.has(String(g.user_id))
+  );
+  if (toRemove.length > 0) {
+    const { error } = await supabase
+      .from("webmail_account_grants")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .in(
+        "id",
+        toRemove.map((g) => g.id)
+      );
+    if (error) return { success: false, error: error.message };
+  }
+
+  const toAdd = wanted.filter((id) => !currentIds.has(id));
+  if (toAdd.length > 0) {
+    const { error } = await supabase.from("webmail_account_grants").insert(
+      toAdd.map((userId) => ({
+        account_id: accountId,
+        user_id: userId,
+        can_send: true,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      }))
+    );
+    if (error) return { success: false, error: error.message };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_account_grants",
+    entity_id: accountId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Assegnazione operatori casella webmail aggiornata (${wanted.length} utenti)`,
+    payload: { account_id: accountId, user_ids: wanted },
+  });
+
+  return { success: true };
 }
 
 export async function listWebmailMessaggiAction(input?: {

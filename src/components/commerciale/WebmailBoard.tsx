@@ -3,13 +3,17 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
   getWebmailBozzaForMessaggioAction,
+  listWebmailAccountGrantsAction,
   listWebmailAccountsAction,
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
+  listWebmailOperatorsAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
+  setWebmailAccountGrantsAction,
   updateWebmailBozzaAction,
   upsertWebmailAccountAction,
+  type WebmailOperatorOption,
 } from "@/app/actions/webmail";
 import {
   WEBMAIL_PROVIDER_PRESETS,
@@ -31,6 +35,7 @@ function formatWhen(iso: string | null) {
 
 export function WebmailBoard() {
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
+  const [canManageAccounts, setCanManageAccounts] = useState(false);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [messaggi, setMessaggi] = useState<WebmailMessaggio[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("");
@@ -46,6 +51,11 @@ export function WebmailBoard() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [grantAccountId, setGrantAccountId] = useState<string | null>(null);
+  const [operators, setOperators] = useState<WebmailOperatorOption[]>([]);
+  const [selectedGrantUserIds, setSelectedGrantUserIds] = useState<string[]>(
+    []
+  );
 
   const [provider, setProvider] = useState<WebmailProvider>("aruba");
   const preset = WEBMAIL_PROVIDER_PRESETS[provider];
@@ -93,9 +103,50 @@ export function WebmailBoard() {
       return;
     }
     setAccounts(a.accounts);
+    setCanManageAccounts(a.canManageAccounts);
     setCategorie(c.items);
     setMessaggi(m.messaggi);
   }, [accountFilter, categoriaFilter, onlyDraft]);
+
+  const grantAccount = useMemo(
+    () => accounts.find((a) => a.id === grantAccountId) ?? null,
+    [accounts, grantAccountId]
+  );
+
+  async function openGrants(accountId: string) {
+    setError(null);
+    setGrantAccountId(accountId);
+    const [ops, grants] = await Promise.all([
+      listWebmailOperatorsAction(),
+      listWebmailAccountGrantsAction(accountId),
+    ]);
+    if (!ops.success) {
+      setError(ops.error);
+      return;
+    }
+    if (!grants.success) {
+      setError(grants.error);
+      return;
+    }
+    setOperators(ops.operators);
+    setSelectedGrantUserIds(grants.grants.map((g) => g.userId));
+  }
+
+  function saveGrants() {
+    if (!grantAccountId) return;
+    startTransition(async () => {
+      const res = await setWebmailAccountGrantsAction({
+        accountId: grantAccountId,
+        userIds: selectedGrantUserIds,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setInfo("Assegnazione operatori salvata (audit registrato).");
+      setGrantAccountId(null);
+    });
+  }
 
   useEffect(() => {
     void reload();
@@ -264,19 +315,21 @@ export function WebmailBoard() {
           <code className="text-xs">docs/WEBMAIL-COLLEGAMENTO-GMAIL-ARUBA.md</code>
         </p>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (setupOpen && !editingId) {
-                setSetupOpen(false);
-                return;
-              }
-              openNewAccount();
-            }}
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          >
-            Collega casella
-          </button>
+          {canManageAccounts ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (setupOpen && !editingId) {
+                  setSetupOpen(false);
+                  return;
+                }
+                openNewAccount();
+              }}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              Collega casella
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={pending}
@@ -288,7 +341,7 @@ export function WebmailBoard() {
         </div>
       </div>
 
-      {setupOpen ? (
+      {setupOpen && canManageAccounts ? (
         <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">
@@ -650,6 +703,69 @@ export function WebmailBoard() {
         </div>
       </div>
 
+      {grantAccount && canManageAccounts ? (
+        <section className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/60 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-sky-950">
+              Assegna operatori · {grantAccount.emailAddress}
+            </h2>
+            <button
+              type="button"
+              className="text-xs text-sky-800 underline"
+              onClick={() => setGrantAccountId(null)}
+            >
+              Chiudi
+            </button>
+          </div>
+          <p className="text-xs text-sky-900/80">
+            Solo gli operatori selezionati vedono messaggi e bozze di questa
+            casella. Superadmin e Amministrazione vedono sempre tutto.
+          </p>
+          <ul className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-sky-100 bg-white p-2">
+            {operators.length === 0 ? (
+              <li className="p-2 text-xs text-[var(--muted)]">
+                Nessun profilo attivo trovato.
+              </li>
+            ) : (
+              operators.map((op) => {
+                const checked = selectedGrantUserIds.includes(op.id);
+                return (
+                  <li key={op.id}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setSelectedGrantUserIds((prev) =>
+                            checked
+                              ? prev.filter((id) => id !== op.id)
+                              : [...prev, op.id]
+                          );
+                        }}
+                      />
+                      <span>
+                        {op.fullName || op.email}
+                        <span className="ml-1 text-xs text-[var(--muted)]">
+                          ({op.email})
+                        </span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={saveGrants}
+            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Salva assegnazioni
+          </button>
+        </section>
+      ) : null}
+
       {accounts.length > 0 ? (
         <ul className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-xs">
           {accounts.map((a) => (
@@ -670,13 +786,24 @@ export function WebmailBoard() {
                   <p className="mt-1 text-red-700">{a.lastSyncError}</p>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => openEditAccount(a)}
-                className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-              >
-                Modifica
-              </button>
+              {canManageAccounts ? (
+                <div className="flex shrink-0 flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void openGrants(a.id)}
+                    className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900"
+                  >
+                    Assegna
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openEditAccount(a)}
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                  >
+                    Modifica
+                  </button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
