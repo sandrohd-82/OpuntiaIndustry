@@ -106,6 +106,11 @@ export async function upsertWebmailAccountAction(
   const selectCols =
     "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error";
 
+  const forcedUsername =
+    input.provider === "generic"
+      ? input.username.trim()
+      : input.emailAddress.trim().toLowerCase();
+
   const basePayload = {
     label: input.label,
     email_address: input.emailAddress.toLowerCase(),
@@ -116,7 +121,7 @@ export async function upsertWebmailAccountAction(
     smtp_host: input.smtpHost || preset.smtpHost,
     smtp_port: input.smtpPort,
     smtp_secure: input.smtpSecure,
-    username: input.username.trim(),
+    username: forcedUsername,
     sync_enabled: input.syncEnabled ?? true,
     updated_by: auth.userId,
     last_sync_error: null as string | null,

@@ -195,7 +195,10 @@ export function WebmailBoard() {
         smtpHost: smtpHost || preset.smtpHost,
         smtpPort: smtpPort || preset.smtpPort,
         smtpSecure: preset.smtpSecure,
-        username: (accUser || accEmail).trim(),
+        username:
+          provider === "generic"
+            ? (accUser || accEmail).trim()
+            : accEmail.trim(),
         password: accPass.trim() || undefined,
         syncEnabled,
       });
@@ -305,9 +308,9 @@ export function WebmailBoard() {
           <p className="text-xs text-[var(--muted)]">{preset.docsHint}</p>
           {provider === "aruba" ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              Aruba: il campo <strong>Username</strong> deve essere uguale all’email
-              della casella (es. <code>info@agrinsicilia.com</code>), non un
-              indirizzo Gmail.
+              Aruba: lo username IMAP è sempre l’email della casella aziendale.
+              Il browser a volte riempie da solo la mail personale del login —
+              quella non viene più usata.
             </p>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
@@ -334,32 +337,50 @@ export function WebmailBoard() {
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">Email</span>
+              <span className="mb-1 block text-xs font-medium">Email casella</span>
               <input
                 value={accEmail}
                 onChange={(e) => {
-                  setAccEmail(e.target.value);
-                  if (!editingId && (!accUser || accUser === accEmail)) {
-                    setAccUser(e.target.value);
-                  }
+                  const v = e.target.value;
+                  setAccEmail(v);
+                  if (provider !== "generic") setAccUser(v);
                 }}
+                autoComplete="off"
+                name="webmail-mailbox-email"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">
-                Username IMAP/SMTP
-              </span>
-              <input
-                value={accUser}
-                onChange={(e) => setAccUser(e.target.value)}
-                placeholder="Di solito = email casella"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
+            {provider === "generic" ? (
+              <label className="text-sm">
+                <span className="mb-1 block text-xs font-medium">
+                  Username IMAP/SMTP
+                </span>
+                <input
+                  value={accUser}
+                  onChange={(e) => setAccUser(e.target.value)}
+                  autoComplete="off"
+                  name="webmail-mailbox-user"
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                />
+              </label>
+            ) : (
+              <div className="text-sm">
+                <span className="mb-1 block text-xs font-medium">
+                  Username IMAP/SMTP
+                </span>
+                <p className="rounded-lg border border-dashed border-[var(--border)] bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  = email casella (non usa la mail personale del login)
+                  {accEmail ? (
+                    <>
+                      : <code>{accEmail}</code>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+            )}
             <label className="text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-medium">
-                Password / App Password
+                Password casella / App Password
                 {editingId ? " (lascia vuoto per non cambiare)" : ""}
               </span>
               <input
@@ -367,6 +388,7 @@ export function WebmailBoard() {
                 value={accPass}
                 onChange={(e) => setAccPass(e.target.value)}
                 autoComplete="new-password"
+                name="webmail-mailbox-pass"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
