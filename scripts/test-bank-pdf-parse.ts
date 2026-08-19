@@ -5,7 +5,9 @@
 import {
   applySignRules,
   extractItAmounts,
+  parseBankAiJson,
   parseItAmount,
+  repairBankAiJson,
   validateLines,
   type ParsedBankLine,
 } from "../src/lib/amministrazione/bank-pdf-parse";
@@ -86,5 +88,16 @@ const v = validateLines(raw);
 assert(v.lines.length === 1, "una sola voce dopo validazione");
 assert(v.lines[0].amount === 25.28, "amountIt 25,28 vince su 25280");
 assert(v.doubtful.length === 1, "saldo escluso");
+
+// Riparazione JSON con virgola italiana non quotata
+const broken = `{"lines":[{"transactionDate":"2025-07-16","amountIt":25,28,"column":"AVERE","description":"STORNO"}]}`;
+const fixed = repairBankAiJson(broken);
+assert(fixed.includes('"25,28"'), "repair quota amountIt italiano");
+const parsedBroken = parseBankAiJson(broken);
+assert(
+  String((parsedBroken.lines?.[0] as { amountIt?: string })?.amountIt) ===
+    "25,28",
+  "parseBankAiJson ripara 25,28"
+);
 
 console.log("\nAll bank-pdf-parse smoke tests passed.");

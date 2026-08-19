@@ -388,8 +388,7 @@ export function normalizeAiColumn(raw: unknown): "DARE" | "AVERE" | null {
 }
 
 /**
- * Priorità amountIt (stringa IT) → dareIt/avereIt → mai fidarsi di float JSON
- * che confondono 25,28 con 25.280.
+ * Priorità: dareIt/avereIt → amountCents (intero JSON) → amountIt stringa → amount.
  */
 function resolveAiAmount(r: Record<string, unknown>): {
   amount: number;
@@ -410,6 +409,22 @@ function resolveAiAmount(r: Record<string, unknown>): {
     const n = parseItAmount(avereIt, { strict: true })!;
     if (n !== 0) {
       return { amount: Math.abs(n), column: "AVERE", amountIt: avereIt };
+    }
+  }
+
+  // amountCents = centesimi interi (25,28 € → 2528) — formato JSON-safe
+  const centsRaw = r.amountCents ?? r.cents;
+  if (centsRaw != null && centsRaw !== "") {
+    const cents = Number(centsRaw);
+    if (Number.isFinite(cents) && Number.isInteger(cents) && cents !== 0) {
+      const mag = Math.abs(cents) / 100;
+      const fromIt = String(r.amountIt ?? "").trim();
+      const amountIt =
+        fromIt && parseItAmount(fromIt, { strict: true }) != null
+          ? fromIt
+          : mag.toFixed(2).replace(".", ",");
+      const signed = col === "AVERE" ? mag : -mag;
+      return { amount: signed, column: col, amountIt };
     }
   }
 
@@ -434,27 +449,23 @@ function resolveAiAmount(r: Record<string, unknown>): {
         ? Math.abs(n)
         : col === "DARE"
           ? -Math.abs(n)
-          : n > 0 && col == null
-            ? -Math.abs(n) // senza colonna: non fidarsi del +
-            : n;
+          : -Math.abs(n);
     return { amount: signed, column: col, amountIt: rawAmount };
   }
   if (typeof rawAmount === "number" && Number.isFinite(rawAmount)) {
-    // Float JSON: sospetto se ha molti zeri (possibile ×1000 da 25.28→25280)
     const mag = Math.abs(rawAmount);
     if (mag === 0) return null;
-    if (mag >= 1000 && Number.isInteger(mag) && mag % 1000 === 0) {
-      // sospetto gonfiamento: richiedi amountIt
+    // Sospetto: interi tondi grandi senza amountIt/cents (possibile ×1000)
+    if (
+      mag >= 1000 &&
+      Number.isInteger(mag) &&
+      mag % 1000 === 0 &&
+      !r.amountIt &&
+      !r.amountCents
+    ) {
       return null;
     }
-    const signed =
-      col === "AVERE"
-        ? mag
-        : col === "DARE"
-          ? -mag
-          : rawAmount > 0
-            ? -mag
-            : -mag;
+    const signed = col === "AVERE" ? mag : -mag;
     return {
       amount: signed,
       column: col,
@@ -468,6 +479,46 @@ function resolveAiAmount(r: Record<string, unknown>): {
 export type AiParseResult =
   | { ok: true; lines: ParsedBankLine[]; modelName: string }
   | { ok: false; error: string };
+
+/**
+ * Ripara JSON tipico LLM su estratti IT:
+ * - fence markdown
+ * - amountIt/dareIt/avereIt con virgola italiana non quotata → stringa
+ * - trailing comma
+ */
+export function repairBankAiJson(raw: string): string {
+  let s = String(raw ?? "").trim();
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+
+  // "amountIt": 1.234,56  → "amountIt": "1.234,56"
+  s = s.replace(
+    /("(amountIt|dareIt|avereIt|importoIt)"\s*:\s*)(-?\d{1,3}(?:\.\d{3})*,\d{1,2}|-?\d+,\d{1,2})(?=\s*[,}\]])/g,
+    '$1"$3"'
+  );
+  // "amount": 1.234,56 → quote (poi parseItAmount)
+  s = s.replace(
+    /("amount"\s*:\s*)(-?\d{1,3}(?:\.\d{3})*,\d{1,2}|-?\d+,\d{1,2})(?=\s*[,}\]])/g,
+    '$1"$2"'
+  );
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  return s;
+}
+
+export function parseBankAiJson(content: string): { lines?: unknown[] } {
+  const attempts = [content, repairBankAiJson(content)];
+  let lastErr: unknown;
+  for (const attempt of attempts) {
+    try {
+      return JSON.parse(attempt) as { lines?: unknown[] };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error("JSON non valido");
+}
 
 export async function parseBankStatementWithAi(
   text: string
@@ -485,35 +536,32 @@ export async function parseBankStatementWithAi(
     process.env.BANK_OPENAI_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
     "gpt-4o";
-  const excerpt = text.slice(0, 32000);
+  const excerpt = text.slice(0, 28000);
   const system = `Sei un estrattore CONTABILE di movimenti da estratto conto italiano (BCC).
 Errori di importo o segno causano gravi problemi: sii pedante.
+Rispondi SOLO con un oggetto JSON valido (RFC 8259). Nessun markdown.
 
-Rispondi SOLO JSON:
+Schema:
 {"lines":[{
   "transactionDate":"YYYY-MM-DD",
-  "valutaDate":"YYYY-MM-DD|null",
-  "amountIt":"25,28",
-  "dareIt":null,
-  "avereIt":null,
-  "column":"DARE"|"AVERE",
+  "valutaDate":"YYYY-MM-DD o null",
+  "amountCents":2528,
+  "column":"DARE",
   "description":"...",
   "counterpartyName":"...",
-  "trnOrCro":"..."
+  "trnOrCro":"...",
+  "amountIt":"25,28"
 }]}
 
 REGOLE OBBLIGATORIE:
-1. amountIt = stringa ITALIANA esatta dal PDF (virgola = centesimi, punto = migliaia).
-   Esempi: "25,28" ; "1.234,56" ; "50,00". MAI float JSON. MAI "25.28". MAI "25280".
-2. column = "DARE" se l'importo è in Mov.DARE (uscita); "AVERE" se in Mov.AVERE (entrata).
-3. Se vedi entrambe le colonne valorizzate sulla stessa riga, usa dareIt e avereIt e crea DUE elementi (uno DARE, uno AVERE).
-4. IGNORA completamente: Saldo, Saldo contabile, Saldo disponibile, Totali, intestazioni, piè di pagina.
-   NON importare mai un saldo come movimento (es. non trasformare un saldo 25.280,00 in un movimento).
-5. "Storno" NON decide il segno da solo: conta SOLO la colonna DARE/AVERE del PDF.
-6. "Bonifico a vs favore" / "Bonifico a vs. favore" / incassi in colonna AVERE → AVERE.
-7. F24, pagamenti, addebiti, commissioni, RID, "versamento unitario" → di solito DARE.
-8. Se non sei sicuro della colonna → column="DARE" (mai inventare entrate).
-9. Se non trovi movimenti: {"lines":[]}`;
+1. amountCents = INTERO JSON (centesimi di euro). Esempi: 25,28€ → 2528 ; 1.234,56€ → 123456 ; 50,00€ → 5000.
+   MAI usare la virgola nei numeri JSON. MAI scrivere 25,28 o 1.234,56 come number.
+2. amountIt = stringa opzionale di audit col testo IT del PDF (sempre tra virgolette): "25,28".
+3. column = "DARE" (uscita, Mov.DARE) oppure "AVERE" (entrata, Mov.AVERE). Obbligatoria.
+4. Se sulla stessa riga ci sono DARE e AVERE, crea DUE elementi (uno per colonna) ciascuno con il proprio amountCents.
+5. IGNORA saldi, totali, intestazioni, piè di pagina. Non importare mai un saldo come movimento.
+6. Se non sei sicuro della colonna → "DARE".
+7. Se non trovi movimenti: {"lines":[]}`;
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -530,7 +578,7 @@ REGOLE OBBLIGATORIE:
           { role: "system", content: system },
           {
             role: "user",
-            content: `Estrai SOLO i movimenti (no saldi/totali). amountIt obbligatorio in formato italiano.\n\n${excerpt}`,
+            content: `Estrai SOLO i movimenti. Usa amountCents intero (niente virgole nei numeri JSON).\n\n${excerpt}`,
           },
         ],
       }),
@@ -550,16 +598,64 @@ REGOLE OBBLIGATORIE:
     if (!content) {
       return { ok: false, error: "OpenAI ha risposto senza contenuto." };
     }
+
     let parsed: { lines?: unknown[] };
     try {
-      parsed = JSON.parse(content) as { lines?: unknown[] };
+      parsed = parseBankAiJson(content);
     } catch {
-      return {
-        ok: false,
-        error:
-          "OpenAI ha restituito JSON non valido (possibile amount non in stringa).",
-      };
+      // Un retry di riparazione esplicita verso il modello
+      try {
+        const repairRes = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              temperature: 0,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content:
+                    'Ripara questo testo in JSON valido. Converti ogni importo italiano in amountCents intero (25,28→2528). Schema: {"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":null,"amountCents":0,"column":"DARE"|"AVERE","description":"","counterpartyName":"","trnOrCro":"","amountIt":"0,00"}]}. Solo JSON.',
+                },
+                { role: "user", content: content.slice(0, 60000) },
+              ],
+            }),
+          }
+        );
+        if (!repairRes.ok) {
+          return {
+            ok: false,
+            error:
+              "OpenAI ha restituito JSON non valido e anche la riparazione è fallita.",
+          };
+        }
+        const repairJson = (await repairRes.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        const repaired = repairJson.choices?.[0]?.message?.content;
+        if (!repaired) {
+          return {
+            ok: false,
+            error: "OpenAI JSON non valido (riparazione vuota).",
+          };
+        }
+        parsed = parseBankAiJson(repaired);
+      } catch (e) {
+        console.error("[bank-pdf-ai-json]", e);
+        return {
+          ok: false,
+          error:
+            "OpenAI ha restituito JSON non valido anche dopo riparazione (virgole negli importi).",
+        };
+      }
     }
+
     const lines: ParsedBankLine[] = [];
 
     for (const row of parsed.lines ?? []) {
@@ -568,7 +664,6 @@ REGOLE OBBLIGATORIE:
       const transactionDate = String(r.transactionDate ?? "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) continue;
 
-      // Preferisci due colonne esplicite → due movimenti
       const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
       const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
       const valutaRaw =
