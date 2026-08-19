@@ -411,6 +411,8 @@ export interface ProdottoProprioRow {
   nome: string;
   note: string;
   is_bio: boolean;
+  scheda_tecnica_path?: string;
+  prezzo_listino?: number | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -425,6 +427,8 @@ export interface ProdottoProprioInsert {
   nome: string;
   note?: string;
   is_bio?: boolean;
+  scheda_tecnica_path?: string;
+  prezzo_listino?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
@@ -439,6 +443,8 @@ export interface ProdottoProprioUpdate {
   nome?: string;
   note?: string;
   is_bio?: boolean;
+  scheda_tecnica_path?: string;
+  prezzo_listino?: number | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;

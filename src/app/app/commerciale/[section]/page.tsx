@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
+import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
 import {
   COMMERCIALE_SECTIONS,
   resolveCommercialePage,
@@ -27,7 +29,16 @@ export default async function CommercialeSectionPage({ params }: Props) {
   const page = resolveCommercialePage([section]);
   if (!page) notFound();
 
-  return (
-    <AreaPlaceholder title={page.label} description={page.description} />
-  );
+  if (section === "webmail") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <WebmailBoard />
+        </div>
+      </>
+    );
+  }
+
+  return <AreaPlaceholder title={page.label} description={page.description} />;
 }

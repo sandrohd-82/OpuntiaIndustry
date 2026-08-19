@@ -7,6 +7,13 @@ import {
 /** Sottosezioni del modulo Commerciale (menu laterale) */
 export const COMMERCIALE_SECTIONS: readonly NavItem[] = [
   {
+    slug: "webmail",
+    label: "Webmail",
+    description:
+      "Caselle Gmail/Aruba, categorie, bozze AI e invio con approvazione",
+    path: "/app/commerciale/webmail",
+  },
+  {
     slug: "clienti-con-storico",
     label: "Clienti con storico",
     description: "Clienti con storico commerciale",
