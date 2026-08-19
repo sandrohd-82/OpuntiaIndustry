@@ -29,8 +29,10 @@ function mapAccount(row: Record<string, unknown>): WebmailAccountPublic {
     provider: row.provider as WebmailProvider,
     imapHost: String(row.imap_host ?? ""),
     imapPort: Number(row.imap_port) || 993,
+    imapSecure: row.imap_secure == null ? true : Boolean(row.imap_secure),
     smtpHost: String(row.smtp_host ?? ""),
     smtpPort: Number(row.smtp_port) || 465,
+    smtpSecure: row.smtp_secure == null ? true : Boolean(row.smtp_secure),
     username: String(row.username ?? ""),
     syncEnabled: Boolean(row.sync_enabled),
     lastSyncAt: (row.last_sync_at as string | null) ?? null,
@@ -73,7 +75,7 @@ export async function listWebmailAccountsAction(): Promise<
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
-      "id, label, email_address, provider, imap_host, imap_port, smtp_host, smtp_port, username, sync_enabled, last_sync_at, last_sync_error"
+      "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error"
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -101,29 +103,74 @@ export async function upsertWebmailAccountAction(
   const input = parsed.data;
   const preset = WEBMAIL_PROVIDER_PRESETS[input.provider];
   const supabase = await createClient();
-  const encrypted = encryptWebmailSecret(input.password);
+  const selectCols =
+    "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error";
+
+  const basePayload = {
+    label: input.label,
+    email_address: input.emailAddress.toLowerCase(),
+    provider: input.provider,
+    imap_host: input.imapHost || preset.imapHost,
+    imap_port: input.imapPort,
+    imap_secure: input.imapSecure,
+    smtp_host: input.smtpHost || preset.smtpHost,
+    smtp_port: input.smtpPort,
+    smtp_secure: input.smtpSecure,
+    username: input.username.trim(),
+    sync_enabled: input.syncEnabled ?? true,
+    updated_by: auth.userId,
+    last_sync_error: null as string | null,
+  };
+
+  if (input.id) {
+    const updatePayload: Record<string, unknown> = { ...basePayload };
+    if (input.password && input.password.trim().length > 0) {
+      updatePayload.password_encrypted = encryptWebmailSecret(
+        input.password.trim()
+      );
+    }
+
+    const { data, error } = await supabase
+      .from("webmail_accounts")
+      .update(updatePayload)
+      .eq("id", input.id)
+      .is("deleted_at", null)
+      .select(selectCols)
+      .single();
+    if (error) return { success: false, error: error.message };
+
+    await writeAuditLog({
+      entity_type: "webmail_accounts",
+      entity_id: data.id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Casella webmail aggiornata: ${input.emailAddress} (${input.provider})`,
+      payload: {
+        provider: input.provider,
+        email: input.emailAddress,
+        username: input.username,
+        password_changed: Boolean(input.password?.trim()),
+      },
+    });
+
+    return {
+      success: true,
+      account: mapAccount(data as Record<string, unknown>),
+    };
+  }
+
+  if (!input.password?.trim()) {
+    return { success: false, error: "Password obbligatoria per una nuova casella." };
+  }
 
   const { data, error } = await supabase
     .from("webmail_accounts")
     .insert({
-      label: input.label,
-      email_address: input.emailAddress.toLowerCase(),
-      provider: input.provider,
-      imap_host: input.imapHost || preset.imapHost,
-      imap_port: input.imapPort,
-      imap_secure: input.imapSecure,
-      smtp_host: input.smtpHost || preset.smtpHost,
-      smtp_port: input.smtpPort,
-      smtp_secure: input.smtpSecure,
-      username: input.username,
-      password_encrypted: encrypted,
-      sync_enabled: input.syncEnabled ?? true,
+      ...basePayload,
+      password_encrypted: encryptWebmailSecret(input.password.trim()),
       created_by: auth.userId,
-      updated_by: auth.userId,
     })
-    .select(
-      "id, label, email_address, provider, imap_host, imap_port, smtp_host, smtp_port, username, sync_enabled, last_sync_at, last_sync_error"
-    )
+    .select(selectCols)
     .single();
   if (error) return { success: false, error: error.message };
 
@@ -416,7 +463,7 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
     const { data: account, error } = await service
       .from("webmail_accounts")
       .select(
-        "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+        "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
       )
       .eq("id", accountId)
       .is("deleted_at", null)

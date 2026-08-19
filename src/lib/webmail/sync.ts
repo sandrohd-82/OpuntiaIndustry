@@ -11,6 +11,7 @@ type Service = ReturnType<typeof createServiceClient>;
 type AccountRow = {
   id: string;
   email_address: string;
+  provider?: string;
   imap_host: string;
   imap_port: number;
   imap_secure: boolean;
@@ -20,6 +21,48 @@ type AccountRow = {
   username: string;
   password_encrypted: string;
 };
+
+function formatImapSyncError(
+  e: unknown,
+  account: Pick<AccountRow, "email_address" | "username" | "provider">
+): string {
+  const base =
+    e instanceof Error ? e.message : "Errore sync IMAP sconosciuto";
+  const responseText =
+    e && typeof e === "object" && "responseText" in e
+      ? String((e as { responseText?: unknown }).responseText ?? "")
+      : "";
+  const authFailed =
+    e &&
+    typeof e === "object" &&
+    "authenticationFailed" in e &&
+    Boolean((e as { authenticationFailed?: boolean }).authenticationFailed);
+
+  const userMismatch =
+    account.username.trim().toLowerCase() !==
+    account.email_address.trim().toLowerCase();
+
+  if (
+    authFailed ||
+    /command failed|authentication|invalid credentials|login|auth/i.test(
+      `${base} ${responseText}`
+    )
+  ) {
+    const bits = [
+      `Accesso IMAP rifiutato (${base}${responseText ? ` — ${responseText}` : ""}).`,
+      "Per Aruba: Username deve essere l'indirizzo completo della casella (es. info@dominio.it), non un altro account Gmail.",
+      "Usa la password della casella Aruba (non OTP / non password pannello admin).",
+      "Host tipico: imaps.aruba.it porta 993 SSL.",
+    ];
+    if (userMismatch) {
+      bits.push(
+        `Attenzione: username salvato «${account.username}» ≠ email «${account.email_address}».`
+      );
+    }
+    return bits.join(" ");
+  }
+  return responseText ? `${base}: ${responseText}` : base;
+}
 
 async function loadCategoriaMap(
   supabase: Service
@@ -87,6 +130,15 @@ export async function syncWebmailAccount(
   });
 
   try {
+    if (
+      account.provider === "aruba" &&
+      account.username.trim().toLowerCase() !==
+        account.email_address.trim().toLowerCase()
+    ) {
+      throw new Error(
+        `Username Aruba errato: «${account.username}» deve coincidere con la casella «${account.email_address}». Apri Modifica casella e correggi.`
+      );
+    }
     await client.connect();
     const lock = await client.getMailboxLock("INBOX");
     try {
@@ -305,12 +357,12 @@ export async function syncWebmailAccount(
 
     return { imported, drafted };
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Errore sync IMAP";
+    const message = formatImapSyncError(e, account);
     await supabase
       .from("webmail_accounts")
       .update({
         last_sync_at: new Date().toISOString(),
-        last_sync_error: message,
+        last_sync_error: message.slice(0, 900),
       })
       .eq("id", account.id);
     return { imported, drafted, error: message };
@@ -323,7 +375,7 @@ export async function syncAllWebmailAccounts(
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
-      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
     )
     .eq("sync_enabled", true)
     .is("deleted_at", null);

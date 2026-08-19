@@ -65,20 +65,32 @@ export const WEBMAIL_PROVIDER_PRESETS: Record<
   },
 };
 
-export const webmailAccountInputSchema = z.object({
-  label: z.string().trim().min(2).max(120),
-  emailAddress: z.string().trim().email(),
-  provider: z.enum(WEBMAIL_PROVIDERS),
-  imapHost: z.string().trim().min(1),
-  imapPort: z.number().int().min(1).max(65535),
-  imapSecure: z.boolean(),
-  smtpHost: z.string().trim().min(1),
-  smtpPort: z.number().int().min(1).max(65535),
-  smtpSecure: z.boolean(),
-  username: z.string().trim().min(1),
-  password: z.string().min(1),
-  syncEnabled: z.boolean().optional(),
-});
+export const webmailAccountInputSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    label: z.string().trim().min(2).max(120),
+    emailAddress: z.string().trim().email(),
+    provider: z.enum(WEBMAIL_PROVIDERS),
+    imapHost: z.string().trim().min(1),
+    imapPort: z.number().int().min(1).max(65535),
+    imapSecure: z.boolean(),
+    smtpHost: z.string().trim().min(1),
+    smtpPort: z.number().int().min(1).max(65535),
+    smtpSecure: z.boolean(),
+    username: z.string().trim().min(1),
+    /** Obbligatoria in creazione; in modifica lascia vuota per non cambiare. */
+    password: z.string().optional(),
+    syncEnabled: z.boolean().optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.id && (!val.password || val.password.length < 1)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Password obbligatoria per una nuova casella.",
+      });
+    }
+  });
 
 export type WebmailAccountInput = z.infer<typeof webmailAccountInputSchema>;
 
@@ -99,8 +111,10 @@ export type WebmailAccountPublic = {
   provider: WebmailProvider;
   imapHost: string;
   imapPort: number;
+  imapSecure: boolean;
   smtpHost: string;
   smtpPort: number;
+  smtpSecure: boolean;
   username: string;
   syncEnabled: boolean;
   lastSyncAt: string | null;

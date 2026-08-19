@@ -44,6 +44,8 @@ export function WebmailBoard() {
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [setupOpen, setSetupOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [syncEnabled, setSyncEnabled] = useState(true);
 
   const [provider, setProvider] = useState<WebmailProvider>("aruba");
   const preset = WEBMAIL_PROVIDER_PRESETS[provider];
@@ -52,7 +54,9 @@ export function WebmailBoard() {
   const [accUser, setAccUser] = useState("");
   const [accPass, setAccPass] = useState("");
   const [imapHost, setImapHost] = useState(preset.imapHost);
+  const [imapPort, setImapPort] = useState(preset.imapPort);
   const [smtpHost, setSmtpHost] = useState(preset.smtpHost);
+  const [smtpPort, setSmtpPort] = useState(preset.smtpPort);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -115,10 +119,50 @@ export function WebmailBoard() {
   }, [selectedId]);
 
   useEffect(() => {
+    if (editingId) return;
     const p = WEBMAIL_PROVIDER_PRESETS[provider];
     setImapHost(p.imapHost);
+    setImapPort(p.imapPort);
     setSmtpHost(p.smtpHost);
-  }, [provider]);
+    setSmtpPort(p.smtpPort);
+  }, [provider, editingId]);
+
+  function resetAccountForm() {
+    setEditingId(null);
+    setProvider("aruba");
+    const p = WEBMAIL_PROVIDER_PRESETS.aruba;
+    setAccLabel("Casella commerciale");
+    setAccEmail("");
+    setAccUser("");
+    setAccPass("");
+    setImapHost(p.imapHost);
+    setImapPort(p.imapPort);
+    setSmtpHost(p.smtpHost);
+    setSmtpPort(p.smtpPort);
+    setSyncEnabled(true);
+  }
+
+  function openNewAccount() {
+    resetAccountForm();
+    setSetupOpen(true);
+  }
+
+  function openEditAccount(a: WebmailAccountPublic) {
+    setEditingId(a.id);
+    setProvider(a.provider);
+    setAccLabel(a.label);
+    setAccEmail(a.emailAddress);
+    setAccUser(a.username);
+    setAccPass("");
+    setImapHost(a.imapHost);
+    setImapPort(a.imapPort);
+    setSmtpHost(a.smtpHost);
+    setSmtpPort(a.smtpPort);
+    setSyncEnabled(a.syncEnabled);
+    setSetupOpen(true);
+    setError(null);
+    setInfo(null);
+  }
 
   function syncNow() {
     setInfo(null);
@@ -138,28 +182,34 @@ export function WebmailBoard() {
 
   function saveAccount() {
     setInfo(null);
+    const wasEdit = Boolean(editingId);
     startTransition(async () => {
       const res = await upsertWebmailAccountAction({
+        id: editingId || undefined,
         label: accLabel,
         emailAddress: accEmail,
         provider,
         imapHost: imapHost || preset.imapHost,
-        imapPort: preset.imapPort,
+        imapPort: imapPort || preset.imapPort,
         imapSecure: preset.imapSecure,
         smtpHost: smtpHost || preset.smtpHost,
-        smtpPort: preset.smtpPort,
+        smtpPort: smtpPort || preset.smtpPort,
         smtpSecure: preset.smtpSecure,
-        username: accUser || accEmail,
-        password: accPass,
-        syncEnabled: true,
+        username: (accUser || accEmail).trim(),
+        password: accPass.trim() || undefined,
+        syncEnabled,
       });
       if (!res.success) {
         setError(res.error);
         return;
       }
       setSetupOpen(false);
-      setAccPass("");
-      setInfo(`Casella ${res.account.emailAddress} collegata.`);
+      resetAccountForm();
+      setInfo(
+        wasEdit
+          ? `Casella ${res.account.emailAddress} aggiornata. Riprova «Sincronizza ora».`
+          : `Casella ${res.account.emailAddress} collegata.`
+      );
       await reload();
     });
   }
@@ -213,7 +263,13 @@ export function WebmailBoard() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setSetupOpen((v) => !v)}
+            onClick={() => {
+              if (setupOpen && !editingId) {
+                setSetupOpen(false);
+                return;
+              }
+              openNewAccount();
+            }}
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           >
             Collega casella
@@ -231,8 +287,29 @@ export function WebmailBoard() {
 
       {setupOpen ? (
         <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <h2 className="text-sm font-semibold">Nuova casella</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">
+              {editingId ? "Modifica casella" : "Nuova casella"}
+            </h2>
+            <button
+              type="button"
+              className="text-xs text-[var(--muted)] underline"
+              onClick={() => {
+                setSetupOpen(false);
+                resetAccountForm();
+              }}
+            >
+              Chiudi
+            </button>
+          </div>
           <p className="text-xs text-[var(--muted)]">{preset.docsHint}</p>
+          {provider === "aruba" ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              Aruba: il campo <strong>Username</strong> deve essere uguale all’email
+              della casella (es. <code>info@agrinsicilia.com</code>), non un
+              indirizzo Gmail.
+            </p>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-xs font-medium">Provider</span>
@@ -260,27 +337,36 @@ export function WebmailBoard() {
               <span className="mb-1 block text-xs font-medium">Email</span>
               <input
                 value={accEmail}
-                onChange={(e) => setAccEmail(e.target.value)}
+                onChange={(e) => {
+                  setAccEmail(e.target.value);
+                  if (!editingId && (!accUser || accUser === accEmail)) {
+                    setAccUser(e.target.value);
+                  }
+                }}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">Username</span>
+              <span className="mb-1 block text-xs font-medium">
+                Username IMAP/SMTP
+              </span>
               <input
                 value={accUser}
                 onChange={(e) => setAccUser(e.target.value)}
-                placeholder="Di solito = email"
+                placeholder="Di solito = email casella"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
             <label className="text-sm sm:col-span-2">
               <span className="mb-1 block text-xs font-medium">
                 Password / App Password
+                {editingId ? " (lascia vuoto per non cambiare)" : ""}
               </span>
               <input
                 type="password"
                 value={accPass}
                 onChange={(e) => setAccPass(e.target.value)}
+                autoComplete="new-password"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
@@ -293,6 +379,15 @@ export function WebmailBoard() {
               />
             </label>
             <label className="text-sm">
+              <span className="mb-1 block text-xs font-medium">IMAP porta</span>
+              <input
+                type="number"
+                value={imapPort}
+                onChange={(e) => setImapPort(Number(e.target.value) || 993)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+              />
+            </label>
+            <label className="text-sm">
               <span className="mb-1 block text-xs font-medium">SMTP host</span>
               <input
                 value={smtpHost}
@@ -300,14 +395,37 @@ export function WebmailBoard() {
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-xs font-medium">SMTP porta</span>
+              <input
+                type="number"
+                value={smtpPort}
+                onChange={(e) => setSmtpPort(Number(e.target.value) || 465)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+              />
+            </label>
+            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={syncEnabled}
+                onChange={(e) => setSyncEnabled(e.target.checked)}
+              />
+              Sync automatica abilitata
+            </label>
           </div>
           <button
             type="button"
-            disabled={pending || !accEmail || !accPass}
+            disabled={
+              pending ||
+              !accEmail ||
+              (!editingId && !accPass.trim())
+            }
             onClick={saveAccount}
             className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            Salva casella (area Amministrazione)
+            {editingId
+              ? "Salva modifiche (area Amministrazione)"
+              : "Salva casella (area Amministrazione)"}
           </button>
         </section>
       ) : null}
@@ -511,13 +629,32 @@ export function WebmailBoard() {
       </div>
 
       {accounts.length > 0 ? (
-        <ul className="text-xs text-[var(--muted)]">
+        <ul className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-xs">
           {accounts.map((a) => (
-            <li key={a.id}>
-              {a.emailAddress} ({a.provider}) · sync{" "}
-              {a.syncEnabled ? "ON" : "OFF"} · ultimo{" "}
-              {formatWhen(a.lastSyncAt)}
-              {a.lastSyncError ? ` · err: ${a.lastSyncError}` : ""}
+            <li
+              key={a.id}
+              className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--border)] pb-2 last:border-0 last:pb-0"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-800">
+                  {a.label} · {a.emailAddress} ({a.provider})
+                </p>
+                <p className="text-[var(--muted)]">
+                  user IMAP: <code>{a.username}</code> · {a.imapHost}:{a.imapPort}{" "}
+                  · sync {a.syncEnabled ? "ON" : "OFF"} · ultimo{" "}
+                  {formatWhen(a.lastSyncAt)}
+                </p>
+                {a.lastSyncError ? (
+                  <p className="mt-1 text-red-700">{a.lastSyncError}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => openEditAccount(a)}
+                className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+              >
+                Modifica
+              </button>
             </li>
           ))}
         </ul>
