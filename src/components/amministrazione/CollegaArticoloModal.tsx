@@ -30,12 +30,14 @@ const KIND_LABEL: Record<CatalogoLifecycleKind, string> = {
   servizio: "Servizi",
   prodotto: "Prodotti",
   materia: "Materia prima",
+  contributo: "Contributi",
 };
 
 const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
   servizio: "Servizio (Sz)",
   prodotto: "Prodotto (Pr)",
   materia: "Materia prima (Mp)",
+  contributo: "Contributo (Ct)",
 };
 
 export function CollegaArticoloModal({
@@ -56,6 +58,7 @@ export function CollegaArticoloModal({
       servizio: !preferKind || preferKind === "servizio",
       prodotto: !preferKind || preferKind === "prodotto",
       materia: !preferKind || preferKind === "materia",
+      contributo: !preferKind || preferKind === "contributo",
     })
   );
   /** false = solo stessa fattura → stessa azienda; true = catalogo completo su richiesta. */
@@ -253,7 +256,8 @@ export function CollegaArticoloModal({
             Filtri catalogo
           </legend>
           <div className="flex flex-wrap gap-3">
-            {(["servizio", "prodotto", "materia"] as const).map((k) => (
+            {(["servizio", "prodotto", "materia", "contributo"] as const).map(
+              (k) => (
               <label
                 key={k}
                 className="inline-flex items-center gap-1.5 text-sm text-slate-800"
@@ -266,7 +270,8 @@ export function CollegaArticoloModal({
                 />
                 {KIND_LABEL[k]}
               </label>
-            ))}
+            )
+            )}
           </div>
         </fieldset>
 
@@ -342,7 +347,8 @@ export function CollegaArticoloModal({
         <div className="mt-4 rounded-lg border border-dashed border-[var(--border)] bg-slate-50/80 px-3 py-3">
           <p className="text-xs font-medium text-slate-700">Crea nuovo codice</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {(["servizio", "prodotto", "materia"] as const).map((k) => (
+            {(["servizio", "prodotto", "materia", "contributo"] as const).map(
+              (k) => (
               <button
                 key={k}
                 type="button"
@@ -351,7 +357,8 @@ export function CollegaArticoloModal({
               >
                 + {KIND_CREATE_LABEL[k]}
               </button>
-            ))}
+            )
+            )}
           </div>
         </div>
 

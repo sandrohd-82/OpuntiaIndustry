@@ -20,6 +20,7 @@ const KIND_GROUP: Record<CollegaCatalogoHit["catalogoKind"], string> = {
   servizio: "Servizi (≥70%)",
   prodotto: "Prodotti (≥70%)",
   materia: "Materie prime (≥70%)",
+  contributo: "Contributi (≥70%)",
 };
 
 /**
@@ -100,6 +101,7 @@ export function CodiceRigaAcquistoSelect({
       servizio: [],
       prodotto: [],
       materia: [],
+      contributo: [],
     };
     for (const h of hits) g[h.catalogoKind].push(h);
     return g;
@@ -141,7 +143,8 @@ export function CodiceRigaAcquistoSelect({
               {codice} — (non in catalogo / sotto soglia)
             </option>
           ) : null}
-          {(["servizio", "prodotto", "materia"] as const).map((kind) =>
+          {(["servizio", "prodotto", "materia", "contributo"] as const).map(
+            (kind) =>
             grouped[kind].length === 0 ? null : (
               <optgroup key={kind} label={KIND_GROUP[kind]}>
                 {grouped[kind].map((h) => (

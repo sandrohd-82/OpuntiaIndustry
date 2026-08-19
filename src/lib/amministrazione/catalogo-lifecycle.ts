@@ -1,7 +1,11 @@
 import type { createClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
 
-export type CatalogoLifecycleKind = "servizio" | "prodotto" | "materia";
+export type CatalogoLifecycleKind =
+  | "servizio"
+  | "prodotto"
+  | "materia"
+  | "contributo";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -20,17 +24,27 @@ export type CodiceRiferimenti = {
 
 function fornitoreArrayField(
   kind: CatalogoLifecycleKind
-): "servizi_offerti" | "prodotti_fornitore" | "prodotti_acquistati" {
+):
+  | "servizi_offerti"
+  | "prodotti_fornitore"
+  | "prodotti_acquistati"
+  | "contributi_offerti" {
   if (kind === "servizio") return "servizi_offerti";
   if (kind === "prodotto") return "prodotti_fornitore";
+  if (kind === "contributo") return "contributi_offerti";
   return "prodotti_acquistati";
 }
 
 export function catalogoTable(
   kind: CatalogoLifecycleKind
-): "catalogo_servizi" | "catalogo_prodotti_fornitore" | "materie_prime" {
+):
+  | "catalogo_servizi"
+  | "catalogo_prodotti_fornitore"
+  | "materie_prime"
+  | "catalogo_contributi" {
   if (kind === "servizio") return "catalogo_servizi";
   if (kind === "prodotto") return "catalogo_prodotti_fornitore";
+  if (kind === "contributo") return "catalogo_contributi";
   return "materie_prime";
 }
 

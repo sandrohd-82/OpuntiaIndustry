@@ -5,7 +5,11 @@
  * Il dettaglio lungo resta nella descrizione/nome anagrafica.
  */
 
-export type CatalogoAcquistoKind = "servizio" | "prodotto" | "materia";
+export type CatalogoAcquistoKind =
+  | "servizio"
+  | "prodotto"
+  | "materia"
+  | "contributo";
 
 export type SkuParts = {
   macro: string;
@@ -612,6 +616,14 @@ function buildGenericPartsFromWords(tokens: string[]): SkuParts {
 export function suggestCatalogoKind(text: string): CatalogoAcquistoKind {
   const lower = stripTemporalNoise(text).toLowerCase() || text.toLowerCase();
   if (
+    /\bconai\b/i.test(lower) ||
+    /\braee\b/i.test(lower) ||
+    /\bcorepla\b/i.test(lower) ||
+    /\bcontributo\b/i.test(lower)
+  ) {
+    return "contributo";
+  }
+  if (
     /\bbusta\s*pag/i.test(lower) ||
     /\bcedolino/i.test(lower) ||
     /\bstipend/i.test(lower) ||
@@ -625,9 +637,12 @@ export function suggestCatalogoKind(text: string): CatalogoAcquistoKind {
   return "prodotto";
 }
 
-export function catalogoKindPrefix(kind: CatalogoAcquistoKind): "Sz" | "Pr" | "Mp" {
+export function catalogoKindPrefix(
+  kind: CatalogoAcquistoKind
+): "Sz" | "Pr" | "Mp" | "Ct" {
   if (kind === "servizio") return "Sz";
   if (kind === "materia") return "Mp";
+  if (kind === "contributo") return "Ct";
   return "Pr";
 }
 

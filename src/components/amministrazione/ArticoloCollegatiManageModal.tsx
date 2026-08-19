@@ -25,6 +25,7 @@ const KIND_LABEL: Record<CatalogoLifecycleKind, string> = {
   servizio: "Servizio",
   prodotto: "Prodotto",
   materia: "Materia",
+  contributo: "Contributo",
 };
 
 export function ArticoloCollegatiManageModal({

@@ -500,7 +500,7 @@ async function enrichAnnullataDaNcNumeri(
 
 /**
  * Aggiorna la scheda anagrafica con i codici presenti sulla fattura (merge idempotente).
- * - Ricevuta → fornitore: Sz→servizi_offerti, Pr→prodotti_fornitore, Mp→prodotti_acquistati (+ tipologie).
+ * - Ricevuta → fornitore: Sz→servizi_offerti, Pr→prodotti_fornitore, Mp→prodotti_acquistati, Ct→contributi_offerti (+ tipologie).
  * - Emessa/NC → cliente: solo codici in prodotti_propri → prodotti_acquistati.
  * Non rimuove mai codici già in scheda. Audit su ogni aggiunta.
  */
@@ -633,7 +633,8 @@ async function filterCodesInCatalog(
   table:
     | "catalogo_servizi"
     | "catalogo_prodotti_fornitore"
-    | "materie_prime",
+    | "materie_prime"
+    | "catalogo_contributi",
   codes: string[]
 ): Promise<string[]> {
   if (codes.length === 0) return [];
@@ -672,19 +673,22 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
   const szCandidates = rawCodes.filter((c) => /^sz/i.test(c));
   const prCandidates = rawCodes.filter((c) => /^pr/i.test(c));
   const mpCandidates = rawCodes.filter((c) => /^mp/i.test(c));
+  const ctCandidates = rawCodes.filter((c) => /^ct/i.test(c));
 
-  const [szValid, prValid, mpValid] = await Promise.all([
+  const [szValid, prValid, mpValid, ctValid] = await Promise.all([
     filterCodesInCatalog("catalogo_servizi", szCandidates),
     filterCodesInCatalog("catalogo_prodotti_fornitore", prCandidates),
     filterCodesInCatalog("materie_prime", mpCandidates),
+    filterCodesInCatalog("catalogo_contributi", ctCandidates),
   ]);
 
-  if (szValid.length + prValid.length + mpValid.length === 0) return [];
+  if (szValid.length + prValid.length + mpValid.length + ctValid.length === 0)
+    return [];
 
   const { data: anagrafica, error } = await supabase
     .from("fornitori")
     .select(
-      "id, tipologie, servizi_offerti, prodotti_fornitore, prodotti_acquistati"
+      "id, tipologie, servizi_offerti, prodotti_fornitore, prodotti_acquistati, contributi_offerti"
     )
     .eq("id", input.anagraficaId)
     .is("deleted_at", null)
@@ -699,16 +703,19 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
     servizi_offerti?: string[];
     prodotti_fornitore?: string[];
     prodotti_acquistati?: string[];
+    contributi_offerti?: string[];
   };
 
   const existingSz = asStringArray(row.servizi_offerti);
   const existingPr = asStringArray(row.prodotti_fornitore);
   const existingMp = asStringArray(row.prodotti_acquistati);
+  const existingCt = asStringArray(row.contributi_offerti);
   const existingTipologie = asStringArray(row.tipologie);
 
   const missingSz = szValid.filter((c) => !existingSz.includes(c));
   const missingPr = prValid.filter((c) => !existingPr.includes(c));
   const missingMp = mpValid.filter((c) => !existingMp.includes(c));
+  const missingCt = ctValid.filter((c) => !existingCt.includes(c));
 
   const nextTipologie = [...existingTipologie];
   if (szValid.length > 0 && !nextTipologie.includes("servizio")) {
@@ -720,6 +727,9 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
   if (mpValid.length > 0 && !nextTipologie.includes("materia_prima")) {
     nextTipologie.push("materia_prima");
   }
+  if (ctValid.length > 0 && !nextTipologie.includes("contributo")) {
+    nextTipologie.push("contributo");
+  }
 
   const tipologieChanged =
     nextTipologie.length !== existingTipologie.length ||
@@ -729,6 +739,7 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
     missingSz.length === 0 &&
     missingPr.length === 0 &&
     missingMp.length === 0 &&
+    missingCt.length === 0 &&
     !tipologieChanged
   ) {
     return [];
@@ -738,6 +749,7 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
     servizi_offerti: mergeUniqueCodes(existingSz, missingSz),
     prodotti_fornitore: mergeUniqueCodes(existingPr, missingPr),
     prodotti_acquistati: mergeUniqueCodes(existingMp, missingMp),
+    contributi_offerti: mergeUniqueCodes(existingCt, missingCt),
     tipologie: nextTipologie,
     updated_by: input.userId,
   };
@@ -752,7 +764,7 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
     return [];
   }
 
-  const added = [...missingSz, ...missingPr, ...missingMp];
+  const added = [...missingSz, ...missingPr, ...missingMp, ...missingCt];
   await writeAuditLog({
     entity_type: "fornitori",
     entity_id: input.anagraficaId,
@@ -767,6 +779,7 @@ async function syncFornitoreSchedaFromRicevutaRighe(input: {
       added_servizi: missingSz,
       added_prodotti: missingPr,
       added_materie: missingMp,
+      added_contributi: missingCt,
       tipologie: nextTipologie,
       source: "fattura_registrazione",
     },
@@ -812,7 +825,7 @@ export async function syncFornitoreSchedaFromFatturaRicevutaId(input: {
   });
 }
 
-/** Merge diretto di codici (Sz/Pr/Mp) sulla scheda fornitore. */
+/** Merge diretto di codici (Sz/Pr/Mp/Ct) sulla scheda fornitore. */
 export async function syncFornitoreSchedaDaCodici(input: {
   fornitoreId: string;
   codici: string[];

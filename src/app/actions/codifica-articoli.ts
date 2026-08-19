@@ -36,7 +36,12 @@ type RpcMatchRow = {
 
 function mapMatch(row: RpcMatchRow): CatalogoMatchHit | null {
   const kind = row.catalogo_kind;
-  if (kind !== "servizio" && kind !== "prodotto" && kind !== "materia") {
+  if (
+    kind !== "servizio" &&
+    kind !== "prodotto" &&
+    kind !== "materia" &&
+    kind !== "contributo"
+  ) {
     return null;
   }
   return {
@@ -94,7 +99,7 @@ export async function confirmCodificaArticoloAction(
       success: true;
       codice: string;
       catalogoId: string | null;
-      catalogoKind: "servizio" | "prodotto" | "materia";
+      catalogoKind: "servizio" | "prodotto" | "materia" | "contributo";
       nome: string;
       auditId: string;
       created: boolean;
@@ -135,7 +140,9 @@ export async function confirmCodificaArticoloAction(
         ? "catalogo_servizi"
         : input.catalogoKind === "materia"
           ? "materie_prime"
-          : "catalogo_prodotti_fornitore";
+          : input.catalogoKind === "contributo"
+            ? "catalogo_contributi"
+            : "catalogo_prodotti_fornitore";
     const { data: row, error } = await supabase
       .from(table)
       .select("id, codice, nome")
@@ -150,7 +157,7 @@ export async function confirmCodificaArticoloAction(
   } else {
     const prefix = catalogoKindPrefix(input.catalogoKind);
     if (!codice.toLowerCase().startsWith(prefix.toLowerCase())) {
-      codice = `${prefix}${codice.replace(/^Sz|^Pr|^Mp/i, "")}`;
+      codice = `${prefix}${codice.replace(/^Sz|^Pr|^Mp|^Ct/i, "")}`;
     }
 
     if (input.catalogoKind === "materia") {
@@ -196,7 +203,11 @@ export async function confirmCodificaArticoloAction(
       });
     } else {
       const kind =
-        input.catalogoKind === "servizio" ? "servizio" : "prodotto";
+        input.catalogoKind === "servizio"
+          ? "servizio"
+          : input.catalogoKind === "contributo"
+            ? "contributo"
+            : "prodotto";
       const normalized = normalizeCatalogoInput(kind, {
         codice,
         nome: nomeArticolo,
@@ -210,7 +221,11 @@ export async function confirmCodificaArticoloAction(
         };
       }
       const table =
-        kind === "servizio" ? "catalogo_servizi" : "catalogo_prodotti_fornitore";
+        kind === "servizio"
+          ? "catalogo_servizi"
+          : kind === "contributo"
+            ? "catalogo_contributi"
+            : "catalogo_prodotti_fornitore";
       const { data, error } = await supabase
         .from(table)
         .insert({

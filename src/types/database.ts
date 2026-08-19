@@ -117,7 +117,11 @@ export interface AuthSession2faUpdate {
   created_at?: string;
 }
 
-export type FornitoreTipologia = "servizio" | "prodotto" | "materia_prima";
+export type FornitoreTipologia =
+  | "servizio"
+  | "prodotto"
+  | "materia_prima"
+  | "contributo";
 
 export interface FornitoreRow {
   id: string;
@@ -145,6 +149,7 @@ export interface FornitoreRow {
   servizi_offerti: string[];
   prodotti_fornitore: string[];
   prodotti_acquistati: string[];
+  contributi_offerti: string[];
   bio_certificato: string;
   bio_certificato_path: string;
   bio_codice: string;
@@ -185,6 +190,7 @@ export interface FornitoreInsert {
   servizi_offerti?: string[];
   prodotti_fornitore?: string[];
   prodotti_acquistati?: string[];
+  contributi_offerti?: string[];
   bio_certificato?: string;
   bio_certificato_path?: string;
   bio_codice?: string;
@@ -225,6 +231,7 @@ export interface FornitoreUpdate {
   servizi_offerti?: string[];
   prodotti_fornitore?: string[];
   prodotti_acquistati?: string[];
+  contributi_offerti?: string[];
   bio_certificato?: string;
   bio_certificato_path?: string;
   bio_codice?: string;
@@ -1752,6 +1759,39 @@ export type CatalogoProdottoFornitoreUpdate = Partial<CatalogoProdottoFornitoreI
   pending_delete_by?: string | null;
 };
 
+export interface CatalogoContributoRow {
+  id: string;
+  codice: string;
+  nome: string;
+  note: string;
+  is_bio: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+  pending_delete_at: string | null;
+  pending_delete_by: string | null;
+}
+
+export type CatalogoContributoInsert = {
+  id?: string;
+  codice: string;
+  nome: string;
+  note?: string;
+  is_bio?: boolean;
+  created_by?: string | null;
+  updated_by?: string | null;
+};
+
+export type CatalogoContributoUpdate = Partial<CatalogoContributoInsert> & {
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  pending_delete_at?: string | null;
+  pending_delete_by?: string | null;
+};
+
 export type AnagraficaArchivioMotivo =
   | "eliminata"
   | "scartata_sync"
@@ -1760,7 +1800,8 @@ export type AnagraficaArchivioMotivo =
 export type FatturaRicevutaCodificaKind =
   | "servizio"
   | "prodotto"
-  | "materia";
+  | "materia"
+  | "contributo";
 
 export type FatturaRicevutaCodificaAzione =
   | "associa_esistente"
@@ -1933,6 +1974,12 @@ export interface Database {
         Row: CatalogoProdottoFornitoreRow;
         Insert: CatalogoProdottoFornitoreInsert;
         Update: CatalogoProdottoFornitoreUpdate;
+        Relationships: [];
+      };
+      catalogo_contributi: {
+        Row: CatalogoContributoRow;
+        Insert: CatalogoContributoInsert;
+        Update: CatalogoContributoUpdate;
         Relationships: [];
       };
       clienti: {

@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { FaPlus } from "react-icons/fa6";
 import {
+  createCatalogoContributoAction,
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
+  listCatalogoContributiAction,
   listCatalogoProdottiFornitoreAction,
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
@@ -34,7 +36,9 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
     const result =
       kind === "servizio"
         ? await listCatalogoServiziAction()
-        : await listCatalogoProdottiFornitoreAction();
+        : kind === "contributo"
+          ? await listCatalogoContributiAction()
+          : await listCatalogoProdottiFornitoreAction();
     if (result.success) setItems(result.items);
     setReady(true);
   }
@@ -85,7 +89,9 @@ export function CatalogoOffertaTags({ kind, title, value, onChange }: Props) {
     const result =
       kind === "servizio"
         ? await createCatalogoServizioAction(values)
-        : await createCatalogoProdottoFornitoreAction(values);
+        : kind === "contributo"
+          ? await createCatalogoContributoAction(values)
+          : await createCatalogoProdottoFornitoreAction(values);
     if (!result.success) {
       setError(result.error);
       throw new Error(result.error);

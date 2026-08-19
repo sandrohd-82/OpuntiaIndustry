@@ -265,6 +265,7 @@ export function draftToFornitoreInput(
     sedeAmministrativa: draft.sedeAmministrativa,
     sedeMagazzino: draft.sedeMagazzino,
     prodottiAcquistati: [],
+    contributiOfferti: [],
   };
 }
 
@@ -290,6 +291,7 @@ export function draftToFornitorePreview(
     sedeAmministrativa: draft.sedeAmministrativa,
     sedeMagazzino: draft.sedeMagazzino,
     prodottiAcquistati: [],
+    contributiOfferti: [],
     bioCertificatoPath: "",
     bioCodice: "",
     createdAt: new Date().toISOString(),

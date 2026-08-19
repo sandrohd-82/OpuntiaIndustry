@@ -23,7 +23,7 @@ export type ArticoloCollegamento = {
   createdAt: string;
 };
 
-const kindSchema = z.enum(["servizio", "prodotto", "materia"]);
+const kindSchema = z.enum(["servizio", "prodotto", "materia", "contributo"]);
 
 const pairSchema = z.object({
   kindA: kindSchema,
@@ -102,10 +102,16 @@ async function resolveMany(
     servizio: [],
     prodotto: [],
     materia: [],
+    contributo: [],
   };
   for (const r of refs) byKind[r.kind].push(r.id);
 
-  for (const kind of ["servizio", "prodotto", "materia"] as const) {
+  for (const kind of [
+    "servizio",
+    "prodotto",
+    "materia",
+    "contributo",
+  ] as const) {
     const ids = [...new Set(byKind[kind])];
     if (ids.length === 0) continue;
     const { data } = await supabase
@@ -198,7 +204,12 @@ export async function listCollegamentiByCodiciAction(
   if (codes.length === 0) return { success: true, byCodice };
 
   const refs: ArticoloRef[] = [];
-  for (const kind of ["servizio", "prodotto", "materia"] as const) {
+  for (const kind of [
+    "servizio",
+    "prodotto",
+    "materia",
+    "contributo",
+  ] as const) {
     const { data } = await supabase
       .from(catalogoTable(kind))
       .select("id, codice, nome")
@@ -396,7 +407,12 @@ export async function searchArticoliPerCollegamentoAction(input: {
   const q = input.query.trim();
   const items: ArticoloRef[] = [];
 
-  for (const kind of ["servizio", "prodotto", "materia"] as const) {
+  for (const kind of [
+    "servizio",
+    "prodotto",
+    "materia",
+    "contributo",
+  ] as const) {
     let query = supabase
       .from(catalogoTable(kind))
       .select("id, codice, nome")

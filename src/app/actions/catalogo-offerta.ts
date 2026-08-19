@@ -2,10 +2,12 @@
 
 import {
   isValidCatalogoCodice,
+  mapCatalogoContributo,
   mapCatalogoProdottoFornitore,
   mapCatalogoServizio,
   normalizeCatalogoInput,
   normalizeNomeCatalogo,
+  catalogoPrefix,
   type CatalogoOffertaInput,
   type CatalogoOffertaItem,
   type CatalogoOffertaKind,
@@ -15,14 +17,15 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  CatalogoContributoRow,
   CatalogoProdottoFornitoreRow,
   CatalogoServizioRow,
 } from "@/types/database";
 
 function tableName(kind: CatalogoOffertaKind) {
-  return kind === "servizio"
-    ? "catalogo_servizi"
-    : "catalogo_prodotti_fornitore";
+  if (kind === "servizio") return "catalogo_servizi";
+  if (kind === "contributo") return "catalogo_contributi";
+  return "catalogo_prodotti_fornitore";
 }
 
 function entityType(kind: CatalogoOffertaKind) {
@@ -31,11 +34,15 @@ function entityType(kind: CatalogoOffertaKind) {
 
 function mapRow(
   kind: CatalogoOffertaKind,
-  row: CatalogoServizioRow | CatalogoProdottoFornitoreRow
+  row:
+    | CatalogoServizioRow
+    | CatalogoProdottoFornitoreRow
+    | CatalogoContributoRow
 ): CatalogoOffertaItem {
-  return kind === "servizio"
-    ? mapCatalogoServizio(row as CatalogoServizioRow)
-    : mapCatalogoProdottoFornitore(row as CatalogoProdottoFornitoreRow);
+  if (kind === "servizio") return mapCatalogoServizio(row as CatalogoServizioRow);
+  if (kind === "contributo")
+    return mapCatalogoContributo(row as CatalogoContributoRow);
+  return mapCatalogoProdottoFornitore(row as CatalogoProdottoFornitoreRow);
 }
 
 async function assertCodiceAndNomeUnici(
@@ -92,6 +99,13 @@ export async function listCatalogoProdottiFornitoreAction(): Promise<
   return listCatalogoAction("prodotto");
 }
 
+export async function listCatalogoContributiAction(): Promise<
+  | { success: true; items: CatalogoOffertaItem[] }
+  | { success: false; error: string }
+> {
+  return listCatalogoAction("contributo");
+}
+
 async function listCatalogoAction(
   kind: CatalogoOffertaKind
 ): Promise<
@@ -109,7 +123,11 @@ async function listCatalogoAction(
   return {
     success: true,
     items: (
-      (data ?? []) as Array<CatalogoServizioRow | CatalogoProdottoFornitoreRow>
+      (data ?? []) as Array<
+        | CatalogoServizioRow
+        | CatalogoProdottoFornitoreRow
+        | CatalogoContributoRow
+      >
     ).map((row) => mapRow(kind, row)),
   };
 }
@@ -132,6 +150,15 @@ export async function createCatalogoProdottoFornitoreAction(
   return createCatalogoAction("prodotto", input);
 }
 
+export async function createCatalogoContributoAction(
+  input: CatalogoOffertaInput
+): Promise<
+  | { success: true; item: CatalogoOffertaItem }
+  | { success: false; error: string }
+> {
+  return createCatalogoAction("contributo", input);
+}
+
 async function createCatalogoAction(
   kind: CatalogoOffertaKind,
   input: CatalogoOffertaInput
@@ -142,7 +169,7 @@ async function createCatalogoAction(
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const normalized = normalizeCatalogoInput(kind, input);
-  const prefix = kind === "servizio" ? "Sz" : "Pr";
+  const prefix = catalogoPrefix(kind);
 
   if (!normalized.codice || !normalized.nome) {
     return {
@@ -221,6 +248,16 @@ export async function updateCatalogoProdottoFornitoreAction(
   return updateCatalogoAction("prodotto", id, input);
 }
 
+export async function updateCatalogoContributoAction(
+  id: string,
+  input: CatalogoOffertaInput
+): Promise<
+  | { success: true; item: CatalogoOffertaItem; cascade?: { fatture: number; fornitori: number } }
+  | { success: false; error: string }
+> {
+  return updateCatalogoAction("contributo", id, input);
+}
+
 async function updateCatalogoAction(
   kind: CatalogoOffertaKind,
   id: string,
@@ -232,9 +269,9 @@ async function updateCatalogoAction(
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const normalized = normalizeCatalogoInput(kind, input);
-  const prefix = kind === "servizio" ? "Sz" : "Pr";
+  const prefix = catalogoPrefix(kind);
   const table = tableName(kind);
-  const lifecycleKind = kind === "servizio" ? "servizio" : "prodotto";
+  const lifecycleKind = kind;
 
   if (!normalized.codice || !normalized.nome) {
     return {
@@ -369,6 +406,13 @@ export async function softDeleteCatalogoProdottoFornitoreAction(input: {
   return softDeleteCatalogoAction("prodotto", input);
 }
 
+export async function softDeleteCatalogoContributoAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<CatalogoDeleteResult> {
+  return softDeleteCatalogoAction("contributo", input);
+}
+
 async function softDeleteCatalogoAction(
   kind: CatalogoOffertaKind,
   input: { id: string; confermaTestuale: string }
@@ -376,7 +420,7 @@ async function softDeleteCatalogoAction(
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const table = tableName(kind);
-  const lifecycleKind = kind === "servizio" ? "servizio" : "prodotto";
+  const lifecycleKind = kind;
 
   const { data: existing, error: loadError } = await supabase
     .from(table)

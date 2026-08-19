@@ -96,6 +96,9 @@ export function FornitoreFormModal({
   const [prodottiFornitore, setProdottiFornitore] = useState<string[]>(
     initial?.prodottiFornitore ?? []
   );
+  const [contributi, setContributi] = useState<string[]>(
+    initial?.contributiOfferti ?? []
+  );
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -255,6 +258,7 @@ export function FornitoreFormModal({
           prodottiFornitore: tipologie.includes("prodotto")
             ? prodottiFornitore
             : [],
+          contributiOfferti: tipologie.includes("contributo") ? contributi : [],
           sedeAmministrativa,
           sedeMagazzino: !ritiroOpen
             ? emptySede()
@@ -618,6 +622,15 @@ export function FornitoreFormModal({
               title="Prodotti offerti"
               value={prodottiFornitore}
               onChange={setProdottiFornitore}
+            />
+          ) : null}
+
+          {tipologie.includes("contributo") ? (
+            <CatalogoOffertaTags
+              kind="contributo"
+              title="Contributi"
+              value={contributi}
+              onChange={setContributi}
             />
           ) : null}
 

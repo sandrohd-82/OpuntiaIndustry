@@ -15,6 +15,7 @@ import {
   matchCatalogoAcquistiAction,
 } from "@/app/actions/codifica-articoli";
 import {
+  updateCatalogoContributoAction,
   updateCatalogoProdottoFornitoreAction,
   updateCatalogoServizioAction,
 } from "@/app/actions/catalogo-offerta";
@@ -185,7 +186,9 @@ export function CodificaArticoloRevisioneModal({
             ? await updateCatalogoServizioAction(renameId, payload)
             : kind === "materia"
               ? await updateMateriaPrimaAction(renameId, payload)
-              : await updateCatalogoProdottoFornitoreAction(renameId, payload);
+              : kind === "contributo"
+                ? await updateCatalogoContributoAction(renameId, payload)
+                : await updateCatalogoProdottoFornitoreAction(renameId, payload);
         if (!res.success) {
           setFormError(res.error);
           return;
@@ -352,6 +355,7 @@ export function CodificaArticoloRevisioneModal({
                 <option value="prodotto">Prodotto fornitore (Pr)</option>
                 <option value="materia">Materia prima (Mp)</option>
                 <option value="servizio">Servizio (Sz)</option>
+                <option value="contributo">Contributo (Ct)</option>
               </select>
             </label>
             <div className="block text-sm">

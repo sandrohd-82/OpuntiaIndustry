@@ -18,7 +18,7 @@ export const confirmCodificaArticoloSchema = z.object({
   testoOriginale: z.string().trim().min(1, "Testo fattura obbligatorio"),
   testoNormalizzato: z.string().trim().optional(),
   codiceAssegnato: z.string().trim().min(2, "Codice obbligatorio"),
-  catalogoKind: z.enum(["servizio", "prodotto", "materia"]),
+  catalogoKind: z.enum(["servizio", "prodotto", "materia", "contributo"]),
   catalogoId: z.string().uuid().nullable().optional(),
   affinitaPercentuale: z.number().min(0).max(100).nullable().optional(),
   azione: z.enum(["associa_esistente", "crea_nuovo"]),

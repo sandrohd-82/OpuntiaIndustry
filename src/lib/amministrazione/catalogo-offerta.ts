@@ -1,4 +1,5 @@
 import type {
+  CatalogoContributoRow,
   CatalogoProdottoFornitoreRow,
   CatalogoServizioRow,
   FornitoreTipologia,
@@ -8,7 +9,7 @@ import {
   scoreNomeMateriaPrimaSimilarity,
 } from "@/lib/amministrazione/materie-prime";
 
-export type CatalogoOffertaKind = "servizio" | "prodotto";
+export type CatalogoOffertaKind = "servizio" | "prodotto" | "contributo";
 
 export type CatalogoOffertaItem = {
   id: string;
@@ -34,6 +35,7 @@ export const FORNITORE_TIPOLOGIE: Array<{
   { value: "servizio", label: "Servizi" },
   { value: "prodotto", label: "Prodotti" },
   { value: "materia_prima", label: "Materia prima" },
+  { value: "contributo", label: "Contributi" },
 ];
 
 export function labelFornitoreTipologia(t: FornitoreTipologia): string {
@@ -47,6 +49,7 @@ export function normalizeTipologie(
     "servizio",
     "prodotto",
     "materia_prima",
+    "contributo",
   ]);
   const out: FornitoreTipologia[] = [];
   for (const v of values ?? []) {
@@ -57,14 +60,18 @@ export function normalizeTipologie(
 
 const BODY_RE = /[^A-Za-z0-9\-_\/]/g;
 
-export function catalogoPrefix(kind: CatalogoOffertaKind): "Sz" | "Pr" {
-  return kind === "servizio" ? "Sz" : "Pr";
+export function catalogoPrefix(
+  kind: CatalogoOffertaKind
+): "Sz" | "Pr" | "Ct" {
+  if (kind === "servizio") return "Sz";
+  if (kind === "contributo") return "Ct";
+  return "Pr";
 }
 
 export function catalogoCodiceRe(kind: CatalogoOffertaKind): RegExp {
-  return kind === "servizio"
-    ? /^Sz[A-Za-z0-9\-_\/]+$/i
-    : /^Pr[A-Za-z0-9\-_\/]+$/i;
+  if (kind === "servizio") return /^Sz[A-Za-z0-9\-_\/]+$/i;
+  if (kind === "contributo") return /^Ct[A-Za-z0-9\-_\/]+$/i;
+  return /^Pr[A-Za-z0-9\-_\/]+$/i;
 }
 
 export function stripCatalogoPrefix(
@@ -138,6 +145,20 @@ export function mapCatalogoServizio(row: CatalogoServizioRow): CatalogoOffertaIt
 
 export function mapCatalogoProdottoFornitore(
   row: CatalogoProdottoFornitoreRow
+): CatalogoOffertaItem {
+  return {
+    id: row.id,
+    codice: row.codice,
+    nome: row.nome,
+    note: row.note ?? "",
+    isBio: Boolean(row.is_bio),
+    createdAt: row.created_at,
+    pendingDeleteAt: row.pending_delete_at ?? null,
+  };
+}
+
+export function mapCatalogoContributo(
+  row: CatalogoContributoRow
 ): CatalogoOffertaItem {
   return {
     id: row.id,

@@ -29,12 +29,22 @@ type Props = {
 
 function leggendaParti(kind: CatalogoOffertaKind) {
   const prefix = catalogoPrefix(kind);
+  const kindLabel =
+    kind === "servizio"
+      ? "Servizio"
+      : kind === "contributo"
+        ? "Contributo"
+        : "Prodotto fornitore";
+  const alt =
+    kind === "servizio"
+      ? "sz/SZ"
+      : kind === "contributo"
+        ? "ct/CT"
+        : "pr/PR";
   return [
     {
       pezzo: prefix,
-      significato: `${
-        kind === "servizio" ? "Servizio" : "Prodotto fornitore"
-      } (prefisso fisso; accettato anche sz/SZ o pr/PR)`,
+      significato: `${kindLabel} (prefisso fisso; accettato anche ${alt})`,
     },
     {
       pezzo: "TrT",
@@ -60,9 +70,18 @@ export function CatalogoOffertaFormModal({
   const isEdit = mode === "edit";
   const excludeId = initial?.id ?? null;
   const prefix = catalogoPrefix(kind);
-  const entityLabel = kind === "servizio" ? "servizio" : "prodotto";
+  const entityLabel =
+    kind === "servizio"
+      ? "servizio"
+      : kind === "contributo"
+        ? "contributo"
+        : "prodotto";
   const example =
-    kind === "servizio" ? "SzTrTB/cisterna" : "PrAcqC/20";
+    kind === "servizio"
+      ? "SzTrTB/cisterna"
+      : kind === "contributo"
+        ? "CtCONAI-B1.1"
+        : "PrAcqC/20";
 
   const [codiceBody, setCodiceBody] = useState(
     initial ? stripCatalogoPrefix(kind, initial.codice) : ""

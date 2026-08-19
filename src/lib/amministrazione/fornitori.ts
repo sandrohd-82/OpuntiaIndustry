@@ -31,6 +31,7 @@ export type Fornitore = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
+  contributiOfferti: string[];
   /** Path Storage del PDF certificato bio. */
   bioCertificatoPath: string;
   bioCodice: string;
@@ -54,6 +55,7 @@ export type FornitoreInput = {
   sedeAmministrativa: SedeFornitore;
   sedeMagazzino: SedeFornitore;
   prodottiAcquistati: string[];
+  contributiOfferti?: string[];
   bioCertificatoPath?: string;
   bioCodice?: string;
   /** Se true, rimuove il PDF bio esistente (senza sostituirlo). */
@@ -121,6 +123,9 @@ export function normalizeFornitoreInput(input: FornitoreInput): FornitoreInput {
     prodottiAcquistati: input.prodottiAcquistati
       .map((p) => p.trim())
       .filter(Boolean),
+    contributiOfferti: (input.contributiOfferti ?? [])
+      .map((p) => p.trim())
+      .filter(Boolean),
     bioCertificatoPath: input.bioCertificatoPath?.trim() ?? "",
     bioCodice: input.bioCodice?.trim() ?? "",
     removeBioCertificato: Boolean(input.removeBioCertificato),
@@ -183,6 +188,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
       indirizzo: row.sede_mag_indirizzo,
     },
     prodottiAcquistati: row.prodotti_acquistati ?? [],
+    contributiOfferti: row.contributi_offerti ?? [],
     bioCertificatoPath: row.bio_certificato_path ?? "",
     bioCodice: row.bio_codice ?? "",
     createdAt: row.created_at,
@@ -242,7 +248,8 @@ export function volumeAcquistoOf(fornitore: Fornitore): number {
   return (
     fornitore.prodottiAcquistati.length +
     fornitore.serviziOfferti.length +
-    fornitore.prodottiFornitore.length
+    fornitore.prodottiFornitore.length +
+    fornitore.contributiOfferti.length
   );
 }
 
@@ -301,6 +308,7 @@ export function filterFornitori(
         ...f.prodottiAcquistati,
         ...f.serviziOfferti,
         ...f.prodottiFornitore,
+        ...f.contributiOfferti,
       ]
         .map(normalizeSearch)
         .join(" ");

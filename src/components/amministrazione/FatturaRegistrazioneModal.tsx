@@ -27,8 +27,10 @@ import { NcPendingFatturaPickerModal } from "@/components/amministrazione/NcPend
 import { ProdottoPrezzoStoricoInfo } from "@/components/amministrazione/ProdottoPrezzoStoricoInfo";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import {
+  createCatalogoContributoAction,
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
+  listCatalogoContributiAction,
   listCatalogoProdottiFornitoreAction,
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
@@ -111,7 +113,7 @@ type EditableRiga = Omit<
 
 /** Catalogo acquisti per fatture ricevute (non prodotti Agrinsicilia). */
 type VoceAcquisto = {
-  kind: "servizio" | "prodotto" | "materia";
+  kind: "servizio" | "prodotto" | "materia" | "contributo";
   id: string;
   codice: string;
   nome: string;
@@ -272,13 +274,16 @@ export function FatturaRegistrazioneModal({
   const [catalogProdottiFornitore, setCatalogProdottiFornitore] = useState<
     CatalogoOffertaItem[]
   >([]);
+  const [catalogContributi, setCatalogContributi] = useState<
+    CatalogoOffertaItem[]
+  >([]);
   const [catalogMaterie, setCatalogMaterie] = useState<MateriaPrima[]>([]);
   const [creatingAcquistoKind, setCreatingAcquistoKind] = useState<
-    "servizio" | "prodotto" | "materia" | null
+    "servizio" | "prodotto" | "materia" | "contributo" | null
   >(null);
   const [codificaRiga, setCodificaRiga] = useState<{
     index: number;
-    kind: "servizio" | "prodotto" | "materia";
+    kind: "servizio" | "prodotto" | "materia" | "contributo";
   } | null>(null);
   const [collegaRigaIndex, setCollegaRigaIndex] = useState<number | null>(null);
   const [matchHints, setMatchHints] = useState<
@@ -289,7 +294,7 @@ export function FatturaRegistrazioneModal({
     Record<string, ArticoloRef[]>
   >({});
   const [linkingArticolo, setLinkingArticolo] = useState<{
-    kind: "servizio" | "prodotto" | "materia";
+    kind: "servizio" | "prodotto" | "materia" | "contributo";
     id: string;
     codice: string;
     nome: string;
@@ -679,18 +684,22 @@ export function FatturaRegistrazioneModal({
     }
     let cancelled = false;
     void (async () => {
-      const [serviziRes, prodottiRes, materieRes] = await Promise.all([
-        listCatalogoServiziAction(),
-        listCatalogoProdottiFornitoreAction(),
-        listMateriePrimeAction(),
-      ]);
+      const [serviziRes, prodottiRes, materieRes, contributiRes] =
+        await Promise.all([
+          listCatalogoServiziAction(),
+          listCatalogoProdottiFornitoreAction(),
+          listMateriePrimeAction(),
+          listCatalogoContributiAction(),
+        ]);
       if (cancelled) return;
       const servizi = serviziRes.success ? serviziRes.items : [];
       const prodottiF = prodottiRes.success ? prodottiRes.items : [];
       const materie = materieRes.success ? materieRes.materie : [];
+      const contributi = contributiRes.success ? contributiRes.items : [];
       setCatalogServizi(servizi);
       setCatalogProdottiFornitore(prodottiF);
       setCatalogMaterie(materie);
+      setCatalogContributi(contributi);
       setVociAcquisto([
         ...servizi.map(
           (i): VoceAcquisto => ({
@@ -711,6 +720,14 @@ export function FatturaRegistrazioneModal({
         ...materie.map(
           (i): VoceAcquisto => ({
             kind: "materia",
+            id: i.id,
+            codice: i.codice,
+            nome: i.nome,
+          })
+        ),
+        ...contributi.map(
+          (i): VoceAcquisto => ({
+            kind: "contributo",
             id: i.id,
             codice: i.codice,
             nome: i.nome,
@@ -1045,17 +1062,21 @@ export function FatturaRegistrazioneModal({
   }
 
   async function refreshVociAcquisto() {
-    const [serviziRes, prodottiRes, materieRes] = await Promise.all([
-      listCatalogoServiziAction(),
-      listCatalogoProdottiFornitoreAction(),
-      listMateriePrimeAction(),
-    ]);
+    const [serviziRes, prodottiRes, materieRes, contributiRes] =
+      await Promise.all([
+        listCatalogoServiziAction(),
+        listCatalogoProdottiFornitoreAction(),
+        listMateriePrimeAction(),
+        listCatalogoContributiAction(),
+      ]);
     const servizi = serviziRes.success ? serviziRes.items : [];
     const prodottiF = prodottiRes.success ? prodottiRes.items : [];
     const materie = materieRes.success ? materieRes.materie : [];
+    const contributi = contributiRes.success ? contributiRes.items : [];
     setCatalogServizi(servizi);
     setCatalogProdottiFornitore(prodottiF);
     setCatalogMaterie(materie);
+    setCatalogContributi(contributi);
     setVociAcquisto([
       ...servizi.map(
         (i): VoceAcquisto => ({
@@ -1076,6 +1097,14 @@ export function FatturaRegistrazioneModal({
       ...materie.map(
         (i): VoceAcquisto => ({
           kind: "materia",
+          id: i.id,
+          codice: i.codice,
+          nome: i.nome,
+        })
+      ),
+      ...contributi.map(
+        (i): VoceAcquisto => ({
+          kind: "contributo",
           id: i.id,
           codice: i.codice,
           nome: i.nome,
@@ -1595,6 +1624,17 @@ export function FatturaRegistrazioneModal({
                     >
                       <FaPlus size={11} />
                       Nuova materia
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRigaIndexForNuovo(null);
+                        setCreatingAcquistoKind("contributo");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                    >
+                      <FaPlus size={11} />
+                      Nuovo contributo
                     </button>
                   </>
                 ) : (
@@ -3073,14 +3113,17 @@ export function FatturaRegistrazioneModal({
       ) : null}
 
       {creatingAcquistoKind === "servizio" ||
-      creatingAcquistoKind === "prodotto" ? (
+      creatingAcquistoKind === "prodotto" ||
+      creatingAcquistoKind === "contributo" ? (
         <CatalogoOffertaFormModal
           kind={creatingAcquistoKind}
           mode="create"
           catalog={
             creatingAcquistoKind === "servizio"
               ? catalogServizi
-              : catalogProdottiFornitore
+              : creatingAcquistoKind === "contributo"
+                ? catalogContributi
+                : catalogProdottiFornitore
           }
           onClose={() => {
             setCreatingAcquistoKind(null);
@@ -3090,7 +3133,9 @@ export function FatturaRegistrazioneModal({
             const result =
               creatingAcquistoKind === "servizio"
                 ? await createCatalogoServizioAction(values)
-                : await createCatalogoProdottoFornitoreAction(values);
+                : creatingAcquistoKind === "contributo"
+                  ? await createCatalogoContributoAction(values)
+                  : await createCatalogoProdottoFornitoreAction(values);
             if (!result.success) throw new Error(result.error);
             await refreshVociAcquisto();
             const idx =

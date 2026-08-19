@@ -46,6 +46,7 @@ const ALL_KINDS: CatalogoLifecycleKind[] = [
   "servizio",
   "prodotto",
   "materia",
+  "contributo",
 ];
 
 function normalizeSearch(q: string): string {
@@ -92,7 +93,9 @@ async function loadAziendaCodes(
   if (!fornitoreId) return aziendaCodes;
   const { data: forn } = await supabase
     .from("fornitori")
-    .select("servizi_offerti, prodotti_fornitore, prodotti_acquistati")
+    .select(
+      "servizi_offerti, prodotti_fornitore, prodotti_acquistati, contributi_offerti"
+    )
     .eq("id", fornitoreId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -101,11 +104,13 @@ async function loadAziendaCodes(
     servizi_offerti?: string[];
     prodotti_fornitore?: string[];
     prodotti_acquistati?: string[];
+    contributi_offerti?: string[];
   };
   for (const arr of [
     row.servizi_offerti,
     row.prodotti_fornitore,
     row.prodotti_acquistati,
+    row.contributi_offerti,
   ]) {
     for (const c of arr ?? []) {
       if (c?.trim()) aziendaCodes.add(c.trim().toLowerCase());
@@ -124,11 +129,16 @@ async function loadCatalogEntries(
       : new Set<CatalogoLifecycleKind>(ALL_KINDS);
   const tables: Array<{
     kind: CatalogoLifecycleKind;
-    table: "catalogo_servizi" | "catalogo_prodotti_fornitore" | "materie_prime";
+    table:
+      | "catalogo_servizi"
+      | "catalogo_prodotti_fornitore"
+      | "materie_prime"
+      | "catalogo_contributi";
   }> = [
     { kind: "servizio", table: "catalogo_servizi" },
     { kind: "prodotto", table: "catalogo_prodotti_fornitore" },
     { kind: "materia", table: "materie_prime" },
+    { kind: "contributo", table: "catalogo_contributi" },
   ];
   const entries: CatalogEntry[] = [];
   for (const t of tables) {
@@ -318,7 +328,12 @@ export async function suggestCodiciRigaDropdownAction(input: {
       affinita_percentuale: number | string;
     }>) {
       const kind = row.catalogo_kind;
-      if (kind !== "servizio" && kind !== "prodotto" && kind !== "materia") {
+      if (
+        kind !== "servizio" &&
+        kind !== "prodotto" &&
+        kind !== "materia" &&
+        kind !== "contributo"
+      ) {
         continue;
       }
       const codeKey = String(row.codice ?? "")
