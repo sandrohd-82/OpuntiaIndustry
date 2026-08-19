@@ -371,6 +371,96 @@ function yearFromIsoDate(iso: string): string {
   return (iso || "").slice(0, 4);
 }
 
+/** Anno numerico da ISO date (0 se assente/non valido). */
+export function yearNumberFromIsoDate(iso: string): number {
+  const y = Number(yearFromIsoDate(iso));
+  return Number.isFinite(y) && y >= 1900 && y <= 2100 ? y : 0;
+}
+
+/**
+ * Coda ricevute: completa un anno prima di passare al precedente.
+ * Ordine anni: dal più recente al più vecchio (es. 2026 → 2025 → 2024).
+ * Dentro l’anno: dalla data più recente alla più lontana.
+ */
+export function sortReceivedPendingByYearBlocks<
+  T extends { date?: string | null },
+>(docs: T[]): T[] {
+  const byYear = new Map<number, T[]>();
+  const undated: T[] = [];
+  for (const d of docs) {
+    const y = yearNumberFromIsoDate(d.date || "");
+    if (!y) {
+      undated.push(d);
+      continue;
+    }
+    const list = byYear.get(y) ?? [];
+    list.push(d);
+    byYear.set(y, list);
+  }
+
+  const years = [...byYear.keys()].sort((a, b) => b - a);
+
+  const out: T[] = [];
+  for (const y of years) {
+    const list = byYear.get(y) ?? [];
+    list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    out.push(...list);
+  }
+  undated.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  out.push(...undated);
+  return out;
+}
+
+/**
+ * Progresso sync ricevute: conteggio documenti dell’anno corrente in coda.
+ */
+export function syncYearProgress(
+  items: Array<{ dataEmissione?: string }>,
+  currentIndex: number
+): {
+  year: number | null;
+  yearLabel: string;
+  yearPosition: number;
+  yearTotal: number;
+  overallPosition: number;
+  overallTotal: number;
+} {
+  const overallTotal = items.length;
+  const overallPosition =
+    overallTotal === 0 ? 0 : Math.min(currentIndex + 1, overallTotal);
+  const current = items[currentIndex];
+  const year = current
+    ? yearNumberFromIsoDate(current.dataEmissione || "")
+    : null;
+  if (!year) {
+    return {
+      year: null,
+      yearLabel: "—",
+      yearPosition: overallPosition,
+      yearTotal: overallTotal,
+      overallPosition,
+      overallTotal,
+    };
+  }
+  const yearItems = items
+    .map((it, i) => ({
+      i,
+      y: yearNumberFromIsoDate(it.dataEmissione || ""),
+    }))
+    .filter((x) => x.y === year);
+  const yearTotal = yearItems.length;
+  const yearPosition =
+    yearItems.findIndex((x) => x.i === currentIndex) + 1 || 1;
+  return {
+    year,
+    yearLabel: String(year),
+    yearPosition,
+    yearTotal,
+    overallPosition,
+    overallTotal,
+  };
+}
+
 function daysBetweenIso(a: string, b: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(a) || !/^\d{4}-\d{2}-\d{2}$/.test(b)) {
     return null;

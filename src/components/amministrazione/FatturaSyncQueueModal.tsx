@@ -29,6 +29,7 @@ import {
   normalizeVatKey,
 } from "@/lib/amministrazione/fic-anagrafiche";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
+import { syncYearProgress } from "@/lib/amministrazione/fatture-sync";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
@@ -399,6 +400,11 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     ? `${index + 1} di ${queueItems.length}`
     : `0 di ${queueItems.length}`;
 
+  const yearProgress = useMemo(
+    () => syncYearProgress(queueItems, index),
+    [queueItems, index]
+  );
+
   const docKindLabel =
     kind === "nota_credito"
       ? "nota di credito"
@@ -406,24 +412,66 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         ? "fattura emessa"
         : "fattura ricevuta";
 
+  const isRicevutaSync = kind === "ricevuta";
+
   const pauseBar = (
     <div className="fixed inset-x-0 top-0 z-[110] flex flex-wrap items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 shadow-sm">
       <p className="min-w-0 flex-1 text-sm text-amber-950">
-        Sync documenti FiC —{" "}
-        <strong className="tabular-nums">{progressLabel}</strong>
-        {current ? (
-          <span className="text-amber-900"> · {docKindLabel}</span>
-        ) : null}
-        {registeredCount > 0 ? (
-          <span className="text-amber-800">
-            {" "}
-            · {registeredCount} già registrati in questa sessione
-          </span>
-        ) : null}
-        . <strong>Pausa</strong> interrompe: al prossimo Sincronizza riparti
-        dai documenti non ancora registrati (NC incluse).
+        {isRicevutaSync ? (
+          <>
+            Sync ricevute FiC — anno{" "}
+            <strong className="text-base tabular-nums tracking-wide">
+              {yearProgress.yearLabel}
+            </strong>
+            {" · "}
+            <strong className="tabular-nums">
+              {yearProgress.yearPosition} di {yearProgress.yearTotal}
+            </strong>
+            {" in questo anno"}
+            {yearProgress.overallTotal !== yearProgress.yearTotal ? (
+              <span className="text-amber-800">
+                {" "}
+                · coda {yearProgress.overallPosition} di{" "}
+                {yearProgress.overallTotal}
+              </span>
+            ) : null}
+            {registeredCount > 0 ? (
+              <span className="text-amber-800">
+                {" "}
+                · {registeredCount} già registrati in questa sessione
+              </span>
+            ) : null}
+            . Completa tutto il {yearProgress.yearLabel} prima di passare
+            all&apos;anno precedente. <strong>Pausa</strong> interrompe: al
+            prossimo Sincronizza riparti dai documenti non ancora registrati.
+          </>
+        ) : (
+          <>
+            Sync documenti FiC —{" "}
+            <strong className="tabular-nums">{progressLabel}</strong>
+            {current ? (
+              <span className="text-amber-900"> · {docKindLabel}</span>
+            ) : null}
+            {registeredCount > 0 ? (
+              <span className="text-amber-800">
+                {" "}
+                · {registeredCount} già registrati in questa sessione
+              </span>
+            ) : null}
+            . <strong>Pausa</strong> interrompe: al prossimo Sincronizza riparti
+            dai documenti non ancora registrati (NC incluse).
+          </>
+        )}
       </p>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {isRicevutaSync ? (
+          <span
+            className="rounded-md border border-amber-400 bg-white px-3 py-1 text-lg font-bold tabular-nums tracking-wider text-amber-950"
+            title="Anno in sincronizzazione"
+          >
+            {yearProgress.yearLabel}
+          </span>
+        ) : null}
         {current ? (
           <ApriFatturaFicActions
             kind={kind}

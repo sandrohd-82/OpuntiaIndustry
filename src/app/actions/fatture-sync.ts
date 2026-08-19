@@ -9,6 +9,7 @@ import {
   normalizeCompanyNameKey,
   normalizeVatKey,
   sortPendingInvoicesByNcAmount,
+  sortReceivedPendingByYearBlocks,
   type FatturaSyncDuplicateCandidate,
   type FatturaSyncQueueItem,
   type RegisteredFatturaHint,
@@ -572,9 +573,7 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
     stillPending.push(plan.doc);
   }
 
-  pending = stillPending.sort((a, b) =>
-    (b.date || "").localeCompare(a.date || "")
-  );
+  pending = sortReceivedPendingByYearBlocks(stillPending);
   const skippedAlreadyRegistered = docs.length - pending.length;
 
   const usedTarghe = new Set(await getUsedFornitoriCodiciTarga());

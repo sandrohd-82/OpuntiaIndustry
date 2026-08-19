@@ -216,7 +216,7 @@ export function FattureInterneBoard({ kind }: Props) {
       ? "Storico note di credito. Sync dalla fattura più recente; i numeri interni (targa) si riorganizzano sempre per data."
       : kind === "emessa"
         ? "Storico fatture emesse. Sync dalla più recente a ritroso; i progressivi Ft/Nc si riallineano per azienda a ogni sync."
-        : "Storico fatture ricevute. Sync dalla più recente a ritroso; i progressivi Ft si riallineano per fornitore a ogni salvataggio/sync.";
+        : "Storico fatture ricevute. Sync per anno (2026 → 2025 → …): completa un anno prima del successivo; i progressivi Ft si riallineano per fornitore.";
 
   const emptyLabel =
     kind === "nota_credito"
