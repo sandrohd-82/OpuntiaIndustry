@@ -11,6 +11,7 @@ import {
 import {
   listBankTransactionsAction,
   importBankStatementPdfAction,
+  testOpenAiConnectionAction,
   verifyBankMatchAction,
   type BankTransactionView,
 } from "@/app/actions/bank-reports";
@@ -311,14 +312,43 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Carica solo il PDF dell’estratto conto. Data operazione e data
-            valuta di ogni movimento sono lette dal documento; non serve
-            selezionare un periodo prima. Se hai{" "}
-            Carica il PDF dell’estratto BCC. Serve <code>OPENAI_API_KEY</code>{" "}
-            su Vercel (Production) — senza AI l’import viene bloccato. Consigliato{" "}
-            <code>BANK_OPENAI_MODEL=gpt-4o</code>. I movimenti vengono salvati in
-            database; ogni nuovo upload rianalizza il PDF da capo.
+            Carica il PDF dell’estratto BCC. Serve{" "}
+            <code>OPENAI_API_KEY</code> su Vercel (Production) — senza AI
+            l’import viene bloccato. Consigliato{" "}
+            <code>BANK_OPENAI_MODEL=gpt-4o</code>. I movimenti vengono salvati
+            in database; ogni nuovo upload rianalizza il PDF da capo.
           </p>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                setError(null);
+                setInfo(null);
+                startTransition(async () => {
+                  const res = await testOpenAiConnectionAction();
+                  if (!res.success) {
+                    setError(
+                      `OpenAI NON ok` +
+                        (res.keyPresent ? "" : " (chiave assente)") +
+                        `: ${res.error}` +
+                        (res.model ? ` Modello: ${res.model}.` : "")
+                    );
+                    return;
+                  }
+                  setInfo(
+                    `OpenAI OK · modello ${res.model} · ${res.latencyMs} ms · risposta: «${res.reply}»`
+                  );
+                });
+              }}
+              className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium"
+            >
+              {pending ? "Verifica…" : "1. Verifica OpenAI"}
+            </button>
+            <span className="text-xs text-[var(--muted)]">
+              Controlla chiave e modello prima di caricare il PDF.
+            </span>
+          </div>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>
             <input
@@ -348,7 +378,7 @@ export function RapportiBancaBoard() {
               onClick={runPdfImport}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? "Elaborazione…" : "Carica e processa voci"}
+              {pending ? "Elaborazione…" : "2. Carica e processa voci"}
             </button>
             <button
               type="button"

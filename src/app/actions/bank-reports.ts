@@ -39,6 +39,94 @@ export type BankTransactionView = {
   } | null;
 };
 
+export async function testOpenAiConnectionAction(): Promise<
+  | {
+      success: true;
+      keyPresent: true;
+      model: string;
+      latencyMs: number;
+      reply: string;
+    }
+  | {
+      success: false;
+      keyPresent: boolean;
+      model: string | null;
+      error: string;
+    }
+> {
+  await requireAreaAccess("area-fiscale");
+  const apiKey = process.env.OPENAI_API_KEY?.trim() ?? "";
+  const model =
+    process.env.BANK_OPENAI_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    "gpt-4o";
+
+  if (!apiKey) {
+    return {
+      success: false,
+      keyPresent: false,
+      model: null,
+      error:
+        "OPENAI_API_KEY non è visibile a questo deployment. Controlla Vercel → Settings → Environment Variables (Production) e fai Redeploy.",
+    };
+  }
+
+  const started = Date.now();
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        max_tokens: 20,
+        messages: [
+          {
+            role: "user",
+            content: 'Rispondi solo con la parola OK.',
+          },
+        ],
+      }),
+    });
+    const latencyMs = Date.now() - started;
+    const bodyText = await res.text();
+    if (!res.ok) {
+      return {
+        success: false,
+        keyPresent: true,
+        model,
+        error: `OpenAI HTTP ${res.status}: ${bodyText.slice(0, 240)}`,
+      };
+    }
+    let reply = "";
+    try {
+      const json = JSON.parse(bodyText) as {
+        choices?: Array<{ message?: { content?: string } }>;
+      };
+      reply = String(json.choices?.[0]?.message?.content ?? "").trim();
+    } catch {
+      reply = bodyText.slice(0, 80);
+    }
+    return {
+      success: true,
+      keyPresent: true,
+      model,
+      latencyMs,
+      reply: reply || "(vuoto)",
+    };
+  } catch (e) {
+    return {
+      success: false,
+      keyPresent: true,
+      model,
+      error: e instanceof Error ? e.message : "Errore di rete verso OpenAI",
+    };
+  }
+}
+
 export async function importBankStatementPdfAction(
   formData: FormData
 ): Promise<
