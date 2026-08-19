@@ -100,4 +100,12 @@ assert(
   "parseBankAiJson ripara 25,28"
 );
 
+// Truncated JSON → jsonrepair chiude le parentesi
+const truncated = `{"lines":[{"transactionDate":"2025-07-16","amountCents":2528,"column":"DARE","description":"X"`;
+const parsedTrunc = parseBankAiJson(truncated);
+assert(
+  Array.isArray(parsedTrunc.lines) && parsedTrunc.lines.length === 1,
+  "jsonrepair recupera JSON troncato"
+);
+
 console.log("\nAll bank-pdf-parse smoke tests passed.");

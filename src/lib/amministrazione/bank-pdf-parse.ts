@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { jsonrepair } from "jsonrepair";
 
 export type ParsedBankLine = {
   transactionDate: string; // YYYY-MM-DD
@@ -481,36 +482,54 @@ export type AiParseResult =
   | { ok: false; error: string };
 
 /**
- * Ripara JSON tipico LLM su estratti IT:
- * - fence markdown
- * - amountIt/dareIt/avereIt con virgola italiana non quotata → stringa
- * - trailing comma
+ * Ripara JSON tipico LLM su estratti IT (prima di jsonrepair).
  */
 export function repairBankAiJson(raw: string): string {
   let s = String(raw ?? "").trim();
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const start = s.indexOf("{");
   const end = s.lastIndexOf("}");
-  if (start >= 0 && end > start) s = s.slice(start, end + 1);
+  // Se tronca a metà, tieni dall'inizio { fino alla fine disponibile
+  if (start >= 0) {
+    s = end > start ? s.slice(start, end + 1) : s.slice(start);
+  }
 
-  // "amountIt": 1.234,56  → "amountIt": "1.234,56"
+  // amountIt/dareIt/avereIt con virgola IT non quotata
   s = s.replace(
     /("(amountIt|dareIt|avereIt|importoIt)"\s*:\s*)(-?\d{1,3}(?:\.\d{3})*,\d{1,2}|-?\d+,\d{1,2})(?=\s*[,}\]])/g,
     '$1"$3"'
   );
-  // "amount": 1.234,56 → quote (poi parseItAmount)
   s = s.replace(
     /("amount"\s*:\s*)(-?\d{1,3}(?:\.\d{3})*,\d{1,2}|-?\d+,\d{1,2})(?=\s*[,}\]])/g,
     '$1"$2"'
   );
+  // Newline letterali dentro stringhe (rompe spesso JSON)
   s = s.replace(/,\s*([}\]])/g, "$1");
   return s;
 }
 
 export function parseBankAiJson(content: string): { lines?: unknown[] } {
-  const attempts = [content, repairBankAiJson(content)];
+  const candidates = [
+    content,
+    repairBankAiJson(content),
+    (() => {
+      try {
+        return jsonrepair(content);
+      } catch {
+        return "";
+      }
+    })(),
+    (() => {
+      try {
+        return jsonrepair(repairBankAiJson(content));
+      } catch {
+        return "";
+      }
+    })(),
+  ].filter(Boolean);
+
   let lastErr: unknown;
-  for (const attempt of attempts) {
+  for (const attempt of candidates) {
     try {
       return JSON.parse(attempt) as { lines?: unknown[] };
     } catch (e) {
@@ -518,6 +537,169 @@ export function parseBankAiJson(content: string): { lines?: unknown[] } {
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error("JSON non valido");
+}
+
+const BANK_AI_SYSTEM = `Sei un estrattore CONTABILE di movimenti da estratto conto italiano (BCC).
+Rispondi SOLO con un oggetto JSON valido (RFC 8259). Nessun markdown.
+
+Schema ESATTO:
+{"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":null,"amountCents":2528,"column":"DARE","description":"testo","counterpartyName":"","trnOrCro":""}]}
+
+REGOLE:
+1. amountCents = SOLO intero (centesimi). 25,28€ → 2528 ; 1.234,56€ → 123456. MAI virgole nei numeri.
+2. column = "DARE" (uscita) o "AVERE" (entrata). Obbligatoria.
+3. description = stringa breve senza a capo.
+4. Ignora saldi/totali/intestazioni.
+5. Se non sicuro → column "DARE".
+6. Se vuoto: {"lines":[]}`;
+
+function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
+  const lines: ParsedBankLine[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const transactionDate = String(r.transactionDate ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) continue;
+
+    const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
+    const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
+    const valutaRaw =
+      r.valutaDate == null ? null : String(r.valutaDate).slice(0, 10);
+    const valutaDate =
+      valutaRaw && /^\d{4}-\d{2}-\d{2}$/.test(valutaRaw) ? valutaRaw : null;
+    const description =
+      String(r.description ?? "")
+        .replace(/[\r\n]+/g, " ")
+        .trim() || "Movimento PDF";
+    const counterpartyName = String(r.counterpartyName ?? "").trim();
+    const trnOrCro = String(r.trnOrCro ?? "").trim();
+
+    if (dareIt || avereIt) {
+      if (dareIt) {
+        const n = parseItAmount(dareIt, { strict: true });
+        if (n != null && n !== 0) {
+          lines.push({
+            transactionDate,
+            valutaDate,
+            amount: -Math.abs(n),
+            description,
+            counterpartyName,
+            trnOrCro,
+            column: "DARE",
+            signSource: "openai-dareIt",
+            amountIt: dareIt,
+          });
+        }
+      }
+      if (avereIt) {
+        const n = parseItAmount(avereIt, { strict: true });
+        if (n != null && n !== 0) {
+          lines.push({
+            transactionDate,
+            valutaDate,
+            amount: Math.abs(n),
+            description,
+            counterpartyName,
+            trnOrCro,
+            column: "AVERE",
+            signSource: "openai-avereIt",
+            amountIt: avereIt,
+          });
+        }
+      }
+      continue;
+    }
+
+    const resolved = resolveAiAmount(r);
+    if (!resolved) continue;
+
+    lines.push({
+      transactionDate,
+      valutaDate,
+      amount: resolved.amount,
+      description,
+      counterpartyName,
+      trnOrCro,
+      column: resolved.column,
+      signSource: resolved.column ? "openai-column" : "openai-nocolumn",
+      amountIt: resolved.amountIt,
+    });
+  }
+  return lines;
+}
+
+function chunkPdfText(text: string, chunkSize = 7000): string[] {
+  const clean = text.replace(/\r/g, "");
+  if (clean.length <= chunkSize) return [clean];
+  const parts: string[] = [];
+  let i = 0;
+  while (i < clean.length) {
+    let end = Math.min(i + chunkSize, clean.length);
+    if (end < clean.length) {
+      const nl = clean.lastIndexOf("\n", end);
+      if (nl > i + chunkSize * 0.5) end = nl;
+    }
+    const slice = clean.slice(i, end).trim();
+    if (slice) parts.push(slice);
+    i = end;
+  }
+  return parts.length ? parts : [clean.slice(0, chunkSize)];
+}
+
+async function callOpenAiBankChunk(input: {
+  apiKey: string;
+  model: string;
+  chunk: string;
+  chunkIndex: number;
+  chunkTotal: number;
+}): Promise<{ lines: ParsedBankLine[]; rawError?: string }> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: input.model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: BANK_AI_SYSTEM },
+        {
+          role: "user",
+          content: `Parte ${input.chunkIndex + 1}/${input.chunkTotal} dell'estratto. Estrai i movimenti di QUESTA parte. amountCents = intero.\n\n${input.chunk}`,
+        },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    return {
+      lines: [],
+      rawError: `HTTP ${res.status}: ${body.slice(0, 160)}`,
+    };
+  }
+  const json = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  const content = json.choices?.[0]?.message?.content;
+  if (!content) return { lines: [], rawError: "risposta vuota" };
+
+  try {
+    const parsed = parseBankAiJson(content);
+    return { lines: mapAiRowsToLines(parsed.lines ?? []) };
+  } catch (e) {
+    console.error(
+      "[bank-pdf-ai-json]",
+      e,
+      "snippet:",
+      content.slice(0, 300)
+    );
+    return {
+      lines: [],
+      rawError: `JSON non parsabile (chunk ${input.chunkIndex + 1}): ${content.slice(0, 120).replace(/\s+/g, " ")}`,
+    };
+  }
 }
 
 export async function parseBankStatementWithAi(
@@ -536,197 +718,38 @@ export async function parseBankStatementWithAi(
     process.env.BANK_OPENAI_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
     "gpt-4o";
-  const excerpt = text.slice(0, 28000);
-  const system = `Sei un estrattore CONTABILE di movimenti da estratto conto italiano (BCC).
-Errori di importo o segno causano gravi problemi: sii pedante.
-Rispondi SOLO con un oggetto JSON valido (RFC 8259). Nessun markdown.
 
-Schema:
-{"lines":[{
-  "transactionDate":"YYYY-MM-DD",
-  "valutaDate":"YYYY-MM-DD o null",
-  "amountCents":2528,
-  "column":"DARE",
-  "description":"...",
-  "counterpartyName":"...",
-  "trnOrCro":"...",
-  "amountIt":"25,28"
-}]}
-
-REGOLE OBBLIGATORIE:
-1. amountCents = INTERO JSON (centesimi di euro). Esempi: 25,28€ → 2528 ; 1.234,56€ → 123456 ; 50,00€ → 5000.
-   MAI usare la virgola nei numeri JSON. MAI scrivere 25,28 o 1.234,56 come number.
-2. amountIt = stringa opzionale di audit col testo IT del PDF (sempre tra virgolette): "25,28".
-3. column = "DARE" (uscita, Mov.DARE) oppure "AVERE" (entrata, Mov.AVERE). Obbligatoria.
-4. Se sulla stessa riga ci sono DARE e AVERE, crea DUE elementi (uno per colonna) ciascuno con il proprio amountCents.
-5. IGNORA saldi, totali, intestazioni, piè di pagina. Non importare mai un saldo come movimento.
-6. Se non sei sicuro della colonna → "DARE".
-7. Se non trovi movimenti: {"lines":[]}`;
+  const chunks = chunkPdfText(text, 7500).slice(0, 5); // max 5 parti (anti timeout/rate-limit)
+  const allLines: ParsedBankLine[] = [];
+  const errors: string[] = [];
 
   try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    for (let i = 0; i < chunks.length; i++) {
+      const result = await callOpenAiBankChunk({
+        apiKey,
         model,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          {
-            role: "user",
-            content: `Estrai SOLO i movimenti. Usa amountCents intero (niente virgole nei numeri JSON).\n\n${excerpt}`,
-          },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error("[bank-pdf-ai]", res.status, body.slice(0, 500));
+        chunk: chunks[i],
+        chunkIndex: i,
+        chunkTotal: chunks.length,
+      });
+      if (result.rawError) errors.push(result.rawError);
+      allLines.push(...result.lines);
+      // piccola pausa anti rate-limit tra chunk
+      if (i < chunks.length - 1) {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+
+    if (allLines.length === 0) {
       return {
         ok: false,
-        error: `OpenAI HTTP ${res.status} (modello ${model}): ${body.slice(0, 180) || res.statusText}`,
+        error:
+          errors[0] ||
+          "OpenAI non ha estratto movimenti utili (JSON vuoto o non valido su tutti i chunk).",
       };
     }
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = json.choices?.[0]?.message?.content;
-    if (!content) {
-      return { ok: false, error: "OpenAI ha risposto senza contenuto." };
-    }
 
-    let parsed: { lines?: unknown[] };
-    try {
-      parsed = parseBankAiJson(content);
-    } catch {
-      // Un retry di riparazione esplicita verso il modello
-      try {
-        const repairRes = await fetch(
-          "https://api.openai.com/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model,
-              temperature: 0,
-              response_format: { type: "json_object" },
-              messages: [
-                {
-                  role: "system",
-                  content:
-                    'Ripara questo testo in JSON valido. Converti ogni importo italiano in amountCents intero (25,28→2528). Schema: {"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":null,"amountCents":0,"column":"DARE"|"AVERE","description":"","counterpartyName":"","trnOrCro":"","amountIt":"0,00"}]}. Solo JSON.',
-                },
-                { role: "user", content: content.slice(0, 60000) },
-              ],
-            }),
-          }
-        );
-        if (!repairRes.ok) {
-          return {
-            ok: false,
-            error:
-              "OpenAI ha restituito JSON non valido e anche la riparazione è fallita.",
-          };
-        }
-        const repairJson = (await repairRes.json()) as {
-          choices?: Array<{ message?: { content?: string } }>;
-        };
-        const repaired = repairJson.choices?.[0]?.message?.content;
-        if (!repaired) {
-          return {
-            ok: false,
-            error: "OpenAI JSON non valido (riparazione vuota).",
-          };
-        }
-        parsed = parseBankAiJson(repaired);
-      } catch (e) {
-        console.error("[bank-pdf-ai-json]", e);
-        return {
-          ok: false,
-          error:
-            "OpenAI ha restituito JSON non valido anche dopo riparazione (virgole negli importi).",
-        };
-      }
-    }
-
-    const lines: ParsedBankLine[] = [];
-
-    for (const row of parsed.lines ?? []) {
-      if (!row || typeof row !== "object") continue;
-      const r = row as Record<string, unknown>;
-      const transactionDate = String(r.transactionDate ?? "").slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) continue;
-
-      const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
-      const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
-      const valutaRaw =
-        r.valutaDate == null ? null : String(r.valutaDate).slice(0, 10);
-      const valutaDate =
-        valutaRaw && /^\d{4}-\d{2}-\d{2}$/.test(valutaRaw) ? valutaRaw : null;
-      const description =
-        String(r.description ?? "").trim() || "Movimento PDF";
-      const counterpartyName = String(r.counterpartyName ?? "").trim();
-      const trnOrCro = String(r.trnOrCro ?? "").trim();
-
-      if (dareIt || avereIt) {
-        if (dareIt) {
-          const n = parseItAmount(dareIt, { strict: true });
-          if (n != null && n !== 0) {
-            lines.push({
-              transactionDate,
-              valutaDate,
-              amount: -Math.abs(n),
-              description,
-              counterpartyName,
-              trnOrCro,
-              column: "DARE",
-              signSource: "openai-dareIt",
-              amountIt: dareIt,
-            });
-          }
-        }
-        if (avereIt) {
-          const n = parseItAmount(avereIt, { strict: true });
-          if (n != null && n !== 0) {
-            lines.push({
-              transactionDate,
-              valutaDate,
-              amount: Math.abs(n),
-              description,
-              counterpartyName,
-              trnOrCro,
-              column: "AVERE",
-              signSource: "openai-avereIt",
-              amountIt: avereIt,
-            });
-          }
-        }
-        continue;
-      }
-
-      const resolved = resolveAiAmount(r);
-      if (!resolved) continue;
-
-      lines.push({
-        transactionDate,
-        valutaDate,
-        amount: resolved.amount,
-        description,
-        counterpartyName,
-        trnOrCro,
-        column: resolved.column,
-        signSource: resolved.column ? "openai-column" : "openai-nocolumn",
-        amountIt: resolved.amountIt,
-      });
-    }
-    return { ok: true, lines, modelName: model };
+    return { ok: true, lines: allLines, modelName: model };
   } catch (e) {
     console.error("[bank-pdf-ai]", e);
     return {

@@ -11,6 +11,8 @@ import {
 import { isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
+export const maxDuration = 300;
+
 type Props = {
   params: Promise<{ section: string }>;
 };
