@@ -29,11 +29,35 @@ export type ImportoConIva = {
   totale: number;
 };
 
+export type CommercialistaDocumentoRiga = {
+  id: string;
+  numeroInterno: string;
+  dataEmissione: string;
+  anagraficaRagioneSociale: string;
+  totale: number;
+  /** Numero sequenza matita (provvisorio) se assegnato. */
+  numeroSequenza: number | null;
+};
+
+export type CommercialistaBeneRiga = {
+  rigaId: string;
+  fatturaId: string;
+  numeroInterno: string;
+  descrizione: string;
+  importo: number;
+  numeroSequenza: number | null;
+};
+
 export type CommercialistaColonnaTotali = {
   documenti: ImportoConIva;
   vocePrimaria: ImportoConIva;
   beniAmmortizzabili: ImportoConIva;
   conteggioDocumenti: number;
+  /** Righe non ammortizzabili (prodotti / materiale consumo). */
+  conteggioVociPrimarie: number;
+  conteggioBeniAmmortizzabili: number;
+  documentiLista: CommercialistaDocumentoRiga[];
+  beniLista: CommercialistaBeneRiga[];
 };
 
 export type CommercialistaSummary = {
@@ -45,8 +69,8 @@ export type CommercialistaSummary = {
   /** true se dal/al sono personalizzati (tabella trimestri_commercialista). */
   periodoPersonalizzato: boolean;
   ivaAliquotaDefaultPct: number;
-  /** KPI: totale fatture emesse (incassi) del periodo. */
-  totaleIncassi: number;
+  /** KPI: totale fatture emesse del periodo. */
+  totaleFattureEmesse: number;
   /** KPI: totale fatture ricevute del periodo. */
   totaleRicevute: number;
   emesse: CommercialistaColonnaTotali;
@@ -63,6 +87,10 @@ export function emptyColonna(): CommercialistaColonnaTotali {
     vocePrimaria: emptyImportoConIva(),
     beniAmmortizzabili: emptyImportoConIva(),
     conteggioDocumenti: 0,
+    conteggioVociPrimarie: 0,
+    conteggioBeniAmmortizzabili: 0,
+    documentiLista: [],
+    beniLista: [],
   };
 }
 

@@ -8,9 +8,13 @@ import {
   IVA_AZIENDALE_PCT,
   resolveIvaPercentuale,
   upsertTrimestreCommercialistaSchema,
+  type CommercialistaBeneRiga,
+  type CommercialistaColonnaTotali,
+  type CommercialistaDocumentoRiga,
   type CommercialistaSummary,
   type ImportoConIva,
 } from "@/lib/amministrazione/commercialista";
+import { assignNumeriVignetta } from "@/lib/amministrazione/elaborazione-contabile";
 import {
   includeInContabilitaFatturaEmessa,
   roundMoney,
@@ -22,7 +26,12 @@ import {
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
-import type { TrimestreCommercialistaRow } from "@/types/database";
+import type {
+  ElaborazioneContabileInsert,
+  ElaborazioneContabileKind,
+  ElaborazioneContabileVoceInsert,
+  TrimestreCommercialistaRow,
+} from "@/types/database";
 
 export type CommercialistaSummaryResult =
   | { success: true; data: CommercialistaSummary }
@@ -294,11 +303,13 @@ export async function getCommercialistaSummaryAction(
   const { data: emesseRows, error: emesseErr } = await supabase
     .from("fatture_emesse")
     .select(
-      "id, imponibile, imposta, totale, iva_percentuale, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno"
+      "id, imponibile, imposta, totale, iva_percentuale, tipo_documento, stato_pagamento, fattura_collegata_id, numero_interno, data_emissione, cliente_ragione_sociale"
     )
     .is("deleted_at", null)
     .gte("data_emissione", dal)
-    .lte("data_emissione", al);
+    .lte("data_emissione", al)
+    .order("data_emissione", { ascending: true })
+    .order("numero_interno", { ascending: true });
   if (emesseErr) return { success: false, error: emesseErr.message };
 
   const emesseOk = (emesseRows ?? []).filter((r) => {
@@ -314,13 +325,30 @@ export async function getCommercialistaSummaryAction(
 
   const { data: ricevuteRows, error: ricevuteErr } = await supabase
     .from("fatture_ricevute")
-    .select("id, imponibile, imposta, totale, iva_percentuale")
+    .select(
+      "id, imponibile, imposta, totale, iva_percentuale, numero_interno, data_emissione, fornitore_ragione_sociale"
+    )
     .is("deleted_at", null)
     .gte("data_emissione", dal)
-    .lte("data_emissione", al);
+    .lte("data_emissione", al)
+    .order("data_emissione", { ascending: true })
+    .order("numero_interno", { ascending: true });
   if (ricevuteErr) return { success: false, error: ricevuteErr.message };
 
   const ricevuteOk = ricevuteRows ?? [];
+
+  const sequenzaEmesse = await loadSequenzaMap(
+    supabase,
+    "emessa",
+    anno,
+    trimestre
+  );
+  const sequenzaRicevute = await loadSequenzaMap(
+    supabase,
+    "ricevuta",
+    anno,
+    trimestre
+  );
 
   const emesseIvaById = new Map(
     emesseOk.map((r) => [
@@ -338,72 +366,106 @@ export async function getCommercialistaSummaryAction(
   const emesseIds = [...emesseIvaById.keys()];
   const ricevuteIds = [...ricevuteIvaById.keys()];
 
-  let emesseRighe: Array<{
+  type RigaRaw = {
+    id: string;
+    fattura_id: string;
+    descrizione: string;
     importo: number;
-    isBeneAmmortizzabile: boolean;
-    ivaPercentuale: number;
-  }> = [];
+    is_bene_ammortizzabile: boolean;
+    iva_percentuale?: number | null;
+  };
+
+  let emesseRigheDb: RigaRaw[] = [];
   if (emesseIds.length > 0) {
     const { data: righe, error } = await supabase
       .from("fatture_emesse_righe")
-      .select("importo, is_bene_ammortizzabile, fattura_id, iva_percentuale")
+      .select(
+        "id, importo, is_bene_ammortizzabile, fattura_id, iva_percentuale, descrizione"
+      )
       .in("fattura_id", emesseIds);
     if (error) return { success: false, error: error.message };
-    emesseRighe = (righe ?? []).map((r) => {
-      const fatturaId = String(r.fattura_id);
-      const fromRiga = Number(r.iva_percentuale);
-      const ivaPercentuale =
-        Number.isFinite(fromRiga) && fromRiga > 0
-          ? fromRiga
-          : (emesseIvaById.get(fatturaId) ?? IVA_AZIENDALE_PCT);
-      return {
-        importo: Number(r.importo) || 0,
-        isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
-        ivaPercentuale,
-      };
-    });
+    emesseRigheDb = (righe ?? []) as RigaRaw[];
   }
 
-  let ricevuteRighe: Array<{
-    importo: number;
-    isBeneAmmortizzabile: boolean;
-    ivaPercentuale: number;
-  }> = [];
+  let ricevuteRigheDb: RigaRaw[] = [];
   if (ricevuteIds.length > 0) {
     const { data: righe, error } = await supabase
       .from("fatture_ricevute_righe")
-      .select("importo, is_bene_ammortizzabile, fattura_id, iva_percentuale")
+      .select(
+        "id, importo, is_bene_ammortizzabile, fattura_id, iva_percentuale, descrizione"
+      )
       .in("fattura_id", ricevuteIds);
     if (error) return { success: false, error: error.message };
-    ricevuteRighe = (righe ?? []).map((r) => {
+    ricevuteRigheDb = (righe ?? []) as RigaRaw[];
+  }
+
+  const emesseNumeroById = new Map(
+    emesseOk.map((r) => [String(r.id), String(r.numero_interno ?? "")])
+  );
+  const ricevuteNumeroById = new Map(
+    ricevuteOk.map((r) => [String(r.id), String(r.numero_interno ?? "")])
+  );
+
+  const emesseAgg = aggregateRigheConIva(
+    emesseRigheDb.map((r) => {
       const fatturaId = String(r.fattura_id);
       const fromRiga = Number(r.iva_percentuale);
-      const ivaPercentuale =
-        Number.isFinite(fromRiga) && fromRiga > 0
-          ? fromRiga
-          : (ricevuteIvaById.get(fatturaId) ?? IVA_AZIENDALE_PCT);
       return {
         importo: Number(r.importo) || 0,
         isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
-        ivaPercentuale,
+        ivaPercentuale:
+          Number.isFinite(fromRiga) && fromRiga > 0
+            ? fromRiga
+            : (emesseIvaById.get(fatturaId) ?? IVA_AZIENDALE_PCT),
       };
-    });
-  }
+    })
+  );
+  const ricevuteAgg = aggregateRigheConIva(
+    ricevuteRigheDb.map((r) => {
+      const fatturaId = String(r.fattura_id);
+      const fromRiga = Number(r.iva_percentuale);
+      return {
+        importo: Number(r.importo) || 0,
+        isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+        ivaPercentuale:
+          Number.isFinite(fromRiga) && fromRiga > 0
+            ? fromRiga
+            : (ricevuteIvaById.get(fatturaId) ?? IVA_AZIENDALE_PCT),
+      };
+    })
+  );
 
-  const emesseAgg = aggregateRigheConIva(emesseRighe);
-  const ricevuteAgg = aggregateRigheConIva(ricevuteRighe);
+  const emesse = buildColonna({
+    testate: emesseOk.map((r) => ({
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      dataEmissione: String(r.data_emissione ?? ""),
+      anagraficaRagioneSociale: String(r.cliente_ragione_sociale ?? ""),
+      totale: Number(r.totale) || 0,
+      imponibile: Number(r.imponibile) || 0,
+      imposta: Number(r.imposta) || 0,
+    })),
+    righe: emesseRigheDb,
+    numeroById: emesseNumeroById,
+    sequenzaById: sequenzaEmesse,
+    agg: emesseAgg,
+  });
 
-  const emesse = emptyColonna();
-  emesse.conteggioDocumenti = emesseOk.length;
-  emesse.documenti = documentiDaTestate(emesseOk);
-  emesse.vocePrimaria = emesseAgg.vocePrimaria;
-  emesse.beniAmmortizzabili = emesseAgg.beniAmmortizzabili;
-
-  const ricevute = emptyColonna();
-  ricevute.conteggioDocumenti = ricevuteOk.length;
-  ricevute.documenti = documentiDaTestate(ricevuteOk);
-  ricevute.vocePrimaria = ricevuteAgg.vocePrimaria;
-  ricevute.beniAmmortizzabili = ricevuteAgg.beniAmmortizzabili;
+  const ricevute = buildColonna({
+    testate: ricevuteOk.map((r) => ({
+      id: String(r.id),
+      numeroInterno: String(r.numero_interno ?? ""),
+      dataEmissione: String(r.data_emissione ?? ""),
+      anagraficaRagioneSociale: String(r.fornitore_ragione_sociale ?? ""),
+      totale: Number(r.totale) || 0,
+      imponibile: Number(r.imponibile) || 0,
+      imposta: Number(r.imposta) || 0,
+    })),
+    righe: ricevuteRigheDb,
+    numeroById: ricevuteNumeroById,
+    sequenzaById: sequenzaRicevute,
+    agg: ricevuteAgg,
+  });
 
   return {
     success: true,
@@ -415,10 +477,293 @@ export async function getCommercialistaSummaryAction(
       al,
       periodoPersonalizzato: personalizzato,
       ivaAliquotaDefaultPct: IVA_AZIENDALE_PCT,
-      totaleIncassi: emesse.documenti.totale,
+      totaleFattureEmesse: emesse.documenti.totale,
       totaleRicevute: ricevute.documenti.totale,
       emesse,
       ricevute,
     },
   };
+}
+
+async function loadSequenzaMap(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  kind: ElaborazioneContabileKind,
+  anno: number,
+  trimestre: TrimestreNumero
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const { data: elab } = await supabase
+    .from("elaborazioni_contabili")
+    .select("id")
+    .eq("kind", kind)
+    .eq("anno", anno)
+    .eq("trimestre", trimestre)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!elab?.id) return map;
+  const { data: voci } = await supabase
+    .from("elaborazioni_contabili_voci")
+    .select("fattura_id, numero_vignetta, numera_con_vignetta")
+    .eq("elaborazione_id", elab.id)
+    .is("deleted_at", null);
+  for (const v of voci ?? []) {
+    if (
+      v.numera_con_vignetta &&
+      v.numero_vignetta != null &&
+      Number(v.numero_vignetta) >= 1
+    ) {
+      map.set(String(v.fattura_id), Number(v.numero_vignetta));
+    }
+  }
+  return map;
+}
+
+function buildColonna(input: {
+  testate: Array<{
+    id: string;
+    numeroInterno: string;
+    dataEmissione: string;
+    anagraficaRagioneSociale: string;
+    totale: number;
+    imponibile: number;
+    imposta: number;
+  }>;
+  righe: Array<{
+    id: string;
+    fattura_id: string;
+    descrizione: string;
+    importo: number;
+    is_bene_ammortizzabile: boolean;
+  }>;
+  numeroById: Map<string, string>;
+  sequenzaById: Map<string, number>;
+  agg: ReturnType<typeof aggregateRigheConIva>;
+}): CommercialistaColonnaTotali {
+  const col = emptyColonna();
+  col.conteggioDocumenti = input.testate.length;
+  col.documenti = documentiDaTestate(input.testate);
+  col.vocePrimaria = input.agg.vocePrimaria;
+  col.beniAmmortizzabili = input.agg.beniAmmortizzabili;
+
+  const beniLista: CommercialistaBeneRiga[] = [];
+  let nPrimarie = 0;
+  let nBeni = 0;
+  for (const r of input.righe) {
+    const fatturaId = String(r.fattura_id);
+    if (r.is_bene_ammortizzabile) {
+      nBeni += 1;
+      beniLista.push({
+        rigaId: String(r.id),
+        fatturaId,
+        numeroInterno: input.numeroById.get(fatturaId) ?? "",
+        descrizione: String(r.descrizione ?? "").trim() || "—",
+        importo: Number(r.importo) || 0,
+        numeroSequenza: input.sequenzaById.get(fatturaId) ?? null,
+      });
+    } else {
+      nPrimarie += 1;
+    }
+  }
+  col.conteggioVociPrimarie = nPrimarie;
+  col.conteggioBeniAmmortizzabili = nBeni;
+  col.beniLista = beniLista;
+
+  const documentiLista: CommercialistaDocumentoRiga[] = input.testate.map(
+    (t) => ({
+      id: t.id,
+      numeroInterno: t.numeroInterno,
+      dataEmissione: t.dataEmissione,
+      anagraficaRagioneSociale: t.anagraficaRagioneSociale,
+      totale: t.totale,
+      numeroSequenza: input.sequenzaById.get(t.id) ?? null,
+    })
+  );
+  col.documentiLista = documentiLista;
+  return col;
+}
+
+/**
+ * Assegna sequenza numerica 1…N a tutte le fatture del periodo (ordine data),
+ * stile «matita» commercialista — persistita in elaborazioni_contabili.
+ */
+export async function applySequenzaCommercialistaAction(input: {
+  kind: ElaborazioneContabileKind;
+  anno: number;
+  trimestre: TrimestreNumero;
+}): Promise<
+  | { success: true; assegnati: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = commercialistaSummarySchema.safeParse({
+    anno: input.anno,
+    trimestre: input.trimestre,
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Parametri non validi.",
+    };
+  }
+  if (input.kind !== "emessa" && input.kind !== "ricevuta") {
+    return { success: false, error: "Tipo documento non valido." };
+  }
+
+  const periodoRes = await resolvePeriodoTrimestre(
+    parsed.data.anno,
+    parsed.data.trimestre
+  );
+  if (!periodoRes.ok) return { success: false, error: periodoRes.error };
+  const { dal, al } = periodoRes.periodo;
+  const { anno, trimestre } = parsed.data;
+  const supabase = await createClient();
+
+  let fatturaIds: string[] = [];
+  if (input.kind === "emessa") {
+    const { data, error } = await supabase
+      .from("fatture_emesse")
+      .select(
+        "id, numero_interno, tipo_documento, stato_pagamento, fattura_collegata_id, data_emissione"
+      )
+      .is("deleted_at", null)
+      .gte("data_emissione", dal)
+      .lte("data_emissione", al)
+      .order("data_emissione", { ascending: true })
+      .order("numero_interno", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    fatturaIds = (data ?? [])
+      .filter((r) => {
+        if (String(r.numero_interno ?? "").toUpperCase().startsWith("NC-")) {
+          return false;
+        }
+        return includeInContabilitaFatturaEmessa({
+          tipo_documento: r.tipo_documento,
+          stato_pagamento: r.stato_pagamento,
+          fattura_collegata_id: r.fattura_collegata_id,
+        });
+      })
+      .map((r) => String(r.id));
+  } else {
+    const { data, error } = await supabase
+      .from("fatture_ricevute")
+      .select("id, data_emissione, numero_interno")
+      .is("deleted_at", null)
+      .gte("data_emissione", dal)
+      .lte("data_emissione", al)
+      .order("data_emissione", { ascending: true })
+      .order("numero_interno", { ascending: true });
+    if (error) return { success: false, error: error.message };
+    fatturaIds = (data ?? []).map((r) => String(r.id));
+  }
+
+  const numbered = assignNumeriVignetta(
+    fatturaIds.map((fatturaId) => ({
+      fatturaId,
+      numeraConVignetta: true,
+    }))
+  );
+
+  const { data: existing, error: findErr } = await supabase
+    .from("elaborazioni_contabili")
+    .select("*")
+    .eq("kind", input.kind)
+    .eq("anno", anno)
+    .eq("trimestre", trimestre)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (findErr) return { success: false, error: findErr.message };
+
+  let elaborazioneId: string;
+  let versione = 1;
+
+  if (existing?.id) {
+    versione = (existing.versione ?? 1) + 1;
+    const { data: updated, error: upErr } = await supabase
+      .from("elaborazioni_contabili")
+      .update({
+        note: "Sequenza numerica commercialista",
+        versione,
+        updated_by: auth.userId,
+      })
+      .eq("id", existing.id)
+      .select("id")
+      .single();
+    if (upErr || !updated) {
+      return {
+        success: false,
+        error: upErr?.message ?? "Aggiornamento elaborazione non riuscito.",
+      };
+    }
+    elaborazioneId = updated.id;
+    const nowIso = new Date().toISOString();
+    await supabase
+      .from("elaborazioni_contabili_voci")
+      .update({
+        deleted_at: nowIso,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("elaborazione_id", elaborazioneId)
+      .is("deleted_at", null);
+  } else {
+    const insert: ElaborazioneContabileInsert = {
+      kind: input.kind,
+      anno,
+      trimestre,
+      documento_stato: "bozza",
+      versione: 1,
+      note: "Sequenza numerica commercialista",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    };
+    const { data: created, error: insErr } = await supabase
+      .from("elaborazioni_contabili")
+      .insert(insert)
+      .select("id")
+      .single();
+    if (insErr || !created) {
+      return {
+        success: false,
+        error: insErr?.message ?? "Creazione elaborazione non riuscita.",
+      };
+    }
+    elaborazioneId = created.id;
+  }
+
+  const vociInsert: ElaborazioneContabileVoceInsert[] = numbered.map((v) => ({
+    elaborazione_id: elaborazioneId,
+    fattura_id: v.fatturaId,
+    numera_con_vignetta: v.numeraConVignetta,
+    numero_vignetta: v.numeroVignetta,
+    sort_order: v.sortOrder,
+    created_by: auth.userId,
+    updated_by: auth.userId,
+  }));
+
+  if (vociInsert.length > 0) {
+    const { error: vociErr } = await supabase
+      .from("elaborazioni_contabili_voci")
+      .insert(vociInsert);
+    if (vociErr) {
+      return { success: false, error: `Voci elaborazione: ${vociErr.message}` };
+    }
+  }
+
+  await writeAuditLog({
+    entity_type: "elaborazioni_contabili",
+    entity_id: elaborazioneId,
+    action: existing?.id ? "update" : "create",
+    actor_id: auth.userId,
+    summary: `Sequenza numerica commercialista ${input.kind} ${anno}-T${trimestre}: ${numbered.length} documenti`,
+    payload: {
+      kind: input.kind,
+      anno,
+      trimestre,
+      dal,
+      al,
+      assegnati: numbered.length,
+    },
+  });
+
+  return { success: true, assegnati: numbered.length };
 }
