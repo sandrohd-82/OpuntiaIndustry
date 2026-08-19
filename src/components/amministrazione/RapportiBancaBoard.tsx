@@ -37,12 +37,29 @@ function toIsoDate(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+function parseIsoDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+function quarterLabel(isoFrom: string) {
+  const d = parseIsoDate(isoFrom);
+  const q = Math.floor(d.getMonth() / 3) + 1;
+  return `T${q} ${d.getFullYear()}`;
+}
+function monthLabel(isoFrom: string) {
+  const d = parseIsoDate(isoFrom);
+  return d.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+}
 
 export function RapportiBancaBoard() {
-  const now = useMemo(() => new Date(), []);
   const [preset, setPreset] = useState<PeriodPreset>("mese");
-  const [dateFrom, setDateFrom] = useState(toIsoDate(startOfMonth(now)));
-  const [dateTo, setDateTo] = useState(toIsoDate(endOfMonth(now)));
+  const [anchor, setAnchor] = useState(() => new Date());
+  const [dateFrom, setDateFrom] = useState(() =>
+    toIsoDate(startOfMonth(new Date()))
+  );
+  const [dateTo, setDateTo] = useState(() =>
+    toIsoDate(endOfMonth(new Date()))
+  );
   const [tipo, setTipo] = useState<TipoFilter>("tutti");
   const [items, setItems] = useState<BankTransactionView[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +71,30 @@ export function RapportiBancaBoard() {
 
   useEffect(() => {
     if (preset === "mese") {
-      setDateFrom(toIsoDate(startOfMonth(now)));
-      setDateTo(toIsoDate(endOfMonth(now)));
+      setDateFrom(toIsoDate(startOfMonth(anchor)));
+      setDateTo(toIsoDate(endOfMonth(anchor)));
     } else if (preset === "trimestre") {
-      setDateFrom(toIsoDate(startOfQuarter(now)));
-      setDateTo(toIsoDate(endOfQuarter(now)));
+      setDateFrom(toIsoDate(startOfQuarter(anchor)));
+      setDateTo(toIsoDate(endOfQuarter(anchor)));
     }
-  }, [preset, now]);
+  }, [preset, anchor]);
+
+  const periodCaption = useMemo(() => {
+    if (preset === "mese") return monthLabel(dateFrom);
+    if (preset === "trimestre") return quarterLabel(dateFrom);
+    return `${formatDateIt(dateFrom)} – ${formatDateIt(dateTo)}`;
+  }, [preset, dateFrom, dateTo]);
+
+  function shiftPeriod(delta: number) {
+    const mode = preset === "trimestre" ? "trimestre" : "mese";
+    if (preset === "personalizzato") setPreset("mese");
+    setAnchor((prev) => {
+      const d = new Date(prev);
+      if (mode === "trimestre") d.setMonth(d.getMonth() + delta * 3);
+      else d.setMonth(d.getMonth() + delta);
+      return d;
+    });
+  }
 
   const load = useCallback(async () => {
     setError(null);
@@ -90,7 +124,7 @@ export function RapportiBancaBoard() {
         return;
       }
       setInfo(
-        `Sincronizzati ${res.fetched} movimenti (${res.accountName}). Nuovi: ${res.upserted}, match: ${res.matched}, fatture → paid: ${res.invoicesMarkedPaid}.`
+        `Sincronizzati ${res.fetched} movimenti dal ${formatDateIt(dateFrom)} al ${formatDateIt(dateTo)} (${res.accountName}). Nuovi/aggiornati inserimenti: ${res.upserted}, match: ${res.matched}.`
       );
       await load();
     });
@@ -106,6 +140,8 @@ export function RapportiBancaBoard() {
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           Movimenti da Fatture in Cloud (cashbook / TS Pay → BCC Don Rizzo),
           riconciliazione con fatture locali e stampa report ISO 9001.
+          Il periodo sotto vale sia per la <strong>visualizzazione</strong> sia
+          per la <strong>sincronizzazione</strong>.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -128,40 +164,111 @@ export function RapportiBancaBoard() {
         </div>
       </div>
 
-      <div className="print:hidden flex flex-wrap gap-2">
-        <select
-          value={preset}
-          onChange={(e) => setPreset(e.target.value as PeriodPreset)}
-          className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="mese">Mese corrente</option>
-          <option value="trimestre">Trimestre</option>
-          <option value="personalizzato">Personalizzato</option>
-        </select>
-        <input
-          type="date"
-          value={dateFrom}
-          disabled={preset !== "personalizzato"}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-60"
-        />
-        <input
-          type="date"
-          value={dateTo}
-          disabled={preset !== "personalizzato"}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-60"
-        />
-        <select
-          value={tipo}
-          onChange={(e) => setTipo(e.target.value as TipoFilter)}
-          className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="tutti">Tutti</option>
-          <option value="entrate">Solo entrate</option>
-          <option value="uscite">Solo uscite</option>
-          <option value="non_riconciliati">Non riconciliati</option>
-        </select>
+      <div className="print:hidden space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+        <p className="text-xs font-medium text-slate-700">
+          Periodo attivo: <span className="capitalize">{periodCaption}</span>
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm">
+            <span className="mb-1 block text-[11px] font-medium text-[var(--muted)]">
+              Tipo periodo
+            </span>
+            <select
+              value={preset}
+              onChange={(e) => {
+                const v = e.target.value as PeriodPreset;
+                setPreset(v);
+                if (v !== "personalizzato") setAnchor(new Date());
+              }}
+              className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="mese">Mese</option>
+              <option value="trimestre">Trimestre</option>
+              <option value="personalizzato">Personalizzato (date libere)</option>
+            </select>
+          </label>
+
+          {preset !== "personalizzato" ? (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => shiftPeriod(-1)}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                title="Periodo precedente"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAnchor(new Date());
+                  setPreset((p) => (p === "personalizzato" ? "mese" : p));
+                }}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                Oggi
+              </button>
+              <button
+                type="button"
+                onClick={() => shiftPeriod(1)}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                title="Periodo successivo"
+              >
+                →
+              </button>
+            </div>
+          ) : null}
+
+          <label className="text-sm">
+            <span className="mb-1 block text-[11px] font-medium text-[var(--muted)]">
+              Dal
+            </span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setPreset("personalizzato");
+                setDateFrom(e.target.value);
+              }}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-[11px] font-medium text-[var(--muted)]">
+              Al
+            </span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setPreset("personalizzato");
+                setDateTo(e.target.value);
+              }}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+
+          <label className="text-sm">
+            <span className="mb-1 block text-[11px] font-medium text-[var(--muted)]">
+              Tipo movimento
+            </span>
+            <select
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value as TipoFilter)}
+              className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="tutti">Tutti</option>
+              <option value="entrate">Solo entrate</option>
+              <option value="uscite">Solo uscite</option>
+              <option value="non_riconciliati">Non riconciliati</option>
+            </select>
+          </label>
+        </div>
+        <p className="text-[11px] text-[var(--muted)]">
+          Per scegliere date a mano: seleziona «Personalizzato». Con Mese/Trimestre
+          usa ← → per cambiare periodo, poi «Sincronizza» per scaricare i
+          movimenti di quel intervallo da FiC.
+        </p>
       </div>
 
       {error ? (

@@ -90,6 +90,8 @@ export async function syncBankReportsFromFic(input: {
   userId: string | null;
   dateFrom: string;
   dateTo: string;
+  /** Se true, limita al conto BCC/TS Pay se trovato; default: tutti i conti. */
+  onlyPreferredBank?: boolean;
 }): Promise<BankSyncResult> {
   const accounts = await fetchFicPaymentAccounts().catch(() => []);
   const preferred = accounts.find((a) =>
@@ -98,7 +100,8 @@ export async function syncBankReportsFromFic(input: {
   const entries = await fetchFicCashbook({
     dateFrom: input.dateFrom,
     dateTo: input.dateTo,
-    paymentAccountId: preferred?.id,
+    paymentAccountId:
+      input.onlyPreferredBank && preferred?.id ? preferred.id : undefined,
     type: "all",
   });
   const accountName = resolveAccountName(entries, accounts);
