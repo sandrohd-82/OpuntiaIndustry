@@ -100,7 +100,7 @@ export async function importBankStatementPdfAction(
         success: false,
         error:
           result.notes ||
-          "Nessun movimento riconosciuto nel PDF. Usa un estratto testuale (non solo immagine) o configura OPENAI_API_KEY.",
+          "Nessun movimento riconosciuto nel PDF. Verifica OPENAI_API_KEY su Vercel (Production) e ridéploya.",
       };
     }
 

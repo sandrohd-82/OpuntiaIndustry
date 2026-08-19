@@ -465,11 +465,21 @@ function resolveAiAmount(r: Record<string, unknown>): {
   return null;
 }
 
+export type AiParseResult =
+  | { ok: true; lines: ParsedBankLine[]; modelName: string }
+  | { ok: false; error: string };
+
 export async function parseBankStatementWithAi(
   text: string
-): Promise<{ lines: ParsedBankLine[]; modelName: string } | null> {
+): Promise<AiParseResult> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return null;
+  if (!apiKey) {
+    return {
+      ok: false,
+      error:
+        "OPENAI_API_KEY assente su questo ambiente (Vercel Production?). Aggiungi la variabile e ridéploya.",
+    };
+  }
 
   const model =
     process.env.BANK_OPENAI_MODEL?.trim() ||
@@ -526,19 +536,30 @@ REGOLE OBBLIGATORIE:
       }),
     });
     if (!res.ok) {
-      console.error(
-        "[bank-pdf-ai]",
-        res.status,
-        await res.text().catch(() => "")
-      );
-      return null;
+      const body = await res.text().catch(() => "");
+      console.error("[bank-pdf-ai]", res.status, body.slice(0, 500));
+      return {
+        ok: false,
+        error: `OpenAI HTTP ${res.status} (modello ${model}): ${body.slice(0, 180) || res.statusText}`,
+      };
     }
     const json = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const content = json.choices?.[0]?.message?.content;
-    if (!content) return null;
-    const parsed = JSON.parse(content) as { lines?: unknown[] };
+    if (!content) {
+      return { ok: false, error: "OpenAI ha risposto senza contenuto." };
+    }
+    let parsed: { lines?: unknown[] };
+    try {
+      parsed = JSON.parse(content) as { lines?: unknown[] };
+    } catch {
+      return {
+        ok: false,
+        error:
+          "OpenAI ha restituito JSON non valido (possibile amount non in stringa).",
+      };
+    }
     const lines: ParsedBankLine[] = [];
 
     for (const row of parsed.lines ?? []) {
@@ -610,10 +631,13 @@ REGOLE OBBLIGATORIE:
         amountIt: resolved.amountIt,
       });
     }
-    return { lines, modelName: model };
+    return { ok: true, lines, modelName: model };
   } catch (e) {
     console.error("[bank-pdf-ai]", e);
-    return null;
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Errore chiamata OpenAI",
+    };
   }
 }
 
@@ -715,8 +739,12 @@ export async function parseBankStatementPdf(
     };
   }
 
+  const allowHeuristic =
+    process.env.BANK_PDF_ALLOW_HEURISTIC?.trim() === "1" ||
+    process.env.BANK_PDF_ALLOW_HEURISTIC?.trim()?.toLowerCase() === "true";
+
   const ai = await parseBankStatementWithAi(text);
-  if (ai && ai.lines.length > 0) {
+  if (ai.ok && ai.lines.length > 0) {
     const validated = validateLines(ai.lines);
     const notes = [
       `AI (${ai.modelName}) + regole: ${validated.lines.length} voci.`,
@@ -740,20 +768,31 @@ export async function parseBankStatementPdf(
     };
   }
 
+  const aiError = ai.ok
+    ? "OpenAI ha risposto ok ma 0 movimenti utili."
+    : ai.error;
+
+  // Senza AI non importiamo in silenzio (opzione B): evita errori del fallback.
+  if (!allowHeuristic) {
+    return {
+      text,
+      lines: [],
+      doubtful: [],
+      parserModel: "blocked-no-ai",
+      notes: `IMPORT BLOCCATO: ${aiError} Configura OPENAI_API_KEY (e opz. BANK_OPENAI_MODEL=gpt-4o) su Vercel → Production, poi Redeploy. Solo in emergenza: BANK_PDF_ALLOW_HEURISTIC=1.`,
+    };
+  }
+
   const heuristic = parseBankStatementHeuristic(text);
   const validated = validateLines(heuristic);
   return {
     text,
     lines: validated.lines,
     doubtful: validated.doubtful,
-    parserModel: process.env.OPENAI_API_KEY?.trim()
-      ? "heuristic-fallback-v2"
-      : "heuristic-dare-avere-v2",
+    parserModel: "heuristic-fallback-v2",
     notes: [
-      ai
-        ? "AI senza voci utili — fallback euristico v2."
-        : "OPENAI_API_KEY assente/errore — fallback euristico v2.",
-      `${validated.lines.length} voci; saldi esclusi; default DARE.`,
+      `ATTENZIONE: euristica di emergenza (BANK_PDF_ALLOW_HEURISTIC=1). Motivo AI: ${aiError}`,
+      `${validated.lines.length} voci; affidabilità ridotta.`,
       validated.doubtful.length
         ? `${validated.doubtful.length} escluse.`
         : null,
