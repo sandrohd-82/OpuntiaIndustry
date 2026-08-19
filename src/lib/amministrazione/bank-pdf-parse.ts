@@ -55,7 +55,7 @@ export function parseItAmount(
     .trim();
   if (!s0) return null;
   const neg = /^-|-$|^\(/.test(s0) || /^-/.test(s0.replace(/\s/g, ""));
-  let s = s0
+  const s = s0
     .replace(/\s/g, "")
     .replace(/€|EUR/gi, "")
     .replace(/^[+\-(]+/, "")
