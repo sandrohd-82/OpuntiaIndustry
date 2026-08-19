@@ -127,6 +127,59 @@ export async function testOpenAiConnectionAction(): Promise<
   }
 }
 
+export async function purgeBankImportedDataAction(): Promise<
+  { success: true; softDeletedTx: number } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  try {
+    const supabase = await createClient();
+    const now = new Date().toISOString();
+
+    await supabase
+      .from("bank_invoice_matches")
+      .update({ deleted_at: now, updated_at: now })
+      .is("deleted_at", null);
+
+    const { data: txs } = await supabase
+      .from("bank_transactions")
+      .update({
+        deleted_at: now,
+        updated_at: now,
+        deleted_by: auth.userId,
+      })
+      .is("deleted_at", null)
+      .select("id");
+
+    await supabase
+      .from("bank_import_batches")
+      .update({
+        deleted_at: now,
+        updated_at: now,
+        documento_stato: "annullato",
+        deleted_by: auth.userId,
+      })
+      .is("deleted_at", null);
+
+    const softDeletedTx = txs?.length ?? 0;
+    await writeAuditLog({
+      entity_type: "bank_transactions",
+      entity_id: "purge",
+      action: "soft_delete",
+      actor_id: auth.userId,
+      summary: `Pulizia Rapporti Banca: soft-delete ${softDeletedTx} movimenti`,
+      payload: { softDeletedTx },
+    });
+
+    return { success: true, softDeletedTx };
+  } catch (e) {
+    console.error("[bank purge]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Pulizia fallita",
+    };
+  }
+}
+
 export async function importBankStatementPdfAction(
   formData: FormData
 ): Promise<

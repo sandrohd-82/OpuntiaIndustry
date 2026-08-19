@@ -12,6 +12,7 @@ import {
   listBankTransactionsAction,
   importBankStatementPdfAction,
   testOpenAiConnectionAction,
+  purgeBankImportedDataAction,
   verifyBankMatchAction,
   type BankTransactionView,
 } from "@/app/actions/bank-reports";
@@ -312,11 +313,10 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Carica il PDF dell’estratto BCC. Serve{" "}
-            <code>OPENAI_API_KEY</code> su Vercel (Production) — senza AI
-            l’import viene bloccato. Consigliato{" "}
-            <code>BANK_OPENAI_MODEL=gpt-4o</code>. I movimenti vengono salvati
-            in database; ogni nuovo upload rianalizza il PDF da capo.
+            Il PDF viene letto come <strong>tabella</strong> (colonne Mov.DARE /
+            Mov.AVERE per posizione). OpenAI interviene solo se serve. I
+            movimenti già presenti sono stati azzerati (soft-delete): puoi
+            ricaricare da capo.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
@@ -345,9 +345,35 @@ export function RapportiBancaBoard() {
             >
               {pending ? "Verifica…" : "1. Verifica OpenAI"}
             </button>
-            <span className="text-xs text-[var(--muted)]">
-              Controlla chiave e modello prima di caricare il PDF.
-            </span>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    "Soft-delete di TUTTI i movimenti banca e match? (ISO: non cancellazione fisica)"
+                  )
+                ) {
+                  return;
+                }
+                setError(null);
+                setInfo(null);
+                startTransition(async () => {
+                  const res = await purgeBankImportedDataAction();
+                  if (!res.success) {
+                    setError(res.error);
+                    return;
+                  }
+                  setInfo(
+                    `Pulizia completata: ${res.softDeletedTx} movimenti soft-deleted.`
+                  );
+                  void load();
+                });
+              }}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+            >
+              Svuota dati import
+            </button>
           </div>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>

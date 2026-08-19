@@ -539,18 +539,20 @@ export function parseBankAiJson(content: string): { lines?: unknown[] } {
   throw lastErr instanceof Error ? lastErr : new Error("JSON non valido");
 }
 
-const BANK_AI_SYSTEM = `Sei un estrattore CONTABILE di movimenti da estratto conto italiano (BCC).
-Rispondi SOLO con un oggetto JSON valido (RFC 8259). Nessun markdown.
+const BANK_AI_SYSTEM = `Sei un estrattore CONTABILE. I dati sono una TABELLA di estratto conto italiano (BCC) con colonne:
+data | valuta | descrizione | dare | avere
 
-Schema ESATTO:
+Rispondi SOLO JSON valido (RFC 8259). Nessun markdown.
+
+Schema:
 {"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":null,"amountCents":2528,"column":"DARE","description":"testo","counterpartyName":"","trnOrCro":""}]}
 
 REGOLE:
-1. amountCents = SOLO intero (centesimi). 25,28€ → 2528 ; 1.234,56€ → 123456. MAI virgole nei numeri.
-2. column = "DARE" (uscita) o "AVERE" (entrata). Obbligatoria.
-3. description = stringa breve senza a capo.
-4. Ignora saldi/totali/intestazioni.
-5. Se non sicuro → column "DARE".
+1. Ogni riga tabella può dare 0–2 movimenti.
+2. Colonna "dare" valorizzata → column="DARE", amountCents in centesimi (25,28 → 2528).
+3. Colonna "avere" valorizzata → column="AVERE", amountCents in centesimi.
+4. amountCents = SOLO intero JSON. MAI virgole nei numeri.
+5. Ignora saldi/totali. description senza a capo.
 6. Se vuoto: {"lines":[]}`;
 
 function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
@@ -652,7 +654,12 @@ async function callOpenAiBankChunk(input: {
   chunk: string;
   chunkIndex: number;
   chunkTotal: number;
+  isTable?: boolean;
 }): Promise<{ lines: ParsedBankLine[]; rawError?: string }> {
+  const intro = input.isTable
+    ? `Parte ${input.chunkIndex + 1}/${input.chunkTotal} della TABELLA (colonne dare/avere). Estrai amountCents interi.`
+    : `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. Se è una tabella Mov.DARE/Mov.AVERE usala. amountCents = intero.`;
+
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -667,7 +674,7 @@ async function callOpenAiBankChunk(input: {
         { role: "system", content: BANK_AI_SYSTEM },
         {
           role: "user",
-          content: `Parte ${input.chunkIndex + 1}/${input.chunkTotal} dell'estratto. Estrai i movimenti di QUESTA parte. amountCents = intero.\n\n${input.chunk}`,
+          content: `${intro}\n\n${input.chunk}`,
         },
       ],
     }),
@@ -703,7 +710,8 @@ async function callOpenAiBankChunk(input: {
 }
 
 export async function parseBankStatementWithAi(
-  text: string
+  text: string,
+  opts?: { isTable?: boolean }
 ): Promise<AiParseResult> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
@@ -719,7 +727,7 @@ export async function parseBankStatementWithAi(
     process.env.OPENAI_MODEL?.trim() ||
     "gpt-4o";
 
-  const chunks = chunkPdfText(text, 7500).slice(0, 5); // max 5 parti (anti timeout/rate-limit)
+  const chunks = chunkPdfText(text, opts?.isTable ? 9000 : 7500).slice(0, 5);
   const allLines: ParsedBankLine[] = [];
   const errors: string[] = [];
 
@@ -731,10 +739,10 @@ export async function parseBankStatementWithAi(
         chunk: chunks[i],
         chunkIndex: i,
         chunkTotal: chunks.length,
+        isTable: opts?.isTable,
       });
       if (result.rawError) errors.push(result.rawError);
       allLines.push(...result.lines);
-      // piccola pausa anti rate-limit tra chunk
       if (i < chunks.length - 1) {
         await new Promise((r) => setTimeout(r, 400));
       }
@@ -845,15 +853,54 @@ export function validateLines(raw: ParsedBankLine[]): {
 export async function parseBankStatementPdf(
   buffer: Buffer
 ): Promise<ParseBankStatementResult> {
-  const text = await extractPdfText(buffer);
-  if (!text.trim()) {
+  // 1) TABELLA per coordinate (pdfjs) — metodo principale
+  let table: Awaited<
+    ReturnType<
+      typeof import("@/lib/amministrazione/bank-pdf-table").extractBankTableFromPdf
+    >
+  > | null = null;
+  try {
+    const mod = await import("@/lib/amministrazione/bank-pdf-table");
+    table = await mod.extractBankTableFromPdf(buffer);
+  } catch (e) {
+    console.error("[bank-pdf-table]", e);
+  }
+
+  if (table && table.layoutFound && table.lines.length > 0) {
+    const validated = validateLines(table.lines);
+    return {
+      text: table.markdownTable,
+      lines: validated.lines,
+      doubtful: validated.doubtful,
+      parserModel: "pdfjs-table-v1",
+      notes: [
+        table.notes,
+        `${validated.lines.length} voci da colonne X DARE/AVERE.`,
+        validated.doubtful.length
+          ? `${validated.doubtful.length} escluse.`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  // 2) AI sulla tabella markdown ricostruita (o testo PDF)
+  const tableMd = table?.markdownTable?.trim() ?? "";
+  const rawText = (await extractPdfText(buffer)).trim();
+  const aiInput =
+    tableMd.split("\n").length > 3
+      ? `TABELLA ESTRATTO CONTO (colonne dare/avere già separate):\n${tableMd}`
+      : rawText;
+
+  if (!aiInput) {
     return {
       text: "",
       lines: [],
       doubtful: [],
       parserModel: "none",
       notes:
-        "PDF senza testo estraibile (possibile scansione/immagine). Esporta un PDF testuale dalla banca.",
+        "PDF senza testo/tabella estraibile. Esporta un PDF testuale dalla banca.",
     };
   }
 
@@ -861,61 +908,62 @@ export async function parseBankStatementPdf(
     process.env.BANK_PDF_ALLOW_HEURISTIC?.trim() === "1" ||
     process.env.BANK_PDF_ALLOW_HEURISTIC?.trim()?.toLowerCase() === "true";
 
-  const ai = await parseBankStatementWithAi(text);
+  const ai = await parseBankStatementWithAi(aiInput, {
+    isTable: tableMd.split("\n").length > 3,
+  });
   if (ai.ok && ai.lines.length > 0) {
     const validated = validateLines(ai.lines);
-    const notes = [
-      `AI (${ai.modelName}) + regole: ${validated.lines.length} voci.`,
-      validated.corrected
-        ? `${validated.corrected} segni corretti (colonna/default DARE).`
-        : null,
-      validated.doubtful.length
-        ? `${validated.doubtful.length} escluse (saldo/contrasto/importo dubbio).`
-        : null,
-      "amountIt IT; colonna DARE/AVERE prioritaria; saldi ignorati.",
-    ]
-      .filter(Boolean)
-      .join(" ");
-
     return {
-      text,
+      text: aiInput.slice(0, 8000),
       lines: validated.lines,
       doubtful: validated.doubtful,
-      parserModel: `${ai.modelName}+rules-v2`,
-      notes,
+      parserModel: `${ai.modelName}+table-ai-v1`,
+      notes: [
+        `AI su tabella/struttura: ${validated.lines.length} voci.`,
+        table && !table.layoutFound
+          ? "Layout colonne PDF parziale — AI ha completato."
+          : null,
+        validated.doubtful.length
+          ? `${validated.doubtful.length} escluse.`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
     };
   }
 
   const aiError = ai.ok
-    ? "OpenAI ha risposto ok ma 0 movimenti utili."
+    ? "OpenAI ok ma 0 movimenti."
     : ai.error;
 
-  // Senza AI non importiamo in silenzio (opzione B): evita errori del fallback.
   if (!allowHeuristic) {
+    // Se pdfjs ha trovato voci senza layout pieno, usale comunque
+    if (table && table.lines.length > 0) {
+      const validated = validateLines(table.lines);
+      return {
+        text: table.markdownTable,
+        lines: validated.lines,
+        doubtful: validated.doubtful,
+        parserModel: "pdfjs-table-partial-v1",
+        notes: `${table.notes} AI non disponibile (${aiError}). Usate ${validated.lines.length} voci da coordinate PDF.`,
+      };
+    }
     return {
-      text,
+      text: aiInput.slice(0, 4000),
       lines: [],
       doubtful: [],
       parserModel: "blocked-no-ai",
-      notes: `IMPORT BLOCCATO: ${aiError} Configura OPENAI_API_KEY (e opz. BANK_OPENAI_MODEL=gpt-4o) su Vercel → Production, poi Redeploy. Solo in emergenza: BANK_PDF_ALLOW_HEURISTIC=1.`,
+      notes: `IMPORT BLOCCATO: ${aiError}`,
     };
   }
 
-  const heuristic = parseBankStatementHeuristic(text);
+  const heuristic = parseBankStatementHeuristic(rawText || aiInput);
   const validated = validateLines(heuristic);
   return {
-    text,
+    text: rawText.slice(0, 8000),
     lines: validated.lines,
     doubtful: validated.doubtful,
     parserModel: "heuristic-fallback-v2",
-    notes: [
-      `ATTENZIONE: euristica di emergenza (BANK_PDF_ALLOW_HEURISTIC=1). Motivo AI: ${aiError}`,
-      `${validated.lines.length} voci; affidabilità ridotta.`,
-      validated.doubtful.length
-        ? `${validated.doubtful.length} escluse.`
-        : null,
-    ]
-      .filter(Boolean)
-      .join(" "),
+    notes: `Euristica emergenza. Motivo: ${aiError}`,
   };
 }
