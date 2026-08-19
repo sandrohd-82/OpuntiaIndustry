@@ -1,0 +1,275 @@
+import {
+  fetchFicCashbook,
+  fetchFicPaymentAccounts,
+  type FicCashbookEntry,
+} from "@/lib/fic";
+import type { createClient } from "@/lib/supabase/server";
+
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+export type BankSyncResult = {
+  fetched: number;
+  upserted: number;
+  matched: number;
+  invoicesMarkedPaid: number;
+  accountName: string;
+};
+
+function normalizeName(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function scoreMatch(input: {
+  amount: number;
+  invoiceGross: number;
+  counterparty: string;
+  entityName: string;
+  description: string;
+  invoiceNumber: string;
+  txDate: string | null;
+  invoiceDate: string | null;
+}): number {
+  let score = 0;
+  const absTx = Math.abs(input.amount);
+  const absInv = Math.abs(input.invoiceGross);
+  const diff = Math.abs(absTx - absInv);
+  if (diff <= 0.01) score += 55;
+  else if (diff <= 1) score += 35;
+  else if (diff <= 5) score += 15;
+  else return 0;
+
+  const nTx = normalizeName(input.counterparty);
+  const nEnt = normalizeName(input.entityName);
+  if (nTx && nEnt && (nTx.includes(nEnt) || nEnt.includes(nTx))) score += 25;
+  else if (nTx && nEnt) {
+    const t1 = new Set(nTx.split(" ").filter((x) => x.length > 2));
+    const t2 = nEnt.split(" ").filter((x) => x.length > 2);
+    const hit = t2.filter((t) => t1.has(t)).length;
+    if (hit >= 2) score += 18;
+    else if (hit === 1) score += 8;
+  }
+
+  const desc = normalizeName(input.description);
+  const num = input.invoiceNumber.replace(/\s+/g, "").toLowerCase();
+  if (num && desc.includes(num.replace(/\//g, ""))) score += 15;
+  if (num && desc.includes(num)) score += 10;
+
+  if (input.txDate && input.invoiceDate) {
+    const d1 = Date.parse(input.txDate);
+    const d2 = Date.parse(input.invoiceDate);
+    if (Number.isFinite(d1) && Number.isFinite(d2)) {
+      const days = Math.abs(d1 - d2) / 86_400_000;
+      if (days <= 3) score += 10;
+      else if (days <= 15) score += 5;
+    }
+  }
+
+  return Math.min(100, score);
+}
+
+function resolveAccountName(
+  entries: FicCashbookEntry[],
+  accounts: Awaited<ReturnType<typeof fetchFicPaymentAccounts>>
+): string {
+  const preferred = accounts.find((a) =>
+    /don\s*rizzo|bcc|ts\s*pay|banca/i.test(a.name)
+  );
+  if (preferred) return preferred.name;
+  const fromEntry = entries.find((e) => e.paymentAccountName)?.paymentAccountName;
+  return fromEntry || "BCC Don Rizzo";
+}
+
+/** Sincronizza cashbook FiC → bank_transactions + match su fic_invoices. */
+export async function syncBankReportsFromFic(input: {
+  supabase: Supabase;
+  userId: string | null;
+  dateFrom: string;
+  dateTo: string;
+}): Promise<BankSyncResult> {
+  const accounts = await fetchFicPaymentAccounts().catch(() => []);
+  const preferred = accounts.find((a) =>
+    /don\s*rizzo|bcc/i.test(a.name)
+  );
+  const entries = await fetchFicCashbook({
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    paymentAccountId: preferred?.id,
+    type: "all",
+  });
+  const accountName = resolveAccountName(entries, accounts);
+
+  const { data: invoices, error: invErr } = await input.supabase
+    .from("fic_invoices")
+    .select(
+      "id, fic_id, type, number, entity_name, entity_vat, amount_gross, date, status"
+    )
+    .is("deleted_at", null);
+  if (invErr) throw new Error(invErr.message);
+
+  type Inv = {
+    id: string;
+    fic_id: number;
+    type: string;
+    number: string;
+    entity_name: string;
+    entity_vat: string;
+    amount_gross: number;
+    date: string | null;
+    status: string;
+  };
+  const invRows = (invoices ?? []) as Inv[];
+
+  let upserted = 0;
+  let matched = 0;
+  let invoicesMarkedPaid = 0;
+  const paidInvoiceIds = new Set<string>();
+
+  for (const entry of entries) {
+    if (!entry.date) continue;
+    const ficPaymentId = `cashbook:${entry.ficId}`;
+
+    const { data: existing } = await input.supabase
+      .from("bank_transactions")
+      .select("id")
+      .eq("fic_payment_id", ficPaymentId)
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    const row = {
+      fic_payment_id: ficPaymentId,
+      account_name: entry.paymentAccountName || accountName,
+      transaction_date: entry.date,
+      valuta_date: entry.date,
+      amount: entry.amount,
+      description: entry.description,
+      counterparty_name: entry.entityName,
+      counterparty_vat: "",
+      raw_data: entry.raw,
+      updated_by: input.userId,
+    };
+
+    let transactionId: string;
+    if (existing?.id) {
+      const { error } = await input.supabase
+        .from("bank_transactions")
+        .update(row)
+        .eq("id", existing.id);
+      if (error) throw new Error(error.message);
+      transactionId = String(existing.id);
+    } else {
+      const { data: inserted, error } = await input.supabase
+        .from("bank_transactions")
+        .insert({ ...row, created_by: input.userId })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      transactionId = String(inserted.id);
+      upserted += 1;
+    }
+
+    // Match preferenziale per document_id FiC
+    let best: { inv: Inv; score: number } | null = null;
+    if (entry.documentId) {
+      const byDoc = invRows.find((i) => i.fic_id === entry.documentId);
+      if (byDoc) {
+        best = {
+          inv: byDoc,
+          score: scoreMatch({
+            amount: entry.amount,
+            invoiceGross: Number(byDoc.amount_gross),
+            counterparty: entry.entityName,
+            entityName: byDoc.entity_name,
+            description: entry.description,
+            invoiceNumber: byDoc.number,
+            txDate: entry.date,
+            invoiceDate: byDoc.date,
+          }),
+        };
+        best.score = Math.max(best.score, 80);
+      }
+    }
+
+    if (!best || best.score < 40) {
+      for (const inv of invRows) {
+        // Entrate ↔ emesse; uscite ↔ ricevute
+        if (entry.amount > 0 && inv.type !== "issued") continue;
+        if (entry.amount < 0 && inv.type !== "received") continue;
+        const score = scoreMatch({
+          amount: entry.amount,
+          invoiceGross: Number(inv.amount_gross),
+          counterparty: entry.entityName,
+          entityName: inv.entity_name,
+          description: entry.description,
+          invoiceNumber: inv.number,
+          txDate: entry.date,
+          invoiceDate: inv.date,
+        });
+        if (score < 40) continue;
+        if (!best || score > best.score) best = { inv, score };
+      }
+    }
+
+    if (best && best.score >= 40) {
+      const status =
+        Math.abs(Math.abs(entry.amount) - Math.abs(Number(best.inv.amount_gross))) >
+        0.01
+          ? "discrepancy"
+          : "auto_matched";
+
+      const { data: existingMatch } = await input.supabase
+        .from("bank_invoice_matches")
+        .select("id, status")
+        .eq("transaction_id", transactionId)
+        .eq("invoice_id", best.inv.id)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (existingMatch?.id) {
+        if (existingMatch.status !== "manually_verified") {
+          await input.supabase
+            .from("bank_invoice_matches")
+            .update({
+              match_score: best.score,
+              status,
+            })
+            .eq("id", existingMatch.id);
+        }
+      } else {
+        await input.supabase.from("bank_invoice_matches").insert({
+          transaction_id: transactionId,
+          invoice_id: best.inv.id,
+          match_score: best.score,
+          status,
+          created_by: input.userId,
+        });
+        matched += 1;
+      }
+
+      if (status === "auto_matched" && best.inv.status !== "paid") {
+        paidInvoiceIds.add(best.inv.id);
+      }
+    }
+  }
+
+  for (const invoiceId of paidInvoiceIds) {
+    const { error } = await input.supabase
+      .from("fic_invoices")
+      .update({ status: "paid", updated_by: input.userId })
+      .eq("id", invoiceId)
+      .is("deleted_at", null);
+    if (!error) invoicesMarkedPaid += 1;
+  }
+
+  return {
+    fetched: entries.length,
+    upserted,
+    matched,
+    invoicesMarkedPaid,
+    accountName,
+  };
+}

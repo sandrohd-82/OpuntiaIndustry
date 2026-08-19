@@ -1156,6 +1156,94 @@ export async function fetchFicVatTypes(): Promise<FicVatType[]> {
   return out;
 }
 
+export type FicPaymentAccount = {
+  id: number;
+  name: string;
+  type: string;
+  iban: string;
+};
+
+/** Conti di pagamento FiC (es. BCC Don Rizzo / TS Pay). */
+export async function fetchFicPaymentAccounts(): Promise<FicPaymentAccount[]> {
+  const res = await ficGet<{ data?: unknown[] }>("/info/payment_accounts", {});
+  const out: FicPaymentAccount[] = [];
+  for (const item of res.data ?? []) {
+    const r = asRecord(item);
+    const id = asNumber(r.id);
+    if (!id) continue;
+    out.push({
+      id,
+      name: asText(r.name) || `Conto ${id}`,
+      type: asText(r.type),
+      iban: asText(r.iban) || asText(r.bank_iban),
+    });
+  }
+  return out;
+}
+
+export type FicCashbookEntry = {
+  ficId: string;
+  date: string | null;
+  amount: number;
+  description: string;
+  entityName: string;
+  kind: string;
+  documentId: number | null;
+  paymentAccountName: string;
+  raw: Record<string, unknown>;
+};
+
+/**
+ * Primanota / movimenti cassa-banca FiC (TS Pay → conto BCC).
+ * date_from / date_to obbligatori (YYYY-MM-DD).
+ */
+export async function fetchFicCashbook(input: {
+  dateFrom: string;
+  dateTo: string;
+  paymentAccountId?: number;
+  type?: "all" | "in" | "out";
+}): Promise<FicCashbookEntry[]> {
+  const query: Record<string, string | number | undefined> = {
+    date_from: input.dateFrom,
+    date_to: input.dateTo,
+    type: input.type ?? "all",
+  };
+  if (input.paymentAccountId) {
+    query.payment_account_id = input.paymentAccountId;
+  }
+  const res = await ficGet<{ data?: unknown[] }>("/cashbook", query);
+  const out: FicCashbookEntry[] = [];
+  for (const item of res.data ?? []) {
+    const r = asRecord(item);
+    const amountIn = asNumber(r.amount_in);
+    const amountOut = asNumber(r.amount_out);
+    const amount =
+      amountIn > 0 ? amountIn : amountOut > 0 ? -amountOut : asNumber(r.amount);
+    const payIn = asRecord(r.payment_account_in);
+    const payOut = asRecord(r.payment_account_out);
+    const accountName =
+      asText(payIn.name) ||
+      asText(payOut.name) ||
+      (amount >= 0 ? "Entrata" : "Uscita");
+    const doc = asRecord(r.document);
+    const ficId =
+      asText(r.id) ||
+      `${asDateOnly(r.date) ?? "x"}-${amount}-${asText(r.description).slice(0, 40)}`;
+    out.push({
+      ficId: String(ficId),
+      date: asDateOnly(r.date),
+      amount,
+      description: asText(r.description),
+      entityName: asText(r.entity_name),
+      kind: asText(r.kind),
+      documentId: asNumber(doc.id) || asNumber(r.document_id) || null,
+      paymentAccountName: accountName,
+      raw: r,
+    });
+  }
+  return out;
+}
+
 /** Trova vat.id FiC più vicino all’aliquota %. Preferisce match esatto. */
 export function resolveFicVatId(
   vatTypes: FicVatType[],

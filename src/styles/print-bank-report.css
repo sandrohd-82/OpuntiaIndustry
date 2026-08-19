@@ -1,0 +1,47 @@
+/* Rapporti Banca — stampa A4 landscape ISO 9001 */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+
+  .bank-report-root,
+  .bank-report-root * {
+    visibility: visible !important;
+  }
+
+  .bank-report-root {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 8mm;
+    background: white !important;
+  }
+
+  .bank-report-print-header,
+  .bank-report-print-footer {
+    display: block !important;
+  }
+
+  .bank-report-table {
+    width: 100% !important;
+    font-size: 10px !important;
+  }
+
+  .bank-report-table th,
+  .bank-report-table td {
+    border-bottom: 1px solid #cbd5e1;
+    padding: 4px 6px !important;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  aside,
+  nav,
+  header:not(.bank-report-print-header),
+  .print\:hidden {
+    display: none !important;
+  }
+}

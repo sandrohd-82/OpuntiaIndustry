@@ -20,6 +20,13 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
       "Riepilogo trimestrale emesse/ricevute (prodotti, materiale di consumo, beni ammortizzabili). Accessibile anche al Super Admin.",
     path: "/app/area-fiscale/il-commercialista",
   },
+  {
+    slug: "rapporti-banca",
+    label: "Rapporti Banca",
+    description:
+      "Movimenti BCC Don Rizzo / TS Pay da Fatture in Cloud, riconciliazione e stampa report",
+    path: "/app/area-fiscale/rapporti-banca",
+  },
 ] as const;
 
 export function getFirstAreaFiscalePath(): string {

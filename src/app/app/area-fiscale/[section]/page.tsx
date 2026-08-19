@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { CommercialistaBoard } from "@/components/amministrazione/CommercialistaBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
+import { RapportiBancaBoard } from "@/components/amministrazione/RapportiBancaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import {
@@ -47,6 +48,17 @@ export default async function AreaFiscaleSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <CommercialistaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "rapporti-banca") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <RapportiBancaBoard />
         </div>
       </>
     );
