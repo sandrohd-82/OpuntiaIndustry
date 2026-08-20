@@ -172,6 +172,7 @@ export function parseBankStatementCsv(buffer: Buffer): ParseBankCsvResult {
   }
 
   const lines: ParsedBankCsvLine[] = [];
+  let skippedEmpty = 0;
 
   for (let i = start; i < linesRaw.length; i++) {
     const cols = splitCsvLine(linesRaw[i]!, delimiter);
@@ -182,6 +183,21 @@ export function parseBankStatementCsv(buffer: Buffer): ParseBankCsvResult {
     const uscitaRaw = cols[2] ?? "";
     const entrataRaw = cols[3] ?? "";
     const causaleRaw = cols[4] ?? "";
+
+    const uscitaTrim = uscitaRaw.trim();
+    const entrataTrim = entrataRaw.trim();
+    const allBlank =
+      !dataRaw.trim() &&
+      !valutaRaw.trim() &&
+      !uscitaTrim &&
+      !entrataTrim &&
+      !causaleRaw.trim();
+
+    // Righe vuote o senza importo: non caricare +0,00 / −0,00
+    if (allBlank || (!uscitaTrim && !entrataTrim)) {
+      skippedEmpty += 1;
+      continue;
+    }
 
     const transactionDate =
       parseBankDateIt(dataRaw) ??
@@ -197,26 +213,30 @@ export function parseBankStatementCsv(buffer: Buffer): ParseBankCsvResult {
     let signSource = "csv-fixed";
 
     // Col.3 Uscite e Col.4 Entrate: se pieno usa quello (priorità uscite se entrambi)
-    if (uscitaRaw.trim()) {
-      amount = -parseCsvAmountStrict(uscitaRaw);
+    if (uscitaTrim) {
+      amount = -parseCsvAmountStrict(uscitaTrim);
       column = "DARE";
-      amountIt = uscitaRaw.trim();
+      amountIt = uscitaTrim;
       signSource = "csv-col3-uscita";
-    } else if (entrataRaw.trim()) {
-      amount = parseCsvAmountStrict(entrataRaw);
+    } else if (entrataTrim) {
+      amount = parseCsvAmountStrict(entrataTrim);
       column = "AVERE";
-      amountIt = entrataRaw.trim();
+      amountIt = entrataTrim;
       signSource = "csv-col4-entrata";
     }
 
-    const rowIndex = i - start; // 0-based tra le sole righe dati
+    if (!Number.isFinite(amount) || amount === 0) {
+      skippedEmpty += 1;
+      continue;
+    }
+
+    const rowIndex = i - start; // indice nel CSV (anche con gap se righe saltate)
     lines.push({
       transactionDate,
       valutaDate,
       amount,
       description: causaleRaw,
       counterpartyName: "",
-      // Indice riga → unicità anche se due voci sono identiche
       trnOrCro: `csv-row:${rowIndex}`,
       column,
       signSource,
@@ -239,6 +259,13 @@ export function parseBankStatementCsv(buffer: Buffer): ParseBankCsvResult {
     doubtful: [],
     excluded: [],
     parserModel: "csv-fixed-5col-v2-local",
-    notes: `CSV locale 5 colonne (senza OpenAI): ${lines.length} righe caricate, tutti i campi presi alla lettera.`,
+    notes: [
+      `CSV locale 5 colonne (senza OpenAI): ${lines.length} movimenti caricati.`,
+      skippedEmpty > 0
+        ? `Ignorate ${skippedEmpty} righe vuote o con importo 0.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
