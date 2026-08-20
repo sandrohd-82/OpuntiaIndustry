@@ -1,9 +1,9 @@
 import { createHash } from "crypto";
 import {
   hashBankLine,
-  parseBankStatementPdf,
   type ParsedBankLine,
 } from "@/lib/amministrazione/bank-pdf-parse";
+import { parseBankStatementCsv } from "@/lib/amministrazione/bank-csv-parse";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -26,12 +26,12 @@ export type BankPdfImportResult = {
   rowsDoubtful: number;
   parserModel: string;
   notes: string;
-  /** Range date preso dal PDF (min/max transactionDate). */
+  /** Range date preso dal file (min/max transactionDate). */
   dateFrom: string | null;
   dateTo: string | null;
   /** Totali sulle voci effettivamente caricate (nuove). */
   totalsImported: BankPdfImportTotals;
-  /** Totali su tutte le voci rilevate nel PDF (incl. già presenti). */
+  /** Totali su tutte le voci rilevate nel file (incl. già presenti). */
   totalsDetected: BankPdfImportTotals;
 };
 
@@ -112,7 +112,7 @@ export async function importBankStatementPdf(input: {
   accountName?: string;
 }): Promise<BankPdfImportResult> {
   const fileSha = createHash("sha256").update(input.buffer).digest("hex");
-  const parsed = await parseBankStatementPdf(input.buffer);
+  const parsed = parseBankStatementCsv(input.buffer);
   const accountName = input.accountName?.trim() || "BCC Don Rizzo";
 
   const dates = parsed.lines
@@ -143,7 +143,7 @@ export async function importBankStatementPdf(input: {
     .insert({
       file_name: input.fileName,
       file_sha256: fileSha,
-      source_type: "pdf",
+      source_type: "csv",
       documento_stato: parsed.lines.length ? "processato" : "errore",
       account_name: accountName,
       rows_total: parsed.lines.length,
@@ -187,7 +187,7 @@ export async function importBankStatementPdf(input: {
   for (const line of parsed.lines as ParsedBankLine[]) {
     accumulateTotals(totalsDetected, line.amount);
     const hash = hashBankLine(line);
-    const ficPaymentId = `bank_pdf:${hash}`;
+    const ficPaymentId = `bank_csv:${hash}`;
 
     const { data: byHash } = await input.supabase
       .from("bank_transactions")
@@ -222,7 +222,7 @@ export async function importBankStatementPdf(input: {
         counterparty_name: line.counterpartyName,
         counterparty_vat: "",
         raw_data: {
-          source: "bank_pdf",
+          source: "bank_csv",
           trn_or_cro: line.trnOrCro,
           file_name: input.fileName,
           line_hash: hash,
@@ -231,7 +231,7 @@ export async function importBankStatementPdf(input: {
           amount_it: line.amountIt ?? null,
           sign_review_reason: line.signReviewReason ?? null,
         },
-        source: "bank_pdf",
+        source: "bank_csv",
         import_batch_id: batch.id,
         line_hash: hash,
         sign_needs_review: Boolean(line.signNeedsReview),
@@ -284,6 +284,8 @@ export async function importBankStatementPdf(input: {
       const strongSign =
         line.signSource === "column-dare" ||
         line.signSource === "column-avere" ||
+        line.signSource === "csv-dare" ||
+        line.signSource === "csv-avere" ||
         line.signSource === "openai-dareIt" ||
         line.signSource === "openai-avereIt" ||
         line.signSource === "openai-uscitaCents" ||

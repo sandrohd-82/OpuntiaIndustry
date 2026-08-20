@@ -281,16 +281,23 @@ export async function importBankStatementPdfAction(
   const { auth } = await requireAreaAccess("area-fiscale");
   const file = formData.get("file");
   if (!(file instanceof File)) {
-    return { success: false, error: "Seleziona un file PDF." };
+    return { success: false, error: "Seleziona un file CSV." };
   }
-  if (file.type && file.type !== "application/pdf") {
-    return { success: false, error: "Il file deve essere un PDF." };
-  }
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
-    return { success: false, error: "Estensione richiesta: .pdf" };
+  const nameLower = file.name.toLowerCase();
+  const isCsv =
+    nameLower.endsWith(".csv") ||
+    nameLower.endsWith(".cvs") ||
+    file.type === "text/csv" ||
+    file.type === "application/vnd.ms-excel" ||
+    file.type === "text/plain";
+  if (!isCsv) {
+    return {
+      success: false,
+      error: "Estensione richiesta: .csv (accettato anche .cvs).",
+    };
   }
   if (file.size > 15 * 1024 * 1024) {
-    return { success: false, error: "PDF troppo grande (max 15 MB)." };
+    return { success: false, error: "CSV troppo grande (max 15 MB)." };
   }
 
   const accountName = String(formData.get("accountName") ?? "").trim() ||
@@ -312,7 +319,7 @@ export async function importBankStatementPdfAction(
       entity_id: result.batchId,
       action: "create",
       actor_id: auth.userId,
-      summary: `Import PDF estratto conto «${file.name}»: ${result.rowsImported} nuovi / ${result.rowsTotal} rilevati`,
+      summary: `Import CSV estratto conto «${file.name}»: ${result.rowsImported} nuovi / ${result.rowsTotal} rilevati`,
       payload: result,
     });
 
@@ -321,16 +328,16 @@ export async function importBankStatementPdfAction(
         success: false,
         error:
           result.notes ||
-          "Nessun movimento riconosciuto nel PDF. Verifica OPENAI_API_KEY su Vercel (Production) e ridéploya.",
+          "Nessun movimento riconosciuto nel CSV. Verifica intestazioni: Data, Dare/Avere (o Importo), Descrizione.",
       };
     }
 
     return { success: true, ...result };
   } catch (e) {
-    console.error("[bank pdf import]", e);
+    console.error("[bank csv import]", e);
     return {
       success: false,
-      error: e instanceof Error ? e.message : "Import PDF fallito.",
+      error: e instanceof Error ? e.message : "Import CSV fallito.",
     };
   }
 }

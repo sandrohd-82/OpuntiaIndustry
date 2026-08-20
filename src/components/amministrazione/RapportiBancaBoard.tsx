@@ -11,7 +11,6 @@ import {
 import {
   listBankTransactionsAction,
   importBankStatementPdfAction,
-  testOpenAiConnectionAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
@@ -152,7 +151,7 @@ export function RapportiBancaBoard() {
 
   function runPdfImport() {
     if (!pdfFile) {
-      setError("Seleziona un PDF di estratto conto.");
+      setError("Seleziona un file CSV di estratto conto.");
       return;
     }
     setInfo(null);
@@ -168,7 +167,7 @@ export function RapportiBancaBoard() {
       setImportOpen(false);
       setPdfFile(null);
 
-      // Date sempre dal PDF: allinea il filtro tabella al periodo dell'estratto
+      // Date sempre dal CSV: allinea il filtro tabella al periodo dell'estratto
       const nextFrom = res.dateFrom ?? dateFrom;
       const nextTo = res.dateTo ?? dateTo;
       if (res.dateFrom && res.dateTo) {
@@ -206,7 +205,7 @@ export function RapportiBancaBoard() {
     <div className="bank-report-root space-y-4">
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Movimenti da estratto conto PDF: le <strong>date di ogni voce</strong>{" "}
+          Movimenti da estratto conto CSV: le <strong>date di ogni voce</strong>{" "}
           le prende il sistema dal file (non vanno impostate a mano). Dopo
           l’import il filtro periodo si allinea automaticamente all’estratto.
         </p>
@@ -218,7 +217,7 @@ export function RapportiBancaBoard() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FaArrowsRotate size={13} />
-            Sincronizza (carica PDF)
+            Sincronizza (carica CSV)
           </button>
           <button
             type="button"
@@ -334,49 +333,24 @@ export function RapportiBancaBoard() {
         </div>
         <p className="text-[11px] text-[var(--muted)]">
           Il filtro date serve solo a <strong>visualizzare</strong> la tabella.
-          All’import PDF il periodo viene impostato da solo in base alle date
+          All’import CSV il periodo viene impostato da solo in base alle date
           trovate nel file.
         </p>
       </div>
 
       {importOpen ? (
         <Modal
-          title="Sincronizza da estratto conto PDF"
+          title="Sincronizza da estratto conto CSV"
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Il PDF viene inviato a OpenAI con schema a 5 colonne (Data
-            esecuzione, Data valuta, Uscita −, Entrata +, Descrizione). Uscita e
-            entrata si alternano. Forzature: «Bonifico a vs favore» e «Storno» →
-            +; «Interessi» → −.
+            Carica un file <strong>.csv</strong> (accettato anche .cvs) con
+            colonne tipiche: Data, Data valuta, Dare/Uscita, Avere/Entrata,
+            Descrizione. Separatore <code>;</code> o <code>,</code>. Importi in
+            formato italiano (1.234,56). Forzature segno: «Storno» / «Bonifico a
+            vs favore» → +; «Interessi» → −.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => {
-                setError(null);
-                setInfo(null);
-                startTransition(async () => {
-                  const res = await testOpenAiConnectionAction();
-                  if (!res.success) {
-                    setError(
-                      `OpenAI NON ok` +
-                        (res.keyPresent ? "" : " (chiave assente)") +
-                        `: ${res.error}` +
-                        (res.model ? ` Modello: ${res.model}.` : "")
-                    );
-                    return;
-                  }
-                  setInfo(
-                    `OpenAI OK · modello ${res.model} · ${res.latencyMs} ms · risposta: «${res.reply}»`
-                  );
-                });
-              }}
-              className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium"
-            >
-              {pending ? "Verifica…" : "1. Verifica OpenAI"}
-            </button>
             <button
               type="button"
               disabled={pending}
@@ -416,10 +390,10 @@ export function RapportiBancaBoard() {
             />
           </label>
           <label className="mb-4 block text-sm">
-            <span className="mb-1 block text-xs font-medium">File PDF</span>
+            <span className="mb-1 block text-xs font-medium">File CSV</span>
             <input
               type="file"
-              accept="application/pdf,.pdf"
+              accept=".csv,.cvs,text/csv,text/plain"
               onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
               className="w-full text-sm"
             />
@@ -436,7 +410,7 @@ export function RapportiBancaBoard() {
               onClick={runPdfImport}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? "Elaborazione…" : "2. Carica e processa voci"}
+              {pending ? "Elaborazione…" : "Carica e processa CSV"}
             </button>
             <button
               type="button"
