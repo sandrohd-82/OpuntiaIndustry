@@ -1,9 +1,8 @@
 import { createHash } from "crypto";
 import {
-  hashBankLine,
-  type ParsedBankLine,
-} from "@/lib/amministrazione/bank-pdf-parse";
-import { parseBankStatementCsv } from "@/lib/amministrazione/bank-csv-parse";
+  parseBankStatementCsv,
+  type ParsedBankCsvLine,
+} from "@/lib/amministrazione/bank-csv-parse";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -45,10 +44,7 @@ function emptyTotals(): BankPdfImportTotals {
   };
 }
 
-function accumulateTotals(
-  t: BankPdfImportTotals,
-  amount: number
-): void {
+function accumulateTotals(t: BankPdfImportTotals, amount: number): void {
   if (amount > 0) {
     t.countIncassi += 1;
     t.totaleIncassi += amount;
@@ -104,6 +100,21 @@ function scoreMatch(input: {
   return Math.min(100, score);
 }
 
+/** Hash univoco per riga CSV (include indice → nessuna riga gemella saltata). */
+function hashCsvLine(fileSha: string, line: ParsedBankCsvLine): string {
+  const r = line.csvRaw;
+  const base = [
+    fileSha,
+    String(r.rowIndex),
+    r.dataRaw,
+    r.valutaRaw,
+    r.uscitaRaw,
+    r.entrataRaw,
+    r.causaleRaw,
+  ].join("|");
+  return createHash("sha256").update(base).digest("hex").slice(0, 40);
+}
+
 export async function importBankStatementPdf(input: {
   supabase: Supabase;
   userId: string | null;
@@ -112,31 +123,18 @@ export async function importBankStatementPdf(input: {
   accountName?: string;
 }): Promise<BankPdfImportResult> {
   const fileSha = createHash("sha256").update(input.buffer).digest("hex");
+  // Locale: nessuna chiamata OpenAI — legge ogni campo del CSV
   const parsed = parseBankStatementCsv(input.buffer);
   const accountName = input.accountName?.trim() || "BCC Don Rizzo";
 
   const dates = parsed.lines
     .map((l) => l.transactionDate)
-    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d !== "1970-01-01")
     .sort();
   const pdfDateFrom = dates[0] ?? null;
   const pdfDateTo = dates[dates.length - 1] ?? null;
 
-  const rowsDoubtful = parsed.lines.filter((l) => l.signNeedsReview).length;
-  const parseNotes = [
-    parsed.notes,
-    rowsDoubtful
-      ? `Da confermare segno (+/−): ${parsed.doubtful
-          .slice(0, 8)
-          .map((d) => `${d.description.slice(0, 40)}… (${d.reason})`)
-          .join(" | ")}`
-      : null,
-    parsed.excluded?.length
-      ? `Escluse (non importate): ${parsed.excluded.length}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const parseNotes = parsed.notes;
 
   const { data: batch, error: batchErr } = await input.supabase
     .from("bank_import_batches")
@@ -183,10 +181,11 @@ export async function importBankStatementPdf(input: {
   let rowsMatched = 0;
   const totalsImported = emptyTotals();
   const totalsDetected = emptyTotals();
+  const insertErrors: string[] = [];
 
-  for (const line of parsed.lines as ParsedBankLine[]) {
+  for (const line of parsed.lines) {
     accumulateTotals(totalsDetected, line.amount);
-    const hash = hashBankLine(line);
+    const hash = hashCsvLine(fileSha, line);
     const ficPaymentId = `bank_csv:${hash}`;
 
     const { data: byHash } = await input.supabase
@@ -210,6 +209,7 @@ export async function importBankStatementPdf(input: {
       continue;
     }
 
+    const raw = line.csvRaw;
     const { data: inserted, error } = await input.supabase
       .from("bank_transactions")
       .insert({
@@ -223,18 +223,25 @@ export async function importBankStatementPdf(input: {
         counterparty_vat: "",
         raw_data: {
           source: "bank_csv",
-          trn_or_cro: line.trnOrCro,
+          parser: "local-fixed-5col",
+          openai: false,
           file_name: input.fileName,
+          file_sha256: fileSha,
           line_hash: hash,
+          row_index: raw.rowIndex,
+          col1_data: raw.dataRaw,
+          col2_valuta: raw.valutaRaw,
+          col3_uscite: raw.uscitaRaw,
+          col4_entrate: raw.entrataRaw,
+          col5_causale: raw.causaleRaw,
           column: line.column ?? null,
           sign_source: line.signSource ?? null,
           amount_it: line.amountIt ?? null,
-          sign_review_reason: line.signReviewReason ?? null,
         },
         source: "bank_csv",
         import_batch_id: batch.id,
         line_hash: hash,
-        sign_needs_review: Boolean(line.signNeedsReview),
+        sign_needs_review: false,
         created_by: input.userId,
         updated_by: input.userId,
       })
@@ -243,6 +250,9 @@ export async function importBankStatementPdf(input: {
 
     if (error || !inserted) {
       rowsSkipped += 1;
+      insertErrors.push(
+        `riga ${raw.rowIndex + 1}: ${error?.message ?? "insert fallito"}`
+      );
       continue;
     }
     rowsImported += 1;
@@ -250,62 +260,45 @@ export async function importBankStatementPdf(input: {
 
     let best: { inv: Inv; score: number } | null = null;
     for (const inv of invRows) {
-      if (line.amount > 0 && inv.type !== "issued") continue;
-      if (line.amount < 0 && inv.type !== "received") continue;
       const score = scoreMatch({
         amount: line.amount,
-        invoiceGross: Number(inv.amount_gross),
+        invoiceGross: Number(inv.amount_gross) || 0,
         counterparty: line.counterpartyName,
-        entityName: inv.entity_name,
+        entityName: String(inv.entity_name ?? ""),
         description: line.description,
-        invoiceNumber: inv.number,
+        invoiceNumber: String(inv.number ?? ""),
         txDate: line.transactionDate,
         invoiceDate: inv.date,
       });
-      if (score < 40) continue;
-      if (!best || score > best.score) best = { inv, score };
+      if (score >= 55 && (!best || score > best.score)) {
+        best = { inv, score };
+      }
     }
 
     if (best) {
-      const status =
-        Math.abs(Math.abs(line.amount) - Math.abs(Number(best.inv.amount_gross))) >
-        0.01
-          ? "discrepancy"
-          : "auto_matched";
-      await input.supabase.from("bank_invoice_matches").insert({
-        transaction_id: inserted.id,
-        invoice_id: best.inv.id,
-        match_score: best.score,
-        status,
-        created_by: input.userId,
-      });
-      rowsMatched += 1;
-      // Non segnare fattura pagata se il segno è solo default/euristica debole
-      const strongSign =
-        line.signSource === "column-dare" ||
-        line.signSource === "column-avere" ||
-        line.signSource === "csv-dare" ||
-        line.signSource === "csv-avere" ||
-        line.signSource === "openai-dareIt" ||
-        line.signSource === "openai-avereIt" ||
-        line.signSource === "openai-uscitaCents" ||
-        line.signSource === "openai-entrataCents" ||
-        line.signSource === "openai-column" ||
-        line.signSource === "causal-avere" ||
-        line.signSource === "causal-dare" ||
-        line.signSource === "force-storno" ||
-        line.signSource === "force-bonifico-vs-favore" ||
-        line.signSource === "force-interessi";
-      if (
-        status === "auto_matched" &&
-        strongSign &&
-        best.inv.status !== "paid"
-      ) {
-        await input.supabase
-          .from("fic_invoices")
-          .update({ status: "paid", updated_by: input.userId })
-          .eq("id", best.inv.id)
-          .is("deleted_at", null);
+      const status = "auto_matched";
+      const { error: matchErr } = await input.supabase
+        .from("bank_invoice_matches")
+        .insert({
+          transaction_id: inserted.id,
+          invoice_id: best.inv.id,
+          match_score: best.score,
+          status,
+          created_by: input.userId,
+          updated_by: input.userId,
+        });
+      if (!matchErr) {
+        rowsMatched += 1;
+        const strongSign =
+          line.signSource === "csv-col3-uscita" ||
+          line.signSource === "csv-col4-entrata";
+        if (strongSign && best.inv.status !== "paid") {
+          await input.supabase
+            .from("fic_invoices")
+            .update({ status: "paid", updated_by: input.userId })
+            .eq("id", best.inv.id)
+            .is("deleted_at", null);
+        }
       }
     }
   }
@@ -317,11 +310,18 @@ export async function importBankStatementPdf(input: {
       rows_skipped: rowsSkipped,
       rows_matched: rowsMatched,
       documento_stato: rowsImported > 0 ? "processato" : "errore",
+      parse_notes: [
+        parseNotes,
+        insertErrors.length
+          ? `Errori insert: ${insertErrors.slice(0, 5).join(" | ")}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
       updated_by: input.userId,
     })
     .eq("id", batch.id);
 
-  // Arrotonda a 2 decimali per display/DB
   for (const t of [totalsImported, totalsDetected]) {
     t.totaleIncassi = Math.round(t.totaleIncassi * 100) / 100;
     t.totaleUscite = Math.round(t.totaleUscite * 100) / 100;
@@ -334,9 +334,14 @@ export async function importBankStatementPdf(input: {
     rowsImported,
     rowsSkipped,
     rowsMatched,
-    rowsDoubtful,
+    rowsDoubtful: 0,
     parserModel: parsed.parserModel,
-    notes: parseNotes,
+    notes: [
+      parsed.notes,
+      insertErrors.length ? `Errori: ${insertErrors.length}` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
     dateFrom: pdfDateFrom,
     dateTo: pdfDateTo,
     totalsImported,

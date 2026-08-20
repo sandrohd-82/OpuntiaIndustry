@@ -344,11 +344,10 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            File <strong>.csv</strong> (accettato anche .cvs) a 5 colonne fisse,
-            nell’ordine: (1) Data — ordinamento, (2) Data Valuta — solo
-            figurativa, (3) Uscite −, (4) Entrate +, (5) Causale. Separatore{" "}
-            <code>;</code> o <code>,</code>. Nessun controllo aggiuntivo: ogni
-            riga dati viene importata così com’è.
+            Elaborazione <strong>locale</strong> (niente OpenAI). File{" "}
+            <strong>.csv</strong> / .cvs a 5 colonne fisse, nell’ordine: (1)
+            Data, (2) Data Valuta, (3) Uscite −, (4) Entrate +, (5) Causale.
+            Ogni riga e ogni campo vengono caricati così come sono.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button

@@ -5,13 +5,27 @@ import type {
 import { parseItAmount } from "@/lib/amministrazione/bank-pdf-parse";
 
 /**
- * Schema CSV fisso (nessun controllo / mapping intestazioni):
+ * Schema CSV fisso — ZERO controlli di business, ZERO OpenAI.
+ * Ogni riga dati → 5 campi caricati così come sono:
  * 1 Data (ordinamento)
- * 2 Data Valuta (solo figurativa)
- * 3 Uscite − (se vuoto → ignora)
- * 4 Entrate + (se vuoto → ignora)
+ * 2 Data Valuta (figurativa)
+ * 3 Uscite − (se vuoto → importo da col.4)
+ * 4 Entrate + (se vuoto e col.3 piena → già uscite)
  * 5 Causale
  */
+
+export type CsvBankRawFields = {
+  rowIndex: number;
+  dataRaw: string;
+  valutaRaw: string;
+  uscitaRaw: string;
+  entrataRaw: string;
+  causaleRaw: string;
+};
+
+export type ParsedBankCsvLine = ParsedBankLine & {
+  csvRaw: CsvBankRawFields;
+};
 
 /** Data IT → YYYY-MM-DD (anche ISO già valido). */
 export function parseBankDateIt(raw: string): string | null {
@@ -60,14 +74,14 @@ export function splitCsvLine(line: string, delimiter: string): string[] {
       continue;
     }
     if (ch === delimiter && !inQuotes) {
-      out.push(cur.trim());
+      out.push(cur);
       cur = "";
       continue;
     }
     cur += ch;
   }
-  out.push(cur.trim());
-  return out;
+  out.push(cur);
+  return out.map((c) => c.replace(/^\uFEFF/, "").trim());
 }
 
 function decodeCsvBuffer(buffer: Buffer): string {
@@ -83,7 +97,7 @@ function decodeCsvBuffer(buffer: Buffer): string {
 }
 
 function isLikelyHeaderRow(cols: string[]): boolean {
-  const c0 = (cols[0] ?? "").toLowerCase();
+  const c0 = (cols[0] ?? "").toLowerCase().trim();
   if (parseBankDateIt(cols[0] ?? "")) return false;
   return (
     c0.includes("data") ||
@@ -94,18 +108,45 @@ function isLikelyHeaderRow(cols: string[]): boolean {
   );
 }
 
+/** Importo IT rigoroso: toglie €/spazi, usa parseItAmount, poi fallback. */
+export function parseCsvAmountStrict(raw: string): number {
+  const s0 = String(raw ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/€|EUR/gi, "")
+    .trim();
+  if (!s0) return 0;
+  const fromIt = parseItAmount(s0, { strict: false });
+  if (fromIt != null && Number.isFinite(fromIt)) return Math.abs(fromIt);
+  // Fallback: 1.234,56 / 1234,56 / 1234.56
+  const cleaned = s0.replace(/\s/g, "").replace(/^\+/, "").replace(/^-/, "");
+  if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(cleaned) || /^\d+,\d{1,2}$/.test(cleaned)) {
+    const n = Number(cleaned.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(n) ? Math.abs(n) : 0;
+  }
+  if (/^\d+(\.\d+)?$/.test(cleaned)) {
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? Math.abs(n) : 0;
+  }
+  const n = Number(cleaned.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(n) ? Math.abs(n) : 0;
+}
+
+export type ParseBankCsvResult = ParseBankStatementResult & {
+  lines: ParsedBankCsvLine[];
+};
+
 /**
- * Parsing CSV a 5 colonne fisse. Nessuna esclusione di righe dati.
- * Solo l’eventuale riga di intestazione (senza data) viene ignorata.
+ * Legge il CSV localmente (niente OpenAI).
+ * Carica RIGOROSAMENTE ogni riga dati e tutti e 5 i campi.
  */
-export function parseBankStatementCsv(
-  buffer: Buffer
-): ParseBankStatementResult {
+export function parseBankStatementCsv(buffer: Buffer): ParseBankCsvResult {
   const text = decodeCsvBuffer(buffer);
-  const linesRaw = text
-    .split(/\r\n|\n|\r/)
-    .map((l) => l.trimEnd())
-    .filter((l) => l.length > 0);
+  // Non scartare righe “vuote” di contenuto: solo linee letteralmente assenti
+  const linesRaw = text.split(/\r\n|\n|\r/).map((l) => l.trimEnd());
+  // Togli solo trailing newline vuote in coda file
+  while (linesRaw.length > 0 && linesRaw[linesRaw.length - 1] === "") {
+    linesRaw.pop();
+  }
 
   if (linesRaw.length === 0) {
     return {
@@ -113,7 +154,7 @@ export function parseBankStatementCsv(
       lines: [],
       doubtful: [],
       excluded: [],
-      parserModel: "csv-fixed-5col-v1",
+      parserModel: "csv-fixed-5col-v2-local",
       notes: "CSV vuoto.",
     };
   }
@@ -125,67 +166,65 @@ export function parseBankStatementCsv(
     start = 1;
   }
 
-  const lines: ParsedBankLine[] = [];
+  const lines: ParsedBankCsvLine[] = [];
 
   for (let i = start; i < linesRaw.length; i++) {
     const cols = splitCsvLine(linesRaw[i]!, delimiter);
-    // Pad a 5 colonne
     while (cols.length < 5) cols.push("");
 
     const dataRaw = cols[0] ?? "";
     const valutaRaw = cols[1] ?? "";
-    const uscitaRaw = (cols[2] ?? "").trim();
-    const entrataRaw = (cols[3] ?? "").trim();
-    const causale = (cols[4] ?? "").trim() || "—";
+    const uscitaRaw = cols[2] ?? "";
+    const entrataRaw = cols[3] ?? "";
+    const causaleRaw = cols[4] ?? "";
 
-    // Data: obbligatoria per ordinamento; se il file è pulito è sempre valida
     const transactionDate =
       parseBankDateIt(dataRaw) ??
-      // Non saltare la riga: fallback ISO grezzo o data minima
-      ( /^\d{4}-\d{2}-\d{2}/.test(dataRaw.trim())
+      (/^\d{4}-\d{2}-\d{2}/.test(dataRaw.trim())
         ? dataRaw.trim().slice(0, 10)
         : "1970-01-01");
 
-    const valutaDate = valutaRaw ? parseBankDateIt(valutaRaw) : null;
+    const valutaDate = parseBankDateIt(valutaRaw);
 
     let amount = 0;
     let column: "DARE" | "AVERE" | null = null;
-    let amountIt: string | undefined;
+    let amountIt = "";
     let signSource = "csv-fixed";
 
-    if (uscitaRaw) {
-      const n = parseItAmount(uscitaRaw, { strict: false });
-      const mag =
-        n != null
-          ? Math.abs(n)
-          : Math.abs(Number(String(uscitaRaw).replace(/\./g, "").replace(",", ".")) || 0);
-      amount = -mag;
+    // Col.3 Uscite e Col.4 Entrate: se pieno usa quello (priorità uscite se entrambi)
+    if (uscitaRaw.trim()) {
+      amount = -parseCsvAmountStrict(uscitaRaw);
       column = "DARE";
-      amountIt = uscitaRaw;
+      amountIt = uscitaRaw.trim();
       signSource = "csv-col3-uscita";
-    } else if (entrataRaw) {
-      const n = parseItAmount(entrataRaw, { strict: false });
-      const mag =
-        n != null
-          ? Math.abs(n)
-          : Math.abs(Number(String(entrataRaw).replace(/\./g, "").replace(",", ".")) || 0);
-      amount = mag;
+    } else if (entrataRaw.trim()) {
+      amount = parseCsvAmountStrict(entrataRaw);
       column = "AVERE";
-      amountIt = entrataRaw;
+      amountIt = entrataRaw.trim();
       signSource = "csv-col4-entrata";
     }
 
+    const rowIndex = i - start; // 0-based tra le sole righe dati
     lines.push({
       transactionDate,
       valutaDate,
       amount,
-      description: causale.slice(0, 2000),
+      description: causaleRaw,
       counterpartyName: "",
-      trnOrCro: "",
+      // Indice riga → unicità anche se due voci sono identiche
+      trnOrCro: `csv-row:${rowIndex}`,
       column,
       signSource,
-      amountIt,
+      amountIt: amountIt || undefined,
       signNeedsReview: false,
+      csvRaw: {
+        rowIndex,
+        dataRaw,
+        valutaRaw,
+        uscitaRaw,
+        entrataRaw,
+        causaleRaw,
+      },
     });
   }
 
@@ -194,7 +233,7 @@ export function parseBankStatementCsv(
     lines,
     doubtful: [],
     excluded: [],
-    parserModel: "csv-fixed-5col-v1",
-    notes: `CSV 5 colonne fisse (Data|Valuta|Uscite|Entrate|Causale): ${lines.length} voci, nessuna esclusa.`,
+    parserModel: "csv-fixed-5col-v2-local",
+    notes: `CSV locale 5 colonne (senza OpenAI): ${lines.length} righe caricate, tutti i campi presi alla lettera.`,
   };
 }
