@@ -8,6 +8,15 @@ import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
+export type BankPdfImportTotals = {
+  countIncassi: number;
+  countUscite: number;
+  totaleIncassi: number;
+  totaleUscite: number;
+  /** Incassi − uscite (con segno). */
+  totaleNetto: number;
+};
+
 export type BankPdfImportResult = {
   batchId: string;
   rowsTotal: number;
@@ -20,7 +29,35 @@ export type BankPdfImportResult = {
   /** Range date preso dal PDF (min/max transactionDate). */
   dateFrom: string | null;
   dateTo: string | null;
+  /** Totali sulle voci effettivamente caricate (nuove). */
+  totalsImported: BankPdfImportTotals;
+  /** Totali su tutte le voci rilevate nel PDF (incl. già presenti). */
+  totalsDetected: BankPdfImportTotals;
 };
+
+function emptyTotals(): BankPdfImportTotals {
+  return {
+    countIncassi: 0,
+    countUscite: 0,
+    totaleIncassi: 0,
+    totaleUscite: 0,
+    totaleNetto: 0,
+  };
+}
+
+function accumulateTotals(
+  t: BankPdfImportTotals,
+  amount: number
+): void {
+  if (amount > 0) {
+    t.countIncassi += 1;
+    t.totaleIncassi += amount;
+  } else if (amount < 0) {
+    t.countUscite += 1;
+    t.totaleUscite += Math.abs(amount);
+  }
+  t.totaleNetto = t.totaleIncassi - t.totaleUscite;
+}
 
 function scoreMatch(input: {
   amount: number;
@@ -141,8 +178,11 @@ export async function importBankStatementPdf(input: {
   let rowsImported = 0;
   let rowsSkipped = 0;
   let rowsMatched = 0;
+  const totalsImported = emptyTotals();
+  const totalsDetected = emptyTotals();
 
   for (const line of parsed.lines as ParsedBankLine[]) {
+    accumulateTotals(totalsDetected, line.amount);
     const hash = hashBankLine(line);
     const ficPaymentId = `bank_pdf:${hash}`;
 
@@ -201,6 +241,7 @@ export async function importBankStatementPdf(input: {
       continue;
     }
     rowsImported += 1;
+    accumulateTotals(totalsImported, line.amount);
 
     let best: { inv: Inv; score: number } | null = null;
     for (const inv of invRows) {
@@ -273,6 +314,13 @@ export async function importBankStatementPdf(input: {
     })
     .eq("id", batch.id);
 
+  // Arrotonda a 2 decimali per display/DB
+  for (const t of [totalsImported, totalsDetected]) {
+    t.totaleIncassi = Math.round(t.totaleIncassi * 100) / 100;
+    t.totaleUscite = Math.round(t.totaleUscite * 100) / 100;
+    t.totaleNetto = Math.round(t.totaleNetto * 100) / 100;
+  }
+
   return {
     batchId: String(batch.id),
     rowsTotal: parsed.lines.length,
@@ -284,5 +332,7 @@ export async function importBankStatementPdf(input: {
     notes: parseNotes,
     dateFrom: pdfDateFrom,
     dateTo: pdfDateTo,
+    totalsImported,
+    totalsDetected,
   };
 }

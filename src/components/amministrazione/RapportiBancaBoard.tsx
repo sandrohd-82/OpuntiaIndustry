@@ -152,6 +152,7 @@ export function RapportiBancaBoard() {
         setDateTo(res.dateTo);
       }
 
+      const ti = res.totalsImported;
       setInfo(
         `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
           (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
@@ -159,6 +160,9 @@ export function RapportiBancaBoard() {
             ? ` (${res.rowsDoubtful} escluse per segno dubbio)`
             : "") +
           `, match: ${res.rowsMatched}.` +
+          ` Incassi: ${ti.countIncassi} voci (${formatEuro(ti.totaleIncassi)}).` +
+          ` Uscite: ${ti.countUscite} voci (${formatEuro(ti.totaleUscite)}).` +
+          ` Totale netto: ${formatEuro(ti.totaleNetto)}.` +
           (res.dateFrom && res.dateTo
             ? ` Periodo dal PDF: ${formatDateIt(res.dateFrom)} – ${formatDateIt(res.dateTo)}.`
             : "") +

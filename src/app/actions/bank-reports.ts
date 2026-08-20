@@ -195,6 +195,20 @@ export async function importBankStatementPdfAction(
       notes: string;
       dateFrom: string | null;
       dateTo: string | null;
+      totalsImported: {
+        countIncassi: number;
+        countUscite: number;
+        totaleIncassi: number;
+        totaleUscite: number;
+        totaleNetto: number;
+      };
+      totalsDetected: {
+        countIncassi: number;
+        countUscite: number;
+        totaleIncassi: number;
+        totaleUscite: number;
+        totaleNetto: number;
+      };
     }
   | { success: false; error: string }
 > {
