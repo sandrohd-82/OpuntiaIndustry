@@ -14,6 +14,10 @@ export type ParsedBankLine = {
   signSource?: string;
   /** Importo grezzo italiano dal PDF/AI (audit). */
   amountIt?: string;
+  /** Operatore deve scegliere +/− (voce comunque importata). */
+  signNeedsReview?: boolean;
+  /** Motivo del dubbio segno (UI). */
+  signReviewReason?: string;
 };
 
 export type ParseBankStatementResult = {
@@ -873,6 +877,7 @@ export function validateLines(raw: ParsedBankLine[]): {
   let corrected = 0;
 
   for (const row of raw) {
+    // Solo saldi/totali restano fuori (non sono movimenti)
     if (looksLikeBalanceDescription(row.description)) {
       doubtful.push({
         description: row.description.slice(0, 160),
@@ -882,29 +887,39 @@ export function validateLines(raw: ParsedBankLine[]): {
       continue;
     }
 
-    // amountIt: unica fonte affidabile della magnitudine (strict IT)
     let amount = row.amount;
+    let needsReview = Boolean(row.signNeedsReview);
+    let reviewReason = row.signReviewReason ?? "";
+
     if (row.amountIt) {
       const fromIt = parseItAmount(row.amountIt, { strict: true });
       if (fromIt == null) {
-        doubtful.push({
-          description: row.description.slice(0, 160),
-          aiAmount: row.amount,
-          reason: `amountIt non parsabile in IT strict: «${row.amountIt}»`,
-        });
-        continue;
+        // Non escludere: tieni magnitudine da amount e chiedi revisione segno
+        amount = Math.abs(row.amount) || 0;
+        needsReview = true;
+        reviewReason =
+          reviewReason ||
+          `amountIt non parsabile («${row.amountIt}») — scegli +/−`;
+      } else {
+        amount = Math.abs(fromIt);
       }
-      // Segno lo decide applySignRules via colonna/causali
-      amount = Math.abs(fromIt);
+    }
+
+    if (amount === 0) {
+      // Importo zero inutile
+      doubtful.push({
+        description: row.description.slice(0, 160),
+        aiAmount: row.amount,
+        reason: "importo zero",
+      });
+      continue;
     }
 
     if (Math.abs(amount) > MAX_PLAUSIBLE_AMOUNT) {
-      doubtful.push({
-        description: row.description.slice(0, 160),
-        aiAmount: amount,
-        reason: `Importo fuori soglia (${amount}) — possibile saldo letto come movimento`,
-      });
-      continue;
+      needsReview = true;
+      reviewReason =
+        reviewReason ||
+        `Importo elevato (${amount}) — verifica e scegli +/−`;
     }
 
     const ruled = applySignRules({
@@ -912,22 +927,40 @@ export function validateLines(raw: ParsedBankLine[]): {
       amount,
       column: row.column ?? null,
     });
-    if (ruled.doubtful || ruled.amount === 0) {
-      doubtful.push({
-        description: row.description.slice(0, 160),
-        aiAmount: row.amount,
-        reason: ruled.reason || "segno dubbio",
-      });
-      continue;
+
+    let finalAmount = ruled.amount === 0 ? -Math.abs(amount) : ruled.amount;
+    if (ruled.doubtful) {
+      needsReview = true;
+      reviewReason = reviewReason || ruled.reason || "Segno dubbio — scegli +/−";
+      // Provvisorio: mantieni mag con segno suggerito (o − se ambiguo)
+      finalAmount =
+        ruled.amount !== 0 ? ruled.amount : -Math.abs(amount);
     }
-    if (Math.sign(ruled.amount) !== Math.sign(row.amount) && row.amount !== 0) {
+
+    if (
+      Math.sign(finalAmount) !== Math.sign(row.amount) &&
+      row.amount !== 0 &&
+      !needsReview
+    ) {
       corrected += 1;
     }
+
+    if (needsReview) {
+      doubtful.push({
+        description: row.description.slice(0, 160),
+        aiAmount: finalAmount,
+        reason: reviewReason || "Segno da confermare",
+      });
+    }
+
     lines.push({
       ...row,
-      amount: ruled.amount,
-      // NON riscrivere column inventandola: tieni quella di origine
-      signSource: ruled.signSource,
+      amount: finalAmount,
+      signSource: needsReview
+        ? `${ruled.signSource}|needs-review`
+        : ruled.signSource,
+      signNeedsReview: needsReview,
+      signReviewReason: needsReview ? reviewReason : undefined,
     });
   }
 
@@ -1004,7 +1037,7 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
       notes: [
         `AI schema 5 colonne + regole Storno/Bonifico+/Interessi−: ${validated.lines.length} voci.`,
         validated.doubtful.length
-          ? `${validated.doubtful.length} escluse.`
+          ? `${validated.doubtful.length} con segno da confermare (+/−).`
           : null,
       ]
         .filter(Boolean)

@@ -13,6 +13,7 @@ import {
   importBankStatementPdfAction,
   testOpenAiConnectionAction,
   purgeBankImportedDataAction,
+  setBankTransactionSignAction,
   verifyBankMatchAction,
   type BankTransactionView,
 } from "@/app/actions/bank-reports";
@@ -157,7 +158,7 @@ export function RapportiBancaBoard() {
         `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
           (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
           (res.rowsDoubtful
-            ? ` (${res.rowsDoubtful} escluse per segno dubbio)`
+            ? ` (${res.rowsDoubtful} da confermare segno +/−)`
             : "") +
           `, match: ${res.rowsMatched}.` +
           ` Incassi: ${ti.countIncassi} voci (${formatEuro(ti.totaleIncassi)}).` +
@@ -466,7 +467,16 @@ export function RapportiBancaBoard() {
               </tr>
             ) : (
               items.map((row) => (
-                <tr key={row.id} className="border-t border-[var(--border)]">
+                <tr
+                  key={row.id}
+                  className={`border-t border-[var(--border)] ${
+                    row.signNeedsReview
+                      ? "bg-amber-50"
+                      : row.amount >= 0
+                        ? "bg-emerald-50/40"
+                        : "bg-red-50/30"
+                  }`}
+                >
                   <td className="px-3 py-2 align-top">
                     <p className="font-medium tabular-nums">
                       {formatDateIt(row.transactionDate)}
@@ -474,14 +484,81 @@ export function RapportiBancaBoard() {
                     <span className="mt-0.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
                       {row.accountName}
                     </span>
+                    {row.signNeedsReview ? (
+                      <span className="mt-1 block text-[10px] font-medium text-amber-800">
+                        Segno da confermare
+                      </span>
+                    ) : null}
                   </td>
                   <td
                     className={`px-3 py-2 text-right align-top font-semibold tabular-nums ${
-                      row.amount >= 0 ? "text-emerald-700" : "text-red-700"
+                      row.signNeedsReview
+                        ? "text-amber-900"
+                        : row.amount >= 0
+                          ? "text-emerald-700"
+                          : "text-red-700"
                     }`}
                   >
-                    {row.amount >= 0 ? "+" : ""}
-                    {formatEuro(row.amount)}
+                    {row.signNeedsReview ? (
+                      <span className="text-amber-800">
+                        ±{formatEuro(Math.abs(row.amount))}
+                      </span>
+                    ) : (
+                      <>
+                        {row.amount >= 0 ? "+" : ""}
+                        {formatEuro(row.amount)}
+                      </>
+                    )}
+                    {row.signNeedsReview ? (
+                      <div className="mt-1 flex justify-end gap-1">
+                        <button
+                          type="button"
+                          disabled={pending}
+                          className="rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white disabled:opacity-50"
+                          onClick={() => {
+                            startTransition(async () => {
+                              const res = await setBankTransactionSignAction({
+                                transactionId: row.id,
+                                sign: "+",
+                              });
+                              if (!res.success) {
+                                setError(res.error);
+                                return;
+                              }
+                              setInfo(
+                                `Segno + impostato: ${formatEuro(res.amount)}`
+                              );
+                              void load();
+                            });
+                          }}
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pending}
+                          className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold text-white disabled:opacity-50"
+                          onClick={() => {
+                            startTransition(async () => {
+                              const res = await setBankTransactionSignAction({
+                                transactionId: row.id,
+                                sign: "-",
+                              });
+                              if (!res.success) {
+                                setError(res.error);
+                                return;
+                              }
+                              setInfo(
+                                `Segno − impostato: ${formatEuro(res.amount)}`
+                              );
+                              void load();
+                            });
+                          }}
+                        >
+                          −
+                        </button>
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 align-top">
                     <p className="font-medium text-slate-900">

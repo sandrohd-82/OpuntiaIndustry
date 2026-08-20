@@ -23,6 +23,7 @@ export type BankTransactionView = {
   counterpartyName: string;
   counterpartyVat: string;
   rawData: Record<string, unknown>;
+  signNeedsReview: boolean;
   match: {
     id: string;
     invoiceId: string;
@@ -426,6 +427,7 @@ export async function listBankTransactionsAction(input: {
       counterpartyName: String(r.counterparty_name ?? ""),
       counterpartyVat: String(r.counterparty_vat ?? ""),
       rawData: (r.raw_data as Record<string, unknown>) ?? {},
+      signNeedsReview: Boolean(r.sign_needs_review),
       match:
         m && inv
           ? {
@@ -490,4 +492,70 @@ export async function verifyBankMatchAction(input: {
     },
   });
   return { success: true };
+}
+
+export async function setBankTransactionSignAction(input: {
+  transactionId: string;
+  sign: "+" | "-";
+}): Promise<
+  | { success: true; amount: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  if (!id) return { success: false, error: "Movimento non valido." };
+  if (input.sign !== "+" && input.sign !== "-") {
+    return { success: false, error: "Segno non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: row, error: readErr } = await supabase
+    .from("bank_transactions")
+    .select("id, amount, description, raw_data, sign_needs_review")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr) return { success: false, error: readErr.message };
+  if (!row) return { success: false, error: "Movimento non trovato." };
+
+  const mag = Math.abs(Number(row.amount) || 0);
+  if (mag === 0) return { success: false, error: "Importo zero." };
+  const amount = input.sign === "+" ? mag : -mag;
+  const prevRaw =
+    row.raw_data && typeof row.raw_data === "object"
+      ? (row.raw_data as Record<string, unknown>)
+      : {};
+
+  const { error: updErr } = await supabase
+    .from("bank_transactions")
+    .update({
+      amount,
+      sign_needs_review: false,
+      updated_by: auth.userId,
+      raw_data: {
+        ...prevRaw,
+        sign_source: "operator-choice",
+        sign_chosen: input.sign,
+        sign_chosen_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+
+  await writeAuditLog({
+    entity_type: "bank_transactions",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Segno movimento impostato a ${input.sign} (${amount.toFixed(2)} €)`,
+    payload: {
+      previous_amount: row.amount,
+      amount,
+      sign: input.sign,
+      description: row.description,
+    },
+  });
+
+  return { success: true, amount };
 }

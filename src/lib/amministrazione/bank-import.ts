@@ -126,7 +126,7 @@ export async function importBankStatementPdf(input: {
   const parseNotes = [
     parsed.notes,
     rowsDoubtful
-      ? `Dubbi: ${parsed.doubtful
+      ? `Da confermare segno (+/−): ${parsed.doubtful
           .slice(0, 8)
           .map((d) => `${d.description.slice(0, 40)}… (${d.reason})`)
           .join(" | ")}`
@@ -226,10 +226,12 @@ export async function importBankStatementPdf(input: {
           column: line.column ?? null,
           sign_source: line.signSource ?? null,
           amount_it: line.amountIt ?? null,
+          sign_review_reason: line.signReviewReason ?? null,
         },
         source: "bank_pdf",
         import_batch_id: batch.id,
         line_hash: hash,
+        sign_needs_review: Boolean(line.signNeedsReview),
         created_by: input.userId,
         updated_by: input.userId,
       })
