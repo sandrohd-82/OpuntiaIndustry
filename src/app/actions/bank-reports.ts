@@ -6,6 +6,10 @@ import {
   bankPdfRowsToCsv,
   parseBankPdfDeterministic,
 } from "@/lib/amministrazione/bank-pdf-python";
+import {
+  BANK_RECONCILE_MIN_SCORE,
+  scoreBankInvoiceMatch,
+} from "@/lib/amministrazione/bank-reconcile";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -710,6 +714,273 @@ export async function verifyBankMatchAction(input: {
     },
   });
   return { success: true };
+}
+
+type InvCandidate = {
+  id: string;
+  fic_id: number;
+  type: string;
+  number: string;
+  entity_name: string;
+  amount_gross: number;
+  date: string | null;
+  status: string;
+};
+
+async function loadInvoiceCandidates(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<InvCandidate[]> {
+  const { data } = await supabase
+    .from("fic_invoices")
+    .select(
+      "id, fic_id, type, number, entity_name, amount_gross, date, status"
+    )
+    .is("deleted_at", null);
+  return (data ?? []) as InvCandidate[];
+}
+
+async function bestInvoiceForTx(
+  tx: {
+    amount: number;
+    description: string;
+    counterparty_name: string;
+    transaction_date: string;
+  },
+  invoices: InvCandidate[],
+  excludeInvoiceIds: Set<string>
+): Promise<{ inv: InvCandidate; score: number } | null> {
+  let best: { inv: InvCandidate; score: number } | null = null;
+  for (const inv of invoices) {
+    if (excludeInvoiceIds.has(String(inv.id))) continue;
+    const score = scoreBankInvoiceMatch({
+      amount: Number(tx.amount) || 0,
+      invoiceGross: Number(inv.amount_gross) || 0,
+      counterparty: String(tx.counterparty_name ?? ""),
+      entityName: String(inv.entity_name ?? ""),
+      description: String(tx.description ?? ""),
+      invoiceNumber: String(inv.number ?? ""),
+      txDate: tx.transaction_date,
+      invoiceDate: inv.date,
+    });
+    if (score >= BANK_RECONCILE_MIN_SCORE && (!best || score > best.score)) {
+      best = { inv, score };
+    }
+  }
+  return best;
+}
+
+/** Concilia un singolo movimento con la fattura migliore (salvato in DB). */
+export async function reconcileBankTransactionAction(input: {
+  transactionId: string;
+}): Promise<
+  | {
+      success: true;
+      matched: true;
+      matchId: string;
+      invoiceId: string;
+      invoiceNumber: string;
+      score: number;
+    }
+  | { success: true; matched: false; reason: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  if (!id) return { success: false, error: "Movimento non valido." };
+
+  const supabase = await createClient();
+  const { data: tx, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select(
+      "id, amount, description, counterparty_name, transaction_date, deleted_at"
+    )
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (txErr) return { success: false, error: txErr.message };
+  if (!tx) return { success: false, error: "Movimento non trovato." };
+
+  const { data: existing } = await supabase
+    .from("bank_invoice_matches")
+    .select("id, invoice_id, status")
+    .eq("transaction_id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing?.id) {
+    return {
+      success: true,
+      matched: false,
+      reason: "Movimento già collegato a una fattura.",
+    };
+  }
+
+  const invoices = await loadInvoiceCandidates(supabase);
+  // Evita fatture già usate da altri match attivi
+  const { data: used } = await supabase
+    .from("bank_invoice_matches")
+    .select("invoice_id")
+    .is("deleted_at", null);
+  const exclude = new Set((used ?? []).map((u) => String(u.invoice_id)));
+
+  const best = await bestInvoiceForTx(tx, invoices, exclude);
+  if (!best) {
+    return {
+      success: true,
+      matched: false,
+      reason:
+        "Nessuna fattura compatibile (importo/causale/data). Carica o sincronizza le fatture e riprova.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { data: match, error: matchErr } = await supabase
+    .from("bank_invoice_matches")
+    .insert({
+      transaction_id: id,
+      invoice_id: best.inv.id,
+      match_score: best.score,
+      status: "manually_verified",
+      verified_at: now,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (matchErr || !match) {
+    return { success: false, error: matchErr?.message ?? "Match non creato." };
+  }
+
+  await writeAuditLog({
+    entity_type: "bank_invoice_matches",
+    entity_id: String(match.id),
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Concilia questo: mov. banca ↔ fatt. ${best.inv.number} (${best.score}%)`,
+    payload: {
+      transaction_id: id,
+      invoice_id: best.inv.id,
+      score: best.score,
+    },
+  });
+
+  return {
+    success: true,
+    matched: true,
+    matchId: String(match.id),
+    invoiceId: String(best.inv.id),
+    invoiceNumber: String(best.inv.number ?? ""),
+    score: best.score,
+  };
+}
+
+/** Concilia tutti i movimenti del periodo ancora senza fattura. */
+export async function reconcileAllBankTransactionsAction(input: {
+  dateFrom: string;
+  dateTo: string;
+}): Promise<
+  | {
+      success: true;
+      attempted: number;
+      matched: number;
+      skipped: number;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const parsed = rangeSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Intervallo date non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: txs, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select(
+      "id, amount, description, counterparty_name, transaction_date"
+    )
+    .is("deleted_at", null)
+    .gte("transaction_date", parsed.data.dateFrom)
+    .lte("transaction_date", parsed.data.dateTo)
+    .order("transaction_date", { ascending: true });
+  if (txErr) return { success: false, error: txErr.message };
+
+  const txIds = (txs ?? []).map((t) => String(t.id));
+  const already = new Set<string>();
+  if (txIds.length > 0) {
+    const { data: matches } = await supabase
+      .from("bank_invoice_matches")
+      .select("transaction_id, invoice_id")
+      .in("transaction_id", txIds)
+      .is("deleted_at", null);
+    for (const m of matches ?? []) {
+      already.add(String(m.transaction_id));
+    }
+  }
+
+  const invoices = await loadInvoiceCandidates(supabase);
+  const { data: usedAll } = await supabase
+    .from("bank_invoice_matches")
+    .select("invoice_id")
+    .is("deleted_at", null);
+  const excludeInvoices = new Set(
+    (usedAll ?? []).map((u) => String(u.invoice_id))
+  );
+
+  let attempted = 0;
+  let matched = 0;
+  let skipped = 0;
+  const now = new Date().toISOString();
+
+  for (const tx of txs ?? []) {
+    const tid = String(tx.id);
+    if (already.has(tid)) {
+      skipped += 1;
+      continue;
+    }
+    attempted += 1;
+    const best = await bestInvoiceForTx(tx, invoices, excludeInvoices);
+    if (!best) {
+      skipped += 1;
+      continue;
+    }
+
+    const { data: match, error: matchErr } = await supabase
+      .from("bank_invoice_matches")
+      .insert({
+        transaction_id: tid,
+        invoice_id: best.inv.id,
+        match_score: best.score,
+        status: "auto_matched",
+        verified_at: now,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (matchErr || !match) {
+      skipped += 1;
+      continue;
+    }
+    excludeInvoices.add(String(best.inv.id));
+    matched += 1;
+  }
+
+  await writeAuditLog({
+    entity_type: "bank_transactions",
+    entity_id: "bulk-reconcile",
+    action: "reconcile_all",
+    actor_id: auth.userId,
+    summary: `Concilia tutto ${parsed.data.dateFrom}–${parsed.data.dateTo}: ${matched} collegati / ${attempted} tentati`,
+    payload: {
+      dateFrom: parsed.data.dateFrom,
+      dateTo: parsed.data.dateTo,
+      attempted,
+      matched,
+      skipped,
+    },
+  });
+
+  return { success: true, attempted, matched, skipped };
 }
 
 export async function setBankTransactionSignAction(input: {

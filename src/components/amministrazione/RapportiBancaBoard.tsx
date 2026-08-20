@@ -11,11 +11,12 @@ import {
 import {
   listBankTransactionsAction,
   importBankStatementPdfAction,
-  importBankStatementFromDeterministicPdfAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
   verifyBankMatchAction,
+  reconcileBankTransactionAction,
+  reconcileAllBankTransactionsAction,
   type BankTransactionView,
   type BankPeriodSummary,
 } from "@/app/actions/bank-reports";
@@ -152,7 +153,7 @@ export function RapportiBancaBoard() {
 
   function runFileImport() {
     if (!pdfFile) {
-      setError("Seleziona un file CSV o PDF di estratto conto.");
+      setError("Seleziona un file CSV di estratto conto.");
       return;
     }
     setInfo(null);
@@ -161,10 +162,13 @@ export function RapportiBancaBoard() {
       fd.set("file", pdfFile);
       fd.set("accountName", accountName);
       const name = pdfFile.name.toLowerCase();
-      const isPdf = name.endsWith(".pdf");
-      const res = isPdf
-        ? await importBankStatementFromDeterministicPdfAction(fd)
-        : await importBankStatementPdfAction(fd);
+      if (name.endsWith(".pdf")) {
+        setError(
+          "Per ora carica un CSV (5 colonne). La conversione PDF sarà disponibile più avanti."
+        );
+        return;
+      }
+      const res = await importBankStatementPdfAction(fd);
       if (!res.success) {
         setError(res.error);
         return;
@@ -184,7 +188,9 @@ export function RapportiBancaBoard() {
         res.rowsDoubtful > 0 ? "da_confermare" : "tutti";
       setTipo(nextTipo);
       setInfo(
-        `Import ${isPdf ? "PDF→Excel/CSV" : "CSV"}: ${res.rowsImported} nuove voci (${res.parserModel}).`
+        `CSV salvato e importato: ${res.rowsImported} movimenti nel DB` +
+          (res.rowsMatched ? `, ${res.rowsMatched} già collegati a fatture` : "") +
+          `. Usa «Concilia tutto» quando ci sono nuove fatture.`
       );
 
       const list = await listBankTransactionsAction({
@@ -203,41 +209,21 @@ export function RapportiBancaBoard() {
     });
   }
 
-  function downloadPdfAsExcel() {
-    if (!pdfFile) {
-      setError("Seleziona un PDF.");
-      return;
-    }
-    if (!pdfFile.name.toLowerCase().endsWith(".pdf")) {
-      setError("Per Excel serve un file PDF.");
-      return;
-    }
-    setInfo(null);
+  function runReconcileAll() {
+    setError(null);
     startTransition(async () => {
-      const fd = new FormData();
-      fd.set("file", pdfFile);
-      const res = await fetch("/api/bank/pdf-parse?format=xlsx", {
-        method: "POST",
-        body: fd,
+      const res = await reconcileAllBankTransactionsAction({
+        dateFrom,
+        dateTo,
       });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        setError(j?.error || `Conversione fallita (${res.status}).`);
+      if (!res.success) {
+        setError(res.error);
         return;
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        pdfFile.name.replace(/\.pdf$/i, "") + "_movimenti.xlsx";
-      a.click();
-      URL.revokeObjectURL(url);
       setInfo(
-        `Excel scaricato (${res.headers.get("X-Bank-Pdf-Count") || "?"} voci). Parser deterministico, niente OpenAI.`
+        `Concilia tutto: ${res.matched} collegati, ${res.skipped} saltati (già conciliati o senza fattura adatta) su ${res.attempted} da processare.`
       );
+      void load();
     });
   }
 
@@ -249,9 +235,8 @@ export function RapportiBancaBoard() {
     <div className="bank-report-root space-y-4">
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Movimenti da estratto conto CSV: le <strong>date di ogni voce</strong>{" "}
-          le prende il sistema dal file (non vanno impostate a mano). Dopo
-          l’import il filtro periodo si allinea automaticamente all’estratto.
+          Movimenti da estratto conto CSV salvati nel database: filtri data /
+          trimestre leggono dal DB con eventuale collegamento alle fatture.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
@@ -261,7 +246,17 @@ export function RapportiBancaBoard() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FaArrowsRotate size={13} />
-            Sincronizza (CSV / PDF)
+            Sincronizza (carica CSV)
+          </button>
+          <button
+            type="button"
+            disabled={pending || items.length === 0}
+            onClick={runReconcileAll}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 disabled:opacity-50"
+            title="Collega automaticamente i movimenti del periodo alle fatture compatibili"
+          >
+            <FaScaleBalanced size={13} />
+            Concilia tutto
           </button>
           <button
             type="button"
@@ -384,14 +379,15 @@ export function RapportiBancaBoard() {
 
       {importOpen ? (
         <Modal
-          title="Sincronizza estratto conto (CSV o PDF)"
+          title="Importa estratto conto CSV"
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            <strong>CSV</strong>: 5 colonne fisse (Data; Valuta; Uscite; Entrate;
-            Causale), import diretto. <strong>PDF</strong>: conversione
-            deterministica con pdfplumber (niente OpenAI) → Excel scaricabile e/o
-            import in banca.
+            Carica un <strong>.csv</strong> a 5 colonne: Data; Data Valuta;
+            Uscite; Entrate; Causale. Il file e tutti i movimenti vengono{" "}
+            <strong>salvati nel database</strong> (con lotto di import). Poi
+            potrai conciliare con le fatture («Concilia tutto» o «Concilia
+            questo»).
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
@@ -433,12 +429,10 @@ export function RapportiBancaBoard() {
             />
           </label>
           <label className="mb-4 block text-sm">
-            <span className="mb-1 block text-xs font-medium">
-              File CSV o PDF
-            </span>
+            <span className="mb-1 block text-xs font-medium">File CSV</span>
             <input
               type="file"
-              accept=".csv,.cvs,.pdf,text/csv,application/pdf,text/plain"
+              accept=".csv,.cvs,text/csv,text/plain"
               onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
               className="w-full text-sm"
             />
@@ -455,17 +449,7 @@ export function RapportiBancaBoard() {
               onClick={runFileImport}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? "Elaborazione…" : "Carica e importa in banca"}
-            </button>
-            <button
-              type="button"
-              disabled={
-                pending || !pdfFile || !pdfFile.name.toLowerCase().endsWith(".pdf")
-              }
-              onClick={downloadPdfAsExcel}
-              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
-            >
-              PDF → Excel
+              {pending ? "Elaborazione…" : "Carica e salva nel DB"}
             </button>
             <button
               type="button"
@@ -733,6 +717,36 @@ export function RapportiBancaBoard() {
                   </td>
                   <td className="print:hidden px-3 py-2 align-top">
                     <div className="flex flex-wrap gap-1">
+                      {!row.match ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => {
+                            startTransition(async () => {
+                              const res = await reconcileBankTransactionAction({
+                                transactionId: row.id,
+                              });
+                              if (!res.success) {
+                                setError(res.error);
+                                return;
+                              }
+                              if (!res.matched) {
+                                setInfo(res.reason);
+                                return;
+                              }
+                              setInfo(
+                                `Concilia questo: fattura ${res.invoiceNumber || "—"} (${res.score}%).`
+                              );
+                              void load();
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-sky-500 bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                          title="Collega questo movimento alla fattura migliore"
+                        >
+                          <FaScaleBalanced size={11} />
+                          Concilia questo
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={pending || row.amount === 0}

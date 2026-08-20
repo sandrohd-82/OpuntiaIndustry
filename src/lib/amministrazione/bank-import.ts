@@ -3,6 +3,7 @@ import {
   parseBankStatementCsv,
   type ParsedBankCsvLine,
 } from "@/lib/amministrazione/bank-csv-parse";
+import { scoreBankInvoiceMatch } from "@/lib/amministrazione/bank-reconcile";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -55,51 +56,6 @@ function accumulateTotals(t: BankPdfImportTotals, amount: number): void {
   t.totaleNetto = t.totaleIncassi - t.totaleUscite;
 }
 
-function scoreMatch(input: {
-  amount: number;
-  invoiceGross: number;
-  counterparty: string;
-  entityName: string;
-  description: string;
-  invoiceNumber: string;
-  txDate: string | null;
-  invoiceDate: string | null;
-}): number {
-  let score = 0;
-  const absTx = Math.abs(input.amount);
-  const absInv = Math.abs(input.invoiceGross);
-  const diff = Math.abs(absTx - absInv);
-  if (diff <= 0.01) score += 55;
-  else if (diff <= 1) score += 35;
-  else if (diff <= 5) score += 15;
-  else return 0;
-
-  const nTx = input.counterparty
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-  const nEnt = input.entityName
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-  if (nTx && nEnt && (nTx.includes(nEnt) || nEnt.includes(nTx))) score += 25;
-
-  const desc = input.description.toLowerCase();
-  const num = input.invoiceNumber.replace(/\s+/g, "").toLowerCase();
-  if (num && desc.includes(num.replace(/\//g, ""))) score += 15;
-
-  if (input.txDate && input.invoiceDate) {
-    const d1 = Date.parse(input.txDate);
-    const d2 = Date.parse(input.invoiceDate);
-    if (Number.isFinite(d1) && Number.isFinite(d2)) {
-      const days = Math.abs(d1 - d2) / 86_400_000;
-      if (days <= 3) score += 10;
-      else if (days <= 15) score += 5;
-    }
-  }
-  return Math.min(100, score);
-}
-
 /** Hash univoco per riga CSV (include indice → nessuna riga gemella saltata). */
 function hashCsvLine(fileSha: string, line: ParsedBankCsvLine): string {
   const r = line.csvRaw;
@@ -136,25 +92,58 @@ export async function importBankStatementPdf(input: {
 
   const parseNotes = parsed.notes;
 
-  const { data: batch, error: batchErr } = await input.supabase
-    .from("bank_import_batches")
-    .insert({
-      file_name: input.fileName,
-      file_sha256: fileSha,
-      source_type: "csv",
-      documento_stato: parsed.lines.length ? "processato" : "errore",
-      account_name: accountName,
-      rows_total: parsed.lines.length,
-      parse_notes: parseNotes,
-      raw_text_excerpt: parsed.text.slice(0, 8000),
-      parser_model: parsed.parserModel,
-      created_by: input.userId,
-      updated_by: input.userId,
-    })
-    .select("id")
-    .single();
-  if (batchErr || !batch) {
-    throw new Error(batchErr?.message ?? "Impossibile creare lotto import.");
+  const fileText = input.buffer.toString("utf8");
+  let batch: { id: string } | null = null;
+  {
+    const first = await input.supabase
+      .from("bank_import_batches")
+      .insert({
+        file_name: input.fileName,
+        file_sha256: fileSha,
+        source_type: "csv",
+        documento_stato: parsed.lines.length ? "processato" : "errore",
+        account_name: accountName,
+        rows_total: parsed.lines.length,
+        parse_notes: parseNotes,
+        raw_text_excerpt: parsed.text.slice(0, 8000),
+        file_content: fileText.slice(0, 2_000_000),
+        file_content_bytes: input.buffer.length,
+        parser_model: parsed.parserModel,
+        created_by: input.userId,
+        updated_by: input.userId,
+      })
+      .select("id")
+      .single();
+    if (first.error && /file_content/i.test(first.error.message)) {
+      // Colonne non ancora migrate: salva comunque lotto + excerpt
+      const fallback = await input.supabase
+        .from("bank_import_batches")
+        .insert({
+          file_name: input.fileName,
+          file_sha256: fileSha,
+          source_type: "csv",
+          documento_stato: parsed.lines.length ? "processato" : "errore",
+          account_name: accountName,
+          rows_total: parsed.lines.length,
+          parse_notes: `${parseNotes} | CSV bytes=${input.buffer.length}`,
+          raw_text_excerpt: fileText.slice(0, 8000),
+          parser_model: parsed.parserModel,
+          created_by: input.userId,
+          updated_by: input.userId,
+        })
+        .select("id")
+        .single();
+      if (fallback.error || !fallback.data) {
+        throw new Error(
+          fallback.error?.message ?? "Impossibile creare lotto import."
+        );
+      }
+      batch = fallback.data;
+    } else if (first.error || !first.data) {
+      throw new Error(first.error?.message ?? "Impossibile creare lotto import.");
+    } else {
+      batch = first.data;
+    }
   }
 
   const { data: invoices } = await input.supabase
@@ -260,7 +249,7 @@ export async function importBankStatementPdf(input: {
 
     let best: { inv: Inv; score: number } | null = null;
     for (const inv of invRows) {
-      const score = scoreMatch({
+      const score = scoreBankInvoiceMatch({
         amount: line.amount,
         invoiceGross: Number(inv.amount_gross) || 0,
         counterparty: line.counterpartyName,
