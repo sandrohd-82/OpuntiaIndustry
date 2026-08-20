@@ -97,15 +97,21 @@ export function parseItAmount(
 }
 
 /**
- * Causali ENTRATA — ristrette (niente "versamento" generico: F24 VERSAMENTO = uscita).
- * Storno da solo NON forza +: la colonna PDF decide; qui solo tie-breaker senza colonna.
+ * Causali ENTRATA (tie-breaker). "Bonifico a vs favore" e "Storno" sono forzatamente +.
  */
 const AVERE_CAUSAL_RE =
-  /bonifico\s+a\s+v\.?\s*s\.?\s+favore|bonifico\s+a\s+vs\.?\s+favore|bonifico\s+a\s+vostro\s+favore|a\s+vs\.?\s+favore|a\s+vostro\s+favore|\bbonifico\s+(?:da|ricevuto)\b|\bgiroconto\s+in\s+entrata\b|\b(?:accredit\w*)\b|\bincassi?\b(?!\s+(?:sdd|rid|commiss))/i;
+  /\bstorno\b|bonifico\s+a\s+v\.?\s*s\.?\s+favore|bonifico\s+a\s+vs\.?\s+favore|bonifico\s+a\s+vostro\s+favore|a\s+vs\.?\s+favore|a\s+vostro\s+favore|\bbonifico\s+(?:da|ricevuto)\b|\bgiroconto\s+in\s+entrata\b|\b(?:accredit\w*)\b|\bincassi?\b(?!\s+(?:sdd|rid|commiss))/i;
 
 /** Causali tipiche USCITA. */
 const DARE_CAUSAL_RE =
   /\b(?:pagament\w*|addebit\w*|preliev\w*|canon\w*|commission\w*|\brid\b|\bsdd\b|\bmav\b|\brav\b|\bf24\b|bollettin\w*|utenz\w*|delega)\b|\bbonifico\s+(?:a|verso)\b(?!\s+v\.?\s*s|\s+vs|\s+vostro)|\bsepa\s*direct\b|\bassegno\s+emesso\b|\bgiroconto\s+in\s+uscita\b|\bversamento\s+unitario\b/i;
+
+/** Sempre − (anche se colonna/AI dicono altrimenti). */
+const FORCE_NEGATIVE_RE = /\binteressi\b/i;
+
+/** Sempre + senza dubbio. */
+const FORCE_POSITIVE_RE =
+  /\bstorno\b|bonifico\s+a\s+v\.?\s*s\.?\s+favore|bonifico\s+a\s+vs\.?\s+favore|bonifico\s+a\s+vostro\s+favore|a\s+vs\.?\s+favore|a\s+vostro\s+favore/i;
 
 export function isAvereCausal(text: string): boolean {
   return AVERE_CAUSAL_RE.test(text);
@@ -115,10 +121,20 @@ export function isDareCausal(text: string): boolean {
   return DARE_CAUSAL_RE.test(text);
 }
 
+export function isForcePositiveCausal(text: string): boolean {
+  return FORCE_POSITIVE_RE.test(text);
+}
+
+export function isForceNegativeCausal(text: string): boolean {
+  return FORCE_NEGATIVE_RE.test(text);
+}
+
 /**
- * Regole segno — COLONNA PDF prima di tutto.
- * + solo con colonna AVERE (o causale AVERE se colonna assente).
- * Default senza evidenza: DARE (−). Mai inventare entrate.
+ * Regole segno:
+ * 1) Interessi → sempre −
+ * 2) "Bonifico a vs favore" / "Storno" → sempre + (niente dubbio)
+ * 3) Colonna PDF uscita/entrata
+ * 4) Altre causali / default DARE (−)
  */
 export function applySignRules(input: {
   description: string;
@@ -142,10 +158,24 @@ export function applySignRules(input: {
 
   const text = input.description;
   const col = input.column ?? null;
+
+  // Regole forzate da descrizione (priorità massima, nessun dubbio)
+  if (isForceNegativeCausal(text)) {
+    return { amount: -mag, signSource: "force-interessi", doubtful: false };
+  }
+  if (isForcePositiveCausal(text)) {
+    return {
+      amount: mag,
+      signSource: /\bstorno\b/i.test(text)
+        ? "force-storno"
+        : "force-bonifico-vs-favore",
+      doubtful: false,
+    };
+  }
+
   const avereCausal = isAvereCausal(text);
   const dareCausal = isDareCausal(text);
 
-  // 1) Colonna PDF = fonte di verità assoluta (niente override da causali)
   if (col === "DARE") {
     return { amount: -mag, signSource: "column-dare", doubtful: false };
   }
@@ -153,7 +183,6 @@ export function applySignRules(input: {
     return { amount: mag, signSource: "column-avere", doubtful: false };
   }
 
-  // 2) Senza colonna: causali; ambiguità → escluso
   if (avereCausal && dareCausal) {
     return {
       amount: -mag,
@@ -169,7 +198,6 @@ export function applySignRules(input: {
     return { amount: -mag, signSource: "causal-dare", doubtful: false };
   }
 
-  // 3) Nessuna evidenza: mai inventare +
   return {
     amount: -mag,
     signSource:
@@ -548,13 +576,17 @@ Il documento è una TABELLA a 5 COLONNE fisse, in quest'ordine:
 4) Importi in ENTRATA → segno POSITIVO (+). Vuoto se la riga è un'uscita.
 5) Descrizione / causale
 
-REGOLA CRITICA: sulle colonne 3 e 4 si ALTERNANO.
-- Se la colonna 3 (uscita) ha un importo, la colonna 4 (entrata) è VUOTA → 1 solo movimento DARE (−).
-- Se la colonna 4 (entrata) ha un importo, la colonna 3 (uscita) è VUOTA → 1 solo movimento AVERE (+).
-- Mai entrambe valorizzate sulla stessa riga. Mai inventare l'altra colonna.
+REGOLA COLONNE 3/4: si ALTERNANO.
+- Se colonna 3 (uscita) ha importo → colonna 4 VUOTA → uscitaCents valorizzato, entrataCents=null.
+- Se colonna 4 (entrata) ha importo → colonna 3 VUOTA → entrataCents valorizzato, uscitaCents=null.
+- Mai entrambe valorizzate. Mai inventare l'altra colonna.
 
-Formato importi nel PDF: italiano (1.234,56 = migliaia con punto, centesimi con virgola).
-Tu restituisci amountCents come INTERO JSON (25,28 → 2528; 1.234,56 → 123456). MAI virgole nei numeri JSON.
+REGOLE SEGNO OBBLIGATORIE (niente dubbio):
+6) Descrizione con "Bonifico a vs favore" / "Bonifico a vs. favore" / "Bonifico a vs favore" → SEMPRE entrata (+): usa entrataCents (mai uscitaCents).
+7) Descrizione con la parola "Storno" → SEMPRE entrata (+): usa entrataCents.
+8) Descrizione con la parola "Interessi" → SEMPRE uscita (−): usa uscitaCents.
+
+Formato importi PDF: italiano (1.234,56). Tu restituisci centesimi INTERI JSON (25,28 → 2528). MAI virgole nei numeri JSON.
 
 Rispondi SOLO JSON valido:
 {"lines":[{
@@ -567,7 +599,7 @@ Rispondi SOLO JSON valido:
   "trnOrCro":""
 }]}
 
-- Per ogni riga: valorizza SOLO uno tra uscitaCents e entrataCents (l'altro null).
+- Per ogni riga: valorizza SOLO uno tra uscitaCents e entrataCents (l'altro null), rispettando le regole 6–8.
 - Ignora saldi, totali, intestazioni, piè di pagina.
 - Se non trovi movimenti: {"lines":[]}`;
 
@@ -717,8 +749,8 @@ async function callOpenAiBankChunk(input: {
   isTable?: boolean;
 }): Promise<{ lines: ParsedBankLine[]; rawError?: string }> {
   const intro = input.isTable
-    ? `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. TABELLA a 5 colonne: (1) data esecuzione (2) data valuta (3) importo USCITA − (4) importo ENTRATA + (5) descrizione. Colonne 3 e 4 si alternano (una sola valorizzata). Restituisci uscitaCents OPPURE entrataCents.`
-    : `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. Estratto a 5 colonne: Data esecuzione | Data valuta | Uscita (−) | Entrata (+) | Descrizione. 3 e 4 si alternano. Restituisci uscitaCents OPPURE entrataCents (interi).`;
+    ? `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. TABELLA 5 colonne: (1) data esecuzione (2) data valuta (3) USCITA − (4) ENTRATA + (5) descrizione. 3 e 4 si alternano. FORZA +: "Bonifico a vs favore", "Storno". FORZA −: "Interessi". Restituisci uscitaCents OPPURE entrataCents.`
+    : `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. Estratto 5 colonne. 3/4 alternate. FORZA +: Bonifico a vs favore, Storno. FORZA −: Interessi. uscitaCents OPPURE entrataCents.`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -935,7 +967,10 @@ export async function parseBankStatementPdf(
 3) Importi in USCITA (−) — se pieno, colonna 4 vuota
 4) Importi in ENTRATA (+) — se pieno, colonna 3 vuota
 5) Descrizione
-Le colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → amountCents 123456.`;
+6) "Bonifico a vs favore" → SEMPRE segno + (entrataCents), nessun dubbio
+7) Descrizione con "Storno" → SEMPRE segno +
+8) Descrizione con "Interessi" → SEMPRE segno −
+Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
 
   const aiInput =
     tableMd.split("\n").length > 3
@@ -965,9 +1000,9 @@ Le colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → amountCents 123456.
       text: aiInput.slice(0, 8000),
       lines: validated.lines,
       doubtful: validated.doubtful,
-      parserModel: `${ai.modelName}+5col-v1`,
+      parserModel: `${ai.modelName}+5col-v2`,
       notes: [
-        `AI schema 5 colonne (uscita/entrata alternate): ${validated.lines.length} voci.`,
+        `AI schema 5 colonne + regole Storno/Bonifico+/Interessi−: ${validated.lines.length} voci.`,
         validated.doubtful.length
           ? `${validated.doubtful.length} escluse.`
           : null,

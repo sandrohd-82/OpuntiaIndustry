@@ -30,13 +30,13 @@ assert(
   "date strip: solo 25,28"
 );
 
-// Colonna batte causale storno
+// Colonna batte causale storno? NO: Storno forza +
 const stornoDare = applySignRules({
   description: "STORNO COMMISSIONI",
   amount: 25.28,
   column: "DARE",
 });
-assert(stornoDare.amount === -25.28, "STORNO in DARE → −25.28");
+assert(stornoDare.amount === 25.28, "STORNO forza + anche se colonna DARE");
 
 const stornoAvere = applySignRules({
   description: "STORNO COMMISSIONI",
@@ -44,6 +44,20 @@ const stornoAvere = applySignRules({
   column: "AVERE",
 });
 assert(stornoAvere.amount === 25.28, "STORNO in AVERE → +25.28");
+
+const bonifico = applySignRules({
+  description: "Bonifico a vs favore ACME SPA",
+  amount: 100,
+  column: "DARE",
+});
+assert(bonifico.amount === 100, "Bonifico a vs favore forza +");
+
+const interessi = applySignRules({
+  description: "Interessi passivi trimestre",
+  amount: 12.5,
+  column: "AVERE",
+});
+assert(interessi.amount === -12.5, "Interessi forza −");
 
 // F24 versamento non deve diventare entrata
 const f24 = applySignRules({

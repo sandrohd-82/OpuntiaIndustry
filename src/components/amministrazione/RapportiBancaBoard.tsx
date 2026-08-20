@@ -313,9 +313,10 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Il PDF viene inviato a OpenAI con schema fisso a 5 colonne: Data
-            esecuzione | Data valuta | Uscita (−) | Entrata (+) | Descrizione.
-            Uscita ed entrata si alternano (una sola valorizzata per riga).
+            Il PDF viene inviato a OpenAI con schema a 5 colonne (Data
+            esecuzione, Data valuta, Uscita −, Entrata +, Descrizione). Uscita e
+            entrata si alternano. Forzature: «Bonifico a vs favore» e «Storno» →
+            +; «Interessi» → −.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
