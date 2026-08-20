@@ -18,6 +18,7 @@ import {
   FaFloppyDisk,
   FaTrashCan,
   FaFileCsv,
+  FaFilePdf,
   FaCloudArrowUp,
   FaCheck,
 } from "react-icons/fa6";
@@ -154,7 +155,9 @@ export function RapportiBancaBoard() {
   const [accountName, setAccountName] = useState("BCC Don Rizzo");
   const [printUser] = useState("Operatore area fiscale");
   const csvInputId = useId();
+  const pdfInputId = useId();
   const [csvDragOver, setCsvDragOver] = useState(false);
+  const [pdfDragOver, setPdfDragOver] = useState(false);
 
   /** Anteprima CSV (non ancora in DB). */
   const [previewActive, setPreviewActive] = useState(false);
@@ -876,23 +879,108 @@ export function RapportiBancaBoard() {
           <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             CSV: {csvFile?.name ?? "—"}
           </p>
-          <label className="mb-4 block text-sm">
-            <span className="mb-1 block text-xs font-medium">
+
+          <div className="mb-4">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">
               PDF originale estratto conto banca *
             </span>
-            <input
-              type="file"
-              accept=".pdf,application/pdf"
-              onChange={(e) => setPdfSourceFile(e.target.files?.[0] ?? null)}
-              className="w-full text-sm"
-            />
-            {pdfSourceFile ? (
-              <span className="mt-1 block text-xs text-[var(--muted)]">
-                {pdfSourceFile.name} ·{" "}
-                {(pdfSourceFile.size / 1024).toFixed(0)} KB
+            <label
+              htmlFor={pdfInputId}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setPdfDragOver(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setPdfDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setPdfDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setPdfDragOver(false);
+                const f = e.dataTransfer.files?.[0] ?? null;
+                if (!f) return;
+                const n = f.name.toLowerCase();
+                if (!n.endsWith(".pdf") && f.type !== "application/pdf") {
+                  setError("Seleziona un file PDF originale della banca.");
+                  return;
+                }
+                setError(null);
+                setPdfSourceFile(f);
+              }}
+              className={`group relative flex cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed px-6 py-10 text-center transition ${
+                pdfDragOver
+                  ? "border-emerald-500 bg-emerald-50 shadow-md shadow-emerald-100"
+                  : pdfSourceFile
+                    ? "border-emerald-400 bg-gradient-to-b from-emerald-50 to-white"
+                    : "border-slate-300 bg-gradient-to-b from-slate-50 to-white hover:border-[var(--primary)] hover:from-sky-50/80 hover:to-white"
+              }`}
+            >
+              <span
+                className={`flex h-14 w-14 items-center justify-center rounded-2xl shadow-sm transition ${
+                  pdfSourceFile
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-slate-500 ring-1 ring-slate-200 group-hover:text-[var(--primary)]"
+                }`}
+              >
+                {pdfSourceFile ? (
+                  <FaCheck size={22} />
+                ) : (
+                  <FaCloudArrowUp size={26} />
+                )}
               </span>
-            ) : null}
-          </label>
+              {pdfSourceFile ? (
+                <>
+                  <div className="flex max-w-full items-center gap-2 rounded-lg bg-white/90 px-3 py-2 ring-1 ring-emerald-200">
+                    <FaFilePdf className="shrink-0 text-red-600" size={20} />
+                    <div className="min-w-0 text-left">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {pdfSourceFile.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {(pdfSourceFile.size / 1024).toFixed(0)} KB · pronto per
+                        il salvataggio
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-emerald-800">
+                    Clicca o trascina un altro file per sostituirlo
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">
+                      Trascina qui il file PDF
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      oppure{" "}
+                      <span className="font-semibold text-[var(--primary)] underline decoration-2 underline-offset-2">
+                        scegli dal computer
+                      </span>
+                    </p>
+                  </div>
+                  <p className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-600">
+                    .pdf · estratto conto originale · max 40 MB
+                  </p>
+                </>
+              )}
+              <input
+                id={pdfInputId}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="sr-only"
+                onChange={(e) => {
+                  setPdfSourceFile(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
