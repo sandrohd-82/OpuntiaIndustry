@@ -122,7 +122,7 @@ export async function importBankStatementPdf(input: {
   const pdfDateFrom = dates[0] ?? null;
   const pdfDateTo = dates[dates.length - 1] ?? null;
 
-  const rowsDoubtful = parsed.doubtful.length;
+  const rowsDoubtful = parsed.lines.filter((l) => l.signNeedsReview).length;
   const parseNotes = [
     parsed.notes,
     rowsDoubtful
@@ -130,6 +130,9 @@ export async function importBankStatementPdf(input: {
           .slice(0, 8)
           .map((d) => `${d.description.slice(0, 40)}… (${d.reason})`)
           .join(" | ")}`
+      : null,
+    parsed.excluded?.length
+      ? `Escluse (non importate): ${parsed.excluded.length}`
       : null,
   ]
     .filter(Boolean)

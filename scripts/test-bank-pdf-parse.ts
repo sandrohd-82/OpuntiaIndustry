@@ -101,7 +101,26 @@ const raw: ParsedBankLine[] = [
 const v = validateLines(raw);
 assert(v.lines.length === 1, "una sola voce dopo validazione");
 assert(v.lines[0].amount === 25.28, "amountIt 25,28 vince su 25280");
-assert(v.doubtful.length === 1, "saldo escluso");
+assert(v.excluded.length === 1, "saldo escluso");
+assert(v.doubtful.length === 0, "storno non richiede conferma");
+assert(v.lines[0].signNeedsReview !== true, "storno auto ok");
+
+// Senza colonna → da confermare
+const v2 = validateLines([
+  {
+    transactionDate: "2025-07-16",
+    valutaDate: null,
+    amount: 100,
+    description: "MOVIMENTO SENZA COLONNA",
+    counterpartyName: "",
+    trnOrCro: "",
+    column: null,
+    amountIt: "100,00",
+  },
+]);
+assert(v2.lines.length === 1, "voce senza colonna importata");
+assert(v2.lines[0].signNeedsReview === true, "senza colonna → review");
+assert(v2.doubtful.length === 1, "dubbio conteggiato");
 
 // Riparazione JSON con virgola italiana non quotata
 const broken = `{"lines":[{"transactionDate":"2025-07-16","amountIt":25,28,"column":"AVERE","description":"STORNO"}]}`;

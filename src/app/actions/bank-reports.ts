@@ -318,9 +318,9 @@ export async function syncBankReportsAction(raw: unknown): Promise<
 export async function listBankTransactionsAction(input: {
   dateFrom: string;
   dateTo: string;
-  tipo?: "tutti" | "entrate" | "uscite" | "non_riconciliati";
+  tipo?: "tutti" | "entrate" | "uscite" | "non_riconciliati" | "da_confermare";
 }): Promise<
-  | { success: true; items: BankTransactionView[] }
+  | { success: true; items: BankTransactionView[]; pendingSignCount: number }
   | { success: false; error: string }
 > {
   await requireAreaAccess("area-fiscale");
@@ -338,10 +338,19 @@ export async function listBankTransactionsAction(input: {
     .is("deleted_at", null)
     .gte("transaction_date", parsed.data.dateFrom)
     .lte("transaction_date", parsed.data.dateTo)
+    .order("sign_needs_review", { ascending: false })
     .order("transaction_date", { ascending: false });
 
-  if (input.tipo === "entrate") q = q.gt("amount", 0);
-  if (input.tipo === "uscite") q = q.lt("amount", 0);
+  if (input.tipo === "da_confermare") {
+    q = q.eq("sign_needs_review", true);
+  }
+  // Entrate/uscite: non nascondere le voci in attesa di segno
+  if (input.tipo === "entrate") {
+    q = q.or("amount.gt.0,sign_needs_review.eq.true");
+  }
+  if (input.tipo === "uscite") {
+    q = q.or("amount.lt.0,sign_needs_review.eq.true");
+  }
 
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
@@ -454,7 +463,27 @@ export async function listBankTransactionsAction(input: {
     items = items.filter((i) => !i.match || i.match.status === "discrepancy");
   }
 
-  return { success: true, items };
+  const pendingSignCount =
+    input.tipo === "da_confermare"
+      ? items.length
+      : items.filter((i) => i.signNeedsReview).length;
+
+  // Se filtro entrate/uscite, ricalcola pending sul periodo completo
+  let pendingInPeriod = pendingSignCount;
+  if (input.tipo !== "da_confermare" && input.tipo !== "tutti") {
+    const { count } = await supabase
+      .from("bank_transactions")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("transaction_date", parsed.data.dateFrom)
+      .lte("transaction_date", parsed.data.dateTo)
+      .eq("sign_needs_review", true);
+    pendingInPeriod = count ?? 0;
+  } else if (input.tipo === "tutti") {
+    pendingInPeriod = items.filter((i) => i.signNeedsReview).length;
+  }
+
+  return { success: true, items, pendingSignCount: pendingInPeriod };
 }
 
 export async function verifyBankMatchAction(input: {

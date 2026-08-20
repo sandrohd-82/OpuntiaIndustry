@@ -23,7 +23,14 @@ export type ParsedBankLine = {
 export type ParseBankStatementResult = {
   text: string;
   lines: ParsedBankLine[];
+  /** Voci importate che richiedono scelta operatore +/− */
   doubtful: Array<{
+    description: string;
+    aiAmount: number;
+    reason: string;
+  }>;
+  /** Voci non importate (saldi/totali/importo zero) */
+  excluded: Array<{
     description: string;
     aiAmount: number;
     reason: string;
@@ -206,7 +213,8 @@ export function applySignRules(input: {
     amount: -mag,
     signSource:
       input.amount > 0 ? "default-dare-corrected" : "default-dare",
-    doubtful: false,
+    doubtful: true,
+    reason: "Segno di default (senza colonna/causale chiara) — conferma +/−",
   };
 }
 
@@ -870,16 +878,18 @@ function looksLikeBalanceDescription(desc: string): boolean {
 export function validateLines(raw: ParsedBankLine[]): {
   lines: ParsedBankLine[];
   doubtful: ParseBankStatementResult["doubtful"];
+  excluded: ParseBankStatementResult["excluded"];
   corrected: number;
 } {
   const lines: ParsedBankLine[] = [];
   const doubtful: ParseBankStatementResult["doubtful"] = [];
+  const excluded: ParseBankStatementResult["excluded"] = [];
   let corrected = 0;
 
   for (const row of raw) {
     // Solo saldi/totali restano fuori (non sono movimenti)
     if (looksLikeBalanceDescription(row.description)) {
-      doubtful.push({
+      excluded.push({
         description: row.description.slice(0, 160),
         aiAmount: row.amount,
         reason: "Sembra saldo/totale — escluso",
@@ -906,8 +916,7 @@ export function validateLines(raw: ParsedBankLine[]): {
     }
 
     if (amount === 0) {
-      // Importo zero inutile
-      doubtful.push({
+      excluded.push({
         description: row.description.slice(0, 160),
         aiAmount: row.amount,
         reason: "importo zero",
@@ -932,9 +941,44 @@ export function validateLines(raw: ParsedBankLine[]): {
     if (ruled.doubtful) {
       needsReview = true;
       reviewReason = reviewReason || ruled.reason || "Segno dubbio — scegli +/−";
-      // Provvisorio: mantieni mag con segno suggerito (o − se ambiguo)
       finalAmount =
         ruled.amount !== 0 ? ruled.amount : -Math.abs(amount);
+    }
+
+    // Colonna vs causale in conflitto → conferma operatore
+    const avereCausal = isAvereCausal(row.description);
+    const dareCausal = isDareCausal(row.description);
+    if (
+      !needsReview &&
+      !isForcePositiveCausal(row.description) &&
+      !isForceNegativeCausal(row.description)
+    ) {
+      if (row.column === "DARE" && avereCausal && !dareCausal) {
+        needsReview = true;
+        reviewReason =
+          "Colonna USCITA ma causale da entrata — conferma +/−";
+      } else if (row.column === "AVERE" && dareCausal && !avereCausal) {
+        needsReview = true;
+        reviewReason =
+          "Colonna ENTRATA ma causale da uscita — conferma +/−";
+      }
+    }
+
+    // Senza colonna / default / AI senza colonna: l'operatore conferma +/−
+    if (
+      !needsReview &&
+      !isForcePositiveCausal(row.description) &&
+      !isForceNegativeCausal(row.description) &&
+      (row.column == null ||
+        ruled.signSource === "default-dare" ||
+        ruled.signSource === "default-dare-corrected" ||
+        ruled.signSource === "openai-nocolumn" ||
+        (row.signSource ?? "").includes("nocolumn"))
+    ) {
+      needsReview = true;
+      reviewReason =
+        reviewReason ||
+        "Segno non certo dalla colonna — conferma + (entrata) o − (uscita)";
     }
 
     if (
@@ -972,7 +1016,7 @@ export function validateLines(raw: ParsedBankLine[]): {
     return true;
   });
 
-  return { lines: unique, doubtful, corrected };
+  return { lines: unique, doubtful, excluded, corrected };
 }
 
 export async function parseBankStatementPdf(
@@ -1015,6 +1059,7 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
       text: "",
       lines: [],
       doubtful: [],
+      excluded: [],
       parserModel: "none",
       notes:
         "PDF senza testo/tabella estraibile. Esporta un PDF testuale dalla banca.",
@@ -1033,11 +1078,15 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
       text: aiInput.slice(0, 8000),
       lines: validated.lines,
       doubtful: validated.doubtful,
+      excluded: validated.excluded,
       parserModel: `${ai.modelName}+5col-v2`,
       notes: [
         `AI schema 5 colonne + regole Storno/Bonifico+/Interessi−: ${validated.lines.length} voci.`,
         validated.doubtful.length
           ? `${validated.doubtful.length} con segno da confermare (+/−).`
+          : null,
+        validated.excluded.length
+          ? `${validated.excluded.length} escluse (saldi/totali).`
           : null,
       ]
         .filter(Boolean)
@@ -1054,6 +1103,7 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
       text: table.markdownTable,
       lines: validated.lines,
       doubtful: validated.doubtful,
+      excluded: validated.excluded,
       parserModel: table.layoutFound
         ? "pdfjs-table-v1"
         : "pdfjs-table-partial-v1",
@@ -1066,6 +1116,7 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
       text: aiInput.slice(0, 4000),
       lines: [],
       doubtful: [],
+      excluded: [],
       parserModel: "blocked-no-ai",
       notes: `IMPORT BLOCCATO: ${aiError}`,
     };
@@ -1077,6 +1128,7 @@ Colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → 123456 centesimi.`;
     text: rawText.slice(0, 8000),
     lines: validated.lines,
     doubtful: validated.doubtful,
+    excluded: validated.excluded,
     parserModel: "heuristic-fallback-v2",
     notes: `Euristica emergenza. Motivo: ${aiError}`,
   };

@@ -20,7 +20,12 @@ import {
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 
 type PeriodPreset = "mese" | "trimestre" | "personalizzato";
-type TipoFilter = "tutti" | "entrate" | "uscite" | "non_riconciliati";
+type TipoFilter =
+  | "tutti"
+  | "entrate"
+  | "uscite"
+  | "non_riconciliati"
+  | "da_confermare";
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -65,6 +70,7 @@ export function RapportiBancaBoard() {
   );
   const [tipo, setTipo] = useState<TipoFilter>("tutti");
   const [items, setItems] = useState<BankTransactionView[]>([]);
+  const [pendingSignCount, setPendingSignCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -112,9 +118,11 @@ export function RapportiBancaBoard() {
     if (!res.success) {
       setError(res.error);
       setItems([]);
+      setPendingSignCount(0);
       return;
     }
     setItems(res.items);
+    setPendingSignCount(res.pendingSignCount ?? 0);
   }, [dateFrom, dateTo, tipo]);
 
   useEffect(() => {
@@ -153,12 +161,16 @@ export function RapportiBancaBoard() {
         setDateTo(res.dateTo);
       }
 
+      if (res.rowsDoubtful > 0) {
+        setTipo("da_confermare");
+      }
+
       const ti = res.totalsImported;
       setInfo(
         `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
           (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
           (res.rowsDoubtful
-            ? ` (${res.rowsDoubtful} da confermare segno +/−)`
+            ? ` (${res.rowsDoubtful} da confermare segno +/− — evidenziate in azzurro)`
             : "") +
           `, match: ${res.rowsMatched}.` +
           ` Incassi: ${ti.countIncassi} voci (${formatEuro(ti.totaleIncassi)}).` +
@@ -299,6 +311,7 @@ export function RapportiBancaBoard() {
               className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
               <option value="tutti">Tutti</option>
+              <option value="da_confermare">Segno da confermare</option>
               <option value="entrate">Solo entrate</option>
               <option value="uscite">Solo uscite</option>
               <option value="non_riconciliati">Non riconciliati</option>
@@ -434,6 +447,22 @@ export function RapportiBancaBoard() {
         </p>
       ) : null}
 
+      {pendingSignCount > 0 && tipo !== "da_confermare" ? (
+        <p className="print:hidden flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-sm text-sky-950">
+          <span>
+            {pendingSignCount} movimenti con segno da confermare (evidenziati in
+            azzurro con + / −).
+          </span>
+          <button
+            type="button"
+            className="rounded-md bg-sky-600 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-700"
+            onClick={() => setTipo("da_confermare")}
+          >
+            Mostra solo da confermare
+          </button>
+        </p>
+      ) : null}
+
       <header className="bank-report-print-header hidden print:block">
         <p className="text-lg font-semibold">
           Cooperativa Agricola e Sociale A.R.L.
@@ -471,7 +500,7 @@ export function RapportiBancaBoard() {
                   key={row.id}
                   className={`border-t border-[var(--border)] ${
                     row.signNeedsReview
-                      ? "bg-amber-50"
+                      ? "bg-sky-100 ring-1 ring-inset ring-sky-300"
                       : row.amount >= 0
                         ? "bg-emerald-50/40"
                         : "bg-red-50/30"
@@ -485,7 +514,7 @@ export function RapportiBancaBoard() {
                       {row.accountName}
                     </span>
                     {row.signNeedsReview ? (
-                      <span className="mt-1 block text-[10px] font-medium text-amber-800">
+                      <span className="mt-1 inline-block rounded bg-sky-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                         Segno da confermare
                       </span>
                     ) : null}
@@ -493,14 +522,14 @@ export function RapportiBancaBoard() {
                   <td
                     className={`px-3 py-2 text-right align-top font-semibold tabular-nums ${
                       row.signNeedsReview
-                        ? "text-amber-900"
+                        ? "text-sky-950"
                         : row.amount >= 0
                           ? "text-emerald-700"
                           : "text-red-700"
                     }`}
                   >
                     {row.signNeedsReview ? (
-                      <span className="text-amber-800">
+                      <span className="text-sky-900">
                         ±{formatEuro(Math.abs(row.amount))}
                       </span>
                     ) : (
@@ -510,11 +539,12 @@ export function RapportiBancaBoard() {
                       </>
                     )}
                     {row.signNeedsReview ? (
-                      <div className="mt-1 flex justify-end gap-1">
+                      <div className="mt-1.5 flex justify-end gap-1.5">
                         <button
                           type="button"
                           disabled={pending}
-                          className="rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white disabled:opacity-50"
+                          title="Entrata (AVERE)"
+                          className="min-w-8 rounded-md border border-sky-700 bg-emerald-600 px-2.5 py-1 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                           onClick={() => {
                             startTransition(async () => {
                               const res = await setBankTransactionSignAction({
@@ -537,7 +567,8 @@ export function RapportiBancaBoard() {
                         <button
                           type="button"
                           disabled={pending}
-                          className="rounded bg-red-600 px-2 py-0.5 text-[11px] font-bold text-white disabled:opacity-50"
+                          title="Uscita (DARE)"
+                          className="min-w-8 rounded-md border border-sky-700 bg-red-600 px-2.5 py-1 text-sm font-bold text-white shadow-sm hover:bg-red-700 disabled:opacity-50"
                           onClick={() => {
                             startTransition(async () => {
                               const res = await setBankTransactionSignAction({
