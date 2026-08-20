@@ -240,9 +240,14 @@ export async function importBankStatementPdf(input: {
         line.signSource === "column-avere" ||
         line.signSource === "openai-dareIt" ||
         line.signSource === "openai-avereIt" ||
+        line.signSource === "openai-uscitaCents" ||
+        line.signSource === "openai-entrataCents" ||
         line.signSource === "openai-column" ||
         line.signSource === "causal-avere" ||
-        line.signSource === "causal-dare";
+        line.signSource === "causal-dare" ||
+        line.signSource === "force-storno" ||
+        line.signSource === "force-bonifico-vs-favore" ||
+        line.signSource === "force-interessi";
       if (
         status === "auto_matched" &&
         strongSign &&
