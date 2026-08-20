@@ -2,6 +2,10 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { importBankStatementPdf } from "@/lib/amministrazione/bank-import";
+import {
+  bankPdfRowsToCsv,
+  parseBankPdfDeterministic,
+} from "@/lib/amministrazione/bank-pdf-python";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -338,6 +342,111 @@ export async function importBankStatementPdfAction(
     return {
       success: false,
       error: e instanceof Error ? e.message : "Import CSV fallito.",
+    };
+  }
+}
+
+/**
+ * PDF estratto conto → parser Python deterministico → CSV 5 col → DB.
+ * Nessun LLM.
+ */
+export async function importBankStatementFromDeterministicPdfAction(
+  formData: FormData
+): Promise<
+  | {
+      success: true;
+      batchId: string;
+      rowsTotal: number;
+      rowsImported: number;
+      rowsSkipped: number;
+      rowsMatched: number;
+      rowsDoubtful: number;
+      parserModel: string;
+      notes: string;
+      dateFrom: string | null;
+      dateTo: string | null;
+      totalsImported: {
+        countIncassi: number;
+        countUscite: number;
+        totaleIncassi: number;
+        totaleUscite: number;
+        totaleNetto: number;
+      };
+      totalsDetected: {
+        countIncassi: number;
+        countUscite: number;
+        totaleIncassi: number;
+        totaleUscite: number;
+        totaleNetto: number;
+      };
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { success: false, error: "Seleziona un file PDF." };
+  }
+  const nameLower = file.name.toLowerCase();
+  if (!nameLower.endsWith(".pdf") && file.type !== "application/pdf") {
+    return { success: false, error: "Estensione richiesta: .pdf" };
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    return { success: false, error: "PDF troppo grande (max 20 MB)." };
+  }
+
+  const accountName =
+    String(formData.get("accountName") ?? "").trim() || "BCC Don Rizzo";
+
+  try {
+    const pdfBuffer = Buffer.from(await file.arrayBuffer());
+    const { result } = await parseBankPdfDeterministic(pdfBuffer, {
+      excel: true,
+      jsonFile: true,
+    });
+    if (!result.rows.length) {
+      return {
+        success: false,
+        error:
+          "Nessun movimento estratto dal PDF (parser deterministico). Verifica che il PDF abbia tabelle leggibili.",
+      };
+    }
+
+    const csv = bankPdfRowsToCsv(result.rows);
+    const csvBuffer = Buffer.from(csv, "utf8");
+    const supabase = await createClient();
+    const imported = await importBankStatementPdf({
+      supabase,
+      userId: auth.userId,
+      fileName: file.name.replace(/\.pdf$/i, ".csv"),
+      buffer: csvBuffer,
+      accountName,
+    });
+
+    await writeAuditLog({
+      entity_type: "bank_import_batches",
+      entity_id: imported.batchId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Import PDF→CSV deterministico «${file.name}»: ${imported.rowsImported} nuovi / ${imported.rowsTotal} rilevati`,
+      payload: {
+        ...imported,
+        pdfParser: result.parser,
+        pdfCount: result.count,
+      },
+    });
+
+    return {
+      success: true,
+      ...imported,
+      parserModel: `${result.parser}+csv-import`,
+      notes: `${result.parser}: ${result.count} voci dal PDF. ${imported.notes}`,
+    };
+  } catch (e) {
+    console.error("[bank pdf deterministic import]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Import PDF fallito.",
     };
   }
 }

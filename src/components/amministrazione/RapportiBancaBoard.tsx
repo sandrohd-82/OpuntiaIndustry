@@ -11,6 +11,7 @@ import {
 import {
   listBankTransactionsAction,
   importBankStatementPdfAction,
+  importBankStatementFromDeterministicPdfAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
@@ -149,9 +150,9 @@ export function RapportiBancaBoard() {
     setImportOpen(true);
   }
 
-  function runPdfImport() {
+  function runFileImport() {
     if (!pdfFile) {
-      setError("Seleziona un file CSV di estratto conto.");
+      setError("Seleziona un file CSV o PDF di estratto conto.");
       return;
     }
     setInfo(null);
@@ -159,7 +160,11 @@ export function RapportiBancaBoard() {
       const fd = new FormData();
       fd.set("file", pdfFile);
       fd.set("accountName", accountName);
-      const res = await importBankStatementPdfAction(fd);
+      const name = pdfFile.name.toLowerCase();
+      const isPdf = name.endsWith(".pdf");
+      const res = isPdf
+        ? await importBankStatementFromDeterministicPdfAction(fd)
+        : await importBankStatementPdfAction(fd);
       if (!res.success) {
         setError(res.error);
         return;
@@ -167,7 +172,6 @@ export function RapportiBancaBoard() {
       setImportOpen(false);
       setPdfFile(null);
 
-      // Date sempre dal CSV: allinea il filtro tabella al periodo dell'estratto
       const nextFrom = res.dateFrom ?? dateFrom;
       const nextTo = res.dateTo ?? dateTo;
       if (res.dateFrom && res.dateTo) {
@@ -179,7 +183,9 @@ export function RapportiBancaBoard() {
       const nextTipo: TipoFilter =
         res.rowsDoubtful > 0 ? "da_confermare" : "tutti";
       setTipo(nextTipo);
-      setInfo(null);
+      setInfo(
+        `Import ${isPdf ? "PDF→Excel/CSV" : "CSV"}: ${res.rowsImported} nuove voci (${res.parserModel}).`
+      );
 
       const list = await listBankTransactionsAction({
         dateFrom: nextFrom,
@@ -194,6 +200,44 @@ export function RapportiBancaBoard() {
       }
       setItems(list.items);
       setSummary(list.summary ?? EMPTY_SUMMARY);
+    });
+  }
+
+  function downloadPdfAsExcel() {
+    if (!pdfFile) {
+      setError("Seleziona un PDF.");
+      return;
+    }
+    if (!pdfFile.name.toLowerCase().endsWith(".pdf")) {
+      setError("Per Excel serve un file PDF.");
+      return;
+    }
+    setInfo(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("file", pdfFile);
+      const res = await fetch("/api/bank/pdf-parse?format=xlsx", {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setError(j?.error || `Conversione fallita (${res.status}).`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        pdfFile.name.replace(/\.pdf$/i, "") + "_movimenti.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      setInfo(
+        `Excel scaricato (${res.headers.get("X-Bank-Pdf-Count") || "?"} voci). Parser deterministico, niente OpenAI.`
+      );
     });
   }
 
@@ -217,7 +261,7 @@ export function RapportiBancaBoard() {
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <FaArrowsRotate size={13} />
-            Sincronizza (carica CSV)
+            Sincronizza (CSV / PDF)
           </button>
           <button
             type="button"
@@ -340,14 +384,14 @@ export function RapportiBancaBoard() {
 
       {importOpen ? (
         <Modal
-          title="Sincronizza da estratto conto CSV"
+          title="Sincronizza estratto conto (CSV o PDF)"
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Elaborazione <strong>locale</strong> (niente OpenAI). File{" "}
-            <strong>.csv</strong> / .cvs a 5 colonne fisse, nell’ordine: (1)
-            Data, (2) Data Valuta, (3) Uscite −, (4) Entrate +, (5) Causale.
-            Ogni riga e ogni campo vengono caricati così come sono.
+            <strong>CSV</strong>: 5 colonne fisse (Data; Valuta; Uscite; Entrate;
+            Causale), import diretto. <strong>PDF</strong>: conversione
+            deterministica con pdfplumber (niente OpenAI) → Excel scaricabile e/o
+            import in banca.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
@@ -389,10 +433,12 @@ export function RapportiBancaBoard() {
             />
           </label>
           <label className="mb-4 block text-sm">
-            <span className="mb-1 block text-xs font-medium">File CSV</span>
+            <span className="mb-1 block text-xs font-medium">
+              File CSV o PDF
+            </span>
             <input
               type="file"
-              accept=".csv,.cvs,text/csv,text/plain"
+              accept=".csv,.cvs,.pdf,text/csv,application/pdf,text/plain"
               onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
               className="w-full text-sm"
             />
@@ -406,10 +452,20 @@ export function RapportiBancaBoard() {
             <button
               type="button"
               disabled={pending || !pdfFile}
-              onClick={runPdfImport}
+              onClick={runFileImport}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? "Elaborazione…" : "Carica e processa CSV"}
+              {pending ? "Elaborazione…" : "Carica e importa in banca"}
+            </button>
+            <button
+              type="button"
+              disabled={
+                pending || !pdfFile || !pdfFile.name.toLowerCase().endsWith(".pdf")
+              }
+              onClick={downloadPdfAsExcel}
+              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900 disabled:opacity-50"
+            >
+              PDF → Excel
             </button>
             <button
               type="button"
