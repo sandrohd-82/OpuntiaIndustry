@@ -313,10 +313,9 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Il PDF viene letto come <strong>tabella</strong> (colonne Mov.DARE /
-            Mov.AVERE per posizione). OpenAI interviene solo se serve. I
-            movimenti già presenti sono stati azzerati (soft-delete): puoi
-            ricaricare da capo.
+            Il PDF viene inviato a OpenAI con schema fisso a 5 colonne: Data
+            esecuzione | Data valuta | Uscita (−) | Entrata (+) | Descrizione.
+            Uscita ed entrata si alternano (una sola valorizzata per riga).
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button

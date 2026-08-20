@@ -539,21 +539,37 @@ export function parseBankAiJson(content: string): { lines?: unknown[] } {
   throw lastErr instanceof Error ? lastErr : new Error("JSON non valido");
 }
 
-const BANK_AI_SYSTEM = `Sei un estrattore CONTABILE. I dati sono una TABELLA di estratto conto italiano (BCC) con colonne:
-data | valuta | descrizione | dare | avere
+const BANK_AI_SYSTEM = `Sei un estrattore CONTABILE di un estratto conto bancario italiano.
+Il documento è una TABELLA a 5 COLONNE fisse, in quest'ordine:
 
-Rispondi SOLO JSON valido (RFC 8259). Nessun markdown.
+1) Data esecuzione (data contabile / operazione)
+2) Data valuta
+3) Importi in USCITA → segno NEGATIVO (−). Vuoto se la riga è un'entrata.
+4) Importi in ENTRATA → segno POSITIVO (+). Vuoto se la riga è un'uscita.
+5) Descrizione / causale
 
-Schema:
-{"lines":[{"transactionDate":"YYYY-MM-DD","valutaDate":null,"amountCents":2528,"column":"DARE","description":"testo","counterpartyName":"","trnOrCro":""}]}
+REGOLA CRITICA: sulle colonne 3 e 4 si ALTERNANO.
+- Se la colonna 3 (uscita) ha un importo, la colonna 4 (entrata) è VUOTA → 1 solo movimento DARE (−).
+- Se la colonna 4 (entrata) ha un importo, la colonna 3 (uscita) è VUOTA → 1 solo movimento AVERE (+).
+- Mai entrambe valorizzate sulla stessa riga. Mai inventare l'altra colonna.
 
-REGOLE:
-1. Ogni riga tabella può dare 0–2 movimenti.
-2. Colonna "dare" valorizzata → column="DARE", amountCents in centesimi (25,28 → 2528).
-3. Colonna "avere" valorizzata → column="AVERE", amountCents in centesimi.
-4. amountCents = SOLO intero JSON. MAI virgole nei numeri.
-5. Ignora saldi/totali. description senza a capo.
-6. Se vuoto: {"lines":[]}`;
+Formato importi nel PDF: italiano (1.234,56 = migliaia con punto, centesimi con virgola).
+Tu restituisci amountCents come INTERO JSON (25,28 → 2528; 1.234,56 → 123456). MAI virgole nei numeri JSON.
+
+Rispondi SOLO JSON valido:
+{"lines":[{
+  "transactionDate":"YYYY-MM-DD",
+  "valutaDate":"YYYY-MM-DD o null",
+  "uscitaCents":null,
+  "entrataCents":2528,
+  "description":"causale senza a capo",
+  "counterpartyName":"",
+  "trnOrCro":""
+}]}
+
+- Per ogni riga: valorizza SOLO uno tra uscitaCents e entrataCents (l'altro null).
+- Ignora saldi, totali, intestazioni, piè di pagina.
+- Se non trovi movimenti: {"lines":[]}`;
 
 function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
   const lines: ParsedBankLine[] = [];
@@ -563,8 +579,6 @@ function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
     const transactionDate = String(r.transactionDate ?? "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) continue;
 
-    const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
-    const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
     const valutaRaw =
       r.valutaDate == null ? null : String(r.valutaDate).slice(0, 10);
     const valutaDate =
@@ -576,6 +590,51 @@ function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
     const counterpartyName = String(r.counterpartyName ?? "").trim();
     const trnOrCro = String(r.trnOrCro ?? "").trim();
 
+    const pushFromCents = (
+      centsRaw: unknown,
+      column: "DARE" | "AVERE",
+      signSource: string
+    ) => {
+      if (centsRaw == null || centsRaw === "") return;
+      const cents = Number(centsRaw);
+      if (!Number.isFinite(cents) || !Number.isInteger(cents) || cents === 0) {
+        return;
+      }
+      const mag = Math.abs(cents) / 100;
+      lines.push({
+        transactionDate,
+        valutaDate,
+        amount: column === "AVERE" ? mag : -mag,
+        description,
+        counterpartyName,
+        trnOrCro,
+        column,
+        signSource,
+        amountIt: mag.toFixed(2).replace(".", ","),
+      });
+    };
+
+    // Schema 5 colonne: uscitaCents / entrataCents (mutuamente esclusivi)
+    const hasUscita = r.uscitaCents != null && r.uscitaCents !== "";
+    const hasEntrata = r.entrataCents != null && r.entrataCents !== "";
+    if (hasUscita || hasEntrata) {
+      if (hasUscita && hasEntrata) {
+        // Ambiguità: preferisci quella non zero; se entrambe, escludi (validateLines non vede questo)
+        // Prendi solo uscita se entrambe (conservativo) — meglio non inventare entrate
+        pushFromCents(r.uscitaCents, "DARE", "openai-uscitaCents");
+        continue;
+      }
+      if (hasUscita) {
+        pushFromCents(r.uscitaCents, "DARE", "openai-uscitaCents");
+      }
+      if (hasEntrata) {
+        pushFromCents(r.entrataCents, "AVERE", "openai-entrataCents");
+      }
+      continue;
+    }
+
+    const dareIt = r.dareIt != null ? String(r.dareIt).trim() : "";
+    const avereIt = r.avereIt != null ? String(r.avereIt).trim() : "";
     if (dareIt || avereIt) {
       if (dareIt) {
         const n = parseItAmount(dareIt, { strict: true });
@@ -612,6 +671,7 @@ function mapAiRowsToLines(rows: unknown[]): ParsedBankLine[] {
       continue;
     }
 
+    // Retrocompat amountCents + column
     const resolved = resolveAiAmount(r);
     if (!resolved) continue;
 
@@ -657,8 +717,8 @@ async function callOpenAiBankChunk(input: {
   isTable?: boolean;
 }): Promise<{ lines: ParsedBankLine[]; rawError?: string }> {
   const intro = input.isTable
-    ? `Parte ${input.chunkIndex + 1}/${input.chunkTotal} della TABELLA (colonne dare/avere). Estrai amountCents interi.`
-    : `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. Se è una tabella Mov.DARE/Mov.AVERE usala. amountCents = intero.`;
+    ? `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. TABELLA a 5 colonne: (1) data esecuzione (2) data valuta (3) importo USCITA − (4) importo ENTRATA + (5) descrizione. Colonne 3 e 4 si alternano (una sola valorizzata). Restituisci uscitaCents OPPURE entrataCents.`
+    : `Parte ${input.chunkIndex + 1}/${input.chunkTotal}. Estratto a 5 colonne: Data esecuzione | Data valuta | Uscita (−) | Entrata (+) | Descrizione. 3 e 4 si alternano. Restituisci uscitaCents OPPURE entrataCents (interi).`;
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -853,7 +913,7 @@ export function validateLines(raw: ParsedBankLine[]): {
 export async function parseBankStatementPdf(
   buffer: Buffer
 ): Promise<ParseBankStatementResult> {
-  // 1) TABELLA per coordinate (pdfjs) — metodo principale
+  // Ricostruzione tabellare di supporto (markdown 5 colonne)
   let table: Awaited<
     ReturnType<
       typeof import("@/lib/amministrazione/bank-pdf-table").extractBankTableFromPdf
@@ -866,34 +926,23 @@ export async function parseBankStatementPdf(
     console.error("[bank-pdf-table]", e);
   }
 
-  if (table && table.layoutFound && table.lines.length > 0) {
-    const validated = validateLines(table.lines);
-    return {
-      text: table.markdownTable,
-      lines: validated.lines,
-      doubtful: validated.doubtful,
-      parserModel: "pdfjs-table-v1",
-      notes: [
-        table.notes,
-        `${validated.lines.length} voci da colonne X DARE/AVERE.`,
-        validated.doubtful.length
-          ? `${validated.doubtful.length} escluse.`
-          : null,
-      ]
-        .filter(Boolean)
-        .join(" "),
-    };
-  }
-
-  // 2) AI sulla tabella markdown ricostruita (o testo PDF)
   const tableMd = table?.markdownTable?.trim() ?? "";
   const rawText = (await extractPdfText(buffer)).trim();
+
+  const schemaHint = `PARAMETRI TABELLA (obbligatori):
+1) Data esecuzione
+2) Data valuta
+3) Importi in USCITA (−) — se pieno, colonna 4 vuota
+4) Importi in ENTRATA (+) — se pieno, colonna 3 vuota
+5) Descrizione
+Le colonne 3 e 4 si alternano. Numeri italiani: 1.234,56 → amountCents 123456.`;
+
   const aiInput =
     tableMd.split("\n").length > 3
-      ? `TABELLA ESTRATTO CONTO (colonne dare/avere già separate):\n${tableMd}`
-      : rawText;
+      ? `${schemaHint}\n\nTABELLA RICOSTRUITA:\n${tableMd}`
+      : `${schemaHint}\n\nTESTO PDF:\n${rawText}`;
 
-  if (!aiInput) {
+  if (!rawText && tableMd.split("\n").length <= 3) {
     return {
       text: "",
       lines: [],
@@ -908,21 +957,17 @@ export async function parseBankStatementPdf(
     process.env.BANK_PDF_ALLOW_HEURISTIC?.trim() === "1" ||
     process.env.BANK_PDF_ALLOW_HEURISTIC?.trim()?.toLowerCase() === "true";
 
-  const ai = await parseBankStatementWithAi(aiInput, {
-    isTable: tableMd.split("\n").length > 3,
-  });
+  // OpenAI con schema 5 colonne (priorità)
+  const ai = await parseBankStatementWithAi(aiInput, { isTable: true });
   if (ai.ok && ai.lines.length > 0) {
     const validated = validateLines(ai.lines);
     return {
       text: aiInput.slice(0, 8000),
       lines: validated.lines,
       doubtful: validated.doubtful,
-      parserModel: `${ai.modelName}+table-ai-v1`,
+      parserModel: `${ai.modelName}+5col-v1`,
       notes: [
-        `AI su tabella/struttura: ${validated.lines.length} voci.`,
-        table && !table.layoutFound
-          ? "Layout colonne PDF parziale — AI ha completato."
-          : null,
+        `AI schema 5 colonne (uscita/entrata alternate): ${validated.lines.length} voci.`,
         validated.doubtful.length
           ? `${validated.doubtful.length} escluse.`
           : null,
@@ -932,22 +977,23 @@ export async function parseBankStatementPdf(
     };
   }
 
-  const aiError = ai.ok
-    ? "OpenAI ok ma 0 movimenti."
-    : ai.error;
+  const aiError = ai.ok ? "OpenAI ok ma 0 movimenti." : ai.error;
+
+  // Fallback: coordinate PDF se AI fallisce
+  if (table && table.lines.length > 0) {
+    const validated = validateLines(table.lines);
+    return {
+      text: table.markdownTable,
+      lines: validated.lines,
+      doubtful: validated.doubtful,
+      parserModel: table.layoutFound
+        ? "pdfjs-table-v1"
+        : "pdfjs-table-partial-v1",
+      notes: `${table.notes} (fallback dopo AI: ${aiError}). ${validated.lines.length} voci.`,
+    };
+  }
 
   if (!allowHeuristic) {
-    // Se pdfjs ha trovato voci senza layout pieno, usale comunque
-    if (table && table.lines.length > 0) {
-      const validated = validateLines(table.lines);
-      return {
-        text: table.markdownTable,
-        lines: validated.lines,
-        doubtful: validated.doubtful,
-        parserModel: "pdfjs-table-partial-v1",
-        notes: `${table.notes} AI non disponibile (${aiError}). Usate ${validated.lines.length} voci da coordinate PDF.`,
-      };
-    }
     return {
       text: aiInput.slice(0, 4000),
       lines: [],

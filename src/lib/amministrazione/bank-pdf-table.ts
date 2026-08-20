@@ -149,7 +149,7 @@ export async function extractBankTableFromPdf(
   let layoutFound = false;
   const lines: ParsedBankLine[] = [];
   const mdRows: string[] = [
-    "| data | valuta | descrizione | dare | avere |",
+    "| data_esecuzione | data_valuta | importo_uscita | importo_entrata | descrizione |",
     "|---|---|---|---|---|",
   ];
 
@@ -233,7 +233,7 @@ export async function extractBankTableFromPdf(
       const avereTok =
         amounts.find((a) => a.column === "AVERE")?.amountIt ?? "";
       mdRows.push(
-        `| ${dates[0]} | ${dates[1] ?? ""} | ${description.slice(0, 80)} | ${dareTok} | ${avereTok} |`
+        `| ${dates[0]} | ${dates[1] ?? ""} | ${dareTok} | ${avereTok} | ${description.slice(0, 80)} |`
       );
 
       for (const a of amounts) {
