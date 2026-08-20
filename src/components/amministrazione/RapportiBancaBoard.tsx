@@ -86,6 +86,46 @@ function monthLabel(isoFrom: string) {
   return d.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
 }
 
+/** Riepilogo box da righe CSV in anteprima (stessa logica dei dati DB). */
+function summarizePreviewLines(
+  lines: Array<{
+    amount: number;
+    transactionDate: string;
+    signNeedsReview?: boolean;
+  }>
+): BankPeriodSummary {
+  const summary: BankPeriodSummary = { ...EMPTY_SUMMARY };
+  let minDate: string | null = null;
+  let maxDate: string | null = null;
+  for (const r of lines) {
+    summary.vociCount += 1;
+    const d = r.transactionDate;
+    if (d && d !== "1970-01-01") {
+      if (!minDate || d < minDate) minDate = d;
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+    const mag = Math.abs(r.amount) || 0;
+    if (r.signNeedsReview) {
+      summary.dubbieCount += 1;
+      summary.dubbieTotal += mag;
+      continue;
+    }
+    if (r.amount > 0) {
+      summary.entrateCount += 1;
+      summary.entrateTotal += r.amount;
+    } else if (r.amount < 0) {
+      summary.usciteCount += 1;
+      summary.usciteTotal += mag;
+    }
+  }
+  summary.entrateTotal = Math.round(summary.entrateTotal * 100) / 100;
+  summary.usciteTotal = Math.round(summary.usciteTotal * 100) / 100;
+  summary.dubbieTotal = Math.round(summary.dubbieTotal * 100) / 100;
+  summary.dateFirst = minDate;
+  summary.dateLast = maxDate;
+  return summary;
+}
+
 export function RapportiBancaBoard() {
   const [preset, setPreset] = useState<PeriodPreset>("mese");
   const [anchor, setAnchor] = useState(() => new Date());
@@ -135,6 +175,19 @@ export function RapportiBancaBoard() {
     if (preset === "trimestre") return quarterLabel(dateFrom);
     return `${formatDateIt(dateFrom)} – ${formatDateIt(dateTo)}`;
   }, [preset, dateFrom, dateTo]);
+
+  const displaySummary = useMemo(() => {
+    if (previewActive) return summarizePreviewLines(previewLines);
+    return summary;
+  }, [previewActive, previewLines, summary]);
+
+  const visiblePreviewLines = useMemo(() => {
+    if (tipo === "entrate") return previewLines.filter((l) => l.amount > 0);
+    if (tipo === "uscite") return previewLines.filter((l) => l.amount < 0);
+    if (tipo === "da_confermare") return [];
+    if (tipo === "non_riconciliati") return previewLines;
+    return previewLines;
+  }, [previewLines, tipo]);
 
   function shiftPeriod(delta: number) {
     const mode = preset === "trimestre" ? "trimestre" : "mese";
@@ -215,14 +268,13 @@ export function RapportiBancaBoard() {
       setContextAfter(res.contextAfter);
       setContextAfterHasMore(res.contextAfterHasMore);
       setPreviewActive(true);
+      setTipo("tutti");
       if (res.dateFrom && res.dateTo) {
         setPreset("personalizzato");
         setDateFrom(res.dateFrom);
         setDateTo(res.dateTo);
       }
-      setInfo(
-        `Anteprima: ${res.lines.length} movimenti (non ancora salvati). Controlla, elimina le righe errate, poi «Salva nel DB» con CSV + PDF originale.`
-      );
+      setSummary(summarizePreviewLines(res.lines));
     });
   }
 
@@ -235,7 +287,8 @@ export function RapportiBancaBoard() {
       prev.filter((l) => !selectedPreview.has(l.rowIndex))
     );
     setSelectedPreview(new Set());
-    setInfo("Righe rimosse dall’anteprima (ancora non salvate nel DB).");
+    setError(null);
+    setInfo(null);
   }
 
   function runSaveToDb() {
@@ -318,15 +371,23 @@ export function RapportiBancaBoard() {
   }
 
   const allPreviewSelected =
-    previewLines.length > 0 &&
-    previewLines.every((l) => selectedPreview.has(l.rowIndex));
+    visiblePreviewLines.length > 0 &&
+    visiblePreviewLines.every((l) => selectedPreview.has(l.rowIndex));
 
   function toggleSelectAllPreview() {
     if (allPreviewSelected) {
-      setSelectedPreview(new Set());
+      setSelectedPreview((prev) => {
+        const next = new Set(prev);
+        for (const l of visiblePreviewLines) next.delete(l.rowIndex);
+        return next;
+      });
       return;
     }
-    setSelectedPreview(new Set(previewLines.map((l) => l.rowIndex)));
+    setSelectedPreview((prev) => {
+      const next = new Set(prev);
+      for (const l of visiblePreviewLines) next.add(l.rowIndex);
+      return next;
+    });
   }
 
   return (
@@ -366,7 +427,8 @@ export function RapportiBancaBoard() {
                 disabled={pending}
                 onClick={() => {
                   clearPreview();
-                  setInfo("Anteprima annullata.");
+                  setInfo(null);
+                  void load();
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
               >
@@ -679,10 +741,10 @@ export function RapportiBancaBoard() {
             Entrate +
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-900">
-            {summary.entrateCount}
+            {displaySummary.entrateCount}
           </p>
           <p className="mt-0.5 text-sm font-medium tabular-nums text-emerald-700">
-            {formatEuro(summary.entrateTotal)}
+            {formatEuro(displaySummary.entrateTotal)}
           </p>
         </button>
 
@@ -699,10 +761,10 @@ export function RapportiBancaBoard() {
             Uscite −
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-red-900">
-            {summary.usciteCount}
+            {displaySummary.usciteCount}
           </p>
           <p className="mt-0.5 text-sm font-medium tabular-nums text-red-700">
-            {formatEuro(summary.usciteTotal)}
+            {formatEuro(displaySummary.usciteTotal)}
           </p>
         </button>
 
@@ -719,10 +781,10 @@ export function RapportiBancaBoard() {
             Dubbie ?
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-sky-950">
-            {summary.dubbieCount}
+            {displaySummary.dubbieCount}
           </p>
           <p className="mt-0.5 text-sm font-medium tabular-nums text-sky-800">
-            {formatEuro(summary.dubbieTotal)}
+            {formatEuro(displaySummary.dubbieTotal)}
           </p>
         </button>
 
@@ -739,11 +801,11 @@ export function RapportiBancaBoard() {
             Totale voci
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
-            {summary.vociCount}
+            {displaySummary.vociCount}
           </p>
           <p className="mt-0.5 text-sm font-medium text-slate-600">
-            {summary.dateFirst && summary.dateLast
-              ? `${formatDateIt(summary.dateFirst)} – ${formatDateIt(summary.dateLast)}`
+            {displaySummary.dateFirst && displaySummary.dateLast
+              ? `${formatDateIt(displaySummary.dateFirst)} – ${formatDateIt(displaySummary.dateLast)}`
               : "Nessun periodo"}
           </p>
         </button>
@@ -808,18 +870,19 @@ export function RapportiBancaBoard() {
                   />
                 ))}
 
-                {previewLines.length === 0 ? (
+                {visiblePreviewLines.length === 0 ? (
                   <tr>
                     <td
                       colSpan={6}
                       className="px-3 py-8 text-center text-[var(--muted)]"
                     >
-                      Nessuna riga in anteprima. Eliminale tutte o ricarica il
-                      CSV.
+                      {previewLines.length === 0
+                        ? "Nessuna riga in anteprima. Eliminale tutte o ricarica il CSV."
+                        : "Nessuna riga per il filtro selezionato."}
                     </td>
                   </tr>
                 ) : (
-                  previewLines.map((row) => {
+                  visiblePreviewLines.map((row) => {
                     const selected = selectedPreview.has(row.rowIndex);
                     return (
                       <tr
