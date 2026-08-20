@@ -14,8 +14,10 @@ import {
   testOpenAiConnectionAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
+  flipBankTransactionSignAction,
   verifyBankMatchAction,
   type BankTransactionView,
+  type BankPeriodSummary,
 } from "@/app/actions/bank-reports";
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 
@@ -26,6 +28,18 @@ type TipoFilter =
   | "uscite"
   | "non_riconciliati"
   | "da_confermare";
+
+const EMPTY_SUMMARY: BankPeriodSummary = {
+  entrateCount: 0,
+  entrateTotal: 0,
+  usciteCount: 0,
+  usciteTotal: 0,
+  dubbieCount: 0,
+  dubbieTotal: 0,
+  vociCount: 0,
+  dateFirst: null,
+  dateLast: null,
+};
 
 function startOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -70,7 +84,7 @@ export function RapportiBancaBoard() {
   );
   const [tipo, setTipo] = useState<TipoFilter>("tutti");
   const [items, setItems] = useState<BankTransactionView[]>([]);
-  const [pendingSignCount, setPendingSignCount] = useState(0);
+  const [summary, setSummary] = useState<BankPeriodSummary>(EMPTY_SUMMARY);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -118,11 +132,11 @@ export function RapportiBancaBoard() {
     if (!res.success) {
       setError(res.error);
       setItems([]);
-      setPendingSignCount(0);
+      setSummary(EMPTY_SUMMARY);
       return;
     }
     setItems(res.items);
-    setPendingSignCount(res.pendingSignCount ?? 0);
+    setSummary(res.summary ?? EMPTY_SUMMARY);
   }, [dateFrom, dateTo, tipo]);
 
   useEffect(() => {
@@ -155,32 +169,32 @@ export function RapportiBancaBoard() {
       setPdfFile(null);
 
       // Date sempre dal PDF: allinea il filtro tabella al periodo dell'estratto
+      const nextFrom = res.dateFrom ?? dateFrom;
+      const nextTo = res.dateTo ?? dateTo;
       if (res.dateFrom && res.dateTo) {
         setPreset("personalizzato");
         setDateFrom(res.dateFrom);
         setDateTo(res.dateTo);
       }
 
-      if (res.rowsDoubtful > 0) {
-        setTipo("da_confermare");
-      }
+      const nextTipo: TipoFilter =
+        res.rowsDoubtful > 0 ? "da_confermare" : "tutti";
+      setTipo(nextTipo);
+      setInfo(null);
 
-      const ti = res.totalsImported;
-      setInfo(
-        `PDF elaborato: ${res.rowsImported} nuovi su ${res.rowsTotal} voci` +
-          (res.rowsSkipped ? ` (${res.rowsSkipped} già presenti)` : "") +
-          (res.rowsDoubtful
-            ? ` (${res.rowsDoubtful} da confermare segno +/− — evidenziate in azzurro)`
-            : "") +
-          `, match: ${res.rowsMatched}.` +
-          ` Incassi: ${ti.countIncassi} voci (${formatEuro(ti.totaleIncassi)}).` +
-          ` Uscite: ${ti.countUscite} voci (${formatEuro(ti.totaleUscite)}).` +
-          ` Totale netto: ${formatEuro(ti.totaleNetto)}.` +
-          (res.dateFrom && res.dateTo
-            ? ` Periodo dal PDF: ${formatDateIt(res.dateFrom)} – ${formatDateIt(res.dateTo)}.`
-            : "") +
-          ` Parser: ${res.parserModel}. ${res.notes}`
-      );
+      const list = await listBankTransactionsAction({
+        dateFrom: nextFrom,
+        dateTo: nextTo,
+        tipo: nextTipo,
+      });
+      if (!list.success) {
+        setError(list.error);
+        setItems([]);
+        setSummary(EMPTY_SUMMARY);
+        return;
+      }
+      setItems(list.items);
+      setSummary(list.summary ?? EMPTY_SUMMARY);
     });
   }
 
@@ -442,26 +456,94 @@ export function RapportiBancaBoard() {
         </p>
       ) : null}
       {info ? (
-        <p className="print:hidden rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p className="print:hidden rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm text-slate-700">
           {info}
         </p>
       ) : null}
 
-      {pendingSignCount > 0 && tipo !== "da_confermare" ? (
-        <p className="print:hidden flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-300 bg-sky-100 px-3 py-2 text-sm text-sky-950">
-          <span>
-            {pendingSignCount} movimenti con segno da confermare (evidenziati in
-            azzurro con + / −).
-          </span>
-          <button
-            type="button"
-            className="rounded-md bg-sky-600 px-3 py-1 text-xs font-semibold text-white hover:bg-sky-700"
-            onClick={() => setTipo("da_confermare")}
-          >
-            Mostra solo da confermare
-          </button>
-        </p>
-      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <button
+          type="button"
+          onClick={() => setTipo("entrate")}
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            tipo === "entrate"
+              ? "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200"
+              : "border-emerald-200 bg-emerald-50/60 hover:bg-emerald-50"
+          }`}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+            Entrate +
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-900">
+            {summary.entrateCount}
+          </p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-emerald-700">
+            {formatEuro(summary.entrateTotal)}
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTipo("uscite")}
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            tipo === "uscite"
+              ? "border-red-500 bg-red-50 ring-2 ring-red-200"
+              : "border-red-200 bg-red-50/60 hover:bg-red-50"
+          }`}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-red-800">
+            Uscite −
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-red-900">
+            {summary.usciteCount}
+          </p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-red-700">
+            {formatEuro(summary.usciteTotal)}
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTipo("da_confermare")}
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            tipo === "da_confermare"
+              ? "border-sky-500 bg-sky-100 ring-2 ring-sky-300"
+              : "border-sky-300 bg-sky-50 hover:bg-sky-100"
+          }`}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-sky-900">
+            Dubbie ?
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-sky-950">
+            {summary.dubbieCount}
+          </p>
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-sky-800">
+            {formatEuro(summary.dubbieTotal)}
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTipo("tutti")}
+          className={`rounded-xl border px-4 py-3 text-left transition ${
+            tipo === "tutti"
+              ? "border-slate-500 bg-slate-100 ring-2 ring-slate-300"
+              : "border-slate-200 bg-slate-50 hover:bg-slate-100"
+          }`}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+            Totale voci
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-slate-900">
+            {summary.vociCount}
+          </p>
+          <p className="mt-0.5 text-sm font-medium text-slate-600">
+            {summary.dateFirst && summary.dateLast
+              ? `${formatDateIt(summary.dateFirst)} – ${formatDateIt(summary.dateLast)}`
+              : "Nessun periodo"}
+          </p>
+        </button>
+      </div>
 
       <header className="bank-report-print-header hidden print:block">
         <p className="text-lg font-semibold">
@@ -477,7 +559,7 @@ export function RapportiBancaBoard() {
         <table className="bank-report-table w-full min-w-[720px] text-left text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-[var(--muted)]">
             <tr>
-              <th className="px-3 py-2">Data &amp; conto</th>
+              <th className="px-3 py-2">Data</th>
               <th className="px-3 py-2 text-right">Importo</th>
               <th className="px-3 py-2">Causale / Controparte</th>
               <th className="px-3 py-2">Fattura collegata</th>
@@ -510,6 +592,11 @@ export function RapportiBancaBoard() {
                     <p className="font-medium tabular-nums">
                       {formatDateIt(row.transactionDate)}
                     </p>
+                    {row.valutaDate ? (
+                      <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                        Valuta {formatDateIt(row.valutaDate)}
+                      </p>
+                    ) : null}
                     <span className="mt-0.5 inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
                       {row.accountName}
                     </span>
@@ -555,9 +642,7 @@ export function RapportiBancaBoard() {
                                 setError(res.error);
                                 return;
                               }
-                              setInfo(
-                                `Segno + impostato: ${formatEuro(res.amount)}`
-                              );
+                              setInfo(null);
                               void load();
                             });
                           }}
@@ -579,9 +664,7 @@ export function RapportiBancaBoard() {
                                 setError(res.error);
                                 return;
                               }
-                              setInfo(
-                                `Segno − impostato: ${formatEuro(res.amount)}`
-                              );
+                              setInfo(null);
                               void load();
                             });
                           }}
@@ -621,6 +704,28 @@ export function RapportiBancaBoard() {
                   </td>
                   <td className="print:hidden px-3 py-2 align-top">
                     <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        disabled={pending || row.amount === 0}
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res = await flipBankTransactionSignAction({
+                              transactionId: row.id,
+                            });
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setInfo(null);
+                            void load();
+                          });
+                        }}
+                        className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                        title="Ribalta segno + ↔ −"
+                      >
+                        <FaArrowsRotate size={11} />
+                        Ribalta
+                      </button>
                       {row.match ? (
                         <a
                           href={`/app/amministrazione/documenti-fic/${row.match.invoiceType === "received" ? "received" : "issued"}/${row.match.ficId}`}

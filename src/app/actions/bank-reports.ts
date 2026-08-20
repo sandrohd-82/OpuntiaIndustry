@@ -40,6 +40,71 @@ export type BankTransactionView = {
   } | null;
 };
 
+export type BankPeriodSummary = {
+  entrateCount: number;
+  entrateTotal: number;
+  usciteCount: number;
+  usciteTotal: number;
+  dubbieCount: number;
+  dubbieTotal: number;
+  vociCount: number;
+  dateFirst: string | null;
+  dateLast: string | null;
+};
+
+function emptyBankPeriodSummary(): BankPeriodSummary {
+  return {
+    entrateCount: 0,
+    entrateTotal: 0,
+    usciteCount: 0,
+    usciteTotal: 0,
+    dubbieCount: 0,
+    dubbieTotal: 0,
+    vociCount: 0,
+    dateFirst: null,
+    dateLast: null,
+  };
+}
+
+function buildBankPeriodSummary(
+  rows: Array<{
+    amount: number;
+    signNeedsReview: boolean;
+    transactionDate: string;
+  }>
+): BankPeriodSummary {
+  const summary = emptyBankPeriodSummary();
+  let minDate: string | null = null;
+  let maxDate: string | null = null;
+  for (const r of rows) {
+    summary.vociCount += 1;
+    const d = r.transactionDate;
+    if (d) {
+      if (!minDate || d < minDate) minDate = d;
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+    const mag = Math.abs(r.amount) || 0;
+    if (r.signNeedsReview) {
+      summary.dubbieCount += 1;
+      summary.dubbieTotal += mag;
+      continue;
+    }
+    if (r.amount > 0) {
+      summary.entrateCount += 1;
+      summary.entrateTotal += r.amount;
+    } else if (r.amount < 0) {
+      summary.usciteCount += 1;
+      summary.usciteTotal += mag;
+    }
+  }
+  summary.entrateTotal = Math.round(summary.entrateTotal * 100) / 100;
+  summary.usciteTotal = Math.round(summary.usciteTotal * 100) / 100;
+  summary.dubbieTotal = Math.round(summary.dubbieTotal * 100) / 100;
+  summary.dateFirst = minDate;
+  summary.dateLast = maxDate;
+  return summary;
+}
+
 export async function testOpenAiConnectionAction(): Promise<
   | {
       success: true;
@@ -320,7 +385,12 @@ export async function listBankTransactionsAction(input: {
   dateTo: string;
   tipo?: "tutti" | "entrate" | "uscite" | "non_riconciliati" | "da_confermare";
 }): Promise<
-  | { success: true; items: BankTransactionView[]; pendingSignCount: number }
+  | {
+      success: true;
+      items: BankTransactionView[];
+      pendingSignCount: number;
+      summary: BankPeriodSummary;
+    }
   | { success: false; error: string }
 > {
   await requireAreaAccess("area-fiscale");
@@ -332,14 +402,32 @@ export async function listBankTransactionsAction(input: {
     return { success: false, error: "Intervallo date non valido." };
   }
   const supabase = await createClient();
+
+  // Riepilogo sempre su tutto il periodo (Data esecuzione, non Valuta)
+  const { data: periodRows, error: periodErr } = await supabase
+    .from("bank_transactions")
+    .select("amount, sign_needs_review, transaction_date")
+    .is("deleted_at", null)
+    .gte("transaction_date", parsed.data.dateFrom)
+    .lte("transaction_date", parsed.data.dateTo);
+  if (periodErr) return { success: false, error: periodErr.message };
+  const summary = buildBankPeriodSummary(
+    (periodRows ?? []).map((r) => ({
+      amount: Number(r.amount) || 0,
+      signNeedsReview: Boolean(r.sign_needs_review),
+      transactionDate: String(r.transaction_date ?? ""),
+    }))
+  );
+
+  // Ordinamento per Data esecuzione (prima colonna), non Valuta
   let q = supabase
     .from("bank_transactions")
     .select("*")
     .is("deleted_at", null)
     .gte("transaction_date", parsed.data.dateFrom)
     .lte("transaction_date", parsed.data.dateTo)
-    .order("sign_needs_review", { ascending: false })
-    .order("transaction_date", { ascending: false });
+    .order("transaction_date", { ascending: true })
+    .order("id", { ascending: true });
 
   if (input.tipo === "da_confermare") {
     q = q.eq("sign_needs_review", true);
@@ -463,27 +551,12 @@ export async function listBankTransactionsAction(input: {
     items = items.filter((i) => !i.match || i.match.status === "discrepancy");
   }
 
-  const pendingSignCount =
-    input.tipo === "da_confermare"
-      ? items.length
-      : items.filter((i) => i.signNeedsReview).length;
-
-  // Se filtro entrate/uscite, ricalcola pending sul periodo completo
-  let pendingInPeriod = pendingSignCount;
-  if (input.tipo !== "da_confermare" && input.tipo !== "tutti") {
-    const { count } = await supabase
-      .from("bank_transactions")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .gte("transaction_date", parsed.data.dateFrom)
-      .lte("transaction_date", parsed.data.dateTo)
-      .eq("sign_needs_review", true);
-    pendingInPeriod = count ?? 0;
-  } else if (input.tipo === "tutti") {
-    pendingInPeriod = items.filter((i) => i.signNeedsReview).length;
-  }
-
-  return { success: true, items, pendingSignCount: pendingInPeriod };
+  return {
+    success: true,
+    items,
+    pendingSignCount: summary.dubbieCount,
+    summary,
+  };
 }
 
 export async function verifyBankMatchAction(input: {
@@ -582,6 +655,71 @@ export async function setBankTransactionSignAction(input: {
       previous_amount: row.amount,
       amount,
       sign: input.sign,
+      description: row.description,
+    },
+  });
+
+  return { success: true, amount };
+}
+
+/** Ribalta segno + ↔ − (scelta operatore, audit ISO). */
+export async function flipBankTransactionSignAction(input: {
+  transactionId: string;
+}): Promise<
+  | { success: true; amount: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  if (!id) return { success: false, error: "Movimento non valido." };
+
+  const supabase = await createClient();
+  const { data: row, error: readErr } = await supabase
+    .from("bank_transactions")
+    .select("id, amount, description, raw_data, sign_needs_review")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr) return { success: false, error: readErr.message };
+  if (!row) return { success: false, error: "Movimento non trovato." };
+
+  const prev = Number(row.amount) || 0;
+  if (prev === 0) return { success: false, error: "Importo zero." };
+  const amount = -prev;
+  const sign: "+" | "-" = amount > 0 ? "+" : "-";
+  const prevRaw =
+    row.raw_data && typeof row.raw_data === "object"
+      ? (row.raw_data as Record<string, unknown>)
+      : {};
+
+  const { error: updErr } = await supabase
+    .from("bank_transactions")
+    .update({
+      amount,
+      sign_needs_review: false,
+      updated_by: auth.userId,
+      raw_data: {
+        ...prevRaw,
+        sign_source: "operator-flip",
+        sign_chosen: sign,
+        sign_chosen_at: new Date().toISOString(),
+        previous_amount: prev,
+      },
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+
+  await writeAuditLog({
+    entity_type: "bank_transactions",
+    entity_id: id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Segno ribaltato ${prev > 0 ? "+" : "−"} → ${sign} (${amount.toFixed(2)} €)`,
+    payload: {
+      previous_amount: prev,
+      amount,
+      sign,
       description: row.description,
     },
   });
