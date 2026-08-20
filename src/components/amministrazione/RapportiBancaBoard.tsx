@@ -21,6 +21,7 @@ import {
   listBankTransactionsAction,
   previewBankCsvAction,
   saveBankImportAction,
+  reconcilePreviewLinesAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
@@ -182,12 +183,124 @@ export function RapportiBancaBoard() {
   }, [previewActive, previewLines, summary]);
 
   const visiblePreviewLines = useMemo(() => {
-    if (tipo === "entrate") return previewLines.filter((l) => l.amount > 0);
-    if (tipo === "uscite") return previewLines.filter((l) => l.amount < 0);
-    if (tipo === "da_confermare") return [];
-    if (tipo === "non_riconciliati") return previewLines;
+    if (tipo === "entrate") {
+      return previewLines.filter(
+        (l) => l.amount > 0 || l.signNeedsReview
+      );
+    }
+    if (tipo === "uscite") {
+      return previewLines.filter(
+        (l) => l.amount < 0 || l.signNeedsReview
+      );
+    }
+    if (tipo === "da_confermare") {
+      return previewLines.filter((l) => l.signNeedsReview);
+    }
+    if (tipo === "non_riconciliati") {
+      return previewLines.filter((l) => !l.match);
+    }
     return previewLines;
   }, [previewLines, tipo]);
+
+  function buildLineWorkJson(): string {
+    const map: Record<
+      string,
+      {
+        amount: number;
+        signNeedsReview: boolean;
+        match: {
+          invoiceId: string;
+          matchScore: number;
+          status: "auto_matched" | "manually_verified" | "discrepancy";
+        } | null;
+      }
+    > = {};
+    for (const l of previewLines) {
+      map[String(l.rowIndex)] = {
+        amount: l.amount,
+        signNeedsReview: l.signNeedsReview,
+        match: l.match
+          ? {
+              invoiceId: l.match.invoiceId,
+              matchScore: l.match.matchScore,
+              status: l.match.status,
+            }
+          : null,
+      };
+    }
+    return JSON.stringify(map);
+  }
+
+  function applyPreviewReconcileUpdates(
+    updates: Array<{
+      rowIndex: number;
+      match: BankPreviewLineView["match"];
+    }>
+  ) {
+    const byRi = new Map(updates.map((u) => [u.rowIndex, u.match]));
+    setPreviewLines((prev) =>
+      prev.map((l) => {
+        if (!byRi.has(l.rowIndex)) return l;
+        const m = byRi.get(l.rowIndex) ?? null;
+        return m ? { ...l, match: m } : l;
+      })
+    );
+  }
+
+  function runPreviewReconcile(scope: "all" | "selected" | "one", rowIndex?: number) {
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const rowIndices =
+        scope === "all"
+          ? undefined
+          : scope === "one"
+            ? [rowIndex!]
+            : [...selectedPreview];
+      const res = await reconcilePreviewLinesAction({
+        lines: previewLines.map((l) => ({
+          rowIndex: l.rowIndex,
+          amount: l.amount,
+          description: l.description,
+          counterpartyName: l.counterpartyName,
+          transactionDate: l.transactionDate,
+          matchInvoiceId: l.match?.invoiceId ?? null,
+        })),
+        scope,
+        rowIndices,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      applyPreviewReconcileUpdates(res.updates);
+      if (res.matched === 0) {
+        setInfo(
+          "Nessuna fattura compatibile trovata per le righe scelte (importo/causale/data)."
+        );
+      } else {
+        setInfo(
+          `Conciliazione (sessione): ${res.matched} collegati, ${res.skipped} saltati su ${res.attempted} tentati. Salva nel DB a fine lavoro.`
+        );
+      }
+    });
+  }
+
+  function flipPreviewAmount(rowIndex: number) {
+    setPreviewLines((prev) =>
+      prev.map((l) =>
+        l.rowIndex === rowIndex
+          ? { ...l, amount: -l.amount, signNeedsReview: false }
+          : l
+      )
+    );
+  }
+
+  function clearPreviewMatch(rowIndex: number) {
+    setPreviewLines((prev) =>
+      prev.map((l) => (l.rowIndex === rowIndex ? { ...l, match: null } : l))
+    );
+  }
 
   function shiftPeriod(delta: number) {
     const mode = preset === "trimestre" ? "trimestre" : "mese";
@@ -314,6 +427,7 @@ export function RapportiBancaBoard() {
         "keepRowIndices",
         JSON.stringify(previewLines.map((l) => l.rowIndex))
       );
+      fd.set("lineWorkJson", buildLineWorkJson());
       const res = await saveBankImportAction(fd);
       if (!res.success) {
         setError(res.error);
@@ -330,9 +444,7 @@ export function RapportiBancaBoard() {
       }
       setTipo("tutti");
       setInfo(
-        `Salvato nel DB: ${res.rowsImported} movimenti · CSV + PDF «${res.pdfFileName}» collegati al lotto` +
-          (res.rowsMatched ? ` · ${res.rowsMatched} già collegati a fatture` : "") +
-          `. Usa «Concilia tutto» quando servono altri match.`
+        `Fine lavoro salvato: ${res.rowsImported} movimenti · ${res.rowsMatched} conciliati · CSV + PDF «${res.pdfFileName}»`
       );
       const list = await listBankTransactionsAction({
         dateFrom: nextFrom,
@@ -395,7 +507,7 @@ export function RapportiBancaBoard() {
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           {previewActive
-            ? "Anteprima CSV: controlla i dati (vetro = movimenti già in DB prima/dopo). Poi salva con CSV + PDF originale collegati."
+            ? "Sessione di lavoro: elimina, ribalta, concilia (una / selezionate / tutte). «Salva nel DB» chiude il lavoro con CSV + PDF."
             : "Movimenti da estratto conto salvati nel database: filtri data / trimestre con collegamento alle fatture."}
         </p>
         <div className="flex flex-wrap gap-2">
@@ -412,15 +524,36 @@ export function RapportiBancaBoard() {
               </button>
               <button
                 type="button"
+                disabled={pending || selectedPreview.size === 0}
+                onClick={() => runPreviewReconcile("selected")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 disabled:opacity-50"
+                title="Concilia solo le righe selezionate"
+              >
+                <FaScaleBalanced size={13} />
+                Concilia selezionate
+              </button>
+              <button
+                type="button"
+                disabled={pending || previewLines.length === 0}
+                onClick={() => runPreviewReconcile("all")}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500 bg-sky-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                title="Concilia tutte le righe ancora senza fattura"
+              >
+                <FaScaleBalanced size={13} />
+                Concilia tutto
+              </button>
+              <button
+                type="button"
                 disabled={pending || previewLines.length === 0}
                 onClick={() => {
                   setPdfSourceFile(null);
                   setSaveOpen(true);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                title="Salvataggio di fine lavoro: movimenti + match + CSV + PDF"
               >
                 <FaFloppyDisk size={13} />
-                Salva nel DB
+                Salva nel DB (fine lavoro)
               </button>
               <button
                 type="button"
@@ -432,7 +565,7 @@ export function RapportiBancaBoard() {
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
               >
-                Annulla anteprima
+                Annulla sessione
               </button>
             </>
           ) : (
@@ -665,14 +798,14 @@ export function RapportiBancaBoard() {
 
       {saveOpen ? (
         <Modal
-          title="Salva nel DB — CSV + PDF obbligatori"
+          title="Fine lavoro — salva CSV + PDF + movimenti"
           onClose={() => !pending && setSaveOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Verranno salvati <strong>{previewLines.length}</strong> movimenti,
-            il file CSV fonte e il <strong>PDF originale</strong> della banca,
-            tutti collegati allo stesso lotto di import (tracciabilità ISO
-            9001).
+            Chiusura sessione: salva <strong>{previewLines.length}</strong>{" "}
+            movimenti (con eventuali conciliazioni già fatte), il CSV fonte e il{" "}
+            <strong>PDF originale</strong> della banca, collegati allo stesso
+            lotto.
           </p>
           <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             CSV: {csvFile?.name ?? "—"}
@@ -839,12 +972,12 @@ export function RapportiBancaBoard() {
               <th className="px-3 py-2 text-right">Importo</th>
               <th className="px-3 py-2">Causale / Controparte</th>
               <th className="px-3 py-2">
-                {previewActive ? "Stato" : "Fattura collegata"}
+                {previewActive ? "Fattura / stato" : "Fattura collegata"}
               </th>
               {!previewActive ? (
                 <th className="print:hidden px-3 py-2">Azioni</th>
               ) : (
-                <th className="print:hidden px-3 py-2">Note</th>
+                <th className="print:hidden px-3 py-2">Azioni</th>
               )}
             </tr>
           </thead>
@@ -890,9 +1023,11 @@ export function RapportiBancaBoard() {
                         className={`border-t border-[var(--border)] ${
                           selected
                             ? "bg-amber-50 ring-1 ring-inset ring-amber-300"
-                            : row.amount >= 0
-                              ? "bg-emerald-50/40"
-                              : "bg-red-50/30"
+                            : row.signNeedsReview
+                              ? "bg-sky-100 ring-1 ring-inset ring-sky-300"
+                              : row.amount >= 0
+                                ? "bg-emerald-50/40"
+                                : "bg-red-50/30"
                         }`}
                       >
                         <td className="print:hidden px-2 py-2 align-top">
@@ -923,9 +1058,11 @@ export function RapportiBancaBoard() {
                         </td>
                         <td
                           className={`px-3 py-2 text-right align-top font-semibold tabular-nums ${
-                            row.amount >= 0
-                              ? "text-emerald-700"
-                              : "text-red-700"
+                            row.signNeedsReview
+                              ? "text-sky-950"
+                              : row.amount >= 0
+                                ? "text-emerald-700"
+                                : "text-red-700"
                           }`}
                         >
                           {row.amount >= 0 ? "+" : ""}
@@ -940,12 +1077,52 @@ export function RapportiBancaBoard() {
                           </p>
                         </td>
                         <td className="px-3 py-2 align-top">
-                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-950">
-                            Anteprima
-                          </span>
+                          {row.match ? (
+                            <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
+                              Fatt. N° {row.match.invoiceNumber || "—"} ·{" "}
+                              {row.match.matchScore}%
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                              Da riconciliare
+                            </span>
+                          )}
                         </td>
-                        <td className="print:hidden px-3 py-2 align-top text-[11px] text-[var(--muted)]">
-                          riga CSV #{row.rowIndex + 1}
+                        <td className="print:hidden px-3 py-2 align-top">
+                          <div className="flex flex-wrap gap-1">
+                            {!row.match ? (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() =>
+                                  runPreviewReconcile("one", row.rowIndex)
+                                }
+                                className="inline-flex items-center gap-1 rounded border border-sky-500 bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                              >
+                                <FaScaleBalanced size={11} />
+                                Concilia questo
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() => clearPreviewMatch(row.rowIndex)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Scollega
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={pending || row.amount === 0}
+                              onClick={() => flipPreviewAmount(row.rowIndex)}
+                              className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                              title="Ribalta segno + ↔ −"
+                            >
+                              <FaArrowsRotate size={11} />
+                              Ribalta
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

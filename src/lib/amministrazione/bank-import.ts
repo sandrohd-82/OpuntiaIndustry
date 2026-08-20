@@ -16,6 +16,18 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 export const BANK_CONTEXT_BEFORE = 5;
 export const BANK_CONTEXT_AFTER = 3;
 
+export type BankLineWorkState = {
+  amount: number;
+  signNeedsReview?: boolean;
+  match?: {
+    invoiceId: string;
+    matchScore: number;
+    status: "auto_matched" | "manually_verified" | "discrepancy";
+  } | null;
+};
+
+export type BankLineWorkStateMap = Record<string, BankLineWorkState>;
+
 export type BankPdfImportTotals = {
   countIncassi: number;
   countUscite: number;
@@ -242,6 +254,8 @@ export async function saveBankStatementImport(input: {
   accountName?: string;
   /** Indici csvRaw.rowIndex da tenere; se null → tutte le righe. */
   keepRowIndices?: number[] | null;
+  /** Stato lavoro anteprima (importo/segno/match) per riga. */
+  lineWork?: BankLineWorkStateMap;
 }): Promise<BankPdfImportResult> {
   if (!input.pdfBuffer?.length) {
     throw new Error("PDF originale della banca obbligatorio per il salvataggio.");
@@ -358,7 +372,10 @@ export async function saveBankStatementImport(input: {
   const insertErrors: string[] = [];
 
   for (const line of lines) {
-    accumulateTotals(totalsDetected, line.amount);
+    const work = input.lineWork?.[String(line.csvRaw.rowIndex)];
+    const amount = work?.amount ?? line.amount;
+    const signNeedsReview = Boolean(work?.signNeedsReview);
+    accumulateTotals(totalsDetected, amount);
     const hash = hashCsvLine(fileSha, line);
     const ficPaymentId = `bank_csv:${hash}`;
 
@@ -391,7 +408,7 @@ export async function saveBankStatementImport(input: {
         account_name: accountName,
         transaction_date: line.transactionDate,
         valuta_date: line.valutaDate,
-        amount: line.amount,
+        amount,
         description: line.description,
         counterparty_name: line.counterpartyName,
         counterparty_vat: "",
@@ -413,11 +430,18 @@ export async function saveBankStatementImport(input: {
           column: line.column ?? null,
           sign_source: line.signSource ?? null,
           amount_it: line.amountIt ?? null,
+          work_session: work
+            ? {
+                amount: work.amount,
+                signNeedsReview: work.signNeedsReview ?? false,
+                matchInvoiceId: work.match?.invoiceId ?? null,
+              }
+            : null,
         },
         source: "bank_csv",
         import_batch_id: batchId,
         line_hash: hash,
-        sign_needs_review: false,
+        sign_needs_review: signNeedsReview,
         created_by: input.userId,
         updated_by: input.userId,
       })
@@ -432,46 +456,69 @@ export async function saveBankStatementImport(input: {
       continue;
     }
     rowsImported += 1;
-    accumulateTotals(totalsImported, line.amount);
+    accumulateTotals(totalsImported, amount);
 
-    let best: { inv: Inv; score: number } | null = null;
-    for (const inv of invRows) {
-      const score = scoreBankInvoiceMatch({
-        amount: line.amount,
-        invoiceGross: Number(inv.amount_gross) || 0,
-        counterparty: line.counterpartyName,
-        entityName: String(inv.entity_name ?? ""),
-        description: line.description,
-        invoiceNumber: String(inv.number ?? ""),
-        txDate: line.transactionDate,
-        invoiceDate: inv.date,
-      });
-      if (score >= 55 && (!best || score > best.score)) {
-        best = { inv, score };
+    // Preferisci match deciso in sessione di lavoro; altrimenti auto-match
+    let chosen: { invoiceId: string; score: number; status: string } | null =
+      null;
+    if (work?.match?.invoiceId) {
+      chosen = {
+        invoiceId: work.match.invoiceId,
+        score: work.match.matchScore,
+        status: work.match.status,
+      };
+    } else {
+      let best: { inv: Inv; score: number } | null = null;
+      for (const inv of invRows) {
+        const score = scoreBankInvoiceMatch({
+          amount,
+          invoiceGross: Number(inv.amount_gross) || 0,
+          counterparty: line.counterpartyName,
+          entityName: String(inv.entity_name ?? ""),
+          description: line.description,
+          invoiceNumber: String(inv.number ?? ""),
+          txDate: line.transactionDate,
+          invoiceDate: inv.date,
+        });
+        if (score >= 55 && (!best || score > best.score)) {
+          best = { inv, score };
+        }
+      }
+      if (best) {
+        chosen = {
+          invoiceId: best.inv.id,
+          score: best.score,
+          status: "auto_matched",
+        };
       }
     }
 
-    if (best) {
+    if (chosen) {
       const { error: matchErr } = await input.supabase
         .from("bank_invoice_matches")
         .insert({
           transaction_id: inserted.id,
-          invoice_id: best.inv.id,
-          match_score: best.score,
-          status: "auto_matched",
+          invoice_id: chosen.invoiceId,
+          match_score: chosen.score,
+          status: chosen.status,
+          verified_at:
+            chosen.status === "manually_verified"
+              ? new Date().toISOString()
+              : null,
           created_by: input.userId,
           updated_by: input.userId,
         });
       if (!matchErr) {
         rowsMatched += 1;
+        const inv = invRows.find((i) => i.id === chosen!.invoiceId);
         const strongSign =
           line.signSource === "csv-col3-uscita" ||
           line.signSource === "csv-col4-entrata";
-        if (strongSign && best.inv.status !== "paid") {
+        if (strongSign && inv && inv.status !== "paid") {
           await input.supabase
             .from("fic_invoices")
             .update({ status: "paid", updated_by: input.userId })
-            .eq("id", best.inv.id)
+            .eq("id", chosen.invoiceId)
             .is("deleted_at", null);
         }
       }

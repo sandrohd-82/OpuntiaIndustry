@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import {
   previewBankStatementCsv,
   saveBankStatementImport,
+  type BankLineWorkStateMap,
 } from "@/lib/amministrazione/bank-import";
 import {
   bankPdfRowsToCsv,
@@ -18,6 +19,20 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
+export type BankPreviewMatchView = {
+  invoiceId: string;
+  ficId: number;
+  matchScore: number;
+  status: "auto_matched" | "manually_verified" | "discrepancy";
+  invoiceNumber: string;
+  invoiceType: string;
+  invoiceGross: number;
+  invoiceEntityName: string;
+  invoiceEntityVat: string;
+  invoiceDate: string | null;
+  invoiceStatus: string;
+};
+
 export type BankPreviewLineView = {
   rowIndex: number;
   transactionDate: string;
@@ -30,6 +45,8 @@ export type BankPreviewLineView = {
   uscitaRaw: string;
   entrataRaw: string;
   causaleRaw: string;
+  signNeedsReview: boolean;
+  match: BankPreviewMatchView | null;
 };
 
 export type BankContextTxView = {
@@ -362,6 +379,8 @@ export async function previewBankCsvAction(
         uscitaRaw: l.csvRaw.uscitaRaw,
         entrataRaw: l.csvRaw.entrataRaw,
         causaleRaw: l.csvRaw.causaleRaw,
+        signNeedsReview: false,
+        match: null,
       })),
       dateFrom: result.dateFrom,
       dateTo: result.dateTo,
@@ -384,6 +403,7 @@ export async function previewBankCsvAction(
 /**
  * Salva nel DB: CSV + PDF originale obbligatori, collegati allo stesso lotto.
  * keepRowIndices = JSON array degli indici riga da tenere (dopo eliminazioni in UI).
+ * lineWorkJson = stato di lavoro (importo, segno, match) deciso in anteprima.
  */
 export async function saveBankImportAction(
   formData: FormData
@@ -457,6 +477,16 @@ export async function saveBankImportAction(
     }
   }
 
+  let lineWork: BankLineWorkStateMap | undefined;
+  const workRaw = formData.get("lineWorkJson");
+  if (typeof workRaw === "string" && workRaw.trim()) {
+    try {
+      lineWork = JSON.parse(workRaw) as BankLineWorkStateMap;
+    } catch {
+      return { success: false, error: "lineWorkJson non valido." };
+    }
+  }
+
   const accountName =
     String(formData.get("accountName") ?? "").trim() || "BCC Don Rizzo";
 
@@ -473,6 +503,7 @@ export async function saveBankImportAction(
       pdfBuffer,
       accountName,
       keepRowIndices,
+      lineWork,
     });
 
     await writeAuditLog({
@@ -480,7 +511,7 @@ export async function saveBankImportAction(
       entity_id: result.batchId,
       action: "create",
       actor_id: auth.userId,
-      summary: `Salva estratto CSV+PDF «${csvFile.name}» / «${pdfFile.name}»: ${result.rowsImported} movimenti`,
+      summary: `Fine lavoro estratto CSV+PDF «${csvFile.name}» / «${pdfFile.name}»: ${result.rowsImported} movimenti, ${result.rowsMatched} conciliati`,
       payload: {
         ...result,
         csvName: csvFile.name,
@@ -512,6 +543,117 @@ export async function saveBankImportAction(
       error: e instanceof Error ? e.message : "Salvataggio fallito.",
     };
   }
+}
+
+/**
+ * Conciliazione in sessione di lavoro (anteprima): non scrive sul DB.
+ * scope=all | selected (rowIndices) | one (rowIndices con 1 elemento).
+ */
+export async function reconcilePreviewLinesAction(input: {
+  lines: Array<{
+    rowIndex: number;
+    amount: number;
+    description: string;
+    counterpartyName: string;
+    transactionDate: string;
+    matchInvoiceId?: string | null;
+  }>;
+  scope: "all" | "selected" | "one";
+  rowIndices?: number[];
+}): Promise<
+  | {
+      success: true;
+      matched: number;
+      skipped: number;
+      attempted: number;
+      updates: Array<{ rowIndex: number; match: BankPreviewMatchView | null }>;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  if (lines.length === 0) {
+    return { success: false, error: "Nessuna riga da conciliare." };
+  }
+
+  const targetSet =
+    input.scope === "all"
+      ? null
+      : new Set((input.rowIndices ?? []).map((n) => Number(n)));
+  if (targetSet && targetSet.size === 0) {
+    return {
+      success: false,
+      error:
+        input.scope === "one"
+          ? "Riga non valida."
+          : "Seleziona almeno una riga da conciliare.",
+    };
+  }
+
+  const supabase = await createClient();
+  const invoices = await loadInvoiceCandidates(supabase);
+  const { data: usedDb } = await supabase
+    .from("bank_invoice_matches")
+    .select("invoice_id")
+    .is("deleted_at", null);
+  const excludeInvoices = new Set(
+    (usedDb ?? []).map((u) => String(u.invoice_id))
+  );
+  // Fatture già assegnate in anteprima su altre righe
+  for (const l of lines) {
+    if (l.matchInvoiceId) excludeInvoices.add(String(l.matchInvoiceId));
+  }
+
+  let attempted = 0;
+  let matched = 0;
+  let skipped = 0;
+  const updates: Array<{ rowIndex: number; match: BankPreviewMatchView | null }> =
+    [];
+
+  for (const line of lines) {
+    const ri = Number(line.rowIndex);
+    if (targetSet && !targetSet.has(ri)) continue;
+    if (line.matchInvoiceId) {
+      skipped += 1;
+      continue;
+    }
+    attempted += 1;
+    const best = await bestInvoiceForTx(
+      {
+        amount: line.amount,
+        description: line.description,
+        counterparty_name: line.counterpartyName,
+        transaction_date: line.transactionDate,
+      },
+      invoices,
+      excludeInvoices
+    );
+    if (!best) {
+      skipped += 1;
+      updates.push({ rowIndex: ri, match: null });
+      continue;
+    }
+    excludeInvoices.add(String(best.inv.id));
+    matched += 1;
+    updates.push({
+      rowIndex: ri,
+      match: {
+        invoiceId: String(best.inv.id),
+        ficId: Number(best.inv.fic_id) || 0,
+        matchScore: best.score,
+        status: "manually_verified",
+        invoiceNumber: String(best.inv.number ?? ""),
+        invoiceType: String(best.inv.type ?? ""),
+        invoiceGross: Number(best.inv.amount_gross) || 0,
+        invoiceEntityName: String(best.inv.entity_name ?? ""),
+        invoiceEntityVat: "",
+        invoiceDate: best.inv.date,
+        invoiceStatus: String(best.inv.status ?? ""),
+      },
+    });
+  }
+
+  return { success: true, matched, skipped, attempted, updates };
 }
 
 /** Compat: vecchio nome azione → ora richiede flusso anteprima + save. */
