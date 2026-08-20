@@ -4,6 +4,11 @@ import {
   fetchFicPaymentAccounts,
   type FicCashbookEntry,
 } from "@/lib/fic";
+import {
+  BANK_RECONCILE_MIN_SCORE,
+  scoreBankInvoiceMatch,
+} from "@/lib/amministrazione/bank-reconcile";
+import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -18,63 +23,6 @@ export type BankSyncResult = {
   fromDocumentPayments: number;
   skippedNoDate: number;
 };
-
-function normalizeName(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function scoreMatch(input: {
-  amount: number;
-  invoiceGross: number;
-  counterparty: string;
-  entityName: string;
-  description: string;
-  invoiceNumber: string;
-  txDate: string | null;
-  invoiceDate: string | null;
-}): number {
-  let score = 0;
-  const absTx = Math.abs(input.amount);
-  const absInv = Math.abs(input.invoiceGross);
-  const diff = Math.abs(absTx - absInv);
-  if (diff <= 0.01) score += 55;
-  else if (diff <= 1) score += 35;
-  else if (diff <= 5) score += 15;
-  else return 0;
-
-  const nTx = normalizeName(input.counterparty);
-  const nEnt = normalizeName(input.entityName);
-  if (nTx && nEnt && (nTx.includes(nEnt) || nEnt.includes(nTx))) score += 25;
-  else if (nTx && nEnt) {
-    const t1 = new Set(nTx.split(" ").filter((x) => x.length > 2));
-    const t2 = nEnt.split(" ").filter((x) => x.length > 2);
-    const hit = t2.filter((t) => t1.has(t)).length;
-    if (hit >= 2) score += 18;
-    else if (hit === 1) score += 8;
-  }
-
-  const desc = normalizeName(input.description);
-  const num = input.invoiceNumber.replace(/\s+/g, "").toLowerCase();
-  if (num && desc.includes(num.replace(/\//g, ""))) score += 15;
-  if (num && desc.includes(num)) score += 10;
-
-  if (input.txDate && input.invoiceDate) {
-    const d1 = Date.parse(input.txDate);
-    const d2 = Date.parse(input.invoiceDate);
-    if (Number.isFinite(d1) && Number.isFinite(d2)) {
-      const days = Math.abs(d1 - d2) / 86_400_000;
-      if (days <= 3) score += 10;
-      else if (days <= 15) score += 5;
-    }
-  }
-
-  return Math.min(100, score);
-}
 
 function resolveAccountName(
   entries: FicCashbookEntry[],
@@ -138,26 +86,19 @@ export async function syncBankReportsFromFic(input: {
   const entries = [...mergedByFicId.values()];
   const accountName = resolveAccountName(entries, accounts);
 
-  const { data: invoices, error: invErr } = await input.supabase
-    .from("fic_invoices")
-    .select(
-      "id, fic_id, type, number, entity_name, entity_vat, amount_gross, date, status"
-    )
-    .is("deleted_at", null);
-  if (invErr) throw new Error(invErr.message);
-
   type Inv = {
     id: string;
     fic_id: number;
     type: string;
     number: string;
     entity_name: string;
-    entity_vat: string;
     amount_gross: number;
     date: string | null;
     status: string;
   };
-  const invRows = (invoices ?? []) as Inv[];
+  const invRows = (await loadAllFicInvoicesForReconcile(
+    input.supabase
+  )) as Inv[];
 
   let upserted = 0;
   let matched = 0;
@@ -214,34 +155,33 @@ export async function syncBankReportsFromFic(input: {
       upserted += 1;
     }
 
-    // Match preferenziale per document_id FiC
+    // Match preferenziale per document_id FiC (se importo+data ok)
     let best: { inv: Inv; score: number } | null = null;
     if (entry.documentId) {
       const byDoc = invRows.find((i) => i.fic_id === entry.documentId);
       if (byDoc) {
-        best = {
-          inv: byDoc,
-          score: scoreMatch({
-            amount: entry.amount,
-            invoiceGross: Number(byDoc.amount_gross),
-            counterparty: entry.entityName,
-            entityName: byDoc.entity_name,
-            description: entry.description,
-            invoiceNumber: byDoc.number,
-            txDate: entry.date,
-            invoiceDate: byDoc.date,
-          }),
-        };
-        best.score = Math.max(best.score, 80);
+        const score = scoreBankInvoiceMatch({
+          amount: entry.amount,
+          invoiceGross: Number(byDoc.amount_gross),
+          counterparty: entry.entityName,
+          entityName: byDoc.entity_name,
+          description: entry.description,
+          invoiceNumber: byDoc.number,
+          txDate: entry.date,
+          invoiceDate: byDoc.date,
+        });
+        if (score >= BANK_RECONCILE_MIN_SCORE) {
+          best = { inv: byDoc, score: Math.max(score, 90) };
+        }
       }
     }
 
-    if (!best || best.score < 40) {
+    if (!best) {
       for (const inv of invRows) {
         // Entrate ↔ emesse; uscite ↔ ricevute
         if (entry.amount > 0 && inv.type !== "issued") continue;
         if (entry.amount < 0 && inv.type !== "received") continue;
-        const score = scoreMatch({
+        const score = scoreBankInvoiceMatch({
           amount: entry.amount,
           invoiceGross: Number(inv.amount_gross),
           counterparty: entry.entityName,
@@ -251,17 +191,13 @@ export async function syncBankReportsFromFic(input: {
           txDate: entry.date,
           invoiceDate: inv.date,
         });
-        if (score < 40) continue;
+        if (score < BANK_RECONCILE_MIN_SCORE) continue;
         if (!best || score > best.score) best = { inv, score };
       }
     }
 
-    if (best && best.score >= 40) {
-      const status =
-        Math.abs(Math.abs(entry.amount) - Math.abs(Number(best.inv.amount_gross))) >
-        0.01
-          ? "discrepancy"
-          : "auto_matched";
+    if (best) {
+      const status = "auto_matched";
 
       const { data: existingMatch } = await input.supabase
         .from("bank_invoice_matches")
@@ -292,7 +228,7 @@ export async function syncBankReportsFromFic(input: {
         matched += 1;
       }
 
-      if (status === "auto_matched" && best.inv.status !== "paid") {
+      if (best.inv.status !== "paid") {
         paidInvoiceIds.add(best.inv.id);
       }
     }

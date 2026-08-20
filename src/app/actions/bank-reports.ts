@@ -14,6 +14,7 @@ import {
   BANK_RECONCILE_MIN_SCORE,
   scoreBankInvoiceMatch,
 } from "@/lib/amministrazione/bank-reconcile";
+import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -1051,13 +1052,8 @@ type InvCandidate = {
 async function loadInvoiceCandidates(
   supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<InvCandidate[]> {
-  const { data } = await supabase
-    .from("fic_invoices")
-    .select(
-      "id, fic_id, type, number, entity_name, amount_gross, date, status"
-    )
-    .is("deleted_at", null);
-  return (data ?? []) as InvCandidate[];
+  // Tutte le fatture salvate (emesse + ricevute), senza tetto a 1000
+  return loadAllFicInvoicesForReconcile(supabase);
 }
 
 async function bestInvoiceForTx(

@@ -3,7 +3,11 @@ import {
   parseBankStatementCsv,
   type ParsedBankCsvLine,
 } from "@/lib/amministrazione/bank-csv-parse";
-import { scoreBankInvoiceMatch } from "@/lib/amministrazione/bank-reconcile";
+import {
+  BANK_RECONCILE_MIN_SCORE,
+  scoreBankInvoiceMatch,
+} from "@/lib/amministrazione/bank-reconcile";
+import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
 import {
   BANK_STATEMENTS_BUCKET,
   bankCsvStoragePath,
@@ -345,12 +349,7 @@ export async function saveBankStatementImport(input: {
     })
     .eq("id", batchId);
 
-  const { data: invoices } = await input.supabase
-    .from("fic_invoices")
-    .select(
-      "id, fic_id, type, number, entity_name, entity_vat, amount_gross, date, status"
-    )
-    .is("deleted_at", null);
+  const invRows = await loadAllFicInvoicesForReconcile(input.supabase);
 
   type Inv = {
     id: string;
@@ -362,7 +361,6 @@ export async function saveBankStatementImport(input: {
     date: string | null;
     status: string;
   };
-  const invRows = (invoices ?? []) as Inv[];
 
   let rowsImported = 0;
   let rowsSkipped = 0;
@@ -480,7 +478,7 @@ export async function saveBankStatementImport(input: {
           txDate: line.transactionDate,
           invoiceDate: inv.date,
         });
-        if (score >= 55 && (!best || score > best.score)) {
+        if (score >= BANK_RECONCILE_MIN_SCORE && (!best || score > best.score)) {
           best = { inv, score };
         }
       }
