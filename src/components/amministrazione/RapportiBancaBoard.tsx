@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState,
   useTransition,
@@ -16,6 +17,9 @@ import {
   FaArrowsRotate,
   FaFloppyDisk,
   FaTrashCan,
+  FaFileCsv,
+  FaCloudArrowUp,
+  FaCheck,
 } from "react-icons/fa6";
 import {
   listBankTransactionsAction,
@@ -150,6 +154,8 @@ export function RapportiBancaBoard() {
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
   const [accountName, setAccountName] = useState("BCC Don Rizzo");
   const [printUser] = useState("Operatore area fiscale");
+  const csvInputId = useId();
+  const [csvDragOver, setCsvDragOver] = useState(false);
 
   /** Anteprima CSV (non ancora in DB). */
   const [previewActive, setPreviewActive] = useState(false);
@@ -761,20 +767,112 @@ export function RapportiBancaBoard() {
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
-          <label className="mb-4 block text-sm">
-            <span className="mb-1 block text-xs font-medium">File CSV</span>
-            <input
-              type="file"
-              accept=".csv,.cvs,text/csv,text/plain"
-              onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
-              className="w-full text-sm"
-            />
-            {csvFile ? (
-              <span className="mt-1 block text-xs text-[var(--muted)]">
-                {csvFile.name} · {(csvFile.size / 1024).toFixed(0)} KB
+
+          <div className="mb-4">
+            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+              File CSV estratto conto
+            </span>
+            <label
+              htmlFor={csvInputId}
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setCsvDragOver(true);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setCsvDragOver(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setCsvDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setCsvDragOver(false);
+                const f = e.dataTransfer.files?.[0] ?? null;
+                if (!f) return;
+                const n = f.name.toLowerCase();
+                if (
+                  !n.endsWith(".csv") &&
+                  !n.endsWith(".cvs") &&
+                  f.type !== "text/csv" &&
+                  f.type !== "text/plain"
+                ) {
+                  setError("Seleziona un file .csv (accettato anche .cvs).");
+                  return;
+                }
+                setError(null);
+                setCsvFile(f);
+              }}
+              className={`group relative flex cursor-pointer flex-col items-center justify-center gap-3 overflow-hidden rounded-2xl border-2 border-dashed px-6 py-10 text-center transition ${
+                csvDragOver
+                  ? "border-emerald-500 bg-emerald-50 shadow-md shadow-emerald-100"
+                  : csvFile
+                    ? "border-emerald-400 bg-gradient-to-b from-emerald-50 to-white"
+                    : "border-slate-300 bg-gradient-to-b from-slate-50 to-white hover:border-[var(--primary)] hover:from-sky-50/80 hover:to-white"
+              }`}
+            >
+              <span
+                className={`flex h-14 w-14 items-center justify-center rounded-2xl shadow-sm transition ${
+                  csvFile
+                    ? "bg-emerald-600 text-white"
+                    : "bg-white text-slate-500 ring-1 ring-slate-200 group-hover:text-[var(--primary)]"
+                }`}
+              >
+                {csvFile ? <FaCheck size={22} /> : <FaCloudArrowUp size={26} />}
               </span>
-            ) : null}
-          </label>
+              {csvFile ? (
+                <>
+                  <div className="flex max-w-full items-center gap-2 rounded-lg bg-white/90 px-3 py-2 ring-1 ring-emerald-200">
+                    <FaFileCsv
+                      className="shrink-0 text-emerald-700"
+                      size={20}
+                    />
+                    <div className="min-w-0 text-left">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {csvFile.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {(csvFile.size / 1024).toFixed(0)} KB · pronto per
+                        anteprima
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-xs font-medium text-emerald-800">
+                    Clicca o trascina un altro file per sostituirlo
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-base font-semibold text-slate-900">
+                      Trascina qui il file CSV
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      oppure{" "}
+                      <span className="font-semibold text-[var(--primary)] underline decoration-2 underline-offset-2">
+                        scegli dal computer
+                      </span>
+                    </p>
+                  </div>
+                  <p className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-600">
+                    .csv / .cvs · 5 colonne · max 15 MB
+                  </p>
+                </>
+              )}
+              <input
+                id={csvInputId}
+                type="file"
+                accept=".csv,.cvs,text/csv,text/plain"
+                className="sr-only"
+                onChange={(e) => {
+                  setCsvFile(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
