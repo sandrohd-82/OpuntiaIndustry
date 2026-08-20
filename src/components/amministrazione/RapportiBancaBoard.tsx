@@ -344,11 +344,11 @@ export function RapportiBancaBoard() {
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
-            Carica un file <strong>.csv</strong> (accettato anche .cvs) con
-            colonne tipiche: Data, Data valuta, Dare/Uscita, Avere/Entrata,
-            Descrizione. Separatore <code>;</code> o <code>,</code>. Importi in
-            formato italiano (1.234,56). Forzature segno: «Storno» / «Bonifico a
-            vs favore» → +; «Interessi» → −.
+            File <strong>.csv</strong> (accettato anche .cvs) a 5 colonne fisse,
+            nell’ordine: (1) Data — ordinamento, (2) Data Valuta — solo
+            figurativa, (3) Uscite −, (4) Entrate +, (5) Causale. Separatore{" "}
+            <code>;</code> o <code>,</code>. Nessun controllo aggiuntivo: ogni
+            riga dati viene importata così com’è.
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button

@@ -328,7 +328,7 @@ export async function importBankStatementPdfAction(
         success: false,
         error:
           result.notes ||
-          "Nessun movimento riconosciuto nel CSV. Verifica intestazioni: Data, Dare/Avere (o Importo), Descrizione.",
+          "Nessun movimento riconosciuto nel CSV. Attese 5 colonne fisse: Data;Data Valuta;Uscite;Entrate;Causale.",
       };
     }
 

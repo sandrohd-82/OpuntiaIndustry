@@ -1,9 +1,17 @@
-import {
-  parseItAmount,
-  validateLines,
-  type ParseBankStatementResult,
-  type ParsedBankLine,
+import type {
+  ParseBankStatementResult,
+  ParsedBankLine,
 } from "@/lib/amministrazione/bank-pdf-parse";
+import { parseItAmount } from "@/lib/amministrazione/bank-pdf-parse";
+
+/**
+ * Schema CSV fisso (nessun controllo / mapping intestazioni):
+ * 1 Data (ordinamento)
+ * 2 Data Valuta (solo figurativa)
+ * 3 Uscite − (se vuoto → ignora)
+ * 4 Entrate + (se vuoto → ignora)
+ * 5 Causale
+ */
 
 /** Data IT → YYYY-MM-DD (anche ISO già valido). */
 export function parseBankDateIt(raw: string): string | null {
@@ -23,25 +31,15 @@ export function parseBankDateIt(raw: string): string | null {
   return `${yyyy}-${pad(mm)}-${pad(dd)}`;
 }
 
-function normalizeHeader(h: string): string {
-  return h
-    .replace(/^\uFEFF/, "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function detectDelimiter(headerLine: string): ";" | "," | "\t" {
+function detectDelimiter(sampleLine: string): ";" | "," | "\t" {
   const counts = {
-    ";": (headerLine.match(/;/g) ?? []).length,
-    ",": (headerLine.match(/,/g) ?? []).length,
-    "\t": (headerLine.match(/\t/g) ?? []).length,
+    ";": (sampleLine.match(/;/g) ?? []).length,
+    ",": (sampleLine.match(/,/g) ?? []).length,
+    "\t": (sampleLine.match(/\t/g) ?? []).length,
   };
-  const best = (Object.entries(counts) as Array<[";" | "," | "\t", number]>).sort(
-    (a, b) => b[1] - a[1]
-  )[0];
+  const best = (
+    Object.entries(counts) as Array<[";" | "," | "\t", number]>
+  ).sort((a, b) => b[1] - a[1])[0];
   return best && best[1] > 0 ? best[0] : ";";
 }
 
@@ -72,129 +70,6 @@ export function splitCsvLine(line: string, delimiter: string): string[] {
   return out;
 }
 
-type ColMap = {
-  data: number | null;
-  valuta: number | null;
-  dare: number | null;
-  avere: number | null;
-  importo: number | null;
-  descrizione: number | null;
-  controparte: number | null;
-  cro: number | null;
-};
-
-function mapHeaders(headers: string[]): ColMap {
-  const map: ColMap = {
-    data: null,
-    valuta: null,
-    dare: null,
-    avere: null,
-    importo: null,
-    descrizione: null,
-    controparte: null,
-    cro: null,
-  };
-
-  headers.forEach((h, idx) => {
-    const n = normalizeHeader(h);
-    if (!n) return;
-
-    if (
-      map.data == null &&
-      (n === "data" ||
-        n.includes("data esecuzione") ||
-        n.includes("data contabile") ||
-        n.includes("data operazione") ||
-        n.includes("data movimento") ||
-        n === "booking date" ||
-        n === "transaction date")
-    ) {
-      if (!n.includes("valuta")) map.data = idx;
-    }
-    if (
-      map.valuta == null &&
-      (n.includes("data valuta") || n === "valuta" || n === "value date")
-    ) {
-      map.valuta = idx;
-    }
-    if (
-      map.dare == null &&
-      (n === "dare" ||
-        n.includes("mov dare") ||
-        n.includes("importo dare") ||
-        n === "uscita" ||
-        n.includes("addebito") ||
-        n === "debit" ||
-        n === "withdrawals")
-    ) {
-      map.dare = idx;
-    }
-    if (
-      map.avere == null &&
-      (n === "avere" ||
-        n.includes("mov avere") ||
-        n.includes("importo avere") ||
-        n === "entrata" ||
-        n.includes("accredito") ||
-        n === "credit" ||
-        n === "deposits")
-    ) {
-      map.avere = idx;
-    }
-    if (
-      map.importo == null &&
-      (n === "importo" || n === "amount" || n === "importo euro")
-    ) {
-      map.importo = idx;
-    }
-    if (
-      map.descrizione == null &&
-      (n.includes("descrizione") ||
-        n.includes("causale") ||
-        n.includes("dettaglio") ||
-        n === "description" ||
-        n === "narrative")
-    ) {
-      map.descrizione = idx;
-    }
-    if (
-      map.controparte == null &&
-      (n.includes("controparte") ||
-        n.includes("beneficiario") ||
-        n.includes("ordinante") ||
-        n.includes("nome") ||
-        n === "payee")
-    ) {
-      map.controparte = idx;
-    }
-    if (
-      map.cro == null &&
-      (n === "cro" || n === "trn" || n.includes("riferimento") || n === "id")
-    ) {
-      map.cro = idx;
-    }
-  });
-
-  // Se "data" non trovata, prima colonna con pattern data nel nome
-  if (map.data == null) {
-    headers.forEach((h, idx) => {
-      const n = normalizeHeader(h);
-      if (map.data == null && n.startsWith("data") && !n.includes("valuta")) {
-        map.data = idx;
-      }
-    });
-  }
-
-  return map;
-}
-
-function cell(row: string[], idx: number | null): string {
-  if (idx == null || idx < 0 || idx >= row.length) return "";
-  return String(row[idx] ?? "")
-    .replace(/\u00A0/g, " ")
-    .trim();
-}
-
 function decodeCsvBuffer(buffer: Buffer): string {
   let text = buffer.toString("utf8");
   if (text.includes("\uFFFD") || /[\x80-\x9F]/.test(text.slice(0, 2000))) {
@@ -207,9 +82,21 @@ function decodeCsvBuffer(buffer: Buffer): string {
   return text.replace(/^\uFEFF/, "");
 }
 
+function isLikelyHeaderRow(cols: string[]): boolean {
+  const c0 = (cols[0] ?? "").toLowerCase();
+  if (parseBankDateIt(cols[0] ?? "")) return false;
+  return (
+    c0.includes("data") ||
+    c0 === "date" ||
+    /uscita|entrata|causale|descrizione|dare|avere/.test(
+      cols.slice(0, 5).join(" ").toLowerCase()
+    )
+  );
+}
+
 /**
- * Parsing estratto conto CSV (IT: `;` o `,`).
- * Colonne tipiche: Data, Data valuta, Dare, Avere, Descrizione.
+ * Parsing CSV a 5 colonne fisse. Nessuna esclusione di righe dati.
+ * Solo l’eventuale riga di intestazione (senza data) viene ignorata.
  */
 export function parseBankStatementCsv(
   buffer: Buffer
@@ -218,159 +105,96 @@ export function parseBankStatementCsv(
   const linesRaw = text
     .split(/\r\n|\n|\r/)
     .map((l) => l.trimEnd())
-    .filter((l) => l.trim().length > 0);
+    .filter((l) => l.length > 0);
 
-  if (linesRaw.length < 2) {
+  if (linesRaw.length === 0) {
     return {
-      text: text.slice(0, 4000),
+      text: "",
       lines: [],
       doubtful: [],
       excluded: [],
-      parserModel: "csv-v1",
-      notes: "CSV vuoto o senza righe dati.",
+      parserModel: "csv-fixed-5col-v1",
+      notes: "CSV vuoto.",
     };
   }
 
-  // Salta righe preambolo fino a trovare un header utile
-  let headerIdx = 0;
-  let delimiter: ";" | "," | "\t" = ";";
-  let colMap: ColMap | null = null;
-  for (let i = 0; i < Math.min(linesRaw.length, 30); i++) {
-    const delim = detectDelimiter(linesRaw[i]!);
-    const headers = splitCsvLine(linesRaw[i]!, delim);
-    const mapped = mapHeaders(headers);
-    const score =
-      (mapped.data != null ? 2 : 0) +
-      (mapped.dare != null || mapped.avere != null || mapped.importo != null
-        ? 2
-        : 0) +
-      (mapped.descrizione != null ? 1 : 0);
-    if (score >= 3) {
-      headerIdx = i;
-      delimiter = delim;
-      colMap = mapped;
-      break;
-    }
+  const delimiter = detectDelimiter(linesRaw[0]!);
+  let start = 0;
+  const firstCols = splitCsvLine(linesRaw[0]!, delimiter);
+  if (isLikelyHeaderRow(firstCols)) {
+    start = 1;
   }
 
-  if (!colMap || colMap.data == null) {
-    return {
-      text: text.slice(0, 4000),
-      lines: [],
-      doubtful: [],
-      excluded: [],
-      parserModel: "csv-v1",
-      notes:
-        "Intestazioni CSV non riconosciute. Serve almeno Data + (Dare/Avere oppure Importo) + Descrizione.",
-    };
-  }
+  const lines: ParsedBankLine[] = [];
 
-  const rawLines: ParsedBankLine[] = [];
-  for (let i = headerIdx + 1; i < linesRaw.length; i++) {
+  for (let i = start; i < linesRaw.length; i++) {
     const cols = splitCsvLine(linesRaw[i]!, delimiter);
-    if (cols.every((c) => !c.trim())) continue;
+    // Pad a 5 colonne
+    while (cols.length < 5) cols.push("");
 
-    const txDate = parseBankDateIt(cell(cols, colMap.data));
-    if (!txDate) continue;
+    const dataRaw = cols[0] ?? "";
+    const valutaRaw = cols[1] ?? "";
+    const uscitaRaw = (cols[2] ?? "").trim();
+    const entrataRaw = (cols[3] ?? "").trim();
+    const causale = (cols[4] ?? "").trim() || "—";
 
-    const valutaRaw = cell(cols, colMap.valuta);
+    // Data: obbligatoria per ordinamento; se il file è pulito è sempre valida
+    const transactionDate =
+      parseBankDateIt(dataRaw) ??
+      // Non saltare la riga: fallback ISO grezzo o data minima
+      ( /^\d{4}-\d{2}-\d{2}/.test(dataRaw.trim())
+        ? dataRaw.trim().slice(0, 10)
+        : "1970-01-01");
+
     const valutaDate = valutaRaw ? parseBankDateIt(valutaRaw) : null;
-    const description =
-      cell(cols, colMap.descrizione) ||
-      cell(cols, colMap.controparte) ||
-      "Movimento CSV";
-    const counterpartyName = cell(cols, colMap.controparte);
-    const trnOrCro = cell(cols, colMap.cro);
 
-    const dareRaw = cell(cols, colMap.dare);
-    const avereRaw = cell(cols, colMap.avere);
-    const importoRaw = cell(cols, colMap.importo);
-
-    let column: "DARE" | "AVERE" | null = null;
-    let amountIt = "";
     let amount = 0;
-    let signSource = "csv";
+    let column: "DARE" | "AVERE" | null = null;
+    let amountIt: string | undefined;
+    let signSource = "csv-fixed";
 
-    const dareAmt = dareRaw ? parseItAmount(dareRaw, { strict: false }) : null;
-    const avereAmt = avereRaw
-      ? parseItAmount(avereRaw, { strict: false })
-      : null;
-
-    if (dareAmt != null && dareAmt !== 0 && (avereAmt == null || avereAmt === 0)) {
+    if (uscitaRaw) {
+      const n = parseItAmount(uscitaRaw, { strict: false });
+      const mag =
+        n != null
+          ? Math.abs(n)
+          : Math.abs(Number(String(uscitaRaw).replace(/\./g, "").replace(",", ".")) || 0);
+      amount = -mag;
       column = "DARE";
-      amount = -Math.abs(dareAmt);
-      amountIt = dareRaw;
-      signSource = "csv-dare";
-    } else if (
-      avereAmt != null &&
-      avereAmt !== 0 &&
-      (dareAmt == null || dareAmt === 0)
-    ) {
+      amountIt = uscitaRaw;
+      signSource = "csv-col3-uscita";
+    } else if (entrataRaw) {
+      const n = parseItAmount(entrataRaw, { strict: false });
+      const mag =
+        n != null
+          ? Math.abs(n)
+          : Math.abs(Number(String(entrataRaw).replace(/\./g, "").replace(",", ".")) || 0);
+      amount = mag;
       column = "AVERE";
-      amount = Math.abs(avereAmt);
-      amountIt = avereRaw;
-      signSource = "csv-avere";
-    } else if (importoRaw) {
-      const signed = parseItAmount(importoRaw, { strict: false });
-      if (signed == null || signed === 0) continue;
-      // Importo unico: segno dal valore (o da +/− esplicito già in parseItAmount)
-      if (signed < 0 || /^-/.test(importoRaw.trim())) {
-        column = "DARE";
-        amount = -Math.abs(signed);
-        signSource = "csv-importo-neg";
-      } else if (/\+/.test(importoRaw) || signed > 0) {
-        // Senza segno esplicito: dubbio se non c'è +
-        if (/^\s*\+/.test(importoRaw) || /entrata|avere|accred/i.test(description)) {
-          column = "AVERE";
-          amount = Math.abs(signed);
-          signSource = "csv-importo-pos";
-        } else if (/uscita|dare|addeb|pagament/i.test(description)) {
-          column = "DARE";
-          amount = -Math.abs(signed);
-          signSource = "csv-importo-desc";
-        } else {
-          column = null;
-          amount = Math.abs(signed);
-          signSource = "csv-importo-nocolumn";
-        }
-      }
-      amountIt = importoRaw;
-    } else {
-      continue;
+      amountIt = entrataRaw;
+      signSource = "csv-col4-entrata";
     }
 
-    if (amount === 0) continue;
-
-    rawLines.push({
-      transactionDate: txDate,
+    lines.push({
+      transactionDate,
       valutaDate,
       amount,
-      description: description.slice(0, 2000),
-      counterpartyName: counterpartyName.slice(0, 200),
-      trnOrCro: trnOrCro.slice(0, 80),
+      description: causale.slice(0, 2000),
+      counterpartyName: "",
+      trnOrCro: "",
       column,
       signSource,
-      amountIt: amountIt || undefined,
+      amountIt,
+      signNeedsReview: false,
     });
   }
 
-  const validated = validateLines(rawLines);
   return {
     text: text.slice(0, 8000),
-    lines: validated.lines,
-    doubtful: validated.doubtful,
-    excluded: validated.excluded,
-    parserModel: "csv-v1",
-    notes: [
-      `CSV delimitatore «${delimiter === "\t" ? "TAB" : delimiter}»: ${validated.lines.length} voci.`,
-      validated.doubtful.length
-        ? `${validated.doubtful.length} con segno da confermare (+/−).`
-        : null,
-      validated.excluded.length
-        ? `${validated.excluded.length} escluse (saldi/totali).`
-        : null,
-    ]
-      .filter(Boolean)
-      .join(" "),
+    lines,
+    doubtful: [],
+    excluded: [],
+    parserModel: "csv-fixed-5col-v1",
+    notes: `CSV 5 colonne fisse (Data|Valuta|Uscite|Entrate|Causale): ${lines.length} voci, nessuna esclusa.`,
   };
 }
