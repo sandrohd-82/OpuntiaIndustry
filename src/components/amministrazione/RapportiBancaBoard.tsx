@@ -1055,10 +1055,10 @@ export function RapportiBancaBoard() {
                     <tr className="print:hidden">
                       <td
                         colSpan={6}
-                        className="bg-amber-50/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950/80"
+                        className="bg-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
                       >
                         Già in DB — ultime {contextBefore.length} voci prima del
-                        CSV (solo lettura · vetro)
+                        CSV (solo lettura)
                       </td>
                     </tr>
                     <tr className="print:hidden">
@@ -1066,21 +1066,20 @@ export function RapportiBancaBoard() {
                         <div
                           style={{
                             maskImage:
-                              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.95) 100%)",
+                              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.45) 40%, black 100%)",
                             WebkitMaskImage:
-                              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.95) 100%)",
+                              "linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.45) 40%, black 100%)",
                           }}
                         >
                           <table className="w-full min-w-[720px] text-left text-sm">
                             <tbody>
                               {contextBefore.map((row, idx) => (
-                                <GlassContextRow
+                                <DisabledContextRow
                                   key={`before-${row.id}`}
                                   row={row}
-                                  variant="before"
                                   fadeAway={
                                     contextBefore.length <= 1
-                                      ? 0.55
+                                      ? 0.45
                                       : (contextBefore.length - 1 - idx) /
                                         (contextBefore.length - 1)
                                   }
@@ -1225,37 +1224,36 @@ export function RapportiBancaBoard() {
                     <tr className="print:hidden">
                       <td
                         colSpan={6}
-                        className="bg-amber-50/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-amber-950/80"
+                        className="bg-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
                       >
                         Già in DB — prime {contextAfter.length} voci successive
                         al CSV
                         {contextAfterHasMore
                           ? " (elenco più ampio…)"
                           : ""}{" "}
-                        (solo lettura · vetro)
+                        (solo lettura)
                       </td>
                     </tr>
                     <tr className="print:hidden">
                       <td colSpan={6} className="p-0">
                         <div
-                          className="bank-glass-after-fade relative"
+                          className="relative"
                           style={{
                             maskImage:
-                              "linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.55) 55%, transparent 100%)",
+                              "linear-gradient(to bottom, black 0%, rgba(0,0,0,0.5) 55%, transparent 100%)",
                             WebkitMaskImage:
-                              "linear-gradient(to bottom, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.55) 55%, transparent 100%)",
+                              "linear-gradient(to bottom, black 0%, rgba(0,0,0,0.5) 55%, transparent 100%)",
                           }}
                         >
                           <table className="w-full min-w-[720px] text-left text-sm">
                             <tbody>
                               {contextAfter.map((row, idx) => (
-                                <GlassContextRow
+                                <DisabledContextRow
                                   key={`after-${row.id}`}
                                   row={row}
-                                  variant="after"
                                   fadeAway={
                                     contextAfter.length <= 1
-                                      ? 0.55
+                                      ? 0.45
                                       : idx / (contextAfter.length - 1)
                                   }
                                 />
@@ -1646,142 +1644,58 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** Riga contesto DB sotto vetro fumé marroncino (sola lettura).
- * fadeAway 0 = vicino al CSV (più leggibile), 1 = più lontano nel tempo (più sfumato).
- */
-function GlassContextRow({
+/** Righe DB di contesto: grigie disattivate + sfumatura verso le più lontane. */
+function DisabledContextRow({
   row,
-  variant,
-  fadeAway = 0.4,
+  fadeAway = 0.35,
 }: {
   row: BankContextTxView;
-  variant: "before" | "after";
   fadeAway?: number;
 }) {
   const t = Math.min(1, Math.max(0, fadeAway));
-  const glassAlpha = 0.18 + t * 0.38;
-  const blurPx = 1.2 + t * 2.2;
-  const contentOpacity = 0.82 - t * 0.38;
-  const brown = `rgba(130, 95, 62, ${glassAlpha})`;
-  const brownSoft = `rgba(158, 122, 84, ${0.1 + t * 0.22})`;
+  const opacity = 0.72 - t * 0.42;
 
   return (
     <tr
-      className="pointer-events-none relative border-t border-amber-900/10"
-      style={{
-        background:
-          variant === "before"
-            ? `linear-gradient(180deg, ${brownSoft}, rgba(245, 236, 224, ${0.35 + t * 0.25}))`
-            : `linear-gradient(180deg, rgba(245, 236, 224, ${0.4 - t * 0.15}), ${brownSoft})`,
-      }}
+      className="pointer-events-none select-none border-t border-slate-200 bg-slate-100 text-slate-500"
+      style={{ opacity }}
+      aria-disabled="true"
     >
-      <td className="print:hidden relative px-2 py-2 align-top">
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <span
-          className="relative z-0 block h-4 w-4 rounded border border-amber-800/25 bg-amber-100/40"
-          style={{ opacity: contentOpacity }}
-        />
+      <td className="print:hidden px-2 py-2 align-top">
+        <span className="block h-4 w-4 rounded border border-slate-300 bg-slate-200" />
       </td>
-      <td className="relative px-3 py-2 align-top">
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <div className="relative z-0" style={{ opacity: contentOpacity }}>
-          <p className="font-medium tabular-nums text-stone-800">
-            {formatDateIt(row.transactionDate)}
+      <td className="px-3 py-2 align-top">
+        <p className="font-medium tabular-nums text-slate-600">
+          {formatDateIt(row.transactionDate)}
+        </p>
+        {row.valutaDate ? (
+          <p className="mt-0.5 text-[10px] text-slate-400">
+            Valuta {formatDateIt(row.valutaDate)}
           </p>
-          {row.valutaDate ? (
-            <p className="mt-0.5 text-[10px] text-stone-600">
-              Valuta {formatDateIt(row.valutaDate)}
-            </p>
-          ) : null}
-          <span className="mt-0.5 inline-block rounded bg-amber-900/10 px-1.5 py-0.5 text-[10px] font-medium text-stone-700">
-            {row.accountName}
-          </span>
-        </div>
-      </td>
-      <td
-        className={`relative px-3 py-2 text-right align-top font-semibold tabular-nums ${
-          row.amount >= 0 ? "text-emerald-900" : "text-red-900"
-        }`}
-      >
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <span className="relative z-0" style={{ opacity: contentOpacity }}>
-          {row.amount >= 0 ? "+" : ""}
-          {formatEuro(row.amount)}
+        ) : null}
+        <span className="mt-0.5 inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+          {row.accountName}
         </span>
       </td>
-      <td className="relative px-3 py-2 align-top">
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <div className="relative z-0" style={{ opacity: contentOpacity }}>
-          <p className="font-medium text-stone-800">
-            {row.counterpartyName || "—"}
-          </p>
-          <p className="line-clamp-2 text-xs text-stone-600">
-            {row.description || "—"}
-          </p>
-        </div>
+      <td className="px-3 py-2 text-right align-top font-semibold tabular-nums text-slate-500">
+        {row.amount >= 0 ? "+" : ""}
+        {formatEuro(row.amount)}
       </td>
-      <td className="relative px-3 py-2 align-top">
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <span
-          className="relative z-0 inline-flex rounded-full bg-amber-900/15 px-2 py-0.5 text-[11px] font-medium text-stone-800"
-          style={{ opacity: contentOpacity }}
-        >
-          Già salvato
+      <td className="px-3 py-2 align-top">
+        <p className="font-medium text-slate-600">
+          {row.counterpartyName || "—"}
+        </p>
+        <p className="line-clamp-2 text-xs text-slate-400">
+          {row.description || "—"}
+        </p>
+      </td>
+      <td className="px-3 py-2 align-top">
+        <span className="inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+          Già in DB
         </span>
       </td>
-      <td className="print:hidden relative px-3 py-2 align-top text-[11px] text-stone-600">
-        <div
-          className="absolute inset-0 z-[1]"
-          style={{
-            background: brown,
-            backdropFilter: `blur(${blurPx}px)`,
-            WebkitBackdropFilter: `blur(${blurPx}px)`,
-          }}
-          aria-hidden
-        />
-        <span className="relative z-0" style={{ opacity: contentOpacity }}>
-          contesto
-        </span>
+      <td className="print:hidden px-3 py-2 align-top text-[11px] text-slate-400">
+        disattivo
       </td>
     </tr>
   );
