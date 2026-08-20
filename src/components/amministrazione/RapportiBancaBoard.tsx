@@ -1,16 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import {
   FaFileInvoice,
   FaCircleInfo,
   FaScaleBalanced,
   FaPrint,
   FaArrowsRotate,
+  FaFloppyDisk,
+  FaTrashCan,
 } from "react-icons/fa6";
 import {
   listBankTransactionsAction,
-  importBankStatementPdfAction,
+  previewBankCsvAction,
+  saveBankImportAction,
   purgeBankImportedDataAction,
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
@@ -19,6 +29,8 @@ import {
   reconcileAllBankTransactionsAction,
   type BankTransactionView,
   type BankPeriodSummary,
+  type BankPreviewLineView,
+  type BankContextTxView,
 } from "@/app/actions/bank-reports";
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 
@@ -92,9 +104,21 @@ export function RapportiBancaBoard() {
   const [detail, setDetail] = useState<BankTransactionView | null>(null);
   const [compare, setCompare] = useState<BankTransactionView | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
   const [accountName, setAccountName] = useState("BCC Don Rizzo");
   const [printUser] = useState("Operatore area fiscale");
+
+  /** Anteprima CSV (non ancora in DB). */
+  const [previewActive, setPreviewActive] = useState(false);
+  const [previewLines, setPreviewLines] = useState<BankPreviewLineView[]>([]);
+  const [selectedPreview, setSelectedPreview] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [contextBefore, setContextBefore] = useState<BankContextTxView[]>([]);
+  const [contextAfter, setContextAfter] = useState<BankContextTxView[]>([]);
+  const [contextAfterHasMore, setContextAfterHasMore] = useState(false);
 
   useEffect(() => {
     if (preset === "mese") {
@@ -144,38 +168,106 @@ export function RapportiBancaBoard() {
     void load();
   }, [load]);
 
+  function clearPreview() {
+    setPreviewActive(false);
+    setPreviewLines([]);
+    setSelectedPreview(new Set());
+    setContextBefore([]);
+    setContextAfter([]);
+    setContextAfterHasMore(false);
+    setCsvFile(null);
+    setPdfSourceFile(null);
+    setSaveOpen(false);
+  }
+
   function openSyncModal() {
     setError(null);
     setInfo(null);
-    setPdfFile(null);
+    setCsvFile(null);
     setImportOpen(true);
   }
 
-  function runFileImport() {
-    if (!pdfFile) {
+  function runCsvPreview() {
+    if (!csvFile) {
       setError("Seleziona un file CSV di estratto conto.");
       return;
     }
     setInfo(null);
     startTransition(async () => {
       const fd = new FormData();
-      fd.set("file", pdfFile);
-      fd.set("accountName", accountName);
-      const name = pdfFile.name.toLowerCase();
+      fd.set("file", csvFile);
+      const name = csvFile.name.toLowerCase();
       if (name.endsWith(".pdf")) {
         setError(
-          "Per ora carica un CSV (5 colonne). La conversione PDF sarà disponibile più avanti."
+          "Carica un CSV (5 colonne). Al salvataggio ti verrà chiesto anche il PDF originale della banca."
         );
         return;
       }
-      const res = await importBankStatementPdfAction(fd);
+      const res = await previewBankCsvAction(fd);
       if (!res.success) {
         setError(res.error);
         return;
       }
       setImportOpen(false);
-      setPdfFile(null);
+      setPreviewLines(res.lines);
+      setSelectedPreview(new Set());
+      setContextBefore(res.contextBefore);
+      setContextAfter(res.contextAfter);
+      setContextAfterHasMore(res.contextAfterHasMore);
+      setPreviewActive(true);
+      if (res.dateFrom && res.dateTo) {
+        setPreset("personalizzato");
+        setDateFrom(res.dateFrom);
+        setDateTo(res.dateTo);
+      }
+      setInfo(
+        `Anteprima: ${res.lines.length} movimenti (non ancora salvati). Controlla, elimina le righe errate, poi «Salva nel DB» con CSV + PDF originale.`
+      );
+    });
+  }
 
+  function deleteSelectedPreviewRows() {
+    if (selectedPreview.size === 0) {
+      setError("Seleziona almeno una riga da eliminare dall’anteprima.");
+      return;
+    }
+    setPreviewLines((prev) =>
+      prev.filter((l) => !selectedPreview.has(l.rowIndex))
+    );
+    setSelectedPreview(new Set());
+    setInfo("Righe rimosse dall’anteprima (ancora non salvate nel DB).");
+  }
+
+  function runSaveToDb() {
+    if (!csvFile) {
+      setError("File CSV perso: ricarica l’anteprima.");
+      return;
+    }
+    if (!pdfSourceFile) {
+      setError("Allega il PDF originale della banca.");
+      return;
+    }
+    if (previewLines.length === 0) {
+      setError("Nessuna riga da salvare.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const fd = new FormData();
+      fd.set("csv", csvFile);
+      fd.set("pdf", pdfSourceFile);
+      fd.set("accountName", accountName);
+      fd.set(
+        "keepRowIndices",
+        JSON.stringify(previewLines.map((l) => l.rowIndex))
+      );
+      const res = await saveBankImportAction(fd);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setSaveOpen(false);
+      clearPreview();
       const nextFrom = res.dateFrom ?? dateFrom;
       const nextTo = res.dateTo ?? dateTo;
       if (res.dateFrom && res.dateTo) {
@@ -183,25 +275,19 @@ export function RapportiBancaBoard() {
         setDateFrom(res.dateFrom);
         setDateTo(res.dateTo);
       }
-
-      const nextTipo: TipoFilter =
-        res.rowsDoubtful > 0 ? "da_confermare" : "tutti";
-      setTipo(nextTipo);
+      setTipo("tutti");
       setInfo(
-        `CSV salvato e importato: ${res.rowsImported} movimenti nel DB` +
-          (res.rowsMatched ? `, ${res.rowsMatched} già collegati a fatture` : "") +
-          `. Usa «Concilia tutto» quando ci sono nuove fatture.`
+        `Salvato nel DB: ${res.rowsImported} movimenti · CSV + PDF «${res.pdfFileName}» collegati al lotto` +
+          (res.rowsMatched ? ` · ${res.rowsMatched} già collegati a fatture` : "") +
+          `. Usa «Concilia tutto» quando servono altri match.`
       );
-
       const list = await listBankTransactionsAction({
         dateFrom: nextFrom,
         dateTo: nextTo,
-        tipo: nextTipo,
+        tipo: "tutti",
       });
       if (!list.success) {
         setError(list.error);
-        setItems([]);
-        setSummary(EMPTY_SUMMARY);
         return;
       }
       setItems(list.items);
@@ -231,41 +317,93 @@ export function RapportiBancaBoard() {
     window.print();
   }
 
+  const allPreviewSelected =
+    previewLines.length > 0 &&
+    previewLines.every((l) => selectedPreview.has(l.rowIndex));
+
+  function toggleSelectAllPreview() {
+    if (allPreviewSelected) {
+      setSelectedPreview(new Set());
+      return;
+    }
+    setSelectedPreview(new Set(previewLines.map((l) => l.rowIndex)));
+  }
+
   return (
     <div className="bank-report-root space-y-4">
       <div className="print:hidden flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Movimenti da estratto conto CSV salvati nel database: filtri data /
-          trimestre leggono dal DB con eventuale collegamento alle fatture.
+          {previewActive
+            ? "Anteprima CSV: controlla i dati (vetro = movimenti già in DB prima/dopo). Poi salva con CSV + PDF originale collegati."
+            : "Movimenti da estratto conto salvati nel database: filtri data / trimestre con collegamento alle fatture."}
         </p>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={openSyncModal}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            <FaArrowsRotate size={13} />
-            Sincronizza (carica CSV)
-          </button>
-          <button
-            type="button"
-            disabled={pending || items.length === 0}
-            onClick={runReconcileAll}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 disabled:opacity-50"
-            title="Collega automaticamente i movimenti del periodo alle fatture compatibili"
-          >
-            <FaScaleBalanced size={13} />
-            Concilia tutto
-          </button>
-          <button
-            type="button"
-            onClick={printReport}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium"
-          >
-            <FaPrint size={13} />
-            Stampa / Esporta Report PDF
-          </button>
+          {previewActive ? (
+            <>
+              <button
+                type="button"
+                disabled={pending || selectedPreview.size === 0}
+                onClick={deleteSelectedPreviewRows}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-900 disabled:opacity-50"
+              >
+                <FaTrashCan size={13} />
+                Elimina selezionate ({selectedPreview.size})
+              </button>
+              <button
+                type="button"
+                disabled={pending || previewLines.length === 0}
+                onClick={() => {
+                  setPdfSourceFile(null);
+                  setSaveOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                <FaFloppyDisk size={13} />
+                Salva nel DB
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  clearPreview();
+                  setInfo("Anteprima annullata.");
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+              >
+                Annulla anteprima
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={openSyncModal}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                <FaArrowsRotate size={13} />
+                Carica CSV (anteprima)
+              </button>
+              <button
+                type="button"
+                disabled={pending || items.length === 0}
+                onClick={runReconcileAll}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950 disabled:opacity-50"
+                title="Collega automaticamente i movimenti del periodo alle fatture compatibili"
+              >
+                <FaScaleBalanced size={13} />
+                Concilia tutto
+              </button>
+              <button
+                type="button"
+                onClick={printReport}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium"
+              >
+                <FaPrint size={13} />
+                Stampa / Esporta Report PDF
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -379,15 +517,15 @@ export function RapportiBancaBoard() {
 
       {importOpen ? (
         <Modal
-          title="Importa estratto conto CSV"
+          title="Carica CSV — solo anteprima"
           onClose={() => !pending && setImportOpen(false)}
         >
           <p className="mb-3 text-sm text-[var(--muted)]">
             Carica un <strong>.csv</strong> a 5 colonne: Data; Data Valuta;
-            Uscite; Entrate; Causale. Il file e tutti i movimenti vengono{" "}
-            <strong>salvati nel database</strong> (con lotto di import). Poi
-            potrai conciliare con le fatture («Concilia tutto» o «Concilia
-            questo»).
+            Uscite; Entrate; Causale. I dati restano in anteprima finché non
+            premi <strong>Salva nel DB</strong> (allora serviranno anche il PDF
+            originale della banca: CSV e PDF restano collegati allo stesso
+            lotto).
           </p>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <button
@@ -433,28 +571,81 @@ export function RapportiBancaBoard() {
             <input
               type="file"
               accept=".csv,.cvs,text/csv,text/plain"
-              onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+              onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
               className="w-full text-sm"
             />
-            {pdfFile ? (
+            {csvFile ? (
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {pdfFile.name} · {(pdfFile.size / 1024).toFixed(0)} KB
+                {csvFile.name} · {(csvFile.size / 1024).toFixed(0)} KB
               </span>
             ) : null}
           </label>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={pending || !pdfFile}
-              onClick={runFileImport}
+              disabled={pending || !csvFile}
+              onClick={runCsvPreview}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {pending ? "Elaborazione…" : "Carica e salva nel DB"}
+              {pending ? "Lettura…" : "Carica anteprima"}
             </button>
             <button
               type="button"
               disabled={pending}
               onClick={() => setImportOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              Annulla
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {saveOpen ? (
+        <Modal
+          title="Salva nel DB — CSV + PDF obbligatori"
+          onClose={() => !pending && setSaveOpen(false)}
+        >
+          <p className="mb-3 text-sm text-[var(--muted)]">
+            Verranno salvati <strong>{previewLines.length}</strong> movimenti,
+            il file CSV fonte e il <strong>PDF originale</strong> della banca,
+            tutti collegati allo stesso lotto di import (tracciabilità ISO
+            9001).
+          </p>
+          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            CSV: {csvFile?.name ?? "—"}
+          </p>
+          <label className="mb-4 block text-sm">
+            <span className="mb-1 block text-xs font-medium">
+              PDF originale estratto conto banca *
+            </span>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={(e) => setPdfSourceFile(e.target.files?.[0] ?? null)}
+              className="w-full text-sm"
+            />
+            {pdfSourceFile ? (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                {pdfSourceFile.name} ·{" "}
+                {(pdfSourceFile.size / 1024).toFixed(0)} KB
+              </span>
+            ) : null}
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending || !pdfSourceFile || !csvFile}
+              onClick={runSaveToDb}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              <FaFloppyDisk size={13} />
+              {pending ? "Salvataggio…" : "Conferma salvataggio"}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setSaveOpen(false)}
               className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             >
               Annulla
@@ -572,21 +763,183 @@ export function RapportiBancaBoard() {
         <table className="bank-report-table w-full min-w-[720px] text-left text-sm">
           <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-[var(--muted)]">
             <tr>
+              {previewActive ? (
+                <th className="print:hidden w-10 px-2 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allPreviewSelected}
+                    onChange={toggleSelectAllPreview}
+                    aria-label="Seleziona tutte le righe anteprima"
+                  />
+                </th>
+              ) : null}
               <th className="px-3 py-2">Data</th>
               <th className="px-3 py-2 text-right">Importo</th>
               <th className="px-3 py-2">Causale / Controparte</th>
-              <th className="px-3 py-2">Fattura collegata</th>
-              <th className="print:hidden px-3 py-2">Azioni</th>
+              <th className="px-3 py-2">
+                {previewActive ? "Stato" : "Fattura collegata"}
+              </th>
+              {!previewActive ? (
+                <th className="print:hidden px-3 py-2">Azioni</th>
+              ) : (
+                <th className="print:hidden px-3 py-2">Note</th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 ? (
+            {previewActive ? (
+              <>
+                {contextBefore.length > 0 ? (
+                  <tr className="print:hidden">
+                    <td
+                      colSpan={6}
+                      className="bg-slate-100/80 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                    >
+                      Già in DB — ultime {contextBefore.length} voci prima del
+                      CSV (solo lettura)
+                    </td>
+                  </tr>
+                ) : null}
+                {contextBefore.map((row) => (
+                  <GlassContextRow
+                    key={`before-${row.id}`}
+                    row={row}
+                    variant="before"
+                  />
+                ))}
+
+                {previewLines.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-3 py-8 text-center text-[var(--muted)]"
+                    >
+                      Nessuna riga in anteprima. Eliminale tutte o ricarica il
+                      CSV.
+                    </td>
+                  </tr>
+                ) : (
+                  previewLines.map((row) => {
+                    const selected = selectedPreview.has(row.rowIndex);
+                    return (
+                      <tr
+                        key={`preview-${row.rowIndex}`}
+                        className={`border-t border-[var(--border)] ${
+                          selected
+                            ? "bg-amber-50 ring-1 ring-inset ring-amber-300"
+                            : row.amount >= 0
+                              ? "bg-emerald-50/40"
+                              : "bg-red-50/30"
+                        }`}
+                      >
+                        <td className="print:hidden px-2 py-2 align-top">
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => {
+                              setSelectedPreview((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(row.rowIndex))
+                                  next.delete(row.rowIndex);
+                                else next.add(row.rowIndex);
+                                return next;
+                              });
+                            }}
+                            aria-label={`Seleziona riga ${row.rowIndex + 1}`}
+                          />
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <p className="font-medium tabular-nums">
+                            {formatDateIt(row.transactionDate)}
+                          </p>
+                          {row.valutaDate ? (
+                            <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                              Valuta {formatDateIt(row.valutaDate)}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right align-top font-semibold tabular-nums ${
+                            row.amount >= 0
+                              ? "text-emerald-700"
+                              : "text-red-700"
+                          }`}
+                        >
+                          {row.amount >= 0 ? "+" : ""}
+                          {formatEuro(row.amount)}
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <p className="font-medium text-slate-900">
+                            {row.counterpartyName || "—"}
+                          </p>
+                          <p className="line-clamp-2 text-xs text-[var(--muted)]">
+                            {row.description || "—"}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2 align-top">
+                          <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-950">
+                            Anteprima
+                          </span>
+                        </td>
+                        <td className="print:hidden px-3 py-2 align-top text-[11px] text-[var(--muted)]">
+                          riga CSV #{row.rowIndex + 1}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+
+                {contextAfter.length > 0 ? (
+                  <>
+                    <tr className="print:hidden">
+                      <td
+                        colSpan={6}
+                        className="bg-slate-100/80 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                      >
+                        Già in DB — prime {contextAfter.length} voci successive
+                        al CSV
+                        {contextAfterHasMore
+                          ? " (elenco più ampio…)"
+                          : ""}{" "}
+                        (solo lettura)
+                      </td>
+                    </tr>
+                    <tr className="print:hidden">
+                      <td colSpan={6} className="p-0">
+                        <div
+                          className="bank-glass-after-fade relative"
+                          style={{
+                            maskImage:
+                              "linear-gradient(to bottom, black 0%, black 45%, transparent 100%)",
+                            WebkitMaskImage:
+                              "linear-gradient(to bottom, black 0%, black 45%, transparent 100%)",
+                          }}
+                        >
+                          <table className="w-full min-w-[720px] text-left text-sm">
+                            <tbody>
+                              {contextAfter.map((row) => (
+                                <GlassContextRow
+                                  key={`after-${row.id}`}
+                                  row={row}
+                                  variant="after"
+                                />
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </td>
+                    </tr>
+                  </>
+                ) : null}
+              </>
+            ) : items.length === 0 ? (
               <tr>
                 <td
                   colSpan={5}
                   className="px-3 py-8 text-center text-[var(--muted)]"
                 >
-                  Nessun movimento. Sincronizza da Fatture in Cloud.
+                  Nessun movimento. Carica un CSV in anteprima e salvalo con il
+                  PDF originale.
                 </td>
               </tr>
             ) : (
@@ -954,6 +1307,104 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="text-[11px] font-medium text-[var(--muted)]">{label}</dt>
       <dd className="whitespace-pre-wrap break-words text-slate-900">{value}</dd>
     </div>
+  );
+}
+
+/** Riga contesto DB sotto vetro fumé (sola lettura). */
+function GlassContextRow({
+  row,
+  variant,
+}: {
+  row: BankContextTxView;
+  variant: "before" | "after";
+}) {
+  return (
+    <tr
+      className={`pointer-events-none relative border-t border-slate-200/60 ${
+        variant === "before"
+          ? "bg-slate-200/40"
+          : "bg-slate-100/50"
+      }`}
+    >
+      <td className="print:hidden px-2 py-2 align-top">
+        <span className="block h-4 w-4 rounded border border-slate-300/80 bg-slate-200/50" />
+      </td>
+      <td className="relative px-3 py-2 align-top">
+        <div
+          className="absolute inset-0 z-[1] backdrop-blur-[1.5px]"
+          style={{
+            background:
+              variant === "before"
+                ? "linear-gradient(180deg, rgba(148,163,184,0.35), rgba(148,163,184,0.12))"
+                : "linear-gradient(180deg, rgba(148,163,184,0.22), rgba(148,163,184,0.08))",
+          }}
+          aria-hidden
+        />
+        <div className="relative z-0 opacity-70">
+          <p className="font-medium tabular-nums text-slate-700">
+            {formatDateIt(row.transactionDate)}
+          </p>
+          {row.valutaDate ? (
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              Valuta {formatDateIt(row.valutaDate)}
+            </p>
+          ) : null}
+          <span className="mt-0.5 inline-block rounded bg-slate-300/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+            {row.accountName}
+          </span>
+        </div>
+      </td>
+      <td
+        className={`relative px-3 py-2 text-right align-top font-semibold tabular-nums ${
+          row.amount >= 0 ? "text-emerald-800/70" : "text-red-800/70"
+        }`}
+      >
+        <div
+          className="absolute inset-0 z-[1] backdrop-blur-[1.5px]"
+          style={{
+            background: "rgba(148,163,184,0.18)",
+          }}
+          aria-hidden
+        />
+        <span className="relative z-0 opacity-70">
+          {row.amount >= 0 ? "+" : ""}
+          {formatEuro(row.amount)}
+        </span>
+      </td>
+      <td className="relative px-3 py-2 align-top">
+        <div
+          className="absolute inset-0 z-[1] backdrop-blur-[1.5px]"
+          style={{ background: "rgba(148,163,184,0.16)" }}
+          aria-hidden
+        />
+        <div className="relative z-0 opacity-65">
+          <p className="font-medium text-slate-800">
+            {row.counterpartyName || "—"}
+          </p>
+          <p className="line-clamp-2 text-xs text-slate-500">
+            {row.description || "—"}
+          </p>
+        </div>
+      </td>
+      <td className="relative px-3 py-2 align-top">
+        <div
+          className="absolute inset-0 z-[1] backdrop-blur-[1.5px]"
+          style={{ background: "rgba(148,163,184,0.16)" }}
+          aria-hidden
+        />
+        <span className="relative z-0 inline-flex rounded-full bg-slate-300/70 px-2 py-0.5 text-[11px] font-medium text-slate-700 opacity-80">
+          Già salvato
+        </span>
+      </td>
+      <td className="print:hidden relative px-3 py-2 align-top text-[11px] text-slate-500">
+        <div
+          className="absolute inset-0 z-[1] backdrop-blur-[1.5px]"
+          style={{ background: "rgba(148,163,184,0.16)" }}
+          aria-hidden
+        />
+        <span className="relative z-0 opacity-70">contesto</span>
+      </td>
+    </tr>
   );
 }
 

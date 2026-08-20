@@ -1,7 +1,10 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { importBankStatementPdf } from "@/lib/amministrazione/bank-import";
+import {
+  previewBankStatementCsv,
+  saveBankStatementImport,
+} from "@/lib/amministrazione/bank-import";
 import {
   bankPdfRowsToCsv,
   parseBankPdfDeterministic,
@@ -14,6 +17,30 @@ import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
+
+export type BankPreviewLineView = {
+  rowIndex: number;
+  transactionDate: string;
+  valutaDate: string | null;
+  amount: number;
+  description: string;
+  counterpartyName: string;
+  dataRaw: string;
+  valutaRaw: string;
+  uscitaRaw: string;
+  entrataRaw: string;
+  causaleRaw: string;
+};
+
+export type BankContextTxView = {
+  id: string;
+  transactionDate: string;
+  valutaDate: string | null;
+  amount: number;
+  description: string;
+  counterpartyName: string;
+  accountName: string;
+};
 
 const rangeSchema = z.object({
   dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -254,7 +281,111 @@ export async function purgeBankImportedDataAction(): Promise<
   }
 }
 
-export async function importBankStatementPdfAction(
+function isCsvFile(file: File): boolean {
+  const nameLower = file.name.toLowerCase();
+  return (
+    nameLower.endsWith(".csv") ||
+    nameLower.endsWith(".cvs") ||
+    file.type === "text/csv" ||
+    file.type === "application/vnd.ms-excel" ||
+    file.type === "text/plain"
+  );
+}
+
+function isPdfFile(file: File): boolean {
+  const nameLower = file.name.toLowerCase();
+  return nameLower.endsWith(".pdf") || file.type === "application/pdf";
+}
+
+/** Anteprima CSV: nessun salvataggio DB. Include contesto “vetro” prima/dopo. */
+export async function previewBankCsvAction(
+  formData: FormData
+): Promise<
+  | {
+      success: true;
+      lines: BankPreviewLineView[];
+      dateFrom: string | null;
+      dateTo: string | null;
+      notes: string;
+      parserModel: string;
+      contextBefore: BankContextTxView[];
+      contextAfter: BankContextTxView[];
+      contextAfterHasMore: boolean;
+      totalsDetected: {
+        countIncassi: number;
+        countUscite: number;
+        totaleIncassi: number;
+        totaleUscite: number;
+        totaleNetto: number;
+      };
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { success: false, error: "Seleziona un file CSV." };
+  }
+  if (!isCsvFile(file)) {
+    return {
+      success: false,
+      error: "Estensione richiesta: .csv (accettato anche .cvs).",
+    };
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return { success: false, error: "CSV troppo grande (max 15 MB)." };
+  }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const supabase = await createClient();
+    const result = await previewBankStatementCsv({ supabase, buffer });
+    if (result.lines.length === 0) {
+      return {
+        success: false,
+        error:
+          result.notes ||
+          "Nessun movimento riconosciuto nel CSV. Attese 5 colonne fisse: Data;Data Valuta;Uscite;Entrate;Causale.",
+      };
+    }
+    return {
+      success: true,
+      lines: result.lines.map((l) => ({
+        rowIndex: l.csvRaw.rowIndex,
+        transactionDate: l.transactionDate,
+        valutaDate: l.valutaDate,
+        amount: l.amount,
+        description: l.description,
+        counterpartyName: l.counterpartyName,
+        dataRaw: l.csvRaw.dataRaw,
+        valutaRaw: l.csvRaw.valutaRaw,
+        uscitaRaw: l.csvRaw.uscitaRaw,
+        entrataRaw: l.csvRaw.entrataRaw,
+        causaleRaw: l.csvRaw.causaleRaw,
+      })),
+      dateFrom: result.dateFrom,
+      dateTo: result.dateTo,
+      notes: result.notes,
+      parserModel: result.parserModel,
+      contextBefore: result.contextBefore,
+      contextAfter: result.contextAfter,
+      contextAfterHasMore: result.contextAfterHasMore,
+      totalsDetected: result.totalsDetected,
+    };
+  } catch (e) {
+    console.error("[bank csv preview]", e);
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Anteprima CSV fallita.",
+    };
+  }
+}
+
+/**
+ * Salva nel DB: CSV + PDF originale obbligatori, collegati allo stesso lotto.
+ * keepRowIndices = JSON array degli indici riga da tenere (dopo eliminazioni in UI).
+ */
+export async function saveBankImportAction(
   formData: FormData
 ): Promise<
   | {
@@ -269,6 +400,7 @@ export async function importBankStatementPdfAction(
       notes: string;
       dateFrom: string | null;
       dateTo: string | null;
+      pdfFileName: string;
       totalsImported: {
         countIncassi: number;
         countUscite: number;
@@ -287,39 +419,60 @@ export async function importBankStatementPdfAction(
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("area-fiscale");
-  const file = formData.get("file");
-  if (!(file instanceof File)) {
-    return { success: false, error: "Seleziona un file CSV." };
+  const csvFile = formData.get("csv");
+  const pdfFile = formData.get("pdf");
+  if (!(csvFile instanceof File)) {
+    return { success: false, error: "Seleziona il file CSV." };
   }
-  const nameLower = file.name.toLowerCase();
-  const isCsv =
-    nameLower.endsWith(".csv") ||
-    nameLower.endsWith(".cvs") ||
-    file.type === "text/csv" ||
-    file.type === "application/vnd.ms-excel" ||
-    file.type === "text/plain";
-  if (!isCsv) {
+  if (!(pdfFile instanceof File)) {
     return {
       success: false,
-      error: "Estensione richiesta: .csv (accettato anche .cvs).",
+      error: "Allega il PDF originale della banca (obbligatorio).",
     };
   }
-  if (file.size > 15 * 1024 * 1024) {
+  if (!isCsvFile(csvFile)) {
+    return { success: false, error: "Il file dati deve essere .csv / .cvs." };
+  }
+  if (!isPdfFile(pdfFile)) {
+    return { success: false, error: "Il file originale deve essere .pdf." };
+  }
+  if (csvFile.size > 15 * 1024 * 1024) {
     return { success: false, error: "CSV troppo grande (max 15 MB)." };
   }
+  if (pdfFile.size > 40 * 1024 * 1024) {
+    return { success: false, error: "PDF troppo grande (max 40 MB)." };
+  }
 
-  const accountName = String(formData.get("accountName") ?? "").trim() ||
-    "BCC Don Rizzo";
+  let keepRowIndices: number[] | null = null;
+  const keepRaw = formData.get("keepRowIndices");
+  if (typeof keepRaw === "string" && keepRaw.trim()) {
+    try {
+      const parsed = JSON.parse(keepRaw) as unknown;
+      if (!Array.isArray(parsed)) {
+        return { success: false, error: "keepRowIndices non valido." };
+      }
+      keepRowIndices = parsed.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    } catch {
+      return { success: false, error: "keepRowIndices JSON non valido." };
+    }
+  }
+
+  const accountName =
+    String(formData.get("accountName") ?? "").trim() || "BCC Don Rizzo";
 
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
+    const csvBuffer = Buffer.from(await csvFile.arrayBuffer());
+    const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
     const supabase = await createClient();
-    const result = await importBankStatementPdf({
+    const result = await saveBankStatementImport({
       supabase,
       userId: auth.userId,
-      fileName: file.name,
-      buffer,
+      csvFileName: csvFile.name,
+      csvBuffer,
+      pdfFileName: pdfFile.name,
+      pdfBuffer,
       accountName,
+      keepRowIndices,
     });
 
     await writeAuditLog({
@@ -327,32 +480,57 @@ export async function importBankStatementPdfAction(
       entity_id: result.batchId,
       action: "create",
       actor_id: auth.userId,
-      summary: `Import CSV estratto conto «${file.name}»: ${result.rowsImported} nuovi / ${result.rowsTotal} rilevati`,
-      payload: result,
+      summary: `Salva estratto CSV+PDF «${csvFile.name}» / «${pdfFile.name}»: ${result.rowsImported} movimenti`,
+      payload: {
+        ...result,
+        csvName: csvFile.name,
+        pdfName: pdfFile.name,
+        keepCount: keepRowIndices?.length ?? null,
+      },
     });
 
-    if (result.rowsTotal === 0) {
-      return {
-        success: false,
-        error:
-          result.notes ||
-          "Nessun movimento riconosciuto nel CSV. Attese 5 colonne fisse: Data;Data Valuta;Uscite;Entrate;Causale.",
-      };
-    }
-
-    return { success: true, ...result };
+    return {
+      success: true,
+      batchId: result.batchId,
+      rowsTotal: result.rowsTotal,
+      rowsImported: result.rowsImported,
+      rowsSkipped: result.rowsSkipped,
+      rowsMatched: result.rowsMatched,
+      rowsDoubtful: result.rowsDoubtful,
+      parserModel: result.parserModel,
+      notes: result.notes,
+      dateFrom: result.dateFrom,
+      dateTo: result.dateTo,
+      pdfFileName: result.pdfFileName,
+      totalsImported: result.totalsImported,
+      totalsDetected: result.totalsDetected,
+    };
   } catch (e) {
-    console.error("[bank csv import]", e);
+    console.error("[bank save import]", e);
     return {
       success: false,
-      error: e instanceof Error ? e.message : "Import CSV fallito.",
+      error: e instanceof Error ? e.message : "Salvataggio fallito.",
     };
   }
 }
 
+/** Compat: vecchio nome azione → ora richiede flusso anteprima + save. */
+export async function importBankStatementPdfAction(
+  formData: FormData
+): Promise<{ success: false; error: string }> {
+  await requireAreaAccess("area-fiscale");
+  void formData;
+  return {
+    success: false,
+    error:
+      "Usa «Carica anteprima» poi «Salva nel DB» con CSV e PDF originale collegati.",
+  };
+}
+
 /**
  * PDF estratto conto → parser Python deterministico → CSV 5 col → DB.
- * Nessun LLM.
+ * Il PDF originale viene salvato come fonte collegata al lotto.
+ * (Flusso legacy / lab — in Production preferire CSV + PDF da UI.)
  */
 export async function importBankStatementFromDeterministicPdfAction(
   formData: FormData
@@ -391,8 +569,7 @@ export async function importBankStatementFromDeterministicPdfAction(
   if (!(file instanceof File)) {
     return { success: false, error: "Seleziona un file PDF." };
   }
-  const nameLower = file.name.toLowerCase();
-  if (!nameLower.endsWith(".pdf") && file.type !== "application/pdf") {
+  if (!isPdfFile(file)) {
     return { success: false, error: "Estensione richiesta: .pdf" };
   }
   if (file.size > 20 * 1024 * 1024) {
@@ -419,11 +596,13 @@ export async function importBankStatementFromDeterministicPdfAction(
     const csv = bankPdfRowsToCsv(result.rows);
     const csvBuffer = Buffer.from(csv, "utf8");
     const supabase = await createClient();
-    const imported = await importBankStatementPdf({
+    const imported = await saveBankStatementImport({
       supabase,
       userId: auth.userId,
-      fileName: file.name.replace(/\.pdf$/i, ".csv"),
-      buffer: csvBuffer,
+      csvFileName: file.name.replace(/\.pdf$/i, ".csv"),
+      csvBuffer,
+      pdfFileName: file.name,
+      pdfBuffer,
       accountName,
     });
 

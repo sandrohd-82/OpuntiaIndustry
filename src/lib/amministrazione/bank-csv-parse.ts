@@ -131,8 +131,13 @@ export function parseCsvAmountStrict(raw: string): number {
   return Number.isFinite(n) ? Math.abs(n) : 0;
 }
 
-export type ParseBankCsvResult = ParseBankStatementResult & {
+export type ParseBankCsvResult = {
+  text: string;
   lines: ParsedBankCsvLine[];
+  doubtful: ParseBankStatementResult["doubtful"];
+  excluded: ParseBankStatementResult["excluded"];
+  parserModel: string;
+  notes: string;
 };
 
 /**
