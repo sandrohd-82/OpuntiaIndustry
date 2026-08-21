@@ -69,7 +69,7 @@ export function CodiceRigaAcquistoSelect({
         setHits(res.hits);
         setLoaded(true);
       });
-    }, 280);
+    }, 450);
     return () => window.clearTimeout(handle);
   }, [descrizione, codice, fornitoreId, sameKey, catalogRevision]);
 

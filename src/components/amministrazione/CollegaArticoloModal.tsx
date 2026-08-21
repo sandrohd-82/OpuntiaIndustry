@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import {
   searchCollegaCatalogoAction,
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
+import { CERCA_MATCH_PRIMARY_PCT } from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
+import { normalizeInvoiceLineText } from "@/lib/sku-generator";
 
 type Props = {
   descrizioneRiga: string;
@@ -18,12 +20,6 @@ type Props = {
   onClose: () => void;
   onCollega: (hit: CollegaCatalogoHit) => void;
   onCreaNuovo: (kind: CatalogoLifecycleKind) => void;
-};
-
-const SOURCE_LABEL: Record<CollegaCatalogoHit["source"], string> = {
-  stessa_fattura: "Stessa fattura",
-  stessa_azienda: "Stessa azienda",
-  catalogo: "Catalogo",
 };
 
 const KIND_LABEL: Record<CatalogoLifecycleKind, string> = {
@@ -52,7 +48,9 @@ export function CollegaArticoloModal({
   onCreaNuovo,
 }: Props) {
   const titleId = useId();
-  const [query, setQuery] = useState(() => descrizioneRiga.trim());
+  /** Descrizione scremata una sola volta all’apertura (in memoria). */
+  const cleanedDescRef = useRef(normalizeInvoiceLineText(descrizioneRiga));
+  const [query, setQuery] = useState(() => cleanedDescRef.current);
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({
       servizio: !preferKind || preferKind === "servizio",
@@ -61,40 +59,41 @@ export function CollegaArticoloModal({
       contributo: !preferKind || preferKind === "contributo",
     })
   );
-  /** false = solo stessa fattura → stessa azienda; true = catalogo completo su richiesta. */
-  const [cercaInteroSistema, setCercaInteroSistema] = useState(true);
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [mostraAltro, setMostraAltro] = useState(false);
   const [pending, startTransition] = useTransition();
-
-  const activeKinds = useMemo(
-    () =>
-      (Object.keys(kinds) as CatalogoLifecycleKind[]).filter((k) => kinds[k]),
-    [kinds]
+  const sameKey = useMemo(
+    () => sameInvoiceCodici.join("|"),
+    [sameInvoiceCodici]
   );
-  const activeKindsKey = activeKinds.slice().sort().join(",");
+  const searchGen = useRef(0);
 
+  /** Una sola ricerca server: all’apertura e quando cambia il testo digitato (debounced). */
   useEffect(() => {
     let cancelled = false;
+    const gen = ++searchGen.current;
     const handle = window.setTimeout(() => {
       startTransition(async () => {
-        if (activeKinds.length === 0) {
-          if (!cancelled) {
+        const q =
+          normalizeInvoiceLineText(query) ||
+          cleanedDescRef.current ||
+          query.trim();
+        if (!q) {
+          if (!cancelled && gen === searchGen.current) {
             setHits([]);
             setError(null);
           }
           return;
         }
-        const searchQuery = query.trim() || descrizioneRiga.trim();
         const res = await searchCollegaCatalogoAction({
-          query: searchQuery,
+          query: q,
           fornitoreId,
-          sameInvoiceCodici,
-          kinds: activeKinds,
-          includeAll: cercaInteroSistema,
-          limit: cercaInteroSistema ? 1200 : 200,
+          sameInvoiceCodici: sameKey.split("|").filter(Boolean),
+          kinds: null, // tutte; filtro kind solo in UI
+          limit: 80,
         });
-        if (cancelled) return;
+        if (cancelled || gen !== searchGen.current) return;
         if (!res.success) {
           setError(res.error);
           setHits([]);
@@ -102,46 +101,34 @@ export function CollegaArticoloModal({
         }
         setError(null);
         setHits(res.hits);
+        setMostraAltro(false);
       });
-    }, 200);
+    }, query === cleanedDescRef.current ? 0 : 280);
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeKindsKey stabilizza l’array kinds
-  }, [
-    query,
-    fornitoreId,
-    sameInvoiceCodici,
-    activeKindsKey,
-    cercaInteroSistema,
-    descrizioneRiga,
-  ]);
+  }, [query, fornitoreId, sameKey]);
 
-  const visibleHits = useMemo(() => {
-    if (cercaInteroSistema) {
-      return hits;
-    }
-    // Contestuale: solo stessa fattura / stessa azienda (niente catalogo generico)
-    return hits.filter(
-      (h) => h.source === "stessa_fattura" || h.source === "stessa_azienda"
-    );
-  }, [hits, cercaInteroSistema]);
+  const filteredByKind = useMemo(() => {
+    return hits.filter((h) => kinds[h.catalogoKind]);
+  }, [hits, kinds]);
 
-  const grouped = useMemo(() => {
-    const g: Record<CollegaCatalogoHit["source"], CollegaCatalogoHit[]> = {
-      stessa_fattura: [],
-      stessa_azienda: [],
-      catalogo: [],
-    };
-    for (const h of visibleHits) g[h.source].push(h);
-    return g;
-  }, [visibleHits]);
+  const primaryHits = useMemo(
+    () => filteredByKind.filter((h) => h.score >= CERCA_MATCH_PRIMARY_PCT),
+    [filteredByKind]
+  );
+  const otherHits = useMemo(
+    () => filteredByKind.filter((h) => h.score < CERCA_MATCH_PRIMARY_PCT),
+    [filteredByKind]
+  );
+  const visibleHits = mostraAltro
+    ? [...primaryHits, ...otherHits]
+    : primaryHits;
 
   function toggleKind(k: CatalogoLifecycleKind) {
     setKinds((prev) => {
       const next = { ...prev, [k]: !prev[k] };
-      // Almeno una categoria (anche solo Contributi)
       if (
         !next.servizio &&
         !next.prodotto &&
@@ -171,6 +158,11 @@ export function CollegaArticoloModal({
             <span className="text-[10px] text-[var(--muted)]">
               {KIND_LABEL[h.catalogoKind]}
             </span>
+            {h.source === "stessa_azienda" || h.source === "stessa_fattura" ? (
+              <span className="text-[10px] font-medium text-emerald-700">
+                {h.source === "stessa_fattura" ? "fattura" : "azienda"}
+              </span>
+            ) : null}
           </div>
           <p className="truncate text-xs text-[var(--muted)]">{h.nome}</p>
         </div>
@@ -203,26 +195,18 @@ export function CollegaArticoloModal({
           Cerca codice
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {cercaInteroSistema
-            ? "Tutti i codici del sistema, ordinati per % di affinità alla descrizione. Screma con le check Servizi / Prodotti / Materia prima."
-            : "Solo codici già usati da questa azienda: prima quelli della stessa fattura, poi gli altri della scheda fornitore."}
+          Match veloce sulle descrizioni (≥{CERCA_MATCH_PRIMARY_PCT}%). Filtri
+          categoria solo in locale.
         </p>
-        {cercaInteroSistema ? (
-          <button
-            type="button"
-            onClick={() => setCercaInteroSistema(false)}
-            className="mt-1 text-xs font-medium text-[var(--primary)] hover:underline"
-          >
-            Torna al circuito contestuale
-          </button>
-        ) : null}
 
         {descrizioneRiga ? (
           <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Descrizione riga
+              Descrizione (scremata)
             </p>
-            <p className="mt-0.5 text-sm text-slate-800">{descrizioneRiga}</p>
+            <p className="mt-0.5 text-sm text-slate-800">
+              {cleanedDescRef.current || descrizioneRiga}
+            </p>
           </div>
         ) : null}
 
@@ -236,7 +220,7 @@ export function CollegaArticoloModal({
           <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">
-                Suggerito dallo scan
+                Suggerito
               </p>
               <p className="truncate font-mono text-xs font-semibold">
                 {suggestedHit.codice}
@@ -262,19 +246,19 @@ export function CollegaArticoloModal({
           <div className="flex flex-wrap gap-3">
             {(["servizio", "prodotto", "materia", "contributo"] as const).map(
               (k) => (
-              <label
-                key={k}
-                className="inline-flex items-center gap-1.5 text-sm text-slate-800"
-              >
-                <input
-                  type="checkbox"
-                  checked={kinds[k]}
-                  onChange={() => toggleKind(k)}
-                  className="rounded border-[var(--border)]"
-                />
-                {KIND_LABEL[k]}
-              </label>
-            )
+                <label
+                  key={k}
+                  className="inline-flex items-center gap-1.5 text-sm text-slate-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={kinds[k]}
+                    onChange={() => toggleKind(k)}
+                    className="rounded border-[var(--border)]"
+                  />
+                  {KIND_LABEL[k]}
+                </label>
+              )
             )}
           </div>
         </fieldset>
@@ -282,70 +266,44 @@ export function CollegaArticoloModal({
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca per descrizione o codice…"
+          placeholder="Modifica testo di ricerca…"
           className="mt-3 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           autoFocus
         />
 
-        {error ? (
-          <p className="mt-2 text-xs text-red-700">{error}</p>
-        ) : null}
+        {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
         {pending ? (
           <p className="mt-2 text-xs text-[var(--muted)]">Ricerca…</p>
         ) : null}
 
-        <div className="mt-4 max-h-80 space-y-4 overflow-y-auto">
-          {cercaInteroSistema ? (
-            visibleHits.length > 0 ? (
-              <div>
-                <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Tutti i codici · per affinità ({visibleHits.length})
-                </h3>
-                <ul className="space-y-1.5">
-                  {visibleHits.map((h) => renderHitRow(h))}
-                </ul>
-              </div>
-            ) : null
-          ) : (
-            (["stessa_fattura", "stessa_azienda"] as const).map((src) =>
-              grouped[src].length === 0 ? null : (
-                <div key={src}>
-                  <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    {SOURCE_LABEL[src]}
-                  </h3>
-                  <ul className="space-y-1.5">
-                    {grouped[src].map((h) => renderHitRow(h))}
-                  </ul>
-                </div>
-              )
-            )
-          )}
+        <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
+          {visibleHits.length > 0 ? (
+            <>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                {mostraAltro
+                  ? `Tutti i risultati (${visibleHits.length})`
+                  : `Affinità ≥${CERCA_MATCH_PRIMARY_PCT}% (${primaryHits.length})`}
+              </h3>
+              <ul className="space-y-1.5">{visibleHits.map(renderHitRow)}</ul>
+            </>
+          ) : null}
           {!pending && visibleHits.length === 0 ? (
-            <div className="space-y-3 py-3 text-center">
-              <p className="text-sm text-[var(--muted)]">
-                {cercaInteroSistema
-                  ? "Nessun codice per i filtri selezionati. Attiva Servizi / Prodotti / Materia / Contributi o crea un nuovo codice."
-                  : "Nessun codice di questa azienda / fattura. Estendi la ricerca o crea un nuovo codice."}
-              </p>
-            </div>
+            <p className="py-3 text-center text-sm text-[var(--muted)]">
+              {primaryHits.length === 0 && otherHits.length > 0 && !mostraAltro
+                ? `Nessun match ≥${CERCA_MATCH_PRIMARY_PCT}%. Usa «Mostra altro» o crea un codice.`
+                : "Nessun codice trovato. Prova a creare un nuovo codice."}
+            </p>
           ) : null}
         </div>
 
-        {!cercaInteroSistema ? (
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => {
-                if (!query.trim() && descrizioneRiga.trim()) {
-                  setQuery(descrizioneRiga);
-                }
-                setCercaInteroSistema(true);
-              }}
-              className="w-full rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-950 hover:bg-sky-100"
-            >
-              Estendi ricerca sull’intero sistema
-            </button>
-          </div>
+        {!mostraAltro && otherHits.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setMostraAltro(true)}
+            className="mt-3 w-full rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-950 hover:bg-sky-100"
+          >
+            Mostra altro ({otherHits.length})
+          </button>
         ) : null}
 
         <div className="mt-4 rounded-lg border border-dashed border-[var(--border)] bg-slate-50/80 px-3 py-3">
@@ -353,15 +311,15 @@ export function CollegaArticoloModal({
           <div className="mt-2 flex flex-wrap gap-2">
             {(["servizio", "prodotto", "materia", "contributo"] as const).map(
               (k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => onCreaNuovo(k)}
-                className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
-              >
-                + {KIND_CREATE_LABEL[k]}
-              </button>
-            )
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => onCreaNuovo(k)}
+                  className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                >
+                  + {KIND_CREATE_LABEL[k]}
+                </button>
+              )
             )}
           </div>
         </div>

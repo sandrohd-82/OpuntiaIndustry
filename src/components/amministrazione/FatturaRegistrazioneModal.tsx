@@ -741,13 +741,13 @@ export function FatturaRegistrazioneModal({
     };
   }, [isRicevuta]);
 
-  /** Scan automatico descrizione ↔ catalogo (solo suggerimenti, nessuna auto-associazione). */
+  /** Scan automatico descrizione ↔ catalogo (leggero, debounced; non blocca la UI). */
   useEffect(() => {
     if (!isRicevuta) {
       setMatchHints({});
       return;
     }
-    if (vociAcquisto.length === 0 && righe.length === 0) return;
+    if (righe.length === 0) return;
     let cancelled = false;
     const handle = window.setTimeout(() => {
       setMatchScanPending(true);
@@ -775,17 +775,19 @@ export function FatturaRegistrazioneModal({
         for (const h of res.hints) next[h.key] = h;
         setMatchHints(next);
       })();
-    }, 350);
+    }, 900);
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chiave stabile su contenuti riga
   }, [
     isRicevuta,
     anagraficaId,
-    vociAcquisto,
-    righe,
     initial?.codiceCatalogoPending,
+    // stringa stabile: evita scan a ogni render object identity
+    righe.map((r) => `${r.codice ?? ""}\t${r.descrizione ?? ""}`).join("\n"),
+    vociAcquisto.map((v) => v.codice).join("|"),
   ]);
 
   /** Carica legami articolo↔articolo per le targhe sulle righe (nuvola in fattura). */
