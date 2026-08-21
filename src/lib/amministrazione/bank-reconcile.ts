@@ -1,16 +1,30 @@
 /**
  * Scoring e riconciliazione movimento banca ↔ fattura (deterministico).
  *
- * Criteri:
- * 1. Importo riga ≈ totale fattura (tolleranza centesimo)
- * 2. Data fattura entro ±5 giorni dalla data movimento
- * 3. Dove possibile: ragione sociale / intestazione in causale (o controparte)
- * Cerca su tutte le fatture salvate in fic_invoices (emesse + ricevute).
+ * Regole:
+ * - Importo: confronto in valore assoluto (tolleranza 1 centesimo).
+ * - Segno movimento: solo direzione catalogo
+ *     + / entrata → fatture emesse (incasso)
+ *     − / uscita  → fatture ricevute (pagamento)
+ * - Data fattura entro ±5 giorni dalla data movimento
+ * - Bonus: ragione sociale / n. fattura in causale
  */
 
 export const BANK_RECONCILE_DATE_WINDOW_DAYS = 5;
 /** Base sufficiente: importo + finestra data. */
 export const BANK_RECONCILE_MIN_SCORE = 70;
+
+export type BankReconcileInvoiceKind = "emessa" | "ricevuta";
+
+/** Catalogo da cercare in base al segno del movimento. */
+export function invoiceKindFromBankAmount(
+  amount: number
+): BankReconcileInvoiceKind | null {
+  const n = Number(amount) || 0;
+  if (n > 0) return "emessa";
+  if (n < 0) return "ricevuta";
+  return null;
+}
 
 function normalizeText(raw: string): string {
   return String(raw ?? "")
@@ -98,12 +112,21 @@ export function scoreBankInvoiceMatch(input: {
   invoiceNumber: string;
   txDate: string | null;
   invoiceDate: string | null;
+  /** Se valorizzato, scarta fatture del catalogo sbagliato rispetto al segno. */
+  invoiceKind?: BankReconcileInvoiceKind | string | null;
 }): number {
-  const absTx = Math.abs(Number(input.amount) || 0);
+  const amount = Number(input.amount) || 0;
+  const expectedKind = invoiceKindFromBankAmount(amount);
+  if (!expectedKind) return 0;
+  if (input.invoiceKind != null && String(input.invoiceKind) !== expectedKind) {
+    return 0;
+  }
+
+  const absTx = Math.abs(amount);
   const absInv = Math.abs(Number(input.invoiceGross) || 0);
   if (absTx <= 0 || absInv <= 0) return 0;
 
-  // 1) Importo: devono coincidere (tolleranza 1 centesimo)
+  // 1) Importo: valori assoluti (tolleranza 1 centesimo)
   const amountDiff = Math.abs(absTx - absInv);
   if (amountDiff > 0.01) return 0;
 
@@ -114,7 +137,6 @@ export function scoreBankInvoiceMatch(input: {
 
   // Base: importo + data in finestra
   let score = 70;
-  // Più vicina la data, piccolo bonus
   if (days <= 1) score += 5;
   else if (days <= 3) score += 3;
 

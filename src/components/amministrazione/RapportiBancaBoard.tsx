@@ -223,6 +223,7 @@ export function RapportiBancaBoard() {
           invoiceId: string;
           matchScore: number;
           status: "auto_matched" | "manually_verified" | "discrepancy";
+          invoiceKind?: "emessa" | "ricevuta";
         } | null;
       }
     > = {};
@@ -235,6 +236,7 @@ export function RapportiBancaBoard() {
               invoiceId: l.match.invoiceId,
               matchScore: l.match.matchScore,
               status: l.match.status,
+              invoiceKind: l.match.invoiceKind,
             }
           : null,
       };

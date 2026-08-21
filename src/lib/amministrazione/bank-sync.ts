@@ -36,7 +36,7 @@ function resolveAccountName(
   return fromEntry || "BCC Don Rizzo";
 }
 
-/** Sincronizza cashbook FiC → bank_transactions + match su fic_invoices. */
+/** Sincronizza cashbook FiC → bank_transactions + match su fatture interne. */
 export async function syncBankReportsFromFic(input: {
   supabase: Supabase;
   userId: string | null;
@@ -86,19 +86,8 @@ export async function syncBankReportsFromFic(input: {
   const entries = [...mergedByFicId.values()];
   const accountName = resolveAccountName(entries, accounts);
 
-  type Inv = {
-    id: string;
-    fic_id: number;
-    type: string;
-    number: string;
-    entity_name: string;
-    amount_gross: number;
-    date: string | null;
-    status: string;
-  };
-  const invRows = (await loadAllFicInvoicesForReconcile(
-    input.supabase
-  )) as Inv[];
+  type Inv = Awaited<ReturnType<typeof loadAllFicInvoicesForReconcile>>[number];
+  const invRows = await loadAllFicInvoicesForReconcile(input.supabase);
 
   let upserted = 0;
   let matched = 0;
@@ -169,6 +158,7 @@ export async function syncBankReportsFromFic(input: {
           invoiceNumber: byDoc.number,
           txDate: entry.date,
           invoiceDate: byDoc.date,
+          invoiceKind: byDoc.kind,
         });
         if (score >= BANK_RECONCILE_MIN_SCORE) {
           best = { inv: byDoc, score: Math.max(score, 90) };
@@ -178,9 +168,6 @@ export async function syncBankReportsFromFic(input: {
 
     if (!best) {
       for (const inv of invRows) {
-        // Entrate ↔ emesse; uscite ↔ ricevute
-        if (entry.amount > 0 && inv.type !== "issued") continue;
-        if (entry.amount < 0 && inv.type !== "received") continue;
         const score = scoreBankInvoiceMatch({
           amount: entry.amount,
           invoiceGross: Number(inv.amount_gross),
@@ -190,6 +177,7 @@ export async function syncBankReportsFromFic(input: {
           invoiceNumber: inv.number,
           txDate: entry.date,
           invoiceDate: inv.date,
+          invoiceKind: inv.kind,
         });
         if (score < BANK_RECONCILE_MIN_SCORE) continue;
         if (!best || score > best.score) best = { inv, score };
@@ -213,6 +201,7 @@ export async function syncBankReportsFromFic(input: {
             .from("bank_invoice_matches")
             .update({
               match_score: best.score,
+              invoice_kind: best.inv.kind,
               status,
             })
             .eq("id", existingMatch.id);
@@ -221,6 +210,7 @@ export async function syncBankReportsFromFic(input: {
         await input.supabase.from("bank_invoice_matches").insert({
           transaction_id: transactionId,
           invoice_id: best.inv.id,
+          invoice_kind: best.inv.kind,
           match_score: best.score,
           status,
           created_by: input.userId,
@@ -229,15 +219,21 @@ export async function syncBankReportsFromFic(input: {
       }
 
       if (best.inv.status !== "paid") {
-        paidInvoiceIds.add(best.inv.id);
+        paidInvoiceIds.add(`${best.inv.kind}:${best.inv.id}`);
       }
     }
   }
 
-  for (const invoiceId of paidInvoiceIds) {
+  for (const key of paidInvoiceIds) {
+    const [kind, invoiceId] = key.split(":");
+    const table =
+      kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
     const { error } = await input.supabase
-      .from("fic_invoices")
-      .update({ status: "paid", updated_by: input.userId })
+      .from(table)
+      .update({
+        stato_pagamento: "pagato",
+        updated_by: input.userId,
+      })
       .eq("id", invoiceId)
       .is("deleted_at", null);
     if (!error) invoicesMarkedPaid += 1;

@@ -27,6 +27,7 @@ export type BankLineWorkState = {
     invoiceId: string;
     matchScore: number;
     status: "auto_matched" | "manually_verified" | "discrepancy";
+    invoiceKind?: "emessa" | "ricevuta";
   } | null;
 };
 
@@ -351,16 +352,7 @@ export async function saveBankStatementImport(input: {
 
   const invRows = await loadAllFicInvoicesForReconcile(input.supabase);
 
-  type Inv = {
-    id: string;
-    fic_id: number;
-    type: string;
-    number: string;
-    entity_name: string;
-    amount_gross: number;
-    date: string | null;
-    status: string;
-  };
+  type Inv = (typeof invRows)[number];
 
   let rowsImported = 0;
   let rowsSkipped = 0;
@@ -457,11 +449,22 @@ export async function saveBankStatementImport(input: {
     accumulateTotals(totalsImported, amount);
 
     // Preferisci match deciso in sessione di lavoro; altrimenti auto-match
-    let chosen: { invoiceId: string; score: number; status: string } | null =
-      null;
+    let chosen: {
+      invoiceId: string;
+      kind: "emessa" | "ricevuta";
+      score: number;
+      status: string;
+    } | null = null;
     if (work?.match?.invoiceId) {
+      const fromWork = invRows.find((i) => i.id === work.match!.invoiceId);
       chosen = {
         invoiceId: work.match.invoiceId,
+        kind:
+          work.match.invoiceKind === "emessa" ||
+          work.match.invoiceKind === "ricevuta"
+            ? work.match.invoiceKind
+            : fromWork?.kind ??
+              (amount < 0 ? "ricevuta" : "emessa"),
         score: work.match.matchScore,
         status: work.match.status,
       };
@@ -477,6 +480,7 @@ export async function saveBankStatementImport(input: {
           invoiceNumber: String(inv.number ?? ""),
           txDate: line.transactionDate,
           invoiceDate: inv.date,
+          invoiceKind: inv.kind,
         });
         if (score >= BANK_RECONCILE_MIN_SCORE && (!best || score > best.score)) {
           best = { inv, score };
@@ -485,6 +489,7 @@ export async function saveBankStatementImport(input: {
       if (best) {
         chosen = {
           invoiceId: best.inv.id,
+          kind: best.inv.kind,
           score: best.score,
           status: "auto_matched",
         };
@@ -497,6 +502,7 @@ export async function saveBankStatementImport(input: {
         .insert({
           transaction_id: inserted.id,
           invoice_id: chosen.invoiceId,
+          invoice_kind: chosen.kind,
           match_score: chosen.score,
           status: chosen.status,
           verified_at:
@@ -513,9 +519,14 @@ export async function saveBankStatementImport(input: {
           line.signSource === "csv-col3-uscita" ||
           line.signSource === "csv-col4-entrata";
         if (strongSign && inv && inv.status !== "paid") {
+          const table =
+            chosen.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
           await input.supabase
-            .from("fic_invoices")
-            .update({ status: "paid", updated_by: input.userId })
+            .from(table)
+            .update({
+              stato_pagamento: "pagato",
+              updated_by: input.userId,
+            })
             .eq("id", chosen.invoiceId)
             .is("deleted_at", null);
         }

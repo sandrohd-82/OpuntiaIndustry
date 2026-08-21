@@ -27,6 +27,8 @@ export type BankPreviewMatchView = {
   status: "auto_matched" | "manually_verified" | "discrepancy";
   invoiceNumber: string;
   invoiceType: string;
+  /** Catalogo interno: emessa (+) / ricevuta (−) */
+  invoiceKind?: "emessa" | "ricevuta";
   invoiceGross: number;
   invoiceEntityName: string;
   invoiceEntityVat: string;
@@ -85,6 +87,7 @@ export type BankTransactionView = {
     status: "auto_matched" | "manually_verified" | "discrepancy";
     invoiceNumber: string;
     invoiceType: string;
+    invoiceKind?: "emessa" | "ricevuta";
     invoiceGross: number;
     invoiceEntityName: string;
     invoiceEntityVat: string;
@@ -645,6 +648,7 @@ export async function reconcilePreviewLinesAction(input: {
         status: "manually_verified",
         invoiceNumber: String(best.inv.number ?? ""),
         invoiceType: String(best.inv.type ?? ""),
+        invoiceKind: best.inv.kind,
         invoiceGross: Number(best.inv.amount_gross) || 0,
         invoiceEntityName: String(best.inv.entity_name ?? ""),
         invoiceEntityVat: "",
@@ -891,6 +895,7 @@ export async function listBankTransactionsAction(input: {
     {
       id: string;
       invoice_id: string;
+      invoice_kind: "emessa" | "ricevuta" | null;
       match_score: number;
       status: string;
     }
@@ -899,16 +904,19 @@ export async function listBankTransactionsAction(input: {
   if (txIds.length > 0) {
     const { data: matches } = await supabase
       .from("bank_invoice_matches")
-      .select("id, transaction_id, invoice_id, match_score, status")
+      .select("id, transaction_id, invoice_id, invoice_kind, match_score, status")
       .in("transaction_id", txIds)
       .is("deleted_at", null);
     for (const m of matches ?? []) {
       const tid = String(m.transaction_id);
       const prev = matchByTx.get(tid);
       if (!prev || Number(m.match_score) > prev.match_score) {
+        const kindRaw = String(m.invoice_kind ?? "");
         matchByTx.set(tid, {
           id: String(m.id),
           invoice_id: String(m.invoice_id),
+          invoice_kind:
+            kindRaw === "emessa" || kindRaw === "ricevuta" ? kindRaw : null,
           match_score: Number(m.match_score) || 0,
           status: String(m.status),
         });
@@ -916,13 +924,13 @@ export async function listBankTransactionsAction(input: {
     }
   }
 
-  const invoiceIds = [...new Set([...matchByTx.values()].map((m) => m.invoice_id))];
   const invoiceById = new Map<
     string,
     {
       fic_id: number;
       number: string;
       type: string;
+      kind: "emessa" | "ricevuta";
       amount_gross: number;
       entity_name: string;
       entity_vat: string;
@@ -930,24 +938,60 @@ export async function listBankTransactionsAction(input: {
       status: string;
     }
   >();
-  if (invoiceIds.length > 0) {
+
+  const emessaIds = [...matchByTx.values()]
+    .filter((m) => m.invoice_kind === "emessa" || m.invoice_kind == null)
+    .map((m) => m.invoice_id);
+  const ricevutaIds = [...matchByTx.values()]
+    .filter((m) => m.invoice_kind === "ricevuta" || m.invoice_kind == null)
+    .map((m) => m.invoice_id);
+
+  if (emessaIds.length > 0) {
     const { data: invs } = await supabase
-      .from("fic_invoices")
+      .from("fatture_emesse")
       .select(
-        "id, fic_id, number, type, amount_gross, entity_name, entity_vat, date, status"
+        "id, fic_id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione, stato_pagamento"
       )
-      .in("id", invoiceIds)
+      .in("id", [...new Set(emessaIds)])
       .is("deleted_at", null);
     for (const i of invs ?? []) {
       invoiceById.set(String(i.id), {
         fic_id: Number(i.fic_id) || 0,
-        number: String(i.number ?? ""),
-        type: String(i.type ?? ""),
-        amount_gross: Number(i.amount_gross) || 0,
-        entity_name: String(i.entity_name ?? ""),
-        entity_vat: String(i.entity_vat ?? ""),
-        date: (i.date as string | null) ?? null,
-        status: String(i.status ?? ""),
+        number:
+          String(i.numero_fattura ?? "").trim() ||
+          String(i.numero_interno ?? "").trim(),
+        type: "issued",
+        kind: "emessa",
+        amount_gross: Math.abs(Number(i.totale) || 0),
+        entity_name: String(i.cliente_ragione_sociale ?? ""),
+        entity_vat: "",
+        date: (i.data_emissione as string | null) ?? null,
+        status: String(i.stato_pagamento ?? ""),
+      });
+    }
+  }
+  if (ricevutaIds.length > 0) {
+    const { data: invs } = await supabase
+      .from("fatture_ricevute")
+      .select(
+        "id, fic_id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione, stato_pagamento"
+      )
+      .in("id", [...new Set(ricevutaIds)])
+      .is("deleted_at", null);
+    for (const i of invs ?? []) {
+      if (invoiceById.has(String(i.id))) continue;
+      invoiceById.set(String(i.id), {
+        fic_id: Number(i.fic_id) || 0,
+        number:
+          String(i.numero_documento_esterno ?? "").trim() ||
+          String(i.numero_interno ?? "").trim(),
+        type: "received",
+        kind: "ricevuta",
+        amount_gross: Math.abs(Number(i.totale) || 0),
+        entity_name: String(i.fornitore_ragione_sociale ?? ""),
+        entity_vat: "",
+        date: (i.data_emissione as string | null) ?? null,
+        status: String(i.stato_pagamento ?? ""),
       });
     }
   }
@@ -979,6 +1023,7 @@ export async function listBankTransactionsAction(input: {
               >["status"],
               invoiceNumber: inv.number,
               invoiceType: inv.type,
+              invoiceKind: inv.kind,
               invoiceGross: inv.amount_gross,
               invoiceEntityName: inv.entity_name,
               invoiceEntityVat: inv.entity_vat,
@@ -1042,6 +1087,7 @@ type InvCandidate = {
   id: string;
   fic_id: number;
   type: string;
+  kind: "emessa" | "ricevuta";
   number: string;
   entity_name: string;
   amount_gross: number;
@@ -1052,7 +1098,7 @@ type InvCandidate = {
 async function loadInvoiceCandidates(
   supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<InvCandidate[]> {
-  // Tutte le fatture salvate (emesse + ricevute), senza tetto a 1000
+  // Fatture operative interne (emesse + ricevute), non la cache fic_invoices
   return loadAllFicInvoicesForReconcile(supabase);
 }
 
@@ -1078,6 +1124,7 @@ async function bestInvoiceForTx(
       invoiceNumber: String(inv.number ?? ""),
       txDate: tx.transaction_date,
       invoiceDate: inv.date,
+      invoiceKind: inv.kind,
     });
     if (score >= BANK_RECONCILE_MIN_SCORE && (!best || score > best.score)) {
       best = { inv, score };
@@ -1145,7 +1192,7 @@ export async function reconcileBankTransactionAction(input: {
       success: true,
       matched: false,
       reason:
-        "Nessuna fattura compatibile (importo/causale/data). Carica o sincronizza le fatture e riprova.",
+        "Nessuna fattura compatibile (importo assoluto ±1¢, data ±5gg, catalogo: + emesse / − ricevute).",
     };
   }
 
@@ -1155,6 +1202,7 @@ export async function reconcileBankTransactionAction(input: {
     .insert({
       transaction_id: id,
       invoice_id: best.inv.id,
+      invoice_kind: best.inv.kind,
       match_score: best.score,
       status: "manually_verified",
       verified_at: now,
@@ -1176,6 +1224,7 @@ export async function reconcileBankTransactionAction(input: {
     payload: {
       transaction_id: id,
       invoice_id: best.inv.id,
+      invoice_kind: best.inv.kind,
       score: best.score,
     },
   });
@@ -1266,6 +1315,7 @@ export async function reconcileAllBankTransactionsAction(input: {
       .insert({
         transaction_id: tid,
         invoice_id: best.inv.id,
+        invoice_kind: best.inv.kind,
         match_score: best.score,
         status: "auto_matched",
         verified_at: now,
