@@ -38,6 +38,7 @@ import {
   type BankPreviewLineView,
   type BankContextTxView,
 } from "@/app/actions/bank-reports";
+import { isBankCommissionFee } from "@/lib/amministrazione/bank-reconcile";
 import { ConciliaQuestoModal } from "@/components/amministrazione/ConciliaQuestoModal";
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 
@@ -211,7 +212,11 @@ export function RapportiBancaBoard() {
       return previewLines.filter((l) => l.signNeedsReview);
     }
     if (tipo === "non_riconciliati") {
-      return previewLines.filter((l) => !l.match);
+      return previewLines.filter(
+        (l) =>
+          !l.match &&
+          !isBankCommissionFee(l.amount, l.description || l.causaleRaw)
+      );
     }
     return previewLines;
   }, [previewLines, tipo]);
@@ -1390,6 +1395,13 @@ export function RapportiBancaBoard() {
                               Fatt. N° {row.match.invoiceNumber || "—"} ·{" "}
                               {row.match.matchScore}%
                             </span>
+                          ) : isBankCommissionFee(
+                              row.amount,
+                              row.description || row.causaleRaw
+                            ) ? (
+                            <span className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-900">
+                              Comm. bancarie
+                            </span>
                           ) : (
                             <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
                               Da riconciliare
@@ -1398,7 +1410,19 @@ export function RapportiBancaBoard() {
                         </td>
                         <td className="print:hidden px-3 py-2 align-top">
                           <div className="flex flex-wrap gap-1">
-                            {!row.match ? (
+                            {row.match ? (
+                              <button
+                                type="button"
+                                disabled={pending}
+                                onClick={() => clearPreviewMatch(row.rowIndex)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Scollega
+                              </button>
+                            ) : isBankCommissionFee(
+                                row.amount,
+                                row.description || row.causaleRaw
+                              ) ? null : (
                               <button
                                 type="button"
                                 disabled={pending}
@@ -1410,17 +1434,12 @@ export function RapportiBancaBoard() {
                                 <FaScaleBalanced size={11} />
                                 Concilia questo
                               </button>
-                            ) : (
-                              <button
-                                type="button"
-                                disabled={pending}
-                                onClick={() => clearPreviewMatch(row.rowIndex)}
-                                className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                              >
-                                Scollega
-                              </button>
                             )}
-                            {!row.match ? (
+                            {!row.match &&
+                            !isBankCommissionFee(
+                              row.amount,
+                              row.description || row.causaleRaw
+                            ) ? (
                               <button
                                 type="button"
                                 disabled={pending || row.amount === 0}
@@ -1604,17 +1623,13 @@ export function RapportiBancaBoard() {
                   </td>
                   <td className="px-3 py-2 align-top">
                     {row.match ? (
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          row.match.status === "discrepancy"
-                            ? "bg-amber-100 text-amber-900"
-                            : row.match.status === "manually_verified"
-                              ? "bg-sky-100 text-sky-900"
-                              : "bg-emerald-100 text-emerald-900"
-                        }`}
-                      >
+                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
                         Fatt. N° {row.match.invoiceNumber || "—"} ·{" "}
                         {row.match.matchScore}%
+                      </span>
+                    ) : isBankCommissionFee(row.amount, row.description) ? (
+                      <span className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-900">
+                        Comm. bancarie
                       </span>
                     ) : (
                       <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
@@ -1624,7 +1639,8 @@ export function RapportiBancaBoard() {
                   </td>
                   <td className="print:hidden px-3 py-2 align-top">
                     <div className="flex flex-wrap gap-1">
-                      {!row.match ? (
+                      {!row.match &&
+                      !isBankCommissionFee(row.amount, row.description) ? (
                         <button
                           type="button"
                           disabled={pending}
@@ -1636,7 +1652,8 @@ export function RapportiBancaBoard() {
                           Concilia questo
                         </button>
                       ) : null}
-                      {!row.match ? (
+                      {!row.match &&
+                      !isBankCommissionFee(row.amount, row.description) ? (
                         <button
                           type="button"
                           disabled={pending || row.amount === 0}

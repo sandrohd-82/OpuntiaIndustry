@@ -16,6 +16,7 @@ import {
   invoiceKindFromBankAmount,
   scoreBankInvoiceMatch,
   scoreEntityInCausale,
+  isBankCommissionFee,
   type BankReconcileCandidateView,
 } from "@/lib/amministrazione/bank-reconcile";
 import {
@@ -623,6 +624,10 @@ export async function reconcilePreviewLinesAction(input: {
       skipped += 1;
       continue;
     }
+    if (isBankCommissionFee(line.amount, line.description)) {
+      skipped += 1;
+      continue;
+    }
     attempted += 1;
     const best = await bestInvoiceForTx(
       {
@@ -1038,7 +1043,11 @@ export async function listBankTransactionsAction(input: {
   });
 
   if (input.tipo === "non_riconciliati") {
-    items = items.filter((i) => !i.match || i.match.status === "discrepancy");
+    items = items.filter(
+      (i) =>
+        (!i.match || i.match.status === "discrepancy") &&
+        !isBankCommissionFee(i.amount, i.description)
+    );
   }
 
   return {
@@ -1329,6 +1338,15 @@ export async function reconcileAllBankTransactionsAction(input: {
   for (const tx of txs ?? []) {
     const tid = String(tx.id);
     if (already.has(tid)) {
+      skipped += 1;
+      continue;
+    }
+    if (
+      isBankCommissionFee(
+        Number(tx.amount) || 0,
+        String(tx.description ?? "")
+      )
+    ) {
       skipped += 1;
       continue;
     }
