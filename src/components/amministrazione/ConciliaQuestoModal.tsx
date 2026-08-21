@@ -60,11 +60,13 @@ function CandidateRow({
       </div>
       <p className="mt-0.5 font-medium text-slate-900">{c.entityName || "—"}</p>
       <p className="text-xs text-[var(--muted)]">
+        {c.isDilazione ? "Scadenza rata" : "Data fattura"}:{" "}
         {c.date ? formatDateIt(c.date) : "—"}
         {c.daysFromTx != null
           ? ` · Δ ${Math.round(c.daysFromTx)} gg`
           : ""}{" "}
         · {c.status || "—"}
+        {c.isDilazione ? " · dilazione" : ""}
       </p>
     </button>
   );
@@ -75,7 +77,6 @@ export function ConciliaQuestoModal({
   onClose,
   onLinked,
   onInfo,
-  onError,
 }: Props) {
   const titleId = useId();
   const [step, setStep] = useState<Step>("mode");
@@ -91,8 +92,26 @@ export function ConciliaQuestoModal({
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [kind, setKind] = useState<"emessa" | "ricevuta" | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
+    null
+  );
+  const [selectedDilazioneId, setSelectedDilazioneId] = useState<string | null>(
+    null
+  );
   const [linkMode, setLinkMode] = useState<"manual" | "choice">("manual");
+
+  function clearSelection() {
+    setSelectedKey(null);
+    setSelectedInvoiceId(null);
+    setSelectedDilazioneId(null);
+  }
+
+  function pickCandidate(c: BankReconcileCandidateView) {
+    setSelectedKey(c.candidateKey);
+    setSelectedInvoiceId(c.id);
+    setSelectedDilazioneId(c.dilazioneId);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -123,7 +142,7 @@ export function ConciliaQuestoModal({
       setDateTo(res.dateTo);
       setKind(res.kind);
       setBrowseItems(res.items);
-      setSelectedId(null);
+      clearSelection();
       setStep("browse");
       setLinkMode("manual");
     });
@@ -146,7 +165,7 @@ export function ConciliaQuestoModal({
       }
       if (res.outcome === "matched") {
         onLinked(
-          `Conciliazione automatica: fattura ${res.invoiceNumber || "—"} (${res.score}%).`
+          `Conciliazione automatica: ${res.invoiceNumber || "—"} (${res.score}%).`
         );
         onClose();
         return;
@@ -154,46 +173,44 @@ export function ConciliaQuestoModal({
       if (res.outcome === "needs_choice") {
         setCandidates(res.candidates);
         setKind(res.kind);
-        setSelectedId(null);
+        clearSelection();
         setLinkMode("choice");
         setStep("choice");
         return;
       }
-      // needs_browse
       onInfo(res.reason);
       loadBrowse(BANK_RECONCILE_BROWSE_STEP_DAYS);
     });
   }
 
   function confirmLink() {
-    if (!selectedId || !kind) return;
+    if (!selectedInvoiceId || !kind) return;
     setError(null);
     startTransition(async () => {
       const res = await linkBankTransactionInvoiceAction({
         transactionId: row.id,
-        invoiceId: selectedId,
+        invoiceId: selectedInvoiceId,
         invoiceKind: kind,
+        dilazioneId: selectedDilazioneId,
         mode: linkMode,
       });
       if (!res.success) {
         setError(res.error);
         return;
       }
-      onLinked(
-        `Collegata fattura ${res.invoiceNumber || "—"} (${res.score}%).`
-      );
+      onLinked(`Collegata ${res.invoiceNumber || "—"} (${res.score}%).`);
       onClose();
     });
   }
 
   const catalogLabel =
     kind === "emessa"
-      ? "Fatture emesse"
+      ? "Fatture / rate emesse"
       : kind === "ricevuta"
-        ? "Fatture ricevute"
+        ? "Fatture / rate ricevute"
         : row.amount > 0
-          ? "Fatture emesse"
-          : "Fatture ricevute";
+          ? "Fatture / rate emesse"
+          : "Fatture / rate ricevute";
 
   return (
     <div
@@ -233,9 +250,8 @@ export function ConciliaQuestoModal({
           {step === "mode" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Preferisci una proposta automatica (importo = criterio master) o
-                la scelta manuale nell’elenco{" "}
-                {row.amount >= 0 ? "emesse" : "ricevute"}?
+                Importo = criterio master. Se la fattura ha dilazioni, si
+                confrontano le rate (importo + scadenza), non il totale.
               </p>
               <button
                 type="button"
@@ -249,9 +265,9 @@ export function ConciliaQuestoModal({
                     Automatica
                   </span>
                   <span className="mt-0.5 block text-xs text-sky-900/80">
-                    Collega se c’è un solo importo uguale. Se più fatture con lo
-                    stesso importo, scegli tu. Se nessuna, apre l’elenco ±15
-                    giorni.
+                    Collega se c’è un solo importo uguale (fattura o rata). Se
+                    più corrispondenze, scegli tu. Se nessuna, apre l’elenco
+                    ±15 giorni.
                   </span>
                 </span>
               </button>
@@ -281,17 +297,16 @@ export function ConciliaQuestoModal({
           {step === "choice" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Trovate{" "}
-                <strong>{candidates.length}</strong> fatture con lo stesso
-                importo. Seleziona quella corretta e conferma.
+                Trovate <strong>{candidates.length}</strong> voci con lo stesso
+                importo (fatture o rate). Seleziona e conferma.
               </p>
               <ul className="space-y-2">
                 {candidates.map((c) => (
-                  <li key={c.id}>
+                  <li key={c.candidateKey}>
                     <CandidateRow
                       c={c}
-                      selected={selectedId === c.id}
-                      onSelect={() => setSelectedId(c.id)}
+                      selected={selectedKey === c.candidateKey}
+                      onSelect={() => pickCandidate(c)}
                       highlightAmount
                     />
                   </li>
@@ -333,21 +348,21 @@ export function ConciliaQuestoModal({
                 </button>
               </div>
               <p className="text-xs text-[var(--muted)]">
-                In evidenza le righe con importo uguale al movimento (
-                {formatEuro(Math.abs(row.amount))}).
+                In evidenza importo uguale ({formatEuro(Math.abs(row.amount))}).
+                Con dilazioni compare la rata, non il totale fattura.
               </p>
               {browseItems.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-8 text-center text-sm text-[var(--muted)]">
-                  Nessuna fattura in questo periodo. Espandi il range.
+                  Nessuna voce in questo periodo. Espandi il range.
                 </p>
               ) : (
                 <ul className="space-y-2">
                   {browseItems.map((c) => (
-                    <li key={c.id}>
+                    <li key={c.candidateKey}>
                       <CandidateRow
                         c={c}
-                        selected={selectedId === c.id}
-                        onSelect={() => setSelectedId(c.id)}
+                        selected={selectedKey === c.candidateKey}
+                        onSelect={() => pickCandidate(c)}
                         highlightAmount
                       />
                     </li>
@@ -369,7 +384,7 @@ export function ConciliaQuestoModal({
           {step === "choice" || step === "browse" ? (
             <button
               type="button"
-              disabled={pending || !selectedId}
+              disabled={pending || !selectedInvoiceId}
               onClick={confirmLink}
               className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
             >

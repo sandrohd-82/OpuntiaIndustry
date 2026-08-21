@@ -202,6 +202,7 @@ export async function syncBankReportsFromFic(input: {
             .update({
               match_score: best.score,
               invoice_kind: best.inv.kind,
+              dilazione_id: best.inv.dilazioneId,
               status,
             })
             .eq("id", existingMatch.id);
@@ -211,6 +212,7 @@ export async function syncBankReportsFromFic(input: {
           transaction_id: transactionId,
           invoice_id: best.inv.id,
           invoice_kind: best.inv.kind,
+          dilazione_id: best.inv.dilazioneId,
           match_score: best.score,
           status,
           created_by: input.userId,
@@ -218,7 +220,20 @@ export async function syncBankReportsFromFic(input: {
         matched += 1;
       }
 
-      if (best.inv.status !== "paid") {
+      if (best.inv.dilazioneId) {
+        const dilTable =
+          best.inv.kind === "ricevuta"
+            ? "fatture_ricevute_dilazioni"
+            : "fatture_emesse_dilazioni";
+        await input.supabase
+          .from(dilTable)
+          .update({
+            stato_pagamento: "pagato",
+            updated_by: input.userId,
+          })
+          .eq("id", best.inv.dilazioneId)
+          .is("deleted_at", null);
+      } else if (best.inv.status !== "paid") {
         paidInvoiceIds.add(`${best.inv.kind}:${best.inv.id}`);
       }
     }

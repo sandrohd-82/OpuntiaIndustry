@@ -451,6 +451,7 @@ export async function saveBankStatementImport(input: {
     // Preferisci match deciso in sessione di lavoro; altrimenti auto-match
     let chosen: {
       invoiceId: string;
+      dilazioneId: string | null;
       kind: "emessa" | "ricevuta";
       score: number;
       status: string;
@@ -459,6 +460,7 @@ export async function saveBankStatementImport(input: {
       const fromWork = invRows.find((i) => i.id === work.match!.invoiceId);
       chosen = {
         invoiceId: work.match.invoiceId,
+        dilazioneId: fromWork?.dilazioneId ?? null,
         kind:
           work.match.invoiceKind === "emessa" ||
           work.match.invoiceKind === "ricevuta"
@@ -489,6 +491,7 @@ export async function saveBankStatementImport(input: {
       if (best) {
         chosen = {
           invoiceId: best.inv.id,
+          dilazioneId: best.inv.dilazioneId,
           kind: best.inv.kind,
           score: best.score,
           status: "auto_matched",
@@ -503,6 +506,7 @@ export async function saveBankStatementImport(input: {
           transaction_id: inserted.id,
           invoice_id: chosen.invoiceId,
           invoice_kind: chosen.kind,
+          dilazione_id: chosen.dilazioneId,
           match_score: chosen.score,
           status: chosen.status,
           verified_at:
@@ -514,21 +518,38 @@ export async function saveBankStatementImport(input: {
         });
       if (!matchErr) {
         rowsMatched += 1;
-        const inv = invRows.find((i) => i.id === chosen!.invoiceId);
-        const strongSign =
-          line.signSource === "csv-col3-uscita" ||
-          line.signSource === "csv-col4-entrata";
-        if (strongSign && inv && inv.status !== "paid") {
-          const table =
-            chosen.kind === "ricevuta" ? "fatture_ricevute" : "fatture_emesse";
+        if (chosen.dilazioneId) {
+          const dilTable =
+            chosen.kind === "ricevuta"
+              ? "fatture_ricevute_dilazioni"
+              : "fatture_emesse_dilazioni";
           await input.supabase
-            .from(table)
+            .from(dilTable)
             .update({
               stato_pagamento: "pagato",
               updated_by: input.userId,
             })
-            .eq("id", chosen.invoiceId)
+            .eq("id", chosen.dilazioneId)
             .is("deleted_at", null);
+        } else {
+          const inv = invRows.find((i) => i.id === chosen!.invoiceId);
+          const strongSign =
+            line.signSource === "csv-col3-uscita" ||
+            line.signSource === "csv-col4-entrata";
+          if (strongSign && inv && inv.status !== "paid") {
+            const table =
+              chosen.kind === "ricevuta"
+                ? "fatture_ricevute"
+                : "fatture_emesse";
+            await input.supabase
+              .from(table)
+              .update({
+                stato_pagamento: "pagato",
+                updated_by: input.userId,
+              })
+              .eq("id", chosen.invoiceId)
+              .is("deleted_at", null);
+          }
         }
       }
     }

@@ -599,16 +599,10 @@ export async function reconcilePreviewLinesAction(input: {
 
   const supabase = await createClient();
   const invoices = await loadInvoiceCandidates(supabase);
-  const { data: usedDb } = await supabase
-    .from("bank_invoice_matches")
-    .select("invoice_id")
-    .is("deleted_at", null);
-  const excludeInvoices = new Set(
-    (usedDb ?? []).map((u) => String(u.invoice_id))
-  );
-  // Fatture già assegnate in anteprima su altre righe
+  const used = await loadUsedPayments(supabase);
+  // Fatture già assegnate in anteprima su altre righe (match totale)
   for (const l of lines) {
-    if (l.matchInvoiceId) excludeInvoices.add(String(l.matchInvoiceId));
+    if (l.matchInvoiceId) used.fullInvoiceIds.add(String(l.matchInvoiceId));
   }
 
   let attempted = 0;
@@ -633,14 +627,15 @@ export async function reconcilePreviewLinesAction(input: {
         transaction_date: line.transactionDate,
       },
       invoices,
-      excludeInvoices
+      used
     );
     if (!best) {
       skipped += 1;
       updates.push({ rowIndex: ri, match: null });
       continue;
     }
-    excludeInvoices.add(String(best.inv.id));
+    if (best.inv.dilazioneId) used.dilazioneIds.add(best.inv.dilazioneId);
+    else used.fullInvoiceIds.add(String(best.inv.id));
     matched += 1;
     updates.push({
       rowIndex: ri,
@@ -1086,22 +1081,47 @@ export async function verifyBankMatchAction(input: {
   return { success: true };
 }
 
-type InvCandidate = {
-  id: string;
-  fic_id: number;
-  type: string;
-  kind: "emessa" | "ricevuta";
-  number: string;
-  entity_name: string;
-  amount_gross: number;
-  date: string | null;
-  status: string;
+type InvCandidate = Awaited<
+  ReturnType<typeof loadAllFicInvoicesForReconcile>
+>[number];
+
+type UsedPayments = {
+  /** Fatture già matchate sul totale (senza dilazione). */
+  fullInvoiceIds: Set<string>;
+  /** Rate già matchate. */
+  dilazioneIds: Set<string>;
 };
+
+async function loadUsedPayments(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<UsedPayments> {
+  const { data } = await supabase
+    .from("bank_invoice_matches")
+    .select("invoice_id, dilazione_id")
+    .is("deleted_at", null);
+  const fullInvoiceIds = new Set<string>();
+  const dilazioneIds = new Set<string>();
+  for (const u of data ?? []) {
+    const dil = u.dilazione_id ? String(u.dilazione_id) : "";
+    if (dil) dilazioneIds.add(dil);
+    else if (u.invoice_id) fullInvoiceIds.add(String(u.invoice_id));
+  }
+  return { fullInvoiceIds, dilazioneIds };
+}
+
+function isCandidateAvailable(
+  inv: InvCandidate,
+  used: UsedPayments
+): boolean {
+  if (inv.dilazioneId) {
+    return !used.dilazioneIds.has(inv.dilazioneId);
+  }
+  return !used.fullInvoiceIds.has(String(inv.id));
+}
 
 async function loadInvoiceCandidates(
   supabase: Awaited<ReturnType<typeof createClient>>
 ): Promise<InvCandidate[]> {
-  // Fatture operative interne (emesse + ricevute), non la cache fic_invoices
   return loadAllFicInvoicesForReconcile(supabase);
 }
 
@@ -1113,11 +1133,11 @@ async function bestInvoiceForTx(
     transaction_date: string;
   },
   invoices: InvCandidate[],
-  excludeInvoiceIds: Set<string>
+  used: UsedPayments
 ): Promise<{ inv: InvCandidate; score: number } | null> {
   let best: { inv: InvCandidate; score: number } | null = null;
   for (const inv of invoices) {
-    if (excludeInvoiceIds.has(String(inv.id))) continue;
+    if (!isCandidateAvailable(inv, used)) continue;
     const score = scoreBankInvoiceMatch({
       amount: Number(tx.amount) || 0,
       invoiceGross: Number(inv.amount_gross) || 0,
@@ -1182,20 +1202,15 @@ export async function reconcileBankTransactionAction(input: {
   }
 
   const invoices = await loadInvoiceCandidates(supabase);
-  // Evita fatture già usate da altri match attivi
-  const { data: used } = await supabase
-    .from("bank_invoice_matches")
-    .select("invoice_id")
-    .is("deleted_at", null);
-  const exclude = new Set((used ?? []).map((u) => String(u.invoice_id)));
+  const used = await loadUsedPayments(supabase);
 
-  const best = await bestInvoiceForTx(tx, invoices, exclude);
+  const best = await bestInvoiceForTx(tx, invoices, used);
   if (!best) {
     return {
       success: true,
       matched: false,
       reason:
-        "Nessuna fattura compatibile (importo assoluto ±1¢, data ±5gg, catalogo: + emesse / − ricevute).",
+        "Nessuna fattura/rata compatibile (importo assoluto ±1¢, data ±5gg, catalogo: + emesse / − ricevute).",
     };
   }
 
@@ -1206,6 +1221,7 @@ export async function reconcileBankTransactionAction(input: {
       transaction_id: id,
       invoice_id: best.inv.id,
       invoice_kind: best.inv.kind,
+      dilazione_id: best.inv.dilazioneId,
       match_score: best.score,
       status: "manually_verified",
       verified_at: now,
@@ -1218,6 +1234,15 @@ export async function reconcileBankTransactionAction(input: {
     return { success: false, error: matchErr?.message ?? "Match non creato." };
   }
 
+  if (best.inv.dilazioneId) {
+    await markDilazionePagata(
+      supabase,
+      best.inv.kind,
+      best.inv.dilazioneId,
+      auth.userId
+    );
+  }
+
   await writeAuditLog({
     entity_type: "bank_invoice_matches",
     entity_id: String(match.id),
@@ -1228,6 +1253,7 @@ export async function reconcileBankTransactionAction(input: {
       transaction_id: id,
       invoice_id: best.inv.id,
       invoice_kind: best.inv.kind,
+      dilazione_id: best.inv.dilazioneId,
       score: best.score,
     },
   });
@@ -1287,13 +1313,7 @@ export async function reconcileAllBankTransactionsAction(input: {
   }
 
   const invoices = await loadInvoiceCandidates(supabase);
-  const { data: usedAll } = await supabase
-    .from("bank_invoice_matches")
-    .select("invoice_id")
-    .is("deleted_at", null);
-  const excludeInvoices = new Set(
-    (usedAll ?? []).map((u) => String(u.invoice_id))
-  );
+  const used = await loadUsedPayments(supabase);
 
   let attempted = 0;
   let matched = 0;
@@ -1308,7 +1328,7 @@ export async function reconcileAllBankTransactionsAction(input: {
       continue;
     }
     attempted += 1;
-    const best = await bestInvoiceForTx(tx, invoices, excludeInvoices);
+    const best = await bestInvoiceForTx(tx, invoices, used);
     if (!best) {
       skipped += 1;
       continue;
@@ -1320,6 +1340,7 @@ export async function reconcileAllBankTransactionsAction(input: {
         transaction_id: tid,
         invoice_id: best.inv.id,
         invoice_kind: best.inv.kind,
+        dilazione_id: best.inv.dilazioneId,
         match_score: best.score,
         status: "auto_matched",
         verified_at: now,
@@ -1335,7 +1356,17 @@ export async function reconcileAllBankTransactionsAction(input: {
       }
       continue;
     }
-    excludeInvoices.add(String(best.inv.id));
+    if (best.inv.dilazioneId) {
+      used.dilazioneIds.add(best.inv.dilazioneId);
+      await markDilazionePagata(
+        supabase,
+        best.inv.kind,
+        best.inv.dilazioneId,
+        auth.userId
+      );
+    } else {
+      used.fullInvoiceIds.add(String(best.inv.id));
+    }
     matched += 1;
   }
 
@@ -1520,14 +1551,24 @@ function addDaysIso(isoDate: string, days: number): string {
   return `${y}-${m}-${day}`;
 }
 
-async function loadUsedInvoiceIds(
-  supabase: Awaited<ReturnType<typeof createClient>>
-): Promise<Set<string>> {
-  const { data } = await supabase
-    .from("bank_invoice_matches")
-    .select("invoice_id")
+async function markDilazionePagata(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  kind: "emessa" | "ricevuta",
+  dilazioneId: string,
+  userId: string
+): Promise<void> {
+  const table =
+    kind === "emessa"
+      ? "fatture_emesse_dilazioni"
+      : "fatture_ricevute_dilazioni";
+  await supabase
+    .from(table)
+    .update({
+      stato_pagamento: "pagato",
+      updated_by: userId,
+    })
+    .eq("id", dilazioneId)
     .is("deleted_at", null);
-  return new Set((data ?? []).map((u) => String(u.invoice_id)));
 }
 
 async function insertBankMatch(input: {
@@ -1536,6 +1577,7 @@ async function insertBankMatch(input: {
   transactionId: string;
   invoiceId: string;
   invoiceKind: "emessa" | "ricevuta";
+  dilazioneId: string | null;
   score: number;
   mode: "auto" | "manual" | "choice";
   invoiceNumber: string;
@@ -1549,6 +1591,7 @@ async function insertBankMatch(input: {
       transaction_id: input.transactionId,
       invoice_id: input.invoiceId,
       invoice_kind: input.invoiceKind,
+      dilazione_id: input.dilazioneId,
       match_score: input.score,
       status: "manually_verified",
       verified_at: now,
@@ -1560,16 +1603,25 @@ async function insertBankMatch(input: {
   if (matchErr || !match) {
     return { success: false, error: matchErr?.message ?? "Match non creato." };
   }
+  if (input.dilazioneId) {
+    await markDilazionePagata(
+      input.supabase,
+      input.invoiceKind,
+      input.dilazioneId,
+      input.userId
+    );
+  }
   void writeAuditLog({
     entity_type: "bank_invoice_matches",
     entity_id: String(match.id),
     action: "create",
     actor_id: input.userId,
-    summary: `Conciliazione ${input.mode}: mov. ↔ fatt. ${input.invoiceNumber}`,
+    summary: `Conciliazione ${input.mode}: mov. ↔ ${input.invoiceNumber}`,
     payload: {
       transaction_id: input.transactionId,
       invoice_id: input.invoiceId,
       invoice_kind: input.invoiceKind,
+      dilazione_id: input.dilazioneId,
       mode: input.mode,
       score: input.score,
     },
@@ -1577,8 +1629,31 @@ async function insertBankMatch(input: {
   return { success: true, matchId: String(match.id) };
 }
 
+function candidateToView(
+  inv: InvCandidate,
+  txDate: string,
+  amountAbs: number
+): BankReconcileCandidateView {
+  const daysFromTx = daysAbs(txDate, inv.date);
+  return {
+    id: inv.id,
+    candidateKey: inv.candidateKey,
+    dilazioneId: inv.dilazioneId,
+    isDilazione: inv.isDilazione,
+    kind: inv.kind,
+    type: inv.type,
+    number: inv.number,
+    entityName: inv.entity_name,
+    amountGross: inv.amount_gross,
+    date: inv.date,
+    status: inv.status,
+    daysFromTx,
+    amountMatch: moneyCents(inv.amount_gross) === moneyCents(amountAbs),
+  };
+}
+
 /**
- * Tentativo automatico: importo = master.
+ * Tentativo automatico: importo = master (totale o rata dilazione).
  * 0 match → browse; 1 → collega; >1 stesso importo → scelta operatore.
  */
 export async function attemptAutoReconcileBankTxAction(input: {
@@ -1651,13 +1726,13 @@ export async function attemptAutoReconcileBankTxAction(input: {
   const amountAbs = Math.abs(amount);
   const txDate = String(tx.transaction_date);
   const description = String(tx.description ?? "");
-  const exclude = await loadUsedInvoiceIds(supabase);
+  const used = await loadUsedPayments(supabase);
   const invoices = await loadInvoiceCandidates(supabase);
   const cents = moneyCents(amountAbs);
 
   const amountMatches = invoices
     .filter((inv) => inv.kind === kind)
-    .filter((inv) => !exclude.has(String(inv.id)))
+    .filter((inv) => isCandidateAvailable(inv, used))
     .filter((inv) => moneyCents(inv.amount_gross) === cents)
     .map((inv) => {
       const daysFromTx = daysAbs(txDate, inv.date);
@@ -1676,18 +1751,7 @@ export async function attemptAutoReconcileBankTxAction(input: {
         inv,
         daysFromTx,
         score: Math.max(score, 50),
-        view: {
-          id: inv.id,
-          kind: inv.kind,
-          type: inv.type as "issued" | "received",
-          number: inv.number,
-          entityName: inv.entity_name,
-          amountGross: inv.amount_gross,
-          date: inv.date,
-          status: inv.status,
-          daysFromTx,
-          amountMatch: true,
-        } satisfies BankReconcileCandidateView,
+        view: candidateToView(inv, txDate, amountAbs),
       };
     })
     .sort((a, b) => {
@@ -1705,7 +1769,8 @@ export async function attemptAutoReconcileBankTxAction(input: {
       amountAbs,
       txDate,
       description,
-      reason: "Nessuna fattura con lo stesso importo: apri elenco per periodo.",
+      reason:
+        "Nessuna fattura/rata con lo stesso importo: apri elenco per periodo.",
     };
   }
 
@@ -1717,6 +1782,7 @@ export async function attemptAutoReconcileBankTxAction(input: {
       transactionId: id,
       invoiceId: only.inv.id,
       invoiceKind: only.inv.kind,
+      dilazioneId: only.inv.dilazioneId,
       score: only.score,
       mode: "auto",
       invoiceNumber: only.inv.number,
@@ -1743,7 +1809,10 @@ export async function attemptAutoReconcileBankTxAction(input: {
   };
 }
 
-/** Elenco fatture emesse/ricevute nel range ±halfWindowDays dalla data movimento. */
+/**
+ * Elenco unità di pagamento (totale o rate) nel range ±halfWindowDays
+ * dalla data movimento (confronta data emissione o scadenza rata).
+ */
 export async function listBankReconcileBrowseAction(input: {
   transactionId: string;
   halfWindowDays: number;
@@ -1787,71 +1856,16 @@ export async function listBankReconcileBrowseAction(input: {
   const txDate = String(tx.transaction_date);
   const dateFrom = addDaysIso(txDate, -half);
   const dateTo = addDaysIso(txDate, half);
-  const cents = moneyCents(amountAbs);
-  const exclude = await loadUsedInvoiceIds(supabase);
-
-  const table = kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
-  const select =
-    kind === "emessa"
-      ? "id, fic_id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione, stato_pagamento"
-      : "id, fic_id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione, stato_pagamento";
-
-  const { data, error } = await supabase
-    .from(table)
-    .select(select)
-    .is("deleted_at", null)
-    .gte("data_emissione", dateFrom)
-    .lte("data_emissione", dateTo)
-    .order("data_emissione", { ascending: false });
-  if (error) return { success: false, error: error.message };
+  const used = await loadUsedPayments(supabase);
+  const invoices = await loadInvoiceCandidates(supabase);
 
   const items: BankReconcileCandidateView[] = [];
-  for (const row of data ?? []) {
-    const rid = String((row as { id: string }).id);
-    if (exclude.has(rid)) continue;
-    const totale = Math.abs(
-      Number((row as { totale: number | string }).totale) || 0
-    );
-    const amountMatch = moneyCents(totale) === cents;
-    const date =
-      ((row as { data_emissione: string | null }).data_emissione as
-        | string
-        | null) ?? null;
-    const number =
-      kind === "emessa"
-        ? String(
-            (row as { numero_fattura?: string }).numero_fattura ?? ""
-          ).trim() ||
-          String((row as { numero_interno?: string }).numero_interno ?? "")
-        : String(
-            (row as { numero_documento_esterno?: string })
-              .numero_documento_esterno ?? ""
-          ).trim() ||
-          String((row as { numero_interno?: string }).numero_interno ?? "");
-    const entityName =
-      kind === "emessa"
-        ? String(
-            (row as { cliente_ragione_sociale?: string })
-              .cliente_ragione_sociale ?? ""
-          )
-        : String(
-            (row as { fornitore_ragione_sociale?: string })
-              .fornitore_ragione_sociale ?? ""
-          );
-    items.push({
-      id: rid,
-      kind,
-      type: kind === "emessa" ? "issued" : "received",
-      number,
-      entityName,
-      amountGross: totale,
-      date,
-      status: String(
-        (row as { stato_pagamento?: string }).stato_pagamento ?? ""
-      ),
-      daysFromTx: daysAbs(txDate, date),
-      amountMatch,
-    });
+  for (const inv of invoices) {
+    if (inv.kind !== kind) continue;
+    if (!isCandidateAvailable(inv, used)) continue;
+    const d = inv.date ? inv.date.slice(0, 10) : null;
+    if (!d || d < dateFrom || d > dateTo) continue;
+    items.push(candidateToView(inv, txDate, amountAbs));
   }
 
   items.sort((a, b) => {
@@ -1878,6 +1892,7 @@ export async function linkBankTransactionInvoiceAction(input: {
   transactionId: string;
   invoiceId: string;
   invoiceKind: "emessa" | "ricevuta";
+  dilazioneId?: string | null;
   mode: "manual" | "choice";
 }): Promise<
   | {
@@ -1891,6 +1906,9 @@ export async function linkBankTransactionInvoiceAction(input: {
   const { auth } = await requireAreaAccess("area-fiscale");
   const txId = String(input.transactionId ?? "").trim();
   const invId = String(input.invoiceId ?? "").trim();
+  const dilazioneId = input.dilazioneId
+    ? String(input.dilazioneId).trim()
+    : null;
   const kind = input.invoiceKind;
   if (!txId || !invId) {
     return { success: false, error: "Dati collegamento incompleti." };
@@ -1930,66 +1948,49 @@ export async function linkBankTransactionInvoiceAction(input: {
     return { success: false, error: "Movimento già collegato a una fattura." };
   }
 
-  const used = await loadUsedInvoiceIds(supabase);
-  if (used.has(invId)) {
+  const used = await loadUsedPayments(supabase);
+  if (dilazioneId) {
+    if (used.dilazioneIds.has(dilazioneId)) {
+      return {
+        success: false,
+        error: "Questa rata è già collegata a un altro movimento.",
+      };
+    }
+  } else if (used.fullInvoiceIds.has(invId)) {
     return {
       success: false,
       error: "Questa fattura è già collegata a un altro movimento.",
     };
   }
 
-  const table = kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
-  const { data: inv, error: invErr } = await supabase
-    .from(table)
-    .select(
-      kind === "emessa"
-        ? "id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione"
-        : "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione"
-    )
-    .eq("id", invId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (invErr) return { success: false, error: invErr.message };
-  if (!inv) return { success: false, error: "Fattura non trovata." };
-
-  const number =
-    kind === "emessa"
-      ? String((inv as { numero_fattura?: string }).numero_fattura ?? "").trim() ||
-        String((inv as { numero_interno?: string }).numero_interno ?? "")
-      : String(
-          (inv as { numero_documento_esterno?: string })
-            .numero_documento_esterno ?? ""
-        ).trim() ||
-        String((inv as { numero_interno?: string }).numero_interno ?? "");
-  const entityName =
-    kind === "emessa"
-      ? String(
-          (inv as { cliente_ragione_sociale?: string }).cliente_ragione_sociale ??
-            ""
-        )
-      : String(
-          (inv as { fornitore_ragione_sociale?: string })
-            .fornitore_ragione_sociale ?? ""
-        );
-  const invoiceGross = Math.abs(Number((inv as { totale: number }).totale) || 0);
-  const invoiceDate =
-    ((inv as { data_emissione: string | null }).data_emissione as
-      | string
-      | null) ?? null;
+  const invoices = await loadInvoiceCandidates(supabase);
+  const cand = invoices.find((c) => {
+    if (c.id !== invId || c.kind !== kind) return false;
+    if (dilazioneId) return c.dilazioneId === dilazioneId;
+    return !c.dilazioneId;
+  });
+  if (!cand) {
+    return {
+      success: false,
+      error: dilazioneId
+        ? "Rata/dilazione non trovata o non più disponibile."
+        : "Fattura non trovata o ha dilazioni: seleziona una rata.",
+    };
+  }
 
   let score = scoreBankInvoiceMatch({
     amount: Number(tx.amount) || 0,
-    invoiceGross,
+    invoiceGross: cand.amount_gross,
     counterparty: String(tx.counterparty_name ?? ""),
-    entityName,
+    entityName: cand.entity_name,
     description: String(tx.description ?? ""),
-    invoiceNumber: number,
+    invoiceNumber: cand.number,
     txDate: String(tx.transaction_date),
-    invoiceDate,
+    invoiceDate: cand.date,
     invoiceKind: kind,
   });
   if (
-    moneyCents(Number(tx.amount) || 0) === moneyCents(invoiceGross) &&
+    moneyCents(Number(tx.amount) || 0) === moneyCents(cand.amount_gross) &&
     score < 50
   ) {
     score = 50;
@@ -2002,15 +2003,16 @@ export async function linkBankTransactionInvoiceAction(input: {
     transactionId: txId,
     invoiceId: invId,
     invoiceKind: kind,
+    dilazioneId: cand.dilazioneId,
     score,
     mode: input.mode,
-    invoiceNumber: number,
+    invoiceNumber: cand.number,
   });
   if (!linked.success) return linked;
   return {
     success: true,
     matchId: linked.matchId,
-    invoiceNumber: number,
+    invoiceNumber: cand.number,
     score,
   };
 }

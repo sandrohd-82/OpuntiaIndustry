@@ -3,10 +3,12 @@
  *
  * Regole:
  * - Importo: confronto in valore assoluto (tolleranza 1 centesimo).
+ * - Se la fattura ha dilazioni attive: match su importo/data della RATA
+ *   (non sul totale fattura).
  * - Segno movimento: solo direzione catalogo
  *     + / entrata → fatture emesse (incasso)
  *     − / uscita  → fatture ricevute (pagamento)
- * - Data fattura entro ±5 giorni dalla data movimento
+ * - Data (emissione o scadenza rata) entro ±5 giorni dalla data movimento
  * - Bonus: ragione sociale / n. fattura in causale
  */
 
@@ -19,7 +21,12 @@ export const BANK_RECONCILE_BROWSE_STEP_DAYS = 15;
 export type BankReconcileInvoiceKind = "emessa" | "ricevuta";
 
 export type BankReconcileCandidateView = {
+  /** ID fattura (sempre). */
   id: string;
+  /** Chiave UI: fattura oppure dilazione. */
+  candidateKey: string;
+  dilazioneId: string | null;
+  isDilazione: boolean;
   kind: BankReconcileInvoiceKind;
   type: "issued" | "received";
   number: string;
