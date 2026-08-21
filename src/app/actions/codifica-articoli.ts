@@ -20,11 +20,9 @@ import { createClient } from "@/lib/supabase/server";
 import {
   catalogoKindPrefix,
   normalizeInvoiceLineText,
+  tokenizeInvoiceLine,
 } from "@/lib/sku-generator";
-import {
-  syncFornitoreSchedaDaCodici,
-  syncFornitoreSchedaFromFatturaRicevutaId,
-} from "@/app/actions/fatture";
+import { syncFornitoreSchedaDaCodici } from "@/app/actions/fatture";
 
 type RpcMatchRow = {
   catalogo_kind: string;
@@ -61,34 +59,38 @@ export async function matchCatalogoAcquistiAction(
   | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
-  const q = query.trim();
-  if (!q) {
+  const cleaned = tokenizeInvoiceLine(query).join(" ") || query.trim();
+  if (!cleaned) {
     return { success: true, matches: [], requiresReview: false };
   }
 
   const supabase = await createClient();
-  const threshold = Math.min(1, Math.max(0, thresholdPct / 100));
+  // Soglia UI 80% → RPC 0.55: GIN filtra in fretta, poi rank client-side
+  const threshold = Math.min(
+    0.85,
+    Math.max(0.35, (thresholdPct / 100) * 0.7)
+  );
   const { data, error } = await supabase.rpc("match_catalogo_acquisti", {
-    p_query: q,
+    p_query: cleaned,
     p_threshold: threshold,
     p_limit: 12,
   });
 
   if (error) {
     console.error("[codifica] match_catalogo_acquisti", error.message);
-    return { success: false, error: error.message };
+    // Non bloccare la creazione: match fallito ≠ errore di salvataggio
+    return { success: true, matches: [], requiresReview: false };
   }
 
   const matches = ((data ?? []) as RpcMatchRow[])
     .map(mapMatch)
-    .filter((m): m is CatalogoMatchHit => Boolean(m));
+    .filter((m): m is CatalogoMatchHit => Boolean(m))
+    .filter((m) => m.affinitaPercentuale >= thresholdPct * 0.85);
 
   return {
     success: true,
     matches,
-    requiresReview: matches.some(
-      (m) => m.affinitaPercentuale >= thresholdPct
-    ),
+    requiresReview: matches.some((m) => m.affinitaPercentuale >= thresholdPct),
   };
 }
 
@@ -226,6 +228,20 @@ export async function confirmCodificaArticoloAction(
           : kind === "contributo"
             ? "catalogo_contributi"
             : "catalogo_prodotti_fornitore";
+      // Check duplicato codice mirato (no full table scan)
+      const { data: existingCode } = await supabase
+        .from(table)
+        .select("id")
+        .ilike("codice", normalized.codice)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+      if (existingCode) {
+        return {
+          success: false,
+          error: `Il codice ${normalized.codice} esiste già.`,
+        };
+      }
       const { data, error } = await supabase
         .from(table)
         .insert({
@@ -298,12 +314,10 @@ export async function confirmCodificaArticoloAction(
     },
   });
 
-  if (input.fatturaRicevutaId) {
+  // Sync scheda fornitore: solo merge del codice appena creato (leggero).
+  // Evita syncFornitoreSchedaFromFatturaRicevutaId (doppia scansione) sul hot path.
+  if (input.fatturaRicevutaId && created) {
     try {
-      await syncFornitoreSchedaFromFatturaRicevutaId({
-        fatturaRicevutaId: input.fatturaRicevutaId,
-        userId: auth.userId,
-      });
       const { data: fat } = await supabase
         .from("fatture_ricevute")
         .select("fornitore_id, numero_interno")

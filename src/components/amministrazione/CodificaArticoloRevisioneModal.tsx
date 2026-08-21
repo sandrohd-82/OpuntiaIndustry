@@ -4,6 +4,7 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type FormEvent,
@@ -79,6 +80,9 @@ export function CodificaArticoloRevisioneModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [loadingMatches, setLoadingMatches] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const matchGenRef = useRef(0);
+  const savingRef = useRef(false);
 
   const proposal = useMemo(
     () => generateSkuProposal(testoSorgente, kind),
@@ -96,71 +100,106 @@ export function CodificaArticoloRevisioneModal({
   }
 
   useEffect(() => {
+    if (mode === "rename") return;
     let cancelled = false;
+    const gen = ++matchGenRef.current;
     const handle = window.setTimeout(async () => {
+      if (savingRef.current) return;
       const q = testoSorgente.trim();
       if (!q) {
         setMatches([]);
+        setLoadingMatches(false);
         return;
       }
       setLoadingMatches(true);
       setMatchError(null);
-      const res = await matchCatalogoAcquistiAction(
-        q,
-        CODIFICA_SIMILARITY_THRESHOLD_PCT
-      );
-      if (cancelled) return;
-      setLoadingMatches(false);
-      if (!res.success) {
-        setMatchError(res.error);
-        setMatches([]);
-        return;
+      try {
+        const res = await matchCatalogoAcquistiAction(
+          q,
+          CODIFICA_SIMILARITY_THRESHOLD_PCT
+        );
+        if (cancelled || gen !== matchGenRef.current || savingRef.current) {
+          return;
+        }
+        setLoadingMatches(false);
+        if (!res.success) {
+          setMatchError(res.error);
+          setMatches([]);
+          return;
+        }
+        setMatches(res.matches);
+        if (
+          res.matches[0] &&
+          res.matches[0].affinitaPercentuale >= CODIFICA_SIMILARITY_THRESHOLD_PCT
+        ) {
+          setSelectedMatchId(res.matches[0].catalogoId);
+        }
+      } catch {
+        if (!cancelled && gen === matchGenRef.current) {
+          setLoadingMatches(false);
+          setMatches([]);
+        }
       }
-      setMatches(res.matches);
-      if (
-        res.matches[0] &&
-        res.matches[0].affinitaPercentuale >= CODIFICA_SIMILARITY_THRESHOLD_PCT
-      ) {
-        setSelectedMatchId(res.matches[0].catalogoId);
-      }
-    }, 280);
+    }, 450);
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [testoSorgente]);
+  }, [testoSorgente, mode]);
 
   const selectedMatch = matches.find((m) => m.catalogoId === selectedMatchId);
+
+  function beginSave() {
+    savingRef.current = true;
+    setSaving(true);
+    matchGenRef.current += 1;
+    setLoadingMatches(false);
+    setFormError(null);
+  }
+
+  function endSave() {
+    savingRef.current = false;
+    setSaving(false);
+  }
 
   function submitAssocia() {
     if (!selectedMatch) {
       setFormError("Seleziona un prodotto simile da associare.");
       return;
     }
-    setFormError(null);
+    if (savingRef.current) return;
+    beginSave();
     startTransition(async () => {
-      const res = await confirmCodificaArticoloAction({
-        testoOriginale: initialText.trim() || testoSorgente.trim(),
-        testoNormalizzato: proposal.nomeNormalizzato,
-        codiceAssegnato: selectedMatch.codice,
-        catalogoKind: selectedMatch.catalogoKind,
-        catalogoId: selectedMatch.catalogoId,
-        affinitaPercentuale: selectedMatch.affinitaPercentuale,
-        azione: "associa_esistente",
-        nomeArticolo: selectedMatch.nome,
-        fatturaRicevutaId,
-        fatturaRigaId,
-      });
-      if (!res.success) {
-        setFormError(res.error);
-        return;
+      try {
+        const res = await confirmCodificaArticoloAction({
+          testoOriginale: initialText.trim() || testoSorgente.trim(),
+          testoNormalizzato: proposal.nomeNormalizzato,
+          codiceAssegnato: selectedMatch.codice,
+          catalogoKind: selectedMatch.catalogoKind,
+          catalogoId: selectedMatch.catalogoId,
+          affinitaPercentuale: selectedMatch.affinitaPercentuale,
+          azione: "associa_esistente",
+          nomeArticolo: selectedMatch.nome,
+          fatturaRicevutaId,
+          fatturaRigaId,
+        });
+        if (!res.success) {
+          setFormError(res.error);
+          return;
+        }
+        onConfirmed({
+          codice: res.codice,
+          nome: res.nome,
+          catalogoKind: res.catalogoKind,
+          catalogoId: res.catalogoId,
+        });
+      } catch (e) {
+        setFormError(
+          e instanceof Error ? e.message : "Salvataggio non riuscito."
+        );
+      } finally {
+        endSave();
       }
-      onConfirmed({
-        codice: res.codice,
-        nome: res.nome,
-        catalogoKind: res.catalogoKind,
-        catalogoId: res.catalogoId,
-      });
     });
   }
 
@@ -170,74 +209,86 @@ export function CodificaArticoloRevisioneModal({
       setFormError("Codice proposto non valido.");
       return;
     }
-    setFormError(null);
+    if (savingRef.current) return;
+    beginSave();
     startTransition(async () => {
-      const nome = proposal.nomeNormalizzato || testoSorgente.trim();
+      try {
+        const nome = proposal.nomeNormalizzato || testoSorgente.trim();
 
-      if (mode === "rename" && renameId) {
-        const payload = {
-          codice: codiceProposto,
-          nome,
-          note: renameNote,
-          isBio: renameIsBio,
-        };
-        const res =
-          kind === "servizio"
-            ? await updateCatalogoServizioAction(renameId, payload)
-            : kind === "materia"
-              ? await updateMateriaPrimaAction(renameId, payload)
-              : kind === "contributo"
-                ? await updateCatalogoContributoAction(renameId, payload)
-                : await updateCatalogoProdottoFornitoreAction(renameId, payload);
+        if (mode === "rename" && renameId) {
+          const payload = {
+            codice: codiceProposto,
+            nome,
+            note: renameNote,
+            isBio: renameIsBio,
+          };
+          const res =
+            kind === "servizio"
+              ? await updateCatalogoServizioAction(renameId, payload)
+              : kind === "materia"
+                ? await updateMateriaPrimaAction(renameId, payload)
+                : kind === "contributo"
+                  ? await updateCatalogoContributoAction(renameId, payload)
+                  : await updateCatalogoProdottoFornitoreAction(
+                      renameId,
+                      payload
+                    );
+          if (!res.success) {
+            setFormError(res.error);
+            return;
+          }
+          const codice =
+            "item" in res
+              ? res.item.codice
+              : "materia" in res
+                ? res.materia.codice
+                : codiceProposto;
+          const nomeOut =
+            "item" in res
+              ? res.item.nome
+              : "materia" in res
+                ? res.materia.nome
+                : nome;
+          onConfirmed({
+            codice,
+            nome: nomeOut,
+            catalogoKind: kind,
+            catalogoId: renameId,
+            renamed: true,
+          });
+          return;
+        }
+
+        const res = await confirmCodificaArticoloAction({
+          testoOriginale: initialText.trim() || testoSorgente.trim(),
+          testoNormalizzato: proposal.nomeNormalizzato,
+          codiceAssegnato: codiceProposto,
+          catalogoKind: kind,
+          catalogoId: null,
+          affinitaPercentuale: null,
+          azione: "crea_nuovo",
+          nomeArticolo: nome,
+          note: "Codificato da fattura ricevuta — uso ripristino magazzino / fogli ordine",
+          fatturaRicevutaId,
+          fatturaRigaId,
+        });
         if (!res.success) {
           setFormError(res.error);
           return;
         }
-        const codice =
-          "item" in res
-            ? res.item.codice
-            : "materia" in res
-              ? res.materia.codice
-              : codiceProposto;
-        const nomeOut =
-          "item" in res
-            ? res.item.nome
-            : "materia" in res
-              ? res.materia.nome
-              : nome;
         onConfirmed({
-          codice,
-          nome: nomeOut,
-          catalogoKind: kind,
-          catalogoId: renameId,
-          renamed: true,
+          codice: res.codice,
+          nome: res.nome,
+          catalogoKind: res.catalogoKind,
+          catalogoId: res.catalogoId,
         });
-        return;
+      } catch (e) {
+        setFormError(
+          e instanceof Error ? e.message : "Salvataggio non riuscito."
+        );
+      } finally {
+        endSave();
       }
-
-      const res = await confirmCodificaArticoloAction({
-        testoOriginale: initialText.trim() || testoSorgente.trim(),
-        testoNormalizzato: proposal.nomeNormalizzato,
-        codiceAssegnato: codiceProposto,
-        catalogoKind: kind,
-        catalogoId: null,
-        affinitaPercentuale: null,
-        azione: "crea_nuovo",
-        nomeArticolo: nome,
-        note: "Codificato da fattura ricevuta — uso ripristino magazzino / fogli ordine",
-        fatturaRicevutaId,
-        fatturaRigaId,
-      });
-      if (!res.success) {
-        setFormError(res.error);
-        return;
-      }
-      onConfirmed({
-        codice: res.codice,
-        nome: res.nome,
-        catalogoKind: res.catalogoKind,
-        catalogoId: res.catalogoId,
-      });
     });
   }
 
@@ -327,7 +378,7 @@ export function CodificaArticoloRevisioneModal({
           {selectedMatch && mode !== "rename" ? (
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || saving}
               onClick={submitAssocia}
               className="mt-3 w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
             >
@@ -415,17 +466,17 @@ export function CodificaArticoloRevisioneModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={pending}
+              disabled={pending || saving}
               className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
             >
               Annulla
             </button>
             <button
               type="submit"
-              disabled={pending}
+              disabled={pending || saving}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
             >
-              {pending
+              {pending || saving
                 ? "Salvataggio…"
                 : mode === "rename"
                   ? "Applica nuova targa"

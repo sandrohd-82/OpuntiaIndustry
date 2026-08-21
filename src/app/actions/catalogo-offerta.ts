@@ -53,34 +53,43 @@ async function assertCodiceAndNomeUnici(
   excludeId?: string
 ): Promise<string | null> {
   const table = tableName(kind);
-  const { data: rows, error } = await supabase
-    .from(table)
-    .select("id, nome, codice")
-    .is("deleted_at", null);
-  if (error) return error.message;
-
-  const list = (rows ?? []) as Array<{
-    id: string;
-    nome: string;
-    codice: string;
-  }>;
   const codiceLower = codice.toLowerCase();
-  const byCodice = list.find(
-    (row) =>
-      row.codice.toLowerCase() === codiceLower &&
-      (!excludeId || row.id !== excludeId)
+
+  let byCodiceQ = supabase
+    .from(table)
+    .select("id, codice, nome")
+    .ilike("codice", codice)
+    .is("deleted_at", null)
+    .limit(5);
+  if (excludeId) byCodiceQ = byCodiceQ.neq("id", excludeId);
+  const { data: byCodiceRows, error: codeErr } = await byCodiceQ;
+  if (codeErr) return codeErr.message;
+  const byCodice = ((byCodiceRows ?? []) as Array<{ id: string; codice: string }>).find(
+    (row) => row.codice.toLowerCase() === codiceLower
   );
   if (byCodice) {
     return `Il codice ${codice} esiste già. La targa deve essere univoca.`;
   }
 
-  const nomeNorm = normalizeNomeCatalogo(nome);
-  const duplicateNome = list
-    .filter((row) => !excludeId || row.id !== excludeId)
-    .find((row) => normalizeNomeCatalogo(row.nome) === nomeNorm);
+  // Nome esatto: query mirata, niente download catalogo intero
+  const nomeTrim = nome.trim();
+  if (!nomeTrim) return null;
+  let byNomeQ = supabase
+    .from(table)
+    .select("id, nome, codice")
+    .ilike("nome", nomeTrim)
+    .is("deleted_at", null)
+    .limit(20);
+  if (excludeId) byNomeQ = byNomeQ.neq("id", excludeId);
+  const { data: byNomeRows, error: nomeErr } = await byNomeQ;
+  if (nomeErr) return nomeErr.message;
 
+  const nomeNorm = normalizeNomeCatalogo(nome);
+  const duplicateNome = (
+    (byNomeRows ?? []) as Array<{ id: string; nome: string; codice: string }>
+  ).find((row) => normalizeNomeCatalogo(row.nome) === nomeNorm);
   if (duplicateNome) {
-    return `Esiste già una voce con lo stesso nome (${duplicateNome.codice} — ${duplicateNome.nome}).`;
+    return `Il nome «${nomeTrim}» esiste già come ${duplicateNome.codice}.`;
   }
   return null;
 }
