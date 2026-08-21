@@ -21,6 +21,8 @@ import {
   FaFilePdf,
   FaCloudArrowUp,
   FaCheck,
+  FaCircleQuestion,
+  FaArrowUpRightFromSquare,
 } from "react-icons/fa6";
 import {
   listBankTransactionsAction,
@@ -149,6 +151,7 @@ export function RapportiBancaBoard() {
   const [detail, setDetail] = useState<BankTransactionView | null>(null);
   const [compare, setCompare] = useState<BankTransactionView | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [csvHelpOpen, setCsvHelpOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [pdfSourceFile, setPdfSourceFile] = useState<File | null>(null);
@@ -730,6 +733,14 @@ export function RapportiBancaBoard() {
             originale della banca: CSV e PDF restano collegati allo stesso
             lotto).
           </p>
+          <button
+            type="button"
+            onClick={() => setCsvHelpOpen(true)}
+            className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--primary)] underline decoration-2 underline-offset-2 hover:text-sky-800"
+          >
+            <FaCircleQuestion size={14} />
+            Spiega come fare
+          </button>
           <label className="mb-3 block text-sm">
             <span className="mb-1 block text-xs font-medium">Nome conto</span>
             <input
@@ -860,6 +871,120 @@ export function RapportiBancaBoard() {
               className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             >
               Annulla
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {csvHelpOpen ? (
+        <Modal
+          title="Come preparare il CSV dall’estratto PDF"
+          onClose={() => setCsvHelpOpen(false)}
+        >
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1 text-sm text-slate-800">
+            <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-950">
+                Avvertenze
+              </h4>
+              <p className="mt-1.5 text-sm text-amber-950/90">
+                Controllare che la tabella del file sia composta da{" "}
+                <strong>5 colonne</strong> come segue:
+              </p>
+              <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-amber-950">
+                <li>Data</li>
+                <li>Valuta</li>
+                <li>Movimenti in uscita</li>
+                <li>Movimenti in entrata</li>
+                <li>Descrizione / Causale</li>
+              </ol>
+            </section>
+
+            <section>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Procedura di conversione
+              </h4>
+              <ol className="space-y-3">
+                <li className="rounded-lg border border-[var(--border)] bg-slate-50/80 px-3 py-2.5">
+                  <p className="font-semibold text-slate-900">
+                    1) Caricare il documento PDF
+                  </p>
+                  <p className="mt-1 text-slate-700">
+                    Carica il documento <strong>.pdf</strong> nel sito di
+                    conversione PDF → Excel, ad esempio{" "}
+                    <a
+                      href="https://doclio.com/it/l/pdf-to-excel"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-[var(--primary)] underline decoration-2 underline-offset-2"
+                    >
+                      Doclio – PDF in Excel
+                      <FaArrowUpRightFromSquare size={11} />
+                    </a>{" "}
+                    (si apre in una nuova scheda).
+                  </p>
+                </li>
+                <li className="rounded-lg border border-[var(--border)] bg-slate-50/80 px-3 py-2.5">
+                  <p className="font-semibold text-slate-900">
+                    2) Convertire e scaricare
+                  </p>
+                  <p className="mt-1 text-slate-700">
+                    Converti e scarica il documento Excel (.xlsx).
+                  </p>
+                </li>
+                <li className="rounded-lg border border-[var(--border)] bg-slate-50/80 px-3 py-2.5">
+                  <p className="font-semibold text-slate-900">
+                    3) Aprire Excel e unificare i movimenti
+                  </p>
+                  <p className="mt-1 text-slate-700">
+                    Apri il file Excel (in genere composto da pagine di
+                    intestazioni e pagine di movimenti). Elimina le intestazioni
+                    e carica i movimenti (copia e incolla) in{" "}
+                    <strong>ordine crescente</strong>, uno sotto l’altro, in un{" "}
+                    <strong>unico foglio</strong>; elimina i fogli copiati. Alla
+                    fine deve restare un solo foglio con tutti i movimenti,
+                    esclusi saldi iniziali e finali, nomi celle, ecc. (di solito
+                    presenti solo all’inizio e alla fine dei movimenti).
+                  </p>
+                </li>
+                <li className="rounded-lg border border-[var(--border)] bg-slate-50/80 px-3 py-2.5">
+                  <p className="font-semibold text-slate-900">
+                    4) Esporta in CSV
+                  </p>
+                  <p className="mt-1 text-slate-700">
+                    Salva il documento ed esporta in formato{" "}
+                    <strong>.csv</strong> (se richiesto, formato europeo con
+                    divisore <strong>;</strong> o <strong>,</strong>).
+                  </p>
+                </li>
+                <li className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2.5">
+                  <p className="font-semibold text-emerald-950">
+                    5) Carica qui il CSV
+                  </p>
+                  <p className="mt-1 text-emerald-950/90">
+                    Carica il documento <strong>.csv</strong> in quest’area per
+                    il caricamento dei movimenti bancari (anteprima →
+                    conciliazione → Salva nel DB con PDF originale).
+                  </p>
+                </li>
+              </ol>
+            </section>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <a
+              href="https://doclio.com/it/l/pdf-to-excel"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white"
+            >
+              Apri convertitore PDF → Excel
+              <FaArrowUpRightFromSquare size={12} />
+            </a>
+            <button
+              type="button"
+              onClick={() => setCsvHelpOpen(false)}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              Chiudi
             </button>
           </div>
         </Modal>
