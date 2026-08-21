@@ -13,6 +13,8 @@ import {
 import {
   BANK_RECONCILE_BROWSE_STEP_DAYS,
   BANK_RECONCILE_MIN_SCORE,
+  BANK_RECONCILE_NEAR_DAYS,
+  BANK_RECONCILE_SEARCH_DAYS,
   invoiceKindFromBankAmount,
   scoreBankInvoiceMatch,
   scoreEntityInCausale,
@@ -1149,25 +1151,24 @@ async function bestInvoiceForTx(
   invoices: InvCandidate[],
   used: UsedPayments
 ): Promise<{ inv: InvCandidate; score: number } | null> {
-  let best: { inv: InvCandidate; score: number } | null = null;
+  const amount = Number(tx.amount) || 0;
+  const kind = invoiceKindFromBankAmount(amount);
+  if (!kind) return null;
+  const cents = moneyCents(Math.abs(amount));
+  const txDate = String(tx.transaction_date);
+
+  const hits: Array<{ inv: InvCandidate; days: number }> = [];
   for (const inv of invoices) {
+    if (inv.kind !== kind) continue;
     if (!isCandidateAvailable(inv, used)) continue;
-    const score = scoreBankInvoiceMatch({
-      amount: Number(tx.amount) || 0,
-      invoiceGross: Number(inv.amount_gross) || 0,
-      counterparty: String(tx.counterparty_name ?? ""),
-      entityName: String(inv.entity_name ?? ""),
-      description: String(tx.description ?? ""),
-      invoiceNumber: String(inv.number ?? ""),
-      txDate: tx.transaction_date,
-      invoiceDate: inv.date,
-      invoiceKind: inv.kind,
-    });
-    if (score >= BANK_RECONCILE_MIN_SCORE && (!best || score > best.score)) {
-      best = { inv, score };
-    }
+    if (moneyCents(inv.amount_gross) !== cents) continue;
+    const days = daysAbs(txDate, inv.date);
+    if (days == null || days > BANK_RECONCILE_NEAR_DAYS) continue;
+    hits.push({ inv, days });
   }
-  return best;
+  if (hits.length !== 1) return null;
+  const only = hits[0]!;
+  return { inv: only.inv, score: 85 };
 }
 
 /** Concilia un singolo movimento con la fattura migliore (salvato in DB). */
@@ -1224,7 +1225,7 @@ export async function reconcileBankTransactionAction(input: {
       success: true,
       matched: false,
       reason:
-        "Nessuna fattura/rata compatibile (importo assoluto ±1¢, data ±5gg, catalogo: + emesse / − ricevute).",
+        "Nessuna fattura/rata con importo uguale entro ±15 giorni (concilia automatica massiva non collega oltre).",
     };
   }
 
@@ -1686,6 +1687,7 @@ function candidateToView(
     isDilazione: inv.isDilazione,
     kind: inv.kind,
     type: inv.type,
+    ficId: Number(inv.fic_id) || 0,
     number: inv.number,
     entityName: inv.entity_name,
     amountGross: inv.amount_gross,
@@ -1698,8 +1700,8 @@ function candidateToView(
 }
 
 /**
- * Tentativo automatico: importo = master (totale o rata, anche se anagrafica «pagato»
- * ma non ancora in bank_invoice_matches). Precisione: ragione sociale in causale.
+ * Tentativo automatico: solo importo (±1¢) entro ±60 gg.
+ * ≤15 gg: 1 → auto / più → scelta; 16–60 gg → conferma operatore.
  */
 export async function attemptAutoReconcileBankTxAction(input: {
   transactionId: string;
@@ -1720,6 +1722,16 @@ export async function attemptAutoReconcileBankTxAction(input: {
       amountAbs: number;
       txDate: string;
       description: string;
+    }
+  | {
+      success: true;
+      outcome: "needs_far_confirm";
+      candidates: BankReconcileCandidateView[];
+      kind: "emessa" | "ricevuta";
+      amountAbs: number;
+      txDate: string;
+      description: string;
+      counterparty: string;
     }
   | {
       success: true;
@@ -1763,6 +1775,23 @@ export async function attemptAutoReconcileBankTxAction(input: {
     };
   }
 
+  if (
+    isBankCommissionFee(
+      Number(tx.amount) || 0,
+      String(tx.description ?? "")
+    )
+  ) {
+    return {
+      success: true,
+      outcome: "needs_browse",
+      kind: invoiceKindFromBankAmount(Number(tx.amount) || 0) ?? "ricevuta",
+      amountAbs: Math.abs(Number(tx.amount) || 0),
+      txDate: String(tx.transaction_date),
+      description: String(tx.description ?? ""),
+      reason: "Movimento di commissioni bancarie: nessuna fattura da collegare.",
+    };
+  }
+
   const amount = Number(tx.amount) || 0;
   const kind = invoiceKindFromBankAmount(amount);
   if (!kind) {
@@ -1782,36 +1811,20 @@ export async function attemptAutoReconcileBankTxAction(input: {
     .filter((inv) => moneyCents(inv.amount_gross) === cents)
     .map((inv) => {
       const daysFromTx = daysAbs(txDate, inv.date);
-      const entityScore = scoreEntityInCausale(
-        inv.entity_name,
-        description,
-        counterparty
-      );
-      const score = scoreBankInvoiceMatch({
-        amount,
-        invoiceGross: inv.amount_gross,
-        counterparty,
-        entityName: inv.entity_name,
-        description,
-        invoiceNumber: inv.number,
-        txDate,
-        invoiceDate: inv.date,
-        invoiceKind: inv.kind,
-      });
       return {
         inv,
         daysFromTx,
-        entityScore,
-        score: Math.max(score, 50) + (entityScore >= 20 ? 15 : entityScore > 0 ? 8 : 0),
         view: candidateToView(inv, txDate, amountAbs, description, counterparty),
       };
     })
+    .filter((m) => {
+      if (m.daysFromTx == null) return true;
+      return m.daysFromTx <= BANK_RECONCILE_SEARCH_DAYS;
+    })
     .sort((a, b) => {
-      if (b.entityScore !== a.entityScore) return b.entityScore - a.entityScore;
       const da = a.daysFromTx ?? 9999;
       const db = b.daysFromTx ?? 9999;
-      if (da !== db) return da - db;
-      return b.score - a.score;
+      return da - db;
     });
 
   if (amountMatches.length === 0) {
@@ -1822,21 +1835,19 @@ export async function attemptAutoReconcileBankTxAction(input: {
       amountAbs,
       txDate,
       description,
-      reason:
-        "Nessuna fattura/rata con lo stesso importo: apri elenco per periodo.",
+      reason: `Nessuna fattura/rata con lo stesso importo entro ±${BANK_RECONCILE_SEARCH_DAYS} giorni.`,
     };
   }
 
-  // Un solo importo, oppure un solo candidato con ragione sociale in causale
-  const withEntity = amountMatches.filter((m) => m.entityScore >= 12);
-  const autoPick =
-    amountMatches.length === 1
-      ? amountMatches[0]!
-      : withEntity.length === 1
-        ? withEntity[0]!
-        : null;
+  const near = amountMatches.filter(
+    (m) => m.daysFromTx != null && m.daysFromTx <= BANK_RECONCILE_NEAR_DAYS
+  );
+  const far = amountMatches.filter(
+    (m) => m.daysFromTx == null || m.daysFromTx > BANK_RECONCILE_NEAR_DAYS
+  );
 
-  if (autoPick) {
+  if (near.length === 1) {
+    const autoPick = near[0]!;
     const linked = await insertBankMatch({
       supabase,
       userId: auth.userId,
@@ -1844,7 +1855,7 @@ export async function attemptAutoReconcileBankTxAction(input: {
       invoiceId: autoPick.inv.id,
       invoiceKind: autoPick.inv.kind,
       dilazioneId: autoPick.inv.dilazioneId,
-      score: autoPick.score,
+      score: 90,
       mode: "auto",
       invoiceNumber: autoPick.inv.number,
     });
@@ -1855,18 +1866,32 @@ export async function attemptAutoReconcileBankTxAction(input: {
       matchId: linked.matchId,
       invoiceId: autoPick.inv.id,
       invoiceNumber: autoPick.inv.number,
-      score: autoPick.score,
+      score: 90,
     };
   }
 
+  if (near.length > 1) {
+    return {
+      success: true,
+      outcome: "needs_choice",
+      candidates: near.map((m) => m.view),
+      kind,
+      amountAbs,
+      txDate,
+      description,
+    };
+  }
+
+  // Solo corrispondenze oltre ±15 gg (entro ±60): conferma operatore
   return {
     success: true,
-    outcome: "needs_choice",
-    candidates: amountMatches.map((m) => m.view),
+    outcome: "needs_far_confirm",
+    candidates: far.map((m) => m.view),
     kind,
     amountAbs,
     txDate,
     description,
+    counterparty,
   };
 }
 
@@ -1993,6 +2018,7 @@ export async function listBankReconcileBrowseAction(input: {
         isDilazione: false,
         kind: g.kind,
         type: g.type,
+        ficId: g.ficId,
         number: g.number,
         entityName: g.entityName,
         amountGross: g.totale,
@@ -2012,6 +2038,7 @@ export async function listBankReconcileBrowseAction(input: {
         isDilazione: true,
         kind: g.kind,
         type: g.type,
+        ficId: g.ficId,
         number: `${g.number} · rata ${d.sortOrder + 1}`,
         entityName: g.entityName,
         amountGross: d.importo,

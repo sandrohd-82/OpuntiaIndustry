@@ -1,18 +1,19 @@
 /**
  * Scoring e riconciliazione movimento banca ↔ fattura (deterministico).
  *
- * Regole:
- * - Importo: confronto in valore assoluto (tolleranza 1 centesimo).
- * - Se la fattura ha dilazioni attive: match su importo/data della RATA
- *   (non sul totale fattura).
- * - Segno movimento: solo direzione catalogo
- *     + / entrata → fatture emesse (incasso)
- *     − / uscita  → fatture ricevute (pagamento)
- * - Data (emissione o scadenza rata) entro ±5 giorni dalla data movimento
- * - Bonus: ragione sociale / n. fattura in causale
+ * Regole Concilià automatica (Opzione A):
+ * - Solo importo (±1¢) + catalogo per segno (+ emesse / − ricevute)
+ * - Cerca entro ±60 giorni dalla data movimento
+ * - Entro ±15 giorni: 1 match → auto; più match → scelta
+ * - Oltre 15 (fino a 60): conferma operatore (modale)
  */
 
-export const BANK_RECONCILE_DATE_WINDOW_DAYS = 5;
+/** Finestra «vicina»: auto/scelta senza conferma distanza. */
+export const BANK_RECONCILE_NEAR_DAYS = 15;
+/** Finestra massima ricerca importo (± giorni). */
+export const BANK_RECONCILE_SEARCH_DAYS = 60;
+/** @deprecated usare BANK_RECONCILE_NEAR_DAYS */
+export const BANK_RECONCILE_DATE_WINDOW_DAYS = BANK_RECONCILE_NEAR_DAYS;
 /** Base sufficiente: importo + finestra data. */
 export const BANK_RECONCILE_MIN_SCORE = 70;
 /** Step browse manuale Concilià questo (±N giorni, espandibile). */
@@ -29,6 +30,7 @@ export type BankReconcileCandidateView = {
   isDilazione: boolean;
   kind: BankReconcileInvoiceKind;
   type: "issued" | "received";
+  ficId: number;
   number: string;
   entityName: string;
   amountGross: number;
@@ -36,7 +38,7 @@ export type BankReconcileCandidateView = {
   status: string;
   daysFromTx: number | null;
   amountMatch: boolean;
-  /** Punteggio ragione sociale in causale (0–30), per ranking preciso. */
+  /** Punteggio ragione sociale in causale (0–30), informativo. */
   entityScore?: number;
 };
 

@@ -29,6 +29,7 @@ export type BankReconcileInvoiceGroup = {
   invoiceId: string;
   kind: BankReconcileInvoiceKind;
   type: "issued" | "received";
+  ficId: number;
   number: string;
   entityName: string;
   totale: number;
@@ -313,7 +314,7 @@ export async function loadReconcileInvoiceGroups(
     const { data, error } = await supabase
       .from("fatture_emesse")
       .select(
-        "id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione, stato_pagamento"
+        "id, fic_id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione, stato_pagamento"
       )
       .is("deleted_at", null)
       .order("data_emissione", { ascending: false });
@@ -336,6 +337,7 @@ export async function loadReconcileInvoiceGroups(
         invoiceId: id,
         kind: "emessa",
         type: "issued",
+        ficId: Number(row.fic_id) || 0,
         number,
         entityName: String(row.cliente_ragione_sociale ?? ""),
         totale,
@@ -363,7 +365,7 @@ export async function loadReconcileInvoiceGroups(
     const { data, error } = await supabase
       .from("fatture_ricevute")
       .select(
-        "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione, stato_pagamento"
+        "id, fic_id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione, stato_pagamento"
       )
       .is("deleted_at", null)
       .order("data_emissione", { ascending: false });
@@ -386,6 +388,7 @@ export async function loadReconcileInvoiceGroups(
         invoiceId: id,
         kind: "ricevuta",
         type: "received",
+        ficId: Number(row.fic_id) || 0,
         number,
         entityName: String(row.fornitore_ragione_sociale ?? ""),
         totale,

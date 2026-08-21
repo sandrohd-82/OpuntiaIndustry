@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useId, useState, useTransition } from "react";
-import { FaExpand, FaLink, FaRobot, FaUser } from "react-icons/fa6";
+import {
+  FaExpand,
+  FaFileInvoice,
+  FaLink,
+  FaRobot,
+  FaUser,
+} from "react-icons/fa6";
 import {
   attemptAutoReconcileBankTxAction,
   linkBankTransactionInvoiceAction,
@@ -10,12 +16,14 @@ import {
 } from "@/app/actions/bank-reports";
 import {
   BANK_RECONCILE_BROWSE_STEP_DAYS,
+  BANK_RECONCILE_NEAR_DAYS,
+  BANK_RECONCILE_SEARCH_DAYS,
   type BankReconcileCandidateView,
 } from "@/lib/amministrazione/bank-reconcile";
 import type { BankReconcileInvoiceGroup } from "@/lib/amministrazione/bank-reconcile-load";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 
-type Step = "mode" | "choice" | "browse";
+type Step = "mode" | "choice" | "far_confirm" | "browse";
 
 type Props = {
   row: BankTransactionView;
@@ -24,6 +32,12 @@ type Props = {
   onInfo: (msg: string) => void;
   onError: (msg: string) => void;
 };
+
+function invoiceDocHref(c: BankReconcileCandidateView): string | null {
+  if (!c.ficId) return null;
+  const seg = c.type === "received" ? "received" : "issued";
+  return `/app/amministrazione/documenti-fic/${seg}/${c.ficId}`;
+}
 
 function CandidateRow({
   c,
@@ -57,8 +71,8 @@ function CandidateRow({
       <p className="text-xs text-[var(--muted)]">
         {c.isDilazione ? "Scadenza rata" : "Data"}:{" "}
         {c.date ? formatDateIt(c.date) : "—"}
-        {c.entityScore && c.entityScore > 0
-          ? ` · azienda in causale (${c.entityScore})`
+        {c.daysFromTx != null
+          ? ` · Δ ${Math.round(c.daysFromTx)} gg`
           : ""}
       </p>
     </button>
@@ -79,7 +93,7 @@ export function ConciliaQuestoModal({
     []
   );
   const [groups, setGroups] = useState<BankReconcileInvoiceGroup[]>([]);
-  const [halfWindow, setHalfWindow] = useState(BANK_RECONCILE_BROWSE_STEP_DAYS);
+  const [halfWindow, setHalfWindow] = useState(BANK_RECONCILE_SEARCH_DAYS);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [kind, setKind] = useState<"emessa" | "ricevuta" | null>(null);
@@ -163,14 +177,21 @@ export function ConciliaQuestoModal({
         setStep("choice");
         return;
       }
+      if (res.outcome === "needs_far_confirm") {
+        setCandidates(res.candidates);
+        setKind(res.kind);
+        clearSelection();
+        setLinkMode("choice");
+        setStep("far_confirm");
+        return;
+      }
       onInfo(res.reason);
-      loadBrowse(BANK_RECONCILE_BROWSE_STEP_DAYS);
+      loadBrowse(BANK_RECONCILE_SEARCH_DAYS);
     });
   }
 
   function confirmLink() {
     if (!selectedInvoiceId || !kind) return;
-    // Con dilazioni obbligatoria la selezione rata
     const g = groups.find((x) => x.invoiceId === selectedInvoiceId);
     if (g?.hasDilazioni && !selectedDilazioneId && step === "browse") {
       setError("Seleziona una sola dilazione (checkbox) sotto la fattura.");
@@ -241,8 +262,9 @@ export function ConciliaQuestoModal({
           {step === "mode" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Importo = master. Con dilazioni si matcha la singola rata (anche
-                una sola). In manuale: fattura + checkbox rate.
+                Automatica: solo importo entro ±{BANK_RECONCILE_SEARCH_DAYS} gg.
+                Entro ±{BANK_RECONCILE_NEAR_DAYS} gg collega (o chiede scelta);
+                oltre, conferma operatore.
               </p>
               <button
                 type="button"
@@ -256,7 +278,8 @@ export function ConciliaQuestoModal({
                     Automatica
                   </span>
                   <span className="mt-0.5 block text-xs text-sky-900/80">
-                    Preferisce ragione sociale in causale + importo identico.
+                    Match solo importo · finestra ±
+                    {BANK_RECONCILE_SEARCH_DAYS} giorni.
                   </span>
                 </span>
               </button>
@@ -265,7 +288,7 @@ export function ConciliaQuestoModal({
                 disabled={pending || row.amount === 0}
                 onClick={() => {
                   setLinkMode("manual");
-                  loadBrowse(BANK_RECONCILE_BROWSE_STEP_DAYS);
+                  loadBrowse(BANK_RECONCILE_SEARCH_DAYS);
                 }}
                 className="flex w-full items-start gap-3 rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-left hover:bg-slate-50 disabled:opacity-50"
               >
@@ -286,7 +309,8 @@ export function ConciliaQuestoModal({
           {step === "choice" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Più voci con lo stesso importo. Seleziona quella corretta.
+                Più voci con lo stesso importo entro ±{BANK_RECONCILE_NEAR_DAYS}{" "}
+                gg. Seleziona quella corretta.
               </p>
               <ul className="space-y-2">
                 {candidates.map((c) => (
@@ -308,11 +332,106 @@ export function ConciliaQuestoModal({
                 disabled={pending}
                 onClick={() => {
                   setLinkMode("manual");
-                  loadBrowse(BANK_RECONCILE_BROWSE_STEP_DAYS);
+                  loadBrowse(BANK_RECONCILE_SEARCH_DAYS);
                 }}
                 className="text-xs font-medium text-sky-700 hover:underline"
               >
                 Apri elenco completo per periodo
+              </button>
+            </div>
+          ) : null}
+
+          {step === "far_confirm" ? (
+            <div className="space-y-3">
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Trovate corrispondenze di importo oltre ±
+                {BANK_RECONCILE_NEAR_DAYS} giorni (entro ±
+                {BANK_RECONCILE_SEARCH_DAYS}). Verifica causale e fattura: sei tu
+                a decidere se collegare.
+              </p>
+              <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Causale movimento
+                </p>
+                <p className="mt-1 text-slate-900">{row.description || "—"}</p>
+                {row.counterpartyName ? (
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Controparte: {row.counterpartyName}
+                  </p>
+                ) : null}
+              </div>
+              <ul className="space-y-3">
+                {candidates.map((c) => {
+                  const href = invoiceDocHref(c);
+                  const selected = selectedKey === c.candidateKey;
+                  return (
+                    <li
+                      key={c.candidateKey}
+                      className={`rounded-xl border px-3 py-3 ${
+                        selected
+                          ? "border-sky-500 bg-sky-50 ring-1 ring-sky-400"
+                          : "border-amber-200 bg-amber-50/40"
+                      }`}
+                    >
+                      <label className="flex cursor-pointer gap-3">
+                        <input
+                          type="radio"
+                          name="far-confirm-pick"
+                          className="mt-1"
+                          checked={selected}
+                          onChange={() => {
+                            setSelectedKey(c.candidateKey);
+                            setSelectedInvoiceId(c.id);
+                            setSelectedDilazioneId(c.dilazioneId);
+                          }}
+                        />
+                        <span className="min-w-0 flex-1 text-sm">
+                          <span className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="font-mono text-xs font-semibold">
+                              {c.number}
+                            </span>
+                            <span className="tabular-nums font-semibold text-emerald-800">
+                              {formatEuro(c.amountGross)} · importo ok
+                            </span>
+                          </span>
+                          <span className="mt-1 block font-medium text-slate-900">
+                            {c.entityName || "—"}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                            {c.isDilazione ? "Scadenza rata" : "Data fattura"}:{" "}
+                            {c.date ? formatDateIt(c.date) : "—"}
+                            {c.daysFromTx != null
+                              ? ` · distanza ${Math.round(c.daysFromTx)} gg`
+                              : " · data assente"}
+                          </span>
+                          {href ? (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-sky-700 hover:underline"
+                            >
+                              <FaFileInvoice size={11} />
+                              Apri fattura
+                            </a>
+                          ) : null}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  setLinkMode("manual");
+                  loadBrowse(BANK_RECONCILE_SEARCH_DAYS);
+                }}
+                className="text-xs font-medium text-sky-700 hover:underline"
+              >
+                Nessuna di queste — apri elenco completo
               </button>
             </div>
           ) : null}
@@ -469,9 +588,11 @@ export function ConciliaQuestoModal({
             onClick={onClose}
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           >
-            Annulla
+            {step === "far_confirm" ? "Scarta / Annulla" : "Annulla"}
           </button>
-          {step === "choice" || step === "browse" ? (
+          {step === "choice" ||
+          step === "browse" ||
+          step === "far_confirm" ? (
             <button
               type="button"
               disabled={pending || !selectedInvoiceId}
@@ -479,7 +600,11 @@ export function ConciliaQuestoModal({
               className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
             >
               <FaLink size={12} />
-              {pending ? "Collegamento…" : "Conferma collegamento"}
+              {pending
+                ? "Collegamento…"
+                : step === "far_confirm"
+                  ? "Conferma corrispondenza"
+                  : "Conferma collegamento"}
             </button>
           ) : null}
         </div>
