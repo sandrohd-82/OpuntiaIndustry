@@ -76,7 +76,7 @@ export function CodiceTargaBadge({
 
   return (
     <span
-      className={`inline-flex items-baseline font-mono tracking-[0.18em] ${sizeClasses.wrap}`}
+      className={`inline-flex max-w-none flex-nowrap items-baseline whitespace-nowrap font-mono tracking-[0.18em] ${sizeClasses.wrap}`}
       aria-label={`Codice ${ariaCode || "in caricamento"}`}
     >
       <span

@@ -16,6 +16,7 @@ import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/Cod
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { ExpandableNomeCell } from "@/components/ui/ExpandableNomeCell";
 import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
 import type { Fattura } from "@/lib/amministrazione/fatture";
 import type {
@@ -201,20 +202,22 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                   key={item.id}
                   className="border-b border-[var(--border)] last:border-0"
                 >
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="inline-flex flex-nowrap items-center gap-2">
                       <CodiceTargaBadge
                         code={item.codice}
                         fixedPrefix={catalogoPrefix(kind)}
                       />
                       {item.pendingDeleteAt ? (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
+                        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900">
                           In eliminazione
                         </span>
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-4 py-3 font-medium">{item.nome}</td>
+                  <td className="px-4 py-3 align-top">
+                    <ExpandableNomeCell text={item.nome} />
+                  </td>
                   <td className="px-4 py-3 text-[var(--muted)]">
                     {item.isBio ? "Bio" : "Convenzionale"}
                   </td>
