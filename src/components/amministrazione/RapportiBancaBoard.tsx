@@ -32,13 +32,13 @@ import {
   setBankTransactionSignAction,
   flipBankTransactionSignAction,
   verifyBankMatchAction,
-  reconcileBankTransactionAction,
   reconcileAllBankTransactionsAction,
   type BankTransactionView,
   type BankPeriodSummary,
   type BankPreviewLineView,
   type BankContextTxView,
 } from "@/app/actions/bank-reports";
+import { ConciliaQuestoModal } from "@/components/amministrazione/ConciliaQuestoModal";
 import { formatEuro, formatDateIt } from "@/lib/amministrazione/fatture";
 
 type PeriodPreset = "mese" | "trimestre" | "personalizzato";
@@ -150,6 +150,9 @@ export function RapportiBancaBoard() {
   const [pending, startTransition] = useTransition();
   const [detail, setDetail] = useState<BankTransactionView | null>(null);
   const [compare, setCompare] = useState<BankTransactionView | null>(null);
+  const [conciliaRow, setConciliaRow] = useState<BankTransactionView | null>(
+    null
+  );
   const [importOpen, setImportOpen] = useState(false);
   const [csvHelpOpen, setCsvHelpOpen] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -1623,27 +1626,9 @@ export function RapportiBancaBoard() {
                         <button
                           type="button"
                           disabled={pending}
-                          onClick={() => {
-                            startTransition(async () => {
-                              const res = await reconcileBankTransactionAction({
-                                transactionId: row.id,
-                              });
-                              if (!res.success) {
-                                setError(res.error);
-                                return;
-                              }
-                              if (!res.matched) {
-                                setInfo(res.reason);
-                                return;
-                              }
-                              setInfo(
-                                `Concilia questo: fattura ${res.invoiceNumber || "—"} (${res.score}%).`
-                              );
-                              void load();
-                            });
-                          }}
+                          onClick={() => setConciliaRow(row)}
                           className="inline-flex items-center gap-1 rounded border border-sky-500 bg-sky-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                          title="Collega questo movimento alla fattura migliore"
+                          title="Collega questo movimento a una fattura"
                         >
                           <FaScaleBalanced size={11} />
                           Concilia questo
@@ -1716,6 +1701,21 @@ export function RapportiBancaBoard() {
         Stampato il {new Date().toLocaleString("it-IT")} · Utente: {printUser} ·
         Conformità ISO 9001 (tracciabilità report)
       </footer>
+
+      {conciliaRow ? (
+        <ConciliaQuestoModal
+          row={conciliaRow}
+          onClose={() => setConciliaRow(null)}
+          onLinked={(msg) => {
+            setInfo(msg);
+            setError(null);
+            setConciliaRow(null);
+            void load();
+          }}
+          onInfo={(msg) => setInfo(msg)}
+          onError={(msg) => setError(msg)}
+        />
+      ) : null}
 
       {detail ? (
         <Modal title="Dettaglio transazione TS Pay" onClose={() => setDetail(null)}>

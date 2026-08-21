@@ -12,6 +12,7 @@ import {
 } from "@/lib/amministrazione/bank-pdf-python";
 import {
   BANK_RECONCILE_MIN_SCORE,
+  invoiceKindFromBankAmount,
   scoreBankInvoiceMatch,
 } from "@/lib/amministrazione/bank-reconcile";
 import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
@@ -1490,4 +1491,539 @@ export async function flipBankTransactionSignAction(input: {
   });
 
   return { success: true, amount };
+}
+
+// ---------------------------------------------------------------------------
+// Concilia questo: auto (importo master) / manuale / browse ±15 espandibile
+// ---------------------------------------------------------------------------
+
+export const BANK_RECONCILE_BROWSE_STEP_DAYS = 15;
+
+export type BankReconcileCandidateView = {
+  id: string;
+  kind: "emessa" | "ricevuta";
+  type: "issued" | "received";
+  number: string;
+  entityName: string;
+  amountGross: number;
+  date: string | null;
+  status: string;
+  daysFromTx: number | null;
+  amountMatch: boolean;
+};
+
+function moneyCents(n: number): number {
+  return Math.round(Math.abs(Number(n) || 0) * 100);
+}
+
+function daysAbs(a: string | null, b: string | null): number | null {
+  if (!a || !b) return null;
+  const d1 = Date.parse(a.slice(0, 10));
+  const d2 = Date.parse(b.slice(0, 10));
+  if (!Number.isFinite(d1) || !Number.isFinite(d2)) return null;
+  return Math.abs(d1 - d2) / 86_400_000;
+}
+
+function addDaysIso(isoDate: string, days: number): string {
+  const t = Date.parse(isoDate.slice(0, 10));
+  const d = new Date(t + days * 86_400_000);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+async function loadUsedInvoiceIds(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<Set<string>> {
+  const { data } = await supabase
+    .from("bank_invoice_matches")
+    .select("invoice_id")
+    .is("deleted_at", null);
+  return new Set((data ?? []).map((u) => String(u.invoice_id)));
+}
+
+async function insertBankMatch(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  transactionId: string;
+  invoiceId: string;
+  invoiceKind: "emessa" | "ricevuta";
+  score: number;
+  mode: "auto" | "manual" | "choice";
+  invoiceNumber: string;
+}): Promise<
+  { success: true; matchId: string } | { success: false; error: string }
+> {
+  const now = new Date().toISOString();
+  const { data: match, error: matchErr } = await input.supabase
+    .from("bank_invoice_matches")
+    .insert({
+      transaction_id: input.transactionId,
+      invoice_id: input.invoiceId,
+      invoice_kind: input.invoiceKind,
+      match_score: input.score,
+      status: "manually_verified",
+      verified_at: now,
+      created_by: input.userId,
+      updated_by: input.userId,
+    })
+    .select("id")
+    .single();
+  if (matchErr || !match) {
+    return { success: false, error: matchErr?.message ?? "Match non creato." };
+  }
+  void writeAuditLog({
+    entity_type: "bank_invoice_matches",
+    entity_id: String(match.id),
+    action: "create",
+    actor_id: input.userId,
+    summary: `Conciliazione ${input.mode}: mov. ↔ fatt. ${input.invoiceNumber}`,
+    payload: {
+      transaction_id: input.transactionId,
+      invoice_id: input.invoiceId,
+      invoice_kind: input.invoiceKind,
+      mode: input.mode,
+      score: input.score,
+    },
+  });
+  return { success: true, matchId: String(match.id) };
+}
+
+/**
+ * Tentativo automatico: importo = master.
+ * 0 match → browse; 1 → collega; >1 stesso importo → scelta operatore.
+ */
+export async function attemptAutoReconcileBankTxAction(input: {
+  transactionId: string;
+}): Promise<
+  | {
+      success: true;
+      outcome: "matched";
+      matchId: string;
+      invoiceId: string;
+      invoiceNumber: string;
+      score: number;
+    }
+  | {
+      success: true;
+      outcome: "needs_choice";
+      candidates: BankReconcileCandidateView[];
+      kind: "emessa" | "ricevuta";
+      amountAbs: number;
+      txDate: string;
+      description: string;
+    }
+  | {
+      success: true;
+      outcome: "needs_browse";
+      kind: "emessa" | "ricevuta";
+      amountAbs: number;
+      txDate: string;
+      description: string;
+      reason: string;
+    }
+  | { success: true; outcome: "already_linked"; reason: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  if (!id) return { success: false, error: "Movimento non valido." };
+
+  const supabase = await createClient();
+  const { data: tx, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select(
+      "id, amount, description, counterparty_name, transaction_date, deleted_at"
+    )
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (txErr) return { success: false, error: txErr.message };
+  if (!tx) return { success: false, error: "Movimento non trovato." };
+
+  const { data: existing } = await supabase
+    .from("bank_invoice_matches")
+    .select("id")
+    .eq("transaction_id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing?.id) {
+    return {
+      success: true,
+      outcome: "already_linked",
+      reason: "Movimento già collegato a una fattura.",
+    };
+  }
+
+  const amount = Number(tx.amount) || 0;
+  const kind = invoiceKindFromBankAmount(amount);
+  if (!kind) {
+    return { success: false, error: "Imposta prima il segno del movimento." };
+  }
+  const amountAbs = Math.abs(amount);
+  const txDate = String(tx.transaction_date);
+  const description = String(tx.description ?? "");
+  const exclude = await loadUsedInvoiceIds(supabase);
+  const invoices = await loadInvoiceCandidates(supabase);
+  const cents = moneyCents(amountAbs);
+
+  const amountMatches = invoices
+    .filter((inv) => inv.kind === kind)
+    .filter((inv) => !exclude.has(String(inv.id)))
+    .filter((inv) => moneyCents(inv.amount_gross) === cents)
+    .map((inv) => {
+      const daysFromTx = daysAbs(txDate, inv.date);
+      const score = scoreBankInvoiceMatch({
+        amount,
+        invoiceGross: inv.amount_gross,
+        counterparty: String(tx.counterparty_name ?? ""),
+        entityName: inv.entity_name,
+        description,
+        invoiceNumber: inv.number,
+        txDate,
+        invoiceDate: inv.date,
+        invoiceKind: inv.kind,
+      });
+      return {
+        inv,
+        daysFromTx,
+        score: Math.max(score, 50),
+        view: {
+          id: inv.id,
+          kind: inv.kind,
+          type: inv.type as "issued" | "received",
+          number: inv.number,
+          entityName: inv.entity_name,
+          amountGross: inv.amount_gross,
+          date: inv.date,
+          status: inv.status,
+          daysFromTx,
+          amountMatch: true,
+        } satisfies BankReconcileCandidateView,
+      };
+    })
+    .sort((a, b) => {
+      const da = a.daysFromTx ?? 9999;
+      const db = b.daysFromTx ?? 9999;
+      if (da !== db) return da - db;
+      return b.score - a.score;
+    });
+
+  if (amountMatches.length === 0) {
+    return {
+      success: true,
+      outcome: "needs_browse",
+      kind,
+      amountAbs,
+      txDate,
+      description,
+      reason: "Nessuna fattura con lo stesso importo: apri elenco per periodo.",
+    };
+  }
+
+  if (amountMatches.length === 1) {
+    const only = amountMatches[0]!;
+    const linked = await insertBankMatch({
+      supabase,
+      userId: auth.userId,
+      transactionId: id,
+      invoiceId: only.inv.id,
+      invoiceKind: only.inv.kind,
+      score: only.score,
+      mode: "auto",
+      invoiceNumber: only.inv.number,
+    });
+    if (!linked.success) return linked;
+    return {
+      success: true,
+      outcome: "matched",
+      matchId: linked.matchId,
+      invoiceId: only.inv.id,
+      invoiceNumber: only.inv.number,
+      score: only.score,
+    };
+  }
+
+  return {
+    success: true,
+    outcome: "needs_choice",
+    candidates: amountMatches.map((m) => m.view),
+    kind,
+    amountAbs,
+    txDate,
+    description,
+  };
+}
+
+/** Elenco fatture emesse/ricevute nel range ±halfWindowDays dalla data movimento. */
+export async function listBankReconcileBrowseAction(input: {
+  transactionId: string;
+  halfWindowDays: number;
+}): Promise<
+  | {
+      success: true;
+      kind: "emessa" | "ricevuta";
+      amountAbs: number;
+      txDate: string;
+      dateFrom: string;
+      dateTo: string;
+      halfWindowDays: number;
+      items: BankReconcileCandidateView[];
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  const half = Math.max(
+    BANK_RECONCILE_BROWSE_STEP_DAYS,
+    Math.floor(Number(input.halfWindowDays) || BANK_RECONCILE_BROWSE_STEP_DAYS)
+  );
+  if (!id) return { success: false, error: "Movimento non valido." };
+
+  const supabase = await createClient();
+  const { data: tx, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select("id, amount, transaction_date, description")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (txErr) return { success: false, error: txErr.message };
+  if (!tx) return { success: false, error: "Movimento non trovato." };
+
+  const amount = Number(tx.amount) || 0;
+  const kind = invoiceKindFromBankAmount(amount);
+  if (!kind) {
+    return { success: false, error: "Imposta prima il segno del movimento." };
+  }
+  const amountAbs = Math.abs(amount);
+  const txDate = String(tx.transaction_date);
+  const dateFrom = addDaysIso(txDate, -half);
+  const dateTo = addDaysIso(txDate, half);
+  const cents = moneyCents(amountAbs);
+  const exclude = await loadUsedInvoiceIds(supabase);
+
+  const table = kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
+  const select =
+    kind === "emessa"
+      ? "id, fic_id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione, stato_pagamento"
+      : "id, fic_id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione, stato_pagamento";
+
+  const { data, error } = await supabase
+    .from(table)
+    .select(select)
+    .is("deleted_at", null)
+    .gte("data_emissione", dateFrom)
+    .lte("data_emissione", dateTo)
+    .order("data_emissione", { ascending: false });
+  if (error) return { success: false, error: error.message };
+
+  const items: BankReconcileCandidateView[] = [];
+  for (const row of data ?? []) {
+    const rid = String((row as { id: string }).id);
+    if (exclude.has(rid)) continue;
+    const totale = Math.abs(
+      Number((row as { totale: number | string }).totale) || 0
+    );
+    const amountMatch = moneyCents(totale) === cents;
+    const date =
+      ((row as { data_emissione: string | null }).data_emissione as
+        | string
+        | null) ?? null;
+    const number =
+      kind === "emessa"
+        ? String(
+            (row as { numero_fattura?: string }).numero_fattura ?? ""
+          ).trim() ||
+          String((row as { numero_interno?: string }).numero_interno ?? "")
+        : String(
+            (row as { numero_documento_esterno?: string })
+              .numero_documento_esterno ?? ""
+          ).trim() ||
+          String((row as { numero_interno?: string }).numero_interno ?? "");
+    const entityName =
+      kind === "emessa"
+        ? String(
+            (row as { cliente_ragione_sociale?: string })
+              .cliente_ragione_sociale ?? ""
+          )
+        : String(
+            (row as { fornitore_ragione_sociale?: string })
+              .fornitore_ragione_sociale ?? ""
+          );
+    items.push({
+      id: rid,
+      kind,
+      type: kind === "emessa" ? "issued" : "received",
+      number,
+      entityName,
+      amountGross: totale,
+      date,
+      status: String(
+        (row as { stato_pagamento?: string }).stato_pagamento ?? ""
+      ),
+      daysFromTx: daysAbs(txDate, date),
+      amountMatch,
+    });
+  }
+
+  items.sort((a, b) => {
+    if (a.amountMatch !== b.amountMatch) return a.amountMatch ? -1 : 1;
+    const da = a.daysFromTx ?? 9999;
+    const db = b.daysFromTx ?? 9999;
+    return da - db;
+  });
+
+  return {
+    success: true,
+    kind,
+    amountAbs,
+    txDate,
+    dateFrom,
+    dateTo,
+    halfWindowDays: half,
+    items,
+  };
+}
+
+/** Collegamento confermato dall’operatore (scelta o browse). */
+export async function linkBankTransactionInvoiceAction(input: {
+  transactionId: string;
+  invoiceId: string;
+  invoiceKind: "emessa" | "ricevuta";
+  mode: "manual" | "choice";
+}): Promise<
+  | {
+      success: true;
+      matchId: string;
+      invoiceNumber: string;
+      score: number;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("area-fiscale");
+  const txId = String(input.transactionId ?? "").trim();
+  const invId = String(input.invoiceId ?? "").trim();
+  const kind = input.invoiceKind;
+  if (!txId || !invId) {
+    return { success: false, error: "Dati collegamento incompleti." };
+  }
+  if (kind !== "emessa" && kind !== "ricevuta") {
+    return { success: false, error: "Tipo fattura non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: tx, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select("id, amount, description, counterparty_name, transaction_date")
+    .eq("id", txId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (txErr) return { success: false, error: txErr.message };
+  if (!tx) return { success: false, error: "Movimento non trovato." };
+
+  const expected = invoiceKindFromBankAmount(Number(tx.amount) || 0);
+  if (expected && expected !== kind) {
+    return {
+      success: false,
+      error:
+        kind === "emessa"
+          ? "Movimento in uscita (−): seleziona una fattura ricevuta."
+          : "Movimento in entrata (+): seleziona una fattura emessa.",
+    };
+  }
+
+  const { data: existing } = await supabase
+    .from("bank_invoice_matches")
+    .select("id")
+    .eq("transaction_id", txId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing?.id) {
+    return { success: false, error: "Movimento già collegato a una fattura." };
+  }
+
+  const used = await loadUsedInvoiceIds(supabase);
+  if (used.has(invId)) {
+    return {
+      success: false,
+      error: "Questa fattura è già collegata a un altro movimento.",
+    };
+  }
+
+  const table = kind === "emessa" ? "fatture_emesse" : "fatture_ricevute";
+  const { data: inv, error: invErr } = await supabase
+    .from(table)
+    .select(
+      kind === "emessa"
+        ? "id, numero_interno, numero_fattura, cliente_ragione_sociale, totale, data_emissione"
+        : "id, numero_interno, numero_documento_esterno, fornitore_ragione_sociale, totale, data_emissione"
+    )
+    .eq("id", invId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (invErr) return { success: false, error: invErr.message };
+  if (!inv) return { success: false, error: "Fattura non trovata." };
+
+  const number =
+    kind === "emessa"
+      ? String((inv as { numero_fattura?: string }).numero_fattura ?? "").trim() ||
+        String((inv as { numero_interno?: string }).numero_interno ?? "")
+      : String(
+          (inv as { numero_documento_esterno?: string })
+            .numero_documento_esterno ?? ""
+        ).trim() ||
+        String((inv as { numero_interno?: string }).numero_interno ?? "");
+  const entityName =
+    kind === "emessa"
+      ? String(
+          (inv as { cliente_ragione_sociale?: string }).cliente_ragione_sociale ??
+            ""
+        )
+      : String(
+          (inv as { fornitore_ragione_sociale?: string })
+            .fornitore_ragione_sociale ?? ""
+        );
+  const invoiceGross = Math.abs(Number((inv as { totale: number }).totale) || 0);
+  const invoiceDate =
+    ((inv as { data_emissione: string | null }).data_emissione as
+      | string
+      | null) ?? null;
+
+  let score = scoreBankInvoiceMatch({
+    amount: Number(tx.amount) || 0,
+    invoiceGross,
+    counterparty: String(tx.counterparty_name ?? ""),
+    entityName,
+    description: String(tx.description ?? ""),
+    invoiceNumber: number,
+    txDate: String(tx.transaction_date),
+    invoiceDate,
+    invoiceKind: kind,
+  });
+  if (
+    moneyCents(Number(tx.amount) || 0) === moneyCents(invoiceGross) &&
+    score < 50
+  ) {
+    score = 50;
+  }
+  if (score < 50) score = 50;
+
+  const linked = await insertBankMatch({
+    supabase,
+    userId: auth.userId,
+    transactionId: txId,
+    invoiceId: invId,
+    invoiceKind: kind,
+    score,
+    mode: input.mode,
+    invoiceNumber: number,
+  });
+  if (!linked.success) return linked;
+  return {
+    success: true,
+    matchId: linked.matchId,
+    invoiceNumber: number,
+    score,
+  };
 }
