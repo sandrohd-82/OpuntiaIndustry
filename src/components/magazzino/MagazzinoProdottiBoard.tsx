@@ -7,12 +7,16 @@ import {
   updateMagazzinoProdottoAction,
 } from "@/app/actions/magazzino";
 import { listRepartiAttiviAction } from "@/app/actions/reparti";
-import type {
-  MagazzinoCatalogKind,
-  MagazzinoProdottoRiga,
-  MagazzinoUnita,
-  Reparto,
-  ScorteSemaforo,
+import {
+  CATEGORIA_UTILIZZO_OPTIONS,
+  categoriaRequiresMagazzino,
+  labelCategoriaUtilizzo,
+  type CategoriaUtilizzo,
+  type MagazzinoCatalogKind,
+  type MagazzinoProdottoRiga,
+  type MagazzinoUnita,
+  type Reparto,
+  type ScorteSemaforo,
 } from "@/lib/magazzino/types";
 
 function SemaforoBadge({ s }: { s: ScorteSemaforo }) {
@@ -61,6 +65,7 @@ export function MagazzinoProdottiBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<MagazzinoProdottoRiga | null>(null);
+  const [categoria, setCategoria] = useState<CategoriaUtilizzo | "">("");
   const [quantita, setQuantita] = useState(0);
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
@@ -71,6 +76,9 @@ export function MagazzinoProdottiBoard({
     catalogKind === "materia_prima"
       ? "materie prime acquistate"
       : "prodotti fornitore acquistati (Pr)";
+
+  const needsRiserva =
+    categoria !== "" && categoriaRequiresMagazzino(categoria);
 
   function load() {
     startTransition(async () => {
@@ -103,42 +111,71 @@ export function MagazzinoProdottiBoard({
       (i) =>
         i.codice.toLowerCase().includes(t) ||
         i.nome.toLowerCase().includes(t) ||
-        (i.repartoNome ?? "").toLowerCase().includes(t)
+        (i.repartoNome ?? "").toLowerCase().includes(t) ||
+        labelCategoriaUtilizzo(i.categoriaUtilizzo).toLowerCase().includes(t)
     );
   }, [items, q]);
 
   function openEdit(row: MagazzinoProdottoRiga) {
     setEditing(row);
+    setCategoria(row.categoriaUtilizzo ?? "");
     setQuantita(row.quantita);
     setRiserva(row.quantitaRiserva ?? "");
     setUnita(row.unita);
     setRepartoId(row.repartoId ?? "");
+    setError(null);
   }
 
   function saveEdit() {
     if (!editing) return;
+    if (!categoria) {
+      setError("Seleziona la categoria di utilizzo.");
+      return;
+    }
+    if (needsRiserva && riserva === "") {
+      setError("Imposta la quantità di riserva.");
+      return;
+    }
     startTransition(async () => {
       const res = await updateMagazzinoProdottoAction({
         catalogKind,
         prodottoId: editing.prodottoId,
-        quantita,
-        quantitaRiserva: riserva === "" ? null : Number(riserva),
+        categoriaUtilizzo: categoria,
+        quantita: needsRiserva ? quantita : 0,
+        quantitaRiserva: needsRiserva
+          ? riserva === ""
+            ? null
+            : Number(riserva)
+          : null,
         unita,
-        repartoId: repartoId || null,
+        repartoId: needsRiserva ? repartoId || null : null,
       });
       if (!res.success) {
         setError(res.error);
         return;
       }
-      setItems((prev) =>
-        prev.map((i) =>
-          i.prodottoId === res.item.prodottoId &&
-          i.catalogKind === res.item.catalogKind
-            ? res.item
-            : i
-        )
-      );
+      if (!categoriaRequiresMagazzino(res.item.categoriaUtilizzo)) {
+        setItems((prev) =>
+          prev.filter(
+            (i) =>
+              !(
+                i.prodottoId === res.item.prodottoId &&
+                i.catalogKind === res.item.catalogKind
+              )
+          )
+        );
+      } else {
+        setItems((prev) =>
+          prev.map((i) =>
+            i.prodottoId === res.item.prodottoId &&
+            i.catalogKind === res.item.catalogKind
+              ? res.item
+              : i
+          )
+        );
+      }
       setEditing(null);
+      setError(null);
     });
   }
 
@@ -155,9 +192,11 @@ export function MagazzinoProdottiBoard({
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--muted)]">
-            Elenco {kindLabel} (non prodotti Agrindicilia). Imposta quantità,
-            riserva e reparto. Giallo = soglia, rosso = sotto riserva (genera
-            nota di acquisto).
+            Solo articoli con scorta:{" "}
+            <strong>Mat. Consumo</strong> e{" "}
+            <strong>Mat. Poco Consumo</strong>. «Acquisti Occasionali» non entra
+            in magazzino. Alla prima modifica classifica l’utilizzo e imposta la
+            riserva.
           </p>
         </div>
         <label className="text-sm">
@@ -165,7 +204,7 @@ export function MagazzinoProdottiBoard({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Cerca codice, nome, reparto…"
+            placeholder="Cerca codice, nome, categoria…"
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           />
         </label>
@@ -182,60 +221,91 @@ export function MagazzinoProdottiBoard({
           <h3 className="text-sm font-semibold">
             Modifica {editing.codice} — {editing.nome}
           </h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Giacenza</span>
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={quantita}
-                onChange={(e) => setQuantita(Number(e.target.value) || 0)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Quantità riserva</span>
-              <input
-                type="number"
-                min={0}
-                step="any"
-                value={riserva}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="text-sm sm:col-span-2 lg:col-span-1">
+              <span className="mb-1 block font-medium">
+                Categoria utilizzo *
+              </span>
+              <select
+                value={categoria}
                 onChange={(e) =>
-                  setRiserva(
-                    e.target.value === "" ? "" : Number(e.target.value)
-                  )
+                  setCategoria(e.target.value as CategoriaUtilizzo | "")
                 }
-                placeholder="Minimo in magazzino"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Unità</span>
-              <select
-                value={unita}
-                onChange={(e) => setUnita(e.target.value as MagazzinoUnita)}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               >
-                <option value="kg">kg</option>
-                <option value="pz">pz</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block font-medium">Reparto</span>
-              <select
-                value={repartoId}
-                onChange={(e) => setRepartoId(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              >
-                <option value="">— nessuno —</option>
-                {reparti.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.codice} — {r.nome}
+                <option value="">— seleziona —</option>
+                {CATEGORIA_UTILIZZO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                    {!o.requiresMagazzino ? " (no magazzino)" : ""}
                   </option>
                 ))}
               </select>
             </label>
+            {needsRiserva ? (
+              <>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Giacenza</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={quantita}
+                    onChange={(e) => setQuantita(Number(e.target.value) || 0)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">
+                    Quantità riserva *
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={riserva}
+                    onChange={(e) =>
+                      setRiserva(
+                        e.target.value === "" ? "" : Number(e.target.value)
+                      )
+                    }
+                    placeholder="Minimo in magazzino"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Unità</span>
+                  <select
+                    value={unita}
+                    onChange={(e) => setUnita(e.target.value as MagazzinoUnita)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="kg">kg</option>
+                    <option value="pz">pz</option>
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block font-medium">Reparto</span>
+                  <select
+                    value={repartoId}
+                    onChange={(e) => setRepartoId(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">— nessuno —</option>
+                    {reparti.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.codice} — {r.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : categoria === "acquisti_occasionali" ? (
+              <p className="text-sm text-[var(--muted)] sm:col-span-2">
+                Acquisti Occasionali: l’articolo uscirà dall’elenco magazzino
+                (nessuna giacenza/riserva).
+              </p>
+            ) : null}
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button
@@ -263,6 +333,7 @@ export function MagazzinoProdottiBoard({
             <tr>
               <th className="px-4 py-3">Codice</th>
               <th className="px-4 py-3">Nome</th>
+              <th className="px-4 py-3">Utilizzo</th>
               <th className="px-4 py-3">Giacenza</th>
               <th className="px-4 py-3">Riserva</th>
               <th className="px-4 py-3">Reparto</th>
@@ -279,8 +350,19 @@ export function MagazzinoProdottiBoard({
                 <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold">
                   {row.codice}
                 </td>
-                <td className="max-w-[30vw] px-4 py-3 font-medium">
+                <td className="max-w-[28vw] px-4 py-3 font-medium">
                   <span className="line-clamp-2">{row.nome}</span>
+                </td>
+                <td className="px-4 py-3 text-xs">
+                  {row.categoriaUtilizzo ? (
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 font-medium text-slate-800">
+                      {labelCategoriaUtilizzo(row.categoriaUtilizzo)}
+                    </span>
+                  ) : (
+                    <span className="rounded-md bg-amber-100 px-2 py-0.5 font-medium text-amber-950">
+                      Da classificare
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 tabular-nums">
                   {row.quantita.toLocaleString("it-IT")} {row.unita}
@@ -310,10 +392,11 @@ export function MagazzinoProdottiBoard({
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-10 text-center text-[var(--muted)]"
                 >
-                  Nessun prodotto.
+                  Nessun articolo in magazzino (o tutti classificaati come
+                  Acquisti Occasionali).
                 </td>
               </tr>
             ) : null}

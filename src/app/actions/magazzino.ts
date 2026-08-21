@@ -4,8 +4,10 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   computeSemaforo,
+  categoriaRequiresMagazzino,
   quantitaDaOrdinare,
   updateMagazzinoProdottoSchema,
+  type CategoriaUtilizzo,
   type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
@@ -32,7 +34,21 @@ type ArticoloRow = {
   codice: string;
   nome: string;
   is_bio: boolean | null;
+  categoria_utilizzo: string | null;
 };
+
+function parseCategoriaUtilizzo(
+  raw: string | null | undefined
+): CategoriaUtilizzo | null {
+  if (
+    raw === "mat_consumo" ||
+    raw === "mat_poco_consumo" ||
+    raw === "acquisti_occasionali"
+  ) {
+    return raw;
+  }
+  return null;
+}
 
 type RepartoMini = { id: string; nome: string; codice: string };
 
@@ -237,7 +253,7 @@ export async function listMagazzinoProdottiAction(
     await Promise.all([
       supabase
         .from(table)
-        .select("id, codice, nome, is_bio")
+        .select("id, codice, nome, is_bio, categoria_utilizzo")
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
       supabase
@@ -273,36 +289,43 @@ export async function listMagazzinoProdottiAction(
     }
   }
 
-  const items: MagazzinoProdottoRiga[] = ((articoli ?? []) as ArticoloRow[]).map(
-    (p) => {
-      const g = giacByProd.get(p.id);
-      const quantita = g ? Number(g.quantita_kg) || 0 : 0;
-      const quantitaRiserva =
-        g?.quantita_riserva != null && g.quantita_riserva !== ""
-          ? Number(g.quantita_riserva)
-          : null;
-      const unita = (g?.unita === "pz" ? "pz" : "kg") as MagazzinoUnita;
-      return {
-        catalogKind,
-        prodottoId: p.id,
-        codice: p.codice,
-        nome: p.nome,
-        isBio: Boolean(p.is_bio),
-        giacenzaId: g?.id ?? null,
-        quantita,
-        quantitaRiserva:
-          quantitaRiserva != null && Number.isFinite(quantitaRiserva)
-            ? quantitaRiserva
-            : null,
-        unita,
-        repartoId: g?.reparto_id ?? null,
-        repartoNome: g?.reparto_id
-          ? (repartoMap.get(g.reparto_id) ?? null)
-          : null,
-        semaforo: computeSemaforo(quantita, quantitaRiserva),
-      };
+  const items: MagazzinoProdottoRiga[] = [];
+  for (const p of (articoli ?? []) as ArticoloRow[]) {
+    const categoriaUtilizzo = parseCategoriaUtilizzo(p.categoria_utilizzo);
+    if (
+      categoriaUtilizzo === "acquisti_occasionali" ||
+      (categoriaUtilizzo && !categoriaRequiresMagazzino(categoriaUtilizzo))
+    ) {
+      continue;
     }
-  );
+    const g = giacByProd.get(p.id);
+    const quantita = g ? Number(g.quantita_kg) || 0 : 0;
+    const quantitaRiserva =
+      g?.quantita_riserva != null && g.quantita_riserva !== ""
+        ? Number(g.quantita_riserva)
+        : null;
+    const unita = (g?.unita === "pz" ? "pz" : "kg") as MagazzinoUnita;
+    items.push({
+      catalogKind,
+      prodottoId: p.id,
+      codice: p.codice,
+      nome: p.nome,
+      isBio: Boolean(p.is_bio),
+      categoriaUtilizzo,
+      giacenzaId: g?.id ?? null,
+      quantita,
+      quantitaRiserva:
+        quantitaRiserva != null && Number.isFinite(quantitaRiserva)
+          ? quantitaRiserva
+          : null,
+      unita,
+      repartoId: g?.reparto_id ?? null,
+      repartoNome: g?.reparto_id
+        ? (repartoMap.get(g.reparto_id) ?? null)
+        : null,
+      semaforo: computeSemaforo(quantita, quantitaRiserva),
+    });
+  }
 
   return { success: true, items };
 }
@@ -325,15 +348,94 @@ export async function updateMagazzinoProdottoAction(
   const supabase = await createClient();
   const table = catalogTable(input.catalogKind);
 
+  if (
+    categoriaRequiresMagazzino(input.categoriaUtilizzo) &&
+    (input.quantitaRiserva == null || !Number.isFinite(input.quantitaRiserva))
+  ) {
+    return {
+      success: false,
+      error:
+        "Imposta la quantità di riserva per Mat. Consumo / Mat. Poco Consumo.",
+    };
+  }
+
   const { data: articolo, error: pErr } = await supabase
     .from(table)
-    .select("id, codice, nome, is_bio")
+    .select("id, codice, nome, is_bio, categoria_utilizzo")
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
   if (pErr) return { success: false, error: pErr.message };
   if (!articolo) return { success: false, error: "Articolo non trovato." };
   const p = articolo as ArticoloRow;
+
+  const { error: catErr } = await supabase
+    .from(table)
+    .update({
+      categoria_utilizzo: input.categoriaUtilizzo,
+      updated_by: auth.userId,
+    })
+    .eq("id", p.id)
+    .is("deleted_at", null);
+  if (catErr) return { success: false, error: catErr.message };
+
+  // Acquisti occasionali: nessuna giacenza; soft-delete se esisteva
+  if (!categoriaRequiresMagazzino(input.categoriaUtilizzo)) {
+    const { data: existingOcc } = await supabase
+      .from("magazzino_giacenze")
+      .select("id")
+      .eq("catalog_kind", input.catalogKind)
+      .eq("prodotto_id", input.prodottoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (existingOcc) {
+      await supabase
+        .from("magazzino_giacenze")
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("id", (existingOcc as { id: string }).id);
+      await syncNotaForProdotto({
+        supabase,
+        userId: auth.userId,
+        catalogKind: input.catalogKind,
+        prodottoId: p.id,
+        prodottoCodice: p.codice,
+        prodottoNome: p.nome,
+        quantita: 0,
+        quantitaRiserva: null,
+        unita: input.unita,
+      });
+    }
+    void writeAuditLog({
+      entity_type: table,
+      entity_id: p.id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Classificato ${p.codice} come Acquisti Occasionali (fuori magazzino)`,
+      payload: { categoriaUtilizzo: input.categoriaUtilizzo },
+    });
+    return {
+      success: true,
+      item: {
+        catalogKind: input.catalogKind,
+        prodottoId: p.id,
+        codice: p.codice,
+        nome: p.nome,
+        isBio: Boolean(p.is_bio),
+        categoriaUtilizzo: input.categoriaUtilizzo,
+        giacenzaId: null,
+        quantita: 0,
+        quantitaRiserva: null,
+        unita: input.unita,
+        repartoId: null,
+        repartoNome: null,
+        semaforo: "n/d",
+      },
+    };
+  }
 
   const { data: existing } = await supabase
     .from("magazzino_giacenze")
@@ -398,6 +500,7 @@ export async function updateMagazzinoProdottoAction(
     summary: `Parametri magazzino ${input.catalogKind} ${p.codice}`,
     payload: {
       catalogKind: input.catalogKind,
+      categoriaUtilizzo: input.categoriaUtilizzo,
       quantita: input.quantita,
       quantitaRiserva: input.quantitaRiserva,
       unita: input.unita,
@@ -426,6 +529,7 @@ export async function updateMagazzinoProdottoAction(
       codice: p.codice,
       nome: p.nome,
       isBio: Boolean(p.is_bio),
+      categoriaUtilizzo: input.categoriaUtilizzo,
       giacenzaId,
       quantita: input.quantita,
       quantitaRiserva: input.quantitaRiserva,
