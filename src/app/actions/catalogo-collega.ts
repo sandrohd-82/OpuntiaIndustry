@@ -9,6 +9,7 @@ import {
   mapFatturaRicevutaRow,
   type Fattura,
 } from "@/lib/amministrazione/fatture";
+import { tokenizeInvoiceLine } from "@/lib/sku-generator";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -59,23 +60,36 @@ function normalizeSearch(q: string): string {
     .trim();
 }
 
+/**
+ * Affinità descrizione riga ↔ codice/nome:
+ * considera solo parole “pesanti” (stopword Il/La/Del/sul/di… escluse).
+ */
 function scoreText(query: string, codice: string, nome: string): number {
-  const q = normalizeSearch(query);
-  if (!q) return 0;
+  const qRaw = normalizeSearch(query);
+  if (!qRaw) return 0;
   const c = normalizeSearch(codice);
   const n = normalizeSearch(nome);
-  if (c === q || n === q) return 100;
-  if (c.startsWith(q) || n.startsWith(q)) return 85;
-  if (c.includes(q) || n.includes(q)) return 70;
-  const tokens = q.split(" ").filter((t) => t.length >= 2);
+  if (c === qRaw || n === qRaw) return 100;
+  if (c.startsWith(qRaw) || n.startsWith(qRaw)) return 88;
+  if (c.includes(qRaw) || n.includes(qRaw)) return 75;
+
+  const tokens = tokenizeInvoiceLine(query);
   if (tokens.length === 0) return 0;
+
+  const hay = `${c} ${n}`;
   let hit = 0;
+  let weight = 0;
   for (const t of tokens) {
-    if (c.includes(t) || n.includes(t)) hit += 1;
+    const w = Math.min(3, Math.max(1, Math.floor(t.length / 3)));
+    weight += w;
+    if (hay.includes(t) || c.includes(t) || n.includes(t)) {
+      hit += w;
+    }
   }
   if (hit === 0) return 0;
-  // 2 token → ~70, 3+ → fino a 90
-  return Math.min(90, Math.round(40 + (hit / tokens.length) * 55));
+  const ratio = hit / Math.max(1, weight);
+  // 1 token forte → ~55–70; multi-token → fino a 92
+  return Math.min(92, Math.round(35 + ratio * 60));
 }
 
 type CatalogEntry = {
@@ -143,24 +157,31 @@ async function loadCatalogEntries(
   const entries: CatalogEntry[] = [];
   for (const t of tables) {
     if (!allowed.has(t.kind)) continue;
-    const { data, error } = await supabase
-      .from(t.table)
-      .select("id, codice, nome")
-      .is("deleted_at", null)
-      .order("codice", { ascending: true })
-      .limit(800);
-    if (error) return { entries: [], error: error.message };
-    for (const row of (data ?? []) as Array<{
-      id: string;
-      codice: string;
-      nome: string;
-    }>) {
-      entries.push({
-        kind: t.kind,
-        id: row.id,
-        codice: row.codice,
-        nome: row.nome,
-      });
+    let from = 0;
+    const page = 1000;
+    for (;;) {
+      const { data, error } = await supabase
+        .from(t.table)
+        .select("id, codice, nome")
+        .is("deleted_at", null)
+        .order("codice", { ascending: true })
+        .range(from, from + page - 1);
+      if (error) return { entries: [], error: error.message };
+      const batch = (data ?? []) as Array<{
+        id: string;
+        codice: string;
+        nome: string;
+      }>;
+      for (const row of batch) {
+        entries.push({
+          kind: t.kind,
+          id: row.id,
+          codice: row.codice,
+          nome: row.nome,
+        });
+      }
+      if (batch.length < page) break;
+      from += page;
     }
   }
   return { entries, error: null };
@@ -310,11 +331,13 @@ export async function suggestCodiciRigaDropdownAction(input: {
   };
 
   if (descrizione) {
+    const cleanedQuery =
+      tokenizeInvoiceLine(descrizione).join(" ") || descrizione;
     const threshold = DROPDOWN_MATCH_THRESHOLD_PCT / 100;
     const { data, error } = await supabase.rpc("match_catalogo_acquisti", {
-      p_query: descrizione,
-      p_threshold: threshold,
-      p_limit: 12,
+      p_query: cleanedQuery,
+      p_threshold: Math.max(0.35, threshold - 0.15),
+      p_limit: 40,
     });
     if (error) {
       console.error("[dropdown] match_catalogo_acquisti", error.message);
@@ -340,7 +363,10 @@ export async function suggestCodiciRigaDropdownAction(input: {
         .trim()
         .toLowerCase();
       let source: CollegaCatalogoHit["source"] = "catalogo";
-      let score = Number(row.affinita_percentuale) || 0;
+      let score = Math.max(
+        Number(row.affinita_percentuale) || 0,
+        scoreText(descrizione, row.codice, row.nome)
+      );
       if (sameSet.has(codeKey)) {
         source = "stessa_fattura";
         score = Math.max(score, 95);
@@ -361,7 +387,7 @@ export async function suggestCodiciRigaDropdownAction(input: {
       });
     }
 
-    // Fallback testuale (codice/nome) se trgm non basta
+    // Fallback testuale (codice/nome, stopword-aware) se trgm non basta
     const loaded = await loadCatalogEntries(supabase, ALL_KINDS);
     if (!loaded.error) {
       for (const h of rankHits({
@@ -369,6 +395,7 @@ export async function suggestCodiciRigaDropdownAction(input: {
         entries: loaded.entries,
         sameSet,
         aziendaCodes,
+        includeAll: true,
       })) {
         if (h.score >= DROPDOWN_MATCH_THRESHOLD_PCT) mergeHit(h);
       }

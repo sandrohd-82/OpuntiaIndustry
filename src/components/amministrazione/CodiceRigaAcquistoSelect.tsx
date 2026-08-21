@@ -12,6 +12,8 @@ type Props = {
   codice: string;
   fornitoreId: string | null;
   sameInvoiceCodici: string[];
+  /** Incrementare dopo creazione/aggiornamento catalogo per forzare refresh. */
+  catalogRevision?: number;
   onSelectCodice: (codice: string) => void;
   onCerca: () => void;
 };
@@ -32,6 +34,7 @@ export function CodiceRigaAcquistoSelect({
   codice,
   fornitoreId,
   sameInvoiceCodici,
+  catalogRevision = 0,
   onSelectCodice,
   onCerca,
 }: Props) {
@@ -68,7 +71,7 @@ export function CodiceRigaAcquistoSelect({
       });
     }, 280);
     return () => window.clearTimeout(handle);
-  }, [descrizione, codice, fornitoreId, sameKey]);
+  }, [descrizione, codice, fornitoreId, sameKey, catalogRevision]);
 
   function refreshNow() {
     const codes = sameKey.split("|").filter(Boolean);

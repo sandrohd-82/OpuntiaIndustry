@@ -268,6 +268,7 @@ export function FatturaRegistrazioneModal({
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
   const isRicevuta = kind === "ricevuta";
   const [vociAcquisto, setVociAcquisto] = useState<VoceAcquisto[]>([]);
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const [catalogServizi, setCatalogServizi] = useState<CatalogoOffertaItem[]>(
     []
   );
@@ -1111,6 +1112,7 @@ export function FatturaRegistrazioneModal({
         })
       ),
     ]);
+    setCatalogRevision((n) => n + 1);
   }
 
   async function submit(e: FormEvent) {
@@ -1811,6 +1813,7 @@ export function FatturaRegistrazioneModal({
                                 descrizione={riga.descrizione ?? ""}
                                 codice={riga.codice ?? ""}
                                 fornitoreId={anagraficaId || null}
+                                catalogRevision={catalogRevision}
                                 sameInvoiceCodici={righe
                                   .map((r) => r.codice)
                                   .filter(
@@ -3031,9 +3034,25 @@ export function FatturaRegistrazioneModal({
           onClose={() => setCodificaRiga(null)}
           onConfirmed={async (result) => {
             const idx = codificaRiga.index;
-            await refreshVociAcquisto();
+            setVociAcquisto((prev) => {
+              const key = result.codice.trim().toLowerCase();
+              if (prev.some((v) => v.codice.trim().toLowerCase() === key)) {
+                return prev;
+              }
+              return [
+                ...prev,
+                {
+                  kind: result.catalogoKind,
+                  id: result.catalogoId ?? result.codice,
+                  codice: result.codice,
+                  nome: result.nome,
+                },
+              ];
+            });
+            setCatalogRevision((n) => n + 1);
             applyProdottoToLocal(idx, "", result.codice, result.nome);
             setCodificaRiga(null);
+            void refreshVociAcquisto();
           }}
         />
       ) : null}

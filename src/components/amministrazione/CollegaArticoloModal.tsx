@@ -52,7 +52,7 @@ export function CollegaArticoloModal({
   onCreaNuovo,
 }: Props) {
   const titleId = useId();
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => descrizioneRiga.trim());
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({
       servizio: !preferKind || preferKind === "servizio",
@@ -62,7 +62,7 @@ export function CollegaArticoloModal({
     })
   );
   /** false = solo stessa fattura → stessa azienda; true = catalogo completo su richiesta. */
-  const [cercaInteroSistema, setCercaInteroSistema] = useState(false);
+  const [cercaInteroSistema, setCercaInteroSistema] = useState(true);
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -85,16 +85,14 @@ export function CollegaArticoloModal({
           }
           return;
         }
-        const searchQuery =
-          query.trim() ||
-          (cercaInteroSistema ? descrizioneRiga.trim() : "");
+        const searchQuery = query.trim() || descrizioneRiga.trim();
         const res = await searchCollegaCatalogoAction({
           query: searchQuery,
           fornitoreId,
           sameInvoiceCodici,
           kinds: activeKinds,
           includeAll: cercaInteroSistema,
-          limit: cercaInteroSistema ? 800 : 200,
+          limit: cercaInteroSistema ? 1200 : 200,
         });
         if (cancelled) return;
         if (!res.success) {
@@ -143,7 +141,13 @@ export function CollegaArticoloModal({
   function toggleKind(k: CatalogoLifecycleKind) {
     setKinds((prev) => {
       const next = { ...prev, [k]: !prev[k] };
-      if (!next.servizio && !next.prodotto && !next.materia) {
+      // Almeno una categoria (anche solo Contributi)
+      if (
+        !next.servizio &&
+        !next.prodotto &&
+        !next.materia &&
+        !next.contributo
+      ) {
         return prev;
       }
       return next;
@@ -320,7 +324,7 @@ export function CollegaArticoloModal({
             <div className="space-y-3 py-3 text-center">
               <p className="text-sm text-[var(--muted)]">
                 {cercaInteroSistema
-                  ? "Nessun codice per i filtri selezionati. Attiva Servizi/Prodotti/Materia o crea un nuovo codice."
+                  ? "Nessun codice per i filtri selezionati. Attiva Servizi / Prodotti / Materia / Contributi o crea un nuovo codice."
                   : "Nessun codice di questa azienda / fattura. Estendi la ricerca o crea un nuovo codice."}
               </p>
             </div>

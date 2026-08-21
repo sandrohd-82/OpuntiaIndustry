@@ -861,12 +861,43 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
               codiceTarga: values.codiceTarga || current.proposedTarga,
             });
             if (!created) return false;
+            const label = `${created.codiceTarga} — ${created.ragioneSociale}`;
+            const vat = normalizeVatKey(
+              created.partitaIva || current.entityVat
+            );
+            const nameKey = normalizeCompanyNameKey(
+              created.ragioneSociale || current.entityName
+            );
+            setQueueItems((prev) =>
+              prev.map((it) => {
+                const sameVat =
+                  Boolean(vat) &&
+                  (normalizeVatKey(it.entityVat) === vat ||
+                    normalizeVatKey(it.draft?.partitaIva ?? "") === vat);
+                const sameName =
+                  Boolean(nameKey) &&
+                  (normalizeCompanyNameKey(it.entityName) === nameKey ||
+                    normalizeCompanyNameKey(it.draft?.ragioneSociale ?? "") ===
+                      nameKey ||
+                    companyNamesMatch(created.ragioneSociale, it.entityName) ||
+                    companyNamesMatch(
+                      created.ragioneSociale,
+                      it.draft?.ragioneSociale ?? ""
+                    ));
+                if (!sameVat && !sameName) return it;
+                return {
+                  ...it,
+                  anagraficaMode: "existing" as const,
+                  existingId: created.id,
+                  existingLabel: label,
+                  proposedTarga: created.codiceTarga,
+                };
+              })
+            );
             setAnagraficaId(created.id);
             setAnagraficaTarga(created.codiceTarga);
             setAnagraficaNome(created.ragioneSociale);
-            setAnagraficaLabel(
-              `${created.codiceTarga} — ${created.ragioneSociale}`
-            );
+            setAnagraficaLabel(label);
             return true;
           }}
         />
@@ -894,18 +925,33 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
             const f = created.fornitore;
             const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
             const vat = normalizeVatKey(f.partitaIva || current.entityVat);
+            const nameKey = normalizeCompanyNameKey(
+              f.ragioneSociale || current.entityName
+            );
             setQueueItems((prev) =>
               prev.map((it) => {
-                if (vat && normalizeVatKey(it.entityVat) === vat) {
-                  return {
-                    ...it,
-                    anagraficaMode: "existing" as const,
-                    existingId: f.id,
-                    existingLabel: label,
-                    proposedTarga: f.codiceTarga,
-                  };
-                }
-                return it;
+                const sameVat =
+                  Boolean(vat) &&
+                  (normalizeVatKey(it.entityVat) === vat ||
+                    normalizeVatKey(it.draft?.partitaIva ?? "") === vat);
+                const sameName =
+                  Boolean(nameKey) &&
+                  (normalizeCompanyNameKey(it.entityName) === nameKey ||
+                    normalizeCompanyNameKey(it.draft?.ragioneSociale ?? "") ===
+                      nameKey ||
+                    companyNamesMatch(f.ragioneSociale, it.entityName) ||
+                    companyNamesMatch(
+                      f.ragioneSociale,
+                      it.draft?.ragioneSociale ?? ""
+                    ));
+                if (!sameVat && !sameName) return it;
+                return {
+                  ...it,
+                  anagraficaMode: "existing" as const,
+                  existingId: f.id,
+                  existingLabel: label,
+                  proposedTarga: f.codiceTarga,
+                };
               })
             );
             setAnagraficaId(f.id);
