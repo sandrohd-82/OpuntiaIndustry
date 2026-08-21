@@ -15,9 +15,14 @@ import {
   BANK_RECONCILE_MIN_SCORE,
   invoiceKindFromBankAmount,
   scoreBankInvoiceMatch,
+  scoreEntityInCausale,
   type BankReconcileCandidateView,
 } from "@/lib/amministrazione/bank-reconcile";
-import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
+import {
+  loadAllFicInvoicesForReconcile,
+  loadReconcileInvoiceGroups,
+  type BankReconcileInvoiceGroup,
+} from "@/lib/amministrazione/bank-reconcile-load";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -1632,9 +1637,16 @@ async function insertBankMatch(input: {
 function candidateToView(
   inv: InvCandidate,
   txDate: string,
-  amountAbs: number
+  amountAbs: number,
+  description: string,
+  counterparty: string
 ): BankReconcileCandidateView {
   const daysFromTx = daysAbs(txDate, inv.date);
+  const entityScore = scoreEntityInCausale(
+    inv.entity_name,
+    description,
+    counterparty
+  );
   return {
     id: inv.id,
     candidateKey: inv.candidateKey,
@@ -1649,12 +1661,13 @@ function candidateToView(
     status: inv.status,
     daysFromTx,
     amountMatch: moneyCents(inv.amount_gross) === moneyCents(amountAbs),
+    entityScore,
   };
 }
 
 /**
- * Tentativo automatico: importo = master (totale o rata dilazione).
- * 0 match → browse; 1 → collega; >1 stesso importo → scelta operatore.
+ * Tentativo automatico: importo = master (totale o rata, anche se anagrafica «pagato»
+ * ma non ancora in bank_invoice_matches). Precisione: ragione sociale in causale.
  */
 export async function attemptAutoReconcileBankTxAction(input: {
   transactionId: string;
@@ -1726,6 +1739,7 @@ export async function attemptAutoReconcileBankTxAction(input: {
   const amountAbs = Math.abs(amount);
   const txDate = String(tx.transaction_date);
   const description = String(tx.description ?? "");
+  const counterparty = String(tx.counterparty_name ?? "");
   const used = await loadUsedPayments(supabase);
   const invoices = await loadInvoiceCandidates(supabase);
   const cents = moneyCents(amountAbs);
@@ -1736,10 +1750,15 @@ export async function attemptAutoReconcileBankTxAction(input: {
     .filter((inv) => moneyCents(inv.amount_gross) === cents)
     .map((inv) => {
       const daysFromTx = daysAbs(txDate, inv.date);
+      const entityScore = scoreEntityInCausale(
+        inv.entity_name,
+        description,
+        counterparty
+      );
       const score = scoreBankInvoiceMatch({
         amount,
         invoiceGross: inv.amount_gross,
-        counterparty: String(tx.counterparty_name ?? ""),
+        counterparty,
         entityName: inv.entity_name,
         description,
         invoiceNumber: inv.number,
@@ -1750,11 +1769,13 @@ export async function attemptAutoReconcileBankTxAction(input: {
       return {
         inv,
         daysFromTx,
-        score: Math.max(score, 50),
-        view: candidateToView(inv, txDate, amountAbs),
+        entityScore,
+        score: Math.max(score, 50) + (entityScore >= 20 ? 15 : entityScore > 0 ? 8 : 0),
+        view: candidateToView(inv, txDate, amountAbs, description, counterparty),
       };
     })
     .sort((a, b) => {
+      if (b.entityScore !== a.entityScore) return b.entityScore - a.entityScore;
       const da = a.daysFromTx ?? 9999;
       const db = b.daysFromTx ?? 9999;
       if (da !== db) return da - db;
@@ -1774,27 +1795,35 @@ export async function attemptAutoReconcileBankTxAction(input: {
     };
   }
 
-  if (amountMatches.length === 1) {
-    const only = amountMatches[0]!;
+  // Un solo importo, oppure un solo candidato con ragione sociale in causale
+  const withEntity = amountMatches.filter((m) => m.entityScore >= 12);
+  const autoPick =
+    amountMatches.length === 1
+      ? amountMatches[0]!
+      : withEntity.length === 1
+        ? withEntity[0]!
+        : null;
+
+  if (autoPick) {
     const linked = await insertBankMatch({
       supabase,
       userId: auth.userId,
       transactionId: id,
-      invoiceId: only.inv.id,
-      invoiceKind: only.inv.kind,
-      dilazioneId: only.inv.dilazioneId,
-      score: only.score,
+      invoiceId: autoPick.inv.id,
+      invoiceKind: autoPick.inv.kind,
+      dilazioneId: autoPick.inv.dilazioneId,
+      score: autoPick.score,
       mode: "auto",
-      invoiceNumber: only.inv.number,
+      invoiceNumber: autoPick.inv.number,
     });
     if (!linked.success) return linked;
     return {
       success: true,
       outcome: "matched",
       matchId: linked.matchId,
-      invoiceId: only.inv.id,
-      invoiceNumber: only.inv.number,
-      score: only.score,
+      invoiceId: autoPick.inv.id,
+      invoiceNumber: autoPick.inv.number,
+      score: autoPick.score,
     };
   }
 
@@ -1810,8 +1839,8 @@ export async function attemptAutoReconcileBankTxAction(input: {
 }
 
 /**
- * Elenco unità di pagamento (totale o rate) nel range ±halfWindowDays
- * dalla data movimento (confronta data emissione o scadenza rata).
+ * Elenco gerarchico fatture + dilazioni (checkbox una sola rata) nel range date.
+ * Include sempre i gruppi con importo rata/totale uguale al movimento (anche fuori range).
  */
 export async function listBankReconcileBrowseAction(input: {
   transactionId: string;
@@ -1825,6 +1854,8 @@ export async function listBankReconcileBrowseAction(input: {
       dateFrom: string;
       dateTo: string;
       halfWindowDays: number;
+      groups: BankReconcileInvoiceGroup[];
+      /** compat: flattened amount-match candidates */
       items: BankReconcileCandidateView[];
     }
   | { success: false; error: string }
@@ -1840,7 +1871,7 @@ export async function listBankReconcileBrowseAction(input: {
   const supabase = await createClient();
   const { data: tx, error: txErr } = await supabase
     .from("bank_transactions")
-    .select("id, amount, transaction_date, description")
+    .select("id, amount, transaction_date, description, counterparty_name")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1856,24 +1887,110 @@ export async function listBankReconcileBrowseAction(input: {
   const txDate = String(tx.transaction_date);
   const dateFrom = addDaysIso(txDate, -half);
   const dateTo = addDaysIso(txDate, half);
-  const used = await loadUsedPayments(supabase);
-  const invoices = await loadInvoiceCandidates(supabase);
+  const description = String(tx.description ?? "");
+  const counterparty = String(tx.counterparty_name ?? "");
 
-  const items: BankReconcileCandidateView[] = [];
-  for (const inv of invoices) {
-    if (inv.kind !== kind) continue;
-    if (!isCandidateAvailable(inv, used)) continue;
-    const d = inv.date ? inv.date.slice(0, 10) : null;
-    if (!d || d < dateFrom || d > dateTo) continue;
-    items.push(candidateToView(inv, txDate, amountAbs));
+  let allGroups: BankReconcileInvoiceGroup[];
+  try {
+    allGroups = await loadReconcileInvoiceGroups(supabase, kind, amountAbs);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Caricamento fatture fallito.",
+    };
   }
 
-  items.sort((a, b) => {
-    if (a.amountMatch !== b.amountMatch) return a.amountMatch ? -1 : 1;
-    const da = a.daysFromTx ?? 9999;
-    const db = b.daysFromTx ?? 9999;
-    return da - db;
+  const inRange = (d: string | null) =>
+    Boolean(d && d.slice(0, 10) >= dateFrom && d.slice(0, 10) <= dateTo);
+
+  const scored = allGroups
+    .map((g) => {
+      const entityScore = scoreEntityInCausale(
+        g.entityName,
+        description,
+        counterparty
+      );
+      const dilazioni = g.hasDilazioni
+        ? g.dilazioni.filter((d) => !d.alreadyMatched)
+        : [];
+      const dilInRangeOrMatch = dilazioni.some(
+        (d) => d.amountMatch || inRange(d.dataScadenza)
+      );
+      const keep =
+        g.amountMatchFull ||
+        dilInRangeOrMatch ||
+        inRange(g.dataEmissione) ||
+        entityScore >= 12;
+      if (!keep) return null;
+      return {
+        group: { ...g, dilazioni } satisfies BankReconcileInvoiceGroup,
+        entityScore,
+      };
+    })
+    .filter(
+      (x): x is { group: BankReconcileInvoiceGroup; entityScore: number } =>
+        Boolean(x)
+    );
+
+  scored.sort((a, b) => {
+    const aHit =
+      a.group.amountMatchFull || a.group.dilazioni.some((d) => d.amountMatch)
+        ? 1
+        : 0;
+    const bHit =
+      b.group.amountMatchFull || b.group.dilazioni.some((d) => d.amountMatch)
+        ? 1
+        : 0;
+    if (bHit !== aHit) return bHit - aHit;
+    if (b.entityScore !== a.entityScore) return b.entityScore - a.entityScore;
+    return (b.group.dataEmissione ?? "").localeCompare(
+      a.group.dataEmissione ?? ""
+    );
   });
+
+  const groups = scored.map((s) => s.group);
+
+  // Flatten amount-match for choice step compat
+  const items: BankReconcileCandidateView[] = [];
+  for (const g of groups) {
+    if (g.fullSelectable && g.amountMatchFull) {
+      items.push({
+        id: g.invoiceId,
+        candidateKey: g.invoiceId,
+        dilazioneId: null,
+        isDilazione: false,
+        kind: g.kind,
+        type: g.type,
+        number: g.number,
+        entityName: g.entityName,
+        amountGross: g.totale,
+        date: g.dataEmissione,
+        status: g.status,
+        daysFromTx: daysAbs(txDate, g.dataEmissione),
+        amountMatch: true,
+        entityScore: scoreEntityInCausale(g.entityName, description, counterparty),
+      });
+    }
+    for (const d of g.dilazioni) {
+      if (!d.amountMatch || d.alreadyMatched) continue;
+      items.push({
+        id: g.invoiceId,
+        candidateKey: d.dilazioneId,
+        dilazioneId: d.dilazioneId,
+        isDilazione: true,
+        kind: g.kind,
+        type: g.type,
+        number: `${g.number} · rata ${d.sortOrder + 1}`,
+        entityName: g.entityName,
+        amountGross: d.importo,
+        date: d.dataScadenza,
+        status: d.statoPagamento,
+        daysFromTx: daysAbs(txDate, d.dataScadenza),
+        amountMatch: true,
+        entityScore: scoreEntityInCausale(g.entityName, description, counterparty),
+      });
+    }
+  }
 
   return {
     success: true,
@@ -1883,6 +2000,7 @@ export async function listBankReconcileBrowseAction(input: {
     dateFrom,
     dateTo,
     halfWindowDays: half,
+    groups,
     items,
   };
 }

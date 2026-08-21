@@ -12,6 +12,7 @@ import {
   BANK_RECONCILE_BROWSE_STEP_DAYS,
   type BankReconcileCandidateView,
 } from "@/lib/amministrazione/bank-reconcile";
+import type { BankReconcileInvoiceGroup } from "@/lib/amministrazione/bank-reconcile-load";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 
 type Step = "mode" | "choice" | "browse";
@@ -28,12 +29,10 @@ function CandidateRow({
   c,
   selected,
   onSelect,
-  highlightAmount,
 }: {
   c: BankReconcileCandidateView;
   selected: boolean;
   onSelect: () => void;
-  highlightAmount: boolean;
 }) {
   return (
     <button
@@ -42,31 +41,25 @@ function CandidateRow({
       className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
         selected
           ? "border-sky-500 bg-sky-50 ring-1 ring-sky-400"
-          : c.amountMatch && highlightAmount
+          : c.amountMatch
             ? "border-emerald-300 bg-emerald-50/60 hover:bg-emerald-50"
             : "border-[var(--border)] hover:bg-slate-50"
       }`}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="font-mono text-xs font-semibold">{c.number || "—"}</span>
-        <span
-          className={`tabular-nums font-semibold ${
-            c.amountMatch ? "text-emerald-800" : "text-slate-800"
-          }`}
-        >
+        <span className="tabular-nums font-semibold text-emerald-800">
           {formatEuro(c.amountGross)}
           {c.amountMatch ? " · importo ok" : ""}
         </span>
       </div>
       <p className="mt-0.5 font-medium text-slate-900">{c.entityName || "—"}</p>
       <p className="text-xs text-[var(--muted)]">
-        {c.isDilazione ? "Scadenza rata" : "Data fattura"}:{" "}
+        {c.isDilazione ? "Scadenza rata" : "Data"}:{" "}
         {c.date ? formatDateIt(c.date) : "—"}
-        {c.daysFromTx != null
-          ? ` · Δ ${Math.round(c.daysFromTx)} gg`
-          : ""}{" "}
-        · {c.status || "—"}
-        {c.isDilazione ? " · dilazione" : ""}
+        {c.entityScore && c.entityScore > 0
+          ? ` · azienda in causale (${c.entityScore})`
+          : ""}
       </p>
     </button>
   );
@@ -85,32 +78,24 @@ export function ConciliaQuestoModal({
   const [candidates, setCandidates] = useState<BankReconcileCandidateView[]>(
     []
   );
-  const [browseItems, setBrowseItems] = useState<BankReconcileCandidateView[]>(
-    []
-  );
+  const [groups, setGroups] = useState<BankReconcileInvoiceGroup[]>([]);
   const [halfWindow, setHalfWindow] = useState(BANK_RECONCILE_BROWSE_STEP_DAYS);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
   const [kind, setKind] = useState<"emessa" | "ricevuta" | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
     null
   );
   const [selectedDilazioneId, setSelectedDilazioneId] = useState<string | null>(
     null
   );
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [linkMode, setLinkMode] = useState<"manual" | "choice">("manual");
 
   function clearSelection() {
-    setSelectedKey(null);
     setSelectedInvoiceId(null);
     setSelectedDilazioneId(null);
-  }
-
-  function pickCandidate(c: BankReconcileCandidateView) {
-    setSelectedKey(c.candidateKey);
-    setSelectedInvoiceId(c.id);
-    setSelectedDilazioneId(c.dilazioneId);
+    setSelectedKey(null);
   }
 
   useEffect(() => {
@@ -141,7 +126,7 @@ export function ConciliaQuestoModal({
       setDateFrom(res.dateFrom);
       setDateTo(res.dateTo);
       setKind(res.kind);
-      setBrowseItems(res.items);
+      setGroups(res.groups);
       clearSelection();
       setStep("browse");
       setLinkMode("manual");
@@ -185,6 +170,12 @@ export function ConciliaQuestoModal({
 
   function confirmLink() {
     if (!selectedInvoiceId || !kind) return;
+    // Con dilazioni obbligatoria la selezione rata
+    const g = groups.find((x) => x.invoiceId === selectedInvoiceId);
+    if (g?.hasDilazioni && !selectedDilazioneId && step === "browse") {
+      setError("Seleziona una sola dilazione (checkbox) sotto la fattura.");
+      return;
+    }
     setError(null);
     startTransition(async () => {
       const res = await linkBankTransactionInvoiceAction({
@@ -205,12 +196,12 @@ export function ConciliaQuestoModal({
 
   const catalogLabel =
     kind === "emessa"
-      ? "Fatture / rate emesse"
+      ? "Fatture emesse"
       : kind === "ricevuta"
-        ? "Fatture / rate ricevute"
+        ? "Fatture ricevute"
         : row.amount > 0
-          ? "Fatture / rate emesse"
-          : "Fatture / rate ricevute";
+          ? "Fatture emesse"
+          : "Fatture ricevute";
 
   return (
     <div
@@ -222,7 +213,7 @@ export function ConciliaQuestoModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-[var(--border)] px-5 py-4">
@@ -250,8 +241,8 @@ export function ConciliaQuestoModal({
           {step === "mode" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Importo = criterio master. Se la fattura ha dilazioni, si
-                confrontano le rate (importo + scadenza), non il totale.
+                Importo = master. Con dilazioni si matcha la singola rata (anche
+                una sola). In manuale: fattura + checkbox rate.
               </p>
               <button
                 type="button"
@@ -265,9 +256,7 @@ export function ConciliaQuestoModal({
                     Automatica
                   </span>
                   <span className="mt-0.5 block text-xs text-sky-900/80">
-                    Collega se c’è un solo importo uguale (fattura o rata). Se
-                    più corrispondenze, scegli tu. Se nessuna, apre l’elenco
-                    ±15 giorni.
+                    Preferisce ragione sociale in causale + importo identico.
                   </span>
                 </span>
               </button>
@@ -286,8 +275,8 @@ export function ConciliaQuestoModal({
                     Manuale
                   </span>
                   <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                    Apri subito {catalogLabel.toLowerCase()} (±15 giorni
-                    espandibile).
+                    Elenco {catalogLabel.toLowerCase()} con dilazioni
+                    selezionabili.
                   </span>
                 </span>
               </button>
@@ -297,8 +286,7 @@ export function ConciliaQuestoModal({
           {step === "choice" ? (
             <div className="space-y-3">
               <p className="text-sm text-[var(--muted)]">
-                Trovate <strong>{candidates.length}</strong> voci con lo stesso
-                importo (fatture o rate). Seleziona e conferma.
+                Più voci con lo stesso importo. Seleziona quella corretta.
               </p>
               <ul className="space-y-2">
                 {candidates.map((c) => (
@@ -306,8 +294,11 @@ export function ConciliaQuestoModal({
                     <CandidateRow
                       c={c}
                       selected={selectedKey === c.candidateKey}
-                      onSelect={() => pickCandidate(c)}
-                      highlightAmount
+                      onSelect={() => {
+                        setSelectedKey(c.candidateKey);
+                        setSelectedInvoiceId(c.id);
+                        setSelectedDilazioneId(c.dilazioneId);
+                      }}
                     />
                   </li>
                 ))}
@@ -321,7 +312,7 @@ export function ConciliaQuestoModal({
                 }}
                 className="text-xs font-medium text-sky-700 hover:underline"
               >
-                Non è tra queste → apri elenco per periodo
+                Apri elenco completo per periodo
               </button>
             </div>
           ) : null}
@@ -348,25 +339,124 @@ export function ConciliaQuestoModal({
                 </button>
               </div>
               <p className="text-xs text-[var(--muted)]">
-                In evidenza importo uguale ({formatEuro(Math.abs(row.amount))}).
-                Con dilazioni compare la rata, non il totale fattura.
+                Evidenziati importi uguali a {formatEuro(Math.abs(row.amount))}.
+                Con dilazioni seleziona <strong>una sola</strong> rata.
               </p>
-              {browseItems.length === 0 ? (
+              {groups.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-8 text-center text-sm text-[var(--muted)]">
-                  Nessuna voce in questo periodo. Espandi il range.
+                  Nessuna fattura in questo periodo. Espandi il range.
                 </p>
               ) : (
-                <ul className="space-y-2">
-                  {browseItems.map((c) => (
-                    <li key={c.candidateKey}>
-                      <CandidateRow
-                        c={c}
-                        selected={selectedKey === c.candidateKey}
-                        onSelect={() => pickCandidate(c)}
-                        highlightAmount
-                      />
-                    </li>
-                  ))}
+                <ul className="space-y-3">
+                  {groups.map((g) => {
+                    const hit =
+                      g.amountMatchFull ||
+                      g.dilazioni.some((d) => d.amountMatch);
+                    return (
+                      <li
+                        key={g.invoiceId}
+                        className={`rounded-xl border px-3 py-3 ${
+                          hit
+                            ? "border-emerald-300 bg-emerald-50/40"
+                            : "border-[var(--border)] bg-white"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <div>
+                            <p className="font-mono text-xs font-semibold">
+                              {g.number}
+                            </p>
+                            <p className="font-medium text-slate-900">
+                              {g.entityName}
+                            </p>
+                            <p className="text-xs text-[var(--muted)]">
+                              Emessa:{" "}
+                              {g.dataEmissione
+                                ? formatDateIt(g.dataEmissione)
+                                : "—"}{" "}
+                              · Totale {formatEuro(g.totale)}
+                            </p>
+                          </div>
+                          {!g.hasDilazioni ? (
+                            <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                              <input
+                                type="radio"
+                                name="bank-recon-pick"
+                                checked={
+                                  selectedInvoiceId === g.invoiceId &&
+                                  !selectedDilazioneId
+                                }
+                                onChange={() => {
+                                  setSelectedInvoiceId(g.invoiceId);
+                                  setSelectedDilazioneId(null);
+                                  setSelectedKey(g.invoiceId);
+                                }}
+                              />
+                              <span
+                                className={
+                                  g.amountMatchFull
+                                    ? "font-semibold text-emerald-800"
+                                    : ""
+                                }
+                              >
+                                Collega totale
+                                {g.amountMatchFull ? " · importo ok" : ""}
+                              </span>
+                            </label>
+                          ) : null}
+                        </div>
+                        {g.hasDilazioni ? (
+                          <fieldset className="mt-3 space-y-1.5 border-t border-[var(--border)] pt-2">
+                            <legend className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                              Dilazioni (una sola)
+                            </legend>
+                            {g.dilazioni.map((d) => (
+                              <label
+                                key={d.dilazioneId}
+                                className={`flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm ${
+                                  d.amountMatch
+                                    ? "bg-emerald-100/70"
+                                    : "hover:bg-slate-50"
+                                } ${
+                                  selectedDilazioneId === d.dilazioneId
+                                    ? "ring-1 ring-sky-400"
+                                    : ""
+                                }`}
+                              >
+                                <input
+                                  type="radio"
+                                  name="bank-recon-pick"
+                                  className="mt-1"
+                                  checked={
+                                    selectedDilazioneId === d.dilazioneId
+                                  }
+                                  onChange={() => {
+                                    setSelectedInvoiceId(g.invoiceId);
+                                    setSelectedDilazioneId(d.dilazioneId);
+                                    setSelectedKey(d.dilazioneId);
+                                  }}
+                                />
+                                <span className="min-w-0 flex-1">
+                                  <span className="font-medium">
+                                    Rata {d.sortOrder + 1} ·{" "}
+                                    {formatEuro(d.importo)}
+                                    {d.amountMatch ? " · importo ok" : ""}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                                    Scadenza{" "}
+                                    {d.dataScadenza
+                                      ? formatDateIt(d.dataScadenza)
+                                      : "—"}{" "}
+                                    · {d.statoPagamento}
+                                  </span>
+                                </span>
+                              </label>
+                            ))}
+                          </fieldset>
+                        ) : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>

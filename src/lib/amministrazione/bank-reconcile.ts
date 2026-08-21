@@ -36,6 +36,8 @@ export type BankReconcileCandidateView = {
   status: string;
   daysFromTx: number | null;
   amountMatch: boolean;
+  /** Punteggio ragione sociale in causale (0–30), per ranking preciso. */
+  entityScore?: number;
 };
 
 /** Catalogo da cercare in base al segno del movimento. */
