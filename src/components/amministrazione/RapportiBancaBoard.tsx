@@ -1420,16 +1420,18 @@ export function RapportiBancaBoard() {
                                 Scollega
                               </button>
                             )}
-                            <button
-                              type="button"
-                              disabled={pending || row.amount === 0}
-                              onClick={() => flipPreviewAmount(row.rowIndex)}
-                              className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                              title="Ribalta segno + ↔ −"
-                            >
-                              <FaArrowsRotate size={11} />
-                              Ribalta
-                            </button>
+                            {!row.match ? (
+                              <button
+                                type="button"
+                                disabled={pending || row.amount === 0}
+                                onClick={() => flipPreviewAmount(row.rowIndex)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                                title="Ribalta segno + ↔ −"
+                              >
+                                <FaArrowsRotate size={11} />
+                                Ribalta
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -1634,28 +1636,30 @@ export function RapportiBancaBoard() {
                           Concilia questo
                         </button>
                       ) : null}
-                      <button
-                        type="button"
-                        disabled={pending || row.amount === 0}
-                        onClick={() => {
-                          startTransition(async () => {
-                            const res = await flipBankTransactionSignAction({
-                              transactionId: row.id,
+                      {!row.match ? (
+                        <button
+                          type="button"
+                          disabled={pending || row.amount === 0}
+                          onClick={() => {
+                            startTransition(async () => {
+                              const res = await flipBankTransactionSignAction({
+                                transactionId: row.id,
+                              });
+                              if (!res.success) {
+                                setError(res.error);
+                                return;
+                              }
+                              setInfo(null);
+                              void load();
                             });
-                            if (!res.success) {
-                              setError(res.error);
-                              return;
-                            }
-                            setInfo(null);
-                            void load();
-                          });
-                        }}
-                        className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-                        title="Ribalta segno + ↔ −"
-                      >
-                        <FaArrowsRotate size={11} />
-                        Ribalta
-                      </button>
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-slate-400 bg-white px-2 py-1 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                          title="Ribalta segno + ↔ −"
+                        >
+                          <FaArrowsRotate size={11} />
+                          Ribalta
+                        </button>
+                      ) : null}
                       {row.match ? (
                         <a
                           href={`/app/amministrazione/documenti-fic/${row.match.invoiceType === "received" ? "received" : "issued"}/${row.match.ficId}`}

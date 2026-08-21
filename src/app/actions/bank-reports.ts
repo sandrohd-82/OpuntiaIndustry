@@ -1487,6 +1487,20 @@ export async function flipBankTransactionSignAction(input: {
   if (readErr) return { success: false, error: readErr.message };
   if (!row) return { success: false, error: "Movimento non trovato." };
 
+  const { data: existingMatch } = await supabase
+    .from("bank_invoice_matches")
+    .select("id")
+    .eq("transaction_id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existingMatch?.id) {
+    return {
+      success: false,
+      error:
+        "Movimento già conciliato: scollega la fattura prima di ribaltare il segno.",
+    };
+  }
+
   const prev = Number(row.amount) || 0;
   if (prev === 0) return { success: false, error: "Importo zero." };
   const amount = -prev;
