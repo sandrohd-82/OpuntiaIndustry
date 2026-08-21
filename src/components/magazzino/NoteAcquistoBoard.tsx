@@ -111,6 +111,7 @@ export function NoteAcquistoBoard() {
                   <table className="w-full text-left text-sm">
                     <thead className="text-xs uppercase text-[var(--muted)]">
                       <tr>
+                        <th className="py-1">Tipo</th>
                         <th className="py-1">Codice</th>
                         <th className="py-1">Nome</th>
                         <th className="py-1">Qty</th>
@@ -119,6 +120,11 @@ export function NoteAcquistoBoard() {
                     <tbody>
                       {n.righe.map((r) => (
                         <tr key={r.id} className="border-t border-[var(--border)]">
+                          <td className="py-2 text-xs text-[var(--muted)]">
+                            {r.catalogKind === "prodotto_fornitore"
+                              ? "Pr"
+                              : "Mp"}
+                          </td>
                           <td className="py-2 font-mono text-xs font-semibold">
                             {r.prodottoCodice}
                           </td>

@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/magazzino";
 import { listRepartiAttiviAction } from "@/app/actions/reparti";
 import type {
+  MagazzinoCatalogKind,
   MagazzinoProdottoRiga,
   MagazzinoUnita,
   Reparto,
@@ -49,7 +50,11 @@ function rowClass(s: ScorteSemaforo): string {
   return "";
 }
 
-export function MagazzinoProdottiBoard() {
+export function MagazzinoProdottiBoard({
+  catalogKind,
+}: {
+  catalogKind: MagazzinoCatalogKind;
+}) {
   const [items, setItems] = useState<MagazzinoProdottoRiga[]>([]);
   const [reparti, setReparti] = useState<Reparto[]>([]);
   const [ready, setReady] = useState(false);
@@ -62,10 +67,15 @@ export function MagazzinoProdottiBoard() {
   const [repartoId, setRepartoId] = useState("");
   const [q, setQ] = useState("");
 
+  const kindLabel =
+    catalogKind === "materia_prima"
+      ? "materie prime acquistate"
+      : "prodotti fornitore acquistati (Pr)";
+
   function load() {
     startTransition(async () => {
       const [prod, rep] = await Promise.all([
-        listMagazzinoProdottiAction(),
+        listMagazzinoProdottiAction(catalogKind),
         listRepartiAttiviAction(),
       ]);
       if (!prod.success) {
@@ -81,8 +91,10 @@ export function MagazzinoProdottiBoard() {
   }
 
   useEffect(() => {
+    setReady(false);
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on catalogKind
+  }, [catalogKind]);
 
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -107,6 +119,7 @@ export function MagazzinoProdottiBoard() {
     if (!editing) return;
     startTransition(async () => {
       const res = await updateMagazzinoProdottoAction({
+        catalogKind,
         prodottoId: editing.prodottoId,
         quantita,
         quantitaRiserva: riserva === "" ? null : Number(riserva),
@@ -119,7 +132,10 @@ export function MagazzinoProdottiBoard() {
       }
       setItems((prev) =>
         prev.map((i) =>
-          i.prodottoId === res.item.prodottoId ? res.item : i
+          i.prodottoId === res.item.prodottoId &&
+          i.catalogKind === res.item.catalogKind
+            ? res.item
+            : i
         )
       );
       setEditing(null);
@@ -128,7 +144,9 @@ export function MagazzinoProdottiBoard() {
 
   if (!ready) {
     return (
-      <p className="text-sm text-[var(--muted)]">Caricamento prodotti…</p>
+      <p className="text-sm text-[var(--muted)]">
+        Caricamento {kindLabel}…
+      </p>
     );
   }
 
@@ -137,9 +155,9 @@ export function MagazzinoProdottiBoard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--muted)]">
-            Tutti i prodotti Agrinsicilia. Imposta quantità, riserva e reparto
-            con Modifica. Giallo = soglia, rosso = sotto riserva (genera nota di
-            acquisto).
+            Elenco {kindLabel} (non prodotti Agrindicilia). Imposta quantità,
+            riserva e reparto. Giallo = soglia, rosso = sotto riserva (genera
+            nota di acquisto).
           </p>
         </div>
         <label className="text-sm">

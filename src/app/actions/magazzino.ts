@@ -6,6 +6,7 @@ import {
   computeSemaforo,
   quantitaDaOrdinare,
   updateMagazzinoProdottoSchema,
+  type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
   type NotaAcquisto,
@@ -17,6 +18,7 @@ import { createClient } from "@/lib/supabase/server";
 
 type GiacenzaRow = {
   id: string;
+  catalog_kind: string;
   prodotto_id: string;
   prodotto_codice: string;
   quantita_kg: number | string;
@@ -25,7 +27,7 @@ type GiacenzaRow = {
   reparto_id: string | null;
 };
 
-type ProdottoRow = {
+type ArticoloRow = {
   id: string;
   codice: string;
   nome: string;
@@ -33,6 +35,14 @@ type ProdottoRow = {
 };
 
 type RepartoMini = { id: string; nome: string; codice: string };
+
+function catalogTable(
+  kind: MagazzinoCatalogKind
+): "materie_prime" | "catalogo_prodotti_fornitore" {
+  return kind === "materia_prima"
+    ? "materie_prime"
+    : "catalogo_prodotti_fornitore";
+}
 
 async function nextNotaNumero(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -97,13 +107,10 @@ async function getOrCreateOpenNota(
   return { id: data.id, numero: data.numero };
 }
 
-/**
- * Se giacenza ≤ riserva: crea/aggiorna riga su nota aperta.
- * Se giacenza > riserva: soft-delete riga su note aperte (prodotto tornato ok).
- */
 async function syncNotaForProdotto(input: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
+  catalogKind: MagazzinoCatalogKind;
   prodottoId: string;
   prodottoCodice: string;
   prodottoNome: string;
@@ -114,6 +121,7 @@ async function syncNotaForProdotto(input: {
   const {
     supabase,
     userId,
+    catalogKind,
     prodottoId,
     prodottoCodice,
     prodottoNome,
@@ -128,7 +136,6 @@ async function syncNotaForProdotto(input: {
     quantita <= quantitaRiserva;
 
   if (!sottoOSoglia) {
-    // Rimuovi dalle note aperte
     const { data: openNotes } = await supabase
       .from("magazzino_note_acquisto")
       .select("id")
@@ -146,6 +153,7 @@ async function syncNotaForProdotto(input: {
         updated_by: userId,
       })
       .in("nota_id", noteIds)
+      .eq("catalog_kind", catalogKind)
       .eq("prodotto_id", prodottoId)
       .is("deleted_at", null);
     return;
@@ -163,6 +171,7 @@ async function syncNotaForProdotto(input: {
     .from("magazzino_note_acquisto_righe")
     .select("id")
     .eq("nota_id", nota.id)
+    .eq("catalog_kind", catalogKind)
     .eq("prodotto_id", prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -181,6 +190,7 @@ async function syncNotaForProdotto(input: {
   } else {
     await supabase.from("magazzino_note_acquisto_righe").insert({
       nota_id: nota.id,
+      catalog_kind: catalogKind,
       prodotto_id: prodottoId,
       prodotto_codice: prodottoCodice,
       prodotto_nome: prodottoNome,
@@ -197,6 +207,7 @@ async function syncNotaForProdotto(input: {
       actor_id: userId,
       summary: `Aggiunto ${prodottoCodice} a nota ${nota.numero}`,
       payload: {
+        catalogKind,
         prodottoId,
         quantita: qty,
         unita,
@@ -206,25 +217,35 @@ async function syncNotaForProdotto(input: {
   }
 }
 
-export async function listMagazzinoProdottiAction(): Promise<
+export async function listMagazzinoProdottiAction(
+  catalogKind: MagazzinoCatalogKind = "prodotto_fornitore"
+): Promise<
   | { success: true; items: MagazzinoProdottoRiga[] }
   | { success: false; error: string }
 > {
   await requireAreaAccess("magazzino");
+  if (
+    catalogKind !== "materia_prima" &&
+    catalogKind !== "prodotto_fornitore"
+  ) {
+    return { success: false, error: "Catalogo magazzino non valido." };
+  }
   const supabase = await createClient();
+  const table = catalogTable(catalogKind);
 
-  const [{ data: prodotti, error: pErr }, { data: giacenze, error: gErr }] =
+  const [{ data: articoli, error: pErr }, { data: giacenze, error: gErr }] =
     await Promise.all([
       supabase
-        .from("prodotti_propri")
+        .from(table)
         .select("id, codice, nome, is_bio")
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
       supabase
         .from("magazzino_giacenze")
         .select(
-          "id, prodotto_id, prodotto_codice, quantita_kg, quantita_riserva, unita, reparto_id"
+          "id, catalog_kind, prodotto_id, prodotto_codice, quantita_kg, quantita_riserva, unita, reparto_id"
         )
+        .eq("catalog_kind", catalogKind)
         .is("deleted_at", null),
     ]);
   if (pErr) return { success: false, error: pErr.message };
@@ -252,33 +273,36 @@ export async function listMagazzinoProdottiAction(): Promise<
     }
   }
 
-  const items: MagazzinoProdottoRiga[] = (
-    (prodotti ?? []) as ProdottoRow[]
-  ).map((p) => {
-    const g = giacByProd.get(p.id);
-    const quantita = g ? Number(g.quantita_kg) || 0 : 0;
-    const quantitaRiserva =
-      g?.quantita_riserva != null && g.quantita_riserva !== ""
-        ? Number(g.quantita_riserva)
-        : null;
-    const unita = (g?.unita === "pz" ? "pz" : "kg") as MagazzinoUnita;
-    return {
-      prodottoId: p.id,
-      codice: p.codice,
-      nome: p.nome,
-      isBio: Boolean(p.is_bio),
-      giacenzaId: g?.id ?? null,
-      quantita,
-      quantitaRiserva:
-        quantitaRiserva != null && Number.isFinite(quantitaRiserva)
-          ? quantitaRiserva
+  const items: MagazzinoProdottoRiga[] = ((articoli ?? []) as ArticoloRow[]).map(
+    (p) => {
+      const g = giacByProd.get(p.id);
+      const quantita = g ? Number(g.quantita_kg) || 0 : 0;
+      const quantitaRiserva =
+        g?.quantita_riserva != null && g.quantita_riserva !== ""
+          ? Number(g.quantita_riserva)
+          : null;
+      const unita = (g?.unita === "pz" ? "pz" : "kg") as MagazzinoUnita;
+      return {
+        catalogKind,
+        prodottoId: p.id,
+        codice: p.codice,
+        nome: p.nome,
+        isBio: Boolean(p.is_bio),
+        giacenzaId: g?.id ?? null,
+        quantita,
+        quantitaRiserva:
+          quantitaRiserva != null && Number.isFinite(quantitaRiserva)
+            ? quantitaRiserva
+            : null,
+        unita,
+        repartoId: g?.reparto_id ?? null,
+        repartoNome: g?.reparto_id
+          ? (repartoMap.get(g.reparto_id) ?? null)
           : null,
-      unita,
-      repartoId: g?.reparto_id ?? null,
-      repartoNome: g?.reparto_id ? repartoMap.get(g.reparto_id) ?? null : null,
-      semaforo: computeSemaforo(quantita, quantitaRiserva),
-    };
-  });
+        semaforo: computeSemaforo(quantita, quantitaRiserva),
+      };
+    }
+  );
 
   return { success: true, items };
 }
@@ -299,25 +323,28 @@ export async function updateMagazzinoProdottoAction(
   }
   const input = parsed.data;
   const supabase = await createClient();
+  const table = catalogTable(input.catalogKind);
 
-  const { data: prodotto, error: pErr } = await supabase
-    .from("prodotti_propri")
+  const { data: articolo, error: pErr } = await supabase
+    .from(table)
     .select("id, codice, nome, is_bio")
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
   if (pErr) return { success: false, error: pErr.message };
-  if (!prodotto) return { success: false, error: "Prodotto non trovato." };
-  const p = prodotto as ProdottoRow;
+  if (!articolo) return { success: false, error: "Articolo non trovato." };
+  const p = articolo as ArticoloRow;
 
   const { data: existing } = await supabase
     .from("magazzino_giacenze")
     .select("id")
+    .eq("catalog_kind", input.catalogKind)
     .eq("prodotto_id", input.prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
 
   const payload = {
+    catalog_kind: input.catalogKind,
     prodotto_id: input.prodottoId,
     prodotto_codice: p.codice,
     quantita_kg: input.quantita,
@@ -354,6 +381,7 @@ export async function updateMagazzinoProdottoAction(
   await syncNotaForProdotto({
     supabase,
     userId: auth.userId,
+    catalogKind: input.catalogKind,
     prodottoId: p.id,
     prodottoCodice: p.codice,
     prodottoNome: p.nome,
@@ -367,8 +395,9 @@ export async function updateMagazzinoProdottoAction(
     entity_id: giacenzaId,
     action: existing ? "update" : "create",
     actor_id: auth.userId,
-    summary: `Parametri magazzino ${p.codice}`,
+    summary: `Parametri magazzino ${input.catalogKind} ${p.codice}`,
     payload: {
+      catalogKind: input.catalogKind,
       quantita: input.quantita,
       quantitaRiserva: input.quantitaRiserva,
       unita: input.unita,
@@ -392,6 +421,7 @@ export async function updateMagazzinoProdottoAction(
   return {
     success: true,
     item: {
+      catalogKind: input.catalogKind,
       prodottoId: p.id,
       codice: p.codice,
       nome: p.nome,
@@ -409,6 +439,7 @@ export async function updateMagazzinoProdottoAction(
 
 function mapNotaRiga(row: {
   id: string;
+  catalog_kind?: string | null;
   prodotto_id: string;
   prodotto_codice: string;
   prodotto_nome: string;
@@ -416,8 +447,13 @@ function mapNotaRiga(row: {
   unita: string;
   motivo: string;
 }): NotaAcquistoRiga {
+  const kind: MagazzinoCatalogKind =
+    row.catalog_kind === "prodotto_fornitore"
+      ? "prodotto_fornitore"
+      : "materia_prima";
   return {
     id: row.id,
+    catalogKind: kind,
     prodottoId: row.prodotto_id,
     prodottoCodice: row.prodotto_codice,
     prodottoNome: row.prodotto_nome,
@@ -447,7 +483,7 @@ export async function listNoteAcquistoAction(): Promise<
     const { data: righe } = await supabase
       .from("magazzino_note_acquisto_righe")
       .select(
-        "id, nota_id, prodotto_id, prodotto_codice, prodotto_nome, quantita_richiesta, unita, motivo"
+        "id, nota_id, catalog_kind, prodotto_id, prodotto_codice, prodotto_nome, quantita_richiesta, unita, motivo"
       )
       .in("nota_id", ids)
       .is("deleted_at", null)
@@ -455,6 +491,7 @@ export async function listNoteAcquistoAction(): Promise<
     for (const r of (righe ?? []) as Array<{
       id: string;
       nota_id: string;
+      catalog_kind?: string | null;
       prodotto_id: string;
       prodotto_codice: string;
       prodotto_nome: string;

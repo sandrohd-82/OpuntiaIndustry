@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export type MagazzinoCatalogKind = "materia_prima" | "prodotto_fornitore";
+
 export type Reparto = {
   id: string;
   codice: string;
@@ -14,6 +16,7 @@ export type MagazzinoUnita = "kg" | "pz";
 export type ScorteSemaforo = "ok" | "soglia" | "sotto" | "n/d";
 
 export type MagazzinoProdottoRiga = {
+  catalogKind: MagazzinoCatalogKind;
   prodottoId: string;
   codice: string;
   nome: string;
@@ -31,6 +34,7 @@ export type NotaAcquistoStato = "bozza" | "aperta" | "chiusa" | "annullata";
 
 export type NotaAcquistoRiga = {
   id: string;
+  catalogKind: MagazzinoCatalogKind;
   prodottoId: string;
   prodottoCodice: string;
   prodottoNome: string;
@@ -53,6 +57,7 @@ export type NotaAcquisto = {
 };
 
 export const updateMagazzinoProdottoSchema = z.object({
+  catalogKind: z.enum(["materia_prima", "prodotto_fornitore"]),
   prodottoId: z.string().uuid(),
   quantita: z.number().min(0),
   quantitaRiserva: z.number().min(0).nullable(),

@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdottiBoard";
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
@@ -16,12 +15,23 @@ export default async function MagazzinoSectionPage({ params }: Props) {
   const page = resolveMagazzinoPage([section]);
   if (!page) notFound();
 
+  if (section === "materia-prima") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <MagazzinoProdottiBoard catalogKind="materia_prima" />
+        </div>
+      </>
+    );
+  }
+
   if (section === "prodotti") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <MagazzinoProdottiBoard />
+          <MagazzinoProdottiBoard catalogKind="prodotto_fornitore" />
         </div>
       </>
     );
@@ -38,7 +48,5 @@ export default async function MagazzinoSectionPage({ params }: Props) {
     );
   }
 
-  return (
-    <AreaPlaceholder title={page.label} description={page.description} />
-  );
+  notFound();
 }

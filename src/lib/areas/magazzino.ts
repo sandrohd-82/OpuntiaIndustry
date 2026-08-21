@@ -8,13 +8,14 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
   {
     slug: "materia-prima",
     label: "Materia prima",
-    description: "Giacenze e scorte di materia prima",
+    description: "Giacenze e scorte delle materie prime acquistate (Mp)",
     path: "/app/magazzino/materia-prima",
   },
   {
     slug: "prodotti",
     label: "Prodotti",
-    description: "Prodotti Agrinsicilia: riserva, reparto e semaforo scorte",
+    description:
+      "Prodotti fornitore acquistati (Pr): riserva, reparto e semaforo scorte",
     path: "/app/magazzino/prodotti",
   },
   {
