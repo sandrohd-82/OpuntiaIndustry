@@ -8,6 +8,7 @@ import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
 import { areaPathFromSlug } from "@/lib/areas/config";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
+import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import type { AreaSlug, UserArea } from "@/types/database";
 
@@ -259,13 +260,15 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
             const treeSections =
               area.slug === "produzione"
                 ? PRODUZIONE_SECTIONS
-                : area.slug === "amministrazione"
-                  ? AMMINISTRAZIONE_SECTIONS
-                  : area.slug === "commerciale"
-                    ? COMMERCIALE_SECTIONS
-                    : area.slug === "area-fiscale"
-                      ? AREA_FISCALE_SECTIONS
-                      : null;
+                : area.slug === "magazzino"
+                  ? MAGAZZINO_SECTIONS
+                  : area.slug === "amministrazione"
+                    ? AMMINISTRAZIONE_SECTIONS
+                    : area.slug === "commerciale"
+                      ? COMMERCIALE_SECTIONS
+                      : area.slug === "area-fiscale"
+                        ? AREA_FISCALE_SECTIONS
+                        : null;
 
             if (treeSections) {
               const open = openKeys.has(area.slug);

@@ -67,6 +67,12 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/produzione/turnistica",
   },
   {
+    slug: "reparti",
+    label: "Reparti",
+    description: "Anagrafica reparti produttivi collegabili al magazzino",
+    path: "/app/produzione/reparti",
+  },
+  {
     slug: "statistiche",
     label: "Statistiche",
     description: "Indicatori e report di produzione",

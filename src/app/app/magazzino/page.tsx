@@ -1,7 +1,8 @@
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { redirect } from "next/navigation";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { getFirstMagazzinoPath } from "@/lib/areas/magazzino";
 
 export default async function MagazzinoPage() {
-  const { meta } = await requireAreaAccess("magazzino");
-  return <AreaPlaceholder title={meta.label} description={meta.description} />;
+  await requireAreaAccess("magazzino");
+  redirect(getFirstMagazzinoPath());
 }

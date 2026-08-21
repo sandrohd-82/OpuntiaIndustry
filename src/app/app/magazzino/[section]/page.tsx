@@ -1,44 +1,38 @@
 import { notFound } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
-import { RepartiBoard } from "@/components/produzione/RepartiBoard";
+import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdottiBoard";
+import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { resolveProduzionePage } from "@/lib/areas/produzione";
+import { resolveMagazzinoPage } from "@/lib/areas/magazzino";
 
 type Props = {
   params: Promise<{ section: string }>;
-  searchParams: Promise<{ nuovo?: string }>;
 };
 
-export default async function ProduzioneSectionPage({
-  params,
-  searchParams,
-}: Props) {
-  await requireAreaAccess("produzione");
-
+export default async function MagazzinoSectionPage({ params }: Props) {
+  await requireAreaAccess("magazzino");
   const { section } = await params;
-  const query = await searchParams;
-  const page = resolveProduzionePage([section]);
+  const page = resolveMagazzinoPage([section]);
   if (!page) notFound();
 
-  if (section === "fogli-lavorazione") {
+  if (section === "prodotti") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <FogliLavorazioneBoard startCreate={query.nuovo === "1"} />
+          <MagazzinoProdottiBoard />
         </div>
       </>
     );
   }
 
-  if (section === "reparti") {
+  if (section === "note-di-acquisto") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <RepartiBoard />
+          <NoteAcquistoBoard />
         </div>
       </>
     );
