@@ -1295,6 +1295,7 @@ export async function reconcileAllBankTransactionsAction(input: {
   let attempted = 0;
   let matched = 0;
   let skipped = 0;
+  let firstInsertError: string | null = null;
   const now = new Date().toISOString();
 
   for (const tx of txs ?? []) {
@@ -1326,10 +1327,20 @@ export async function reconcileAllBankTransactionsAction(input: {
       .single();
     if (matchErr || !match) {
       skipped += 1;
+      if (!firstInsertError) {
+        firstInsertError = matchErr?.message ?? "Insert match fallito.";
+      }
       continue;
     }
     excludeInvoices.add(String(best.inv.id));
     matched += 1;
+  }
+
+  if (matched === 0 && firstInsertError && attempted > 0) {
+    return {
+      success: false,
+      error: `Match trovato ma salvataggio fallito: ${firstInsertError}`,
+    };
   }
 
   await writeAuditLog({

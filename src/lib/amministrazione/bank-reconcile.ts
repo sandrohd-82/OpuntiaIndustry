@@ -97,10 +97,31 @@ export function scoreEntityInCausale(
 }
 
 function daysBetween(a: string, b: string): number | null {
-  const d1 = Date.parse(a);
-  const d2 = Date.parse(b);
+  const d1 = Date.parse(a.slice(0, 10));
+  const d2 = Date.parse(b.slice(0, 10));
   if (!Number.isFinite(d1) || !Number.isFinite(d2)) return null;
   return Math.abs(d1 - d2) / 86_400_000;
+}
+
+/** Data POS da causale banca, es. "Del 25.06.26" → YYYY-MM-DD. */
+export function extractPosDateFromDescription(description: string): string | null {
+  const m = String(description ?? "").match(
+    /\bDel\s+(\d{1,2})[./](\d{1,2})[./](\d{2,4})\b/i
+  );
+  if (!m) return null;
+  const day = Number(m[1]);
+  const month = Number(m[2]);
+  let year = Number(m[3]);
+  if (!Number.isFinite(day) || !Number.isFinite(month) || !Number.isFinite(year)) {
+    return null;
+  }
+  if (year < 100) year += 2000;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function moneyCents(n: number): number {
+  return Math.round((Number(n) || 0) * 100);
 }
 
 export function scoreBankInvoiceMatch(input: {
@@ -126,19 +147,29 @@ export function scoreBankInvoiceMatch(input: {
   const absInv = Math.abs(Number(input.invoiceGross) || 0);
   if (absTx <= 0 || absInv <= 0) return 0;
 
-  // 1) Importo: valori assoluti (tolleranza 1 centesimo)
-  const amountDiff = Math.abs(absTx - absInv);
-  if (amountDiff > 0.01) return 0;
+  // 1) Importo: valori assoluti in centesimi (tolleranza 1 centesimo)
+  if (Math.abs(moneyCents(absTx) - moneyCents(absInv)) > 1) return 0;
 
-  // 2) Data: ±5 giorni obbligatori
-  if (!input.txDate || !input.invoiceDate) return 0;
-  const days = daysBetween(input.txDate, input.invoiceDate);
-  if (days == null || days > BANK_RECONCILE_DATE_WINDOW_DAYS) return 0;
+  // 2) Data: ±5 giorni su data movimento OPPURE data POS in causale
+  if (!input.invoiceDate) return 0;
+  const candidates: string[] = [];
+  if (input.txDate) candidates.push(input.txDate);
+  const posDate = extractPosDateFromDescription(input.description);
+  if (posDate) candidates.push(posDate);
+  if (candidates.length === 0) return 0;
+
+  let bestDays: number | null = null;
+  for (const d of candidates) {
+    const days = daysBetween(d, input.invoiceDate);
+    if (days == null) continue;
+    if (bestDays == null || days < bestDays) bestDays = days;
+  }
+  if (bestDays == null || bestDays > BANK_RECONCILE_DATE_WINDOW_DAYS) return 0;
 
   // Base: importo + data in finestra
   let score = 70;
-  if (days <= 1) score += 5;
-  else if (days <= 3) score += 3;
+  if (bestDays <= 1) score += 5;
+  else if (bestDays <= 3) score += 3;
 
   // 3) Intestazione azienda ↔ causale / controparte
   score += scoreEntityInCausale(
