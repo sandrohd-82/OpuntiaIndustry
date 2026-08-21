@@ -13,8 +13,23 @@
 export const BANK_RECONCILE_DATE_WINDOW_DAYS = 5;
 /** Base sufficiente: importo + finestra data. */
 export const BANK_RECONCILE_MIN_SCORE = 70;
+/** Step browse manuale Concilià questo (±N giorni, espandibile). */
+export const BANK_RECONCILE_BROWSE_STEP_DAYS = 15;
 
 export type BankReconcileInvoiceKind = "emessa" | "ricevuta";
+
+export type BankReconcileCandidateView = {
+  id: string;
+  kind: BankReconcileInvoiceKind;
+  type: "issued" | "received";
+  number: string;
+  entityName: string;
+  amountGross: number;
+  date: string | null;
+  status: string;
+  daysFromTx: number | null;
+  amountMatch: boolean;
+};
 
 /** Catalogo da cercare in base al segno del movimento. */
 export function invoiceKindFromBankAmount(

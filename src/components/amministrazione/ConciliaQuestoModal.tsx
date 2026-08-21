@@ -4,12 +4,14 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { FaExpand, FaLink, FaRobot, FaUser } from "react-icons/fa6";
 import {
   attemptAutoReconcileBankTxAction,
-  BANK_RECONCILE_BROWSE_STEP_DAYS,
   linkBankTransactionInvoiceAction,
   listBankReconcileBrowseAction,
-  type BankReconcileCandidateView,
   type BankTransactionView,
 } from "@/app/actions/bank-reports";
+import {
+  BANK_RECONCILE_BROWSE_STEP_DAYS,
+  type BankReconcileCandidateView,
+} from "@/lib/amministrazione/bank-reconcile";
 import { formatDateIt, formatEuro } from "@/lib/amministrazione/fatture";
 
 type Step = "mode" | "choice" | "browse";

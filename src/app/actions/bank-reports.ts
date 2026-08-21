@@ -11,9 +11,11 @@ import {
   parseBankPdfDeterministic,
 } from "@/lib/amministrazione/bank-pdf-python";
 import {
+  BANK_RECONCILE_BROWSE_STEP_DAYS,
   BANK_RECONCILE_MIN_SCORE,
   invoiceKindFromBankAmount,
   scoreBankInvoiceMatch,
+  type BankReconcileCandidateView,
 } from "@/lib/amministrazione/bank-reconcile";
 import { loadAllFicInvoicesForReconcile } from "@/lib/amministrazione/bank-reconcile-load";
 import { syncBankReportsFromFic } from "@/lib/amministrazione/bank-sync";
@@ -1496,21 +1498,6 @@ export async function flipBankTransactionSignAction(input: {
 // ---------------------------------------------------------------------------
 // Concilia questo: auto (importo master) / manuale / browse ±15 espandibile
 // ---------------------------------------------------------------------------
-
-export const BANK_RECONCILE_BROWSE_STEP_DAYS = 15;
-
-export type BankReconcileCandidateView = {
-  id: string;
-  kind: "emessa" | "ricevuta";
-  type: "issued" | "received";
-  number: string;
-  entityName: string;
-  amountGross: number;
-  date: string | null;
-  status: string;
-  daysFromTx: number | null;
-  amountMatch: boolean;
-};
 
 function moneyCents(n: number): number {
   return Math.round(Math.abs(Number(n) || 0) * 100);
