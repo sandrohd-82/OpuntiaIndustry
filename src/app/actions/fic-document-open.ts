@@ -3,7 +3,7 @@
 import {
   ficDocumentPath,
   toFicKind,
-} from "@/lib/amministrazione/fic-document-xml";
+} from "@/lib/amministrazione/fic-document-paths";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {

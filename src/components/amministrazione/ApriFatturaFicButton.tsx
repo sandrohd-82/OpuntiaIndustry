@@ -6,7 +6,7 @@ import {
   getFicFatturaOpenUrlAction,
   getFicXmlOpenUrlAction,
 } from "@/app/actions/fic-document-open";
-import { ficDocumentPath } from "@/lib/amministrazione/fic-document-xml";
+import { ficDocumentPath } from "@/lib/amministrazione/fic-document-paths";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 
 type Props = {
