@@ -35,7 +35,6 @@ import {
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
 import {
-  scanFatturaRigheCatalogoAction,
   type RigaCatalogoMatchHint,
 } from "@/app/actions/catalogo-collega";
 import {
@@ -268,7 +267,8 @@ export function FatturaRegistrazioneModal({
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
   const isRicevuta = kind === "ricevuta";
   const [vociAcquisto, setVociAcquisto] = useState<VoceAcquisto[]>([]);
-  const [catalogRevision, setCatalogRevision] = useState(0);
+  // catalogRevision rimosso: non deve rieseguire N RPC dropdown dopo ogni create
+
   const [catalogServizi, setCatalogServizi] = useState<CatalogoOffertaItem[]>(
     []
   );
@@ -741,54 +741,14 @@ export function FatturaRegistrazioneModal({
     };
   }, [isRicevuta]);
 
-  /** Scan automatico descrizione ↔ catalogo (leggero, debounced; non blocca la UI). */
+  /** Scan automatico disabilitato sul hot path: saturava il DB (N RPC/riga).
+   *  Usa «Cerca» sulla riga per match on-demand. */
   useEffect(() => {
     if (!isRicevuta) {
       setMatchHints({});
-      return;
+      setMatchScanPending(false);
     }
-    if (righe.length === 0) return;
-    let cancelled = false;
-    const handle = window.setTimeout(() => {
-      setMatchScanPending(true);
-      void (async () => {
-        const res = await scanFatturaRigheCatalogoAction({
-          fornitoreId: anagraficaId || null,
-          sameInvoiceCodici: righe
-            .map((r) => r.codice)
-            .filter((c) => Boolean(c?.trim()) && c !== "—"),
-          codicePending: initial?.codiceCatalogoPending ?? null,
-          catalogCodiciValidi: vociAcquisto.map((v) => v.codice),
-          righe: righe.map((r, i) => ({
-            key: String(i),
-            descrizione: r.descrizione ?? "",
-            codice: r.codice ?? "",
-          })),
-        });
-        if (cancelled) return;
-        setMatchScanPending(false);
-        if (!res.success) {
-          setMatchHints({});
-          return;
-        }
-        const next: Record<string, RigaCatalogoMatchHint> = {};
-        for (const h of res.hints) next[h.key] = h;
-        setMatchHints(next);
-      })();
-    }, 900);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(handle);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chiave stabile su contenuti riga
-  }, [
-    isRicevuta,
-    anagraficaId,
-    initial?.codiceCatalogoPending,
-    // stringa stabile: evita scan a ogni render object identity
-    righe.map((r) => `${r.codice ?? ""}\t${r.descrizione ?? ""}`).join("\n"),
-    vociAcquisto.map((v) => v.codice).join("|"),
-  ]);
+  }, [isRicevuta]);
 
   /** Carica legami articolo↔articolo per le targhe sulle righe (nuvola in fattura). */
   useEffect(() => {
@@ -1064,6 +1024,92 @@ export function FatturaRegistrazioneModal({
     });
   }
 
+  function upsertVoceAcquistoLocal(voce: VoceAcquisto) {
+    setVociAcquisto((prev) => {
+      const key = voce.codice.trim().toLowerCase();
+      const idx = prev.findIndex((v) => v.codice.trim().toLowerCase() === key);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = voce;
+        return next;
+      }
+      return [...prev, voce];
+    });
+    if (voce.kind === "servizio") {
+      setCatalogServizi((prev) => {
+        if (prev.some((i) => i.id === voce.id || i.codice === voce.codice)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: voce.id,
+            codice: voce.codice,
+            nome: voce.nome,
+            note: "",
+            isBio: false,
+            createdAt: new Date().toISOString(),
+            pendingDeleteAt: null,
+          },
+        ];
+      });
+    } else if (voce.kind === "prodotto") {
+      setCatalogProdottiFornitore((prev) => {
+        if (prev.some((i) => i.id === voce.id || i.codice === voce.codice)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: voce.id,
+            codice: voce.codice,
+            nome: voce.nome,
+            note: "",
+            isBio: false,
+            createdAt: new Date().toISOString(),
+            pendingDeleteAt: null,
+          },
+        ];
+      });
+    } else if (voce.kind === "contributo") {
+      setCatalogContributi((prev) => {
+        if (prev.some((i) => i.id === voce.id || i.codice === voce.codice)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: voce.id,
+            codice: voce.codice,
+            nome: voce.nome,
+            note: "",
+            isBio: false,
+            createdAt: new Date().toISOString(),
+            pendingDeleteAt: null,
+          },
+        ];
+      });
+    } else if (voce.kind === "materia") {
+      setCatalogMaterie((prev) => {
+        if (prev.some((i) => i.id === voce.id || i.codice === voce.codice)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: voce.id,
+            codice: voce.codice,
+            nome: voce.nome,
+            note: "",
+            isBio: false,
+            createdAt: new Date().toISOString(),
+            pendingDeleteAt: null,
+          } as (typeof prev)[number],
+        ];
+      });
+    }
+  }
+
   async function refreshVociAcquisto() {
     const [serviziRes, prodottiRes, materieRes, contributiRes] =
       await Promise.all([
@@ -1114,7 +1160,6 @@ export function FatturaRegistrazioneModal({
         })
       ),
     ]);
-    setCatalogRevision((n) => n + 1);
   }
 
   async function submit(e: FormEvent) {
@@ -1815,7 +1860,6 @@ export function FatturaRegistrazioneModal({
                                 descrizione={riga.descrizione ?? ""}
                                 codice={riga.codice ?? ""}
                                 fornitoreId={anagraficaId || null}
-                                catalogRevision={catalogRevision}
                                 sameInvoiceCodici={righe
                                   .map((r) => r.codice)
                                   .filter(
@@ -3034,27 +3078,16 @@ export function FatturaRegistrazioneModal({
           fatturaRicevutaId={initial?.id ?? null}
           fatturaRigaId={righe[codificaRiga.index]?.id ?? null}
           onClose={() => setCodificaRiga(null)}
-          onConfirmed={async (result) => {
+          onConfirmed={(result) => {
             const idx = codificaRiga.index;
-            setVociAcquisto((prev) => {
-              const key = result.codice.trim().toLowerCase();
-              if (prev.some((v) => v.codice.trim().toLowerCase() === key)) {
-                return prev;
-              }
-              return [
-                ...prev,
-                {
-                  kind: result.catalogoKind,
-                  id: result.catalogoId ?? result.codice,
-                  codice: result.codice,
-                  nome: result.nome,
-                },
-              ];
+            upsertVoceAcquistoLocal({
+              kind: result.catalogoKind,
+              id: result.catalogoId ?? result.codice,
+              codice: result.codice,
+              nome: result.nome,
             });
-            setCatalogRevision((n) => n + 1);
             applyProdottoToLocal(idx, "", result.codice, result.nome);
             setCodificaRiga(null);
-            void refreshVociAcquisto();
           }}
         />
       ) : null}
@@ -3093,13 +3126,18 @@ export function FatturaRegistrazioneModal({
           onCollega={(hit) => {
             const idx = collegaRigaIndex;
             const keepDesc = (righe[idx]?.descrizione ?? "").trim();
+            upsertVoceAcquistoLocal({
+              kind: hit.catalogoKind,
+              id: hit.catalogoId,
+              codice: hit.codice,
+              nome: hit.nome,
+            });
             patchRiga(idx, {
               prodottoId: null,
               codice: hit.codice,
               ...(keepDesc ? {} : { descrizione: hit.nome }),
             });
             setCollegaRigaIndex(null);
-            void refreshVociAcquisto();
           }}
           onCreaNuovo={(kind) => {
             const idx = collegaRigaIndex;
@@ -3158,7 +3196,12 @@ export function FatturaRegistrazioneModal({
                   ? await createCatalogoContributoAction(values)
                   : await createCatalogoProdottoFornitoreAction(values);
             if (!result.success) throw new Error(result.error);
-            await refreshVociAcquisto();
+            upsertVoceAcquistoLocal({
+              kind: creatingAcquistoKind,
+              id: result.item.id,
+              codice: result.item.codice,
+              nome: result.item.nome,
+            });
             const idx =
               rigaIndexForNuovo ?? (righe.length > 0 ? righe.length - 1 : 0);
             applyProdottoToLocal(
@@ -3184,7 +3227,12 @@ export function FatturaRegistrazioneModal({
           onSave={async (values) => {
             const result = await createMateriaPrimaAction(values);
             if (!result.success) throw new Error(result.error);
-            await refreshVociAcquisto();
+            upsertVoceAcquistoLocal({
+              kind: "materia",
+              id: result.materia.id,
+              codice: result.materia.codice,
+              nome: result.materia.nome,
+            });
             const idx =
               rigaIndexForNuovo ?? (righe.length > 0 ? righe.length - 1 : 0);
             applyProdottoToLocal(

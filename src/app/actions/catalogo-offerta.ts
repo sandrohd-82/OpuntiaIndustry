@@ -125,7 +125,9 @@ async function listCatalogoAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from(tableName(kind))
-    .select("*")
+    .select(
+      "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at"
+    )
     .is("deleted_at", null)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };

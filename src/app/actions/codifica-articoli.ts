@@ -51,6 +51,13 @@ function mapMatch(row: RpcMatchRow): CatalogoMatchHit | null {
   };
 }
 
+/** Fire-and-forget: non blocca la risposta HTTP. */
+function scheduleBackground(task: () => Promise<void>) {
+  void task().catch((e) =>
+    console.error("[codifica] background", e instanceof Error ? e.message : e)
+  );
+}
+
 export async function matchCatalogoAcquistiAction(
   query: string,
   thresholdPct: number = CODIFICA_SIMILARITY_THRESHOLD_PCT
@@ -65,7 +72,6 @@ export async function matchCatalogoAcquistiAction(
   }
 
   const supabase = await createClient();
-  // Soglia UI 80% → RPC 0.55: GIN filtra in fretta, poi rank client-side
   const threshold = Math.min(
     0.85,
     Math.max(0.35, (thresholdPct / 100) * 0.7)
@@ -78,7 +84,6 @@ export async function matchCatalogoAcquistiAction(
 
   if (error) {
     console.error("[codifica] match_catalogo_acquisti", error.message);
-    // Non bloccare la creazione: match fallito ≠ errore di salvataggio
     return { success: true, matches: [], requiresReview: false };
   }
 
@@ -94,6 +99,10 @@ export async function matchCatalogoAcquistiAction(
   };
 }
 
+/**
+ * Hot path: INSERT + riga ISO audit → risposta immediata.
+ * Audit log e sync fornitore in background (non devono far aspettare l’utente).
+ */
 export async function confirmCodificaArticoloAction(
   raw: ConfirmCodificaArticoloInput
 ): Promise<
@@ -129,6 +138,12 @@ export async function confirmCodificaArticoloAction(
   let catalogoId = input.catalogoId ?? null;
   let codice = input.codiceAssegnato.trim();
   let created = false;
+  let entityTable:
+    | "materie_prime"
+    | "catalogo_servizi"
+    | "catalogo_prodotti_fornitore"
+    | "catalogo_contributi"
+    | null = null;
 
   if (input.azione === "associa_esistente") {
     if (!catalogoId) {
@@ -187,22 +202,19 @@ export async function confirmCodificaArticoloAction(
         })
         .select("id, codice, nome")
         .single();
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        if (error.code === "23505") {
+          return {
+            success: false,
+            error: `Il codice ${normalized.codice} esiste già.`,
+          };
+        }
+        return { success: false, error: error.message };
+      }
       catalogoId = data.id;
       codice = data.codice;
       created = true;
-      await writeAuditLog({
-        entity_type: "materie_prime",
-        entity_id: data.id,
-        action: "create",
-        actor_id: auth.userId,
-        summary: `Materia codificata da fattura ricevuta: ${data.codice}`,
-        payload: {
-          source: "codifica_fattura_ricevuta",
-          codice: data.codice,
-          nome: data.nome,
-        },
-      });
+      entityTable = "materie_prime";
     } else {
       const kind =
         input.catalogoKind === "servizio"
@@ -228,20 +240,6 @@ export async function confirmCodificaArticoloAction(
           : kind === "contributo"
             ? "catalogo_contributi"
             : "catalogo_prodotti_fornitore";
-      // Check duplicato codice mirato (no full table scan)
-      const { data: existingCode } = await supabase
-        .from(table)
-        .select("id")
-        .ilike("codice", normalized.codice)
-        .is("deleted_at", null)
-        .limit(1)
-        .maybeSingle();
-      if (existingCode) {
-        return {
-          success: false,
-          error: `Il codice ${normalized.codice} esiste già.`,
-        };
-      }
       const { data, error } = await supabase
         .from(table)
         .insert({
@@ -254,25 +252,23 @@ export async function confirmCodificaArticoloAction(
         })
         .select("id, codice, nome")
         .single();
-      if (error) return { success: false, error: error.message };
+      if (error) {
+        if (error.code === "23505") {
+          return {
+            success: false,
+            error: `Il codice ${normalized.codice} esiste già.`,
+          };
+        }
+        return { success: false, error: error.message };
+      }
       catalogoId = data.id;
       codice = data.codice;
       created = true;
-      await writeAuditLog({
-        entity_type: table,
-        entity_id: data.id,
-        action: "create",
-        actor_id: auth.userId,
-        summary: `Catalogo ${kind} codificato da fattura ricevuta: ${data.codice}`,
-        payload: {
-          source: "codifica_fattura_ricevuta",
-          codice: data.codice,
-          nome: data.nome,
-        },
-      });
+      entityTable = table;
     }
   }
 
+  // Registro ISO obbligatorio (1 insert) — unico await critico oltre al create
   const { data: auditRow, error: auditError } = await supabase
     .from("fatture_ricevute_codifica_articoli")
     .insert({
@@ -299,25 +295,47 @@ export async function confirmCodificaArticoloAction(
     return { success: false, error: auditError.message };
   }
 
-  await writeAuditLog({
-    entity_type: "fatture_ricevute_codifica_articoli",
-    entity_id: auditRow.id,
-    action: "create",
-    actor_id: auth.userId,
-    summary: `Codifica articolo ${codice} (${input.azione})`,
-    payload: {
-      azione: input.azione,
-      codice,
-      catalogoKind: input.catalogoKind,
-      catalogoId,
-      affinitaPercentuale: input.affinitaPercentuale ?? null,
-    },
-  });
+  const result = {
+    success: true as const,
+    codice,
+    catalogoId,
+    catalogoKind: input.catalogoKind,
+    nome: nomeArticolo,
+    auditId: auditRow.id,
+    created,
+  };
 
-  // Sync scheda fornitore: solo merge del codice appena creato (leggero).
-  // Evita syncFornitoreSchedaFromFatturaRicevutaId (doppia scansione) sul hot path.
-  if (input.fatturaRicevutaId && created) {
-    try {
+  // Background: non ritardare la UI
+  scheduleBackground(async () => {
+    if (created && entityTable && catalogoId) {
+      await writeAuditLog({
+        entity_type: entityTable,
+        entity_id: catalogoId,
+        action: "create",
+        actor_id: auth.userId,
+        summary: `Catalogo codificato da fattura ricevuta: ${codice}`,
+        payload: {
+          source: "codifica_fattura_ricevuta",
+          codice,
+          nome: nomeArticolo,
+        },
+      });
+    }
+    await writeAuditLog({
+      entity_type: "fatture_ricevute_codifica_articoli",
+      entity_id: auditRow.id,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Codifica articolo ${codice} (${input.azione})`,
+      payload: {
+        azione: input.azione,
+        codice,
+        catalogoKind: input.catalogoKind,
+        catalogoId,
+        affinitaPercentuale: input.affinitaPercentuale ?? null,
+      },
+    });
+    if (input.fatturaRicevutaId && created) {
       const { data: fat } = await supabase
         .from("fatture_ricevute")
         .select("fornitore_id, numero_interno")
@@ -332,21 +350,8 @@ export async function confirmCodificaArticoloAction(
           numeroInterno: String(fat.numero_interno ?? ""),
         });
       }
-    } catch (e) {
-      console.error(
-        "[codifica] sync scheda fornitore",
-        e instanceof Error ? e.message : e
-      );
     }
-  }
+  });
 
-  return {
-    success: true,
-    codice,
-    catalogoId,
-    catalogoKind: input.catalogoKind,
-    nome: nomeArticolo,
-    auditId: auditRow.id,
-    created,
-  };
+  return result;
 }

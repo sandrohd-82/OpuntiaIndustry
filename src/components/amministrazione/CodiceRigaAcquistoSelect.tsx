@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   suggestCodiciRigaDropdownAction,
   type CollegaCatalogoHit,
@@ -12,8 +12,6 @@ type Props = {
   codice: string;
   fornitoreId: string | null;
   sameInvoiceCodici: string[];
-  /** Incrementare dopo creazione/aggiornamento catalogo per forzare refresh. */
-  catalogRevision?: number;
   onSelectCodice: (codice: string) => void;
   onCerca: () => void;
 };
@@ -26,15 +24,14 @@ const KIND_GROUP: Record<CollegaCatalogoHit["catalogoKind"], string> = {
 };
 
 /**
- * Menu a tendina snello: solo codici salvati con match descrizione ≥ 70%.
- * «Cerca» apre la modale (circuito contestuale; intero sistema solo se vuoto).
+ * Dropdown lazy: nessuna RPC all’apertura fattura.
+ * Carica suggerimenti solo al focus / apertura menu.
  */
 export function CodiceRigaAcquistoSelect({
   descrizione,
   codice,
   fornitoreId,
   sameInvoiceCodici,
-  catalogRevision = 0,
   onSelectCodice,
   onCerca,
 }: Props) {
@@ -42,38 +39,14 @@ export function CodiceRigaAcquistoSelect({
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [open, setOpen] = useState(false);
 
   const sameKey = useMemo(
     () => sameInvoiceCodici.join("|"),
     [sameInvoiceCodici]
   );
 
-  useEffect(() => {
-    setLoaded(false);
-    const codes = sameKey.split("|").filter(Boolean);
-    const handle = window.setTimeout(() => {
-      startTransition(async () => {
-        const res = await suggestCodiciRigaDropdownAction({
-          descrizione,
-          fornitoreId,
-          sameInvoiceCodici: codes,
-          codiceCorrente: codice,
-        });
-        if (!res.success) {
-          setError(res.error);
-          setHits([]);
-          setLoaded(true);
-          return;
-        }
-        setError(null);
-        setHits(res.hits);
-        setLoaded(true);
-      });
-    }, 450);
-    return () => window.clearTimeout(handle);
-  }, [descrizione, codice, fornitoreId, sameKey, catalogRevision]);
-
-  function refreshNow() {
+  function loadSuggestions() {
     const codes = sameKey.split("|").filter(Boolean);
     startTransition(async () => {
       const res = await suggestCodiciRigaDropdownAction({
@@ -94,9 +67,15 @@ export function CodiceRigaAcquistoSelect({
     });
   }
 
+  function openMenu() {
+    setOpen(true);
+    if (!loaded && !pending) loadSuggestions();
+  }
+
   const orphan =
     codice &&
     codice !== "—" &&
+    loaded &&
     !hits.some((h) => h.codice === codice);
 
   const grouped = useMemo(() => {
@@ -110,71 +89,85 @@ export function CodiceRigaAcquistoSelect({
     return g;
   }, [hits]);
 
-  const selectValue =
-    codice && codice !== "—"
-      ? orphan
-        ? `__orphan__:${codice}`
-        : codice
-      : "";
-
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      <div className="flex items-start gap-1.5">
-        <select
-          value={selectValue}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (!v || v.startsWith("__orphan__:")) return;
-            onSelectCodice(v);
-          }}
-          onFocus={() => {
-            if (!loaded && !pending) refreshNow();
-          }}
-          className="w-full min-w-[140px] rounded border border-[var(--border)] px-2 py-1.5 font-mono text-xs"
-          required
-          title={`Solo codici già salvati con corrispondenza ≥ ${DROPDOWN_MATCH_THRESHOLD_PCT}%`}
+    <div className="relative min-w-[11rem] flex-1">
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={openMenu}
+          onFocus={openMenu}
+          className="min-w-0 flex-1 truncate rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-left font-mono text-xs font-semibold hover:bg-slate-50"
+          title={codice || "Seleziona codice"}
         >
-          <option value="">
-            {pending
-              ? "Carico match…"
-              : hits.length === 0
-                ? "Nessun match ≥70%…"
-                : "Seleziona codice…"}
-          </option>
-          {orphan ? (
-            <option value={`__orphan__:${codice}`}>
-              {codice} — (non in catalogo / sotto soglia)
-            </option>
-          ) : null}
-          {(["servizio", "prodotto", "materia", "contributo"] as const).map(
-            (kind) =>
-            grouped[kind].length === 0 ? null : (
-              <optgroup key={kind} label={KIND_GROUP[kind]}>
-                {grouped[kind].map((h) => (
-                  <option key={h.catalogoId} value={h.codice}>
-                    {h.codice} — {h.nome}
-                    {h.score > 0 ? ` (${Math.round(h.score)}%)` : ""}
-                  </option>
-                ))}
-              </optgroup>
-            )
-          )}
-        </select>
+          {codice && codice !== "—" ? codice : "— seleziona —"}
+        </button>
         <button
           type="button"
           onClick={onCerca}
-          className="shrink-0 rounded border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-[11px] font-medium text-sky-950 hover:bg-sky-100"
-          title="Apre la ricerca codice (filtri, crea nuovo)"
+          className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium hover:bg-slate-50"
         >
           Cerca
         </button>
       </div>
-      {error ? (
-        <p className="text-[10px] text-red-700">{error}</p>
-      ) : !pending && loaded && hits.length === 0 && !orphan ? (
-        <p className="text-[10px] text-[var(--muted)]">
-          Nessun codice ≥{DROPDOWN_MATCH_THRESHOLD_PCT}%. Usa «Cerca».
-        </p>
+      {open ? (
+        <>
+          <button
+            type="button"
+            aria-label="Chiudi"
+            className="fixed inset-0 z-10 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-[var(--border)] bg-white p-2 shadow-lg">
+            {pending ? (
+              <p className="px-1 py-2 text-xs text-[var(--muted)]">Ricerca…</p>
+            ) : null}
+            {error ? (
+              <p className="px-1 py-1 text-xs text-red-700">{error}</p>
+            ) : null}
+            {!pending && loaded && hits.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-[var(--muted)]">
+                Nessun match ≥{DROPDOWN_MATCH_THRESHOLD_PCT}%. Usa Cerca.
+              </p>
+            ) : null}
+            {(
+              ["servizio", "prodotto", "materia", "contributo"] as const
+            ).map((k) =>
+              grouped[k].length === 0 ? null : (
+                <div key={k} className="mb-2">
+                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                    {KIND_GROUP[k]}
+                  </p>
+                  <ul>
+                    {grouped[k].map((h) => (
+                      <li key={`${h.catalogoKind}:${h.catalogoId}`}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 rounded px-1.5 py-1 text-left hover:bg-slate-50"
+                          onClick={() => {
+                            onSelectCodice(h.codice);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="truncate font-mono text-xs font-semibold">
+                            {h.codice}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums text-[var(--muted)]">
+                            {Math.round(h.score)}%
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )
+            )}
+            {orphan ? (
+              <p className="mt-1 border-t border-[var(--border)] px-1 pt-1 text-[10px] text-amber-800">
+                Codice corrente non in elenco match
+              </p>
+            ) : null}
+          </div>
+        </>
       ) : null}
     </div>
   );

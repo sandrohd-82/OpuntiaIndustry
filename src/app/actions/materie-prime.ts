@@ -27,23 +27,36 @@ async function assertCodiceAndNomeUnici(
   let codiceQuery = supabase
     .from("materie_prime")
     .select("id, codice")
-    .eq("codice", codice);
+    .ilike("codice", codice)
+    .is("deleted_at", null)
+    .limit(5);
   if (excludeId) codiceQuery = codiceQuery.neq("id", excludeId);
-  const { data: byCodice, error: codiceError } = await codiceQuery.maybeSingle();
+  const { data: byCodiceRows, error: codiceError } = await codiceQuery;
   if (codiceError) return codiceError.message;
+  const codiceLower = codice.toLowerCase();
+  const byCodice = (
+    (byCodiceRows ?? []) as Array<{ id: string; codice: string }>
+  ).find((row) => row.codice.toLowerCase() === codiceLower);
   if (byCodice) {
     return `Il codice ${codice} esiste già. La targa deve essere univoca.`;
   }
 
+  const nomeTrim = nome.trim();
+  if (!nomeTrim) return null;
   const nomeNorm = normalizeNomeMateriaPrima(nome);
-  const { data: rows, error: nomeError } = await supabase
+  let nomeQuery = supabase
     .from("materie_prime")
-    .select("id, nome, codice");
+    .select("id, nome, codice")
+    .ilike("nome", nomeTrim)
+    .is("deleted_at", null)
+    .limit(20);
+  if (excludeId) nomeQuery = nomeQuery.neq("id", excludeId);
+  const { data: rows, error: nomeError } = await nomeQuery;
   if (nomeError) return nomeError.message;
 
-  const duplicateNome = ((rows ?? []) as Array<{ id: string; nome: string; codice: string }>)
-    .filter((row) => !excludeId || row.id !== excludeId)
-    .find((row) => normalizeNomeMateriaPrima(row.nome) === nomeNorm);
+  const duplicateNome = (
+    (rows ?? []) as Array<{ id: string; nome: string; codice: string }>
+  ).find((row) => normalizeNomeMateriaPrima(row.nome) === nomeNorm);
 
   if (duplicateNome) {
     return `Esiste già una materia con lo stesso nome (${duplicateNome.codice} — ${duplicateNome.nome}).`;
@@ -61,7 +74,9 @@ export async function listMateriePrimeAction(): Promise<
 
   const { data, error } = await supabase
     .from("materie_prime")
-    .select("*")
+    .select(
+      "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at, created_by, updated_at, updated_by"
+    )
     .is("deleted_at", null)
     .order("codice", { ascending: true });
 
