@@ -67,6 +67,29 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/produzione/turnistica",
   },
   {
+    slug: "processi",
+    label: "Processi",
+    description:
+      "Processi produttivi e attività di esecuzione (ricette ordinate)",
+    path: "/app/produzione/processi",
+    children: [
+      {
+        slug: "elenco",
+        label: "Elenco processi",
+        description:
+          "Processi (es. essiccazione) con composizione ordinata di attività",
+        path: "/app/produzione/processi/elenco",
+      },
+      {
+        slug: "attivita",
+        label: "Attività di processo",
+        description:
+          "Catalogo attività riusabili (pesare, scarico, mescolata, …)",
+        path: "/app/produzione/processi/attivita",
+      },
+    ],
+  },
+  {
     slug: "reparti",
     label: "Reparti",
     description: "Anagrafica reparti produttivi collegabili al magazzino",
