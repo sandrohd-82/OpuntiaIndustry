@@ -6,7 +6,7 @@ import type { MagazzinoCatalogKind } from "@/lib/magazzino/types";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
-export const MAGAZZINO_FOTO_BUCKET = "magazzino-prodotti";
+const MAGAZZINO_FOTO_BUCKET = "magazzino-prodotti";
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
