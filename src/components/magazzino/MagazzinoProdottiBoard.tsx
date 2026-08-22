@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { FaCircleInfo, FaPen } from "react-icons/fa6";
+import { FaCircleInfo, FaImage, FaPen, FaXmark } from "react-icons/fa6";
 import {
   listMagazzinoProdottiAction,
   updateMagazzinoProdottoAction,
@@ -127,6 +127,11 @@ export function MagazzinoProdottiBoard({
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
   const [q, setQ] = useState("");
+  const [thumbUrls, setThumbUrls] = useState<Record<string, string>>({});
+  const [lightbox, setLightbox] = useState<{
+    url: string;
+    label: string;
+  } | null>(null);
 
   const kindLabel =
     catalogKind === "materia_prima"
@@ -152,6 +157,29 @@ export function MagazzinoProdottiBoard({
       setItems(prod.items);
       setError(null);
       setReady(true);
+
+      const withFoto = prod.items.filter((i) => i.fotoPath);
+      if (withFoto.length === 0) {
+        setThumbUrls({});
+        return;
+      }
+      const entries = await Promise.all(
+        withFoto.map(async (i) => {
+          const res = await getMagazzinoFotoUrlAction({
+            catalogKind,
+            prodottoId: i.prodottoId,
+          });
+          if (res.success && res.url) {
+            return [i.prodottoId, res.url] as const;
+          }
+          return null;
+        })
+      );
+      const map: Record<string, string> = {};
+      for (const e of entries) {
+        if (e) map[e[0]] = e[1];
+      }
+      setThumbUrls(map);
     });
   }
 
@@ -546,14 +574,54 @@ export function MagazzinoProdottiBoard({
                   : i
               )
             );
+            setThumbUrls((prev) => {
+              const next = { ...prev };
+              if (path && url) next[editing.prodottoId] = url;
+              else delete next[editing.prodottoId];
+              return next;
+            });
           }}
         />
+      ) : null}
+
+      {lightbox ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/80 p-4"
+          role="dialog"
+          aria-modal
+          aria-label="Foto ingrandita"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-lg bg-white/90 p-2 text-slate-800 hover:bg-white"
+            aria-label="Chiudi"
+            onClick={() => setLightbox(null)}
+          >
+            <FaXmark size={18} />
+          </button>
+          <div
+            className="max-h-[90vh] max-w-[90vw]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="max-h-[85vh] max-w-[90vw] rounded-lg object-contain shadow-2xl"
+            />
+            <p className="mt-2 text-center text-sm text-white">
+              {lightbox.label}
+            </p>
+          </div>
+        </div>
       ) : null}
 
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
             <tr>
+              <th className="px-3 py-3 w-14">Foto</th>
               <th className="px-4 py-3">Codice</th>
               <th className="px-4 py-3">Titolo</th>
               <th className="px-4 py-3">Utilizzo</th>
@@ -565,11 +633,40 @@ export function MagazzinoProdottiBoard({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((row) => (
+            {filtered.map((row) => {
+              const thumb = thumbUrls[row.prodottoId];
+              const label = labelMagazzinoArticolo(row);
+              return (
               <tr
                 key={row.prodottoId}
                 className={`border-t border-[var(--border)] ${rowClass(row.semaforo)}`}
               >
+                <td className="px-3 py-2">
+                  {thumb ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLightbox({ url: thumb, label: `${row.codice} — ${label}` })
+                      }
+                      className="block h-11 w-11 overflow-hidden rounded-md border border-[var(--border)] bg-slate-50 hover:ring-2 hover:ring-sky-400"
+                      title="Ingrandisci foto"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={thumb}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
+                  ) : (
+                    <span
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-dashed border-[var(--border)] bg-slate-50 text-slate-400"
+                      title="Nessuna foto"
+                    >
+                      <FaImage size={14} />
+                    </span>
+                  )}
+                </td>
                 <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold">
                   {row.codice}
                   {row.schedaProvvisoria ? (
@@ -579,9 +676,7 @@ export function MagazzinoProdottiBoard({
                   ) : null}
                 </td>
                 <td className="max-w-[24vw] px-4 py-3 font-medium">
-                  <span className="line-clamp-2">
-                    {labelMagazzinoArticolo(row)}
-                  </span>
+                  <span className="line-clamp-2">{label}</span>
                   {row.titoloMagazzino ? (
                     <span className="mt-0.5 block truncate text-[11px] font-normal text-[var(--muted)]">
                       {row.nome}
@@ -627,11 +722,12 @@ export function MagazzinoProdottiBoard({
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-10 text-center text-[var(--muted)]"
                 >
                   Nessun articolo in magazzino (o tutti classificaati come
