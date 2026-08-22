@@ -1,5 +1,4 @@
 import {
-  findNavItem,
   firstLeafPath,
   firstNavLeafPath,
   resolveNavPage,
@@ -36,7 +35,7 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     slug: "barcode",
     label: "Barcode",
     description:
-      "Elenchi barcode registrati e generazione (lotto / stringa libera)",
+      "Elenchi barcode registrati e generatore (lotto Mp/PF o stringa libera)",
     path: "/app/magazzino/barcode",
     children: [
       {
@@ -57,31 +56,8 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         slug: "generatore",
         label: "Generatore",
         description:
-          "Creazione barcode lotto Mp/PF e generatore generico (stringa)",
+          "Un’unica pagina: Lotto materia prima, Lotto prodotto finito o Generico (stringa)",
         path: "/app/magazzino/barcode/generatore",
-        children: [
-          {
-            slug: "lotto-materia-prima",
-            label: "Lotto materia prima",
-            description:
-              "Creazione barcode del numero di lotto materia prima (impostazioni dedicate)",
-            path: "/app/magazzino/barcode/generatore/lotto-materia-prima",
-          },
-          {
-            slug: "lotto-prodotto-finito",
-            label: "Lotto prodotto finito",
-            description:
-              "Creazione barcode del numero di lotto prodotto finito (impostazioni dedicate)",
-            path: "/app/magazzino/barcode/generatore/lotto-prodotto-finito",
-          },
-          {
-            slug: "generico",
-            label: "Generico",
-            description:
-              "Converte una stringa libera in barcode (anteprima e stampa)",
-            path: "/app/magazzino/barcode/generatore/generico",
-          },
-        ],
       },
     ],
   },
@@ -101,8 +77,4 @@ export function resolveMagazzinoPage(segments: string[]) {
   return resolveNavPage(MAGAZZINO_SECTIONS, segments);
 }
 
-export function getMagazzinoFirstLeafPath(segments: string[]): string | null {
-  const item = findNavItem(MAGAZZINO_SECTIONS, segments);
-  if (!item) return null;
-  return firstLeafPath(item);
-}
+export { firstLeafPath };

@@ -214,9 +214,6 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
         next.add("magazzino");
         if (pathname.startsWith("/app/magazzino/barcode")) {
           next.add("barcode");
-          if (pathname.startsWith("/app/magazzino/barcode/generatore")) {
-            next.add("generatore");
-          }
         }
       }
       if (pathname.startsWith("/app/commerciale")) {

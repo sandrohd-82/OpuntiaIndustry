@@ -1,10 +1,8 @@
 import { notFound, redirect } from "next/navigation";
+import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
 import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
-import {
-  getMagazzinoFirstLeafPath,
-  resolveMagazzinoPage,
-} from "@/lib/areas/magazzino";
+import { resolveMagazzinoPage } from "@/lib/areas/magazzino";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
 type Props = {
@@ -16,9 +14,9 @@ export default async function MagazzinoSubPage({ params }: Props) {
 
   const { section, sub } = await params;
 
-  // Compatibilità: vecchio /barcode/generico → ramo Generatore
+  // Compatibilità percorsi precedenti
   if (section === "barcode" && sub === "generico") {
-    redirect("/app/magazzino/barcode/generatore/generico");
+    redirect("/app/magazzino/barcode/generatore");
   }
 
   const page = resolveMagazzinoPage([section, sub]);
@@ -47,9 +45,14 @@ export default async function MagazzinoSubPage({ params }: Props) {
   }
 
   if (section === "barcode" && sub === "generatore") {
-    const first = getMagazzinoFirstLeafPath([section, sub]);
-    if (!first) notFound();
-    redirect(first);
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeGeneratoreBoard />
+        </div>
+      </>
+    );
   }
 
   notFound();
