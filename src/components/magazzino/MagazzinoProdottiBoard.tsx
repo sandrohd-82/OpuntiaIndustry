@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { FaPen } from "react-icons/fa6";
+import { FaCircleInfo, FaPen } from "react-icons/fa6";
 import {
   listMagazzinoProdottiAction,
   updateMagazzinoProdottoAction,
@@ -10,7 +10,6 @@ import { resolveSchedaProvvisoriaOnceAction } from "@/app/actions/magazzino-barc
 import { AssociaBarcodeModal } from "@/components/magazzino/AssociaBarcodeModal";
 import { AssociaFotoModal } from "@/components/magazzino/AssociaFotoModal";
 import { getMagazzinoFotoUrlAction } from "@/app/actions/magazzino-foto";
-import { listRepartiAttiviAction } from "@/app/actions/reparti";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
   categoriaRequiresMagazzino,
@@ -20,7 +19,6 @@ import {
   type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
-  type Reparto,
   type ScorteSemaforo,
 } from "@/lib/magazzino/types";
 
@@ -59,13 +57,59 @@ function rowClass(s: ScorteSemaforo): string {
   return "";
 }
 
+function RiservaInfoTip() {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label="Spiegazione quantità minima di riserva"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100"
+      >
+        <FaCircleInfo size={11} />
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-full z-30 mt-1.5 w-72 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs font-normal normal-case tracking-normal text-slate-700 shadow-lg"
+        >
+          <span className="block font-semibold text-slate-900">
+            Quantità minima di riserva
+          </span>
+          <span className="mt-1.5 block leading-relaxed">
+            È la scorta minima che vuoi mantenere in magazzino. Il sistema
+            confronta la <strong>giacenza attuale</strong> con questo valore:
+          </span>
+          <ul className="mt-1.5 list-disc space-y-1 pl-4 leading-relaxed">
+            <li>
+              <strong>Sotto riserva</strong> (giacenza &lt; minimo): semaforo
+              rosso e l’articolo viene proposto in una{" "}
+              <strong>nota di acquisto</strong> aperta.
+            </li>
+            <li>
+              <strong>Soglia</strong> (giacenza = minimo): semaforo ambra; vale
+              comunque come livello critico e può finire in nota d’acquisto.
+            </li>
+            <li>
+              <strong>Ok</strong> (giacenza &gt; minimo): scorta sufficiente,
+              nessuna segnalazione automatica.
+            </li>
+          </ul>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function MagazzinoProdottiBoard({
   catalogKind,
 }: {
   catalogKind: MagazzinoCatalogKind;
 }) {
   const [items, setItems] = useState<MagazzinoProdottoRiga[]>([]);
-  const [reparti, setReparti] = useState<Reparto[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -82,7 +126,6 @@ export function MagazzinoProdottiBoard({
   const [quantita, setQuantita] = useState(0);
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
-  const [repartoId, setRepartoId] = useState("");
   const [q, setQ] = useState("");
 
   const kindLabel =
@@ -100,17 +143,13 @@ export function MagazzinoProdottiBoard({
 
   function load() {
     startTransition(async () => {
-      const [prod, rep] = await Promise.all([
-        listMagazzinoProdottiAction(catalogKind),
-        listRepartiAttiviAction(),
-      ]);
+      const prod = await listMagazzinoProdottiAction(catalogKind);
       if (!prod.success) {
         setError(prod.error);
         setReady(true);
         return;
       }
       setItems(prod.items);
-      if (rep.success) setReparti(rep.items);
       setError(null);
       setReady(true);
     });
@@ -130,7 +169,6 @@ export function MagazzinoProdottiBoard({
         i.codice.toLowerCase().includes(t) ||
         i.nome.toLowerCase().includes(t) ||
         (i.titoloMagazzino ?? "").toLowerCase().includes(t) ||
-        (i.repartoNome ?? "").toLowerCase().includes(t) ||
         labelCategoriaUtilizzo(i.categoriaUtilizzo).toLowerCase().includes(t)
     );
   }, [items, q]);
@@ -147,7 +185,6 @@ export function MagazzinoProdottiBoard({
     setQuantita(row.quantita);
     setRiserva(row.quantitaRiserva ?? "");
     setUnita(row.unita);
-    setRepartoId(row.repartoId ?? "");
     setError(null);
     setAssociaOpen(false);
     setAssociaFotoOpen(false);
@@ -162,7 +199,6 @@ export function MagazzinoProdottiBoard({
       });
     }
 
-    // Una sola verifica: se ancora provvisoria, controlla fatture e salva false
     if (row.schedaProvvisoria) {
       startTransition(async () => {
         const res = await resolveSchedaProvvisoriaOnceAction({
@@ -199,14 +235,17 @@ export function MagazzinoProdottiBoard({
       setError("Inserisci il titolo magazzino.");
       return;
     }
-    if (titoloModificato && confermaTitolo.trim() !== (editing.titoloMagazzino ?? "").trim()) {
+    if (
+      titoloModificato &&
+      confermaTitolo.trim() !== (editing.titoloMagazzino ?? "").trim()
+    ) {
       setError(
         "Per modificare il titolo ricopia esattamente il titolo attuale nella conferma."
       );
       return;
     }
     if (needsRiserva && riserva === "") {
-      setError("Imposta la quantità di riserva.");
+      setError("Imposta la quantità minima di riserva.");
       return;
     }
     startTransition(async () => {
@@ -225,7 +264,7 @@ export function MagazzinoProdottiBoard({
             : Number(riserva)
           : null,
         unita,
-        repartoId: needsRiserva ? repartoId || null : null,
+        repartoId: null,
       });
       if (!res.success) {
         setError(res.error);
@@ -402,7 +441,9 @@ export function MagazzinoProdottiBoard({
             {needsRiserva ? (
               <>
                 <label className="text-sm">
-                  <span className="mb-1 block font-medium">Giacenza</span>
+                  <span className="mb-1 block font-medium">
+                    Giacenza attuale
+                  </span>
                   <input
                     type="number"
                     min={0}
@@ -413,8 +454,9 @@ export function MagazzinoProdottiBoard({
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mb-1 block font-medium">
-                    Quantità riserva *
+                  <span className="mb-1 flex items-center gap-1.5 font-medium">
+                    Quantità minima di riserva
+                    <RiservaInfoTip />
                   </span>
                   <input
                     type="number"
@@ -426,7 +468,7 @@ export function MagazzinoProdottiBoard({
                         e.target.value === "" ? "" : Number(e.target.value)
                       )
                     }
-                    placeholder="Minimo in magazzino"
+                    placeholder="Minimo da mantenere in magazzino"
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   />
                 </label>
@@ -439,21 +481,6 @@ export function MagazzinoProdottiBoard({
                   >
                     <option value="kg">kg</option>
                     <option value="pz">pz</option>
-                  </select>
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block font-medium">Reparto</span>
-                  <select
-                    value={repartoId}
-                    onChange={(e) => setRepartoId(e.target.value)}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                  >
-                    <option value="">— nessuno —</option>
-                    {reparti.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.codice} — {r.nome}
-                      </option>
-                    ))}
                   </select>
                 </label>
               </>
@@ -531,9 +558,8 @@ export function MagazzinoProdottiBoard({
               <th className="px-4 py-3">Titolo</th>
               <th className="px-4 py-3">Utilizzo</th>
               <th className="px-4 py-3">Barcode</th>
-              <th className="px-4 py-3">Giacenza</th>
-              <th className="px-4 py-3">Riserva</th>
-              <th className="px-4 py-3">Reparto</th>
+              <th className="px-4 py-3">Giacenza attuale</th>
+              <th className="px-4 py-3">Riserva min.</th>
               <th className="px-4 py-3">Stato</th>
               <th className="px-4 py-3 text-right" />
             </tr>
@@ -588,9 +614,6 @@ export function MagazzinoProdottiBoard({
                     ? `${row.quantitaRiserva.toLocaleString("it-IT")} ${row.unita}`
                     : "—"}
                 </td>
-                <td className="px-4 py-3 text-xs text-[var(--muted)]">
-                  {row.repartoNome ?? "—"}
-                </td>
                 <td className="px-4 py-3">
                   <SemaforoBadge s={row.semaforo} />
                 </td>
@@ -608,7 +631,7 @@ export function MagazzinoProdottiBoard({
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={8}
                   className="px-4 py-10 text-center text-[var(--muted)]"
                 >
                   Nessun articolo in magazzino (o tutti classificaati come
