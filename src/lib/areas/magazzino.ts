@@ -32,9 +32,33 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
   },
   {
     slug: "barcode",
-    label: "Generatore barcode",
-    description: "Anteprima Code 128/QR, associazione e stampa etichette",
+    label: "Barcode",
+    description:
+      "Creazione barcode lotto e generatore generico (stringa → codice)",
     path: "/app/magazzino/barcode",
+    children: [
+      {
+        slug: "lotto-materia-prima",
+        label: "Lotto materia prima",
+        description:
+          "Creazione barcode del numero di lotto materia prima (impostazioni dedicate)",
+        path: "/app/magazzino/barcode/lotto-materia-prima",
+      },
+      {
+        slug: "lotto-prodotto-finito",
+        label: "Lotto prodotto finito",
+        description:
+          "Creazione barcode del numero di lotto prodotto finito (impostazioni dedicate)",
+        path: "/app/magazzino/barcode/lotto-prodotto-finito",
+      },
+      {
+        slug: "generico",
+        label: "Generatore generico",
+        description:
+          "Converte una stringa libera in barcode (anteprima e stampa)",
+        path: "/app/magazzino/barcode/generico",
+      },
+    ],
   },
   {
     slug: "note-di-acquisto",

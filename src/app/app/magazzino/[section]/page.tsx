@@ -1,11 +1,15 @@
-import { notFound } from "next/navigation";
-import { AppHeader } from "@/components/layout/AppHeader";
-import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
+import { notFound, redirect } from "next/navigation";
 import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdottiBoard";
 import { MagazzinoScanBoard } from "@/components/magazzino/MagazzinoScanBoard";
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
+import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { AppHeader } from "@/components/layout/AppHeader";
+import {
+  MAGAZZINO_SECTIONS,
+  resolveMagazzinoPage,
+} from "@/lib/areas/magazzino";
+import { isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { resolveMagazzinoPage } from "@/lib/areas/magazzino";
 
 type Props = {
   params: Promise<{ section: string }>;
@@ -14,10 +18,12 @@ type Props = {
 export default async function MagazzinoSectionPage({ params }: Props) {
   await requireAreaAccess("magazzino");
   const { section } = await params;
-  const page = resolveMagazzinoPage([section]);
-  if (!page) notFound();
+  const item = MAGAZZINO_SECTIONS.find((s) => s.slug === section);
+  if (!item) notFound();
 
   if (section === "materia-prima") {
+    const page = resolveMagazzinoPage([section]);
+    if (!page) notFound();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -29,6 +35,8 @@ export default async function MagazzinoSectionPage({ params }: Props) {
   }
 
   if (section === "prodotti") {
+    const page = resolveMagazzinoPage([section]);
+    if (!page) notFound();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -40,6 +48,8 @@ export default async function MagazzinoSectionPage({ params }: Props) {
   }
 
   if (section === "carico") {
+    const page = resolveMagazzinoPage([section]);
+    if (!page) notFound();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -51,6 +61,8 @@ export default async function MagazzinoSectionPage({ params }: Props) {
   }
 
   if (section === "scarico") {
+    const page = resolveMagazzinoPage([section]);
+    if (!page) notFound();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -61,18 +73,9 @@ export default async function MagazzinoSectionPage({ params }: Props) {
     );
   }
 
-  if (section === "barcode") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <BarcodeGeneratoreBoard />
-        </div>
-      </>
-    );
-  }
-
   if (section === "note-di-acquisto") {
+    const page = resolveMagazzinoPage([section]);
+    if (!page) notFound();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -83,5 +86,14 @@ export default async function MagazzinoSectionPage({ params }: Props) {
     );
   }
 
-  notFound();
+  if (isNavBranch(item)) {
+    const first = item.children[0];
+    if (!first) notFound();
+    redirect(first.path);
+  }
+
+  const page = resolveMagazzinoPage([section]);
+  if (!page) notFound();
+
+  return <AreaPlaceholder title={page.label} description={page.description} />;
 }
