@@ -41,21 +41,21 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         slug: "lotto-materia-prima",
         label: "Lotto materia prima",
         description:
-          "Creazione barcode del numero di lotto materia prima (impostazioni dedicate)",
+          "Elenco barcode registrati sulle schede materia prima (Mp)",
         path: "/app/magazzino/barcode/lotto-materia-prima",
       },
       {
         slug: "lotto-prodotto-finito",
         label: "Lotto prodotto finito",
         description:
-          "Creazione barcode del numero di lotto prodotto finito (impostazioni dedicate)",
+          "Elenco barcode registrati sulle schede prodotto (Pr)",
         path: "/app/magazzino/barcode/lotto-prodotto-finito",
       },
       {
         slug: "generico",
         label: "Generatore generico",
         description:
-          "Converte una stringa libera in barcode (anteprima e stampa)",
+          "Stringa → barcode: modello, Code 128/QR, stampa e associazione scheda",
         path: "/app/magazzino/barcode/generico",
       },
     ],

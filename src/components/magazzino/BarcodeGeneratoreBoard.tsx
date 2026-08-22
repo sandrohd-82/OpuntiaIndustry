@@ -12,6 +12,10 @@ import type { MagazzinoCatalogKind } from "@/lib/magazzino/types";
 
 type PrintSize = "50x30" | "100x50";
 
+/**
+ * Generatore generico: stringa libera + impostazioni grafiche (Code 128 / QR,
+ * formato stampa) e funzionali (modello a pezzi + associazione scheda).
+ */
 export function BarcodeGeneratoreBoard() {
   const [text, setText] = useState("");
   const [format, setFormat] = useState<"code128" | "qrcode">("code128");
@@ -90,8 +94,8 @@ export function BarcodeGeneratoreBoard() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-[var(--muted)] print:hidden">
-        Genera o digita un barcode, anteprima Code 128 / QR, associa a un
-        articolo magazzino e stampa etichetta.
+        Inserisci una stringa (o compila il modello), scegli Code 128 / QR e il
+        formato etichetta, poi stampa o associa a una scheda magazzino.
       </p>
 
       {err ? (
@@ -107,8 +111,9 @@ export function BarcodeGeneratoreBoard() {
 
       <div className="grid gap-6 lg:grid-cols-2 print:hidden">
         <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="text-sm font-semibold">Impostazioni</h3>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Stringa barcode</span>
+            <span className="mb-1 block font-medium">Stringa da convertire</span>
             <input
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -165,7 +170,7 @@ export function BarcodeGeneratoreBoard() {
           >
             Genera da modello
           </button>
-          <div className="flex flex-wrap gap-3 text-sm">
+          <div className="flex flex-wrap gap-3 border-t border-[var(--border)] pt-3 text-sm">
             <label className="inline-flex items-center gap-2">
               <input
                 type="radio"
@@ -197,6 +202,7 @@ export function BarcodeGeneratoreBoard() {
         </div>
 
         <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="text-sm font-semibold">Anteprima</h3>
           <BarcodePreview value={preview} format={format} />
           <button
             type="button"
@@ -263,7 +269,6 @@ export function BarcodeGeneratoreBoard() {
         </button>
       </div>
 
-      {/* Layout stampa */}
       <div
         className={`hidden print:flex print:items-center print:justify-center ${
           printSize === "50x30" ? "print-label-50" : "print-label-100"

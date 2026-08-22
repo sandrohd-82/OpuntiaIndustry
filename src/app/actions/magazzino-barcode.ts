@@ -121,6 +121,65 @@ export async function lookupBarcodeAction(barcodeRaw: string): Promise<
   };
 }
 
+export type BarcodeRegistratoRiga = {
+  id: string;
+  codice: string;
+  nome: string;
+  barcode: string;
+  schedaProvvisoria: boolean;
+  categoriaUtilizzo: string | null;
+  updatedAt: string | null;
+};
+
+/** Elenco barcode già registrati su schede Mp o Pr (non soft-deleted). */
+export async function listBarcodeRegistratiAction(
+  catalogKind: MagazzinoCatalogKind
+): Promise<
+  | { success: true; items: BarcodeRegistratoRiga[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from(catalogTable(catalogKind))
+    .select(
+      "id, codice, nome, barcode, scheda_provvisoria, categoria_utilizzo, updated_at"
+    )
+    .is("deleted_at", null)
+    .not("barcode", "is", null)
+    .neq("barcode", "")
+    .order("codice", { ascending: true });
+  if (error) return { success: false, error: error.message };
+
+  const items = (
+    (data ?? []) as Array<{
+      id: string;
+      codice: string;
+      nome: string;
+      barcode: string | null;
+      scheda_provvisoria: boolean | null;
+      categoria_utilizzo: string | null;
+      updated_at: string | null;
+    }>
+  )
+    .map((r) => {
+      const barcode = String(r.barcode ?? "").trim();
+      if (!barcode) return null;
+      return {
+        id: r.id,
+        codice: r.codice,
+        nome: r.nome,
+        barcode,
+        schedaProvvisoria: Boolean(r.scheda_provvisoria),
+        categoriaUtilizzo: r.categoria_utilizzo,
+        updatedAt: r.updated_at,
+      } satisfies BarcodeRegistratoRiga;
+    })
+    .filter((r): r is BarcodeRegistratoRiga => r !== null);
+
+  return { success: true, items };
+}
+
 export async function listArticoliPerAssociaBarcodeAction(
   catalogKind: MagazzinoCatalogKind,
   q?: string

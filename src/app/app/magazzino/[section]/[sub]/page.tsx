@@ -1,17 +1,13 @@
 import { notFound, redirect } from "next/navigation";
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
+import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
+import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveMagazzinoPage } from "@/lib/areas/magazzino";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
 };
-
-const BARCODE_SUBS = new Set([
-  "lotto-materia-prima",
-  "lotto-prodotto-finito",
-  "generico",
-]);
 
 export default async function MagazzinoSubPage({ params }: Props) {
   await requireAreaAccess("magazzino");
@@ -20,13 +16,39 @@ export default async function MagazzinoSubPage({ params }: Props) {
   const page = resolveMagazzinoPage([section, sub]);
   if (!page) notFound();
 
-  if (section === "barcode" && BARCODE_SUBS.has(sub)) {
+  if (section === "barcode" && sub === "lotto-materia-prima") {
     return (
-      <AreaPlaceholder title={page.label} description={page.description} />
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeRegistratiBoard catalogKind="materia_prima" />
+        </div>
+      </>
     );
   }
 
-  // Compatibilità: vecchio /magazzino/barcode → generico
+  if (section === "barcode" && sub === "lotto-prodotto-finito") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "barcode" && sub === "generico") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeGeneratoreBoard />
+        </div>
+      </>
+    );
+  }
+
   if (section === "barcode") {
     redirect("/app/magazzino/barcode/generico");
   }
