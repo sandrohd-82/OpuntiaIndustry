@@ -6,6 +6,7 @@ import {
   listMagazzinoProdottiAction,
   updateMagazzinoProdottoAction,
 } from "@/app/actions/magazzino";
+import { setArticoloBarcodeAction } from "@/app/actions/magazzino-barcode";
 import { listRepartiAttiviAction } from "@/app/actions/reparti";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
@@ -66,6 +67,8 @@ export function MagazzinoProdottiBoard({
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<MagazzinoProdottoRiga | null>(null);
   const [categoria, setCategoria] = useState<CategoriaUtilizzo | "">("");
+  const [barcode, setBarcode] = useState("");
+  const [schedaProvvisoria, setSchedaProvvisoria] = useState(false);
   const [quantita, setQuantita] = useState(0);
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
@@ -119,6 +122,8 @@ export function MagazzinoProdottiBoard({
   function openEdit(row: MagazzinoProdottoRiga) {
     setEditing(row);
     setCategoria(row.categoriaUtilizzo ?? "");
+    setBarcode(row.barcode ?? "");
+    setSchedaProvvisoria(row.schedaProvvisoria);
     setQuantita(row.quantita);
     setRiserva(row.quantitaRiserva ?? "");
     setUnita(row.unita);
@@ -137,6 +142,17 @@ export function MagazzinoProdottiBoard({
       return;
     }
     startTransition(async () => {
+      const barRes = await setArticoloBarcodeAction({
+        catalogKind,
+        prodottoId: editing.prodottoId,
+        barcode: barcode.trim() ? barcode.trim() : null,
+        schedaProvvisoria,
+      });
+      if (!barRes.success) {
+        setError(barRes.error);
+        return;
+      }
+
       const res = await updateMagazzinoProdottoAction({
         catalogKind,
         prodottoId: editing.prodottoId,
@@ -154,22 +170,27 @@ export function MagazzinoProdottiBoard({
         setError(res.error);
         return;
       }
-      if (!categoriaRequiresMagazzino(res.item.categoriaUtilizzo)) {
+      const item = {
+        ...res.item,
+        barcode: barcode.trim() || null,
+        schedaProvvisoria,
+      };
+      if (!categoriaRequiresMagazzino(item.categoriaUtilizzo)) {
         setItems((prev) =>
           prev.filter(
             (i) =>
               !(
-                i.prodottoId === res.item.prodottoId &&
-                i.catalogKind === res.item.catalogKind
+                i.prodottoId === item.prodottoId &&
+                i.catalogKind === item.catalogKind
               )
           )
         );
       } else {
         setItems((prev) =>
           prev.map((i) =>
-            i.prodottoId === res.item.prodottoId &&
-            i.catalogKind === res.item.catalogKind
-              ? res.item
+            i.prodottoId === item.prodottoId &&
+            i.catalogKind === item.catalogKind
+              ? item
               : i
           )
         );
@@ -241,6 +262,23 @@ export function MagazzinoProdottiBoard({
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Barcode</span>
+              <input
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="Associa o lascia vuoto"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={schedaProvvisoria}
+                onChange={(e) => setSchedaProvvisoria(e.target.checked)}
+              />
+              Scheda provvisoria (completa con fattura)
             </label>
             {needsRiserva ? (
               <>
@@ -334,6 +372,7 @@ export function MagazzinoProdottiBoard({
               <th className="px-4 py-3">Codice</th>
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Utilizzo</th>
+              <th className="px-4 py-3">Barcode</th>
               <th className="px-4 py-3">Giacenza</th>
               <th className="px-4 py-3">Riserva</th>
               <th className="px-4 py-3">Reparto</th>
@@ -349,8 +388,13 @@ export function MagazzinoProdottiBoard({
               >
                 <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-semibold">
                   {row.codice}
+                  {row.schedaProvvisoria ? (
+                    <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-medium text-amber-950">
+                      provv.
+                    </span>
+                  ) : null}
                 </td>
-                <td className="max-w-[28vw] px-4 py-3 font-medium">
+                <td className="max-w-[24vw] px-4 py-3 font-medium">
                   <span className="line-clamp-2">{row.nome}</span>
                 </td>
                 <td className="px-4 py-3 text-xs">
@@ -363,6 +407,9 @@ export function MagazzinoProdottiBoard({
                       Da classificare
                     </span>
                   )}
+                </td>
+                <td className="max-w-[8rem] truncate px-4 py-3 font-mono text-[11px] text-[var(--muted)]">
+                  {row.barcode || "—"}
                 </td>
                 <td className="px-4 py-3 tabular-nums">
                   {row.quantita.toLocaleString("it-IT")} {row.unita}
@@ -392,7 +439,7 @@ export function MagazzinoProdottiBoard({
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={9}
                   className="px-4 py-10 text-center text-[var(--muted)]"
                 >
                   Nessun articolo in magazzino (o tutti classificaati come

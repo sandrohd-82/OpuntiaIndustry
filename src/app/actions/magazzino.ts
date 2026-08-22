@@ -35,6 +35,8 @@ type ArticoloRow = {
   nome: string;
   is_bio: boolean | null;
   categoria_utilizzo: string | null;
+  barcode: string | null;
+  scheda_provvisoria: boolean | null;
 };
 
 function parseCategoriaUtilizzo(
@@ -253,7 +255,9 @@ export async function listMagazzinoProdottiAction(
     await Promise.all([
       supabase
         .from(table)
-        .select("id, codice, nome, is_bio, categoria_utilizzo")
+        .select(
+          "id, codice, nome, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+        )
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
       supabase
@@ -312,6 +316,8 @@ export async function listMagazzinoProdottiAction(
       nome: p.nome,
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo,
+      barcode: p.barcode ? String(p.barcode) : null,
+      schedaProvvisoria: Boolean(p.scheda_provvisoria),
       giacenzaId: g?.id ?? null,
       quantita,
       quantitaRiserva:
@@ -361,7 +367,9 @@ export async function updateMagazzinoProdottoAction(
 
   const { data: articolo, error: pErr } = await supabase
     .from(table)
-    .select("id, codice, nome, is_bio, categoria_utilizzo")
+    .select(
+      "id, codice, nome, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+    )
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -426,6 +434,8 @@ export async function updateMagazzinoProdottoAction(
         nome: p.nome,
         isBio: Boolean(p.is_bio),
         categoriaUtilizzo: input.categoriaUtilizzo,
+        barcode: p.barcode ? String(p.barcode) : null,
+        schedaProvvisoria: Boolean(p.scheda_provvisoria),
         giacenzaId: null,
         quantita: 0,
         quantitaRiserva: null,
@@ -530,6 +540,8 @@ export async function updateMagazzinoProdottoAction(
       nome: p.nome,
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo: input.categoriaUtilizzo,
+      barcode: p.barcode ? String(p.barcode) : null,
+      schedaProvvisoria: Boolean(p.scheda_provvisoria),
       giacenzaId,
       quantita: input.quantita,
       quantitaRiserva: input.quantitaRiserva,

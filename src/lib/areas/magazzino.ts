@@ -19,6 +19,24 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     path: "/app/magazzino/prodotti",
   },
   {
+    slug: "carico",
+    label: "Carico",
+    description: "Scansione barcode per carico merce in magazzino",
+    path: "/app/magazzino/carico",
+  },
+  {
+    slug: "scarico",
+    label: "Scarico",
+    description: "Scansione barcode per scarico merce da magazzino",
+    path: "/app/magazzino/scarico",
+  },
+  {
+    slug: "barcode",
+    label: "Generatore barcode",
+    description: "Anteprima Code 128/QR, associazione e stampa etichette",
+    path: "/app/magazzino/barcode",
+  },
+  {
     slug: "note-di-acquisto",
     label: "Note di acquisto",
     description: "Note generate automaticamente dalle soglie di riserva",

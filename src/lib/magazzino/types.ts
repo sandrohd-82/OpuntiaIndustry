@@ -69,6 +69,8 @@ export type MagazzinoProdottoRiga = {
   nome: string;
   isBio: boolean;
   categoriaUtilizzo: CategoriaUtilizzo | null;
+  barcode: string | null;
+  schedaProvvisoria: boolean;
   giacenzaId: string | null;
   quantita: number;
   quantitaRiserva: number | null;
