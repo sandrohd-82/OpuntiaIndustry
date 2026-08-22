@@ -8,7 +8,7 @@ import {
   MAGAZZINO_SECTIONS,
   resolveMagazzinoPage,
 } from "@/lib/areas/magazzino";
-import { isNavBranch } from "@/lib/areas/nav-tree";
+import { firstLeafPath, isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
 type Props = {
@@ -87,9 +87,7 @@ export default async function MagazzinoSectionPage({ params }: Props) {
   }
 
   if (isNavBranch(item)) {
-    const first = item.children[0];
-    if (!first) notFound();
-    redirect(first.path);
+    redirect(firstLeafPath(item));
   }
 
   const page = resolveMagazzinoPage([section]);

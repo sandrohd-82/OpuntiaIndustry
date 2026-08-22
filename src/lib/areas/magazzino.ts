@@ -1,4 +1,6 @@
 import {
+  findNavItem,
+  firstLeafPath,
   firstNavLeafPath,
   resolveNavPage,
   type NavItem,
@@ -34,7 +36,7 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     slug: "barcode",
     label: "Barcode",
     description:
-      "Creazione barcode lotto e generatore generico (stringa → codice)",
+      "Elenchi barcode registrati e generazione (lotto / stringa libera)",
     path: "/app/magazzino/barcode",
     children: [
       {
@@ -52,11 +54,34 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         path: "/app/magazzino/barcode/lotto-prodotto-finito",
       },
       {
-        slug: "generico",
-        label: "Generatore generico",
+        slug: "generatore",
+        label: "Generatore",
         description:
-          "Stringa → barcode: modello, Code 128/QR, stampa e associazione scheda",
-        path: "/app/magazzino/barcode/generico",
+          "Creazione barcode lotto Mp/PF e generatore generico (stringa)",
+        path: "/app/magazzino/barcode/generatore",
+        children: [
+          {
+            slug: "lotto-materia-prima",
+            label: "Lotto materia prima",
+            description:
+              "Creazione barcode del numero di lotto materia prima (impostazioni dedicate)",
+            path: "/app/magazzino/barcode/generatore/lotto-materia-prima",
+          },
+          {
+            slug: "lotto-prodotto-finito",
+            label: "Lotto prodotto finito",
+            description:
+              "Creazione barcode del numero di lotto prodotto finito (impostazioni dedicate)",
+            path: "/app/magazzino/barcode/generatore/lotto-prodotto-finito",
+          },
+          {
+            slug: "generico",
+            label: "Generico",
+            description:
+              "Converte una stringa libera in barcode (anteprima e stampa)",
+            path: "/app/magazzino/barcode/generatore/generico",
+          },
+        ],
       },
     ],
   },
@@ -66,7 +91,7 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     description: "Note generate automaticamente dalle soglie di riserva",
     path: "/app/magazzino/note-di-acquisto",
   },
-] as const;
+];
 
 export function getFirstMagazzinoPath(): string {
   return firstNavLeafPath(MAGAZZINO_SECTIONS);
@@ -74,4 +99,10 @@ export function getFirstMagazzinoPath(): string {
 
 export function resolveMagazzinoPage(segments: string[]) {
   return resolveNavPage(MAGAZZINO_SECTIONS, segments);
+}
+
+export function getMagazzinoFirstLeafPath(segments: string[]): string | null {
+  const item = findNavItem(MAGAZZINO_SECTIONS, segments);
+  if (!item) return null;
+  return firstLeafPath(item);
 }

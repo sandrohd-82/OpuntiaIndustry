@@ -117,7 +117,7 @@ function NavTree({
           const active = pathname === item.path;
           const hubLink = item.slug === "grafici";
           return (
-            <li key={item.slug}>
+            <li key={item.path}>
               {hubLink ? (
                 <div className="flex items-center gap-0.5">
                   <button
@@ -143,31 +143,25 @@ function NavTree({
                 <BranchButton
                   label={item.label}
                   open={open}
-                  active={active}
+                  active={active || pathMatches(pathname, item.path)}
                   nested
                   onToggle={() => toggle(item.slug)}
                 />
               )}
               {open && (
-                <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
-                  {item.children.map((child) => (
-                    <li key={child.slug}>
-                      <Link
-                        href={child.path}
-                        className={itemClass(pathname === child.path, true)}
-                      >
-                        <span className="truncate">{child.label}</span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
+                <NavTree
+                  sections={item.children}
+                  pathname={pathname}
+                  openKeys={openKeys}
+                  toggle={toggle}
+                />
               )}
             </li>
           );
         }
 
         return (
-          <li key={item.slug}>
+          <li key={item.path}>
             <Link
               href={item.path}
               className={itemClass(pathname === item.path, true)}
@@ -215,6 +209,15 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
       }
       if (pathname.startsWith("/app/area-fiscale")) {
         next.add("area-fiscale");
+      }
+      if (pathname.startsWith("/app/magazzino")) {
+        next.add("magazzino");
+        if (pathname.startsWith("/app/magazzino/barcode")) {
+          next.add("barcode");
+          if (pathname.startsWith("/app/magazzino/barcode/generatore")) {
+            next.add("generatore");
+          }
+        }
       }
       if (pathname.startsWith("/app/commerciale")) {
         next.add("commerciale");
