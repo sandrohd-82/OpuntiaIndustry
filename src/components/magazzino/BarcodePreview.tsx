@@ -38,14 +38,20 @@ export function BarcodePreview({
         if (typeof toCanvas !== "function") {
           throw new Error("bwip-js toCanvas non disponibile.");
         }
-        await toCanvas(canvas, {
-          bcid: format === "qrcode" ? "qrcode" : "code128",
-          text,
-          scale: format === "qrcode" ? 3 : 2,
-          height: format === "qrcode" ? undefined : 14,
-          includetext: format === "code128",
-          textxalign: "center",
-        });
+        // Non passare height/includetext per QR: bwip-js rifiuta undefined
+        // (bwipp.invalidOptionType: height: not a realtype).
+        const opts =
+          format === "qrcode"
+            ? { bcid: "qrcode" as const, text, scale: 3 }
+            : {
+                bcid: "code128" as const,
+                text,
+                scale: 2,
+                height: 14,
+                includetext: true,
+                textxalign: "center" as const,
+              };
+        await toCanvas(canvas, opts);
         if (!cancelled) setError(null);
       } catch (e) {
         if (!cancelled) {
