@@ -127,7 +127,11 @@ export function AssociaBarcodeModal({
       const { Html5Qrcode } = await import("html5-qrcode");
       const reader = new Html5Qrcode(`associa-file-${scannerId}`);
       const decoded = await reader.scanFile(file, false);
-      await reader.clear().catch(() => undefined);
+      try {
+        reader.clear();
+      } catch {
+        /* ignore */
+      }
       await saveBarcode(decoded);
     } catch (e) {
       setError(
