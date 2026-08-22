@@ -154,41 +154,18 @@ export function BarcodeGeneratoreBoard() {
         </div>
       )}
 
-      {mode === "generico" ? (
+      {mode === "generico" && preview ? (
         <div
-          className={`hidden print:flex print:items-center print:justify-center ${
+          className={`barcode-print-root hidden ${
             printSize === "50x30" ? "print-label-50" : "print-label-100"
           }`}
+          aria-hidden
         >
           <div className="text-center">
             <BarcodePreview value={preview} format={format} />
           </div>
         </div>
       ) : null}
-
-      <style jsx global>{`
-        @media print {
-          body * {
-            visibility: hidden !important;
-          }
-          .print\\:flex,
-          .print\\:flex * {
-            visibility: visible !important;
-          }
-          .print-label-50 {
-            width: 50mm;
-            height: 30mm;
-          }
-          .print-label-100 {
-            width: 100mm;
-            height: 50mm;
-          }
-          @page {
-            margin: 0;
-            size: auto;
-          }
-        }
-      `}</style>
     </div>
   );
 }

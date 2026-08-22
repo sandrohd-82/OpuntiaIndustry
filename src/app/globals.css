@@ -83,7 +83,7 @@ body {
   }
 }
 
-/* Paper Invoice Viewer — stampa solo il foglio A4 */
+/* Paper Invoice / commercialista / etichette barcode — stampa solo il root dedicato */
 @media print {
   body * {
     visibility: hidden !important;
@@ -92,7 +92,9 @@ body {
   .paper-invoice-viewer,
   .paper-invoice-viewer *,
   .commercialista-print-root,
-  .commercialista-print-root * {
+  .commercialista-print-root *,
+  .barcode-print-root,
+  .barcode-print-root * {
     visibility: visible !important;
   }
 
@@ -103,6 +105,28 @@ body {
     margin: 0;
     padding: 0;
     background: white !important;
+  }
+
+  .barcode-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 2mm;
+    background: white !important;
+  }
+
+  .barcode-print-root.print-label-50 {
+    width: 50mm;
+    height: 30mm;
+  }
+
+  .barcode-print-root.print-label-100 {
+    width: 100mm;
+    height: 50mm;
   }
 
   .paper-invoice-sheet {
