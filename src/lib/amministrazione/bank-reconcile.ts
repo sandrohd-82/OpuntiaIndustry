@@ -151,16 +151,20 @@ function moneyCents(n: number): number {
 }
 
 /**
- * Commissioni banca tipiche BCC (−1,00 € su bonifico internet banking).
- * Non richiedono fattura: etichetta «Comm. bancarie», senza conciliazione.
+ * Voci bancarie senza fattura da conciliare → badge «Comm. bancarie»:
+ * - commissioni −1,00 € su bonifico internet banking
+ * - addebito rata mutuo (qualsiasi importo)
  */
 export function isBankCommissionFee(
   amount: number,
   description: string
 ): boolean {
-  if (moneyCents(amount) !== -100) return false;
   const d = normalizeText(description);
   if (!d) return false;
+
+  if (d.includes("addebito rata mutuo")) return true;
+
+  if (moneyCents(amount) !== -100) return false;
   if (d.includes("commissioni su bonifico")) return true;
   if (d.includes("commissione su bonifico")) return true;
   if (
