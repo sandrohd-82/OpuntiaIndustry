@@ -33,10 +33,12 @@ type ArticoloRow = {
   id: string;
   codice: string;
   nome: string;
+  titolo_magazzino: string | null;
   is_bio: boolean | null;
   categoria_utilizzo: string | null;
   barcode: string | null;
   scheda_provvisoria: boolean | null;
+  fattura_ricevuta_id?: string | null;
 };
 
 function parseCategoriaUtilizzo(
@@ -256,7 +258,7 @@ export async function listMagazzinoProdottiAction(
       supabase
         .from(table)
         .select(
-          "id, codice, nome, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+          "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
         )
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
@@ -314,6 +316,9 @@ export async function listMagazzinoProdottiAction(
       prodottoId: p.id,
       codice: p.codice,
       nome: p.nome,
+      titoloMagazzino: p.titolo_magazzino
+        ? String(p.titolo_magazzino).trim() || null
+        : null,
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo,
       barcode: p.barcode ? String(p.barcode) : null,
@@ -368,7 +373,7 @@ export async function updateMagazzinoProdottoAction(
   const { data: articolo, error: pErr } = await supabase
     .from(table)
     .select(
-      "id, codice, nome, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+      "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
     )
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
@@ -377,15 +382,45 @@ export async function updateMagazzinoProdottoAction(
   if (!articolo) return { success: false, error: "Articolo non trovato." };
   const p = articolo as ArticoloRow;
 
+  const titoloNuovo = input.titoloMagazzino.trim();
+  const titoloAttuale = (p.titolo_magazzino ?? "").trim();
+  if (titoloAttuale && titoloAttuale !== titoloNuovo) {
+    const conferma = (input.confermaTitoloAttuale ?? "").trim();
+    if (conferma !== titoloAttuale) {
+      return {
+        success: false,
+        error:
+          "Per modificare il titolo ricopia esattamente il titolo attuale nella conferma.",
+      };
+    }
+  }
+
   const { error: catErr } = await supabase
     .from(table)
     .update({
       categoria_utilizzo: input.categoriaUtilizzo,
+      titolo_magazzino: titoloNuovo,
       updated_by: auth.userId,
     })
     .eq("id", p.id)
     .is("deleted_at", null);
   if (catErr) return { success: false, error: catErr.message };
+
+  if (titoloAttuale !== titoloNuovo) {
+    void writeAuditLog({
+      entity_type: table,
+      entity_id: p.id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: titoloAttuale
+        ? `Titolo magazzino ${p.codice}: «${titoloAttuale}» → «${titoloNuovo}»`
+        : `Impostato titolo magazzino ${p.codice}: «${titoloNuovo}»`,
+      payload: {
+        titoloPrecedente: titoloAttuale || null,
+        titoloMagazzino: titoloNuovo,
+      },
+    });
+  }
 
   // Acquisti occasionali: nessuna giacenza; soft-delete se esisteva
   if (!categoriaRequiresMagazzino(input.categoriaUtilizzo)) {
@@ -411,7 +446,7 @@ export async function updateMagazzinoProdottoAction(
         catalogKind: input.catalogKind,
         prodottoId: p.id,
         prodottoCodice: p.codice,
-        prodottoNome: p.nome,
+        prodottoNome: titoloNuovo || p.nome,
         quantita: 0,
         quantitaRiserva: null,
         unita: input.unita,
@@ -432,6 +467,7 @@ export async function updateMagazzinoProdottoAction(
         prodottoId: p.id,
         codice: p.codice,
         nome: p.nome,
+        titoloMagazzino: titoloNuovo,
         isBio: Boolean(p.is_bio),
         categoriaUtilizzo: input.categoriaUtilizzo,
         barcode: p.barcode ? String(p.barcode) : null,
@@ -496,7 +532,7 @@ export async function updateMagazzinoProdottoAction(
     catalogKind: input.catalogKind,
     prodottoId: p.id,
     prodottoCodice: p.codice,
-    prodottoNome: p.nome,
+    prodottoNome: titoloNuovo || p.nome,
     quantita: input.quantita,
     quantitaRiserva: input.quantitaRiserva,
     unita: input.unita,
@@ -511,6 +547,7 @@ export async function updateMagazzinoProdottoAction(
     payload: {
       catalogKind: input.catalogKind,
       categoriaUtilizzo: input.categoriaUtilizzo,
+      titoloMagazzino: titoloNuovo,
       quantita: input.quantita,
       quantitaRiserva: input.quantitaRiserva,
       unita: input.unita,
@@ -538,6 +575,7 @@ export async function updateMagazzinoProdottoAction(
       prodottoId: p.id,
       codice: p.codice,
       nome: p.nome,
+      titoloMagazzino: titoloNuovo,
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo: input.categoriaUtilizzo,
       barcode: p.barcode ? String(p.barcode) : null,

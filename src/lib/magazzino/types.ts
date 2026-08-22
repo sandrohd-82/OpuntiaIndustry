@@ -67,6 +67,8 @@ export type MagazzinoProdottoRiga = {
   prodottoId: string;
   codice: string;
   nome: string;
+  /** Titolo operativo magazzino (leggibilità). */
+  titoloMagazzino: string | null;
   isBio: boolean;
   categoriaUtilizzo: CategoriaUtilizzo | null;
   barcode: string | null;
@@ -79,6 +81,15 @@ export type MagazzinoProdottoRiga = {
   repartoNome: string | null;
   semaforo: ScorteSemaforo;
 };
+
+/** Etichetta da mostrare in lista: titolo magazzino o fallback nome catalogo. */
+export function labelMagazzinoArticolo(row: {
+  titoloMagazzino?: string | null;
+  nome: string;
+}): string {
+  const t = row.titoloMagazzino?.trim();
+  return t || row.nome;
+}
 
 export type NotaAcquistoStato = "bozza" | "aperta" | "chiusa" | "annullata";
 
@@ -114,6 +125,9 @@ export const updateMagazzinoProdottoSchema = z.object({
     "mat_poco_consumo",
     "acquisti_occasionali",
   ]),
+  titoloMagazzino: z.string().trim().min(1, "Titolo magazzino obbligatorio.").max(200),
+  /** Obbligatorio solo se si modifica un titolo già presente. */
+  confermaTitoloAttuale: z.string().trim().max(200).optional(),
   quantita: z.number().min(0),
   quantitaRiserva: z.number().min(0).nullable(),
   unita: z.enum(["kg", "pz"]),

@@ -6,12 +6,14 @@ import {
   listMagazzinoProdottiAction,
   updateMagazzinoProdottoAction,
 } from "@/app/actions/magazzino";
-import { setArticoloBarcodeAction } from "@/app/actions/magazzino-barcode";
+import { resolveSchedaProvvisoriaOnceAction } from "@/app/actions/magazzino-barcode";
+import { AssociaBarcodeModal } from "@/components/magazzino/AssociaBarcodeModal";
 import { listRepartiAttiviAction } from "@/app/actions/reparti";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
   categoriaRequiresMagazzino,
   labelCategoriaUtilizzo,
+  labelMagazzinoArticolo,
   type CategoriaUtilizzo,
   type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
@@ -67,8 +69,11 @@ export function MagazzinoProdottiBoard({
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<MagazzinoProdottoRiga | null>(null);
   const [categoria, setCategoria] = useState<CategoriaUtilizzo | "">("");
-  const [barcode, setBarcode] = useState("");
+  const [titolo, setTitolo] = useState("");
+  const [confermaTitolo, setConfermaTitolo] = useState("");
+  const [barcode, setBarcode] = useState<string | null>(null);
   const [schedaProvvisoria, setSchedaProvvisoria] = useState(false);
+  const [associaOpen, setAssociaOpen] = useState(false);
   const [quantita, setQuantita] = useState(0);
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
@@ -82,6 +87,11 @@ export function MagazzinoProdottiBoard({
 
   const needsRiserva =
     categoria !== "" && categoriaRequiresMagazzino(categoria);
+
+  const titoloGiaImpostato = Boolean(editing?.titoloMagazzino?.trim());
+  const titoloModificato =
+    titoloGiaImpostato &&
+    titolo.trim() !== (editing?.titoloMagazzino ?? "").trim();
 
   function load() {
     startTransition(async () => {
@@ -114,6 +124,7 @@ export function MagazzinoProdottiBoard({
       (i) =>
         i.codice.toLowerCase().includes(t) ||
         i.nome.toLowerCase().includes(t) ||
+        (i.titoloMagazzino ?? "").toLowerCase().includes(t) ||
         (i.repartoNome ?? "").toLowerCase().includes(t) ||
         labelCategoriaUtilizzo(i.categoriaUtilizzo).toLowerCase().includes(t)
     );
@@ -122,13 +133,42 @@ export function MagazzinoProdottiBoard({
   function openEdit(row: MagazzinoProdottoRiga) {
     setEditing(row);
     setCategoria(row.categoriaUtilizzo ?? "");
-    setBarcode(row.barcode ?? "");
+    setTitolo(row.titoloMagazzino ?? "");
+    setConfermaTitolo("");
+    setBarcode(row.barcode);
     setSchedaProvvisoria(row.schedaProvvisoria);
     setQuantita(row.quantita);
     setRiserva(row.quantitaRiserva ?? "");
     setUnita(row.unita);
     setRepartoId(row.repartoId ?? "");
     setError(null);
+    setAssociaOpen(false);
+
+    // Una sola verifica: se ancora provvisoria, controlla fatture e salva false
+    if (row.schedaProvvisoria) {
+      startTransition(async () => {
+        const res = await resolveSchedaProvvisoriaOnceAction({
+          catalogKind,
+          prodottoId: row.prodottoId,
+        });
+        if (!res.success) return;
+        if (res.cleared) {
+          setSchedaProvvisoria(false);
+          setItems((prev) =>
+            prev.map((i) =>
+              i.prodottoId === row.prodottoId
+                ? { ...i, schedaProvvisoria: false }
+                : i
+            )
+          );
+          setEditing((cur) =>
+            cur && cur.prodottoId === row.prodottoId
+              ? { ...cur, schedaProvvisoria: false }
+              : cur
+          );
+        }
+      });
+    }
   }
 
   function saveEdit() {
@@ -137,26 +177,29 @@ export function MagazzinoProdottiBoard({
       setError("Seleziona la categoria di utilizzo.");
       return;
     }
+    if (!titolo.trim()) {
+      setError("Inserisci il titolo magazzino.");
+      return;
+    }
+    if (titoloModificato && confermaTitolo.trim() !== (editing.titoloMagazzino ?? "").trim()) {
+      setError(
+        "Per modificare il titolo ricopia esattamente il titolo attuale nella conferma."
+      );
+      return;
+    }
     if (needsRiserva && riserva === "") {
       setError("Imposta la quantità di riserva.");
       return;
     }
     startTransition(async () => {
-      const barRes = await setArticoloBarcodeAction({
-        catalogKind,
-        prodottoId: editing.prodottoId,
-        barcode: barcode.trim() ? barcode.trim() : null,
-        schedaProvvisoria,
-      });
-      if (!barRes.success) {
-        setError(barRes.error);
-        return;
-      }
-
       const res = await updateMagazzinoProdottoAction({
         catalogKind,
         prodottoId: editing.prodottoId,
         categoriaUtilizzo: categoria,
+        titoloMagazzino: titolo.trim(),
+        confermaTitoloAttuale: titoloModificato
+          ? confermaTitolo.trim()
+          : undefined,
         quantita: needsRiserva ? quantita : 0,
         quantitaRiserva: needsRiserva
           ? riserva === ""
@@ -172,7 +215,7 @@ export function MagazzinoProdottiBoard({
       }
       const item = {
         ...res.item,
-        barcode: barcode.trim() || null,
+        barcode,
         schedaProvvisoria,
       };
       if (!categoriaRequiresMagazzino(item.categoriaUtilizzo)) {
@@ -215,9 +258,9 @@ export function MagazzinoProdottiBoard({
           <p className="text-sm text-[var(--muted)]">
             Solo articoli con scorta:{" "}
             <strong>Mat. Consumo</strong> e{" "}
-            <strong>Mat. Poco Consumo</strong>. «Acquisti Occasionali» non entra
-            in magazzino. Alla prima modifica classifica l’utilizzo e imposta la
-            riserva.
+            <strong>Mat. Poco Consumo</strong>. Il{" "}
+            <strong>titolo magazzino</strong> rende l’articolo leggibile in
+            deposito; la modifica successiva richiede conferma testuale.
           </p>
         </div>
         <label className="text-sm">
@@ -225,7 +268,7 @@ export function MagazzinoProdottiBoard({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Cerca codice, nome, categoria…"
+            placeholder="Cerca codice, titolo, nome…"
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           />
         </label>
@@ -243,6 +286,34 @@ export function MagazzinoProdottiBoard({
             Modifica {editing.codice} — {editing.nome}
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Titolo magazzino *</span>
+              <input
+                value={titolo}
+                onChange={(e) => setTitolo(e.target.value)}
+                placeholder="Es. Folcone legno 80 cm"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Nome catalogo: {editing.nome}
+                {titoloGiaImpostato
+                  ? " · Per cambiarlo ricopia il titolo attuale sotto."
+                  : " · Prima impostazione libera."}
+              </span>
+            </label>
+            {titoloModificato ? (
+              <label className="text-sm sm:col-span-2">
+                <span className="mb-1 block font-medium text-amber-900">
+                  Conferma: ricopia il titolo attuale
+                </span>
+                <input
+                  value={confermaTitolo}
+                  onChange={(e) => setConfermaTitolo(e.target.value)}
+                  placeholder={editing.titoloMagazzino ?? ""}
+                  className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm"
+                />
+              </label>
+            ) : null}
             <label className="text-sm sm:col-span-2 lg:col-span-1">
               <span className="mb-1 block font-medium">
                 Categoria utilizzo *
@@ -263,23 +334,28 @@ export function MagazzinoProdottiBoard({
                 ))}
               </select>
             </label>
-            <label className="text-sm sm:col-span-2">
+            <div className="text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Barcode</span>
-              <input
-                value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                placeholder="Associa o lascia vuoto"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={schedaProvvisoria}
-                onChange={(e) => setSchedaProvvisoria(e.target.checked)}
-              />
-              Scheda provvisoria (completa con fattura)
-            </label>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="font-mono text-xs text-slate-700">
+                  {barcode || "— non associato —"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAssociaOpen(true)}
+                  className="text-sm font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
+                >
+                  Associa barcode
+                </button>
+              </div>
+            </div>
+            {schedaProvvisoria ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:col-span-2">
+                Scheda provvisoria: non risulta ancora collegata a una fattura
+                ricevuta. Se compare in una fattura, lo stato si aggiorna
+                automaticamente (una sola volta).
+              </p>
+            ) : null}
             {needsRiserva ? (
               <>
                 <label className="text-sm">
@@ -365,12 +441,30 @@ export function MagazzinoProdottiBoard({
         </div>
       ) : null}
 
+      {associaOpen && editing ? (
+        <AssociaBarcodeModal
+          catalogKind={catalogKind}
+          prodottoId={editing.prodottoId}
+          prodottoLabel={`${editing.codice} — ${labelMagazzinoArticolo({ titoloMagazzino: titolo || editing.titoloMagazzino, nome: editing.nome })}`}
+          barcodeAttuale={barcode}
+          onClose={() => setAssociaOpen(false)}
+          onSaved={(b) => {
+            setBarcode(b);
+            setItems((prev) =>
+              prev.map((i) =>
+                i.prodottoId === editing.prodottoId ? { ...i, barcode: b } : i
+              )
+            );
+          }}
+        />
+      ) : null}
+
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
             <tr>
               <th className="px-4 py-3">Codice</th>
-              <th className="px-4 py-3">Nome</th>
+              <th className="px-4 py-3">Titolo</th>
               <th className="px-4 py-3">Utilizzo</th>
               <th className="px-4 py-3">Barcode</th>
               <th className="px-4 py-3">Giacenza</th>
@@ -395,7 +489,18 @@ export function MagazzinoProdottiBoard({
                   ) : null}
                 </td>
                 <td className="max-w-[24vw] px-4 py-3 font-medium">
-                  <span className="line-clamp-2">{row.nome}</span>
+                  <span className="line-clamp-2">
+                    {labelMagazzinoArticolo(row)}
+                  </span>
+                  {row.titoloMagazzino ? (
+                    <span className="mt-0.5 block truncate text-[11px] font-normal text-[var(--muted)]">
+                      {row.nome}
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 block text-[11px] font-normal text-amber-800">
+                      Titolo da impostare
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs">
                   {row.categoriaUtilizzo ? (

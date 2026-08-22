@@ -6,6 +6,7 @@ import {
   associateBarcodeSchema,
   createFromBarcodeSchema,
   movimentoScanSchema,
+  resolveSchedaProvvisoriaSchema,
   setArticoloBarcodeSchema,
   suggestProvisionalCode,
   type BarcodeLookupHit,
@@ -483,6 +484,90 @@ export async function setArticoloBarcodeAction(raw: unknown): Promise<
     },
   });
   return { success: true };
+}
+
+/**
+ * Esamina scheda_provvisoria una sola volta: se già false non fa nulla.
+ * Se true e il codice è in ≥1 fattura ricevuta (o fattura_ricevuta_id),
+ * salva scheda_provvisoria = false.
+ */
+export async function resolveSchedaProvvisoriaOnceAction(
+  raw: unknown
+): Promise<
+  | { success: true; schedaProvvisoria: boolean; cleared: boolean }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("magazzino");
+  const parsed = resolveSchedaProvvisoriaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const table = catalogTable(input.catalogKind);
+
+  const { data: row, error } = await supabase
+    .from(table)
+    .select("id, codice, scheda_provvisoria, fattura_ricevuta_id")
+    .eq("id", input.prodottoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!row) return { success: false, error: "Articolo non trovato." };
+
+  const articolo = row as {
+    id: string;
+    codice: string;
+    scheda_provvisoria: boolean | null;
+    fattura_ricevuta_id: string | null;
+  };
+
+  if (!articolo.scheda_provvisoria) {
+    return { success: true, schedaProvvisoria: false, cleared: false };
+  }
+
+  let inFattura = Boolean(articolo.fattura_ricevuta_id);
+  if (!inFattura) {
+    const { data: rpcData, error: rpcErr } = await supabase.rpc(
+      "codice_in_fatture_ricevute",
+      { p_codice: articolo.codice }
+    );
+    if (rpcErr) {
+      return { success: false, error: rpcErr.message };
+    }
+    inFattura = Boolean(rpcData);
+  }
+
+  if (!inFattura) {
+    return { success: true, schedaProvvisoria: true, cleared: false };
+  }
+
+  const { error: upErr } = await supabase
+    .from(table)
+    .update({
+      scheda_provvisoria: false,
+      updated_by: auth.userId,
+    })
+    .eq("id", articolo.id)
+    .is("deleted_at", null);
+  if (upErr) return { success: false, error: upErr.message };
+
+  void writeAuditLog({
+    entity_type: table,
+    entity_id: articolo.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Scheda ${articolo.codice} non più provvisoria (trovata in fattura)`,
+    payload: {
+      schedaProvvisoria: false,
+      fatturaRicevutaId: articolo.fattura_ricevuta_id,
+    },
+  });
+
+  return { success: true, schedaProvvisoria: false, cleared: true };
 }
 
 export async function movimentoScanAction(raw: unknown): Promise<

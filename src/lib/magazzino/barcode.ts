@@ -39,6 +39,11 @@ export const setArticoloBarcodeSchema = z.object({
   schedaProvvisoria: z.boolean().optional(),
 });
 
+export const resolveSchedaProvvisoriaSchema = z.object({
+  catalogKind: z.enum(["materia_prima", "prodotto_fornitore"]),
+  prodottoId: z.string().uuid(),
+});
+
 export type BarcodeLookupHit = {
   catalogKind: MagazzinoCatalogKind;
   prodottoId: string;
