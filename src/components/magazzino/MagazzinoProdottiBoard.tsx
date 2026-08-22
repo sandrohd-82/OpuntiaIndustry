@@ -8,6 +8,8 @@ import {
 } from "@/app/actions/magazzino";
 import { resolveSchedaProvvisoriaOnceAction } from "@/app/actions/magazzino-barcode";
 import { AssociaBarcodeModal } from "@/components/magazzino/AssociaBarcodeModal";
+import { AssociaFotoModal } from "@/components/magazzino/AssociaFotoModal";
+import { getMagazzinoFotoUrlAction } from "@/app/actions/magazzino-foto";
 import { listRepartiAttiviAction } from "@/app/actions/reparti";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
@@ -72,8 +74,11 @@ export function MagazzinoProdottiBoard({
   const [titolo, setTitolo] = useState("");
   const [confermaTitolo, setConfermaTitolo] = useState("");
   const [barcode, setBarcode] = useState<string | null>(null);
+  const [fotoPath, setFotoPath] = useState<string | null>(null);
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [schedaProvvisoria, setSchedaProvvisoria] = useState(false);
   const [associaOpen, setAssociaOpen] = useState(false);
+  const [associaFotoOpen, setAssociaFotoOpen] = useState(false);
   const [quantita, setQuantita] = useState(0);
   const [riserva, setRiserva] = useState<number | "">("");
   const [unita, setUnita] = useState<MagazzinoUnita>("kg");
@@ -136,6 +141,8 @@ export function MagazzinoProdottiBoard({
     setTitolo(row.titoloMagazzino ?? "");
     setConfermaTitolo("");
     setBarcode(row.barcode);
+    setFotoPath(row.fotoPath);
+    setFotoUrl(null);
     setSchedaProvvisoria(row.schedaProvvisoria);
     setQuantita(row.quantita);
     setRiserva(row.quantitaRiserva ?? "");
@@ -143,6 +150,17 @@ export function MagazzinoProdottiBoard({
     setRepartoId(row.repartoId ?? "");
     setError(null);
     setAssociaOpen(false);
+    setAssociaFotoOpen(false);
+
+    if (row.fotoPath) {
+      startTransition(async () => {
+        const res = await getMagazzinoFotoUrlAction({
+          catalogKind,
+          prodottoId: row.prodottoId,
+        });
+        if (res.success) setFotoUrl(res.url);
+      });
+    }
 
     // Una sola verifica: se ancora provvisoria, controlla fatture e salva false
     if (row.schedaProvvisoria) {
@@ -216,6 +234,7 @@ export function MagazzinoProdottiBoard({
       const item = {
         ...res.item,
         barcode,
+        fotoPath,
         schedaProvvisoria,
       };
       if (!categoriaRequiresMagazzino(item.categoriaUtilizzo)) {
@@ -349,6 +368,30 @@ export function MagazzinoProdottiBoard({
                 </button>
               </div>
             </div>
+            <div className="text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Foto prodotto</span>
+              <div className="flex flex-wrap items-center gap-3">
+                {fotoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={fotoUrl}
+                    alt="Foto prodotto"
+                    className="h-16 w-16 rounded-lg border border-[var(--border)] object-cover"
+                  />
+                ) : (
+                  <span className="text-xs text-slate-600">
+                    {fotoPath ? "Foto presente" : "— nessuna foto —"}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAssociaFotoOpen(true)}
+                  className="text-sm font-medium text-sky-700 underline underline-offset-2 hover:text-sky-900"
+                >
+                  Associa foto
+                </button>
+              </div>
+            </div>
             {schedaProvvisoria ? (
               <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 sm:col-span-2">
                 Scheda provvisoria: non risulta ancora collegata a una fattura
@@ -453,6 +496,27 @@ export function MagazzinoProdottiBoard({
             setItems((prev) =>
               prev.map((i) =>
                 i.prodottoId === editing.prodottoId ? { ...i, barcode: b } : i
+              )
+            );
+          }}
+        />
+      ) : null}
+
+      {associaFotoOpen && editing ? (
+        <AssociaFotoModal
+          catalogKind={catalogKind}
+          prodottoId={editing.prodottoId}
+          prodottoLabel={`${editing.codice} — ${labelMagazzinoArticolo({ titoloMagazzino: titolo || editing.titoloMagazzino, nome: editing.nome })}`}
+          fotoPath={fotoPath}
+          onClose={() => setAssociaFotoOpen(false)}
+          onSaved={(path, url) => {
+            setFotoPath(path);
+            setFotoUrl(url);
+            setItems((prev) =>
+              prev.map((i) =>
+                i.prodottoId === editing.prodottoId
+                  ? { ...i, fotoPath: path }
+                  : i
               )
             );
           }}

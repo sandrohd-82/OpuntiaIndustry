@@ -72,6 +72,8 @@ export type MagazzinoProdottoRiga = {
   isBio: boolean;
   categoriaUtilizzo: CategoriaUtilizzo | null;
   barcode: string | null;
+  /** Path Storage foto prodotto (bucket magazzino-prodotti). */
+  fotoPath: string | null;
   schedaProvvisoria: boolean;
   giacenzaId: string | null;
   quantita: number;

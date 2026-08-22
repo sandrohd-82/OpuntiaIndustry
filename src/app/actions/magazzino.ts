@@ -37,6 +37,7 @@ type ArticoloRow = {
   is_bio: boolean | null;
   categoria_utilizzo: string | null;
   barcode: string | null;
+  foto_path: string | null;
   scheda_provvisoria: boolean | null;
   fattura_ricevuta_id?: string | null;
 };
@@ -258,7 +259,7 @@ export async function listMagazzinoProdottiAction(
       supabase
         .from(table)
         .select(
-          "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+          "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, foto_path, scheda_provvisoria"
         )
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
@@ -322,6 +323,7 @@ export async function listMagazzinoProdottiAction(
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo,
       barcode: p.barcode ? String(p.barcode) : null,
+      fotoPath: p.foto_path ? String(p.foto_path).trim() || null : null,
       schedaProvvisoria: Boolean(p.scheda_provvisoria),
       giacenzaId: g?.id ?? null,
       quantita,
@@ -373,7 +375,7 @@ export async function updateMagazzinoProdottoAction(
   const { data: articolo, error: pErr } = await supabase
     .from(table)
     .select(
-      "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, scheda_provvisoria"
+      "id, codice, nome, titolo_magazzino, is_bio, categoria_utilizzo, barcode, foto_path, scheda_provvisoria"
     )
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
@@ -471,6 +473,7 @@ export async function updateMagazzinoProdottoAction(
         isBio: Boolean(p.is_bio),
         categoriaUtilizzo: input.categoriaUtilizzo,
         barcode: p.barcode ? String(p.barcode) : null,
+        fotoPath: p.foto_path ? String(p.foto_path).trim() || null : null,
         schedaProvvisoria: Boolean(p.scheda_provvisoria),
         giacenzaId: null,
         quantita: 0,
@@ -579,6 +582,7 @@ export async function updateMagazzinoProdottoAction(
       isBio: Boolean(p.is_bio),
       categoriaUtilizzo: input.categoriaUtilizzo,
       barcode: p.barcode ? String(p.barcode) : null,
+      fotoPath: p.foto_path ? String(p.foto_path).trim() || null : null,
       schedaProvvisoria: Boolean(p.scheda_provvisoria),
       giacenzaId,
       quantita: input.quantita,
