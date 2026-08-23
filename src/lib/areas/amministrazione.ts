@@ -4,20 +4,54 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Sottosezioni del modulo Amministrazione (menu laterale) */
+/** Menu Amministrazione — struttura target OpuntiaIndustry */
 export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "clienti",
-    label: "Clienti",
-    description: "Anagrafiche clienti",
+    label: "Elenco Clienti",
+    description: "Clienti e possibili clienti",
     path: "/app/amministrazione/clienti",
+    children: [
+      {
+        slug: "elenco",
+        label: "Elenco Clienti",
+        description: "Anagrafiche clienti attive",
+        path: "/app/amministrazione/clienti/elenco",
+      },
+      {
+        slug: "possibili",
+        label: "Elenco Possibili clienti",
+        description:
+          "Contatti e nuove aziende da valutare (lead / prospect)",
+        path: "/app/amministrazione/clienti/possibili",
+      },
+    ],
   },
   {
     slug: "fornitori",
-    label: "Fornitori",
-    description:
-      "Anagrafiche fornitori — filtra in pagina per servizi, prodotti, materia prima",
+    label: "Elenco Fornitori",
+    description: "Fornitori bio, non bio e candidati",
     path: "/app/amministrazione/fornitori",
+    children: [
+      {
+        slug: "bio",
+        label: "Elenco Fornitori Bio",
+        description: "Fornitori con certificazione / codice bio",
+        path: "/app/amministrazione/fornitori/bio",
+      },
+      {
+        slug: "elenco",
+        label: "Elenco Fornitori",
+        description: "Fornitori senza profilo bio",
+        path: "/app/amministrazione/fornitori/elenco",
+      },
+      {
+        slug: "possibili",
+        label: "Elenco Possibili Fornitori",
+        description: "Fornitori candidati in valutazione",
+        path: "/app/amministrazione/fornitori/possibili",
+      },
+    ],
   },
   {
     slug: "schede",
@@ -27,19 +61,19 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     children: [
       {
         slug: "materia-prima",
-        label: "Materia prima",
+        label: "Mp Materie Prime",
         description: "Schede materia prima",
         path: "/app/amministrazione/schede/materia-prima",
       },
       {
         slug: "servizi",
-        label: "Servizi",
+        label: "Sz Servizi",
         description: "Catalogo servizi (targa Sz)",
         path: "/app/amministrazione/schede/servizi",
       },
       {
         slug: "prodotti",
-        label: "Prodotti",
+        label: "Pr Prodotti",
         description: "Catalogo prodotti fornitore (targa Pr)",
         path: "/app/amministrazione/schede/prodotti",
       },
@@ -56,142 +90,81 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Catalogo movimentazione, confezione, isolamento e corrieri",
         path: "/app/amministrazione/schede/imballaggi-spedizioni",
       },
-      {
-        slug: "attivita",
-        label: "Attività",
-        description:
-          "Attività oltre la lavorazione (targa At) per calendario consegna",
-        path: "/app/amministrazione/schede/attivita",
-      },
     ],
   },
   {
     slug: "ordini",
     label: "Ordini",
-    description: "Gestione ordini ricevuti, evasi e storico",
+    description: "Creazione, processi e storico ordini",
     path: "/app/amministrazione/ordini",
     children: [
       {
-        slug: "ricevuti",
-        label: "Ricevuti",
-        description: "Ordini ricevuti da gestire",
-        path: "/app/amministrazione/ordini/ricevuti",
+        slug: "crea-nuovo",
+        label: "Crea nuovo",
+        description: "Crea e gestisci nuovi ordini ricevuti",
+        path: "/app/amministrazione/ordini/crea-nuovo",
       },
       {
-        slug: "evasi",
-        label: "Evasi",
-        description: "Ordini già evasi",
-        path: "/app/amministrazione/ordini/evasi",
+        slug: "processati",
+        label: "Processati",
+        description:
+          "Ordini/processi già registrati, programmati o in esecuzione",
+        path: "/app/amministrazione/ordini/processati",
       },
       {
         slug: "storico",
         label: "Storico",
-        description:
-          "Ordini conclusi e consegnati; qui arriveranno anche dopo la chiusura automatica",
+        description: "Ordini e processi già conclusi",
         path: "/app/amministrazione/ordini/storico",
       },
     ],
   },
   {
-    slug: "fatture",
-    label: "Fatture",
-    description: "Fatture ricevute e emesse (storico registrazioni)",
-    path: "/app/amministrazione/fatture",
-    children: [
-      {
-        slug: "emetti",
-        label: "Emetti",
-        description:
-          "Crea e invia fatture elettroniche a Fatture in Cloud / SDI",
-        path: "/app/amministrazione/fatture/emetti",
-      },
-      {
-        slug: "ricevute",
-        label: "Ricevute",
-        description: "Storico fatture ricevute dai fornitori",
-        path: "/app/amministrazione/fatture/ricevute",
-      },
-      {
-        slug: "emesse",
-        label: "Emesse",
-        description: "Storico fatture emesse ai clienti",
-        path: "/app/amministrazione/fatture/emesse",
-      },
-      {
-        slug: "note-credito",
-        label: "Note di credito",
-        description:
-          "Note di credito FiC (storno/annullamento fatture emesse)",
-        path: "/app/amministrazione/fatture/note-credito",
-      },
-    ],
-  },
-  {
-    slug: "grafici",
+    slug: "statistiche",
     label: "Statistiche",
-    description:
-      "Panoramica e report dell’anno in corso: produttività, ordini, materia prima, incassi",
-    path: "/app/amministrazione/grafici",
+    description: "Dashboard e grafici amministrativi",
+    path: "/app/amministrazione/statistiche",
     children: [
-      {
-        slug: "produttivita",
-        label: "Produttività",
-        description:
-          "Quantità di prodotto finito generato (filtro prodotti propri)",
-        path: "/app/amministrazione/grafici/produttivita",
-      },
       {
         slug: "ordini",
         label: "Ordini",
         description:
-          "Quantità ordinata (somma righe prodotto, non numero progressivo ordini)",
-        path: "/app/amministrazione/grafici/ordini",
+          "Andamento ordini ricevuti e processati nel tempo",
+        path: "/app/amministrazione/statistiche/ordini",
       },
       {
-        slug: "materia-prima",
-        label: "Materia prima",
-        description:
-          "Quantità di materia prima in ingresso (filtro per materia prima)",
-        path: "/app/amministrazione/grafici/materia-prima",
+        slug: "economia",
+        label: "Economia",
+        description: "Incassi e andamento economico",
+        path: "/app/amministrazione/statistiche/economia",
       },
       {
-        slug: "incassi",
-        label: "Incassi",
+        slug: "produttivita",
+        label: "Produttività",
         description:
-          "Ordini pagati: importi per azienda, mese e anno",
-        path: "/app/amministrazione/grafici/incassi",
+          "Materiale lavorato e prodotti Agrinsicilia creati nel tempo",
+        path: "/app/amministrazione/statistiche/produttivita",
       },
     ],
   },
   {
-    slug: "dipendenti",
-    label: "Dipendenti",
-    description: "Personale, turni, ore e buste paga",
-    path: "/app/amministrazione/dipendenti",
+    slug: "organigramma",
+    label: "Organigramma",
+    description: "Persone, mansioni e struttura aziendale",
+    path: "/app/amministrazione/organigramma",
     children: [
       {
-        slug: "elenco-e-mansione",
-        label: "Elenco e mansione",
-        description: "Elenco dipendenti e mansioni",
-        path: "/app/amministrazione/dipendenti/elenco-e-mansione",
+        slug: "elenco-e-mansioni",
+        label: "Elenco e mansioni",
+        description:
+          "Personale, mansioni, autorizzazioni e patenti",
+        path: "/app/amministrazione/organigramma/elenco-e-mansioni",
       },
       {
-        slug: "turnistica",
-        label: "Turnistica",
-        description: "Turni del personale",
-        path: "/app/amministrazione/dipendenti/turnistica",
-      },
-      {
-        slug: "situazione-ore",
-        label: "Situazione Ore",
-        description: "Situazione ore lavorate",
-        path: "/app/amministrazione/dipendenti/situazione-ore",
-      },
-      {
-        slug: "buste-paga",
-        label: "Buste paga",
-        description: "Buste paga dipendenti",
-        path: "/app/amministrazione/dipendenti/buste-paga",
+        slug: "albero",
+        label: "Albero",
+        description: "Organigramma a cascata",
+        path: "/app/amministrazione/organigramma/albero",
       },
     ],
   },

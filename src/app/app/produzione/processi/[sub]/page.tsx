@@ -1,42 +1,19 @@
-import { notFound } from "next/navigation";
-import { AppHeader } from "@/components/layout/AppHeader";
-import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
-import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
+import { redirect } from "next/navigation";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { resolveProduzionePage } from "@/lib/areas/produzione";
 
 type Props = {
   params: Promise<{ sub: string }>;
 };
 
-export default async function ProcessiSubPage({ params }: Props) {
+/** Compatibilità path /processi/* → processi-e-attivita/* */
+export default async function ProcessiSubRedirect({ params }: Props) {
   await requireAreaAccess("produzione");
-
   const { sub } = await params;
-  const page = resolveProduzionePage(["processi", sub]);
-  if (!page) notFound();
-
   if (sub === "elenco") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ProcessiBoard />
-        </div>
-      </>
-    );
+    redirect("/app/produzione/processi-e-attivita/elenco-processi");
   }
-
   if (sub === "attivita") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ProcessiAttivitaBoard />
-        </div>
-      </>
-    );
+    redirect("/app/produzione/processi-e-attivita/elenco-attivita");
   }
-
-  notFound();
+  redirect("/app/produzione/processi-e-attivita");
 }

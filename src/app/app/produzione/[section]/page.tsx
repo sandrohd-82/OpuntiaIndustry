@@ -1,10 +1,13 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
 import { RepartiBoard } from "@/components/produzione/RepartiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { resolveProduzionePage } from "@/lib/areas/produzione";
+import { isNavBranch } from "@/lib/areas/nav-tree";
+import {
+  PRODUZIONE_SECTIONS,
+  resolveProduzionePage,
+} from "@/lib/areas/produzione";
 
 type Props = {
   params: Promise<{ section: string }>;
@@ -19,30 +22,58 @@ export default async function ProduzioneSectionPage({
 
   const { section } = await params;
   const query = await searchParams;
-  const page = resolveProduzionePage([section]);
-  if (!page) notFound();
 
+  if (section === "processi") {
+    redirect("/app/produzione/processi-e-attivita");
+  }
+  if (section === "essiccatori") {
+    redirect("/app/produzione/gestione-aree/essiccatori");
+  }
+  if (section === "linea-di-taglio") {
+    redirect("/app/produzione/gestione-aree/taglio");
+  }
+  if (section === "turnistica" || section === "calendario-produzione") {
+    redirect("/app/produzione/calendario/turnistica");
+  }
+  if (section === "merce-in-ingresso") {
+    redirect("/app/magazzino/materia-prima/nuovo-ingresso");
+  }
+  if (section === "statistiche") {
+    redirect("/app/amministrazione/statistiche");
+  }
   if (section === "fogli-lavorazione") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <FogliLavorazioneBoard startCreate={query.nuovo === "1"} />
-        </div>
-      </>
+    redirect(
+      query.nuovo === "1"
+        ? "/app/produzione/fogli-lavorazione/nuovo"
+        : "/app/produzione/fogli-lavorazione/nuovo"
     );
   }
 
   if (section === "reparti") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <AppHeader
+          title="Reparti"
+          subtitle="Anagrafica reparti produttivi collegabili al magazzino"
+        />
         <div className="p-6">
           <RepartiBoard />
         </div>
       </>
     );
   }
+
+  const item = PRODUZIONE_SECTIONS.find((s) => s.slug === section);
+  if (!item) notFound();
+
+  if (isNavBranch(item)) {
+    const first = item.children[0];
+    if (!first) notFound();
+    redirect(first.path);
+  }
+
+  const page = resolveProduzionePage([section]);
+  if (!page) notFound();
 
   return (
     <AreaPlaceholder title={page.label} description={page.description} />

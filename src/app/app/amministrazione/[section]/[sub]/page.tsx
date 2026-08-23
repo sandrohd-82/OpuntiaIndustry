@@ -1,16 +1,14 @@
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
-import { GraficiMateriaPrimaBoard } from "@/components/amministrazione/grafici/GraficiMateriaPrimaBoard";
 import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/GraficiOrdiniBoard";
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
-import { AttivitaBoard } from "@/components/amministrazione/AttivitaBoard";
+import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
+import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { ImballaggiSpedizioniBoard } from "@/components/amministrazione/ImballaggiSpedizioniBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
-import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
-import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
@@ -26,13 +24,87 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   await requireAreaAccess("amministrazione");
 
   const { section, sub } = await params;
+
+  // Legacy redirects
+  if (section === "fatture") {
+    const map: Record<string, string> = {
+      emetti: "/app/area-fiscale/fatture/nuova",
+      emesse: "/app/area-fiscale/fatture/emesse",
+      ricevute: "/app/area-fiscale/fatture/ricevute",
+      "note-credito": "/app/area-fiscale/note-di-credito/emesse",
+      inviate: "/app/area-fiscale/fatture/emesse",
+    };
+    redirect(map[sub] ?? "/app/area-fiscale/fatture");
+  }
+  if (section === "grafici") {
+    const map: Record<string, string> = {
+      ordini: "/app/amministrazione/statistiche/ordini",
+      incassi: "/app/amministrazione/statistiche/economia",
+      produttivita: "/app/amministrazione/statistiche/produttivita",
+      "materia-prima": "/app/amministrazione/statistiche/produttivita",
+    };
+    redirect(map[sub] ?? "/app/amministrazione/statistiche");
+  }
+  if (section === "ordini" && sub === "ricevuti") {
+    redirect("/app/amministrazione/ordini/crea-nuovo");
+  }
+  if (section === "ordini" && sub === "evasi") {
+    redirect("/app/amministrazione/ordini/processati");
+  }
+  if (section === "dipendenti") {
+    redirect("/app/amministrazione/organigramma/elenco-e-mansioni");
+  }
+  if (section === "schede" && sub === "attivita") {
+    redirect("/app/produzione/processi-e-attivita/elenco-attivita");
+  }
+  if (section === "schede" && (sub === "fornitori" || sub === "clienti")) {
+    redirect(
+      sub === "fornitori"
+        ? "/app/amministrazione/fornitori/elenco"
+        : "/app/amministrazione/clienti/elenco"
+    );
+  }
+
   const page = resolveAmministrazionePage([section, sub]);
   if (!page) notFound();
 
-  if (section === "ordini" && sub === "ricevuti") {
+  if (section === "clienti" && sub === "elenco") {
     return (
       <>
-        <AppHeader title="Ordini ricevuti" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ClientiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fornitori" && sub === "bio") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FornitoriBoard bioMode="bio" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fornitori" && sub === "elenco") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FornitoriBoard bioMode="non_bio" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "crea-nuovo") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniRicevutiBoard />
         </div>
@@ -43,7 +115,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "ordini" && sub === "storico") {
     return (
       <>
-        <AppHeader title="Storico ordini" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniStoricoBoard />
         </div>
@@ -51,23 +123,10 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  // Redirect: sottovoci fornitori rimosse → unica pagina con filtri
-  if (section === "fornitori") {
-    redirect("/app/amministrazione/fornitori");
-  }
-
-  // Redirect compatibilità vecchi percorsi
-  if (section === "schede" && sub === "fornitori") {
-    redirect("/app/amministrazione/fornitori");
-  }
-  if (section === "schede" && sub === "clienti") {
-    redirect("/app/amministrazione/clienti");
-  }
-
   if (section === "schede" && sub === "materia-prima") {
     return (
       <>
-        <AppHeader title="Materia prima" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <Suspense
             fallback={
@@ -86,7 +145,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "schede" && sub === "servizi") {
     return (
       <>
-        <AppHeader title="Servizi" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <CatalogoOffertaBoard kind="servizio" />
         </div>
@@ -97,7 +156,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "schede" && sub === "prodotti") {
     return (
       <>
-        <AppHeader title="Prodotti" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <CatalogoOffertaBoard kind="prodotto" />
         </div>
@@ -108,7 +167,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "schede" && sub === "prodotti-propri") {
     return (
       <>
-        <AppHeader title="Prodotti Agrinsicilia" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <Suspense
             fallback={
@@ -127,10 +186,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "schede" && sub === "imballaggi-spedizioni") {
     return (
       <>
-        <AppHeader
-          title="Imballaggi e spedizioni"
-          subtitle={page.description}
-        />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ImballaggiSpedizioniBoard />
         </div>
@@ -138,21 +194,10 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "schede" && sub === "attivita") {
+  if (section === "statistiche" && sub === "produttivita") {
     return (
       <>
-        <AppHeader title="Attività" subtitle={page.description} />
-        <div className="p-6">
-          <AttivitaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "grafici" && sub === "produttivita") {
-    return (
-      <>
-        <AppHeader title="Produttività" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <GraficiProduttivitaBoard />
         </div>
@@ -160,10 +205,10 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "grafici" && sub === "ordini") {
+  if (section === "statistiche" && sub === "ordini") {
     return (
       <>
-        <AppHeader title="Grafici ordini" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <GraficiOrdiniBoard />
         </div>
@@ -171,75 +216,12 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "grafici" && sub === "materia-prima") {
+  if (section === "statistiche" && sub === "economia") {
     return (
       <>
-        <AppHeader title="Grafici materia prima" subtitle={page.description} />
-        <div className="p-6">
-          <GraficiMateriaPrimaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "grafici" && sub === "incassi") {
-    return (
-      <>
-        <AppHeader title="Incassi" subtitle={page.description} />
+        <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <GraficiIncassiBoard />
-        </div>
-      </>
-    );
-  }
-
-  // Redirect legacy slug Inviate → Emesse
-  if (section === "fatture" && sub === "inviate") {
-    redirect("/app/amministrazione/fatture/emesse");
-  }
-
-  if (section === "fatture" && sub === "emetti") {
-    return (
-      <>
-        <AppHeader
-          title="Emetti fattura"
-          subtitle={page.description}
-        />
-        <div className="p-6">
-          <FatturaEmissioneBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "fatture" && sub === "emesse") {
-    return (
-      <>
-        <AppHeader title="Fatture emesse" subtitle={page.description} />
-        <div className="p-6">
-          <FattureInterneBoard kind="emessa" />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "fatture" && sub === "note-credito") {
-    return (
-      <>
-        <AppHeader title="Note di credito" subtitle={page.description} />
-        <div className="p-6">
-          <FattureInterneBoard kind="nota_credito" />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "fatture" && sub === "ricevute") {
-    return (
-      <>
-        <AppHeader title="Fatture ricevute" subtitle={page.description} />
-        <div className="p-6">
-          <FattureInterneBoard kind="ricevuta" />
         </div>
       </>
     );

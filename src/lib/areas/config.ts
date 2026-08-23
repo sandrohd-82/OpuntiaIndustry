@@ -10,20 +10,40 @@ export const AREA_ROUTES: Record<
     label: "Dashboard",
     description: "Panoramica e indicatori",
   },
-  commerciale: {
-    path: "/app/commerciale",
-    label: "Commerciale",
-    description: "Clienti con storico e clienti contattati",
+  amministrazione: {
+    path: "/app/amministrazione",
+    label: "Amministrazione",
+    description: "Clienti, fornitori, schede, ordini e organigramma",
   },
   produzione: {
     path: "/app/produzione",
     label: "Produzione",
-    description: "Pianificazione e avanzamento lavori",
+    description: "Fogli, processi, aree e calendari",
   },
   magazzino: {
     path: "/app/magazzino",
     label: "Magazzino",
-    description: "Giacenze e movimenti",
+    description: "Giacenze, movimenti e note di acquisto",
+  },
+  chat: {
+    path: "/app/chat",
+    label: "Chat",
+    description: "Argomenti e discussioni operative",
+  },
+  "area-fiscale": {
+    path: "/app/area-fiscale",
+    label: "Area Fiscale",
+    description: "Fatture, banca, calcoli e commercialista",
+  },
+  "area-fornitori": {
+    path: "/app/area-fornitori",
+    label: "Area fornitori",
+    description: "Quaderno di campagna e calendario raccolto",
+  },
+  commerciale: {
+    path: "/app/commerciale",
+    label: "Commerciale",
+    description: "Clienti con storico e clienti contattati",
   },
   acquisti: {
     path: "/app/acquisti",
@@ -35,16 +55,6 @@ export const AREA_ROUTES: Record<
     label: "Risorse umane",
     description: "Personale e presenze",
   },
-  "area-fiscale": {
-    path: "/app/area-fiscale",
-    label: "Area Fiscale",
-    description: "Dati e calcoli fiscali e spazio commercialista",
-  },
-  amministrazione: {
-    path: "/app/amministrazione",
-    label: "Amministrazione",
-    description: "Ordini, fatture e dipendenti",
-  },
   impostazioni: {
     path: "/app/impostazioni",
     label: "Impostazioni",
@@ -52,6 +62,25 @@ export const AREA_ROUTES: Record<
       "Configurazione sistema, Google Authenticator e profilo fiscale aziendale",
   },
 };
+
+/** Aree mostrate nel menu laterale (ordine). Altre restano in RBAC ma nascoste. */
+export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
+  "dashboard",
+  "amministrazione",
+  "produzione",
+  "magazzino",
+  "chat",
+  "area-fiscale",
+  "area-fornitori",
+  "impostazioni",
+];
+
+/** Aree non mostrate nel menu (ancora raggiungibili se in permessi). */
+export const SIDEBAR_HIDDEN_AREAS: ReadonlySet<AreaSlug> = new Set([
+  "commerciale",
+  "acquisti",
+  "hr",
+]);
 
 export function areaPathFromSlug(slug: AreaSlug): string {
   return AREA_ROUTES[slug].path;

@@ -8,98 +8,141 @@ import {
 export type { NavBranch, NavLeaf, NavItem as ProduzioneNavItem } from "@/lib/areas/nav-tree";
 export { isNavBranch };
 
-/** Sottosezioni del modulo Produzione (menu laterale) */
+/** Menu Produzione — struttura target */
 export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "fogli-lavorazione",
-    label: "Fogli Lavorazione",
-    description: "Fogli di lavorazione (~24h) della produzione",
+    label: "Fogli di lavorazione",
+    description: "Nuovi fogli, esecuzione e storico",
     path: "/app/produzione/fogli-lavorazione",
-  },
-  {
-    slug: "essiccatori",
-    label: "Essiccatori",
-    description: "Gestione e monitoraggio essiccatori",
-    path: "/app/produzione/essiccatori",
     children: [
       {
-        slug: "gestione",
-        label: "Gestione essiccatori",
-        description: "Stato e dati di esercizio degli essiccatori",
-        path: "/app/produzione/essiccatori/gestione",
+        slug: "nuovo",
+        label: "Nuovo Foglio",
+        description: "Creazione foglio di lavorazione giornaliero",
+        path: "/app/produzione/fogli-lavorazione/nuovo",
       },
       {
-        slug: "planimetria-piazzale",
-        label: "Planimetria Piazzale",
-        description: "Planimetria del piazzale essiccatori",
-        path: "/app/produzione/essiccatori/planimetria-piazzale",
+        slug: "in-esecuzione",
+        label: "Foglio in esecuzione",
+        description:
+          "Interazione con il foglio della lavorazione giornaliera",
+        path: "/app/produzione/fogli-lavorazione/in-esecuzione",
+        badge: { kind: "status", active: false },
       },
       {
-        slug: "dati-e-storico",
-        label: "Dati e storico",
-        description: "Dati e storico degli essiccatori",
-        path: "/app/produzione/essiccatori/dati-e-storico",
+        slug: "storico",
+        label: "Storico Fogli",
+        description: "Storico dei fogli di lavorazione",
+        path: "/app/produzione/fogli-lavorazione/storico",
       },
     ],
   },
   {
-    slug: "linea-di-taglio",
-    label: "Linea di taglio",
-    description: "Linea di taglio e avanzamento",
-    path: "/app/produzione/linea-di-taglio",
-  },
-  {
-    slug: "merce-in-ingresso",
-    label: "Merce in ingresso",
-    description: "Registrazione merce in ingresso",
-    path: "/app/produzione/merce-in-ingresso",
-  },
-  {
-    slug: "calendario-produzione",
-    label: "Calendario produzione",
-    description: "Pianificazione e calendario di produzione",
-    path: "/app/produzione/calendario-produzione",
-  },
-  {
-    slug: "turnistica",
-    label: "Turnistica",
-    description: "Turni e organizzazione del personale produttivo",
-    path: "/app/produzione/turnistica",
-  },
-  {
-    slug: "processi",
-    label: "Processi",
-    description:
-      "Processi produttivi e attività di esecuzione (ricette ordinate)",
-    path: "/app/produzione/processi",
+    slug: "processi-e-attivita",
+    label: "Processi e attività",
+    description: "Processi produttivi e attività di esecuzione",
+    path: "/app/produzione/processi-e-attivita",
     children: [
       {
-        slug: "elenco",
-        label: "Elenco processi",
-        description:
-          "Processi (es. essiccazione) con composizione ordinata di attività",
-        path: "/app/produzione/processi/elenco",
+        slug: "nuovo-processo",
+        label: "+ Nuovo processo",
+        description: "Creazione di un nuovo processo (insieme di attività)",
+        path: "/app/produzione/processi-e-attivita/nuovo-processo",
       },
       {
-        slug: "attivita",
-        label: "Attività di processo",
-        description:
-          "Catalogo attività riusabili (pesare, scarico, mescolata, …)",
-        path: "/app/produzione/processi/attivita",
+        slug: "elenco-processi",
+        label: "Elenco Processi",
+        description: "Elenco dei processi creati",
+        path: "/app/produzione/processi-e-attivita/elenco-processi",
+      },
+      {
+        slug: "nuova-attivita",
+        label: "+ Nuova Attività",
+        description: "Creazione di una nuova attività di processo",
+        path: "/app/produzione/processi-e-attivita/nuova-attivita",
+      },
+      {
+        slug: "elenco-attivita",
+        label: "Elenco Attività",
+        description: "Elenco delle attività di processo create",
+        path: "/app/produzione/processi-e-attivita/elenco-attivita",
       },
     ],
   },
   {
-    slug: "reparti",
-    label: "Reparti",
-    description: "Anagrafica reparti produttivi collegabili al magazzino",
-    path: "/app/produzione/reparti",
+    slug: "gestione-aree",
+    label: "Gestione Aree",
+    description: "Stato aree produttive e videosorveglianza",
+    path: "/app/produzione/gestione-aree",
+    children: [
+      {
+        slug: "lavaggio",
+        label: "Lavaggio",
+        description: "Stato area lavaggio e videosorveglianza",
+        path: "/app/produzione/gestione-aree/lavaggio",
+        badge: { kind: "status", active: false },
+      },
+      {
+        slug: "taglio",
+        label: "Taglio",
+        description: "Stato area taglio e videosorveglianza",
+        path: "/app/produzione/gestione-aree/taglio",
+        badge: { kind: "status", active: false },
+      },
+      {
+        slug: "essiccatori",
+        label: "Essiccatori",
+        description: "Stato area essiccazione e videosorveglianza",
+        path: "/app/produzione/gestione-aree/essiccatori",
+        badge: { kind: "status", active: false },
+      },
+      {
+        slug: "triturazione",
+        label: "Triturazione",
+        description: "Stato area triturazione e videosorveglianza",
+        path: "/app/produzione/gestione-aree/triturazione",
+        badge: { kind: "status", active: false },
+      },
+    ],
   },
   {
-    slug: "statistiche",
-    label: "Statistiche",
-    description: "Indicatori e report di produzione",
-    path: "/app/produzione/statistiche",
+    slug: "calendario",
+    label: "Calendario",
+    description: "Turni e ruoli per area produttiva",
+    path: "/app/produzione/calendario",
+    children: [
+      {
+        slug: "turnistica",
+        label: "Turnistica",
+        description: "Calendario turni degli operai",
+        path: "/app/produzione/calendario/turnistica",
+      },
+      {
+        slug: "area-di-taglio",
+        label: "Area di taglio",
+        description: "Calendario ruoli area di taglio",
+        path: "/app/produzione/calendario/area-di-taglio",
+      },
+      {
+        slug: "essiccazioni",
+        label: "Essiccazioni",
+        description: "Calendario ruoli area essiccazione",
+        path: "/app/produzione/calendario/essiccazioni",
+      },
+      {
+        slug: "triturazioni",
+        label: "Triturazioni",
+        description: "Calendario ruoli area triturazione",
+        path: "/app/produzione/calendario/triturazioni",
+      },
+      {
+        slug: "estrazione",
+        label: "Estrazione",
+        description: "Calendario ruoli area estrazione gel",
+        path: "/app/produzione/calendario/estrazione",
+      },
+    ],
   },
 ] as const;
 
@@ -107,7 +150,6 @@ export function getFirstProduzionePath(): string {
   return firstNavLeafPath(PRODUZIONE_SECTIONS);
 }
 
-/** Risolve una pagina foglia da path relativo sotto /app/produzione */
 export function resolveProduzionePage(segments: string[]) {
   return resolveNavPage(PRODUZIONE_SECTIONS, segments);
 }

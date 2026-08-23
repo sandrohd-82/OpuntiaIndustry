@@ -11,13 +11,19 @@ import {
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type { ProcessoAttivita } from "@/lib/produzione/processi";
 
-export function ProcessiAttivitaBoard() {
+type ProcessiAttivitaBoardProps = {
+  startCreate?: boolean;
+};
+
+export function ProcessiAttivitaBoard({
+  startCreate = false,
+}: ProcessiAttivitaBoardProps) {
   const [items, setItems] = useState<ProcessoAttivita[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState<ProcessoAttivita | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreate);
   const [deleting, setDeleting] = useState<ProcessoAttivita | null>(null);
   const [codice, setCodice] = useState("");
   const [nome, setNome] = useState("");

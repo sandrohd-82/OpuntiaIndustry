@@ -5,9 +5,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
-import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
-import { areaPathFromSlug } from "@/lib/areas/config";
-import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
+import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
+import { CHAT_SECTIONS } from "@/lib/areas/chat";
+import {
+  SIDEBAR_AREA_ORDER,
+  SIDEBAR_HIDDEN_AREAS,
+  areaPathFromSlug,
+} from "@/lib/areas/config";
+import {
+  isNavBranch,
+  openKeysFromPathname,
+  type NavBadge,
+  type NavItem,
+} from "@/lib/areas/nav-tree";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import type { AreaSlug, UserArea } from "@/types/database";
@@ -18,26 +28,35 @@ type Props = {
   roleName: string;
 };
 
-/** Ordine menu: Area Fiscale sotto Risorse umane, sopra Impostazioni */
-const SIDEBAR_AREA_ORDER: AreaSlug[] = [
-  "dashboard",
-  "amministrazione",
-  "commerciale",
-  "produzione",
-  "magazzino",
-  "acquisti",
-  "hr",
-  "area-fiscale",
-  "impostazioni",
-];
-
 function sortAreasForSidebar(areas: UserArea[]) {
   const rank = new Map(SIDEBAR_AREA_ORDER.map((slug, i) => [slug, i]));
-  return [...areas].sort((a, b) => {
-    const ra = rank.get(a.slug) ?? 1000 + a.sort_order;
-    const rb = rank.get(b.slug) ?? 1000 + b.sort_order;
-    return ra - rb;
-  });
+  return areas
+    .filter((a) => !SIDEBAR_HIDDEN_AREAS.has(a.slug))
+    .filter((a) => rank.has(a.slug) || a.slug === "impostazioni")
+    .sort((a, b) => {
+      const ra = rank.get(a.slug) ?? 1000 + a.sort_order;
+      const rb = rank.get(b.slug) ?? 1000 + b.sort_order;
+      return ra - rb;
+    });
+}
+
+function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
+  switch (slug) {
+    case "produzione":
+      return PRODUZIONE_SECTIONS;
+    case "magazzino":
+      return MAGAZZINO_SECTIONS;
+    case "amministrazione":
+      return AMMINISTRAZIONE_SECTIONS;
+    case "area-fiscale":
+      return AREA_FISCALE_SECTIONS;
+    case "chat":
+      return CHAT_SECTIONS;
+    case "area-fornitori":
+      return AREA_FORNITORI_SECTIONS;
+    default:
+      return null;
+  }
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -54,6 +73,38 @@ function Chevron({ open }: { open: boolean }) {
         clipRule="evenodd"
       />
     </svg>
+  );
+}
+
+function NavBadgeDot({ badge }: { badge: NavBadge }) {
+  if (badge.kind === "status") {
+    return (
+      <span
+        className={`ml-auto inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
+          badge.active ? "bg-emerald-400" : "bg-slate-500"
+        }`}
+        title={badge.active ? "Attivo" : "Non attivo"}
+        aria-hidden
+      />
+    );
+  }
+  const n = badge.count;
+  if (n <= 0) {
+    return (
+      <span
+        className="ml-auto inline-block h-2.5 w-2.5 shrink-0 rounded-full bg-slate-500"
+        title="Nessuna"
+        aria-hidden
+      />
+    );
+  }
+  return (
+    <span
+      className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"
+      title={`${n} aperte`}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
   );
 }
 
@@ -76,12 +127,14 @@ function BranchButton({
   open,
   active,
   nested,
+  badge,
   onToggle,
 }: {
   label: string;
   open: boolean;
   active: boolean;
   nested?: boolean;
+  badge?: NavBadge;
   onToggle: () => void;
 }) {
   return (
@@ -93,6 +146,7 @@ function BranchButton({
     >
       <Chevron open={open} />
       <span className="truncate">{label}</span>
+      {badge ? <NavBadgeDot badge={badge} /> : null}
     </button>
   );
 }
@@ -113,9 +167,8 @@ function NavTree({
       {sections.map((item) => {
         if (isNavBranch(item)) {
           const open = openKeys.has(item.slug);
-          // Come le altre aree: non evidenziare il ramo padre quando è attiva una sotto-voce
           const active = pathname === item.path;
-          const hubLink = item.slug === "grafici";
+          const hubLink = item.slug === "statistiche";
           return (
             <li key={item.path}>
               {hubLink ? (
@@ -145,6 +198,7 @@ function NavTree({
                   open={open}
                   active={active || pathMatches(pathname, item.path)}
                   nested
+                  badge={item.badge}
                   onToggle={() => toggle(item.slug)}
                 />
               )}
@@ -167,6 +221,7 @@ function NavTree({
               className={itemClass(pathname === item.path, true)}
             >
               <span className="truncate">{item.label}</span>
+              {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
             </Link>
           </li>
         );
@@ -183,46 +238,18 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
   useEffect(() => {
     setOpenKeys((prev) => {
       const next = new Set(prev);
-      if (pathname.startsWith("/app/produzione")) {
-        next.add("produzione");
-        if (pathname.startsWith("/app/produzione/essiccatori")) {
-          next.add("essiccatori");
-        }
-      }
-      if (pathname.startsWith("/app/amministrazione")) {
-        next.add("amministrazione");
-        if (pathname.startsWith("/app/amministrazione/ordini")) {
-          next.add("ordini");
-        }
-        if (pathname.startsWith("/app/amministrazione/fatture")) {
-          next.add("fatture");
-        }
-        if (pathname.startsWith("/app/amministrazione/schede")) {
-          next.add("schede");
-        }
-        if (pathname.startsWith("/app/amministrazione/dipendenti")) {
-          next.add("dipendenti");
-        }
-        if (pathname.startsWith("/app/amministrazione/grafici")) {
-          next.add("grafici");
-        }
-      }
-      if (pathname.startsWith("/app/area-fiscale")) {
-        next.add("area-fiscale");
-      }
-      if (pathname.startsWith("/app/magazzino")) {
-        next.add("magazzino");
-        if (pathname.startsWith("/app/magazzino/barcode")) {
-          next.add("barcode");
-        }
-      }
-      if (pathname.startsWith("/app/commerciale")) {
-        next.add("commerciale");
-        if (pathname.startsWith("/app/commerciale/clienti-con-storico")) {
-          next.add("clienti-con-storico");
-        }
-        if (pathname.startsWith("/app/commerciale/clienti-contattati")) {
-          next.add("clienti-contattati");
+      const areaSlug = pathname.match(/^\/app\/([^/]+)/)?.[1] as
+        | AreaSlug
+        | undefined;
+      if (areaSlug) {
+        next.add(areaSlug);
+        const sections = sectionsForArea(areaSlug);
+        if (sections) {
+          for (const key of openKeysFromPathname(sections, pathname, [
+            areaSlug,
+          ])) {
+            next.add(key);
+          }
         }
       }
       return next;
@@ -257,18 +284,7 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
           {sortedAreas.map((area) => {
             const href = areaPathFromSlug(area.slug);
             const active = pathMatches(pathname, href);
-            const treeSections =
-              area.slug === "produzione"
-                ? PRODUZIONE_SECTIONS
-                : area.slug === "magazzino"
-                  ? MAGAZZINO_SECTIONS
-                  : area.slug === "amministrazione"
-                    ? AMMINISTRAZIONE_SECTIONS
-                    : area.slug === "commerciale"
-                      ? COMMERCIALE_SECTIONS
-                      : area.slug === "area-fiscale"
-                        ? AREA_FISCALE_SECTIONS
-                        : null;
+            const treeSections = sectionsForArea(area.slug);
 
             if (treeSections) {
               const open = openKeys.has(area.slug);

@@ -16,6 +16,8 @@ export type AreaSlug =
   | "hr"
   | "area-fiscale"
   | "amministrazione"
+  | "chat"
+  | "area-fornitori"
   | "impostazioni";
 
 export interface AppRole {

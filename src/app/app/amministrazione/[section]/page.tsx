@@ -1,6 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
-import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { GraficiHomeBoard } from "@/components/amministrazione/grafici/GraficiHomeBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -19,11 +17,28 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
   await requireAreaAccess("amministrazione");
 
   const { section } = await params;
+
+  // Compatibilità percorsi legacy
+  if (section === "fatture") {
+    redirect("/app/area-fiscale/fatture");
+  }
+  if (section === "grafici") {
+    redirect("/app/amministrazione/statistiche");
+  }
+  if (section === "dipendenti") {
+    redirect("/app/amministrazione/organigramma");
+  }
+  if (section === "clienti") {
+    redirect("/app/amministrazione/clienti/elenco");
+  }
+  if (section === "fornitori") {
+    redirect("/app/amministrazione/fornitori/elenco");
+  }
+
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
 
-  // Grafici: hub anno corrente (non redirect alla prima sottovoce)
-  if (section === "grafici") {
+  if (section === "statistiche") {
     const page = resolveAmministrazionePage([section]);
     if (!page) notFound();
     return (
@@ -31,32 +46,6 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title="Statistiche" subtitle={page.description} />
         <div className="p-6">
           <GraficiHomeBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "clienti") {
-    const page = resolveAmministrazionePage([section]);
-    if (!page) notFound();
-    return (
-      <>
-        <AppHeader title="Clienti" subtitle={page.description} />
-        <div className="p-6">
-          <ClientiBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "fornitori") {
-    const page = resolveAmministrazionePage([section]);
-    if (!page) notFound();
-    return (
-      <>
-        <AppHeader title="Fornitori" subtitle={page.description} />
-        <div className="p-6">
-          <FornitoriBoard />
         </div>
       </>
     );

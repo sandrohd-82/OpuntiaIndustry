@@ -1,7 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 import { CommercialistaBoard } from "@/components/amministrazione/CommercialistaBoard";
-import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
-import { RapportiBancaBoard } from "@/components/amministrazione/RapportiBancaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import {
@@ -21,6 +19,18 @@ export default async function AreaFiscaleSectionPage({ params }: Props) {
   await requireAreaAccess("area-fiscale");
 
   const { section } = await params;
+
+  // Legacy flat paths
+  if (section === "dati-e-calcoli") {
+    redirect("/app/area-fiscale/dati-e-calcoli/iva-e-imposte");
+  }
+  if (section === "rapporti-banca") {
+    redirect("/app/area-fiscale/banca/movimenti");
+  }
+  if (section === "il-commercialista") {
+    redirect("/app/area-fiscale/commercialista");
+  }
+
   const item = AREA_FISCALE_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
 
@@ -33,34 +43,12 @@ export default async function AreaFiscaleSectionPage({ params }: Props) {
   const page = resolveAreaFiscalePage([section]);
   if (!page) notFound();
 
-  if (section === "dati-e-calcoli") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <DashboardFiscaleBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "il-commercialista") {
+  if (section === "commercialista") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <CommercialistaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "rapporti-banca") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <RapportiBancaBoard />
         </div>
       </>
     );

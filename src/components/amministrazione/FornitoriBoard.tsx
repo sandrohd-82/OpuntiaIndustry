@@ -189,7 +189,16 @@ function FornitoreRow({
   );
 }
 
-export function FornitoriBoard() {
+function isFornitoreBio(f: Fornitore): boolean {
+  return Boolean(f.bioCodice?.trim() || f.bioCertificatoPath?.trim());
+}
+
+type FornitoriBoardProps = {
+  /** Filtro fisso menu: bio / non bio / tutti */
+  bioMode?: "bio" | "non_bio" | "all";
+};
+
+export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
   const {
     fornitori,
     ready,
@@ -255,10 +264,12 @@ export function FornitoriBoard() {
     };
   }, []);
 
-  const filtered = useMemo(
-    () => filterFornitori(fornitori, filters),
-    [fornitori, filters]
-  );
+  const filtered = useMemo(() => {
+    let list = filterFornitori(fornitori, filters);
+    if (bioMode === "bio") list = list.filter(isFornitoreBio);
+    if (bioMode === "non_bio") list = list.filter((f) => !isFornitoreBio(f));
+    return list;
+  }, [fornitori, filters, bioMode]);
 
   const cittaOptions = useMemo(
     () => uniqueFornitoriCitta(fornitori),

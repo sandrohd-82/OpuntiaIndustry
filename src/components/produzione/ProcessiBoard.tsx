@@ -48,7 +48,11 @@ function statoClass(stato: Processo["documentoStato"]): string {
   }
 }
 
-export function ProcessiBoard() {
+type ProcessiBoardProps = {
+  startCreate?: boolean;
+};
+
+export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [items, setItems] = useState<Processo[]>([]);
   const [attivita, setAttivita] = useState<ProcessoAttivita[]>([]);
   const [ready, setReady] = useState(false);
@@ -56,7 +60,7 @@ export function ProcessiBoard() {
   const [pending, startTransition] = useTransition();
 
   const [editing, setEditing] = useState<Processo | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(startCreate);
   const [deleting, setDeleting] = useState<Processo | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [passi, setPassi] = useState<ProcessoPasso[]>([]);

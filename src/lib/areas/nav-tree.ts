@@ -1,8 +1,14 @@
+export type NavBadge =
+  | { kind: "status"; active: boolean }
+  | { kind: "count"; count: number };
+
 export type NavLeaf = {
   slug: string;
   label: string;
   description: string;
   path: string;
+  /** Indicatore sidebar (stato area / contatore). */
+  badge?: NavBadge;
 };
 
 export type NavBranch = {
@@ -10,6 +16,7 @@ export type NavBranch = {
   label: string;
   description: string;
   path: string;
+  badge?: NavBadge;
   /** Foglie o sotto-rami (max profondità usata: 3 livelli area→ramo→foglia). */
   children: readonly NavItem[];
 };
@@ -78,4 +85,21 @@ export function findNavItem(
     }
   }
   return current ?? null;
+}
+
+/** Slug dei rami aperti lungo il pathname corrente. */
+export function openKeysFromPathname(
+  sections: readonly NavItem[],
+  pathname: string,
+  prefixKeys: string[] = []
+): string[] {
+  const keys: string[] = [...prefixKeys];
+  for (const item of sections) {
+    if (!pathname.startsWith(item.path)) continue;
+    keys.push(item.slug);
+    if (isNavBranch(item)) {
+      keys.push(...openKeysFromPathname(item.children, pathname));
+    }
+  }
+  return keys;
 }
