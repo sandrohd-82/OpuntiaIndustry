@@ -26,6 +26,7 @@ export default async function AppLayout({
         areas={auth.areas}
         userName={auth.profile.full_name ?? auth.email}
         roleName={roleName}
+        userId={auth.userId}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>

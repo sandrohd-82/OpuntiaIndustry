@@ -46,6 +46,8 @@ export interface Profile {
   job_title?: string;
   role_id: string;
   is_active: boolean;
+  chat_status?: "available" | "away" | "offline";
+  chat_rubrica_banned_at?: string | null;
   app_roles?: AppRole;
 }
 

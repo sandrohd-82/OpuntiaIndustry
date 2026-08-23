@@ -4,25 +4,26 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Menu Chat — argomenti collaborativi */
+/** Menu Chat — messaggistica utente↔utente */
 export const CHAT_SECTIONS: readonly NavItem[] = [
   {
-    slug: "nuovo-argomento",
-    label: "+ Nuovo Argomento",
-    description: "Crea un nuovo argomento di discussione",
-    path: "/app/chat/nuovo-argomento",
+    slug: "inbox",
+    label: "Inbox",
+    description: "Conversazioni personali",
+    path: "/app/chat/inbox",
+    badge: { kind: "count", count: 0 },
   },
   {
-    slug: "elenco-argomenti",
-    label: "Elenco argomenti",
-    description: "Argomenti aperti (es. incontri, fiere)",
-    path: "/app/chat/elenco-argomenti",
+    slug: "nuova",
+    label: "+ Nuova chat",
+    description: "Avvia conversazione con un utente",
+    path: "/app/chat/nuova",
   },
   {
-    slug: "argomenti-archiviati",
-    label: "Argomenti archiviati",
-    description: "Argomenti chiusi o archiviati",
-    path: "/app/chat/argomenti-archiviati",
+    slug: "rubrica",
+    label: "Rubrica",
+    description: "Contatti con interazioni recenti",
+    path: "/app/chat/rubrica",
   },
 ] as const;
 

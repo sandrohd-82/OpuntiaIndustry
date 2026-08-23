@@ -20,12 +20,14 @@ import {
 } from "@/lib/areas/nav-tree";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
+import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 type Props = {
   areas: UserArea[];
   userName: string;
   roleName: string;
+  userId: string;
 };
 
 function sortAreasForSidebar(areas: UserArea[]) {
@@ -230,7 +232,7 @@ function NavTree({
   );
 }
 
-export function AppSidebar({ areas, userName, roleName }: Props) {
+export function AppSidebar({ areas, userName, roleName, userId }: Props) {
   const pathname = usePathname();
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
@@ -290,12 +292,19 @@ export function AppSidebar({ areas, userName, roleName }: Props) {
               const open = openKeys.has(area.slug);
               return (
                 <li key={area.area_id}>
-                  <BranchButton
-                    label={area.name}
-                    open={open}
-                    active={active}
-                    onToggle={() => toggle(area.slug)}
-                  />
+                  <div className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <BranchButton
+                        label={area.name}
+                        open={open}
+                        active={active}
+                        onToggle={() => toggle(area.slug)}
+                      />
+                    </div>
+                    {area.slug === "chat" ? (
+                      <ChatUnreadBadge userId={userId} />
+                    ) : null}
+                  </div>
                   {open && (
                     <NavTree
                       sections={treeSections}
