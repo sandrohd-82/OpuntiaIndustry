@@ -331,3 +331,111 @@ export async function listWebmailMessagesLiteAction(input?: {
     })),
   };
 }
+
+export type EntityReferentiTipo =
+  | "cliente"
+  | "fornitore"
+  | "cliente_possibile";
+
+function junctionFor(tipo: EntityReferentiTipo) {
+  if (tipo === "cliente") {
+    return {
+      table: "clienti_referenti" as const,
+      fk: "cliente_id" as const,
+      aziendaTipo: "cliente" as const,
+    };
+  }
+  if (tipo === "fornitore") {
+    return {
+      table: "fornitori_referenti" as const,
+      fk: "fornitore_id" as const,
+      aziendaTipo: "fornitore" as const,
+    };
+  }
+  return {
+    table: "clienti_possibili_referenti" as const,
+    fk: "cliente_possibile_id" as const,
+    aziendaTipo: "cliente_possibile" as const,
+  };
+}
+
+export async function listEntityReferentiAction(input: {
+  tipo: EntityReferentiTipo;
+  entityId: string;
+}): Promise<
+  { success: true; items: RubricaContatto[] } | { success: false; error: string }
+> {
+  await guard();
+  const j = junctionFor(input.tipo);
+  const supabase = await createClient();
+  const { data: links, error } = await supabase
+    .from(j.table)
+    .select("contatto_id")
+    .eq(j.fk, input.entityId);
+  if (error) return { success: false, error: error.message };
+  const ids = (links ?? []).map((r) => String(r.contatto_id));
+  if (ids.length === 0) return { success: true, items: [] };
+  const { data: contatti, error: e3 } = await supabase
+    .from("rubrica_contatti")
+    .select(CONTATTO_SELECT)
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (e3) return { success: false, error: e3.message };
+  return {
+    success: true,
+    items: (contatti ?? []).map((r) =>
+      mapContatto(r as Record<string, unknown>)
+    ),
+  };
+}
+
+/** Sostituisce i referenti collegati all’anagrafica e aggiorna azienda sul contatto. */
+export async function syncEntityReferentiAction(input: {
+  tipo: EntityReferentiTipo;
+  entityId: string;
+  entityLabel: string;
+  contattoIds: string[];
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guard();
+  const j = junctionFor(input.tipo);
+  const ids = [...new Set(input.contattoIds.filter(Boolean))];
+  const supabase = await createClient();
+
+  const { error: delErr } = await supabase
+    .from(j.table)
+    .delete()
+    .eq(j.fk, input.entityId);
+  if (delErr) return { success: false, error: delErr.message };
+
+  if (ids.length > 0) {
+    const { error: insErr } = await supabase.from(j.table).insert(
+      ids.map((contatto_id) => ({
+        [j.fk]: input.entityId,
+        contatto_id,
+        created_by: auth.userId,
+      }))
+    );
+    if (insErr) return { success: false, error: insErr.message };
+
+    await supabase
+      .from("rubrica_contatti")
+      .update({
+        azienda_tipo: j.aziendaTipo,
+        azienda_id: input.entityId,
+        azienda_label: input.entityLabel,
+        updated_by: auth.userId,
+      })
+      .in("id", ids)
+      .is("deleted_at", null);
+  }
+
+  await writeAuditLog({
+    entity_type: j.table,
+    entity_id: input.entityId,
+    action: "sync_referenti",
+    actor_id: auth.userId,
+    summary: `Referenti ${input.tipo}: ${ids.length}`,
+    payload: { contatto_ids: ids },
+  });
+  return { success: true };
+}

@@ -630,7 +630,7 @@ export function ClientiBoard() {
             if (created) {
               setSaveError(null);
               setCreating(false);
-              return true;
+              return { id: created.id };
             }
             setSaveError("Salvataggio non riuscito. Riprova.");
             return false;
@@ -648,7 +648,7 @@ export function ClientiBoard() {
             if (updated) {
               setSaveError(null);
               setEditing(null);
-              return true;
+              return { id: editing.id };
             }
             setSaveError(
               "Aggiornamento non riuscito. Controlla i dati e riprova."

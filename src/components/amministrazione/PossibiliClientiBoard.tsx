@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaNoteSticky, FaPlus } from "react-icons/fa6";
+import { FaNoteSticky, FaPen, FaPlus } from "react-icons/fa6";
 import { createClienteAction } from "@/app/actions/clienti";
 import {
   createClientePossibileAction,
   createNotaPnAction,
   listClientiPossibiliAction,
   listNotePnAction,
+  updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
@@ -22,6 +23,7 @@ export function PossibiliClientiBoard() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [showLeadForm, setShowLeadForm] = useState(false);
+  const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [showClienteForm, setShowClienteForm] = useState(false);
   const [clientePrefill, setClientePrefill] = useState<ReturnType<
     typeof clienteFromPossibile
@@ -116,6 +118,14 @@ export function PossibiliClientiBoard() {
             </div>
             <button
               type="button"
+              onClick={() => setEditingLead(lead)}
+              className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+            >
+              <FaPen size={10} />
+              Modifica
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setClientePrefill(clienteFromPossibile(lead));
                 setShowClienteForm(true);
@@ -185,6 +195,7 @@ export function PossibiliClientiBoard() {
 
       {showLeadForm ? (
         <PossibileClienteFormModal
+          mode="create"
           onClose={() => setShowLeadForm(false)}
           onSave={async (values) => {
             const res = await createClientePossibileAction(values);
@@ -193,6 +204,28 @@ export function PossibiliClientiBoard() {
               return false;
             }
             setShowLeadForm(false);
+            setError(null);
+            reload();
+            return true;
+          }}
+        />
+      ) : null}
+
+      {editingLead ? (
+        <PossibileClienteFormModal
+          mode="edit"
+          initial={editingLead}
+          onClose={() => setEditingLead(null)}
+          onSave={async (values) => {
+            const res = await updateClientePossibileAction(
+              editingLead.id,
+              values
+            );
+            if (!res.success) {
+              setError(res.error);
+              return false;
+            }
+            setEditingLead(null);
             setError(null);
             reload();
             return true;
@@ -219,7 +252,7 @@ export function PossibiliClientiBoard() {
             setClientePrefill(null);
             setError(null);
             reload();
-            return true;
+            return { id: res.cliente.id };
           }}
         />
       ) : null}

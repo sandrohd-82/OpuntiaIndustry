@@ -10,6 +10,11 @@ import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertific
 import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffertaTags";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
+import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import {
+  listEntityReferentiAction,
+  syncEntityReferentiAction,
+} from "@/app/actions/rubrica";
 import { FORNITORE_TIPOLOGIE } from "@/lib/amministrazione/catalogo-offerta";
 import type { FornitoreEnrichmentHit } from "@/lib/amministrazione/fornitore-enrichment";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
@@ -19,6 +24,7 @@ import {
   type FornitoreInput,
   type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
+import type { RubricaContatto } from "@/lib/rubrica/types";
 import type { FornitoreTipologia } from "@/types/database";
 
 type Props = {
@@ -28,7 +34,12 @@ type Props = {
   onSave: (
     values: FornitoreInput,
     bioPdf?: File | null
-  ) => boolean | string | void | Promise<boolean | string | void>;
+  ) =>
+    | boolean
+    | string
+    | { id: string }
+    | void
+    | Promise<boolean | string | { id: string } | void>;
   /** Sopra un’altra modale (es. sync clienti → passa a fornitori). */
   elevated?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
@@ -121,10 +132,21 @@ export function FornitoreFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
+  const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [bioCodice, setBioCodice] = useState(initial?.bioCodice ?? "");
   const [bioPdf, setBioPdf] = useState<File | null>(null);
   const [removeBioPdf, setRemoveBioPdf] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!initial?.id) return;
+    void listEntityReferentiAction({
+      tipo: "fornitore",
+      entityId: initial.id,
+    }).then((res) => {
+      if (res.success) setReferenti(res.items);
+    });
+  }, [initial?.id]);
 
   useEffect(() => {
     // Escape non chiude la scheda (evita perdita dati): solo Annulla / Salva.
@@ -293,6 +315,18 @@ export function FornitoreFormModal({
         setFormError(
           "Salvataggio non riuscito. Controlla i dati obbligatori e riprova."
         );
+      } else {
+        const entityId =
+          (typeof ok === "object" && ok && "id" in ok ? ok.id : null) ||
+          initial?.id;
+        if (entityId) {
+          await syncEntityReferentiAction({
+            tipo: "fornitore",
+            entityId,
+            entityLabel: ragioneSociale.trim(),
+            contattoIds: referenti.map((r) => r.id),
+          });
+        }
       }
     } catch (err) {
       setFormError(
@@ -672,6 +706,13 @@ export function FornitoreFormModal({
               onMarkedForRemovalChange={setRemoveBioPdf}
             />
           </fieldset>
+
+          <ReferentiPickerField
+            value={referenti}
+            onChange={setReferenti}
+            defaultAziendaTipo="fornitore"
+            defaultAziendaLabel={ragioneSociale}
+          />
 
           {formError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

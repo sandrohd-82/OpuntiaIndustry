@@ -568,3 +568,113 @@ export async function createClientePossibileAction(
   });
   return { success: true, item };
 }
+
+export async function updateClientePossibileAction(
+  id: string,
+  input: ClienteInput | unknown
+): Promise<
+  | { success: true; item: ClientePossibile }
+  | { success: false; error: string }
+> {
+  const { auth } = await guardAdmin();
+  const asCliente = input as ClienteInput;
+  const merged = {
+    ...asCliente,
+    prodottiInteressati: asCliente.prodottiAcquistati ?? [],
+    sedeMagazzino: asCliente.sedeMagazzino ?? emptySede(),
+  };
+  const parsed = createClientePossibileSchema.safeParse(merged);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const normalized = normalizeClienteInput({
+    ragioneSociale: parsed.data.ragioneSociale,
+    partitaIva: parsed.data.partitaIva ?? "",
+    codiceFiscale: parsed.data.codiceFiscale ?? "",
+    isPrivato: false,
+    email: parsed.data.email,
+    pec: parsed.data.pec,
+    sdiCode: parsed.data.sdiCode,
+    telefono: parsed.data.telefono,
+    sitoWeb: parsed.data.sitoWeb,
+    sedeAmministrativa: parsed.data.sedeAmministrativa,
+    sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
+    consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
+    prodottiAcquistati: [],
+  });
+  const fiscalErr = validateClienteFiscali({ ...normalized, isPrivato: false });
+  if (fiscalErr) return { success: false, error: fiscalErr };
+
+  const referenteIds = (
+    (input as { referenteIds?: string[] }).referenteIds ?? []
+  ).filter(Boolean);
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clienti_possibili")
+    .update({
+      ragione_sociale: normalized.ragioneSociale,
+      partita_iva: normalized.partitaIva,
+      codice_fiscale: normalized.codiceFiscale,
+      is_privato: false,
+      email: normalized.email ?? "",
+      pec: normalized.pec ?? "",
+      sdi_code: normalized.sdiCode ?? "",
+      telefono: normalized.telefono ?? "",
+      sito_web: normalized.sitoWeb ?? "",
+      sede_amm_nazione: normalized.sedeAmministrativa.nazione,
+      sede_amm_provincia: normalized.sedeAmministrativa.provincia,
+      sede_amm_citta: normalized.sedeAmministrativa.citta,
+      sede_amm_cap: normalized.sedeAmministrativa.cap,
+      sede_amm_indirizzo: normalized.sedeAmministrativa.indirizzo,
+      sede_mag_nazione: normalized.sedeMagazzino.nazione,
+      sede_mag_provincia: normalized.sedeMagazzino.provincia,
+      sede_mag_citta: normalized.sedeMagazzino.citta,
+      sede_mag_cap: normalized.sedeMagazzino.cap,
+      sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
+      consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select(CLIENTI_POSSIBILI_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const item = mapClientePossibileRow(data as Record<string, unknown>);
+
+  await supabase.from("clienti_possibili_referenti").delete().eq("cliente_possibile_id", id);
+  if (referenteIds.length > 0) {
+    await supabase.from("clienti_possibili_referenti").insert(
+      referenteIds.map((contatto_id) => ({
+        cliente_possibile_id: id,
+        contatto_id,
+        created_by: auth.userId,
+      }))
+    );
+    await supabase
+      .from("rubrica_contatti")
+      .update({
+        azienda_tipo: "cliente_possibile",
+        azienda_id: id,
+        azienda_label: item.ragioneSociale,
+        updated_by: auth.userId,
+      })
+      .in("id", referenteIds)
+      .is("deleted_at", null);
+  }
+
+  await writeAuditLog({
+    entity_type: "clienti_possibili",
+    entity_id: item.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Possibile cliente aggiornato: ${item.ragioneSociale}`,
+    payload: { referenti: referenteIds.length },
+  });
+  return { success: true, item };
+}

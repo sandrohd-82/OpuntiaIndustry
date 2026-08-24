@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FaChevronDown, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
+import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
-import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
+import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import {
   emptyConsegnaAltraAzienda,
   emptySede,
@@ -12,12 +13,12 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
-import {
-  displayContattoName,
-  type RubricaContatto,
-} from "@/lib/rubrica/types";
+import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
+import type { RubricaContatto } from "@/lib/rubrica/types";
 
 type Props = {
+  mode?: "create" | "edit";
+  initial?: ClientePossibile | null;
   onClose: () => void;
   onSave: (
     values: ClienteInput & { referenteIds: string[] }
@@ -83,27 +84,66 @@ function Collapsible({
   );
 }
 
-export function PossibileClienteFormModal({ onClose, onSave }: Props) {
+export function PossibileClienteFormModal({
+  mode = "create",
+  initial = null,
+  onClose,
+  onSave,
+}: Props) {
+  const isEdit = mode === "edit" && Boolean(initial);
   const titleId = useId();
-  const [ragioneSociale, setRagioneSociale] = useState("");
-  const [partitaIva, setPartitaIva] = useState("");
-  const [codiceFiscale, setCodiceFiscale] = useState("");
-  const [email, setEmail] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [pec, setPec] = useState("");
-  const [sdiCode, setSdiCode] = useState("");
-  const [sitoWeb, setSitoWeb] = useState("");
-  const [sedeAmministrativa, setSedeAmministrativa] = useState(emptySede());
-  const [sedeMagazzino, setSedeMagazzino] = useState(emptySede());
-  const [ammOpen, setAmmOpen] = useState(false);
-  const [magOpen, setMagOpen] = useState(false);
-  const [stessaSede, setStessaSede] = useState(false);
-  const [consegneOpen, setConsegneOpen] = useState(false);
-  const [consegne, setConsegne] = useState<ConsegnaAltraAzienda[]>([]);
+  const [ragioneSociale, setRagioneSociale] = useState(
+    initial?.ragioneSociale ?? ""
+  );
+  const [partitaIva, setPartitaIva] = useState(initial?.partitaIva ?? "");
+  const [codiceFiscale, setCodiceFiscale] = useState(
+    initial?.codiceFiscale ?? ""
+  );
+  const [email, setEmail] = useState(initial?.email ?? "");
+  const [telefono, setTelefono] = useState(initial?.telefono ?? "");
+  const [pec, setPec] = useState(initial?.pec ?? "");
+  const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
+  const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
+  const [sedeAmministrativa, setSedeAmministrativa] = useState(
+    initial?.sedeAmministrativa ?? emptySede()
+  );
+  const [sedeMagazzino, setSedeMagazzino] = useState(
+    initial?.sedeMagazzino ?? emptySede()
+  );
+  const [ammOpen, setAmmOpen] = useState(
+    Boolean(initial && !isSedeEmpty(initial.sedeAmministrativa))
+  );
+  const [magOpen, setMagOpen] = useState(
+    Boolean(initial && !isSedeEmpty(initial.sedeMagazzino))
+  );
+  const [stessaSede, setStessaSede] = useState(
+    Boolean(
+      initial &&
+        !isSedeEmpty(initial.sedeMagazzino) &&
+        sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
+    )
+  );
+  const [consegneOpen, setConsegneOpen] = useState(
+    Boolean(initial?.consegneAltraAzienda?.length)
+  );
+  const [consegne, setConsegne] = useState<ConsegnaAltraAzienda[]>(
+    initial?.consegneAltraAzienda?.length
+      ? initial.consegneAltraAzienda
+      : []
+  );
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
-  const [showRubrica, setShowRubrica] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initial?.id) return;
+    void listEntityReferentiAction({
+      tipo: "cliente_possibile",
+      entityId: initial.id,
+    }).then((res) => {
+      if (res.success) setReferenti(res.items);
+    });
+  }, [initial?.id]);
 
   function buildValues(): (ClienteInput & { referenteIds: string[] }) | null {
     if (!ragioneSociale.trim()) {
@@ -186,7 +226,9 @@ export function PossibileClienteFormModal({ onClose, onSave }: Props) {
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 id={titleId} className="text-lg font-semibold">
-              Nuovo possibile cliente
+              {isEdit
+                ? "Modifica possibile cliente"
+                : "Nuovo possibile cliente"}
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Solo azienda (cliente privato = no). Sedi chiuse di default.
@@ -404,46 +446,12 @@ export function PossibileClienteFormModal({ onClose, onSave }: Props) {
             </div>
           </Collapsible>
 
-          <div className="rounded-lg border border-[var(--border)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">Referenti</p>
-              <button
-                type="button"
-                onClick={() => setShowRubrica(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50"
-              >
-                <FaPlus size={12} />
-                Aggiungi referente
-              </button>
-            </div>
-            <ul className="mt-3 space-y-2">
-              {referenti.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"
-                >
-                  <span>
-                    {displayContattoName(r)}
-                    {r.mansione ? ` · ${r.mansione}` : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReferenti((prev) => prev.filter((x) => x.id !== r.id))
-                    }
-                    className="text-[var(--muted)] hover:text-red-600"
-                  >
-                    <FaTrash size={12} />
-                  </button>
-                </li>
-              ))}
-              {referenti.length === 0 ? (
-                <li className="text-xs text-[var(--muted)]">
-                  Nessun referente. Usa «Aggiungi referente» (Rubrica).
-                </li>
-              ) : null}
-            </ul>
-          </div>
+          <ReferentiPickerField
+            value={referenti}
+            onChange={setReferenti}
+            defaultAziendaTipo="cliente_possibile"
+            defaultAziendaLabel={ragioneSociale}
+          />
 
           {formError ? (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -465,26 +473,15 @@ export function PossibileClienteFormModal({ onClose, onSave }: Props) {
               disabled={saving}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white disabled:opacity-60"
             >
-              {saving ? "Salvataggio…" : "Salva possibile cliente"}
+              {saving
+                ? "Salvataggio…"
+                : isEdit
+                  ? "Salva modifiche"
+                  : "Salva possibile cliente"}
             </button>
           </div>
         </form>
       </div>
-
-      {showRubrica ? (
-        <RubricaContattoFormModal
-          elevated
-          defaultAziendaTipo="cliente_possibile"
-          defaultAziendaLabel={ragioneSociale}
-          onClose={() => setShowRubrica(false)}
-          onCreated={(item) => {
-            setReferenti((prev) =>
-              prev.some((x) => x.id === item.id) ? prev : [...prev, item]
-            );
-            setShowRubrica(false);
-          }}
-        />
-      ) : null}
     </div>
   );
 

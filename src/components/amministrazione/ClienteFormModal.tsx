@@ -10,6 +10,7 @@ import { AddressSedeFields } from "@/components/amministrazione/AddressSedeField
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
+import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptyConsegnaAltraAzienda,
@@ -19,6 +20,11 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import {
+  listEntityReferentiAction,
+  syncEntityReferentiAction,
+} from "@/app/actions/rubrica";
+import type { RubricaContatto } from "@/lib/rubrica/types";
 const PRODOTTI_PROPRI_NUOVO_PATH =
   "/app/amministrazione/schede/prodotti-propri?nuovo=1";
 
@@ -26,8 +32,15 @@ type Props = {
   mode: "create" | "edit";
   initial?: Cliente | null;
   onClose: () => void;
-  /** Restituisce true se il salvataggio è andato a buon fine. */
-  onSave: (values: ClienteInput) => boolean | Promise<boolean>;
+  /**
+   * true = ok; oppure `{ id }` dopo create per collegare i referenti.
+   */
+  onSave: (
+    values: ClienteInput
+  ) =>
+    | boolean
+    | { id: string }
+    | Promise<boolean | { id: string }>;
   /** Sopra un’altra modale (es. ordine storico). */
   elevated?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
@@ -130,8 +143,19 @@ export function ClienteFormModal({
   const [prodotti, setProdotti] = useState<string[]>(
     initial?.prodottiAcquistati ?? []
   );
+  const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isPossibile || !initial?.id) return;
+    void listEntityReferentiAction({
+      tipo: "cliente",
+      entityId: initial.id,
+    }).then((res) => {
+      if (res.success) setReferenti(res.items);
+    });
+  }, [isPossibile, initial?.id]);
 
   function updateConsegna(index: number, next: ConsegnaAltraAzienda) {
     setConsegne((prev) => prev.map((item, i) => (i === index ? next : item)));
@@ -317,7 +341,25 @@ export function ClienteFormModal({
   async function persist(values: ClienteInput): Promise<boolean> {
     setSaving(true);
     try {
-      return Boolean(await onSave(values));
+      const result = await onSave(values);
+      const ok =
+        result === true ||
+        (typeof result === "object" && result !== null && "id" in result);
+      if (!ok) return false;
+      if (isPossibile) return true;
+      const entityId =
+        (typeof result === "object" && result && "id" in result
+          ? result.id
+          : null) || initial?.id;
+      if (entityId) {
+        await syncEntityReferentiAction({
+          tipo: "cliente",
+          entityId,
+          entityLabel: values.ragioneSociale,
+          contattoIds: referenti.map((r) => r.id),
+        });
+      }
+      return true;
     } finally {
       setSaving(false);
     }
@@ -729,6 +771,15 @@ export function ClienteFormModal({
                 : "Seleziona i prodotti dall'elenco di Prodotti propri."
             }
           />
+
+          {!isPossibile ? (
+            <ReferentiPickerField
+              value={referenti}
+              onChange={setReferenti}
+              defaultAziendaTipo="cliente"
+              defaultAziendaLabel={ragioneSociale}
+            />
+          ) : null}
 
           {formError && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

@@ -623,7 +623,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
             }
             setSaveError(null);
             setCreating(false);
-            return true;
+            return { id: created.fornitore.id };
           }}
         />
       )}
@@ -641,7 +641,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
             }
             setSaveError(null);
             setEditing(null);
-            return true;
+            return { id: editing.id };
           }}
         />
       )}
