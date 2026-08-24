@@ -16,6 +16,8 @@ import {
   BANK_RECONCILE_NEAR_DAYS,
   BANK_RECONCILE_SEARCH_DAYS,
   invoiceKindFromBankAmount,
+  normalizeEntityKey,
+  resolveBestCompanyFromInvoices,
   scoreBankInvoiceMatch,
   scoreEntityInCausale,
   isBankCommissionFee,
@@ -2061,6 +2063,155 @@ export async function listBankReconcileBrowseAction(input: {
     halfWindowDays: half,
     groups,
     items,
+  };
+}
+
+export type BankReconcileDateSplit = {
+  antecedenti: BankReconcileInvoiceGroup[];
+  successive: BankReconcileInvoiceGroup[];
+  senzaData: BankReconcileInvoiceGroup[];
+};
+
+function splitGroupsByTxDate(
+  groups: BankReconcileInvoiceGroup[],
+  txDate: string
+): BankReconcileDateSplit {
+  const tx = txDate.slice(0, 10);
+  const antecedenti: BankReconcileInvoiceGroup[] = [];
+  const successive: BankReconcileInvoiceGroup[] = [];
+  const senzaData: BankReconcileInvoiceGroup[] = [];
+  for (const g of groups) {
+    const d = g.dataEmissione?.slice(0, 10) ?? null;
+    if (!d) {
+      senzaData.push(g);
+      continue;
+    }
+    if (d < tx) antecedenti.push(g);
+    else successive.push(g);
+  }
+  // Antecedenti: più vicine alla tx per prime (data desc)
+  antecedenti.sort((a, b) =>
+    (b.dataEmissione ?? "").localeCompare(a.dataEmissione ?? "")
+  );
+  // Successive: dalla tx in avanti (data asc)
+  successive.sort((a, b) =>
+    (a.dataEmissione ?? "").localeCompare(b.dataEmissione ?? "")
+  );
+  return { antecedenti, successive, senzaData };
+}
+
+function pruneGroupDilazioni(
+  g: BankReconcileInvoiceGroup
+): BankReconcileInvoiceGroup {
+  return {
+    ...g,
+    dilazioni: g.dilazioni.filter((d) => !d.alreadyMatched),
+  };
+}
+
+/**
+ * Fallback dopo automatica senza match:
+ * 1) tutte le fatture dell’azienda individuata dalla causale/controparte
+ * 2) altre fatture nel range ±SEARCH_DAYS, con divisione Antecedenti / Successive
+ */
+export async function listBankReconcileAutoFallbackAction(input: {
+  transactionId: string;
+  halfWindowDays?: number;
+}): Promise<
+  | {
+      success: true;
+      kind: "emessa" | "ricevuta";
+      amountAbs: number;
+      txDate: string;
+      dateFrom: string;
+      dateTo: string;
+      halfWindowDays: number;
+      companyName: string | null;
+      company: BankReconcileDateSplit;
+      periodo: BankReconcileDateSplit;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("area-fiscale");
+  const id = String(input.transactionId ?? "").trim();
+  const half = Math.max(
+    BANK_RECONCILE_SEARCH_DAYS,
+    Math.floor(Number(input.halfWindowDays) || BANK_RECONCILE_SEARCH_DAYS)
+  );
+  if (!id) return { success: false, error: "Movimento non valido." };
+
+  const supabase = await createClient();
+  const { data: tx, error: txErr } = await supabase
+    .from("bank_transactions")
+    .select("id, amount, transaction_date, description, counterparty_name")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (txErr) return { success: false, error: txErr.message };
+  if (!tx) return { success: false, error: "Movimento non trovato." };
+
+  const amount = Number(tx.amount) || 0;
+  const kind = invoiceKindFromBankAmount(amount);
+  if (!kind) {
+    return { success: false, error: "Imposta prima il segno del movimento." };
+  }
+  const amountAbs = Math.abs(amount);
+  const txDate = String(tx.transaction_date).slice(0, 10);
+  const dateFrom = addDaysIso(txDate, -half);
+  const dateTo = addDaysIso(txDate, half);
+  const description = String(tx.description ?? "");
+  const counterparty = String(tx.counterparty_name ?? "");
+
+  let allGroups: BankReconcileInvoiceGroup[];
+  try {
+    allGroups = (await loadReconcileInvoiceGroups(supabase, kind, amountAbs)).map(
+      pruneGroupDilazioni
+    );
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Caricamento fatture fallito.",
+    };
+  }
+
+  const best = resolveBestCompanyFromInvoices(
+    allGroups.map((g) => g.entityName),
+    description,
+    counterparty
+  );
+  const companyKey = best ? normalizeEntityKey(best.name) : null;
+
+  const companyGroups = companyKey
+    ? allGroups.filter(
+        (g) => normalizeEntityKey(g.entityName) === companyKey
+      )
+    : [];
+
+  const companyIds = new Set(companyGroups.map((g) => g.invoiceId));
+
+  const inRange = (d: string | null) =>
+    Boolean(d && d.slice(0, 10) >= dateFrom && d.slice(0, 10) <= dateTo);
+
+  const periodoGroups = allGroups.filter((g) => {
+    if (companyIds.has(g.invoiceId)) return false;
+    return (
+      inRange(g.dataEmissione) ||
+      g.amountMatchFull ||
+      g.dilazioni.some((d) => d.amountMatch || inRange(d.dataScadenza))
+    );
+  });
+
+  return {
+    success: true,
+    kind,
+    amountAbs,
+    txDate,
+    dateFrom,
+    dateTo,
+    halfWindowDays: half,
+    companyName: best?.name ?? null,
+    company: splitGroupsByTxDate(companyGroups, txDate),
+    periodo: splitGroupsByTxDate(periodoGroups, txDate),
   };
 }
 

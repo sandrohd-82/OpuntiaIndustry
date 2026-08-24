@@ -122,6 +122,35 @@ export function scoreEntityInCausale(
   return 6;
 }
 
+/** Chiave normalizzata ragione sociale (match azienda). */
+export function normalizeEntityKey(name: string): string {
+  return normalizeText(name);
+}
+
+/**
+ * Individua la controparte più probabile tra le fatture
+ * (causale / counterparty banca).
+ */
+export function resolveBestCompanyFromInvoices(
+  entityNames: string[],
+  description: string,
+  counterparty: string
+): { name: string; score: number } | null {
+  let best: { name: string; score: number } | null = null;
+  const seen = new Set<string>();
+  for (const raw of entityNames) {
+    const name = String(raw ?? "").trim();
+    if (!name) continue;
+    const key = normalizeEntityKey(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const score = scoreEntityInCausale(name, description, counterparty);
+    if (score < 12) continue;
+    if (!best || score > best.score) best = { name, score };
+  }
+  return best;
+}
+
 function daysBetween(a: string, b: string): number | null {
   const d1 = Date.parse(a.slice(0, 10));
   const d2 = Date.parse(b.slice(0, 10));
