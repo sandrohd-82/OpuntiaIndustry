@@ -519,7 +519,7 @@ export async function createNotaPnAction(input: unknown): Promise<
 
 // —— Possibili clienti ——
 export async function listClientiPossibiliAction(): Promise<
-  | { success: true; items: ClientePossibile[] }
+  | { success: true; items: ClientePossibile[]; noteCounts: Record<string, number> }
   | { success: false; error: string }
 > {
   await guardAdmin();
@@ -531,12 +531,28 @@ export async function listClientiPossibiliAction(): Promise<
     .neq("stato", "scartato")
     .order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: (data ?? []).map((r) =>
-      mapClientePossibileRow(r as Record<string, unknown>)
-    ),
-  };
+  const items = (data ?? []).map((r) =>
+    mapClientePossibileRow(r as Record<string, unknown>)
+  );
+  const noteCounts: Record<string, number> = {};
+  if (items.length > 0) {
+    const { data: noteRows } = await supabase
+      .from("pn_note")
+      .select("entity_id")
+      .eq("entity_type", "cliente_possibile")
+      .is("deleted_at", null)
+      .eq("stato", "attiva")
+      .in(
+        "entity_id",
+        items.map((i) => i.id)
+      );
+    for (const row of noteRows ?? []) {
+      const id = row.entity_id ? String(row.entity_id) : "";
+      if (!id) continue;
+      noteCounts[id] = (noteCounts[id] ?? 0) + 1;
+    }
+  }
+  return { success: true, items, noteCounts };
 }
 
 /** Accetta ClienteInput dal form (prodottiAcquistati → prodotti_interessati). */

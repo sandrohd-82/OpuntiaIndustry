@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { FaNoteSticky, FaPen, FaPlus } from "react-icons/fa6";
-import { createClienteAction } from "@/app/actions/clienti";
 import {
   createClientePossibileAction,
   createNotaPnAction,
@@ -10,29 +9,21 @@ import {
   listNotePnAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
-import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import {
   EMPTY_NOTA_EXTRAS,
   NotaFormExtras,
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
-import {
-  clienteFromPossibile,
-  type ClientePossibile,
-  type PnNota,
-} from "@/lib/promemorie-e-note/types";
+import type { ClientePossibile, PnNota } from "@/lib/promemorie-e-note/types";
 
 export function PossibiliClientiBoard() {
   const [items, setItems] = useState<ClientePossibile[]>([]);
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
-  const [showClienteForm, setShowClienteForm] = useState(false);
-  const [clientePrefill, setClientePrefill] = useState<ReturnType<
-    typeof clienteFromPossibile
-  > | null>(null);
   const [noteFor, setNoteFor] = useState<ClientePossibile | null>(null);
   const [noteBody, setNoteBody] = useState("");
   const [noteExtras, setNoteExtras] =
@@ -48,6 +39,7 @@ export function PossibiliClientiBoard() {
       }
       setError(null);
       setItems(res.items);
+      setNoteCounts(res.noteCounts);
     });
   }
 
@@ -64,8 +56,12 @@ export function PossibiliClientiBoard() {
       entityType: "cliente_possibile",
       entityId: lead.id,
     });
-    if (res.success) setNotes(res.items);
-    else setNotes([]);
+    if (res.success) {
+      setNotes(res.items);
+      setNoteCounts((prev) => ({ ...prev, [lead.id]: res.items.length }));
+    } else {
+      setNotes([]);
+    }
   }
 
   function saveNote() {
@@ -113,51 +109,51 @@ export function PossibiliClientiBoard() {
       </div>
 
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
-        {items.map((lead) => (
-          <li
-            key={lead.id}
-            className="flex flex-wrap items-start gap-3 px-4 py-3"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">{lead.ragioneSociale}</p>
-              <p className="text-xs text-[var(--muted)]">
-                {lead.stato}
-                {lead.partitaIva ? ` · P.IVA ${lead.partitaIva}` : ""}
-                {lead.sedeAmministrativa.citta
-                  ? ` · ${lead.sedeAmministrativa.citta}`
-                  : ""}
-                {lead.telefono ? ` · ${lead.telefono}` : ""}
-                {lead.email ? ` · ${lead.email}` : ""}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setEditingLead(lead)}
-              className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+        {items.map((lead) => {
+          const nNote = noteCounts[lead.id] ?? 0;
+          return (
+            <li
+              key={lead.id}
+              className="flex flex-wrap items-start gap-3 px-4 py-3"
             >
-              <FaPen size={10} />
-              Modifica
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setClientePrefill(clienteFromPossibile(lead));
-                setShowClienteForm(true);
-              }}
-              className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
-            >
-              Crea cliente
-            </button>
-            <button
-              type="button"
-              onClick={() => void openNotes(lead)}
-              className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-950 hover:bg-amber-100"
-            >
-              <FaNoteSticky size={11} />
-              Aggiungi nota
-            </button>
-          </li>
-        ))}
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">{lead.ragioneSociale}</p>
+                <p className="text-xs text-[var(--muted)]">
+                  {lead.stato}
+                  {lead.partitaIva ? ` · P.IVA ${lead.partitaIva}` : ""}
+                  {lead.sedeAmministrativa.citta
+                    ? ` · ${lead.sedeAmministrativa.citta}`
+                    : ""}
+                  {lead.telefono ? ` · ${lead.telefono}` : ""}
+                  {lead.email ? ` · ${lead.email}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingLead(lead)}
+                className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                <FaPen size={10} />
+                Modifica
+              </button>
+              <button
+                type="button"
+                onClick={() => void openNotes(lead)}
+                className="relative inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 pr-3 text-xs font-medium text-amber-950 hover:bg-amber-100"
+                aria-label={`Nuova nota${nNote > 0 ? `, ${nNote} note registrate` : ""}`}
+              >
+                <FaNoteSticky size={11} />
+                Nuova nota
+                <span
+                  className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-600 px-1 text-[10px] font-semibold leading-none text-white"
+                  aria-hidden
+                >
+                  {nNote > 99 ? "99+" : nNote}
+                </span>
+              </button>
+            </li>
+          );
+        })}
         {items.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
             Nessun possibile cliente. Usa «Nuovo possibile cliente».
@@ -255,30 +251,6 @@ export function PossibiliClientiBoard() {
             setError(null);
             reload();
             return true;
-          }}
-        />
-      ) : null}
-
-      {showClienteForm ? (
-        <ClienteFormModal
-          mode="create"
-          variant="cliente"
-          initial={clientePrefill}
-          onClose={() => {
-            setShowClienteForm(false);
-            setClientePrefill(null);
-          }}
-          onSave={async (values) => {
-            const res = await createClienteAction(values);
-            if (!res.success) {
-              setError(res.error);
-              return false;
-            }
-            setShowClienteForm(false);
-            setClientePrefill(null);
-            setError(null);
-            reload();
-            return { id: res.cliente.id };
           }}
         />
       ) : null}
