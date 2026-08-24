@@ -8,7 +8,9 @@ import {
   CERCA_RPC_LIMIT,
   CERCA_RPC_THRESHOLD,
   DROPDOWN_MATCH_THRESHOLD_PCT,
+  AUTO_LINK_EXACT_MATCH_PCT,
 } from "@/lib/amministrazione/catalogo-collega";
+import { writeAuditLog } from "@/lib/audit";
 import {
   mapFatturaRicevutaRow,
   type Fattura,
@@ -459,6 +461,200 @@ export async function scanFatturaRigheCatalogoAction(input: {
   }
 
   return { success: true, hints: hints.filter(Boolean) };
+}
+
+export type AutoLinkExactResult = {
+  key: string;
+  /** Codice assegnato automaticamente (solo se match 100% univoco). */
+  autoCodice: string | null;
+  hint: RigaCatalogoMatchHint;
+};
+
+/**
+ * Per ogni riga senza codice catalogo valido: se esiste un solo hit a 100%,
+ * propone auto-link. Le altre restano all’operatore (hint).
+ */
+export async function autoLinkExactCatalogMatchesAction(input: {
+  fatturaId?: string | null;
+  fornitoreId: string | null;
+  sameInvoiceCodici: string[];
+  codicePending: string | null;
+  catalogCodiciValidi: string[];
+  righe: Array<{ key: string; descrizione: string; codice: string }>;
+}): Promise<
+  | {
+      success: true;
+      results: AutoLinkExactResult[];
+      autoLinkedCount: number;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const pending = (input.codicePending ?? "").trim().toLowerCase();
+  const validSet = new Set(
+    input.catalogCodiciValidi.map((c) => c.trim().toLowerCase()).filter(Boolean)
+  );
+  const sameSet = new Set(
+    input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
+  );
+  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId).catch(
+    () => new Set<string>()
+  );
+
+  const results: AutoLinkExactResult[] = new Array(input.righe.length);
+  const CONCURRENCY = 4;
+
+  async function processOne(
+    riga: { key: string; descrizione: string; codice: string },
+    index: number
+  ) {
+    const codice = (riga.codice ?? "").trim();
+    const codeKey = codice.toLowerCase();
+    const desc = (riga.descrizione ?? "").trim();
+
+    if (pending && codeKey && codeKey === pending) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: { key: riga.key, status: "da_sostituire", best: null },
+      };
+      return;
+    }
+
+    const inCatalog =
+      Boolean(codeKey) && codeKey !== "—" && validSet.has(codeKey);
+
+    if (inCatalog) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: { key: riga.key, status: "ok", best: null },
+      };
+      return;
+    }
+
+    if (!desc) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: {
+          key: riga.key,
+          status:
+            codeKey && codeKey !== "—"
+              ? "codice_orfano"
+              : "nessun_match",
+          best: null,
+        },
+      };
+      return;
+    }
+
+    const matched = await rpcMatchCatalogo(supabase, desc, 8, 0.35);
+    if (matched.error || matched.rows.length === 0) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: {
+          key: riga.key,
+          status:
+            codeKey && codeKey !== "—"
+              ? "codice_orfano"
+              : "nessun_match",
+          best: null,
+        },
+      };
+      return;
+    }
+
+    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null);
+    const exactHits = ranked.filter(
+      (h) => h.score >= AUTO_LINK_EXACT_MATCH_PCT
+    );
+    // Univoco: un solo codice al 100% (non due articoli diversi entrambi a 100)
+    const uniqueExact =
+      exactHits.length === 1
+        ? exactHits[0]!
+        : exactHits.length > 1 &&
+            new Set(exactHits.map((h) => h.codice.trim().toLowerCase())).size ===
+              1
+          ? exactHits[0]!
+          : null;
+
+    if (uniqueExact) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: uniqueExact.codice,
+        hint: {
+          key: riga.key,
+          status: "ok",
+          best: uniqueExact,
+        },
+      };
+      return;
+    }
+
+    const best = ranked[0] ?? null;
+    const score = best?.score ?? 0;
+    if (best && score >= RIGA_MATCH_SUGGEST_SCORE) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: { key: riga.key, status: "possibile_match", best },
+      };
+      return;
+    }
+    if (codeKey && codeKey !== "—") {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: { key: riga.key, status: "codice_orfano", best: null },
+      };
+      return;
+    }
+    results[index] = {
+      key: riga.key,
+      autoCodice: null,
+      hint: { key: riga.key, status: "nessun_match", best: null },
+    };
+  }
+
+  for (let i = 0; i < input.righe.length; i += CONCURRENCY) {
+    const chunk = input.righe.slice(i, i + CONCURRENCY);
+    await Promise.all(chunk.map((r, j) => processOne(r, i + j)));
+  }
+
+  const finalResults = results.filter(Boolean);
+  const autoLinked = finalResults.filter((r) => r.autoCodice);
+  if (autoLinked.length > 0) {
+    void writeAuditLog({
+      entity_type: "fatture_ricevute_catalogo_auto_link",
+      entity_id: input.fatturaId?.trim() || "draft",
+      action: "auto_link_exact_match",
+      actor_id: auth.userId,
+      summary: `Auto-link ${autoLinked.length} riga/e a match 100%`,
+      payload: {
+        links: autoLinked.map((r) => ({
+          key: r.key,
+          codice: r.autoCodice,
+          hit: r.hint.best
+            ? {
+                codice: r.hint.best.codice,
+                nome: r.hint.best.nome,
+                score: r.hint.best.score,
+                kind: r.hint.best.catalogoKind,
+              }
+            : null,
+        })),
+      },
+    });
+  }
+
+  return {
+    success: true,
+    results: finalResults,
+    autoLinkedCount: autoLinked.length,
+  };
 }
 
 export async function listFattureDaAggiornareCatalogoAction(): Promise<

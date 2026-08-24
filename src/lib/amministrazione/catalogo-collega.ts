@@ -14,3 +14,9 @@ export const CERCA_RPC_THRESHOLD = 0.25;
 
 /** Max risultati da una chiamata RPC. */
 export const CERCA_RPC_LIMIT = 80;
+
+/**
+ * Auto-assegnazione codice riga fattura ricevuta:
+ * solo corrispondenza catalogo al 100% e univoca.
+ */
+export const AUTO_LINK_EXACT_MATCH_PCT = 100;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
@@ -35,6 +35,7 @@ import {
   listCatalogoServiziAction,
 } from "@/app/actions/catalogo-offerta";
 import {
+  autoLinkExactCatalogMatchesAction,
   type RigaCatalogoMatchHint,
 } from "@/app/actions/catalogo-collega";
 import {
@@ -291,6 +292,8 @@ export function FatturaRegistrazioneModal({
     Record<string, RigaCatalogoMatchHint>
   >({});
   const [matchScanPending, setMatchScanPending] = useState(false);
+  const [autoLinkCount, setAutoLinkCount] = useState(0);
+  const autoLinkRunKeyRef = useRef<string | null>(null);
   const [collegatiByCodice, setCollegatiByCodice] = useState<
     Record<string, ArticoloRef[]>
   >({});
@@ -741,14 +744,83 @@ export function FatturaRegistrazioneModal({
     };
   }, [isRicevuta]);
 
-  /** Scan automatico disabilitato sul hot path: saturava il DB (N RPC/riga).
-   *  Usa «Cerca» sulla riga per match on-demand. */
+  /**
+   * Auto-link Opzione A: righe con match catalogo 100% univoco → codice già valorizzato.
+   * Solo righe ≠ 100% restano all’operatore (badge / Cerca).
+   */
   useEffect(() => {
     if (!isRicevuta) {
       setMatchHints({});
       setMatchScanPending(false);
+      setAutoLinkCount(0);
+      autoLinkRunKeyRef.current = null;
+      return;
     }
-  }, [isRicevuta]);
+    if (vociAcquisto.length === 0 || righe.length === 0) return;
+
+    const runKey = `${initial?.id ?? "new"}|${prefill?.ficId ?? ""}|${prefill?.numeroDocumentoEsterno ?? ""}|${righe.length}|${vociAcquisto.length}`;
+    if (autoLinkRunKeyRef.current === runKey) return;
+
+    let cancelled = false;
+    setMatchScanPending(true);
+    void (async () => {
+      const catalogCodiciValidi = vociAcquisto.map((v) => v.codice);
+      const sameInvoiceCodici = righe
+        .map((r) => (r.codice ?? "").trim())
+        .filter((c) => c && c !== "—");
+      const res = await autoLinkExactCatalogMatchesAction({
+        fatturaId: initial?.id ?? null,
+        fornitoreId: anagraficaId || null,
+        sameInvoiceCodici,
+        codicePending: null,
+        catalogCodiciValidi,
+        righe: righe.map((r, index) => ({
+          key: String(index),
+          descrizione: r.descrizione ?? "",
+          codice: r.codice ?? "",
+        })),
+      });
+      if (cancelled) return;
+      if (!res.success) {
+        setMatchScanPending(false);
+        return;
+      }
+
+      autoLinkRunKeyRef.current = runKey;
+
+      const byKey = new Map(res.results.map((r) => [r.key, r]));
+      setRighe((prev) =>
+        prev.map((r, index) => {
+          const hit = byKey.get(String(index));
+          if (!hit?.autoCodice) return r;
+          const current = (r.codice ?? "").trim();
+          if (current && current !== "—") return r;
+          return { ...r, codice: hit.autoCodice };
+        })
+      );
+
+      const hints: Record<string, RigaCatalogoMatchHint> = {};
+      for (const r of res.results) {
+        hints[r.key] = r.hint;
+      }
+      setMatchHints(hints);
+      setAutoLinkCount(res.autoLinkedCount);
+      setMatchScanPending(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per documento/caricamento catalogo
+  }, [
+    isRicevuta,
+    vociAcquisto.length,
+    righe.length,
+    initial?.id,
+    prefill?.ficId,
+    prefill?.numeroDocumentoEsterno,
+    anagraficaId,
+  ]);
 
   /** Carica legami articolo↔articolo per le targhe sulle righe (nuvola in fattura). */
   useEffect(() => {
@@ -1738,18 +1810,23 @@ export function FatturaRegistrazioneModal({
             {isRicevuta ? (
               <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs text-sky-950">
                 {matchScanPending ? (
-                  <span>Controllo corrispondenze descrizione ↔ catalogo…</span>
+                  <span>
+                    Controllo corrispondenze: auto-assegnazione al 100% e
+                    segnalazione delle altre…
+                  </span>
                 ) : (
                   <span>
-                    Scan automatico: badge sulle righe (possibile match / nessun
-                    match / da sostituire). Il menu mostra solo match ≥70%; usa{" "}
-                    <strong>Cerca</strong> per il circuito di ricerca (intero
-                    sistema solo se non trovi nulla). Il bottone{" "}
-                    <strong>nodi collegati</strong> apre la gestione dei legami
-                    tra articoli diversi.
-                    {Object.values(matchHints).filter(
-                      (h) => h.status !== "ok"
-                    ).length > 0
+                    {autoLinkCount > 0 ? (
+                      <>
+                        <strong>{autoLinkCount}</strong> riga/e con match{" "}
+                        <strong>100%</strong> già collegate al catalogo.{" "}
+                      </>
+                    ) : null}
+                    Solo le righe senza corrispondenza esatta restano da
+                    gestire (badge / <strong>Cerca</strong>). Il menu codice
+                    mostra match ≥70%.
+                    {Object.values(matchHints).filter((h) => h.status !== "ok")
+                      .length > 0
                       ? ` · ${
                           Object.values(matchHints).filter(
                             (h) => h.status !== "ok"
