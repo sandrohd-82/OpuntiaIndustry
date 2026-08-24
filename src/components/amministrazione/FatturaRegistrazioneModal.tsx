@@ -294,6 +294,8 @@ export function FatturaRegistrazioneModal({
   const [matchScanPending, setMatchScanPending] = useState(false);
   const [autoLinkCount, setAutoLinkCount] = useState(0);
   const autoLinkRunKeyRef = useRef<string | null>(null);
+  /** Overlay load solo al primo controllo del documento, non a ogni modifica successiva. */
+  const matchScanOverlayDocRef = useRef<string | null>(null);
   const [collegatiByCodice, setCollegatiByCodice] = useState<
     Record<string, ArticoloRef[]>
   >({});
