@@ -108,6 +108,21 @@ export const createNotaSchema = z.object({
   linkedAttivitaId: z.string().uuid().nullable().optional(),
 });
 
+export const updateNotaSchema = z.object({
+  id: z.string().uuid(),
+  titolo: z.string().trim().max(200).optional().default(""),
+  body: z.string().trim().min(1).max(8000),
+  colore: z
+    .enum(["giallo", "verde", "blu", "rosa", "grigio"])
+    .optional()
+    .default("giallo"),
+  dueAt: z.string().nullable().optional(),
+  createPromemoria: z.boolean().optional().default(false),
+  createAttivita: z.boolean().optional().default(false),
+  linkedPromemoriaId: z.string().uuid().nullable().optional(),
+  linkedAttivitaId: z.string().uuid().nullable().optional(),
+});
+
 const sedeSchema = z.object({
   nazione: z.string(),
   provincia: z.string(),

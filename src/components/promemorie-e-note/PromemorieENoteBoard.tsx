@@ -16,6 +16,7 @@ import {
   NotaFormExtras,
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
+import { NotaCard } from "@/components/promemorie-e-note/NotaCard";
 import {
   dayKeyFromIso,
   monthKeyFromIso,
@@ -49,14 +50,6 @@ function formatWhen(iso: string) {
     return iso;
   }
 }
-
-const NOTE_COLORS: Record<PnNota["colore"], string> = {
-  giallo: "bg-amber-100 border-amber-300",
-  verde: "bg-emerald-100 border-emerald-300",
-  blu: "bg-sky-100 border-sky-300",
-  rosa: "bg-pink-100 border-pink-300",
-  grigio: "bg-slate-100 border-slate-300",
-};
 
 export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [error, setError] = useState<string | null>(null);
@@ -444,22 +437,16 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       {kind === "note" ? (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {note.map((n) => (
-            <li
-              key={n.id}
-              className={`rounded-xl border p-3 shadow-sm ${NOTE_COLORS[n.colore]}`}
-            >
-              {n.titolo ? (
-                <p className="text-sm font-semibold">{n.titolo}</p>
-              ) : null}
-              <p className="mt-1 whitespace-pre-wrap text-sm">{n.body}</p>
-              <p className="mt-2 text-[10px] text-slate-600">
-                {formatWhen(n.createdAt)}
-                {n.entityLabel
-                  ? ` · collegata a ${n.entityLabel}`
-                  : n.entityType
-                    ? ` · ${n.entityType}`
-                    : ""}
-              </p>
+            <li key={n.id}>
+              <NotaCard
+                nota={n}
+                onUpdated={(item) =>
+                  setNote((prev) =>
+                    prev.map((x) => (x.id === item.id ? item : x))
+                  )
+                }
+                onError={setError}
+              />
             </li>
           ))}
           {note.length === 0 ? (

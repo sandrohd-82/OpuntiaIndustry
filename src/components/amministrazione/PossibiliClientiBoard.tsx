@@ -15,6 +15,7 @@ import {
   NotaFormExtras,
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
+import { NotaCard } from "@/components/promemorie-e-note/NotaCard";
 import type { ClientePossibile, PnNota } from "@/lib/promemorie-e-note/types";
 
 export function PossibiliClientiBoard() {
@@ -192,22 +193,17 @@ export function PossibiliClientiBoard() {
             </div>
             <ul className="mt-4 max-h-48 space-y-2 overflow-y-auto">
               {notes.map((n) => (
-                <li
-                  key={n.id}
-                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm"
-                >
-                  <p>{n.body}</p>
-                  {n.dueAt ? (
-                    <p className="mt-1 text-xs text-amber-900/70">
-                      {new Date(n.dueAt).toLocaleString("it-IT")}
-                    </p>
-                  ) : null}
-                  {(n.linkedPromemoriaId || n.linkedAttivitaId) && (
-                    <p className="mt-0.5 text-xs text-amber-900/70">
-                      {n.linkedPromemoriaId ? "· promemoria " : ""}
-                      {n.linkedAttivitaId ? "· evento" : ""}
-                    </p>
-                  )}
+                <li key={n.id}>
+                  <NotaCard
+                    nota={n}
+                    compact
+                    onUpdated={(item) =>
+                      setNotes((prev) =>
+                        prev.map((x) => (x.id === item.id ? item : x))
+                      )
+                    }
+                    onError={setError}
+                  />
                 </li>
               ))}
             </ul>

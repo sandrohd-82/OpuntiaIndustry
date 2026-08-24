@@ -71,18 +71,18 @@ export function NotaFormExtras({ value, onChange }: Props) {
   }, [value.dueAt]);
 
   useEffect(() => {
-    if (!pickPromemoria) return;
+    if (!pickPromemoria && !value.linkedPromemoriaId) return;
     void listPromemoriaAction().then((res) => {
       if (res.success) setPromemoria(res.items);
     });
-  }, [pickPromemoria]);
+  }, [pickPromemoria, value.linkedPromemoriaId]);
 
   useEffect(() => {
-    if (!pickAttivita) return;
+    if (!pickAttivita && !value.linkedAttivitaId) return;
     void listAttivitaPnAction().then((res) => {
       if (res.success) setAttivita(res.items);
     });
-  }, [pickAttivita]);
+  }, [pickAttivita, value.linkedAttivitaId]);
 
   function pushDue(date: string, time: string) {
     onChange({

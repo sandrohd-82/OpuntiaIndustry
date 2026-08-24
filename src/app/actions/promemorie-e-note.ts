@@ -17,6 +17,7 @@ import {
   createClientePossibileSchema,
   createNotaSchema,
   createPromemoriaSchema,
+  updateNotaSchema,
   type ClientePossibile,
   type PnAttivita,
   type PnNota,
@@ -512,6 +513,174 @@ export async function createNotaPnAction(input: unknown): Promise<
       due_at: item.dueAt,
       linked_promemoria_id: item.linkedPromemoriaId,
       linked_attivita_id: item.linkedAttivitaId,
+    },
+  });
+  return { success: true, item };
+}
+
+function mapPnNotaRow(r: Record<string, unknown>): PnNota {
+  return {
+    id: String(r.id),
+    titolo: String(r.titolo ?? ""),
+    body: String(r.body ?? ""),
+    colore: r.colore as PnNota["colore"],
+    dueAt: r.due_at ? String(r.due_at) : null,
+    entityType: (r.entity_type as PnNota["entityType"]) ?? null,
+    entityId: r.entity_id ? String(r.entity_id) : null,
+    entityLabel: String(r.entity_label ?? ""),
+    linkedPromemoriaId: r.linked_promemoria_id
+      ? String(r.linked_promemoria_id)
+      : null,
+    linkedAttivitaId: r.linked_attivita_id
+      ? String(r.linked_attivita_id)
+      : null,
+    stato: r.stato as PnNota["stato"],
+    createdAt: String(r.created_at),
+  };
+}
+
+const PN_NOTE_SELECT =
+  "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at";
+
+export async function updateNotaPnAction(input: unknown): Promise<
+  { success: true; item: PnNota } | { success: false; error: string }
+> {
+  const { auth } = await guardPnOrAdmin();
+  const parsed = updateNotaSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const supabase = await createClient();
+  const d = parsed.data;
+
+  const { data: existing, error: exErr } = await supabase
+    .from("pn_note")
+    .select("id, body, versione, linked_promemoria_id, linked_attivita_id")
+    .eq("id", d.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (exErr || !existing) {
+    return { success: false, error: exErr?.message ?? "Nota non trovata" };
+  }
+
+  const dueAt = d.dueAt || null;
+  const titoloBase =
+    (d.titolo || "").trim() || d.body.trim().slice(0, 80) || "Nota";
+
+  let linkedPromemoriaId =
+    d.linkedPromemoriaId !== undefined
+      ? d.linkedPromemoriaId
+      : existing.linked_promemoria_id
+        ? String(existing.linked_promemoria_id)
+        : null;
+  let linkedAttivitaId =
+    d.linkedAttivitaId !== undefined
+      ? d.linkedAttivitaId
+      : existing.linked_attivita_id
+        ? String(existing.linked_attivita_id)
+        : null;
+
+  if (d.createPromemoria && !linkedPromemoriaId) {
+    const due =
+      dueAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: p, error: pe } = await supabase
+      .from("pn_promemoria")
+      .insert({
+        titolo: titoloBase,
+        descrizione: d.body,
+        due_at: due,
+        stato: "attivo",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (pe || !p) {
+      return {
+        success: false,
+        error: pe?.message ?? "Creazione promemoria fallita",
+      };
+    }
+    linkedPromemoriaId = String(p.id);
+    await writeAuditLog({
+      entity_type: "pn_promemoria",
+      entity_id: linkedPromemoriaId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Promemoria da modifica nota: ${titoloBase}`,
+      payload: { from_nota: d.id },
+    });
+  }
+
+  if (d.createAttivita && !linkedAttivitaId) {
+    const due =
+      dueAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: a, error: ae } = await supabase
+      .from("pn_attivita")
+      .insert({
+        titolo: titoloBase,
+        descrizione: d.body,
+        luogo: "",
+        due_at: due,
+        stato: "pianificata",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (ae || !a) {
+      return {
+        success: false,
+        error: ae?.message ?? "Creazione evento fallita",
+      };
+    }
+    linkedAttivitaId = String(a.id);
+    await writeAuditLog({
+      entity_type: "pn_attivita",
+      entity_id: linkedAttivitaId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Evento da modifica nota: ${titoloBase}`,
+      payload: { from_nota: d.id },
+    });
+  }
+
+  const nextVersione = Number(existing.versione ?? 1) + 1;
+  const { data, error } = await supabase
+    .from("pn_note")
+    .update({
+      titolo: d.titolo ?? "",
+      body: d.body,
+      colore: d.colore ?? "giallo",
+      due_at: dueAt,
+      linked_promemoria_id: linkedPromemoriaId,
+      linked_attivita_id: linkedAttivitaId,
+      versione: nextVersione,
+      updated_by: auth.userId,
+    })
+    .eq("id", d.id)
+    .is("deleted_at", null)
+    .select(PN_NOTE_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const item = mapPnNotaRow(data as Record<string, unknown>);
+  await writeAuditLog({
+    entity_type: "pn_note",
+    entity_id: item.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Nota aggiornata (v${nextVersione})`,
+    payload: {
+      versione: nextVersione,
+      due_at: item.dueAt,
+      linked_promemoria_id: item.linkedPromemoriaId,
+      linked_attivita_id: item.linkedAttivitaId,
+      previous_body_preview: String(existing.body ?? "").slice(0, 200),
     },
   });
   return { success: true, item };
