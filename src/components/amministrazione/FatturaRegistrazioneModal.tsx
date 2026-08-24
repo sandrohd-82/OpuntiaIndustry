@@ -3199,6 +3199,9 @@ export function FatturaRegistrazioneModal({
               ? matchHints[String(collegaRigaIndex)]?.best ?? null
               : null
           }
+          initialHits={
+            matchHints[String(collegaRigaIndex)]?.candidates ?? undefined
+          }
           onClose={() => setCollegaRigaIndex(null)}
           onCollega={(hit) => {
             const idx = collegaRigaIndex;

@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   searchCollegaCatalogoAction,
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
-import { CERCA_MATCH_PRIMARY_PCT } from "@/lib/amministrazione/catalogo-collega";
+import {
+  CERCA_MATCH_PRIMARY_PCT,
+  CERCA_RPC_LIMIT,
+} from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 import { normalizeInvoiceLineText } from "@/lib/sku-generator";
 
@@ -17,6 +20,8 @@ type Props = {
   preferKind?: CatalogoLifecycleKind | null;
   codiceDaSostituire?: string | null;
   suggestedHit?: CollegaCatalogoHit | null;
+  /** Candidati già calcolati allo scan fattura → Cerca istantanea. */
+  initialHits?: CollegaCatalogoHit[];
   onClose: () => void;
   onCollega: (hit: CollegaCatalogoHit) => void;
   onCreaNuovo: (kind: CatalogoLifecycleKind) => void;
@@ -36,6 +41,15 @@ const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
   contributo: "Contributo (Ct)",
 };
 
+function seedFromProps(
+  initialHits: CollegaCatalogoHit[] | undefined,
+  suggestedHit: CollegaCatalogoHit | null | undefined
+): CollegaCatalogoHit[] {
+  if (initialHits && initialHits.length > 0) return initialHits;
+  if (suggestedHit) return [suggestedHit];
+  return [];
+}
+
 export function CollegaArticoloModal({
   descrizioneRiga,
   fornitoreId,
@@ -43,6 +57,7 @@ export function CollegaArticoloModal({
   preferKind = null,
   codiceDaSostituire = null,
   suggestedHit = null,
+  initialHits,
   onClose,
   onCollega,
   onCreaNuovo,
@@ -50,6 +65,7 @@ export function CollegaArticoloModal({
   const titleId = useId();
   /** Descrizione scremata una sola volta all’apertura (in memoria). */
   const cleanedDescRef = useRef(normalizeInvoiceLineText(descrizioneRiga));
+  const seedHitsRef = useRef(seedFromProps(initialHits, suggestedHit));
   const [query, setQuery] = useState(() => cleanedDescRef.current);
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({
@@ -59,51 +75,73 @@ export function CollegaArticoloModal({
       contributo: !preferKind || preferKind === "contributo",
     })
   );
-  const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
+  const [hits, setHits] = useState<CollegaCatalogoHit[]>(
+    () => seedHitsRef.current
+  );
   const [error, setError] = useState<string | null>(null);
   const [mostraAltro, setMostraAltro] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [searching, setSearching] = useState(false);
   const sameKey = useMemo(
     () => sameInvoiceCodici.join("|"),
     [sameInvoiceCodici]
   );
   const searchGen = useRef(0);
 
-  /** Una sola ricerca server: all’apertura e quando cambia il testo digitato (debounced). */
+  /**
+   * Con seed dallo scan: nessuna RPC all’apertura (0 ms).
+   * Nuova RPC solo se l’utente modifica il testo di ricerca.
+   */
   useEffect(() => {
     let cancelled = false;
     const gen = ++searchGen.current;
+    const normalized =
+      normalizeInvoiceLineText(query) ||
+      cleanedDescRef.current ||
+      query.trim();
+    const isSeedQuery =
+      normalizeInvoiceLineText(query) === cleanedDescRef.current ||
+      query.trim() === cleanedDescRef.current;
+
+    if (isSeedQuery && seedHitsRef.current.length > 0) {
+      setHits(seedHitsRef.current);
+      setError(null);
+      setSearching(false);
+      setMostraAltro(false);
+      return;
+    }
+
+    if (!normalized) {
+      setHits([]);
+      setError(null);
+      setSearching(false);
+      return;
+    }
+
+    const delay = isSeedQuery ? 0 : 200;
     const handle = window.setTimeout(() => {
-      startTransition(async () => {
-        const q =
-          normalizeInvoiceLineText(query) ||
-          cleanedDescRef.current ||
-          query.trim();
-        if (!q) {
-          if (!cancelled && gen === searchGen.current) {
-            setHits([]);
-            setError(null);
-          }
-          return;
-        }
+      void (async () => {
+        setSearching(true);
         const res = await searchCollegaCatalogoAction({
-          query: q,
+          query: normalized,
           fornitoreId,
           sameInvoiceCodici: sameKey.split("|").filter(Boolean),
-          kinds: null, // tutte; filtro kind solo in UI
-          limit: 80,
+          kinds: null,
+          limit: CERCA_RPC_LIMIT,
         });
         if (cancelled || gen !== searchGen.current) return;
         if (!res.success) {
           setError(res.error);
           setHits([]);
+          setSearching(false);
           return;
         }
         setError(null);
         setHits(res.hits);
         setMostraAltro(false);
-      });
-    }, query === cleanedDescRef.current ? 0 : 280);
+        setSearching(false);
+      })();
+    }, delay);
+
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
@@ -272,8 +310,21 @@ export function CollegaArticoloModal({
         />
 
         {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
-        {pending ? (
-          <p className="mt-2 text-xs text-[var(--muted)]">Ricerca…</p>
+        {searching ? (
+          <p className="mt-2 flex items-center gap-2 text-xs font-medium text-sky-800">
+            <span
+              className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-sky-600 border-t-transparent"
+              aria-hidden
+            />
+            Ricerca in corso…
+          </p>
+        ) : seedHitsRef.current.length > 0 &&
+          (normalizeInvoiceLineText(query) === cleanedDescRef.current ||
+            query.trim() === cleanedDescRef.current) ? (
+          <p className="mt-2 text-[10px] text-[var(--muted)]">
+            Risultati dallo scan fattura (istantanei). Modifica il testo per una
+            nuova ricerca.
+          </p>
         ) : null}
 
         <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
@@ -287,7 +338,7 @@ export function CollegaArticoloModal({
               <ul className="space-y-1.5">{visibleHits.map(renderHitRow)}</ul>
             </>
           ) : null}
-          {!pending && visibleHits.length === 0 ? (
+          {!searching && visibleHits.length === 0 ? (
             <p className="py-3 text-center text-sm text-[var(--muted)]">
               {primaryHits.length === 0 && otherHits.length > 0 && !mostraAltro
                 ? `Nessun match ≥${CERCA_MATCH_PRIMARY_PCT}%. Usa «Mostra altro» o crea un codice.`

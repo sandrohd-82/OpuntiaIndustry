@@ -9,6 +9,7 @@ import {
   CERCA_RPC_THRESHOLD,
   DROPDOWN_MATCH_THRESHOLD_PCT,
   AUTO_LINK_EXACT_MATCH_PCT,
+  CERCA_SEED_CANDIDATES,
 } from "@/lib/amministrazione/catalogo-collega";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -44,6 +45,8 @@ export type RigaCatalogoMatchHint = {
   key: string;
   status: RigaCatalogoMatchStatus;
   best: CollegaCatalogoHit | null;
+  /** Top candidati dallo scan riga: Cerca li mostra subito senza nuova RPC. */
+  candidates?: CollegaCatalogoHit[];
 };
 
 /** Soglia UI “possibile match” (suggerimento, non auto-link). */
@@ -225,7 +228,7 @@ function rowsToHits(
 
 /**
  * Cerca codice: una sola RPC pg_trgm (query già scremata lato client).
- * Niente download completo del catalogo.
+ * Azienda + match in parallelo per restare sotto ~1s.
  */
 export async function searchCollegaCatalogoAction(input: {
   /** Preferire testo già tokenizzato (senza stopword). */
@@ -251,10 +254,6 @@ export async function searchCollegaCatalogoAction(input: {
   const sameSet = new Set(
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
-  // Scheda fornitore: 1 query leggera; se fallisce non blocca la ricerca
-  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId).catch(
-    () => new Set<string>()
-  );
   const kinds =
     input.kinds && input.kinds.length > 0
       ? new Set(input.kinds)
@@ -264,7 +263,13 @@ export async function searchCollegaCatalogoAction(input: {
     Math.max(input.limit ?? CERCA_RPC_LIMIT, 1),
     CERCA_RPC_LIMIT
   );
-  const matched = await rpcMatchCatalogo(supabase, q, limit);
+
+  const [aziendaCodes, matched] = await Promise.all([
+    loadAziendaCodes(supabase, input.fornitoreId).catch(
+      () => new Set<string>()
+    ),
+    rpcMatchCatalogo(supabase, q, limit, CERCA_RPC_THRESHOLD),
+  ]);
   if (matched.error) return { success: false, error: matched.error };
 
   let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds);
@@ -298,9 +303,6 @@ export async function suggestCodiciRigaDropdownAction(input: {
   const sameSet = new Set(
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
-  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId).catch(
-    () => new Set<string>()
-  );
   const byKey = new Map<string, CollegaCatalogoHit>();
 
   const merge = (hit: CollegaCatalogoHit) => {
@@ -310,14 +312,22 @@ export async function suggestCodiciRigaDropdownAction(input: {
     if (!prev || hit.score > prev.score) byKey.set(key, hit);
   };
 
+  const [aziendaCodes, matched] = await Promise.all([
+    loadAziendaCodes(supabase, input.fornitoreId).catch(
+      () => new Set<string>()
+    ),
+    descrizione
+      ? rpcMatchCatalogo(
+          supabase,
+          descrizione,
+          24,
+          Math.max(0.35, DROPDOWN_MATCH_THRESHOLD_PCT / 100 - 0.15)
+        )
+      : Promise.resolve({ rows: [] as RpcMatchRow[], error: null as string | null }),
+  ]);
+
+  if (matched.error) return { success: false, error: matched.error };
   if (descrizione) {
-    const matched = await rpcMatchCatalogo(
-      supabase,
-      descrizione,
-      24,
-      Math.max(0.35, DROPDOWN_MATCH_THRESHOLD_PCT / 100 - 0.15)
-    );
-    if (matched.error) return { success: false, error: matched.error };
     for (const h of rowsToHits(matched.rows, sameSet, aziendaCodes, null)) {
       if (h.score < DROPDOWN_MATCH_THRESHOLD_PCT && h.source === "catalogo") {
         continue;
@@ -550,7 +560,12 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       return;
     }
 
-    const matched = await rpcMatchCatalogo(supabase, desc, 8, 0.35);
+    const matched = await rpcMatchCatalogo(
+      supabase,
+      desc,
+      CERCA_SEED_CANDIDATES,
+      CERCA_RPC_THRESHOLD
+    );
     if (matched.error || matched.rows.length === 0) {
       results[index] = {
         key: riga.key,
@@ -562,12 +577,14 @@ export async function autoLinkExactCatalogMatchesAction(input: {
               ? "codice_orfano"
               : "nessun_match",
           best: null,
+          candidates: [],
         },
       };
       return;
     }
 
     const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null);
+    const candidates = ranked.slice(0, CERCA_SEED_CANDIDATES);
     const exactHits = ranked.filter(
       (h) => h.score >= AUTO_LINK_EXACT_MATCH_PCT
     );
@@ -589,6 +606,7 @@ export async function autoLinkExactCatalogMatchesAction(input: {
           key: riga.key,
           status: "ok",
           best: uniqueExact,
+          candidates,
         },
       };
       return;
@@ -600,7 +618,12 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       results[index] = {
         key: riga.key,
         autoCodice: null,
-        hint: { key: riga.key, status: "possibile_match", best },
+        hint: {
+          key: riga.key,
+          status: "possibile_match",
+          best,
+          candidates,
+        },
       };
       return;
     }
@@ -608,14 +631,24 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       results[index] = {
         key: riga.key,
         autoCodice: null,
-        hint: { key: riga.key, status: "codice_orfano", best: null },
+        hint: {
+          key: riga.key,
+          status: "codice_orfano",
+          best: null,
+          candidates,
+        },
       };
       return;
     }
     results[index] = {
       key: riga.key,
       autoCodice: null,
-      hint: { key: riga.key, status: "nessun_match", best: null },
+      hint: {
+        key: riga.key,
+        status: "nessun_match",
+        best: null,
+        candidates,
+      },
     };
   }
 
