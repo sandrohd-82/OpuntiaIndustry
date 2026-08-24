@@ -103,16 +103,21 @@ export async function createRubricaContattoAction(input: unknown): Promise<
     };
   }
   const d = parsed.data;
+  const aziendaTipo = d.aziendaTipo ?? "nessuna";
   let aziendaId = d.aziendaId ?? null;
   let aziendaLabel = d.aziendaLabel ?? "";
-  if (d.aziendaTipo === "agrinsicilia") {
+
+  if (aziendaTipo === "nessuna") {
+    aziendaId = null;
+    aziendaLabel = "";
+  } else if (aziendaTipo === "agrinsicilia") {
     aziendaId = null;
     if (!aziendaLabel.trim()) aziendaLabel = "Agrinsicilia";
-  } else if (!aziendaId && !aziendaLabel.trim()) {
-    return {
-      success: false,
-      error: "Seleziona un’azienda o indica la ragione sociale.",
-    };
+  } else if (aziendaId) {
+    // collegato: ok, mansione resta facoltativa
+  } else if (!aziendaLabel.trim()) {
+    // tipo scelto ma azienda non ancora selezionata → permesso (completa dopo)
+    aziendaId = null;
   }
 
   const supabase = await createClient();
@@ -121,10 +126,10 @@ export async function createRubricaContattoAction(input: unknown): Promise<
     .insert({
       nome: d.nome,
       cognome: d.cognome,
-      telefono: d.telefono ?? "",
+      telefono: d.telefono,
       email: d.email ?? "",
       rapporto: d.rapporto,
-      azienda_tipo: d.aziendaTipo,
+      azienda_tipo: aziendaTipo,
       azienda_id: aziendaId,
       azienda_label: aziendaLabel,
       mansione: d.mansione ?? "",
@@ -156,6 +161,9 @@ export async function listAziendeRubricaPickerAction(
   | { success: false; error: string }
 > {
   await guard();
+  if (tipo === "nessuna") {
+    return { success: true, items: [] };
+  }
   if (tipo === "agrinsicilia") {
     return { success: true, items: [{ id: "agrinsicilia", label: "Agrinsicilia" }] };
   }

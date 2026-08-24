@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaPlus, FaXmark } from "react-icons/fa6";
+import { FaXmark } from "react-icons/fa6";
 import {
   createRubricaContattoAction,
   listAziendeRubricaPickerAction,
@@ -26,7 +26,7 @@ type Props = {
 export function RubricaContattoFormModal({
   onClose,
   onCreated,
-  defaultAziendaTipo = "agrinsicilia",
+  defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
   elevated = false,
 }: Props) {
@@ -36,7 +36,7 @@ export function RubricaContattoFormModal({
   const [cognome, setCognome] = useState("");
   const [telefono, setTelefono] = useState("");
   const [email, setEmail] = useState("");
-  const [rapporto, setRapporto] = useState<RubricaRapporto>("dipendente");
+  const [rapporto, setRapporto] = useState<RubricaRapporto>("referente");
   const [aziendaTipo, setAziendaTipo] =
     useState<RubricaAziendaTipo>(defaultAziendaTipo);
   const [aziendaId, setAziendaId] = useState<string>("");
@@ -46,9 +46,16 @@ export function RubricaContattoFormModal({
       : defaultAziendaLabel
   );
   const [mansione, setMansione] = useState("");
+  const [note, setNote] = useState("");
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
 
+  const aziendaCollegata = aziendaTipo !== "nessuna";
+
   useEffect(() => {
+    if (aziendaTipo === "nessuna") {
+      setAziende([]);
+      return;
+    }
     void listAziendeRubricaPickerAction(aziendaTipo).then((res) => {
       if (res.success) setAziende(res.items);
       else setAziende([]);
@@ -56,6 +63,10 @@ export function RubricaContattoFormModal({
   }, [aziendaTipo]);
 
   function save() {
+    if (!nome.trim() || !cognome.trim() || !telefono.trim() || !rapporto) {
+      setError("Compila Nome, Cognome, Telefono e Referente.");
+      return;
+    }
     startTransition(async () => {
       const res = await createRubricaContattoAction({
         nome,
@@ -65,14 +76,19 @@ export function RubricaContattoFormModal({
         rapporto,
         aziendaTipo,
         aziendaId:
-          aziendaTipo === "agrinsicilia" ? null : aziendaId || null,
+          aziendaTipo === "agrinsicilia" || aziendaTipo === "nessuna"
+            ? null
+            : aziendaId || null,
         aziendaLabel:
           aziendaTipo === "agrinsicilia"
             ? "Agrinsicilia"
-            : aziendaLabel ||
-              aziende.find((a) => a.id === aziendaId)?.label ||
-              "",
+            : aziendaTipo === "nessuna"
+              ? ""
+              : aziendaLabel ||
+                aziende.find((a) => a.id === aziendaId)?.label ||
+                "",
         mansione,
+        note,
       });
       if (!res.success) {
         setError(res.error);
@@ -95,7 +111,13 @@ export function RubricaContattoFormModal({
         className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl"
       >
         <div className="flex items-start justify-between gap-2">
-          <h2 className="text-lg font-semibold">Nuovo contatto rubrica</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Nuovo contatto rubrica</h2>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Obbligatori: Nome, Cognome, Telefono, Referente. Il resto si può
+              completare dopo.
+            </p>
+          </div>
           <button type="button" onClick={onClose} aria-label="Chiudi">
             <FaXmark />
           </button>
@@ -119,10 +141,11 @@ export function RubricaContattoFormModal({
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Telefono</span>
+            <span className="mb-1 block font-medium">Telefono *</span>
             <input
               value={telefono}
               onChange={(e) => setTelefono(e.target.value)}
+              required
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
@@ -137,7 +160,7 @@ export function RubricaContattoFormModal({
           </label>
 
           <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">Ruolo / rapporto</span>
+            <span className="mb-1 block font-medium">Referente *</span>
             <select
               value={rapporto}
               onChange={(e) => setRapporto(e.target.value as RubricaRapporto)}
@@ -149,11 +172,25 @@ export function RubricaContattoFormModal({
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Tipo di rapporto (Referente / Dipendente / Altro).
+            </span>
+          </label>
+
+          <label className="block text-sm sm:col-span-2">
+            <span className="mb-1 block font-medium">Nota</span>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Es. conosciuto al Sana"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
           </label>
 
           <label className="block text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">
-              {RAPPORTO_LABELS[rapporto]} → Azienda
+              {RAPPORTO_LABELS[rapporto]} → Azienda (facoltativo)
             </span>
             <select
               value={aziendaTipo}
@@ -161,7 +198,13 @@ export function RubricaContattoFormModal({
                 const t = e.target.value as RubricaAziendaTipo;
                 setAziendaTipo(t);
                 setAziendaId("");
-                setAziendaLabel(t === "agrinsicilia" ? "Agrinsicilia" : "");
+                setAziendaLabel(
+                  t === "agrinsicilia"
+                    ? "Agrinsicilia"
+                    : t === "nessuna"
+                      ? ""
+                      : ""
+                );
               }}
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             >
@@ -175,9 +218,11 @@ export function RubricaContattoFormModal({
             </select>
           </label>
 
-          {aziendaTipo !== "agrinsicilia" ? (
+          {aziendaCollegata && aziendaTipo !== "agrinsicilia" ? (
             <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Seleziona azienda</span>
+              <span className="mb-1 block font-medium">
+                Seleziona azienda (facoltativo)
+              </span>
               <select
                 value={aziendaId}
                 onChange={(e) => {
@@ -187,7 +232,7 @@ export function RubricaContattoFormModal({
                 }}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               >
-                <option value="">— scegli —</option>
+                <option value="">— scegli dopo —</option>
                 {aziende.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.label}
@@ -197,15 +242,17 @@ export function RubricaContattoFormModal({
             </label>
           ) : null}
 
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">Mansione</span>
-            <input
-              value={mansione}
-              onChange={(e) => setMansione(e.target.value)}
-              placeholder="Es. Responsabile acquisti"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
+          {aziendaCollegata ? (
+            <label className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Mansione (facoltativa)</span>
+              <input
+                value={mansione}
+                onChange={(e) => setMansione(e.target.value)}
+                placeholder="Es. Responsabile acquisti"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+          ) : null}
         </div>
 
         {error ? (
@@ -224,7 +271,13 @@ export function RubricaContattoFormModal({
           </button>
           <button
             type="button"
-            disabled={pending || !nome.trim() || !cognome.trim()}
+            disabled={
+              pending ||
+              !nome.trim() ||
+              !cognome.trim() ||
+              !telefono.trim() ||
+              !rapporto
+            }
             onClick={save}
             className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white disabled:opacity-50"
           >

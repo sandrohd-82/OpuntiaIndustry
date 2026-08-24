@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export type RubricaRapporto = "dipendente" | "referente" | "altro";
 export type RubricaAziendaTipo =
+  | "nessuna"
   | "cliente"
   | "fornitore"
   | "cliente_possibile"
@@ -49,18 +50,19 @@ export type RubricaTimelineItem = {
 export const createRubricaContattoSchema = z.object({
   nome: z.string().trim().min(1).max(80),
   cognome: z.string().trim().min(1).max(80),
-  telefono: z.string().trim().max(60).optional().default(""),
+  telefono: z.string().trim().min(1).max(60),
   email: z.string().trim().max(120).optional().default(""),
-  rapporto: z
-    .enum(["dipendente", "referente", "altro"])
+  rapporto: z.enum(["dipendente", "referente", "altro"]),
+  aziendaTipo: z
+    .enum([
+      "nessuna",
+      "cliente",
+      "fornitore",
+      "cliente_possibile",
+      "agrinsicilia",
+    ])
     .optional()
-    .default("dipendente"),
-  aziendaTipo: z.enum([
-    "cliente",
-    "fornitore",
-    "cliente_possibile",
-    "agrinsicilia",
-  ]),
+    .default("nessuna"),
   aziendaId: z.string().uuid().nullable().optional(),
   aziendaLabel: z.string().trim().max(200).optional().default(""),
   mansione: z.string().trim().max(120).optional().default(""),
@@ -92,6 +94,7 @@ export const RAPPORTO_LABELS: Record<RubricaRapporto, string> = {
 };
 
 export const AZIENDA_TIPO_LABELS: Record<RubricaAziendaTipo, string> = {
+  nessuna: "Nessuna (completa dopo)",
   cliente: "Cliente",
   fornitore: "Fornitore",
   cliente_possibile: "Possibile cliente",

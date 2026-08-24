@@ -146,11 +146,16 @@ export function RubricaBoard() {
             <div className="min-w-0 flex-1">
               <p className="font-semibold">{displayContattoName(c)}</p>
               <p className="text-xs text-[var(--muted)]">
-                {RAPPORTO_LABELS[c.rapporto]} →{" "}
-                {AZIENDA_TIPO_LABELS[c.aziendaTipo]}
+                {RAPPORTO_LABELS[c.rapporto]}
+                {c.aziendaTipo !== "nessuna"
+                  ? ` → ${AZIENDA_TIPO_LABELS[c.aziendaTipo]}`
+                  : ""}
                 {c.aziendaLabel ? ` · ${c.aziendaLabel}` : ""}
                 {c.mansione ? ` · ${c.mansione}` : ""}
               </p>
+              {c.note ? (
+                <p className="mt-0.5 text-xs italic text-slate-600">{c.note}</p>
+              ) : null}
               <p className="text-xs text-[var(--muted)]">
                 {[c.telefono, c.email].filter(Boolean).join(" · ")}
               </p>
