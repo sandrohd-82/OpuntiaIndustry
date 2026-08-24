@@ -4,31 +4,57 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Menu Chat — messaggistica utente↔utente */
+/**
+ * Skeleton menu Chat (Opzione A).
+ * Gli elenchi dinamici (argomenti / chat 1:1) sono popolati in ChatSidebarNav.
+ */
 export const CHAT_SECTIONS: readonly NavItem[] = [
   {
-    slug: "inbox",
-    label: "Inbox",
-    description: "Conversazioni personali",
-    path: "/app/chat/inbox",
-    badge: { kind: "count", count: 0 },
+    slug: "argomenti",
+    label: "Per argomento",
+    description: "Chat di gruppo per topic",
+    path: "/app/chat/argomenti",
+    children: [
+      {
+        slug: "nuovo",
+        label: "+ Nuovo Argomento",
+        description: "Crea un argomento e invita i membri",
+        path: "/app/chat/argomenti/nuovo",
+      },
+      {
+        slug: "elenco",
+        label: "Elenco Argomenti",
+        description: "Argomenti attivi a cui partecipi",
+        path: "/app/chat/argomenti/elenco",
+        children: [],
+      },
+    ],
   },
   {
-    slug: "nuova",
-    label: "+ Nuova chat",
-    description: "Avvia conversazione con un utente",
-    path: "/app/chat/nuova",
-  },
-  {
-    slug: "rubrica",
-    label: "Rubrica",
-    description: "Contatti con interazioni recenti",
-    path: "/app/chat/rubrica",
+    slug: "dirette",
+    label: "Fra utenti",
+    description: "Chat personali uno a uno",
+    path: "/app/chat/dirette",
+    children: [
+      {
+        slug: "nuova",
+        label: "+ Nuova chat",
+        description: "Avvia una chat con un collega",
+        path: "/app/chat/dirette/nuova",
+      },
+      {
+        slug: "elenco",
+        label: "Elenco chat",
+        description: "Chat 1:1 attive",
+        path: "/app/chat/dirette/elenco",
+        children: [],
+      },
+    ],
   },
 ] as const;
 
 export function getFirstChatPath(): string {
-  return firstNavLeafPath(CHAT_SECTIONS);
+  return "/app/chat/argomenti/nuovo";
 }
 
 export function resolveChatPage(segments: string[]) {

@@ -75,8 +75,8 @@ export function ChatRubricaBoard({ userId, mode }: Props) {
             ? "Contatti con cui hai già interagito."
             : "Scegli un utente attivo per avviare una conversazione."}
         </p>
-        <Link href="/app/chat/inbox" className="text-sm text-[var(--primary)]">
-          ← Inbox
+        <Link href="/app/chat/dirette/elenco" className="text-sm text-[var(--primary)]">
+          ← Elenco chat
         </Link>
       </div>
       {error ? (

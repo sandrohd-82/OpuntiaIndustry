@@ -35,7 +35,7 @@ export function ChatUnreadBadge({ userId }: Props) {
   if (count <= 0) return null;
   return (
     <Link
-      href="/app/chat/inbox"
+      href="/app/chat/dirette/elenco"
       className="inline-flex items-center gap-1 rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-semibold text-white"
       title="Messaggi non letti"
     >

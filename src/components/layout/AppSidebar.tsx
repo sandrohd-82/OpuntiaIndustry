@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
-import { CHAT_SECTIONS } from "@/lib/areas/chat";
 import {
   SIDEBAR_AREA_ORDER,
   SIDEBAR_HIDDEN_AREAS,
@@ -21,6 +20,7 @@ import {
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
+import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 type Props = {
@@ -53,7 +53,7 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
     case "area-fiscale":
       return AREA_FISCALE_SECTIONS;
     case "chat":
-      return CHAT_SECTIONS;
+      return null; // gestito da ChatSidebarNav
     case "area-fornitori":
       return AREA_FORNITORI_SECTIONS;
     default:
@@ -313,6 +313,26 @@ export function AppSidebar({ areas, userName, roleName, userId }: Props) {
                       toggle={toggle}
                     />
                   )}
+                </li>
+              );
+            }
+
+            if (area.slug === "chat") {
+              const open = openKeys.has(area.slug);
+              return (
+                <li key={area.area_id}>
+                  <div className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <BranchButton
+                        label={area.name}
+                        open={open}
+                        active={active}
+                        onToggle={() => toggle(area.slug)}
+                      />
+                    </div>
+                    <ChatUnreadBadge userId={userId} />
+                  </div>
+                  {open ? <ChatSidebarNav userId={userId} /> : null}
                 </li>
               );
             }

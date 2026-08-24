@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FaCircle, FaComments, FaUserGroup } from "react-icons/fa6";
+import { FaCircle, FaComments } from "react-icons/fa6";
 import {
   attachChatLifecycleRefresh,
   subscribeInboxRealtime,
@@ -108,13 +108,7 @@ export function ChatInboxBoard({ userId }: Props) {
             </select>
           </label>
           <Link
-            href="/app/chat/rubrica"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          >
-            <FaUserGroup size={12} /> Rubrica
-          </Link>
-          <Link
-            href="/app/chat/nuova"
+            href="/app/chat/dirette/nuova"
             className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white"
           >
             <FaComments size={12} /> Nuova chat

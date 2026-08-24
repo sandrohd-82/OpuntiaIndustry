@@ -1,10 +1,7 @@
 import { notFound, redirect } from "next/navigation";
-import { ChatInboxBoard } from "@/components/chat/ChatInboxBoard";
-import { ChatRubricaBoard } from "@/components/chat/ChatRubricaBoard";
-import { AppHeader } from "@/components/layout/AppHeader";
-import { CHAT_SECTIONS, resolveChatPage } from "@/lib/areas/chat";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { getAuthContext } from "@/lib/auth/session";
+import { CHAT_SECTIONS } from "@/lib/areas/chat";
+import { isNavBranch } from "@/lib/areas/nav-tree";
 
 type Props = {
   params: Promise<{ section: string }>;
@@ -14,50 +11,27 @@ export default async function ChatSectionPage({ params }: Props) {
   await requireAreaAccess("chat");
   const { section } = await params;
 
-  // Legacy argomenti → inbox
+  // Legacy
   if (
+    section === "inbox" ||
+    section === "nuova" ||
+    section === "rubrica" ||
     section === "elenco-argomenti" ||
     section === "nuovo-argomento" ||
     section === "argomenti-archiviati"
   ) {
-    redirect("/app/chat/inbox");
+    if (section === "nuova" || section === "rubrica" || section === "inbox") {
+      redirect("/app/chat/dirette/elenco");
+    }
+    redirect("/app/chat/argomenti/elenco");
   }
 
   const item = CHAT_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
-
-  const page = resolveChatPage([section]);
-  if (!page) notFound();
-
-  const auth = await getAuthContext();
-  if (!auth?.userId) {
-    redirect("/login");
+  if (isNavBranch(item)) {
+    const first = item.children[0];
+    if (!first) notFound();
+    redirect(first.path);
   }
-
-  if (section === "inbox") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ChatInboxBoard userId={auth.userId} />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "rubrica" || section === "nuova") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ChatRubricaBoard
-            userId={auth.userId}
-            mode={section === "rubrica" ? "rubrica" : "nuova"}
-          />
-        </div>
-      </>
-    );
-  }
-
   notFound();
 }
