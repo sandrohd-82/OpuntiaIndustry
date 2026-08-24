@@ -10,7 +10,7 @@ import {
   listNotePnAction,
 } from "@/app/actions/promemorie-e-note";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
-import type { ClienteInput } from "@/lib/amministrazione/clienti";
+import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import {
   clienteFromPossibile,
   type ClientePossibile,
@@ -106,7 +106,6 @@ export function PossibiliClientiBoard() {
               <p className="font-semibold">{lead.ragioneSociale}</p>
               <p className="text-xs text-[var(--muted)]">
                 {lead.stato}
-                {lead.isPrivato ? " · privato" : ""}
                 {lead.partitaIva ? ` · P.IVA ${lead.partitaIva}` : ""}
                 {lead.sedeAmministrativa.citta
                   ? ` · ${lead.sedeAmministrativa.citta}`
@@ -114,11 +113,6 @@ export function PossibiliClientiBoard() {
                 {lead.telefono ? ` · ${lead.telefono}` : ""}
                 {lead.email ? ` · ${lead.email}` : ""}
               </p>
-              {lead.prodottiInteressati.length > 0 ? (
-                <p className="mt-1 text-xs text-slate-600">
-                  Interessati: {lead.prodottiInteressati.join(", ")}
-                </p>
-              ) : null}
             </div>
             <button
               type="button"
@@ -142,8 +136,7 @@ export function PossibiliClientiBoard() {
         ))}
         {items.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            Nessun possibile cliente. Usa «+ Nuovo possibile cliente» con tutti
-            i campi anagrafici.
+            Nessun possibile cliente. Usa «Nuovo possibile cliente».
           </li>
         ) : null}
       </ul>
@@ -151,9 +144,7 @@ export function PossibiliClientiBoard() {
       {noteFor ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl">
-            <h3 className="font-semibold">
-              Note — {noteFor.ragioneSociale}
-            </h3>
+            <h3 className="font-semibold">Note — {noteFor.ragioneSociale}</h3>
             <textarea
               value={noteBody}
               onChange={(e) => setNoteBody(e.target.value)}
@@ -193,11 +184,9 @@ export function PossibiliClientiBoard() {
       ) : null}
 
       {showLeadForm ? (
-        <ClienteFormModal
-          mode="create"
-          variant="possibile"
+        <PossibileClienteFormModal
           onClose={() => setShowLeadForm(false)}
-          onSave={async (values: ClienteInput) => {
+          onSave={async (values) => {
             const res = await createClientePossibileAction(values);
             if (!res.success) {
               setError(res.error);

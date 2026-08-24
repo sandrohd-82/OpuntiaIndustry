@@ -54,6 +54,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "rubrica",
+    label: "Rubrica",
+    description:
+      "Referenti e contatti (dipendenti, aziende, timeline interazioni)",
+    path: "/app/amministrazione/rubrica",
+  },
+  {
     slug: "schede",
     label: "Schede",
     description: "Cataloghi e schede di riferimento",

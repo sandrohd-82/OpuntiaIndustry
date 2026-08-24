@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { GraficiHomeBoard } from "@/components/amministrazione/grafici/GraficiHomeBoard";
+import { RubricaBoard } from "@/components/amministrazione/RubricaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import {
@@ -46,6 +47,19 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title="Statistiche" subtitle={page.description} />
         <div className="p-6">
           <GraficiHomeBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "rubrica") {
+    const page = resolveAmministrazionePage([section]);
+    if (!page) notFound();
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <RubricaBoard />
         </div>
       </>
     );

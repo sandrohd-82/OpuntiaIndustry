@@ -489,21 +489,16 @@ export async function createClientePossibileAction(
       parsed.data.prodottiInteressati ??
       [],
   });
-  const fiscalErr = validateClienteFiscali(normalized);
+  const fiscalErr = validateClienteFiscali({
+    ...normalized,
+    isPrivato: false,
+  });
   if (fiscalErr) return { success: false, error: fiscalErr };
-  if (
-    !normalized.sedeAmministrativa.nazione.trim() ||
-    !normalized.sedeAmministrativa.citta.trim() ||
-    !normalized.sedeAmministrativa.indirizzo.trim()
-  ) {
-    return {
-      success: false,
-      error: "Completa la sede amministrativa prima di continuare.",
-    };
-  }
+  // Sedi facoltative sul lead: se aperte e parziali, già validate dal form
 
-  const prodotti =
-    parsed.data.prodottiAcquistati ?? parsed.data.prodottiInteressati ?? [];
+  const referenteIds = (
+    (input as { referenteIds?: string[] }).referenteIds ?? []
+  ).filter(Boolean);
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -512,7 +507,7 @@ export async function createClientePossibileAction(
       ragione_sociale: normalized.ragioneSociale,
       partita_iva: normalized.partitaIva,
       codice_fiscale: normalized.codiceFiscale,
-      is_privato: normalized.isPrivato,
+      is_privato: false,
       email: normalized.email ?? "",
       pec: normalized.pec ?? "",
       sdi_code: normalized.sdiCode ?? "",
@@ -528,7 +523,7 @@ export async function createClientePossibileAction(
       sede_mag_citta: normalized.sedeMagazzino.citta,
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
-      prodotti_interessati: prodotti.map((p) => p.trim()).filter(Boolean),
+      prodotti_interessati: [],
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
       referente: parsed.data.referente ?? "",
       note_interne: parsed.data.noteInterne ?? "",
@@ -542,13 +537,34 @@ export async function createClientePossibileAction(
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
   const item = mapClientePossibileRow(data as Record<string, unknown>);
+
+  if (referenteIds.length > 0) {
+    await supabase.from("clienti_possibili_referenti").insert(
+      referenteIds.map((contatto_id) => ({
+        cliente_possibile_id: item.id,
+        contatto_id,
+        created_by: auth.userId,
+      }))
+    );
+    await supabase
+      .from("rubrica_contatti")
+      .update({
+        azienda_tipo: "cliente_possibile",
+        azienda_id: item.id,
+        azienda_label: item.ragioneSociale,
+        updated_by: auth.userId,
+      })
+      .in("id", referenteIds)
+      .is("deleted_at", null);
+  }
+
   await writeAuditLog({
     entity_type: "clienti_possibili",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Possibile cliente: ${item.ragioneSociale}`,
-    payload: { prodotti_interessati: item.prodottiInteressati.length },
+    payload: { referenti: referenteIds.length },
   });
   return { success: true, item };
 }
