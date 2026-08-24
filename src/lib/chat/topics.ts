@@ -12,6 +12,8 @@ export type ChatTopic = {
   stato: "attivo" | "archiviato";
   createdAt: string;
   updatedAt: string;
+  /** Mai aperto da questo utente → evidenza in sidebar. */
+  isNew?: boolean;
   unreadCount?: number;
 };
 
@@ -35,6 +37,7 @@ export function mapTopic(row: {
   stato: "attivo" | "archiviato";
   created_at: string;
   updated_at: string;
+  is_new?: boolean | null;
 }): ChatTopic {
   return {
     id: row.id,
@@ -42,6 +45,7 @@ export function mapTopic(row: {
     stato: row.stato,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isNew: Boolean(row.is_new),
   };
 }
 
@@ -71,4 +75,28 @@ export function mapTopicMessage(row: {
     fileType: row.file_type,
     fileName: row.file_name,
   };
+}
+
+/** Evento browser: creazione argomento → sidebar senza attendere refetch. */
+export const CHAT_TOPIC_CREATED_EVENT = "opuntia:chat-topic-created";
+export const CHAT_TOPIC_OPENED_EVENT = "opuntia:chat-topic-opened";
+
+export type ChatTopicCreatedDetail = {
+  id: string;
+  titolo: string;
+  isNew: boolean;
+};
+
+export function dispatchChatTopicCreated(detail: ChatTopicCreatedDetail) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(CHAT_TOPIC_CREATED_EVENT, { detail })
+  );
+}
+
+export function dispatchChatTopicOpened(topicId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(CHAT_TOPIC_OPENED_EVENT, { detail: { id: topicId } })
+  );
 }

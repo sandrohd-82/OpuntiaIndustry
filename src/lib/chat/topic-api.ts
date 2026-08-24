@@ -10,13 +10,20 @@ import {
 export async function listActiveTopics(
   supabase: SupabaseClient
 ): Promise<ChatTopic[]> {
-  const { data, error } = await supabase
-    .from("chat_topics")
-    .select("id, titolo, stato, created_at, updated_at")
-    .is("deleted_at", null)
-    .eq("stato", "attivo")
-    .order("updated_at", { ascending: false });
-  if (error) throw new Error(error.message);
+  const { data, error } = await supabase.rpc("list_my_active_chat_topics");
+  if (error) {
+    // Fallback se la RPC non è ancora applicata in Supabase
+    const legacy = await supabase
+      .from("chat_topics")
+      .select("id, titolo, stato, created_at, updated_at")
+      .is("deleted_at", null)
+      .eq("stato", "attivo")
+      .order("updated_at", { ascending: false });
+    if (legacy.error) throw new Error(error.message);
+    return ((legacy.data ?? []) as Parameters<typeof mapTopic>[0][]).map(
+      mapTopic
+    );
+  }
   return ((data ?? []) as Parameters<typeof mapTopic>[0][]).map(mapTopic);
 }
 
@@ -24,7 +31,7 @@ export async function createChatTopic(
   supabase: SupabaseClient,
   titolo: string,
   memberIds: string[]
-): Promise<string> {
+): Promise<{ id: string; titolo: string }> {
   const parsed = topicTitoloSchema.safeParse(titolo);
   if (!parsed.success) {
     throw new Error(parsed.error.issues[0]?.message ?? "Titolo non valido.");
@@ -39,7 +46,7 @@ export async function createChatTopic(
     }
     throw new Error(error.message);
   }
-  return String(data);
+  return { id: String(data), titolo: parsed.data };
 }
 
 export async function listTopicMessages(
@@ -105,6 +112,27 @@ export async function markTopicMessagesRead(
   await supabase.rpc("mark_topic_messages_read", { p_topic_id: topicId });
 }
 
+/** Primo accesso: toglie evidenza "nuovo" in modo permanente. */
+export async function markChatTopicOpened(
+  supabase: SupabaseClient,
+  topicId: string
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("mark_chat_topic_opened", {
+    p_topic_id: topicId,
+  });
+  if (error) {
+    // Migration non ancora applicata: non bloccare il thread
+    if (
+      error.message.includes("mark_chat_topic_opened") ||
+      error.code === "PGRST202"
+    ) {
+      return false;
+    }
+    throw new Error(error.message);
+  }
+  return Boolean(data);
+}
+
 export function subscribeTopicMessages(
   supabase: SupabaseClient,
   topicId: string,
@@ -142,6 +170,32 @@ export function subscribeTopicMessages(
           mapTopicMessage(payload.new as Parameters<typeof mapTopicMessage>[0])
         );
       }
+    )
+    .subscribe();
+}
+
+/** Sidebar: nuovi membership / primo accesso / topic aggiornati. */
+export function subscribeTopicSidebar(
+  supabase: SupabaseClient,
+  userId: string,
+  onChange: () => void
+): RealtimeChannel {
+  return supabase
+    .channel(`chat-topic-sidebar:${userId}`)
+    .on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "chat_topic_members",
+        filter: `user_id=eq.${userId}`,
+      },
+      () => onChange()
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "chat_topics" },
+      () => onChange()
     )
     .subscribe();
 }

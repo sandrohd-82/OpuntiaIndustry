@@ -1,17 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { FaComments, FaFolderOpen } from "react-icons/fa6";
-import { listActiveTopics } from "@/lib/chat/topic-api";
+import {
+  listActiveTopics,
+  subscribeTopicSidebar,
+} from "@/lib/chat/topic-api";
 import { listConversationsForUser } from "@/lib/chat/queries";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
 import { createClient } from "@/lib/supabase/client";
-import type { ChatTopic } from "@/lib/chat/topics";
+import {
+  CHAT_TOPIC_CREATED_EVENT,
+  CHAT_TOPIC_OPENED_EVENT,
+  type ChatTopic,
+  type ChatTopicCreatedDetail,
+} from "@/lib/chat/topics";
 import type { ConversationListItem } from "@/lib/chat/types";
 
-function itemClass(active: boolean) {
+function itemClass(active: boolean, isNew = false) {
+  if (isNew && !active) {
+    return "flex w-full items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-left text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-500/25";
+  }
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
       ? "bg-[var(--sidebar-active)] font-medium text-[var(--sidebar-foreground)]"
@@ -56,29 +67,97 @@ export function ChatSidebarNav({ userId }: Props) {
     });
   }
 
-  useEffect(() => {
+  const loadTopics = useCallback(() => {
     const supabase = createClient();
-    const load = () => {
-      void listActiveTopics(supabase)
-        .then(setTopics)
-        .catch(() => setTopics([]));
-      void listConversationsForUser(supabase, userId)
-        .then(setDirects)
-        .catch(() => setDirects([]));
-    };
-    load();
-    const detach = attachChatLifecycleRefresh(load);
-    return detach;
+    void listActiveTopics(supabase)
+      .then(setTopics)
+      .catch(() => setTopics([]));
+  }, []);
+
+  const loadDirects = useCallback(() => {
+    const supabase = createClient();
+    void listConversationsForUser(supabase, userId)
+      .then(setDirects)
+      .catch(() => setDirects([]));
   }, [userId]);
+
+  useEffect(() => {
+    loadTopics();
+    loadDirects();
+    const supabase = createClient();
+    const channel = subscribeTopicSidebar(supabase, userId, () => {
+      setOpen((prev) => {
+        const next = new Set(prev);
+        next.add("argomenti");
+        next.add("elenco-argomenti");
+        return next;
+      });
+      loadTopics();
+    });
+    const detach = attachChatLifecycleRefresh(() => {
+      loadTopics();
+      loadDirects();
+    });
+
+    function onCreated(ev: Event) {
+      const detail = (ev as CustomEvent<ChatTopicCreatedDetail>).detail;
+      if (!detail?.id) return;
+      setOpen((prev) => {
+        const next = new Set(prev);
+        next.add("argomenti");
+        next.add("elenco-argomenti");
+        return next;
+      });
+      setTopics((prev) => {
+        if (prev.some((t) => t.id === detail.id)) return prev;
+        const now = new Date().toISOString();
+        return [
+          {
+            id: detail.id,
+            titolo: detail.titolo,
+            stato: "attivo" as const,
+            createdAt: now,
+            updatedAt: now,
+            isNew: detail.isNew,
+          },
+          ...prev,
+        ];
+      });
+    }
+
+    function onOpened(ev: Event) {
+      const id = (ev as CustomEvent<{ id: string }>).detail?.id;
+      if (!id) return;
+      setTopics((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, isNew: false } : t))
+      );
+    }
+
+    window.addEventListener(CHAT_TOPIC_CREATED_EVENT, onCreated);
+    window.addEventListener(CHAT_TOPIC_OPENED_EVENT, onOpened);
+
+    return () => {
+      detach();
+      void supabase.removeChannel(channel);
+      window.removeEventListener(CHAT_TOPIC_CREATED_EVENT, onCreated);
+      window.removeEventListener(CHAT_TOPIC_OPENED_EVENT, onOpened);
+    };
+  }, [userId, loadTopics, loadDirects]);
 
   useEffect(() => {
     setOpen((prev) => {
       const next = new Set(prev);
-      if (pathname.startsWith("/app/chat/argomenti") || pathname.startsWith("/app/chat/argomento")) {
+      if (
+        pathname.startsWith("/app/chat/argomenti") ||
+        pathname.startsWith("/app/chat/argomento")
+      ) {
         next.add("argomenti");
         next.add("elenco-argomenti");
       }
-      if (pathname.startsWith("/app/chat/dirette") || pathname.startsWith("/app/chat/thread")) {
+      if (
+        pathname.startsWith("/app/chat/dirette") ||
+        pathname.startsWith("/app/chat/thread")
+      ) {
         next.add("dirette");
         next.add("elenco-dirette");
       }
@@ -93,7 +172,10 @@ export function ChatSidebarNav({ userId }: Props) {
         <button
           type="button"
           onClick={() => toggle("argomenti")}
-          className={itemClass(pathname.startsWith("/app/chat/argomenti") || pathname.startsWith("/app/chat/argomento"))}
+          className={itemClass(
+            pathname.startsWith("/app/chat/argomenti") ||
+              pathname.startsWith("/app/chat/argomento")
+          )}
         >
           <Chevron open={open.has("argomenti")} />
           <span className="truncate">Per argomento</span>
@@ -125,19 +207,27 @@ export function ChatSidebarNav({ userId }: Props) {
                       Nessun argomento attivo
                     </li>
                   ) : (
-                    topics.map((t) => (
-                      <li key={t.id}>
-                        <Link
-                          href={`/app/chat/argomento/${t.id}`}
-                          className={itemClass(
-                            pathname === `/app/chat/argomento/${t.id}`
-                          )}
-                          title={t.titolo}
-                        >
-                          <span className="truncate">{t.titolo}</span>
-                        </Link>
-                      </li>
-                    ))
+                    topics.map((t) => {
+                      const active =
+                        pathname === `/app/chat/argomento/${t.id}`;
+                      const isNew = Boolean(t.isNew) && !active;
+                      return (
+                        <li key={t.id}>
+                          <Link
+                            href={`/app/chat/argomento/${t.id}`}
+                            className={itemClass(active, isNew)}
+                            title={t.titolo}
+                          >
+                            <span className="truncate">{t.titolo}</span>
+                            {isNew ? (
+                              <span className="ml-auto shrink-0 rounded bg-emerald-400 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-950">
+                                Nuovo
+                              </span>
+                            ) : null}
+                          </Link>
+                        </li>
+                      );
+                    })
                   )}
                 </ul>
               ) : null}

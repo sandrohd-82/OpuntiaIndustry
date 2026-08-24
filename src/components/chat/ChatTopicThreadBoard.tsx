@@ -16,6 +16,7 @@ import {
   getTopic,
   insertTopicMessage,
   listTopicMessages,
+  markChatTopicOpened,
   markTopicMessagesRead,
   subscribeTopicMessages,
 } from "@/lib/chat/topic-api";
@@ -23,7 +24,7 @@ import {
   loadChatAvatars,
   type ChatProfileAvatar,
 } from "@/lib/chat/queries";
-import type { TopicMessage } from "@/lib/chat/topics";
+import { dispatchChatTopicOpened, type TopicMessage } from "@/lib/chat/topics";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
@@ -68,6 +69,9 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
       setMessages(list);
       const ids = [userId, ...list.map((m) => m.senderId)];
       setAvatars(await loadChatAvatars(supabase, ids));
+      // Primo accesso: toglie evidenza "Nuovo" subito e in modo permanente
+      const cleared = await markChatTopicOpened(supabase, topicId);
+      if (cleared) dispatchChatTopicOpened(topicId);
       await markTopicMessagesRead(supabase, topicId);
       setError(null);
     } catch (e) {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createChatTopic } from "@/lib/chat/topic-api";
 import { listPeerCandidates } from "@/lib/chat/queries";
 import type { ChatStatus } from "@/lib/chat/types";
+import { dispatchChatTopicCreated } from "@/lib/chat/topics";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = { userId: string };
@@ -58,11 +59,17 @@ export function ChatNuovoArgomentoBoard({ userId }: Props) {
     startTransition(async () => {
       const supabase = createClient();
       try {
-        const id = await createChatTopic(
+        const { id, titolo: titoloCreato } = await createChatTopic(
           supabase,
           titolo,
           [...selected]
         );
+        // Sidebar immediata (creator: non "nuovo")
+        dispatchChatTopicCreated({
+          id,
+          titolo: titoloCreato,
+          isNew: false,
+        });
         router.push(`/app/chat/argomento/${id}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Creazione fallita");
