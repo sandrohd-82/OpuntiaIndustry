@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaNoteSticky, FaPlus, FaUserPlus } from "react-icons/fa6";
+import { FaNoteSticky, FaPlus } from "react-icons/fa6";
 import { createClienteAction } from "@/app/actions/clienti";
 import {
   createClientePossibileAction,
@@ -92,18 +92,7 @@ export function PossibiliClientiBoard() {
           className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
         >
           <FaPlus size={12} />
-          + Nuovo possibile cliente
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setClientePrefill(null);
-            setShowClienteForm(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50"
-        >
-          <FaUserPlus size={14} />
-          + Nuovo cliente
+          Nuovo possibile cliente
         </button>
       </div>
 
