@@ -51,6 +51,7 @@ export function significantMatchTokens(text: string): string[] {
 
 /**
  * True se almeno un token significativo della query compare in nome o codice.
+ * Senza token significativi in query → non scartare (evita Cerca vuota).
  * Senza overlap → il candidato non è una corrispondenza affidabile.
  */
 export function hasMeaningfulTokenOverlap(
@@ -59,7 +60,7 @@ export function hasMeaningfulTokenOverlap(
   codice?: string | null
 ): boolean {
   const qTokens = significantMatchTokens(query);
-  if (qTokens.length === 0) return false;
+  if (qTokens.length === 0) return true;
   const hay = `${nome ?? ""} ${codice ?? ""}`.toLowerCase();
   if (!hay.trim()) return false;
   const targetTokens = new Set(significantMatchTokens(hay));

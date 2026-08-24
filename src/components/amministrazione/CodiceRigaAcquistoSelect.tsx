@@ -240,7 +240,7 @@ export function CodiceRigaAcquistoSelect({
           }
           className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50"
         >
-          {cercaDisabled ? "…" : "Cerca"}
+          Cerca
         </button>
       </div>
       {menu}

@@ -134,24 +134,28 @@ export function CollegaArticoloModal({
     const handle = window.setTimeout(() => {
       void (async () => {
         setSearching(true);
-        const res = await searchCollegaCatalogoAction({
-          query: normalized,
-          fornitoreId,
-          sameInvoiceCodici: sameKey.split("|").filter(Boolean),
-          kinds: null,
-          limit: CERCA_RPC_LIMIT,
-        });
-        if (cancelled || gen !== searchGen.current) return;
-        if (!res.success) {
-          setError(res.error);
-          setHits([]);
-          setSearching(false);
-          return;
+        try {
+          const res = await searchCollegaCatalogoAction({
+            query: normalized,
+            fornitoreId,
+            sameInvoiceCodici: sameKey.split("|").filter(Boolean),
+            kinds: null,
+            limit: CERCA_RPC_LIMIT,
+          });
+          if (cancelled || gen !== searchGen.current) return;
+          if (!res.success) {
+            setError(res.error);
+            setHits([]);
+            return;
+          }
+          setError(null);
+          setHits(res.hits);
+          setMostraAltro(false);
+        } finally {
+          if (!cancelled && gen === searchGen.current) {
+            setSearching(false);
+          }
         }
-        setError(null);
-        setHits(res.hits);
-        setMostraAltro(false);
-        setSearching(false);
       })();
     }, delay);
 

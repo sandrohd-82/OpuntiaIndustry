@@ -300,7 +300,7 @@ export async function searchCollegaCatalogoAction(input: {
   ]);
   if (matched.error) return { success: false, error: matched.error };
 
-  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, q);
+  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, null);
   const minScore = input.minScore ?? 0;
   if (minScore > 0) {
     hits = hits.filter((h) => h.score >= minScore);

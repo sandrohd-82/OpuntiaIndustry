@@ -1949,10 +1949,9 @@ export function FatturaRegistrazioneModal({
                                   applyVoceAcquisto(index, cod)
                                 }
                                 onCerca={() => {
-                                  if (matchScanPending) return;
                                   setCollegaRigaIndex(index);
                                 }}
-                                cercaDisabled={matchScanPending}
+                                cercaDisabled={false}
                               />
                               <ArticoloCollegatiNuvola
                                 linked={
