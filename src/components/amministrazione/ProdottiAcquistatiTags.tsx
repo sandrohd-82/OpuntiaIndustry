@@ -11,6 +11,8 @@ type Props = {
   /** Salva la scheda cliente e apre Prodotti propri con modale nuovo prodotto. */
   onNuovoProdotto: () => void | Promise<void>;
   nuovoProdottoBusy?: boolean;
+  title?: string;
+  hint?: string;
 };
 
 export function ProdottiAcquistatiTags({
@@ -18,6 +20,8 @@ export function ProdottiAcquistatiTags({
   onChange,
   onNuovoProdotto,
   nuovoProdottoBusy = false,
+  title = "Prodotti Acquistati",
+  hint = "Seleziona i prodotti dall'elenco di Prodotti propri.",
 }: Props) {
   const [catalog, setCatalog] = useState<ProdottoProprio[]>([]);
   const [ready, setReady] = useState(false);
@@ -81,10 +85,8 @@ export function ProdottiAcquistatiTags({
 
   return (
     <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-      <legend className="px-1 text-sm font-semibold">Prodotti Acquistati</legend>
-      <p className="text-xs text-[var(--muted)]">
-        Seleziona i prodotti dall&apos;elenco di Prodotti propri.
-      </p>
+      <legend className="px-1 text-sm font-semibold">{title}</legend>
+      <p className="text-xs text-[var(--muted)]">{hint}</p>
 
       <div className="flex min-h-11 flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-2 py-2">
         {selected.length === 0 ? (

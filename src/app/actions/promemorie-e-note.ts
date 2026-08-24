@@ -5,6 +5,14 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
+  consegneToDb,
+  emptySede,
+  normalizeClienteInput,
+  validateClienteFiscali,
+  type ClienteInput,
+  type ConsegnaAltraAzienda,
+} from "@/lib/amministrazione/clienti";
+import {
   createAttivitaSchema,
   createClientePossibileSchema,
   createNotaSchema,
@@ -15,6 +23,69 @@ import {
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
 import { createClient } from "@/lib/supabase/server";
+import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
+
+const CLIENTI_POSSIBILI_SELECT =
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_at, updated_at";
+
+function mapConsegnaLead(
+  row: ClienteConsegnaAltraAziendaRow | Record<string, unknown>
+): ConsegnaAltraAzienda {
+  const r = row as ClienteConsegnaAltraAziendaRow;
+  return {
+    ragioneSociale: String(r.ragione_sociale ?? ""),
+    nazione: String(r.nazione ?? ""),
+    provincia: String(r.provincia ?? ""),
+    citta: String(r.citta ?? ""),
+    cap: String(r.cap ?? ""),
+    indirizzo: String(r.indirizzo ?? ""),
+  };
+}
+
+function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
+  const rawConsegne = Array.isArray(r.consegne_altra_azienda)
+    ? r.consegne_altra_azienda
+    : [];
+  const prodotti = Array.isArray(r.prodotti_interessati)
+    ? (r.prodotti_interessati as string[])
+    : [];
+  return {
+    id: String(r.id),
+    ragioneSociale: String(r.ragione_sociale ?? ""),
+    partitaIva: String(r.partita_iva ?? ""),
+    codiceFiscale: String(r.codice_fiscale ?? ""),
+    isPrivato: Boolean(r.is_privato),
+    email: String(r.email ?? ""),
+    pec: String(r.pec ?? ""),
+    sdiCode: String(r.sdi_code ?? ""),
+    telefono: String(r.telefono ?? ""),
+    sitoWeb: String(r.sito_web ?? ""),
+    sedeAmministrativa: {
+      nazione: String(r.sede_amm_nazione ?? ""),
+      provincia: String(r.sede_amm_provincia ?? ""),
+      citta: String(r.sede_amm_citta ?? ""),
+      cap: String(r.sede_amm_cap ?? ""),
+      indirizzo: String(r.sede_amm_indirizzo ?? ""),
+    },
+    sedeMagazzino: {
+      nazione: String(r.sede_mag_nazione ?? ""),
+      provincia: String(r.sede_mag_provincia ?? ""),
+      citta: String(r.sede_mag_citta ?? ""),
+      cap: String(r.sede_mag_cap ?? ""),
+      indirizzo: String(r.sede_mag_indirizzo ?? ""),
+    },
+    consegneAltraAzienda: rawConsegne.map((c) =>
+      mapConsegnaLead(c as ClienteConsegnaAltraAziendaRow)
+    ),
+    prodottiInteressati: prodotti.map(String).filter(Boolean),
+    referente: String(r.referente ?? ""),
+    noteInterne: String(r.note_interne ?? ""),
+    stato: r.stato as ClientePossibile["stato"],
+    clienteId: r.cliente_id ? String(r.cliente_id) : null,
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
+}
 
 async function guardPn() {
   return requireAreaAccess("promemorie-e-note");
@@ -363,81 +434,121 @@ export async function listClientiPossibiliAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clienti_possibili")
-    .select(
-      "id, ragione_sociale, referente, telefono, email, note_interne, stato, cliente_id, created_at, updated_at"
-    )
+    .select(CLIENTI_POSSIBILI_SELECT)
     .is("deleted_at", null)
     .neq("stato", "scartato")
     .order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };
   return {
     success: true,
-    items: (data ?? []).map((r) => ({
-      id: String(r.id),
-      ragioneSociale: String(r.ragione_sociale),
-      referente: String(r.referente ?? ""),
-      telefono: String(r.telefono ?? ""),
-      email: String(r.email ?? ""),
-      noteInterne: String(r.note_interne ?? ""),
-      stato: r.stato as ClientePossibile["stato"],
-      clienteId: r.cliente_id ? String(r.cliente_id) : null,
-      createdAt: String(r.created_at),
-      updatedAt: String(r.updated_at),
-    })),
+    items: (data ?? []).map((r) =>
+      mapClientePossibileRow(r as Record<string, unknown>)
+    ),
   };
 }
 
-export async function createClientePossibileAction(input: unknown): Promise<
+/** Accetta ClienteInput dal form (prodottiAcquistati → prodotti_interessati). */
+export async function createClientePossibileAction(
+  input: ClienteInput | unknown
+): Promise<
   | { success: true; item: ClientePossibile }
   | { success: false; error: string }
 > {
   const { auth } = await guardAdmin();
-  const parsed = createClientePossibileSchema.safeParse(input);
+  const asCliente = input as ClienteInput;
+  const merged = {
+    ...asCliente,
+    prodottiInteressati:
+      asCliente.prodottiAcquistati ??
+      (input as { prodottiInteressati?: string[] }).prodottiInteressati ??
+      [],
+    sedeMagazzino: asCliente.sedeMagazzino ?? emptySede(),
+  };
+  const parsed = createClientePossibileSchema.safeParse(merged);
   if (!parsed.success) {
     return {
       success: false,
       error: parsed.error.issues[0]?.message ?? "Dati non validi",
     };
   }
+  const normalized = normalizeClienteInput({
+    ragioneSociale: parsed.data.ragioneSociale,
+    partitaIva: parsed.data.partitaIva ?? "",
+    codiceFiscale: parsed.data.codiceFiscale ?? "",
+    isPrivato: parsed.data.isPrivato ?? false,
+    email: parsed.data.email,
+    pec: parsed.data.pec,
+    sdiCode: parsed.data.sdiCode,
+    telefono: parsed.data.telefono,
+    sitoWeb: parsed.data.sitoWeb,
+    sedeAmministrativa: parsed.data.sedeAmministrativa,
+    sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
+    consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
+    prodottiAcquistati:
+      parsed.data.prodottiAcquistati ??
+      parsed.data.prodottiInteressati ??
+      [],
+  });
+  const fiscalErr = validateClienteFiscali(normalized);
+  if (fiscalErr) return { success: false, error: fiscalErr };
+  if (
+    !normalized.sedeAmministrativa.nazione.trim() ||
+    !normalized.sedeAmministrativa.citta.trim() ||
+    !normalized.sedeAmministrativa.indirizzo.trim()
+  ) {
+    return {
+      success: false,
+      error: "Completa la sede amministrativa prima di continuare.",
+    };
+  }
+
+  const prodotti =
+    parsed.data.prodottiAcquistati ?? parsed.data.prodottiInteressati ?? [];
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clienti_possibili")
     .insert({
-      ragione_sociale: parsed.data.ragioneSociale,
+      ragione_sociale: normalized.ragioneSociale,
+      partita_iva: normalized.partitaIva,
+      codice_fiscale: normalized.codiceFiscale,
+      is_privato: normalized.isPrivato,
+      email: normalized.email ?? "",
+      pec: normalized.pec ?? "",
+      sdi_code: normalized.sdiCode ?? "",
+      telefono: normalized.telefono ?? "",
+      sito_web: normalized.sitoWeb ?? "",
+      sede_amm_nazione: normalized.sedeAmministrativa.nazione,
+      sede_amm_provincia: normalized.sedeAmministrativa.provincia,
+      sede_amm_citta: normalized.sedeAmministrativa.citta,
+      sede_amm_cap: normalized.sedeAmministrativa.cap,
+      sede_amm_indirizzo: normalized.sedeAmministrativa.indirizzo,
+      sede_mag_nazione: normalized.sedeMagazzino.nazione,
+      sede_mag_provincia: normalized.sedeMagazzino.provincia,
+      sede_mag_citta: normalized.sedeMagazzino.citta,
+      sede_mag_cap: normalized.sedeMagazzino.cap,
+      sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
+      prodotti_interessati: prodotti.map((p) => p.trim()).filter(Boolean),
+      consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
       referente: parsed.data.referente ?? "",
-      telefono: parsed.data.telefono ?? "",
-      email: parsed.data.email ?? "",
       note_interne: parsed.data.noteInterne ?? "",
       stato: "da_valutare",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select(
-      "id, ragione_sociale, referente, telefono, email, note_interne, stato, cliente_id, created_at, updated_at"
-    )
+    .select(CLIENTI_POSSIBILI_SELECT)
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
-  const item: ClientePossibile = {
-    id: String(data.id),
-    ragioneSociale: String(data.ragione_sociale),
-    referente: String(data.referente ?? ""),
-    telefono: String(data.telefono ?? ""),
-    email: String(data.email ?? ""),
-    noteInterne: String(data.note_interne ?? ""),
-    stato: data.stato as ClientePossibile["stato"],
-    clienteId: data.cliente_id ? String(data.cliente_id) : null,
-    createdAt: String(data.created_at),
-    updatedAt: String(data.updated_at),
-  };
+  const item = mapClientePossibileRow(data as Record<string, unknown>);
   await writeAuditLog({
     entity_type: "clienti_possibili",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Possibile cliente: ${item.ragioneSociale}`,
-    payload: {},
+    payload: { prodotti_interessati: item.prodottiInteressati.length },
   });
   return { success: true, item };
 }

@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  emptySede,
+  type Cliente,
+  type ConsegnaAltraAzienda,
+  type SedeCliente,
+} from "@/lib/amministrazione/clienti";
 
 export const pnEntityTypeSchema = z.enum([
   "cliente",
@@ -45,9 +51,20 @@ export type PnNota = {
 export type ClientePossibile = {
   id: string;
   ragioneSociale: string;
-  referente: string;
-  telefono: string;
+  partitaIva: string;
+  codiceFiscale: string;
+  isPrivato: boolean;
   email: string;
+  pec: string;
+  sdiCode: string;
+  telefono: string;
+  sitoWeb: string;
+  sedeAmministrativa: SedeCliente;
+  sedeMagazzino: SedeCliente;
+  consegneAltraAzienda: ConsegnaAltraAzienda[];
+  /** Equivalente a prodottiAcquistati sul cliente reale */
+  prodottiInteressati: string[];
+  referente: string;
   noteInterne: string;
   stato: "da_valutare" | "in_contatto" | "convertito" | "scartato";
   clienteId: string | null;
@@ -82,13 +99,71 @@ export const createNotaSchema = z.object({
   entityLabel: z.string().trim().max(200).optional().default(""),
 });
 
+const sedeSchema = z.object({
+  nazione: z.string(),
+  provincia: z.string(),
+  citta: z.string(),
+  cap: z.string(),
+  indirizzo: z.string(),
+});
+
 export const createClientePossibileSchema = z.object({
   ragioneSociale: z.string().trim().min(1).max(200),
-  referente: z.string().trim().max(120).optional().default(""),
-  telefono: z.string().trim().max(60).optional().default(""),
+  partitaIva: z.string().trim().max(20).optional().default(""),
+  codiceFiscale: z.string().trim().max(20).optional().default(""),
+  isPrivato: z.boolean().optional().default(false),
   email: z.string().trim().max(120).optional().default(""),
+  pec: z.string().trim().max(120).optional().default(""),
+  sdiCode: z.string().trim().max(10).optional().default(""),
+  telefono: z.string().trim().max(60).optional().default(""),
+  sitoWeb: z.string().trim().max(200).optional().default(""),
+  sedeAmministrativa: sedeSchema,
+  sedeMagazzino: sedeSchema.optional(),
+  consegneAltraAzienda: z
+    .array(
+      z.object({
+        ragioneSociale: z.string(),
+        nazione: z.string(),
+        provincia: z.string(),
+        citta: z.string(),
+        cap: z.string(),
+        indirizzo: z.string(),
+      })
+    )
+    .optional()
+    .default([]),
+  /** Accetta anche prodottiAcquistati dal ClienteFormModal */
+  prodottiInteressati: z.array(z.string()).optional().default([]),
+  prodottiAcquistati: z.array(z.string()).optional(),
+  referente: z.string().trim().max(120).optional().default(""),
   noteInterne: z.string().trim().max(2000).optional().default(""),
 });
+
+export function emptyClientePossibileSedi() {
+  return { sedeAmministrativa: emptySede(), sedeMagazzino: emptySede() };
+}
+
+/** Prefill form cliente reale da un lead (prodotti interessati → acquistati). */
+export function clienteFromPossibile(lead: ClientePossibile): Cliente {
+  return {
+    id: "",
+    codiceTarga: "",
+    ragioneSociale: lead.ragioneSociale,
+    partitaIva: lead.partitaIva,
+    codiceFiscale: lead.codiceFiscale,
+    isPrivato: lead.isPrivato,
+    email: lead.email,
+    pec: lead.pec,
+    sdiCode: lead.sdiCode,
+    telefono: lead.telefono,
+    sitoWeb: lead.sitoWeb,
+    sedeAmministrativa: lead.sedeAmministrativa,
+    sedeMagazzino: lead.sedeMagazzino,
+    consegneAltraAzienda: lead.consegneAltraAzienda,
+    prodottiAcquistati: lead.prodottiInteressati,
+    createdAt: "",
+  };
+}
 
 export function monthKeyFromIso(iso: string): string {
   return iso.slice(0, 7);

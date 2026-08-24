@@ -32,6 +32,11 @@ type Props = {
   elevated?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
   ficDocument?: { kind: FatturaKind; ficId: number } | null;
+  /**
+   * `possibile` = lead senza targa; etichetta prodotti «interessati».
+   * Default: scheda cliente normale.
+   */
+  variant?: "cliente" | "possibile";
 };
 
 function sameSede(a: SedeCliente, b: SedeCliente) {
@@ -71,13 +76,15 @@ export function ClienteFormModal({
   onSave,
   elevated = false,
   ficDocument = null,
+  variant = "cliente",
 }: Props) {
+  const isPossibile = variant === "possibile";
   const router = useRouter();
   const titleId = useId();
   const isEdit = mode === "edit";
   const [codiceTarga, setCodiceTarga] = useState(initial?.codiceTarga ?? "");
   const [codiceError, setCodiceError] = useState<string | null>(null);
-  const [codiceLoading, setCodiceLoading] = useState(!isEdit);
+  const [codiceLoading, setCodiceLoading] = useState(!isEdit && !isPossibile);
   const [ragioneSociale, setRagioneSociale] = useState(
     initial?.ragioneSociale ?? ""
   );
@@ -195,17 +202,19 @@ export function ClienteFormModal({
         }
       }
     }
-    if (!/^C[0-9A-F]{3}$/.test(codice) || codice === "C000") {
-      setCodiceError(
-        "Il codice cliente deve essere C + 3 esadecimali (C001–CFFF)."
-      );
-      setFormError("Codice cliente non valido.");
-      return null;
+    if (!isPossibile) {
+      if (!/^C[0-9A-F]{3}$/.test(codice) || codice === "C000") {
+        setCodiceError(
+          "Il codice cliente deve essere C + 3 esadecimali (C001–CFFF)."
+        );
+        setFormError("Codice cliente non valido.");
+        return null;
+      }
     }
     setFormError(null);
     setCodiceError(null);
     return {
-      codiceTarga: codice,
+      codiceTarga: isPossibile ? undefined : codice,
       ragioneSociale: ragioneSociale.trim(),
       partitaIva: isPrivato ? "" : partitaIva.trim(),
       codiceFiscale: codiceFiscale.trim(),
@@ -223,12 +232,12 @@ export function ClienteFormModal({
           : sedeMagazzino,
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
-      archivioId,
+      archivioId: isPossibile ? null : archivioId,
     };
   }
 
   async function checkArchivioByVat(vat: string) {
-    if (isEdit || !vat.trim()) {
+    if (isEdit || isPossibile || !vat.trim()) {
       setArchivioId(null);
       setArchivioHint(null);
       return;
@@ -274,6 +283,12 @@ export function ClienteFormModal({
   }, []);
 
   useEffect(() => {
+    if (isPossibile) {
+      setCodiceTarga("");
+      setCodiceLoading(false);
+      setCodiceError(null);
+      return;
+    }
     if (isEdit) return;
     if (initial?.codiceTarga) {
       setCodiceTarga(initial.codiceTarga);
@@ -297,7 +312,7 @@ export function ClienteFormModal({
     return () => {
       cancelled = true;
     };
-  }, [isEdit, initial?.codiceTarga]);
+  }, [isEdit, isPossibile, initial?.codiceTarga]);
 
   async function persist(values: ClienteInput): Promise<boolean> {
     setSaving(true);
@@ -311,7 +326,7 @@ export function ClienteFormModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (saving || codiceLoading) return;
+    if (saving || (!isPossibile && codiceLoading)) return;
     const values = buildValues();
     if (!values) return;
     const ok = await persist(values);
@@ -321,7 +336,7 @@ export function ClienteFormModal({
   }
 
   async function saveAndOpenNuovoProdotto() {
-    if (saving || codiceLoading) return;
+    if (saving || (!isPossibile && codiceLoading)) return;
     const values = buildValues();
     if (!values) return;
     const ok = await persist(values);
@@ -351,12 +366,22 @@ export function ClienteFormModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          {isEdit ? "Modifica scheda cliente" : "Nuovo cliente"}
+          {isPossibile
+            ? isEdit
+              ? "Modifica possibile cliente"
+              : "Nuovo possibile cliente"
+            : isEdit
+              ? "Modifica scheda cliente"
+              : "Nuovo cliente"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {isEdit
-            ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
-            : "Compila i dati anagrafici e i prodotti acquistati."}
+          {isPossibile
+            ? isEdit
+              ? "Aggiorna i dati del lead. La targa verrà assegnata solo in conversione a cliente."
+              : "Stessi campi del cliente: i prodotti sono «interessati», non ancora acquistati. Nessuna targa finché non converti."
+            : isEdit
+              ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
+              : "Compila i dati anagrafici e i prodotti acquistati."}
         </p>
         {ficDocument ? (
           <div className="mt-3">
@@ -368,6 +393,7 @@ export function ClienteFormModal({
           </div>
         ) : null}
 
+        {!isPossibile ? (
         <div className="mt-4 rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3">
           <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Codice azienda
@@ -388,6 +414,12 @@ export function ClienteFormModal({
             <p className="mt-1 text-xs text-red-600">{codiceError}</p>
           )}
         </div>
+        ) : (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          Lead senza codice targa. La targa C… verrà assegnata solo quando
+          convertirai questo possibile cliente in cliente.
+        </div>
+        )}
 
         <form
           onSubmit={submit}
@@ -690,6 +722,12 @@ export function ClienteFormModal({
             onChange={setProdotti}
             onNuovoProdotto={saveAndOpenNuovoProdotto}
             nuovoProdottoBusy={saving}
+            title={isPossibile ? "Prodotti interessati" : "Prodotti Acquistati"}
+            hint={
+              isPossibile
+                ? "Prodotti di interesse per questo lead (non ancora acquistati)."
+                : "Seleziona i prodotti dall'elenco di Prodotti propri."
+            }
           />
 
           {formError && (
@@ -709,14 +747,21 @@ export function ClienteFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving || codiceLoading || codiceTarga.length !== 4}
+              disabled={
+                saving ||
+                (!isPossibile && (codiceLoading || codiceTarga.length !== 4))
+              }
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"
             >
               {saving
                 ? "Salvataggio…"
-                : isEdit
-                  ? "Salva modifiche"
-                  : "Salva cliente"}
+                : isPossibile
+                  ? isEdit
+                    ? "Salva lead"
+                    : "Salva possibile cliente"
+                  : isEdit
+                    ? "Salva modifiche"
+                    : "Salva cliente"}
             </button>
           </div>
         </form>

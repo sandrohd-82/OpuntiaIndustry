@@ -10,47 +10,25 @@ import {
   listNotePnAction,
 } from "@/app/actions/promemorie-e-note";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+import type { ClienteInput } from "@/lib/amministrazione/clienti";
 import {
-  emptyConsegnaAltraAzienda,
-  emptySede,
-  type Cliente,
-} from "@/lib/amministrazione/clienti";
-import type { ClientePossibile, PnNota } from "@/lib/promemorie-e-note/types";
-
-function prefillCliente(ragioneSociale: string): Cliente {
-  return {
-    id: "",
-    codiceTarga: "",
-    ragioneSociale,
-    partitaIva: "",
-    codiceFiscale: "",
-    isPrivato: false,
-    email: "",
-    pec: "",
-    sdiCode: "",
-    telefono: "",
-    sitoWeb: "",
-    sedeAmministrativa: emptySede(),
-    sedeMagazzino: emptySede(),
-    consegneAltraAzienda: [emptyConsegnaAltraAzienda()],
-    prodottiAcquistati: [],
-    createdAt: "",
-  };
-}
+  clienteFromPossibile,
+  type ClientePossibile,
+  type PnNota,
+} from "@/lib/promemorie-e-note/types";
 
 export function PossibiliClientiBoard() {
   const [items, setItems] = useState<ClientePossibile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [showLeadForm, setShowLeadForm] = useState(false);
   const [showClienteForm, setShowClienteForm] = useState(false);
-  const [prefillRs, setPrefillRs] = useState("");
+  const [clientePrefill, setClientePrefill] = useState<ReturnType<
+    typeof clienteFromPossibile
+  > | null>(null);
   const [noteFor, setNoteFor] = useState<ClientePossibile | null>(null);
   const [noteBody, setNoteBody] = useState("");
   const [notes, setNotes] = useState<PnNota[]>([]);
-  const [rs, setRs] = useState("");
-  const [referente, setReferente] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [email, setEmail] = useState("");
 
   function reload() {
     startTransition(async () => {
@@ -68,26 +46,6 @@ export function PossibiliClientiBoard() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function addLead() {
-    startTransition(async () => {
-      const res = await createClientePossibileAction({
-        ragioneSociale: rs,
-        referente,
-        telefono,
-        email,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setRs("");
-      setReferente("");
-      setTelefono("");
-      setEmail("");
-      reload();
-    });
-  }
 
   async function openNotes(lead: ClientePossibile) {
     setNoteFor(lead);
@@ -130,53 +88,22 @@ export function PossibiliClientiBoard() {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
+          onClick={() => setShowLeadForm(true)}
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+        >
+          <FaPlus size={12} />
+          + Nuovo possibile cliente
+        </button>
+        <button
+          type="button"
           onClick={() => {
-            setPrefillRs("");
+            setClientePrefill(null);
             setShowClienteForm(true);
           }}
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50"
         >
           <FaUserPlus size={14} />
           + Nuovo cliente
-        </button>
-      </div>
-
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h2 className="text-sm font-semibold">Aggiungi possibile cliente</h2>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          <input
-            value={rs}
-            onChange={(e) => setRs(e.target.value)}
-            placeholder="Ragione sociale *"
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-          <input
-            value={referente}
-            onChange={(e) => setReferente(e.target.value)}
-            placeholder="Referente"
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-          <input
-            value={telefono}
-            onChange={(e) => setTelefono(e.target.value)}
-            placeholder="Telefono"
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-        </div>
-        <button
-          type="button"
-          disabled={pending || !rs.trim()}
-          onClick={addLead}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
-        >
-          <FaPlus size={12} />
-          Salva lead
         </button>
       </div>
 
@@ -190,15 +117,24 @@ export function PossibiliClientiBoard() {
               <p className="font-semibold">{lead.ragioneSociale}</p>
               <p className="text-xs text-[var(--muted)]">
                 {lead.stato}
-                {lead.referente ? ` · ${lead.referente}` : ""}
+                {lead.isPrivato ? " · privato" : ""}
+                {lead.partitaIva ? ` · P.IVA ${lead.partitaIva}` : ""}
+                {lead.sedeAmministrativa.citta
+                  ? ` · ${lead.sedeAmministrativa.citta}`
+                  : ""}
                 {lead.telefono ? ` · ${lead.telefono}` : ""}
                 {lead.email ? ` · ${lead.email}` : ""}
               </p>
+              {lead.prodottiInteressati.length > 0 ? (
+                <p className="mt-1 text-xs text-slate-600">
+                  Interessati: {lead.prodottiInteressati.join(", ")}
+                </p>
+              ) : null}
             </div>
             <button
               type="button"
               onClick={() => {
-                setPrefillRs(lead.ragioneSociale);
+                setClientePrefill(clienteFromPossibile(lead));
                 setShowClienteForm(true);
               }}
               className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
@@ -217,8 +153,8 @@ export function PossibiliClientiBoard() {
         ))}
         {items.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            Nessun possibile cliente. Aggiungi un lead o crea direttamente un
-            cliente.
+            Nessun possibile cliente. Usa «+ Nuovo possibile cliente» con tutti
+            i campi anagrafici.
           </li>
         ) : null}
       </ul>
@@ -267,11 +203,34 @@ export function PossibiliClientiBoard() {
         </div>
       ) : null}
 
+      {showLeadForm ? (
+        <ClienteFormModal
+          mode="create"
+          variant="possibile"
+          onClose={() => setShowLeadForm(false)}
+          onSave={async (values: ClienteInput) => {
+            const res = await createClientePossibileAction(values);
+            if (!res.success) {
+              setError(res.error);
+              return false;
+            }
+            setShowLeadForm(false);
+            setError(null);
+            reload();
+            return true;
+          }}
+        />
+      ) : null}
+
       {showClienteForm ? (
         <ClienteFormModal
           mode="create"
-          initial={prefillRs ? prefillCliente(prefillRs) : null}
-          onClose={() => setShowClienteForm(false)}
+          variant="cliente"
+          initial={clientePrefill}
+          onClose={() => {
+            setShowClienteForm(false);
+            setClientePrefill(null);
+          }}
           onSave={async (values) => {
             const res = await createClienteAction(values);
             if (!res.success) {
@@ -279,6 +238,7 @@ export function PossibiliClientiBoard() {
               return false;
             }
             setShowClienteForm(false);
+            setClientePrefill(null);
             setError(null);
             reload();
             return true;
