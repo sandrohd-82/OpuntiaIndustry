@@ -4,7 +4,7 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Menu Area fornitori (esterna / collaborativa) */
+/** Menu Gestionale Fornitori (esterna / collaborativa) */
 export const AREA_FORNITORI_SECTIONS: readonly NavItem[] = [
   {
     slug: "quaderno-di-campagna",

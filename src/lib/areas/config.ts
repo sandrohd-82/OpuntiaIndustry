@@ -37,8 +37,13 @@ export const AREA_ROUTES: Record<
   },
   "area-fornitori": {
     path: "/app/area-fornitori",
-    label: "Area fornitori",
+    label: "Gestionale Fornitori",
     description: "Quaderno di campagna e calendario raccolto",
+  },
+  "ricerca-sviluppo": {
+    path: "/app/ricerca-sviluppo",
+    label: "Ricerca e sviluppo",
+    description: "Ricerche processi e materie prime — timeline report",
   },
   commerciale: {
     path: "/app/commerciale",
@@ -67,6 +72,7 @@ export const AREA_ROUTES: Record<
 export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
   "amministrazione",
+  "ricerca-sviluppo",
   "produzione",
   "magazzino",
   "chat",

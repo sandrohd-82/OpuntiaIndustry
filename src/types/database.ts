@@ -18,6 +18,7 @@ export type AreaSlug =
   | "amministrazione"
   | "chat"
   | "area-fornitori"
+  | "ricerca-sviluppo"
   | "impostazioni";
 
 export interface AppRole {

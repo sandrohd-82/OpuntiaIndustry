@@ -19,6 +19,7 @@ import {
 } from "@/lib/areas/nav-tree";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
+import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import type { AreaSlug, UserArea } from "@/types/database";
@@ -46,6 +47,8 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
   switch (slug) {
     case "produzione":
       return PRODUZIONE_SECTIONS;
+    case "ricerca-sviluppo":
+      return RICERCA_SVILUPPO_SECTIONS;
     case "magazzino":
       return MAGAZZINO_SECTIONS;
     case "amministrazione":
