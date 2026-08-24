@@ -1456,6 +1456,25 @@ export function FatturaRegistrazioneModal({
       role="presentation"
       onClick={(e) => e.stopPropagation()}
     >
+      {matchScanPending ? (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/55 px-4"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="flex max-w-lg flex-col items-center gap-4 rounded-2xl border border-white/20 bg-white px-8 py-10 text-center shadow-2xl">
+            <span
+              className="inline-block h-12 w-12 animate-spin rounded-full border-[3px] border-sky-600 border-t-transparent"
+              aria-hidden
+            />
+            <p className="text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
+              Controllo corrispondenze: auto-assegnazione al 100% e
+              segnalazione delle altre…
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div
         role="dialog"
         aria-modal="true"
@@ -1807,34 +1826,27 @@ export function FatturaRegistrazioneModal({
               </div>
             </div>
 
-            {isRicevuta ? (
+            {isRicevuta && !matchScanPending ? (
               <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs text-sky-950">
-                {matchScanPending ? (
-                  <span>
-                    Controllo corrispondenze: auto-assegnazione al 100% e
-                    segnalazione delle altre…
-                  </span>
-                ) : (
-                  <span>
-                    {autoLinkCount > 0 ? (
-                      <>
-                        <strong>{autoLinkCount}</strong> riga/e con match{" "}
-                        <strong>100%</strong> già collegate al catalogo.{" "}
-                      </>
-                    ) : null}
-                    Solo le righe senza corrispondenza esatta restano da
-                    gestire (badge / <strong>Cerca</strong>). Il menu codice
-                    mostra match ≥70%.
-                    {Object.values(matchHints).filter((h) => h.status !== "ok")
-                      .length > 0
-                      ? ` · ${
-                          Object.values(matchHints).filter(
-                            (h) => h.status !== "ok"
-                          ).length
-                        } righe da rivedere`
-                      : null}
-                  </span>
-                )}
+                <span>
+                  {autoLinkCount > 0 ? (
+                    <>
+                      <strong>{autoLinkCount}</strong> riga/e con match{" "}
+                      <strong>100%</strong> già collegate al catalogo.{" "}
+                    </>
+                  ) : null}
+                  Solo le righe senza corrispondenza esatta restano da
+                  gestire (badge / <strong>Cerca</strong>). Il menu codice
+                  mostra match ≥70%.
+                  {Object.values(matchHints).filter((h) => h.status !== "ok")
+                    .length > 0
+                    ? ` · ${
+                        Object.values(matchHints).filter(
+                          (h) => h.status !== "ok"
+                        ).length
+                      } righe da rivedere`
+                    : null}
+                </span>
               </div>
             ) : null}
 
