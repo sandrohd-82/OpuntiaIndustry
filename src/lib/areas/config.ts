@@ -30,6 +30,11 @@ export const AREA_ROUTES: Record<
     label: "Chat",
     description: "Argomenti e discussioni operative",
   },
+  "promemorie-e-note": {
+    path: "/app/promemorie-e-note",
+    label: "Promemorie e note",
+    description: "Promemoria, attività e note collegabili",
+  },
   "area-fiscale": {
     path: "/app/area-fiscale",
     label: "Area Fiscale",
@@ -76,6 +81,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "produzione",
   "magazzino",
   "chat",
+  "promemorie-e-note",
   "area-fiscale",
   "area-fornitori",
   "impostazioni",

@@ -6,6 +6,7 @@ import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/G
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ClientiBoard } from "@/components/amministrazione/ClientiBoard";
+import { PossibiliClientiBoard } from "@/components/amministrazione/PossibiliClientiBoard";
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { ImballaggiSpedizioniBoard } from "@/components/amministrazione/ImballaggiSpedizioniBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
@@ -74,6 +75,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ClientiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "clienti" && sub === "possibili") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PossibiliClientiBoard />
         </div>
       </>
     );

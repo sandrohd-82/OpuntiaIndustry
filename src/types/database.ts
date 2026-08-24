@@ -17,6 +17,7 @@ export type AreaSlug =
   | "area-fiscale"
   | "amministrazione"
   | "chat"
+  | "promemorie-e-note"
   | "area-fornitori"
   | "ricerca-sviluppo"
   | "impostazioni";
