@@ -175,41 +175,17 @@ function NavTree({
       {sections.map((item) => {
         if (isNavBranch(item)) {
           const open = openKeys.has(item.slug);
-          const active = pathname === item.path;
-          const hubLink = item.slug === "statistiche";
+          const active = pathMatches(pathname, item.path);
           return (
             <li key={item.path}>
-              {hubLink ? (
-                <div className="flex items-center gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => toggle(item.slug)}
-                    aria-expanded={open}
-                    aria-label={`${open ? "Chiudi" : "Apri"} ${item.label}`}
-                    className={itemClass(active, true).replace(
-                      "w-full",
-                      "shrink-0 px-2"
-                    )}
-                  >
-                    <Chevron open={open} />
-                  </button>
-                  <Link
-                    href={item.path}
-                    className={`${itemClass(active, true)} flex-1`}
-                  >
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                </div>
-              ) : (
-                <BranchButton
-                  label={item.label}
-                  open={open}
-                  active={active || pathMatches(pathname, item.path)}
-                  nested
-                  badge={item.badge}
-                  onToggle={() => toggle(item.slug)}
-                />
-              )}
+              <BranchButton
+                label={item.label}
+                open={open}
+                active={active}
+                nested
+                badge={item.badge}
+                onToggle={() => toggle(item.slug)}
+              />
               {open && (
                 <NavTree
                   sections={item.children}

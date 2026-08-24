@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { GraficiHomeBoard } from "@/components/amministrazione/grafici/GraficiHomeBoard";
 import { RubricaBoard } from "@/components/amministrazione/RubricaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -24,7 +23,7 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     redirect("/app/area-fiscale/fatture");
   }
   if (section === "grafici") {
-    redirect("/app/amministrazione/statistiche");
+    redirect("/app/amministrazione/statistiche/ordini");
   }
   if (section === "dipendenti") {
     redirect("/app/amministrazione/organigramma");
@@ -38,19 +37,6 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
 
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
-
-  if (section === "statistiche") {
-    const page = resolveAmministrazionePage([section]);
-    if (!page) notFound();
-    return (
-      <>
-        <AppHeader title="Statistiche" subtitle={page.description} />
-        <div className="p-6">
-          <GraficiHomeBoard />
-        </div>
-      </>
-    );
-  }
 
   if (section === "rubrica") {
     const page = resolveAmministrazionePage([section]);
