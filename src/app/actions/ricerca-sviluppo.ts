@@ -23,7 +23,8 @@ async function guard() {
 }
 
 export async function listRicercheAction(input: {
-  tipo: RsTipo;
+  /** Se omesso: entrambe le tipologie (archivio scientifico unificato). */
+  tipo?: RsTipo | null;
   archivio: boolean;
 }): Promise<
   { success: true; items: RsRicerca[] } | { success: false; error: string }
@@ -35,9 +36,12 @@ export async function listRicercheAction(input: {
     .select(
       "id, tipo, titolo, descrizione, stato, versione, approved_at, approved_by, created_at, updated_at, created_by"
     )
-    .eq("tipo", input.tipo)
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
+
+  if (input.tipo) {
+    q = q.eq("tipo", input.tipo);
+  }
 
   if (input.archivio) {
     q = q.eq("stato", "archiviato");

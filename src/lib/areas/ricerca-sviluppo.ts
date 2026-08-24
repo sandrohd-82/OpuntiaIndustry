@@ -53,6 +53,13 @@ export const RICERCA_SVILUPPO_SECTIONS: readonly NavItem[] = [
     "Ricerche Materie Prime",
     "Timeline ricerche sulle materie prime"
   ),
+  {
+    slug: "archivio-ricerche-scientifiche",
+    label: "Archivio Ricerche Scientifiche",
+    description:
+      "Archivio unificato di tutte le ricerche scientifiche (processi e materie prime)",
+    path: "/app/ricerca-sviluppo/archivio-ricerche-scientifiche",
+  },
 ] as const;
 
 export function getFirstRicercaSviluppoPath(): string {

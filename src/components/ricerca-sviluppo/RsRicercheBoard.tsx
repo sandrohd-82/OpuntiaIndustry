@@ -11,7 +11,8 @@ import {
 import type { RsRicerca, RsTipo } from "@/lib/ricerca-sviluppo/types";
 
 type Props = {
-  tipo: RsTipo;
+  /** Se null: archivio unificato (tutte le tipologie). */
+  tipo: RsTipo | null;
   mode: "nuova" | "elenco" | "archivio";
 };
 
@@ -20,6 +21,11 @@ const STATO_LABEL: Record<RsRicerca["stato"], string> = {
   in_corso: "In corso",
   approvato: "Approvato",
   archiviato: "Archiviato",
+};
+
+const TIPO_LABEL: Record<RsTipo, string> = {
+  processo: "Processo",
+  materia_prima: "Materia prima",
 };
 
 export function RsRicercheBoard({ tipo, mode }: Props) {
@@ -33,7 +39,7 @@ export function RsRicercheBoard({ tipo, mode }: Props) {
   function reload() {
     startTransition(async () => {
       const res = await listRicercheAction({
-        tipo,
+        tipo: tipo ?? null,
         archivio: mode === "archivio",
       });
       if (!res.success) {
@@ -52,6 +58,10 @@ export function RsRicercheBoard({ tipo, mode }: Props) {
   }, [tipo, mode]);
 
   function create() {
+    if (!tipo) {
+      setError("Tipologia ricerca non specificata.");
+      return;
+    }
     startTransition(async () => {
       const res = await createRicercaAction({ tipo, titolo, descrizione });
       if (!res.success) {
@@ -143,6 +153,7 @@ export function RsRicercheBoard({ tipo, mode }: Props) {
                   {r.titolo}
                 </Link>
                 <p className="text-xs text-[var(--muted)]">
+                  {!tipo ? `${TIPO_LABEL[r.tipo]} · ` : null}
                   {STATO_LABEL[r.stato]} · v{r.versione} · aggiornata{" "}
                   {new Date(r.updatedAt).toLocaleDateString("it-IT")}
                 </p>
