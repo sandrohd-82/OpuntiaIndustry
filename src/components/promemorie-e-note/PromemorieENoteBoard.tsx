@@ -12,6 +12,11 @@ import {
 } from "@/app/actions/promemorie-e-note";
 import { listPeerCandidates } from "@/lib/chat/queries";
 import {
+  EMPTY_NOTA_EXTRAS,
+  NotaFormExtras,
+  type NotaExtrasValue,
+} from "@/components/promemorie-e-note/NotaFormExtras";
+import {
   dayKeyFromIso,
   monthKeyFromIso,
   type PnAttivita,
@@ -69,6 +74,8 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [dueAt, setDueAt] = useState(toLocalInputValue());
   const [body, setBody] = useState("");
   const [colore, setColore] = useState<PnNota["colore"]>("giallo");
+  const [notaExtras, setNotaExtras] =
+    useState<NotaExtrasValue>(EMPTY_NOTA_EXTRAS);
 
   function reload() {
     startTransition(async () => {
@@ -143,13 +150,18 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           titolo,
           body,
           colore,
-          dueAt: dueAt ? dueIso : null,
+          dueAt: notaExtras.dueAt,
+          createPromemoria: notaExtras.createPromemoria,
+          createAttivita: notaExtras.createAttivita,
+          linkedPromemoriaId: notaExtras.linkedPromemoriaId,
+          linkedAttivitaId: notaExtras.linkedAttivitaId,
         });
         if (!res.success) {
           setError(res.error);
           return;
         }
         setOk("Nota creata.");
+        setNotaExtras(EMPTY_NOTA_EXTRAS);
       }
       setError(null);
       setTitolo("");
@@ -238,6 +250,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                 <option value="rosa">Rosa</option>
                 <option value="grigio">Grigio</option>
               </select>
+              <NotaFormExtras value={notaExtras} onChange={setNotaExtras} />
             </>
           ) : (
             <>
@@ -265,13 +278,17 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
               />
             </>
           ) : null}
-          <label className="block text-xs font-medium">Data / ora</label>
-          <input
-            type="datetime-local"
-            value={dueAt}
-            onChange={(e) => setDueAt(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
+          {kind !== "note" ? (
+            <>
+              <label className="block text-xs font-medium">Data / ora</label>
+              <input
+                type="datetime-local"
+                value={dueAt}
+                onChange={(e) => setDueAt(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </>
+          ) : null}
           <button
             type="button"
             disabled={

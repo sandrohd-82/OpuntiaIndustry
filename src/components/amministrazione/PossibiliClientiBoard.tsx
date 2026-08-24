@@ -13,6 +13,11 @@ import {
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import {
+  EMPTY_NOTA_EXTRAS,
+  NotaFormExtras,
+  type NotaExtrasValue,
+} from "@/components/promemorie-e-note/NotaFormExtras";
+import {
   clienteFromPossibile,
   type ClientePossibile,
   type PnNota,
@@ -30,6 +35,8 @@ export function PossibiliClientiBoard() {
   > | null>(null);
   const [noteFor, setNoteFor] = useState<ClientePossibile | null>(null);
   const [noteBody, setNoteBody] = useState("");
+  const [noteExtras, setNoteExtras] =
+    useState<NotaExtrasValue>(EMPTY_NOTA_EXTRAS);
   const [notes, setNotes] = useState<PnNota[]>([]);
 
   function reload() {
@@ -52,6 +59,7 @@ export function PossibiliClientiBoard() {
   async function openNotes(lead: ClientePossibile) {
     setNoteFor(lead);
     setNoteBody("");
+    setNoteExtras(EMPTY_NOTA_EXTRAS);
     const res = await listNotePnAction({
       entityType: "cliente_possibile",
       entityId: lead.id,
@@ -69,12 +77,18 @@ export function PossibiliClientiBoard() {
         entityId: noteFor.id,
         entityLabel: noteFor.ragioneSociale,
         colore: "giallo",
+        dueAt: noteExtras.dueAt,
+        createPromemoria: noteExtras.createPromemoria,
+        createAttivita: noteExtras.createAttivita,
+        linkedPromemoriaId: noteExtras.linkedPromemoriaId,
+        linkedAttivitaId: noteExtras.linkedAttivitaId,
       });
       if (!res.success) {
         setError(res.error);
         return;
       }
       setNoteBody("");
+      setNoteExtras(EMPTY_NOTA_EXTRAS);
       await openNotes(noteFor);
     });
   }
@@ -162,7 +176,8 @@ export function PossibiliClientiBoard() {
               placeholder="Scrivi una nota post-it…"
               className="mt-3 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
-            <div className="mt-2 flex justify-end gap-2">
+            <NotaFormExtras value={noteExtras} onChange={setNoteExtras} />
+            <div className="mt-3 flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setNoteFor(null)}
@@ -185,7 +200,18 @@ export function PossibiliClientiBoard() {
                   key={n.id}
                   className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm"
                 >
-                  {n.body}
+                  <p>{n.body}</p>
+                  {n.dueAt ? (
+                    <p className="mt-1 text-xs text-amber-900/70">
+                      {new Date(n.dueAt).toLocaleString("it-IT")}
+                    </p>
+                  ) : null}
+                  {(n.linkedPromemoriaId || n.linkedAttivitaId) && (
+                    <p className="mt-0.5 text-xs text-amber-900/70">
+                      {n.linkedPromemoriaId ? "· promemoria " : ""}
+                      {n.linkedAttivitaId ? "· evento" : ""}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

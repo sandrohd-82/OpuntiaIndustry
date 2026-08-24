@@ -340,7 +340,7 @@ export async function listNotePnAction(input?: {
   let q = supabase
     .from("pn_note")
     .select(
-      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, stato, created_at"
+      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at"
     )
     .is("deleted_at", null)
     .eq("stato", "attiva")
@@ -363,6 +363,12 @@ export async function listNotePnAction(input?: {
       entityType: (r.entity_type as PnNota["entityType"]) ?? null,
       entityId: r.entity_id ? String(r.entity_id) : null,
       entityLabel: String(r.entity_label ?? ""),
+      linkedPromemoriaId: r.linked_promemoria_id
+        ? String(r.linked_promemoria_id)
+        : null,
+      linkedAttivitaId: r.linked_attivita_id
+        ? String(r.linked_attivita_id)
+        : null,
       stato: r.stato as PnNota["stato"],
       createdAt: String(r.created_at),
     })),
@@ -381,22 +387,97 @@ export async function createNotaPnAction(input: unknown): Promise<
     };
   }
   const supabase = await createClient();
+  const d = parsed.data;
+  const dueAt = d.dueAt || null;
+  const titoloBase =
+    (d.titolo || "").trim() || d.body.trim().slice(0, 80) || "Nota";
+
+  let linkedPromemoriaId = d.linkedPromemoriaId ?? null;
+  let linkedAttivitaId = d.linkedAttivitaId ?? null;
+
+  if (d.createPromemoria && !linkedPromemoriaId) {
+    const due =
+      dueAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: p, error: pe } = await supabase
+      .from("pn_promemoria")
+      .insert({
+        titolo: titoloBase,
+        descrizione: d.body,
+        due_at: due,
+        stato: "attivo",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (pe || !p) {
+      return {
+        success: false,
+        error: pe?.message ?? "Creazione promemoria fallita",
+      };
+    }
+    linkedPromemoriaId = String(p.id);
+    await writeAuditLog({
+      entity_type: "pn_promemoria",
+      entity_id: linkedPromemoriaId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Promemoria da nota: ${titoloBase}`,
+      payload: { from_nota: true },
+    });
+  }
+
+  if (d.createAttivita && !linkedAttivitaId) {
+    const due =
+      dueAt || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const { data: a, error: ae } = await supabase
+      .from("pn_attivita")
+      .insert({
+        titolo: titoloBase,
+        descrizione: d.body,
+        luogo: "",
+        due_at: due,
+        stato: "pianificata",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (ae || !a) {
+      return {
+        success: false,
+        error: ae?.message ?? "Creazione evento fallita",
+      };
+    }
+    linkedAttivitaId = String(a.id);
+    await writeAuditLog({
+      entity_type: "pn_attivita",
+      entity_id: linkedAttivitaId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Evento da nota: ${titoloBase}`,
+      payload: { from_nota: true },
+    });
+  }
+
   const { data, error } = await supabase
     .from("pn_note")
     .insert({
-      titolo: parsed.data.titolo ?? "",
-      body: parsed.data.body,
-      colore: parsed.data.colore ?? "giallo",
-      due_at: parsed.data.dueAt || null,
-      entity_type: parsed.data.entityType ?? null,
-      entity_id: parsed.data.entityId ?? null,
-      entity_label: parsed.data.entityLabel ?? "",
+      titolo: d.titolo ?? "",
+      body: d.body,
+      colore: d.colore ?? "giallo",
+      due_at: dueAt,
+      entity_type: d.entityType ?? null,
+      entity_id: d.entityId ?? null,
+      entity_label: d.entityLabel ?? "",
+      linked_promemoria_id: linkedPromemoriaId,
+      linked_attivita_id: linkedAttivitaId,
       stato: "attiva",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
     .select(
-      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, stato, created_at"
+      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at"
     )
     .single();
   if (error || !data) {
@@ -411,6 +492,12 @@ export async function createNotaPnAction(input: unknown): Promise<
     entityType: (data.entity_type as PnNota["entityType"]) ?? null,
     entityId: data.entity_id ? String(data.entity_id) : null,
     entityLabel: String(data.entity_label ?? ""),
+    linkedPromemoriaId: data.linked_promemoria_id
+      ? String(data.linked_promemoria_id)
+      : null,
+    linkedAttivitaId: data.linked_attivita_id
+      ? String(data.linked_attivita_id)
+      : null,
     stato: data.stato as PnNota["stato"],
     createdAt: String(data.created_at),
   };
@@ -420,7 +507,12 @@ export async function createNotaPnAction(input: unknown): Promise<
     action: "create",
     actor_id: auth.userId,
     summary: `Nota collegata a ${item.entityType ?? "libera"}`,
-    payload: { entity_id: item.entityId },
+    payload: {
+      entity_id: item.entityId,
+      due_at: item.dueAt,
+      linked_promemoria_id: item.linkedPromemoriaId,
+      linked_attivita_id: item.linkedAttivitaId,
+    },
   });
   return { success: true, item };
 }

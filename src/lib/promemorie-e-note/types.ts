@@ -44,6 +44,8 @@ export type PnNota = {
   entityType: PnEntityType | null;
   entityId: string | null;
   entityLabel: string;
+  linkedPromemoriaId: string | null;
+  linkedAttivitaId: string | null;
   stato: "attiva" | "archiviata";
   createdAt: string;
 };
@@ -97,6 +99,13 @@ export const createNotaSchema = z.object({
   entityType: pnEntityTypeSchema.nullable().optional(),
   entityId: z.string().uuid().nullable().optional(),
   entityLabel: z.string().trim().max(200).optional().default(""),
+  /** Crea un nuovo promemoria dalla nota (stessa data/ora se presente). */
+  createPromemoria: z.boolean().optional().default(false),
+  /** Crea un nuovo evento/attività dalla nota. */
+  createAttivita: z.boolean().optional().default(false),
+  /** Oppure collega elementi già esistenti. */
+  linkedPromemoriaId: z.string().uuid().nullable().optional(),
+  linkedAttivitaId: z.string().uuid().nullable().optional(),
 });
 
 const sedeSchema = z.object({
