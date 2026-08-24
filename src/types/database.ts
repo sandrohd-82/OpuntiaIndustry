@@ -48,6 +48,7 @@ export interface Profile {
   is_active: boolean;
   chat_status?: "available" | "away" | "offline";
   chat_rubrica_banned_at?: string | null;
+  avatar_url?: string | null;
   app_roles?: AppRole;
 }
 

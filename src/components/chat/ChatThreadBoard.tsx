@@ -13,6 +13,7 @@ import {
   FaMicrophone,
   FaTrash,
 } from "react-icons/fa6";
+import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import {
   attachChatLifecycleRefresh,
   subscribeConversationMessages,
@@ -31,6 +32,8 @@ import { sendChatAttachment, sendVoiceMessage } from "@/lib/chat/media";
 import {
   getConversation,
   listMessages,
+  loadChatAvatars,
+  type ChatProfileAvatar,
 } from "@/lib/chat/queries";
 import { peerIdOf, type ChatMessage } from "@/lib/chat/types";
 import { createClient } from "@/lib/supabase/client";
@@ -57,8 +60,103 @@ function StatusTicks({
   return <FaCheck className="inline text-slate-400" size={11} />;
 }
 
+function MessageBubble({
+  message,
+  mine,
+  avatar,
+  onDelete,
+}: {
+  message: ChatMessage;
+  mine: boolean;
+  avatar: ChatProfileAvatar;
+  onDelete: () => void;
+}) {
+  // Vignetta: angolo a spigolo verso l'avatar
+  const bubbleRadius = mine
+    ? "rounded-2xl rounded-br-sm"
+    : "rounded-2xl rounded-bl-sm";
+
+  return (
+    <div
+      className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : "flex-row"}`}
+    >
+      <ChatAvatar
+        name={avatar.name}
+        photoUrl={avatar.photoUrl}
+        size={34}
+        className="mb-0.5"
+      />
+      <div
+        className={`relative max-w-[min(80%,22rem)] px-3 py-2 text-sm shadow-sm ${bubbleRadius} ${
+          mine
+            ? "bg-[var(--primary)] text-white"
+            : "bg-slate-100 text-slate-900"
+        }`}
+      >
+        {/* Punta vignetta verso avatar */}
+        <span
+          aria-hidden
+          className={`absolute bottom-1 h-2.5 w-2.5 rotate-45 ${
+            mine
+              ? "-right-1 bg-[var(--primary)]"
+              : "-left-1 bg-slate-100"
+          }`}
+        />
+        {message.content ? (
+          <p className="relative whitespace-pre-wrap">{message.content}</p>
+        ) : null}
+        {message.audioUrl ? (
+          <audio
+            controls
+            src={message.audioUrl}
+            className="relative mt-1 max-w-full"
+          />
+        ) : null}
+        {message.fileUrl ? (
+          <a
+            href={message.fileUrl}
+            target="_blank"
+            rel="noreferrer"
+            className={`relative mt-1 block underline ${
+              mine ? "text-white" : "text-[var(--primary)]"
+            }`}
+          >
+            {message.fileName || "Allegato"}
+          </a>
+        ) : null}
+        <div
+          className={`relative mt-1 flex items-center gap-1 text-[10px] ${
+            mine ? "text-white/80" : "text-slate-500"
+          }`}
+        >
+          <span>
+            {new Date(message.createdAt).toLocaleTimeString("it-IT", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+          <StatusTicks status={message.status} mine={mine} />
+          {mine ? (
+            <button
+              type="button"
+              title="Elimina"
+              className="ml-1 opacity-70 hover:opacity-100"
+              onClick={onDelete}
+            >
+              <FaTrash size={9} />
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChatThreadBoard({ userId, conversationId }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [avatars, setAvatars] = useState<Map<string, ChatProfileAvatar>>(
+    () => new Map()
+  );
   const [peerId, setPeerId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +168,8 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
   const chunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
 
+  const hasText = text.trim().length > 0;
+
   const mergeMessage = useCallback((msg: ChatMessage) => {
     setMessages((prev) => {
       const i = prev.findIndex((m) => m.id === msg.id);
@@ -79,6 +179,22 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
         return next;
       }
       return [...prev, msg];
+    });
+  }, []);
+
+  const ensureAvatars = useCallback(async (ids: string[]) => {
+    const supabase = createClient();
+    const loaded = await loadChatAvatars(supabase, ids);
+    setAvatars((prev) => {
+      const next = new Map(prev);
+      let changed = false;
+      for (const [id, a] of loaded) {
+        if (!next.has(id)) {
+          next.set(id, a);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
     });
   }, []);
 
@@ -94,6 +210,13 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
       setPeerId(peer);
       const list = await listMessages(supabase, conversationId);
       setMessages(list);
+      const senderIds = [
+        userId,
+        peer,
+        ...list.map((m) => m.senderId),
+      ];
+      const loaded = await loadChatAvatars(supabase, senderIds);
+      setAvatars(loaded);
       setBlocked(await isChatPairBlocked(supabase, userId, peer));
       await markMessagesRead(supabase, conversationId);
 
@@ -118,6 +241,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
     const ch = subscribeConversationMessages(supabase, conversationId, {
       onInsert: (msg) => {
         mergeMessage(msg);
+        void ensureAvatars([msg.senderId]);
         if (msg.senderId !== userId && document.visibilityState === "visible") {
           if (msg.status === "sent") {
             void markMessagesDelivered(supabase, [msg.id]);
@@ -134,7 +258,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
       void supabase.removeChannel(ch);
       detach();
     };
-  }, [conversationId, userId, reload, mergeMessage]);
+  }, [conversationId, userId, reload, mergeMessage, ensureAvatars]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -253,6 +377,16 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
     }
   }
 
+  function avatarFor(senderId: string): ChatProfileAvatar {
+    return (
+      avatars.get(senderId) ?? {
+        id: senderId,
+        name: senderId.slice(0, 8),
+        photoUrl: null,
+      }
+    );
+  }
+
   return (
     <div className="flex h-[min(70vh,720px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
@@ -286,7 +420,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
         </p>
       ) : null}
 
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3">
+      <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages.map((m) => {
           const mine = m.senderId === userId;
           return (
@@ -294,58 +428,17 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
               key={m.id}
               className={`flex ${mine ? "justify-end" : "justify-start"}`}
             >
-              <div
-                className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                  mine
-                    ? "bg-[var(--primary)] text-white"
-                    : "bg-slate-100 text-slate-900"
-                }`}
-              >
-                {m.content ? <p className="whitespace-pre-wrap">{m.content}</p> : null}
-                {m.audioUrl ? (
-                  <audio controls src={m.audioUrl} className="mt-1 max-w-full" />
-                ) : null}
-                {m.fileUrl ? (
-                  <a
-                    href={m.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`mt-1 block underline ${mine ? "text-white" : "text-[var(--primary)]"}`}
-                  >
-                    {m.fileName || "Allegato"}
-                  </a>
-                ) : null}
-                <div
-                  className={`mt-1 flex items-center gap-1 text-[10px] ${
-                    mine ? "text-white/80" : "text-slate-500"
-                  }`}
-                >
-                  <span>
-                    {new Date(m.createdAt).toLocaleTimeString("it-IT", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  <StatusTicks status={m.status} mine={mine} />
-                  {mine ? (
-                    <button
-                      type="button"
-                      title="Elimina"
-                      className="ml-1 opacity-70 hover:opacity-100"
-                      onClick={() => {
-                        const supabase = createClient();
-                        void deleteChatMessage(supabase, m.id).then(() => {
-                          setMessages((prev) =>
-                            prev.filter((x) => x.id !== m.id)
-                          );
-                        });
-                      }}
-                    >
-                      <FaTrash size={9} />
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+              <MessageBubble
+                message={m}
+                mine={mine}
+                avatar={avatarFor(m.senderId)}
+                onDelete={() => {
+                  const supabase = createClient();
+                  void deleteChatMessage(supabase, m.id).then(() => {
+                    setMessages((prev) => prev.filter((x) => x.id !== m.id));
+                  });
+                }}
+              />
             </div>
           );
         })}
@@ -374,19 +467,6 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
             >
               <FaPaperclip size={14} />
             </button>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => void toggleRecord()}
-              className={`rounded-lg border p-2 ${
-                recording
-                  ? "border-red-300 bg-red-50 text-red-600"
-                  : "border-[var(--border)] text-[var(--muted)]"
-              }`}
-              aria-label="Nota vocale"
-            >
-              <FaMicrophone size={14} />
-            </button>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -400,15 +480,31 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
                 }
               }}
             />
-            <button
-              type="button"
-              disabled={pending || !text.trim()}
-              onClick={() => void sendText()}
-              className="rounded-lg bg-[var(--primary)] p-2 text-white disabled:opacity-40"
-              aria-label="Invia"
-            >
-              <FaPaperPlane size={14} />
-            </button>
+            {hasText ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => void sendText()}
+                className="rounded-lg bg-[var(--primary)] p-2 text-white disabled:opacity-40"
+                aria-label="Invia"
+              >
+                <FaPaperPlane size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => void toggleRecord()}
+                className={`rounded-lg p-2 ${
+                  recording
+                    ? "bg-red-500 text-white"
+                    : "bg-[var(--primary)] text-white"
+                } disabled:opacity-40`}
+                aria-label={recording ? "Ferma registrazione" : "Nota vocale"}
+              >
+                <FaMicrophone size={14} />
+              </button>
+            )}
           </div>
         )}
       </div>

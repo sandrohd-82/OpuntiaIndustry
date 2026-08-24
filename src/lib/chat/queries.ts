@@ -16,6 +16,13 @@ type ProfileLite = {
   first_name?: string | null;
   last_name?: string | null;
   chat_status?: ChatStatus | null;
+  avatar_url?: string | null;
+};
+
+export type ChatProfileAvatar = {
+  id: string;
+  name: string;
+  photoUrl: string | null;
 };
 
 function displayName(p: ProfileLite | undefined, fallback: string): string {
@@ -26,7 +33,7 @@ function displayName(p: ProfileLite | undefined, fallback: string): string {
   return n || p.email || fallback;
 }
 
-async function loadProfiles(
+export async function loadProfiles(
   supabase: SupabaseClient,
   ids: string[]
 ): Promise<Map<string, ProfileLite>> {
@@ -35,10 +42,29 @@ async function loadProfiles(
   if (unique.length === 0) return map;
   const { data } = await supabase
     .from("profiles")
-    .select("id, email, full_name, first_name, last_name, chat_status")
+    .select(
+      "id, email, full_name, first_name, last_name, chat_status, avatar_url"
+    )
     .in("id", unique);
   for (const row of (data ?? []) as ProfileLite[]) {
     map.set(row.id, row);
+  }
+  return map;
+}
+
+export async function loadChatAvatars(
+  supabase: SupabaseClient,
+  ids: string[]
+): Promise<Map<string, ChatProfileAvatar>> {
+  const profiles = await loadProfiles(supabase, ids);
+  const map = new Map<string, ChatProfileAvatar>();
+  for (const id of ids) {
+    const p = profiles.get(id);
+    map.set(id, {
+      id,
+      name: displayName(p, id.slice(0, 8)),
+      photoUrl: p?.avatar_url?.trim() || null,
+    });
   }
   return map;
 }
