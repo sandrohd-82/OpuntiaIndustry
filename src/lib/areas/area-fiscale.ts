@@ -85,6 +85,32 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "contratti",
+    label: "Contratti",
+    description: "Affitti, noleggi e altri contratti con periodo e flag fattura",
+    path: "/app/area-fiscale/contratti",
+    children: [
+      {
+        slug: "nuovo",
+        label: "+ Nuovo contratto",
+        description: "Registra un nuovo contratto fiscale",
+        path: "/app/area-fiscale/contratti/nuovo",
+      },
+      {
+        slug: "elenco",
+        label: "Elenco",
+        description: "Contratti attivi e in bozza",
+        path: "/app/area-fiscale/contratti/elenco",
+      },
+      {
+        slug: "archivio",
+        label: "Archivio",
+        description: "Contratti archiviati o scaduti",
+        path: "/app/area-fiscale/contratti/archivio",
+      },
+    ],
+  },
+  {
     slug: "dati-e-calcoli",
     label: "Dati e calcoli",
     description: "IVA, utili e analisi costi",

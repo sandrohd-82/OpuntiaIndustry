@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
 import { FattureInterneBoard } from "@/components/amministrazione/FattureInterneBoard";
@@ -93,6 +94,17 @@ export default async function AreaFiscaleSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RapportiBancaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "contratti" && (sub === "nuovo" || sub === "elenco" || sub === "archivio")) {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ContrattiFiscaliBoard mode={sub} />
         </div>
       </>
     );
