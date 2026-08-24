@@ -9,6 +9,7 @@ import {
 import {
   CERCA_MATCH_PRIMARY_PCT,
   CERCA_RPC_LIMIT,
+  hasMeaningfulTokenOverlap,
 } from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 import { normalizeInvoiceLineText } from "@/lib/sku-generator";
@@ -42,12 +43,22 @@ const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
 };
 
 function seedFromProps(
+  descrizioneRiga: string,
   initialHits: CollegaCatalogoHit[] | undefined,
   suggestedHit: CollegaCatalogoHit | null | undefined
 ): CollegaCatalogoHit[] {
-  if (initialHits && initialHits.length > 0) return initialHits;
-  if (suggestedHit) return [suggestedHit];
-  return [];
+  const raw =
+    initialHits && initialHits.length > 0
+      ? initialHits
+      : suggestedHit
+        ? [suggestedHit]
+        : [];
+  if (!raw.length) return [];
+  const desc = descrizioneRiga.trim();
+  if (!desc) return raw;
+  return raw.filter((h) =>
+    hasMeaningfulTokenOverlap(desc, h.nome, h.codice)
+  );
 }
 
 export function CollegaArticoloModal({
@@ -65,7 +76,9 @@ export function CollegaArticoloModal({
   const titleId = useId();
   /** Descrizione scremata una sola volta all’apertura (in memoria). */
   const cleanedDescRef = useRef(normalizeInvoiceLineText(descrizioneRiga));
-  const seedHitsRef = useRef(seedFromProps(initialHits, suggestedHit));
+  const seedHitsRef = useRef(
+    seedFromProps(descrizioneRiga, initialHits, suggestedHit)
+  );
   const [query, setQuery] = useState(() => cleanedDescRef.current);
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({

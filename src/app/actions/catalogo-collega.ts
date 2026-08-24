@@ -10,6 +10,10 @@ import {
   DROPDOWN_MATCH_THRESHOLD_PCT,
   AUTO_LINK_EXACT_MATCH_PCT,
   CERCA_SEED_CANDIDATES,
+  CONTEXT_BONUS_MIN_BASE_PCT,
+  SAME_AZIENDA_SCORE_BONUS,
+  SAME_INVOICE_SCORE_BONUS,
+  hasMeaningfulTokenOverlap,
 } from "@/lib/amministrazione/catalogo-collega";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -186,9 +190,12 @@ function rowsToHits(
   rows: RpcMatchRow[],
   sameSet: Set<string>,
   aziendaCodes: Set<string>,
-  kinds?: Set<CatalogoLifecycleKind> | null
+  kinds?: Set<CatalogoLifecycleKind> | null,
+  /** Descrizione/query riga: senza overlap token → scarta (anti falsi 100%). */
+  queryText?: string | null
 ): CollegaCatalogoHit[] {
   const byKey = new Map<string, CollegaCatalogoHit>();
+  const q = (queryText ?? "").trim();
   for (const row of rows) {
     if (!isKind(row.catalogo_kind)) continue;
     if (kinds && kinds.size > 0 && !kinds.has(row.catalogo_kind)) continue;
@@ -196,15 +203,37 @@ function rowsToHits(
       .trim()
       .toLowerCase();
     if (!codeKey) continue;
+
+    if (
+      q &&
+      !hasMeaningfulTokenOverlap(q, String(row.nome ?? ""), row.codice)
+    ) {
+      continue;
+    }
+
+    const baseScore = Number(row.affinita_percentuale) || 0;
     let source: CollegaCatalogoHit["source"] = "catalogo";
-    let score = Number(row.affinita_percentuale) || 0;
-    if (sameSet.has(codeKey)) {
+    let score = baseScore;
+
+    // Bonus contestuale solo su match già plausibili — mai forzare 95/100%
+    if (
+      sameSet.has(codeKey) &&
+      baseScore >= CONTEXT_BONUS_MIN_BASE_PCT
+    ) {
       source = "stessa_fattura";
-      score = Math.max(score, 95);
+      score = Math.min(100, baseScore + SAME_INVOICE_SCORE_BONUS);
+    } else if (
+      aziendaCodes.has(codeKey) &&
+      baseScore >= CONTEXT_BONUS_MIN_BASE_PCT
+    ) {
+      source = "stessa_azienda";
+      score = Math.min(100, baseScore + SAME_AZIENDA_SCORE_BONUS);
+    } else if (sameSet.has(codeKey)) {
+      source = "stessa_fattura";
     } else if (aziendaCodes.has(codeKey)) {
       source = "stessa_azienda";
-      score = Math.min(100, Math.max(score, score + 8));
     }
+
     const hit: CollegaCatalogoHit = {
       source,
       catalogoKind: row.catalogo_kind,
@@ -217,7 +246,6 @@ function rowsToHits(
     if (!prev || hit.score > prev.score) byKey.set(codeKey, hit);
   }
   return [...byKey.values()].sort((a, b) => {
-    // Stessa fattura / azienda prima a parità di score
     const order = { stessa_fattura: 0, stessa_azienda: 1, catalogo: 2 };
     if (b.score !== a.score) return b.score - a.score;
     const d = order[a.source] - order[b.source];
@@ -272,7 +300,7 @@ export async function searchCollegaCatalogoAction(input: {
   ]);
   if (matched.error) return { success: false, error: matched.error };
 
-  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds);
+  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, q);
   const minScore = input.minScore ?? 0;
   if (minScore > 0) {
     hits = hits.filter((h) => h.score >= minScore);
@@ -328,7 +356,13 @@ export async function suggestCodiciRigaDropdownAction(input: {
 
   if (matched.error) return { success: false, error: matched.error };
   if (descrizione) {
-    for (const h of rowsToHits(matched.rows, sameSet, aziendaCodes, null)) {
+    for (const h of rowsToHits(
+      matched.rows,
+      sameSet,
+      aziendaCodes,
+      null,
+      descrizione
+    )) {
       if (h.score < DROPDOWN_MATCH_THRESHOLD_PCT && h.source === "catalogo") {
         continue;
       }
@@ -439,7 +473,7 @@ export async function scanFatturaRigheCatalogoAction(input: {
       return;
     }
 
-    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null);
+    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null, desc);
     const best =
       ranked.find((h) => h.codice.trim().toLowerCase() !== codeKey) ??
       ranked[0] ??
@@ -583,10 +617,13 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       return;
     }
 
-    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null);
+    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null, desc);
     const candidates = ranked.slice(0, CERCA_SEED_CANDIDATES);
+    // 100% solo se affinità RPC reale (niente bonus contestuale finto)
     const exactHits = ranked.filter(
-      (h) => h.score >= AUTO_LINK_EXACT_MATCH_PCT
+      (h) =>
+        h.score >= AUTO_LINK_EXACT_MATCH_PCT &&
+        hasMeaningfulTokenOverlap(desc, h.nome, h.codice)
     );
     // Univoco: un solo codice al 100% (non due articoli diversi entrambi a 100)
     const uniqueExact =

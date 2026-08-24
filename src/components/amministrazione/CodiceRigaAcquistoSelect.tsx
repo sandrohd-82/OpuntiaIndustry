@@ -22,6 +22,8 @@ type Props = {
   sameInvoiceCodici: string[];
   onSelectCodice: (codice: string) => void;
   onCerca: () => void;
+  /** Durante lo scan auto-link: evita risultati fuorvianti. */
+  cercaDisabled?: boolean;
 };
 
 const KIND_GROUP: Record<CollegaCatalogoHit["catalogoKind"], string> = {
@@ -44,6 +46,7 @@ export function CodiceRigaAcquistoSelect({
   sameInvoiceCodici,
   onSelectCodice,
   onCerca,
+  cercaDisabled = false,
 }: Props) {
   const [hits, setHits] = useState<CollegaCatalogoHit[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -229,9 +232,15 @@ export function CodiceRigaAcquistoSelect({
         <button
           type="button"
           onClick={onCerca}
-          className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium hover:bg-slate-50"
+          disabled={cercaDisabled}
+          title={
+            cercaDisabled
+              ? "Attendi la fine del controllo automatico"
+              : "Cerca codice catalogo"
+          }
+          className="shrink-0 rounded-lg border border-[var(--border)] px-2 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50"
         >
-          Cerca
+          {cercaDisabled ? "…" : "Cerca"}
         </button>
       </div>
       {menu}
