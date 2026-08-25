@@ -178,6 +178,25 @@ type Props = {
   stackTop?: boolean;
 };
 
+/** Chiavi documenti per cui l’overlay iniziale è già stato chiuso (sopravvive ai remount). */
+const matchScanOverlayDoneKeys = new Set<string>();
+
+function ricevutaMatchDocKey(
+  initialId: string | null | undefined,
+  ficId: number | string | null | undefined,
+  numeroDocumentoEsterno: string | null | undefined
+): string {
+  return `${initialId ?? "new"}|${ficId ?? ""}|${numeroDocumentoEsterno ?? ""}`;
+}
+
+function markMatchScanOverlayDone(docKey: string) {
+  matchScanOverlayDoneKeys.add(docKey);
+}
+
+function shouldShowMatchScanOverlay(docKey: string): boolean {
+  return !matchScanOverlayDoneKeys.has(docKey);
+}
+
 function seedFromInitialOrPrefill(
   initial: Fattura | null | undefined,
   prefill: FatturaRegistrazionePrefill | null
@@ -291,13 +310,20 @@ export function FatturaRegistrazioneModal({
   const [matchHints, setMatchHints] = useState<
     Record<string, RigaCatalogoMatchHint>
   >({});
+  const initialMatchDocKey = ricevutaMatchDocKey(
+    initial?.id,
+    prefill?.ficId ?? initial?.ficId,
+    prefill?.numeroDocumentoEsterno ?? initial?.numeroDocumentoEsterno
+  );
   const [matchScanPending, setMatchScanPending] = useState(
-    () => kind === "ricevuta"
+    () => kind === "ricevuta" && shouldShowMatchScanOverlay(initialMatchDocKey)
   );
   const [autoLinkCount, setAutoLinkCount] = useState(0);
   const autoLinkRunKeyRef = useRef<string | null>(null);
-  /** Overlay load solo al primo controllo del documento, non a ogni modifica successiva. */
-  const matchScanOverlayDocRef = useRef<string | null>(null);
+  /** Una volta chiuso l’overlay per questo documento, non riaprire più. */
+  const matchScanOverlayClosedRef = useRef(
+    !shouldShowMatchScanOverlay(initialMatchDocKey)
+  );
   const [catalogLoaded, setCatalogLoaded] = useState(() => kind !== "ricevuta");
   const [collegatiByCodice, setCollegatiByCodice] = useState<
     Record<string, ArticoloRef[]>
@@ -755,7 +781,7 @@ export function FatturaRegistrazioneModal({
   /**
    * Auto-link Opzione A: righe con match catalogo 100% univoco → codice già valorizzato.
    * Solo righe ≠ 100% restano all’operatore (badge / Cerca).
-   * Overlay: già visibile all’apertura ricevuta; si chiude a fine primo controllo.
+   * Overlay: solo all’apertura, una volta; mai di nuovo (anche dopo delete riga / remount).
    */
   useEffect(() => {
     if (!isRicevuta) {
@@ -763,37 +789,41 @@ export function FatturaRegistrazioneModal({
       setMatchScanPending(false);
       setAutoLinkCount(0);
       autoLinkRunKeyRef.current = null;
-      matchScanOverlayDocRef.current = null;
       return;
     }
 
-    const docKey = `${initial?.id ?? "new"}|${prefill?.ficId ?? ""}|${prefill?.numeroDocumentoEsterno ?? ""}`;
-    const showOverlay = matchScanOverlayDocRef.current !== docKey;
+    const docKey = ricevutaMatchDocKey(
+      initial?.id,
+      prefill?.ficId ?? initial?.ficId,
+      prefill?.numeroDocumentoEsterno ?? initial?.numeroDocumentoEsterno
+    );
+    const showOverlay =
+      !matchScanOverlayClosedRef.current && shouldShowMatchScanOverlay(docKey);
+
+    function closeOverlayForever() {
+      matchScanOverlayClosedRef.current = true;
+      markMatchScanOverlayDone(docKey);
+      setMatchScanPending(false);
+    }
 
     if (!catalogLoaded) {
-      if (showOverlay) setMatchScanPending(true);
+      // Overlay già acceso all’init se dovuto; non riaccenderlo dopo la chiusura.
       return;
     }
 
     if (vociAcquisto.length === 0 || righe.length === 0) {
-      if (showOverlay) {
-        matchScanOverlayDocRef.current = docKey;
-        setMatchScanPending(false);
-      }
+      if (showOverlay) closeOverlayForever();
       return;
     }
 
     const runKey = `${docKey}|${righe.length}|${vociAcquisto.length}`;
     if (autoLinkRunKeyRef.current === runKey) {
-      if (showOverlay) {
-        matchScanOverlayDocRef.current = docKey;
-        setMatchScanPending(false);
-      }
+      if (showOverlay) closeOverlayForever();
       return;
     }
 
     let cancelled = false;
-    if (showOverlay) setMatchScanPending(true);
+    // Mai setMatchScanPending(true) qui: solo all’apertura (useState).
     void (async () => {
       const catalogCodiciValidi = vociAcquisto.map((v) => v.codice);
       const sameInvoiceCodici = righe
@@ -813,10 +843,7 @@ export function FatturaRegistrazioneModal({
       });
       if (cancelled) return;
       if (!res.success) {
-        if (showOverlay) {
-          matchScanOverlayDocRef.current = docKey;
-          setMatchScanPending(false);
-        }
+        closeOverlayForever();
         return;
       }
 
@@ -839,16 +866,14 @@ export function FatturaRegistrazioneModal({
       }
       setMatchHints(hints);
       setAutoLinkCount(res.autoLinkedCount);
-      if (showOverlay) {
-        matchScanOverlayDocRef.current = docKey;
-        setMatchScanPending(false);
-      }
+      // Chiude overlay se aperto; idempotente dopo delete/remount.
+      closeOverlayForever();
     })();
 
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per documento/caricamento catalogo
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run per documento/catalogo; overlay non dipende da delete
   }, [
     isRicevuta,
     catalogLoaded,
