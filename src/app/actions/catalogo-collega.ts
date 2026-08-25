@@ -16,9 +16,7 @@ import {
   hasMeaningfulTokenOverlap,
 } from "@/lib/amministrazione/catalogo-collega";
 import {
-  searchCatalogLocal,
   scoreNomeAffinity,
-  type LocalCatalogVoce,
 } from "@/lib/amministrazione/catalogo-affinity";
 import { writeAuditLog } from "@/lib/audit";
 import {
@@ -174,92 +172,6 @@ async function loadAziendaCodes(
   return aziendaCodes;
 }
 
-/** Carica catalogo acquisti completo (paginato: PostgREST limita a 1000/request). */
-async function loadCatalogAcquistiLocal(
-  supabase: SupabaseClient
-): Promise<LocalCatalogVoce[]> {
-  const tables: Array<{
-    kind: LocalCatalogVoce["kind"];
-    table:
-      | "catalogo_servizi"
-      | "catalogo_prodotti_fornitore"
-      | "materie_prime"
-      | "catalogo_contributi";
-  }> = [
-    { kind: "servizio", table: "catalogo_servizi" },
-    { kind: "prodotto", table: "catalogo_prodotti_fornitore" },
-    { kind: "materia", table: "materie_prime" },
-    { kind: "contributo", table: "catalogo_contributi" },
-  ];
-  const PAGE = 1000;
-  const chunks = await Promise.all(
-    tables.map(async (t) => {
-      const out: LocalCatalogVoce[] = [];
-      for (let from = 0; ; from += PAGE) {
-        const to = from + PAGE - 1;
-        const { data, error } = await supabase
-          .from(t.table)
-          .select("id, codice, nome")
-          .is("deleted_at", null)
-          .order("codice", { ascending: true })
-          .range(from, to);
-        if (error) break;
-        const rows = (data ?? []) as Array<{
-          id: string;
-          codice: string;
-          nome: string;
-        }>;
-        for (const r of rows) {
-          const codice = String(r.codice ?? "").trim();
-          const nome = String(r.nome ?? "").trim();
-          if (!codice || !nome) continue;
-          out.push({ kind: t.kind, id: r.id, codice, nome });
-        }
-        if (rows.length < PAGE) break;
-      }
-      return out;
-    })
-  );
-  return chunks.flat();
-}
-
-function localHitsToCollega(
-  query: string,
-  catalog: LocalCatalogVoce[],
-  sameSet: Set<string>,
-  aziendaCodes: Set<string>,
-  limit: number
-): CollegaCatalogoHit[] {
-  const ranked = searchCatalogLocal(query, catalog, {
-    limit,
-    minScore: 40,
-  });
-  return ranked.map((v) => {
-    const codeKey = v.codice.trim().toLowerCase();
-    let source: CollegaCatalogoHit["source"] = "catalogo";
-    let score = v.score;
-    if (sameSet.has(codeKey) && score >= CONTEXT_BONUS_MIN_BASE_PCT) {
-      source = "stessa_fattura";
-      score = Math.min(100, score + SAME_INVOICE_SCORE_BONUS);
-    } else if (aziendaCodes.has(codeKey) && score >= CONTEXT_BONUS_MIN_BASE_PCT) {
-      source = "stessa_azienda";
-      score = Math.min(100, score + SAME_AZIENDA_SCORE_BONUS);
-    } else if (sameSet.has(codeKey)) {
-      source = "stessa_fattura";
-    } else if (aziendaCodes.has(codeKey)) {
-      source = "stessa_azienda";
-    }
-    return {
-      source,
-      catalogoKind: v.kind,
-      catalogoId: v.id,
-      codice: v.codice,
-      nome: v.nome,
-      score: Math.min(100, Math.round(score)),
-    };
-  });
-}
-
 async function rpcMatchCatalogo(
   supabase: SupabaseClient,
   query: string,
@@ -353,8 +265,8 @@ function rowsToHits(
 }
 
 /**
- * Cerca codice: preferisce catalogo locale in un’unica lettura + score edit-distance.
- * Fallback RPC solo se il catalogo non è caricabile.
+ * Cerca codice: RPC pg_trgm veloce (GIN). Niente carico catalogo intero (bloccava UI).
+ * Affinità ricalibrata con edit-distance sui soli hit RPC.
  */
 export async function searchCollegaCatalogoAction(input: {
   /** Preferire testo già tokenizzato (senza stopword). */
@@ -390,24 +302,15 @@ export async function searchCollegaCatalogoAction(input: {
     CERCA_RPC_LIMIT
   );
 
-  const [aziendaCodes, catalog] = await Promise.all([
+  const [aziendaCodes, matched] = await Promise.all([
     loadAziendaCodes(supabase, input.fornitoreId).catch(
       () => new Set<string>()
     ),
-    loadCatalogAcquistiLocal(supabase).catch(() => [] as LocalCatalogVoce[]),
+    rpcMatchCatalogo(supabase, q, limit, CERCA_RPC_THRESHOLD),
   ]);
+  if (matched.error) return { success: false, error: matched.error };
 
-  let hits: CollegaCatalogoHit[] = [];
-  if (catalog.length > 0) {
-    hits = localHitsToCollega(q, catalog, sameSet, aziendaCodes, limit).filter(
-      (h) => kinds.has(h.catalogoKind)
-    );
-  } else {
-    const matched = await rpcMatchCatalogo(supabase, q, limit, CERCA_RPC_THRESHOLD);
-    if (matched.error) return { success: false, error: matched.error };
-    hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, q);
-  }
-
+  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, q);
   const minScore = input.minScore ?? 0;
   if (minScore > 0) {
     hits = hits.filter((h) => h.score >= minScore);

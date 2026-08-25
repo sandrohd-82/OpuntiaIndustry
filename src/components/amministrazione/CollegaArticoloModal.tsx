@@ -27,7 +27,7 @@ type Props = {
   suggestedHit?: CollegaCatalogoHit | null;
   /** Candidati già calcolati allo scan fattura → Cerca istantanea. */
   initialHits?: CollegaCatalogoHit[];
-  /** Catalogo già in memoria nella fattura → ricerca locale istantanea (no RPC). */
+  /** Catalogo già in memoria nella fattura → ricerca locale leggera. */
   localCatalog?: LocalCatalogVoce[];
   onClose: () => void;
   onCollega: (hit: CollegaCatalogoHit) => void;
@@ -51,10 +51,8 @@ const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
 function refineHitScore(query: string, hit: CollegaCatalogoHit): CollegaCatalogoHit {
   const local = Math.max(
     scoreNomeAffinity(query, hit.nome),
-    scoreNomeAffinity(query, hit.codice),
-    scoreNomeAffinity(query, `${hit.nome} ${hit.codice}`)
+    scoreNomeAffinity(query, hit.codice)
   );
-  // Mai abbassare un match locale forte; alza i sottostimati da pg_trgm (es. 280↔290).
   const score = Math.max(hit.score, local);
   return score === hit.score ? hit : { ...hit, score };
 }
@@ -82,16 +80,19 @@ function localToHits(
   query: string,
   catalog: LocalCatalogVoce[]
 ): CollegaCatalogoHit[] {
-  return searchCatalogLocal(query, catalog, { limit: 40, minScore: 45 }).map(
-    (v) => ({
-      source: "catalogo" as const,
-      catalogoKind: v.kind,
-      catalogoId: v.id,
-      codice: v.codice,
-      nome: v.nome,
-      score: v.score,
-    })
-  );
+  // Cap stretto: non scorare migliaia di voci sul main thread
+  return searchCatalogLocal(query, catalog, {
+    limit: 36,
+    minScore: 45,
+    maxScoreCandidates: 120,
+  }).map((v) => ({
+    source: "catalogo" as const,
+    catalogoKind: v.kind,
+    catalogoId: v.id,
+    codice: v.codice,
+    nome: v.nome,
+    score: v.score,
+  }));
 }
 
 function mergeHits(
@@ -128,7 +129,6 @@ export function CollegaArticoloModal({
   onCreaNuovo,
 }: Props) {
   const titleId = useId();
-  /** Congela input all’apertura: evita restart RPC a ogni update fattura (loop minuti). */
   const cleanedDescRef = useRef(normalizeInvoiceLineText(descrizioneRiga));
   const descRawRef = useRef(descrizioneRiga.trim());
   const fornitoreIdRef = useRef(fornitoreId);
@@ -149,22 +149,20 @@ export function CollegaArticoloModal({
       contributo: !preferKind || preferKind === "contributo",
     })
   );
-  const [hits, setHits] = useState<CollegaCatalogoHit[]>(() => {
-    const seed = seedHitsRef.current;
-    if (seed.length > 0) return seed;
-    const q = cleanedDescRef.current || descRawRef.current;
-    return localToHits(q, catalogRef.current);
-  });
+  // Apri subito con seed (leggero) — niente scan catalogo nel primo paint
+  const [hits, setHits] = useState<CollegaCatalogoHit[]>(
+    () => seedHitsRef.current
+  );
   const [error, setError] = useState<string | null>(null);
   const [mostraAltro, setMostraAltro] = useState(false);
-  const [searching, setSearching] = useState(false);
+  const [searching, setSearching] = useState(
+    () => seedHitsRef.current.length === 0
+  );
   const searchGen = useRef(0);
   const rpcFallbackDone = useRef(false);
 
   /**
-   * Ricerca: 1) locale istantanea sul catalogo in memoria
-   * 2) RPC solo se locale vuota (una volta), con score ricalibrato.
-   * Dipende solo da `query` → niente loop su sameInvoiceCodici.
+   * Ricerca differita: la modale si apre subito; lo scan locale/RPC parte dopo il paint.
    */
   useEffect(() => {
     let cancelled = false;
@@ -186,41 +184,51 @@ export function CollegaArticoloModal({
       qRaw === cleanedDescRef.current ||
       qRaw === descRawRef.current;
 
-    if (isSeedQuery && seedHitsRef.current.length > 0) {
-      const refined = mergeHits(
-        searchText,
-        seedHitsRef.current,
-        localToHits(searchText, catalogRef.current)
-      );
-      setHits(refined);
-      setError(null);
-      setSearching(false);
-      setMostraAltro(false);
-      return;
-    }
-
-    // Locale immediato (0–50ms)
-    const localHits = localToHits(searchText, catalogRef.current);
-    setHits(localHits);
-    setError(null);
-    setMostraAltro(false);
-
-    const strongLocal = localHits.some((h) => h.score >= CERCA_MATCH_PRIMARY_PCT);
-    // Se abbiamo già match forti in memoria → stop (istantaneo).
-    // Altrimenti RPC di fallback (catalogo client può essere troncato a 1000).
-    if (strongLocal) {
-      setSearching(false);
-      return;
-    }
-
-    if (rpcFallbackDone.current && isSeedQuery) {
-      setSearching(false);
-      return;
-    }
-
+    // Lascia dipingere la modale prima del lavoro CPU
     const handle = window.setTimeout(() => {
+      if (cancelled || gen !== searchGen.current) return;
+
+      if (isSeedQuery && seedHitsRef.current.length > 0) {
+        let localHits: CollegaCatalogoHit[] = [];
+        try {
+          localHits = localToHits(searchText, catalogRef.current);
+        } catch {
+          localHits = [];
+        }
+        if (cancelled || gen !== searchGen.current) return;
+        setHits(mergeHits(searchText, seedHitsRef.current, localHits));
+        setError(null);
+        setSearching(false);
+        setMostraAltro(false);
+        return;
+      }
+
+      setSearching(true);
+      let localHits: CollegaCatalogoHit[] = [];
+      try {
+        localHits = localToHits(searchText, catalogRef.current);
+      } catch {
+        localHits = [];
+      }
+      if (cancelled || gen !== searchGen.current) return;
+      setHits(localHits);
+      setError(null);
+      setMostraAltro(false);
+
+      const strongLocal = localHits.some(
+        (h) => h.score >= CERCA_MATCH_PRIMARY_PCT
+      );
+      if (strongLocal) {
+        setSearching(false);
+        return;
+      }
+
+      if (rpcFallbackDone.current && isSeedQuery) {
+        setSearching(false);
+        return;
+      }
+
       void (async () => {
-        setSearching(true);
         try {
           const res = await searchCollegaCatalogoAction({
             query: qNorm,
@@ -242,7 +250,7 @@ export function CollegaArticoloModal({
           }
         }
       })();
-    }, isSeedQuery ? 0 : 150);
+    }, 0);
 
     return () => {
       cancelled = true;
@@ -265,6 +273,15 @@ export function CollegaArticoloModal({
   const visibleHits = mostraAltro
     ? [...primaryHits, ...otherHits]
     : primaryHits;
+
+  const suggestedDisplay = useMemo(() => {
+    if (!suggestedHit) return null;
+    const key = suggestedHit.codice.trim().toLowerCase();
+    const fromList = hits.find((h) => h.codice.trim().toLowerCase() === key);
+    if (fromList) return fromList;
+    const q = query.trim() || descRawRef.current || cleanedDescRef.current;
+    return refineHitScore(q, suggestedHit);
+  }, [suggestedHit, hits, query]);
 
   function toggleKind(k: CatalogoLifecycleKind) {
     setKinds((prev) => {
@@ -317,16 +334,6 @@ export function CollegaArticoloModal({
     );
   }
 
-  const suggestedDisplay = useMemo(() => {
-    if (!suggestedHit) return null;
-    const key = suggestedHit.codice.trim().toLowerCase();
-    // Stesso score dell’elenco Affinità (niente 77% vs 91% sullo stesso codice).
-    const fromList = hits.find((h) => h.codice.trim().toLowerCase() === key);
-    if (fromList) return fromList;
-    const q = query.trim() || descRawRef.current || cleanedDescRef.current;
-    return refineHitScore(q, suggestedHit);
-  }, [suggestedHit, hits, query]);
-
   const overlay = (
     <div
       data-nested-modal="collega-articolo"
@@ -345,8 +352,8 @@ export function CollegaArticoloModal({
           Cerca codice
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Affinità sul catalogo in memoria (≥{CERCA_MATCH_PRIMARY_PCT}%). Risultati
-          immediati.
+          Affinità ≥{CERCA_MATCH_PRIMARY_PCT}%. La modale si apre subito; i
+          risultati arrivano subito dopo.
         </p>
 
         {descrizioneRiga.trim() ? (
@@ -355,7 +362,7 @@ export function CollegaArticoloModal({
               <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                 Descrizione (completa)
               </p>
-              <p className="mt-0.5 text-sm text-slate-800 whitespace-pre-wrap">
+              <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800">
                 {descRawRef.current || descrizioneRiga}
               </p>
               <p className="mt-1 text-[10px] text-[var(--muted)]">
@@ -444,9 +451,9 @@ export function CollegaArticoloModal({
           </p>
         ) : (
           <p className="mt-2 text-[10px] text-[var(--muted)]">
-            {catalogRef.current.length > 0
-              ? `Catalogo locale · ${catalogRef.current.length} voci`
-              : "Catalogo remoto (fallback)"}
+            {hits.length > 0
+              ? `${hits.length} risultati`
+              : "Nessun risultato ancora"}
           </p>
         )}
 

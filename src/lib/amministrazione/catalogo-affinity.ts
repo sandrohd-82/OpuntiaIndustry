@@ -1,7 +1,6 @@
 /**
- * Affinità catalogo lato client (istantanea).
- * Combina similarità a edit-distance, bigram Dice e overlap token —
- * più accurata di sola pg_trgm su differenze di una cifra (es. ml.280 vs ml.290).
+ * Affinità catalogo lato client — ottimizzata per non bloccare l’UI.
+ * Prefiltro stretto + cap candidati + Levenshtein con early-abort.
  */
 
 import { tokenizeInvoiceLine } from "@/lib/sku-generator";
@@ -24,85 +23,70 @@ export function normalizeAffinityText(raw: string): string {
     .trim();
 }
 
-function levenshtein(a: string, b: string): number {
+/** Levenshtein con early-exit se distanza > maxDist (evita O(n²) inutili). */
+function levenshteinBounded(a: string, b: string, maxDist: number): number {
   if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const row = new Array<number>(b.length + 1);
-  for (let j = 0; j <= b.length; j++) row[j] = j;
+  if (!a.length) return b.length > maxDist ? maxDist + 1 : b.length;
+  if (!b.length) return a.length > maxDist ? maxDist + 1 : a.length;
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+
+  // Due righe sole (memoria O(min(n,m)))
+  let prev = new Array<number>(b.length + 1);
+  let curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+
   for (let i = 1; i <= a.length; i++) {
-    let prev = i - 1;
-    row[0] = i;
+    curr[0] = i;
+    let rowMin = curr[0]!;
     for (let j = 1; j <= b.length; j++) {
-      const tmp = row[j];
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      row[j] = Math.min(
-        row[j] + 1,
-        row[j - 1] + 1,
-        prev + cost
-      );
-      prev = tmp;
+      curr[j] = Math.min(prev[j]! + 1, curr[j - 1]! + 1, prev[j - 1]! + cost);
+      if (curr[j]! < rowMin) rowMin = curr[j]!;
     }
+    if (rowMin > maxDist) return maxDist + 1;
+    const tmp = prev;
+    prev = curr;
+    curr = tmp;
   }
-  return row[b.length]!;
+  return prev[b.length]!;
 }
 
-function bigrams(s: string): string[] {
-  if (s.length < 2) return s.length === 1 ? [s] : [];
-  const out: string[] = [];
-  for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
-  return out;
-}
-
-function diceCoefficient(a: string, b: string): number {
+function bigramDice(a: string, b: string): number {
   if (a === b) return 1;
-  if (!a || !b) return 0;
-  const A = bigrams(a);
-  const B = bigrams(b);
-  if (A.length === 0 || B.length === 0) return a === b ? 1 : 0;
+  if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
   const counts = new Map<string, number>();
-  for (const g of A) counts.set(g, (counts.get(g) ?? 0) + 1);
+  for (let i = 0; i < a.length - 1; i++) {
+    const g = a.slice(i, i + 2);
+    counts.set(g, (counts.get(g) ?? 0) + 1);
+  }
   let inter = 0;
-  for (const g of B) {
+  let bCount = 0;
+  for (let i = 0; i < b.length - 1; i++) {
+    bCount += 1;
+    const g = b.slice(i, i + 2);
     const c = counts.get(g) ?? 0;
     if (c > 0) {
       inter += 1;
       counts.set(g, c - 1);
     }
   }
-  return (2 * inter) / (A.length + B.length);
+  const aCount = Math.max(1, a.length - 1);
+  return (2 * inter) / (aCount + bCount);
 }
 
-function tokenSet(text: string): Set<string> {
+function significantTokens(text: string): string[] {
   const fromNorm = normalizeAffinityText(text).split(" ").filter(Boolean);
   const fromSku = tokenizeInvoiceLine(text);
-  return new Set([...fromNorm, ...fromSku].filter((t) => t.length >= 2));
-}
-
-function tokenOverlapRatio(query: string, nome: string): number {
-  const q = tokenSet(query);
-  const n = tokenSet(nome);
-  if (q.size === 0 || n.size === 0) return 0;
-  let hit = 0;
-  for (const t of q) {
-    if (n.has(t)) {
-      hit += 1;
-      continue;
-    }
-    // prefisso / inclusione (uni / universal, silic / silicone)
-    for (const u of n) {
-      if (u.includes(t) || t.includes(u)) {
-        hit += 0.85;
-        break;
-      }
-    }
-  }
-  return Math.min(1, hit / q.size);
+  const set = new Set(
+    [...fromNorm, ...fromSku].filter(
+      (t) => t.length >= 3 && !/^\d+([.,]\d+)?$/.test(t)
+    )
+  );
+  return [...set];
 }
 
 /**
- * Affinità 0–100 tra descrizione riga e nome (o codice) catalogo.
- * Per stringhe quasi uguali (1 carattere su ~18) punta al 90–99%.
+ * Affinità 0–100. Early-exit se le stringhe sono troppo diverse.
  */
 export function scoreNomeAffinity(query: string, nome: string): number {
   const q = normalizeAffinityText(query);
@@ -111,59 +95,74 @@ export function scoreNomeAffinity(query: string, nome: string): number {
   if (q === n) return 100;
 
   const maxLen = Math.max(q.length, n.length);
-  const editSim = 1 - levenshtein(q, n) / maxLen;
-  const dice = diceCoefficient(q.replace(/\s/g, ""), n.replace(/\s/g, ""));
-  const diceSpaced = diceCoefficient(q, n);
-  const tokens = tokenOverlapRatio(query, nome);
+  // Oltre ~40% di edit → score basso: non serve Levenshtein completo
+  const maxDist = Math.max(2, Math.floor(maxLen * 0.4));
+  const dist = levenshteinBounded(q, n, maxDist);
+  if (dist > maxDist) {
+    // Solo dice veloce come fallback debole
+    const dice = bigramDice(q.replace(/\s/g, ""), n.replace(/\s/g, ""));
+    return Math.max(0, Math.min(100, Math.round(dice * 70)));
+  }
 
-  // Edit pesa di più su differenze minime (280↔290); dice/token su parafrasi.
-  const blended =
-    editSim * 0.55 + Math.max(dice, diceSpaced) * 0.3 + tokens * 0.15;
-
-  return Math.max(
-    0,
-    Math.min(100, Math.round(blended * 100))
-  );
+  const editSim = 1 - dist / maxLen;
+  const dice = bigramDice(q.replace(/\s/g, ""), n.replace(/\s/g, ""));
+  const blended = editSim * 0.7 + dice * 0.3;
+  return Math.max(0, Math.min(100, Math.round(blended * 100)));
 }
 
 export function scoreCatalogVoce(
   query: string,
   voce: LocalCatalogVoce
 ): number {
-  return Math.max(
-    scoreNomeAffinity(query, voce.nome),
-    scoreNomeAffinity(query, voce.codice),
-    // nome + codice concatenati (a volte il volume è solo nel codice)
-    scoreNomeAffinity(query, `${voce.nome} ${voce.codice}`)
-  );
+  // Nome prima (caso tipico); codice solo se utile
+  const byNome = scoreNomeAffinity(query, voce.nome);
+  if (byNome >= 95) return byNome;
+  const byCodice = scoreNomeAffinity(query, voce.codice);
+  return Math.max(byNome, byCodice);
 }
 
 /**
- * Ricerca locale sul catalogo già in memoria — tipicamente <50ms anche con migliaia di voci.
+ * Ricerca locale non bloccante: prefiltro stretto + max candidati scorati.
  */
 export function searchCatalogLocal(
   query: string,
   catalog: LocalCatalogVoce[],
-  opts?: { limit?: number; minScore?: number }
+  opts?: { limit?: number; minScore?: number; maxScoreCandidates?: number }
 ): Array<LocalCatalogVoce & { score: number }> {
   const q = (query ?? "").trim();
   if (!q || catalog.length === 0) return [];
-  const minScore = opts?.minScore ?? 40;
-  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 80);
+  const minScore = opts?.minScore ?? 45;
+  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 60);
+  const maxScoreCandidates = opts?.maxScoreCandidates ?? 180;
 
   const qNorm = normalizeAffinityText(q);
-  const qTokens = [...tokenSet(q)].filter((t) => t.length >= 3);
+  const qTokens = significantTokens(q);
+  // Token più discriminante (più lungo) per prefiltro
+  const anchor =
+    qTokens.length > 0
+      ? [...qTokens].sort((a, b) => b.length - a.length)[0]!
+      : qNorm.slice(0, Math.min(8, qNorm.length));
+
+  if (!anchor) return [];
+
+  const candidates: LocalCatalogVoce[] = [];
+  for (const voce of catalog) {
+    const hay = normalizeAffinityText(`${voce.nome} ${voce.codice}`);
+    if (!hay.includes(anchor)) continue;
+    // Almeno metà dei token significativi devono comparire
+    if (qTokens.length >= 2) {
+      let hits = 0;
+      for (const t of qTokens) {
+        if (hay.includes(t)) hits += 1;
+      }
+      if (hits < Math.ceil(qTokens.length * 0.5)) continue;
+    }
+    candidates.push(voce);
+    if (candidates.length >= maxScoreCandidates) break;
+  }
 
   const scored: Array<LocalCatalogVoce & { score: number }> = [];
-  for (const voce of catalog) {
-    // Prefiltro economico: almeno un token significativo nel nome/codice
-    if (qTokens.length > 0) {
-      const hay = normalizeAffinityText(`${voce.nome} ${voce.codice}`);
-      const any =
-        hay.includes(qNorm.slice(0, Math.min(12, qNorm.length))) ||
-        qTokens.some((t) => hay.includes(t));
-      if (!any) continue;
-    }
+  for (const voce of candidates) {
     const score = scoreCatalogVoce(q, voce);
     if (score >= minScore) scored.push({ ...voce, score });
   }
