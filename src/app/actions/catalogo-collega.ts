@@ -174,7 +174,7 @@ async function loadAziendaCodes(
   return aziendaCodes;
 }
 
-/** Carica catalogo acquisti una sola volta (per auto-link / Cerca senza N RPC). */
+/** Carica catalogo acquisti completo (paginato: PostgREST limita a 1000/request). */
 async function loadCatalogAcquistiLocal(
   supabase: SupabaseClient
 ): Promise<LocalCatalogVoce[]> {
@@ -191,23 +191,36 @@ async function loadCatalogAcquistiLocal(
     { kind: "materia", table: "materie_prime" },
     { kind: "contributo", table: "catalogo_contributi" },
   ];
+  const PAGE = 1000;
   const chunks = await Promise.all(
     tables.map(async (t) => {
-      const { data } = await supabase
-        .from(t.table)
-        .select("id, codice, nome")
-        .is("deleted_at", null);
-      return ((data ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
-        (r) => ({
-          kind: t.kind,
-          id: r.id,
-          codice: String(r.codice ?? ""),
-          nome: String(r.nome ?? ""),
-        })
-      );
+      const out: LocalCatalogVoce[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const to = from + PAGE - 1;
+        const { data, error } = await supabase
+          .from(t.table)
+          .select("id, codice, nome")
+          .is("deleted_at", null)
+          .order("codice", { ascending: true })
+          .range(from, to);
+        if (error) break;
+        const rows = (data ?? []) as Array<{
+          id: string;
+          codice: string;
+          nome: string;
+        }>;
+        for (const r of rows) {
+          const codice = String(r.codice ?? "").trim();
+          const nome = String(r.nome ?? "").trim();
+          if (!codice || !nome) continue;
+          out.push({ kind: t.kind, id: r.id, codice, nome });
+        }
+        if (rows.length < PAGE) break;
+      }
+      return out;
     })
   );
-  return chunks.flat().filter((v) => v.codice.trim() && v.nome.trim());
+  return chunks.flat();
 }
 
 function localHitsToCollega(
@@ -636,16 +649,14 @@ export async function autoLinkExactCatalogMatchesAction(input: {
   const sameSet = new Set(
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
-  const [aziendaCodes, catalog] = await Promise.all([
-    loadAziendaCodes(supabase, input.fornitoreId).catch(
-      () => new Set<string>()
-    ),
-    loadCatalogAcquistiLocal(supabase).catch(() => [] as LocalCatalogVoce[]),
-  ]);
+  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId).catch(
+    () => new Set<string>()
+  );
 
   const results: AutoLinkExactResult[] = new Array(input.righe.length);
+  const CONCURRENCY = 4;
 
-  function processOne(
+  async function processOne(
     riga: { key: string; descrizione: string; codice: string },
     index: number
   ) {
@@ -690,16 +701,33 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       return;
     }
 
-    const ranked =
-      catalog.length > 0
-        ? localHitsToCollega(
-            desc,
-            catalog,
-            sameSet,
-            aziendaCodes,
-            CERCA_SEED_CANDIDATES
-          )
-        : [];
+    // Auto-link 100%: RPC pg_trgm (comportamento precedente, affidabile).
+    // La Cerca UI resta sul catalogo locale in memoria.
+    const matched = await rpcMatchCatalogo(
+      supabase,
+      desc,
+      CERCA_SEED_CANDIDATES,
+      CERCA_RPC_THRESHOLD
+    );
+    if (matched.error || matched.rows.length === 0) {
+      results[index] = {
+        key: riga.key,
+        autoCodice: null,
+        hint: {
+          key: riga.key,
+          status:
+            codeKey && codeKey !== "—"
+              ? "codice_orfano"
+              : "nessun_match",
+          best: null,
+          candidates: [],
+        },
+      };
+      return;
+    }
+
+    // Score RPC puro per il 100% (non mescolare edit-distance: altrimenti si perde l’auto-link).
+    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null, null);
     const candidates = ranked.slice(0, CERCA_SEED_CANDIDATES);
     const exactHits = ranked.filter(
       (h) =>
@@ -769,8 +797,9 @@ export async function autoLinkExactCatalogMatchesAction(input: {
     };
   }
 
-  for (let i = 0; i < input.righe.length; i++) {
-    processOne(input.righe[i]!, i);
+  for (let i = 0; i < input.righe.length; i += CONCURRENCY) {
+    const chunk = input.righe.slice(i, i + CONCURRENCY);
+    await Promise.all(chunk.map((r, j) => processOne(r, i + j)));
   }
 
   const finalResults = results.filter(Boolean);
