@@ -51,7 +51,8 @@ const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
 function refineHitScore(query: string, hit: CollegaCatalogoHit): CollegaCatalogoHit {
   const local = Math.max(
     scoreNomeAffinity(query, hit.nome),
-    scoreNomeAffinity(query, hit.codice)
+    scoreNomeAffinity(query, hit.codice),
+    scoreNomeAffinity(query, `${hit.nome} ${hit.codice}`)
   );
   // Mai abbassare un match locale forte; alza i sottostimati da pg_trgm (es. 280↔290).
   const score = Math.max(hit.score, local);
@@ -316,9 +317,15 @@ export function CollegaArticoloModal({
     );
   }
 
-  const suggestedRefined = suggestedHit
-    ? refineHitScore(descRawRef.current || cleanedDescRef.current, suggestedHit)
-    : null;
+  const suggestedDisplay = useMemo(() => {
+    if (!suggestedHit) return null;
+    const key = suggestedHit.codice.trim().toLowerCase();
+    // Stesso score dell’elenco Affinità (niente 77% vs 91% sullo stesso codice).
+    const fromList = hits.find((h) => h.codice.trim().toLowerCase() === key);
+    if (fromList) return fromList;
+    const q = query.trim() || descRawRef.current || cleanedDescRef.current;
+    return refineHitScore(q, suggestedHit);
+  }, [suggestedHit, hits, query]);
 
   const overlay = (
     <div
@@ -359,22 +366,22 @@ export function CollegaArticoloModal({
             <span className="font-mono font-semibold">{codiceDaSostituire}</span>
           </p>
         ) : null}
-        {suggestedRefined ? (
+        {suggestedDisplay ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">
                 Suggerito
               </p>
               <p className="truncate font-mono text-xs font-semibold">
-                {suggestedRefined.codice}
+                {suggestedDisplay.codice}
               </p>
               <p className="truncate text-xs text-sky-900/80">
-                {suggestedRefined.nome} · {suggestedRefined.score}%
+                {suggestedDisplay.nome} · {Math.round(suggestedDisplay.score)}%
               </p>
             </div>
             <button
               type="button"
-              onClick={() => onCollega(suggestedRefined)}
+              onClick={() => onCollega(suggestedDisplay)}
               className="shrink-0 rounded-lg bg-sky-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-900"
             >
               Usa
