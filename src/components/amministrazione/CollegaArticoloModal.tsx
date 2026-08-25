@@ -205,13 +205,13 @@ export function CollegaArticoloModal({
     setMostraAltro(false);
 
     const strongLocal = localHits.some((h) => h.score >= CERCA_MATCH_PRIMARY_PCT);
-    if (strongLocal || catalogRef.current.length > 0) {
-      // Catalogo presente: non attendere RPC (era la causa dei minuti di attesa).
+    // Se abbiamo già match forti in memoria → stop (istantaneo).
+    // Altrimenti RPC di fallback (catalogo client può essere troncato a 1000).
+    if (strongLocal) {
       setSearching(false);
       return;
     }
 
-    // Fallback RPC solo se catalogo locale assente
     if (rpcFallbackDone.current && isSeedQuery) {
       setSearching(false);
       return;
@@ -231,7 +231,7 @@ export function CollegaArticoloModal({
           if (cancelled || gen !== searchGen.current) return;
           rpcFallbackDone.current = true;
           if (!res.success) {
-            setError(res.error);
+            if (localHits.length === 0) setError(res.error);
             return;
           }
           setHits(mergeHits(searchText, localHits, res.hits));

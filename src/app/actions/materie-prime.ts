@@ -71,21 +71,24 @@ export async function listMateriePrimeAction(): Promise<
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("materie_prime")
-    .select(
-      "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at, created_by, updated_at, updated_by"
-    )
-    .is("deleted_at", null)
-    .order("codice", { ascending: true });
-
-  if (error) return { success: false, error: error.message };
-
-  return {
-    success: true,
-    materie: ((data ?? []) as MateriaPrimaRow[]).map(mapMateriaPrimaRow),
-  };
+  const PAGE = 1000;
+  const materie: MateriaPrima[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const to = from + PAGE - 1;
+    const { data, error } = await supabase
+      .from("materie_prime")
+      .select(
+        "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at, created_by, updated_at, updated_by"
+      )
+      .is("deleted_at", null)
+      .order("codice", { ascending: true })
+      .range(from, to);
+    if (error) return { success: false, error: error.message };
+    const rows = (data ?? []) as MateriaPrimaRow[];
+    for (const row of rows) materie.push(mapMateriaPrimaRow(row));
+    if (rows.length < PAGE) break;
+  }
+  return { success: true, materie };
 }
 
 export async function createMateriaPrimaAction(

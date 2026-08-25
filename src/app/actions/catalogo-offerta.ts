@@ -123,24 +123,28 @@ async function listCatalogoAction(
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from(tableName(kind))
-    .select(
-      "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at"
-    )
-    .is("deleted_at", null)
-    .order("codice", { ascending: true });
-  if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: (
-      (data ?? []) as Array<
-        | CatalogoServizioRow
-        | CatalogoProdottoFornitoreRow
-        | CatalogoContributoRow
-      >
-    ).map((row) => mapRow(kind, row)),
-  };
+  const PAGE = 1000;
+  const items: CatalogoOffertaItem[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const to = from + PAGE - 1;
+    const { data, error } = await supabase
+      .from(tableName(kind))
+      .select(
+        "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at"
+      )
+      .is("deleted_at", null)
+      .order("codice", { ascending: true })
+      .range(from, to);
+    if (error) return { success: false, error: error.message };
+    const rows = (data ?? []) as Array<
+      | CatalogoServizioRow
+      | CatalogoProdottoFornitoreRow
+      | CatalogoContributoRow
+    >;
+    for (const row of rows) items.push(mapRow(kind, row));
+    if (rows.length < PAGE) break;
+  }
+  return { success: true, items };
 }
 
 export async function createCatalogoServizioAction(
