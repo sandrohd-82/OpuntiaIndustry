@@ -349,14 +349,30 @@ export function CollegaArticoloModal({
           immediati.
         </p>
 
-        {descrizioneRiga ? (
-          <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Descrizione (scremata)
-            </p>
-            <p className="mt-0.5 text-sm text-slate-800">
-              {cleanedDescRef.current || descrizioneRiga}
-            </p>
+        {descrizioneRiga.trim() ? (
+          <div className="mt-3 space-y-2">
+            <div className="rounded-lg border border-[var(--border)] bg-white px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Descrizione (completa)
+              </p>
+              <p className="mt-0.5 text-sm text-slate-800 whitespace-pre-wrap">
+                {descRawRef.current || descrizioneRiga}
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--muted)]">
+                Solo consultazione per l’operatore — non usata nella ricerca.
+              </p>
+            </div>
+            <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Descrizione (scremata)
+              </p>
+              <p className="mt-0.5 text-sm text-slate-800">
+                {cleanedDescRef.current || descRawRef.current}
+              </p>
+              <p className="mt-1 text-[10px] text-[var(--muted)]">
+                Testo usato per il calcolo dell’affinità.
+              </p>
+            </div>
           </div>
         ) : null}
 
