@@ -15,6 +15,11 @@ import {
   SAME_INVOICE_SCORE_BONUS,
   hasMeaningfulTokenOverlap,
 } from "@/lib/amministrazione/catalogo-collega";
+import {
+  searchCatalogLocal,
+  scoreNomeAffinity,
+  type LocalCatalogVoce,
+} from "@/lib/amministrazione/catalogo-affinity";
 import { writeAuditLog } from "@/lib/audit";
 import {
   mapFatturaRicevutaRow,
@@ -169,6 +174,79 @@ async function loadAziendaCodes(
   return aziendaCodes;
 }
 
+/** Carica catalogo acquisti una sola volta (per auto-link / Cerca senza N RPC). */
+async function loadCatalogAcquistiLocal(
+  supabase: SupabaseClient
+): Promise<LocalCatalogVoce[]> {
+  const tables: Array<{
+    kind: LocalCatalogVoce["kind"];
+    table:
+      | "catalogo_servizi"
+      | "catalogo_prodotti_fornitore"
+      | "materie_prime"
+      | "catalogo_contributi";
+  }> = [
+    { kind: "servizio", table: "catalogo_servizi" },
+    { kind: "prodotto", table: "catalogo_prodotti_fornitore" },
+    { kind: "materia", table: "materie_prime" },
+    { kind: "contributo", table: "catalogo_contributi" },
+  ];
+  const chunks = await Promise.all(
+    tables.map(async (t) => {
+      const { data } = await supabase
+        .from(t.table)
+        .select("id, codice, nome")
+        .is("deleted_at", null);
+      return ((data ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+        (r) => ({
+          kind: t.kind,
+          id: r.id,
+          codice: String(r.codice ?? ""),
+          nome: String(r.nome ?? ""),
+        })
+      );
+    })
+  );
+  return chunks.flat().filter((v) => v.codice.trim() && v.nome.trim());
+}
+
+function localHitsToCollega(
+  query: string,
+  catalog: LocalCatalogVoce[],
+  sameSet: Set<string>,
+  aziendaCodes: Set<string>,
+  limit: number
+): CollegaCatalogoHit[] {
+  const ranked = searchCatalogLocal(query, catalog, {
+    limit,
+    minScore: 40,
+  });
+  return ranked.map((v) => {
+    const codeKey = v.codice.trim().toLowerCase();
+    let source: CollegaCatalogoHit["source"] = "catalogo";
+    let score = v.score;
+    if (sameSet.has(codeKey) && score >= CONTEXT_BONUS_MIN_BASE_PCT) {
+      source = "stessa_fattura";
+      score = Math.min(100, score + SAME_INVOICE_SCORE_BONUS);
+    } else if (aziendaCodes.has(codeKey) && score >= CONTEXT_BONUS_MIN_BASE_PCT) {
+      source = "stessa_azienda";
+      score = Math.min(100, score + SAME_AZIENDA_SCORE_BONUS);
+    } else if (sameSet.has(codeKey)) {
+      source = "stessa_fattura";
+    } else if (aziendaCodes.has(codeKey)) {
+      source = "stessa_azienda";
+    }
+    return {
+      source,
+      catalogoKind: v.kind,
+      catalogoId: v.id,
+      codice: v.codice,
+      nome: v.nome,
+      score: Math.min(100, Math.round(score)),
+    };
+  });
+}
+
 async function rpcMatchCatalogo(
   supabase: SupabaseClient,
   query: string,
@@ -212,22 +290,29 @@ function rowsToHits(
     }
 
     const baseScore = Number(row.affinita_percentuale) || 0;
+    const refined = q
+      ? Math.max(
+          baseScore,
+          scoreNomeAffinity(q, String(row.nome ?? "")),
+          scoreNomeAffinity(q, String(row.codice ?? ""))
+        )
+      : baseScore;
     let source: CollegaCatalogoHit["source"] = "catalogo";
-    let score = baseScore;
+    let score = refined;
 
     // Bonus contestuale solo su match già plausibili — mai forzare 95/100%
     if (
       sameSet.has(codeKey) &&
-      baseScore >= CONTEXT_BONUS_MIN_BASE_PCT
+      score >= CONTEXT_BONUS_MIN_BASE_PCT
     ) {
       source = "stessa_fattura";
-      score = Math.min(100, baseScore + SAME_INVOICE_SCORE_BONUS);
+      score = Math.min(100, score + SAME_INVOICE_SCORE_BONUS);
     } else if (
       aziendaCodes.has(codeKey) &&
-      baseScore >= CONTEXT_BONUS_MIN_BASE_PCT
+      score >= CONTEXT_BONUS_MIN_BASE_PCT
     ) {
       source = "stessa_azienda";
-      score = Math.min(100, baseScore + SAME_AZIENDA_SCORE_BONUS);
+      score = Math.min(100, score + SAME_AZIENDA_SCORE_BONUS);
     } else if (sameSet.has(codeKey)) {
       source = "stessa_fattura";
     } else if (aziendaCodes.has(codeKey)) {
@@ -255,8 +340,8 @@ function rowsToHits(
 }
 
 /**
- * Cerca codice: una sola RPC pg_trgm (query già scremata lato client).
- * Azienda + match in parallelo per restare sotto ~1s.
+ * Cerca codice: preferisce catalogo locale in un’unica lettura + score edit-distance.
+ * Fallback RPC solo se il catalogo non è caricabile.
  */
 export async function searchCollegaCatalogoAction(input: {
   /** Preferire testo già tokenizzato (senza stopword). */
@@ -292,15 +377,24 @@ export async function searchCollegaCatalogoAction(input: {
     CERCA_RPC_LIMIT
   );
 
-  const [aziendaCodes, matched] = await Promise.all([
+  const [aziendaCodes, catalog] = await Promise.all([
     loadAziendaCodes(supabase, input.fornitoreId).catch(
       () => new Set<string>()
     ),
-    rpcMatchCatalogo(supabase, q, limit, CERCA_RPC_THRESHOLD),
+    loadCatalogAcquistiLocal(supabase).catch(() => [] as LocalCatalogVoce[]),
   ]);
-  if (matched.error) return { success: false, error: matched.error };
 
-  let hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, null);
+  let hits: CollegaCatalogoHit[] = [];
+  if (catalog.length > 0) {
+    hits = localHitsToCollega(q, catalog, sameSet, aziendaCodes, limit).filter(
+      (h) => kinds.has(h.catalogoKind)
+    );
+  } else {
+    const matched = await rpcMatchCatalogo(supabase, q, limit, CERCA_RPC_THRESHOLD);
+    if (matched.error) return { success: false, error: matched.error };
+    hits = rowsToHits(matched.rows, sameSet, aziendaCodes, kinds, q);
+  }
+
   const minScore = input.minScore ?? 0;
   if (minScore > 0) {
     hits = hits.filter((h) => h.score >= minScore);
@@ -542,14 +636,16 @@ export async function autoLinkExactCatalogMatchesAction(input: {
   const sameSet = new Set(
     input.sameInvoiceCodici.map((c) => c.trim().toLowerCase()).filter(Boolean)
   );
-  const aziendaCodes = await loadAziendaCodes(supabase, input.fornitoreId).catch(
-    () => new Set<string>()
-  );
+  const [aziendaCodes, catalog] = await Promise.all([
+    loadAziendaCodes(supabase, input.fornitoreId).catch(
+      () => new Set<string>()
+    ),
+    loadCatalogAcquistiLocal(supabase).catch(() => [] as LocalCatalogVoce[]),
+  ]);
 
   const results: AutoLinkExactResult[] = new Array(input.righe.length);
-  const CONCURRENCY = 4;
 
-  async function processOne(
+  function processOne(
     riga: { key: string; descrizione: string; codice: string },
     index: number
   ) {
@@ -594,38 +690,22 @@ export async function autoLinkExactCatalogMatchesAction(input: {
       return;
     }
 
-    const matched = await rpcMatchCatalogo(
-      supabase,
-      desc,
-      CERCA_SEED_CANDIDATES,
-      CERCA_RPC_THRESHOLD
-    );
-    if (matched.error || matched.rows.length === 0) {
-      results[index] = {
-        key: riga.key,
-        autoCodice: null,
-        hint: {
-          key: riga.key,
-          status:
-            codeKey && codeKey !== "—"
-              ? "codice_orfano"
-              : "nessun_match",
-          best: null,
-          candidates: [],
-        },
-      };
-      return;
-    }
-
-    const ranked = rowsToHits(matched.rows, sameSet, aziendaCodes, null, desc);
+    const ranked =
+      catalog.length > 0
+        ? localHitsToCollega(
+            desc,
+            catalog,
+            sameSet,
+            aziendaCodes,
+            CERCA_SEED_CANDIDATES
+          )
+        : [];
     const candidates = ranked.slice(0, CERCA_SEED_CANDIDATES);
-    // 100% solo se affinità RPC reale (niente bonus contestuale finto)
     const exactHits = ranked.filter(
       (h) =>
         h.score >= AUTO_LINK_EXACT_MATCH_PCT &&
         hasMeaningfulTokenOverlap(desc, h.nome, h.codice)
     );
-    // Univoco: un solo codice al 100% (non due articoli diversi entrambi a 100)
     const uniqueExact =
       exactHits.length === 1
         ? exactHits[0]!
@@ -689,9 +769,8 @@ export async function autoLinkExactCatalogMatchesAction(input: {
     };
   }
 
-  for (let i = 0; i < input.righe.length; i += CONCURRENCY) {
-    const chunk = input.righe.slice(i, i + CONCURRENCY);
-    await Promise.all(chunk.map((r, j) => processOne(r, i + j)));
+  for (let i = 0; i < input.righe.length; i++) {
+    processOne(input.righe[i]!, i);
   }
 
   const finalResults = results.filter(Boolean);

@@ -7,8 +7,12 @@ import {
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
 import {
+  searchCatalogLocal,
+  scoreNomeAffinity,
+  type LocalCatalogVoce,
+} from "@/lib/amministrazione/catalogo-affinity";
+import {
   CERCA_MATCH_PRIMARY_PCT,
-  CERCA_RPC_LIMIT,
   hasMeaningfulTokenOverlap,
 } from "@/lib/amministrazione/catalogo-collega";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
@@ -23,6 +27,8 @@ type Props = {
   suggestedHit?: CollegaCatalogoHit | null;
   /** Candidati già calcolati allo scan fattura → Cerca istantanea. */
   initialHits?: CollegaCatalogoHit[];
+  /** Catalogo già in memoria nella fattura → ricerca locale istantanea (no RPC). */
+  localCatalog?: LocalCatalogVoce[];
   onClose: () => void;
   onCollega: (hit: CollegaCatalogoHit) => void;
   onCreaNuovo: (kind: CatalogoLifecycleKind) => void;
@@ -42,6 +48,16 @@ const KIND_CREATE_LABEL: Record<CatalogoLifecycleKind, string> = {
   contributo: "Contributo (Ct)",
 };
 
+function refineHitScore(query: string, hit: CollegaCatalogoHit): CollegaCatalogoHit {
+  const local = Math.max(
+    scoreNomeAffinity(query, hit.nome),
+    scoreNomeAffinity(query, hit.codice)
+  );
+  // Mai abbassare un match locale forte; alza i sottostimati da pg_trgm (es. 280↔290).
+  const score = Math.max(hit.score, local);
+  return score === hit.score ? hit : { ...hit, score };
+}
+
 function seedFromProps(
   descrizioneRiga: string,
   initialHits: CollegaCatalogoHit[] | undefined,
@@ -55,10 +71,46 @@ function seedFromProps(
         : [];
   if (!raw.length) return [];
   const desc = descrizioneRiga.trim();
-  if (!desc) return raw;
-  return raw.filter((h) =>
-    hasMeaningfulTokenOverlap(desc, h.nome, h.codice)
+  if (!desc) return raw.map((h) => refineHitScore(desc, h));
+  return raw
+    .filter((h) => hasMeaningfulTokenOverlap(desc, h.nome, h.codice))
+    .map((h) => refineHitScore(desc, h));
+}
+
+function localToHits(
+  query: string,
+  catalog: LocalCatalogVoce[]
+): CollegaCatalogoHit[] {
+  return searchCatalogLocal(query, catalog, { limit: 40, minScore: 45 }).map(
+    (v) => ({
+      source: "catalogo" as const,
+      catalogoKind: v.kind,
+      catalogoId: v.id,
+      codice: v.codice,
+      nome: v.nome,
+      score: v.score,
+    })
   );
+}
+
+function mergeHits(
+  query: string,
+  ...lists: CollegaCatalogoHit[][]
+): CollegaCatalogoHit[] {
+  const byKey = new Map<string, CollegaCatalogoHit>();
+  for (const list of lists) {
+    for (const raw of list) {
+      const hit = refineHitScore(query, raw);
+      const key = hit.codice.trim().toLowerCase();
+      if (!key) continue;
+      const prev = byKey.get(key);
+      if (!prev || hit.score > prev.score) byKey.set(key, hit);
+    }
+  }
+  return [...byKey.values()].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.codice.localeCompare(b.codice, "it");
+  });
 }
 
 export function CollegaArticoloModal({
@@ -69,17 +121,25 @@ export function CollegaArticoloModal({
   codiceDaSostituire = null,
   suggestedHit = null,
   initialHits,
+  localCatalog = [],
   onClose,
   onCollega,
   onCreaNuovo,
 }: Props) {
   const titleId = useId();
-  /** Descrizione scremata una sola volta all’apertura (in memoria). */
+  /** Congela input all’apertura: evita restart RPC a ogni update fattura (loop minuti). */
   const cleanedDescRef = useRef(normalizeInvoiceLineText(descrizioneRiga));
+  const descRawRef = useRef(descrizioneRiga.trim());
+  const fornitoreIdRef = useRef(fornitoreId);
+  const sameKeyRef = useRef(sameInvoiceCodici.join("|"));
+  const catalogRef = useRef(localCatalog);
   const seedHitsRef = useRef(
     seedFromProps(descrizioneRiga, initialHits, suggestedHit)
   );
-  const [query, setQuery] = useState(() => cleanedDescRef.current);
+
+  const [query, setQuery] = useState(
+    () => cleanedDescRef.current || descRawRef.current
+  );
   const [kinds, setKinds] = useState<Record<CatalogoLifecycleKind, boolean>>(
     () => ({
       servizio: !preferKind || preferKind === "servizio",
@@ -88,82 +148,106 @@ export function CollegaArticoloModal({
       contributo: !preferKind || preferKind === "contributo",
     })
   );
-  const [hits, setHits] = useState<CollegaCatalogoHit[]>(
-    () => seedHitsRef.current
-  );
+  const [hits, setHits] = useState<CollegaCatalogoHit[]>(() => {
+    const seed = seedHitsRef.current;
+    if (seed.length > 0) return seed;
+    const q = cleanedDescRef.current || descRawRef.current;
+    return localToHits(q, catalogRef.current);
+  });
   const [error, setError] = useState<string | null>(null);
   const [mostraAltro, setMostraAltro] = useState(false);
   const [searching, setSearching] = useState(false);
-  const sameKey = useMemo(
-    () => sameInvoiceCodici.join("|"),
-    [sameInvoiceCodici]
-  );
   const searchGen = useRef(0);
+  const rpcFallbackDone = useRef(false);
 
   /**
-   * Con seed dallo scan: nessuna RPC all’apertura (0 ms).
-   * Nuova RPC solo se l’utente modifica il testo di ricerca.
+   * Ricerca: 1) locale istantanea sul catalogo in memoria
+   * 2) RPC solo se locale vuota (una volta), con score ricalibrato.
+   * Dipende solo da `query` → niente loop su sameInvoiceCodici.
    */
   useEffect(() => {
     let cancelled = false;
     const gen = ++searchGen.current;
-    const normalized =
-      normalizeInvoiceLineText(query) ||
-      cleanedDescRef.current ||
-      query.trim();
-    const isSeedQuery =
-      normalizeInvoiceLineText(query) === cleanedDescRef.current ||
-      query.trim() === cleanedDescRef.current;
+    const qRaw = query.trim();
+    const qNorm =
+      normalizeInvoiceLineText(qRaw) || cleanedDescRef.current || qRaw;
 
-    if (isSeedQuery && seedHitsRef.current.length > 0) {
-      setHits(seedHitsRef.current);
-      setError(null);
-      setSearching(false);
-      setMostraAltro(false);
-      return;
-    }
-
-    if (!normalized) {
+    if (!qNorm && !qRaw) {
       setHits([]);
       setError(null);
       setSearching(false);
       return;
     }
 
-    const delay = isSeedQuery ? 0 : 200;
+    const searchText = qRaw || qNorm;
+    const isSeedQuery =
+      normalizeInvoiceLineText(qRaw) === cleanedDescRef.current ||
+      qRaw === cleanedDescRef.current ||
+      qRaw === descRawRef.current;
+
+    if (isSeedQuery && seedHitsRef.current.length > 0) {
+      const refined = mergeHits(
+        searchText,
+        seedHitsRef.current,
+        localToHits(searchText, catalogRef.current)
+      );
+      setHits(refined);
+      setError(null);
+      setSearching(false);
+      setMostraAltro(false);
+      return;
+    }
+
+    // Locale immediato (0–50ms)
+    const localHits = localToHits(searchText, catalogRef.current);
+    setHits(localHits);
+    setError(null);
+    setMostraAltro(false);
+
+    const strongLocal = localHits.some((h) => h.score >= CERCA_MATCH_PRIMARY_PCT);
+    if (strongLocal || catalogRef.current.length > 0) {
+      // Catalogo presente: non attendere RPC (era la causa dei minuti di attesa).
+      setSearching(false);
+      return;
+    }
+
+    // Fallback RPC solo se catalogo locale assente
+    if (rpcFallbackDone.current && isSeedQuery) {
+      setSearching(false);
+      return;
+    }
+
     const handle = window.setTimeout(() => {
       void (async () => {
         setSearching(true);
         try {
           const res = await searchCollegaCatalogoAction({
-            query: normalized,
-            fornitoreId,
-            sameInvoiceCodici: sameKey.split("|").filter(Boolean),
+            query: qNorm,
+            fornitoreId: fornitoreIdRef.current,
+            sameInvoiceCodici: sameKeyRef.current.split("|").filter(Boolean),
             kinds: null,
-            limit: CERCA_RPC_LIMIT,
+            limit: 24,
           });
           if (cancelled || gen !== searchGen.current) return;
+          rpcFallbackDone.current = true;
           if (!res.success) {
             setError(res.error);
-            setHits([]);
             return;
           }
-          setError(null);
-          setHits(res.hits);
-          setMostraAltro(false);
+          setHits(mergeHits(searchText, localHits, res.hits));
         } finally {
           if (!cancelled && gen === searchGen.current) {
             setSearching(false);
           }
         }
       })();
-    }, delay);
+    }, isSeedQuery ? 0 : 150);
 
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [query, fornitoreId, sameKey]);
+  }, [query]);
 
   const filteredByKind = useMemo(() => {
     return hits.filter((h) => kinds[h.catalogoKind]);
@@ -232,6 +316,10 @@ export function CollegaArticoloModal({
     );
   }
 
+  const suggestedRefined = suggestedHit
+    ? refineHitScore(descRawRef.current || cleanedDescRef.current, suggestedHit)
+    : null;
+
   const overlay = (
     <div
       data-nested-modal="collega-articolo"
@@ -250,8 +338,8 @@ export function CollegaArticoloModal({
           Cerca codice
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Match veloce sulle descrizioni (≥{CERCA_MATCH_PRIMARY_PCT}%). Filtri
-          categoria solo in locale.
+          Affinità sul catalogo in memoria (≥{CERCA_MATCH_PRIMARY_PCT}%). Risultati
+          immediati.
         </p>
 
         {descrizioneRiga ? (
@@ -271,22 +359,22 @@ export function CollegaArticoloModal({
             <span className="font-mono font-semibold">{codiceDaSostituire}</span>
           </p>
         ) : null}
-        {suggestedHit ? (
+        {suggestedRefined ? (
           <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-800">
                 Suggerito
               </p>
               <p className="truncate font-mono text-xs font-semibold">
-                {suggestedHit.codice}
+                {suggestedRefined.codice}
               </p>
               <p className="truncate text-xs text-sky-900/80">
-                {suggestedHit.nome} · {suggestedHit.score}%
+                {suggestedRefined.nome} · {suggestedRefined.score}%
               </p>
             </div>
             <button
               type="button"
-              onClick={() => onCollega(suggestedHit)}
+              onClick={() => onCollega(suggestedRefined)}
               className="shrink-0 rounded-lg bg-sky-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-sky-900"
             >
               Usa
@@ -301,15 +389,11 @@ export function CollegaArticoloModal({
           <div className="flex flex-wrap gap-3">
             {(["servizio", "prodotto", "materia", "contributo"] as const).map(
               (k) => (
-                <label
-                  key={k}
-                  className="inline-flex items-center gap-1.5 text-sm text-slate-800"
-                >
+                <label key={k} className="flex items-center gap-1.5 text-sm">
                   <input
                     type="checkbox"
                     checked={kinds[k]}
                     onChange={() => toggleKind(k)}
-                    className="rounded border-[var(--border)]"
                   />
                   {KIND_LABEL[k]}
                 </label>
@@ -335,14 +419,13 @@ export function CollegaArticoloModal({
             />
             Ricerca in corso…
           </p>
-        ) : seedHitsRef.current.length > 0 &&
-          (normalizeInvoiceLineText(query) === cleanedDescRef.current ||
-            query.trim() === cleanedDescRef.current) ? (
+        ) : (
           <p className="mt-2 text-[10px] text-[var(--muted)]">
-            Risultati dallo scan fattura (istantanei). Modifica il testo per una
-            nuova ricerca.
+            {catalogRef.current.length > 0
+              ? `Catalogo locale · ${catalogRef.current.length} voci`
+              : "Catalogo remoto (fallback)"}
           </p>
-        ) : null}
+        )}
 
         <div className="mt-4 max-h-80 space-y-2 overflow-y-auto">
           {visibleHits.length > 0 ? (
@@ -392,11 +475,11 @@ export function CollegaArticoloModal({
           </div>
         </div>
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-5 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
           >
             Chiudi
           </button>
@@ -405,6 +488,5 @@ export function CollegaArticoloModal({
     </div>
   );
 
-  if (typeof document === "undefined") return null;
   return createPortal(overlay, document.body);
 }

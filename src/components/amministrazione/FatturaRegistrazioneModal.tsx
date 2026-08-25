@@ -3280,6 +3280,7 @@ export function FatturaRegistrazioneModal({
           initialHits={
             matchHints[String(collegaRigaIndex)]?.candidates ?? undefined
           }
+          localCatalog={vociAcquisto}
           onClose={() => setCollegaRigaIndex(null)}
           onCollega={(hit) => {
             const idx = collegaRigaIndex;
