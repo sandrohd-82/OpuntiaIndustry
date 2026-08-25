@@ -291,11 +291,14 @@ export function FatturaRegistrazioneModal({
   const [matchHints, setMatchHints] = useState<
     Record<string, RigaCatalogoMatchHint>
   >({});
-  const [matchScanPending, setMatchScanPending] = useState(false);
+  const [matchScanPending, setMatchScanPending] = useState(
+    () => kind === "ricevuta"
+  );
   const [autoLinkCount, setAutoLinkCount] = useState(0);
   const autoLinkRunKeyRef = useRef<string | null>(null);
   /** Overlay load solo al primo controllo del documento, non a ogni modifica successiva. */
   const matchScanOverlayDocRef = useRef<string | null>(null);
+  const [catalogLoaded, setCatalogLoaded] = useState(() => kind !== "ricevuta");
   const [collegatiByCodice, setCollegatiByCodice] = useState<
     Record<string, ArticoloRef[]>
   >({});
@@ -686,9 +689,11 @@ export function FatturaRegistrazioneModal({
       setCatalogServizi([]);
       setCatalogProdottiFornitore([]);
       setCatalogMaterie([]);
+      setCatalogLoaded(true);
       return;
     }
     let cancelled = false;
+    setCatalogLoaded(false);
     void (async () => {
       const [serviziRes, prodottiRes, materieRes, contributiRes] =
         await Promise.all([
@@ -740,6 +745,7 @@ export function FatturaRegistrazioneModal({
           })
         ),
       ]);
+      setCatalogLoaded(true);
     })();
     return () => {
       cancelled = true;
@@ -749,6 +755,7 @@ export function FatturaRegistrazioneModal({
   /**
    * Auto-link Opzione A: righe con match catalogo 100% univoco → codice già valorizzato.
    * Solo righe ≠ 100% restano all’operatore (badge / Cerca).
+   * Overlay: già visibile all’apertura ricevuta; si chiude a fine primo controllo.
    */
   useEffect(() => {
     if (!isRicevuta) {
@@ -756,15 +763,37 @@ export function FatturaRegistrazioneModal({
       setMatchScanPending(false);
       setAutoLinkCount(0);
       autoLinkRunKeyRef.current = null;
+      matchScanOverlayDocRef.current = null;
       return;
     }
-    if (vociAcquisto.length === 0 || righe.length === 0) return;
 
-    const runKey = `${initial?.id ?? "new"}|${prefill?.ficId ?? ""}|${prefill?.numeroDocumentoEsterno ?? ""}|${righe.length}|${vociAcquisto.length}`;
-    if (autoLinkRunKeyRef.current === runKey) return;
+    const docKey = `${initial?.id ?? "new"}|${prefill?.ficId ?? ""}|${prefill?.numeroDocumentoEsterno ?? ""}`;
+    const showOverlay = matchScanOverlayDocRef.current !== docKey;
+
+    if (!catalogLoaded) {
+      if (showOverlay) setMatchScanPending(true);
+      return;
+    }
+
+    if (vociAcquisto.length === 0 || righe.length === 0) {
+      if (showOverlay) {
+        matchScanOverlayDocRef.current = docKey;
+        setMatchScanPending(false);
+      }
+      return;
+    }
+
+    const runKey = `${docKey}|${righe.length}|${vociAcquisto.length}`;
+    if (autoLinkRunKeyRef.current === runKey) {
+      if (showOverlay) {
+        matchScanOverlayDocRef.current = docKey;
+        setMatchScanPending(false);
+      }
+      return;
+    }
 
     let cancelled = false;
-    setMatchScanPending(true);
+    if (showOverlay) setMatchScanPending(true);
     void (async () => {
       const catalogCodiciValidi = vociAcquisto.map((v) => v.codice);
       const sameInvoiceCodici = righe
@@ -784,7 +813,10 @@ export function FatturaRegistrazioneModal({
       });
       if (cancelled) return;
       if (!res.success) {
-        setMatchScanPending(false);
+        if (showOverlay) {
+          matchScanOverlayDocRef.current = docKey;
+          setMatchScanPending(false);
+        }
         return;
       }
 
@@ -807,7 +839,10 @@ export function FatturaRegistrazioneModal({
       }
       setMatchHints(hints);
       setAutoLinkCount(res.autoLinkedCount);
-      setMatchScanPending(false);
+      if (showOverlay) {
+        matchScanOverlayDocRef.current = docKey;
+        setMatchScanPending(false);
+      }
     })();
 
     return () => {
@@ -816,6 +851,7 @@ export function FatturaRegistrazioneModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per documento/caricamento catalogo
   }, [
     isRicevuta,
+    catalogLoaded,
     vociAcquisto.length,
     righe.length,
     initial?.id,
