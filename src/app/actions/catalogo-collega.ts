@@ -79,7 +79,10 @@ type RpcMatchRow = {
 function cleanQuery(raw: string): string {
   const t = (raw ?? "").trim();
   if (!t) return "";
-  return tokenizeInvoiceLine(t).join(" ") || t;
+  // Token scremati; se restano vuoti (solo unità/numeri) usa la query lower-case
+  const tokenized = tokenizeInvoiceLine(t).join(" ");
+  if (tokenized) return tokenized;
+  return t.toLowerCase().replace(/\s+/g, " ");
 }
 
 function isKind(k: string): k is CatalogoLifecycleKind {

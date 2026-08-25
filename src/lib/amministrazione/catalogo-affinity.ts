@@ -1,9 +1,7 @@
 /**
- * Affinità catalogo lato client — ottimizzata per non bloccare l’UI.
- * Prefiltro stretto + cap candidati + Levenshtein con early-abort.
+ * Affinità catalogo lato client — indice per token + scoring leggero.
+ * Evita di normalizzare/scorrere l’intero catalogo a ogni Cerca.
  */
-
-import { tokenizeInvoiceLine } from "@/lib/sku-generator";
 
 export type LocalCatalogVoce = {
   kind: "servizio" | "prodotto" | "materia" | "contributo";
@@ -11,6 +9,8 @@ export type LocalCatalogVoce = {
   codice: string;
   nome: string;
 };
+
+type IndexedVoce = LocalCatalogVoce & { hay: string };
 
 /** Normalizza per confronto: minuscolo, no diacritici, punteggiatura → spazio. */
 export function normalizeAffinityText(raw: string): string {
@@ -23,14 +23,19 @@ export function normalizeAffinityText(raw: string): string {
     .trim();
 }
 
-/** Levenshtein con early-exit se distanza > maxDist (evita O(n²) inutili). */
+function significantTokensFromNorm(norm: string): string[] {
+  return norm
+    .split(" ")
+    .filter((t) => t.length >= 3 && !/^\d+([.,]\d+)?$/.test(t));
+}
+
+/** Levenshtein con early-exit. */
 function levenshteinBounded(a: string, b: string, maxDist: number): number {
   if (a === b) return 0;
   if (!a.length) return b.length > maxDist ? maxDist + 1 : b.length;
   if (!b.length) return a.length > maxDist ? maxDist + 1 : a.length;
   if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
 
-  // Due righe sole (memoria O(min(n,m)))
   let prev = new Array<number>(b.length + 1);
   let curr = new Array<number>(b.length + 1);
   for (let j = 0; j <= b.length; j++) prev[j] = j;
@@ -51,40 +56,6 @@ function levenshteinBounded(a: string, b: string, maxDist: number): number {
   return prev[b.length]!;
 }
 
-function bigramDice(a: string, b: string): number {
-  if (a === b) return 1;
-  if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
-  const counts = new Map<string, number>();
-  for (let i = 0; i < a.length - 1; i++) {
-    const g = a.slice(i, i + 2);
-    counts.set(g, (counts.get(g) ?? 0) + 1);
-  }
-  let inter = 0;
-  let bCount = 0;
-  for (let i = 0; i < b.length - 1; i++) {
-    bCount += 1;
-    const g = b.slice(i, i + 2);
-    const c = counts.get(g) ?? 0;
-    if (c > 0) {
-      inter += 1;
-      counts.set(g, c - 1);
-    }
-  }
-  const aCount = Math.max(1, a.length - 1);
-  return (2 * inter) / (aCount + bCount);
-}
-
-function significantTokens(text: string): string[] {
-  const fromNorm = normalizeAffinityText(text).split(" ").filter(Boolean);
-  const fromSku = tokenizeInvoiceLine(text);
-  const set = new Set(
-    [...fromNorm, ...fromSku].filter(
-      (t) => t.length >= 3 && !/^\d+([.,]\d+)?$/.test(t)
-    )
-  );
-  return [...set];
-}
-
 /**
  * Affinità 0–100. Early-exit se le stringhe sono troppo diverse.
  */
@@ -94,82 +65,157 @@ export function scoreNomeAffinity(query: string, nome: string): number {
   if (!q || !n) return 0;
   if (q === n) return 100;
 
-  const maxLen = Math.max(q.length, n.length);
-  // Oltre ~40% di edit → score basso: non serve Levenshtein completo
-  const maxDist = Math.max(2, Math.floor(maxLen * 0.4));
-  const dist = levenshteinBounded(q, n, maxDist);
-  if (dist > maxDist) {
-    // Solo dice veloce come fallback debole
-    const dice = bigramDice(q.replace(/\s/g, ""), n.replace(/\s/g, ""));
-    return Math.max(0, Math.min(100, Math.round(dice * 70)));
+  // Prefisso / inclusione rapida (evita Levenshtein su stringhe lunghissime diverse)
+  if (n.includes(q) || q.includes(n)) {
+    const ratio = Math.min(q.length, n.length) / Math.max(q.length, n.length);
+    return Math.max(0, Math.min(100, Math.round(70 + ratio * 30)));
   }
 
+  const maxLen = Math.max(q.length, n.length);
+  const maxDist = Math.max(2, Math.floor(maxLen * 0.35));
+  const dist = levenshteinBounded(q, n, maxDist);
+  if (dist > maxDist) return 0;
+
   const editSim = 1 - dist / maxLen;
-  const dice = bigramDice(q.replace(/\s/g, ""), n.replace(/\s/g, ""));
-  const blended = editSim * 0.7 + dice * 0.3;
-  return Math.max(0, Math.min(100, Math.round(blended * 100)));
+  return Math.max(0, Math.min(100, Math.round(editSim * 100)));
 }
 
 export function scoreCatalogVoce(
   query: string,
   voce: LocalCatalogVoce
 ): number {
-  // Nome prima (caso tipico); codice solo se utile
   const byNome = scoreNomeAffinity(query, voce.nome);
-  if (byNome >= 95) return byNome;
-  const byCodice = scoreNomeAffinity(query, voce.codice);
-  return Math.max(byNome, byCodice);
+  if (byNome >= 92) return byNome;
+  return Math.max(byNome, scoreNomeAffinity(query, voce.codice));
 }
 
 /**
- * Ricerca locale non bloccante: prefiltro stretto + max candidati scorati.
+ * Indice invertito token → voci. Si costruisce una sola volta per catalogo.
+ */
+export class CatalogSearchIndex {
+  private byToken = new Map<string, IndexedVoce[]>();
+  private all: IndexedVoce[] = [];
+  readonly size: number;
+
+  constructor(catalog: LocalCatalogVoce[]) {
+    this.size = catalog.length;
+    for (const voce of catalog) {
+      const hay = normalizeAffinityText(`${voce.nome} ${voce.codice}`);
+      if (!hay) continue;
+      const indexed: IndexedVoce = { ...voce, hay };
+      this.all.push(indexed);
+      const seen = new Set<string>();
+      for (const t of significantTokensFromNorm(hay)) {
+        if (seen.has(t)) continue;
+        seen.add(t);
+        const list = this.byToken.get(t);
+        if (list) list.push(indexed);
+        else this.byToken.set(t, [indexed]);
+      }
+    }
+  }
+
+  search(
+    query: string,
+    opts?: { limit?: number; minScore?: number; maxScoreCandidates?: number }
+  ): Array<LocalCatalogVoce & { score: number }> {
+    const q = (query ?? "").trim();
+    if (!q || this.size === 0) return [];
+    const minScore = opts?.minScore ?? 45;
+    const limit = Math.min(Math.max(opts?.limit ?? 36, 1), 48);
+    const maxScoreCandidates = opts?.maxScoreCandidates ?? 80;
+
+    const qNorm = normalizeAffinityText(q);
+    const qTokens = significantTokensFromNorm(qNorm);
+    if (qTokens.length === 0 && !qNorm) return [];
+
+    // Ancora = token più raro (lista più corta) tra i più lunghi
+    let candidates: IndexedVoce[] = [];
+    if (qTokens.length > 0) {
+      const ranked = [...qTokens].sort((a, b) => {
+        const la = this.byToken.get(a)?.length ?? Number.MAX_SAFE_INTEGER;
+        const lb = this.byToken.get(b)?.length ?? Number.MAX_SAFE_INTEGER;
+        if (la !== lb) return la - lb;
+        return b.length - a.length;
+      });
+      const anchor = ranked[0]!;
+      candidates = this.byToken.get(anchor) ?? [];
+      // Se ancora troppo ampia, interseca col secondo token
+      if (candidates.length > maxScoreCandidates && ranked.length >= 2) {
+        const second = new Set(this.byToken.get(ranked[1]!) ?? []);
+        candidates = candidates.filter((v) => second.has(v));
+      }
+    } else {
+      // Solo numeri/unità: match substring su hay (max scan limitato)
+      const needle = qNorm.slice(0, 12);
+      for (const v of this.all) {
+        if (v.hay.includes(needle)) {
+          candidates.push(v);
+          if (candidates.length >= maxScoreCandidates) break;
+        }
+      }
+    }
+
+    if (candidates.length > maxScoreCandidates) {
+      candidates = candidates.slice(0, maxScoreCandidates);
+    }
+
+    // Richiede almeno metà dei token query
+    if (qTokens.length >= 2) {
+      const need = Math.ceil(qTokens.length * 0.5);
+      candidates = candidates.filter((v) => {
+        let hits = 0;
+        for (const t of qTokens) {
+          if (v.hay.includes(t)) hits += 1;
+        }
+        return hits >= need;
+      });
+    }
+
+    const scored: Array<LocalCatalogVoce & { score: number }> = [];
+    for (const voce of candidates) {
+      const score = scoreCatalogVoce(q, voce);
+      if (score >= minScore) {
+        scored.push({
+          kind: voce.kind,
+          id: voce.id,
+          codice: voce.codice,
+          nome: voce.nome,
+          score,
+        });
+      }
+    }
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.codice.localeCompare(b.codice, "it");
+    });
+    return scored.slice(0, limit);
+  }
+}
+
+/** Cache debole per non ricostruire l’indice a ogni keystroke. */
+const indexCache = new WeakMap<LocalCatalogVoce[], CatalogSearchIndex>();
+
+export function getCatalogSearchIndex(
+  catalog: LocalCatalogVoce[]
+): CatalogSearchIndex {
+  let idx = indexCache.get(catalog);
+  if (!idx) {
+    idx = new CatalogSearchIndex(catalog);
+    indexCache.set(catalog, idx);
+  }
+  return idx;
+}
+
+/**
+ * Ricerca locale via indice (ms anche con migliaia di voci).
  */
 export function searchCatalogLocal(
   query: string,
   catalog: LocalCatalogVoce[],
   opts?: { limit?: number; minScore?: number; maxScoreCandidates?: number }
 ): Array<LocalCatalogVoce & { score: number }> {
-  const q = (query ?? "").trim();
-  if (!q || catalog.length === 0) return [];
-  const minScore = opts?.minScore ?? 45;
-  const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 60);
-  const maxScoreCandidates = opts?.maxScoreCandidates ?? 180;
-
-  const qNorm = normalizeAffinityText(q);
-  const qTokens = significantTokens(q);
-  // Token più discriminante (più lungo) per prefiltro
-  const anchor =
-    qTokens.length > 0
-      ? [...qTokens].sort((a, b) => b.length - a.length)[0]!
-      : qNorm.slice(0, Math.min(8, qNorm.length));
-
-  if (!anchor) return [];
-
-  const candidates: LocalCatalogVoce[] = [];
-  for (const voce of catalog) {
-    const hay = normalizeAffinityText(`${voce.nome} ${voce.codice}`);
-    if (!hay.includes(anchor)) continue;
-    // Almeno metà dei token significativi devono comparire
-    if (qTokens.length >= 2) {
-      let hits = 0;
-      for (const t of qTokens) {
-        if (hay.includes(t)) hits += 1;
-      }
-      if (hits < Math.ceil(qTokens.length * 0.5)) continue;
-    }
-    candidates.push(voce);
-    if (candidates.length >= maxScoreCandidates) break;
-  }
-
-  const scored: Array<LocalCatalogVoce & { score: number }> = [];
-  for (const voce of candidates) {
-    const score = scoreCatalogVoce(q, voce);
-    if (score >= minScore) scored.push({ ...voce, score });
-  }
-
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    return a.codice.localeCompare(b.codice, "it");
-  });
-  return scored.slice(0, limit);
+  if (!catalog.length) return [];
+  return getCatalogSearchIndex(catalog).search(query, opts);
 }

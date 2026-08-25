@@ -7,6 +7,7 @@ import {
   type CollegaCatalogoHit,
 } from "@/app/actions/catalogo-collega";
 import {
+  getCatalogSearchIndex,
   searchCatalogLocal,
   scoreNomeAffinity,
   type LocalCatalogVoce,
@@ -78,14 +79,17 @@ function seedFromProps(
 
 function localToHits(
   query: string,
-  catalog: LocalCatalogVoce[]
+  catalog: LocalCatalogVoce[],
+  index?: ReturnType<typeof getCatalogSearchIndex> | null
 ): CollegaCatalogoHit[] {
-  // Cap stretto: non scorare migliaia di voci sul main thread
-  return searchCatalogLocal(query, catalog, {
-    limit: 36,
-    minScore: 45,
-    maxScoreCandidates: 120,
-  }).map((v) => ({
+  const rows = index
+    ? index.search(query, { limit: 36, minScore: 45, maxScoreCandidates: 80 })
+    : searchCatalogLocal(query, catalog, {
+        limit: 36,
+        minScore: 45,
+        maxScoreCandidates: 80,
+      });
+  return rows.map((v) => ({
     source: "catalogo" as const,
     catalogoKind: v.kind,
     catalogoId: v.id,
@@ -134,6 +138,9 @@ export function CollegaArticoloModal({
   const fornitoreIdRef = useRef(fornitoreId);
   const sameKeyRef = useRef(sameInvoiceCodici.join("|"));
   const catalogRef = useRef(localCatalog);
+  const catalogIndexRef = useRef<ReturnType<typeof getCatalogSearchIndex> | null>(
+    null
+  );
   const seedHitsRef = useRef(
     seedFromProps(descrizioneRiga, initialHits, suggestedHit)
   );
@@ -149,7 +156,6 @@ export function CollegaArticoloModal({
       contributo: !preferKind || preferKind === "contributo",
     })
   );
-  // Apri subito con seed (leggero) — niente scan catalogo nel primo paint
   const [hits, setHits] = useState<CollegaCatalogoHit[]>(
     () => seedHitsRef.current
   );
@@ -161,8 +167,23 @@ export function CollegaArticoloModal({
   const searchGen = useRef(0);
   const rpcFallbackDone = useRef(false);
 
+  // Costruisce l’indice in background (una volta) — non sul click Cerca
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      try {
+        if (catalogRef.current.length > 0) {
+          catalogIndexRef.current = getCatalogSearchIndex(catalogRef.current);
+        }
+      } catch {
+        catalogIndexRef.current = null;
+      }
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, []);
+
   /**
-   * Ricerca differita: la modale si apre subito; lo scan locale/RPC parte dopo il paint.
+   * Per campi non precompilati: RPC immediata (veloce) + locale indicizzato.
+   * Mai scan lineare dell’intero catalogo sul click.
    */
   useEffect(() => {
     let cancelled = false;
@@ -184,50 +205,60 @@ export function CollegaArticoloModal({
       qRaw === cleanedDescRef.current ||
       qRaw === descRawRef.current;
 
-    // Lascia dipingere la modale prima del lavoro CPU
-    const handle = window.setTimeout(() => {
-      if (cancelled || gen !== searchGen.current) return;
+    setSearching(true);
+    setError(null);
+    setMostraAltro(false);
 
-      if (isSeedQuery && seedHitsRef.current.length > 0) {
-        let localHits: CollegaCatalogoHit[] = [];
-        try {
-          localHits = localToHits(searchText, catalogRef.current);
-        } catch {
-          localHits = [];
-        }
-        if (cancelled || gen !== searchGen.current) return;
-        setHits(mergeHits(searchText, seedHitsRef.current, localHits));
-        setError(null);
+    if (isSeedQuery && seedHitsRef.current.length > 0) {
+      setHits(seedHitsRef.current.map((h) => refineHitScore(searchText, h)));
+    }
+
+    let pending = 0;
+    const doneOne = () => {
+      pending -= 1;
+      if (pending <= 0 && !cancelled && gen === searchGen.current) {
         setSearching(false);
-        setMostraAltro(false);
+      }
+    };
+
+    // Locale via indice (se già pronto) — altrimenti salta, userà RPC
+    pending += 1;
+    const localHandle = window.setTimeout(() => {
+      if (cancelled || gen !== searchGen.current) {
+        doneOne();
         return;
       }
-
-      setSearching(true);
-      let localHits: CollegaCatalogoHit[] = [];
       try {
-        localHits = localToHits(searchText, catalogRef.current);
+        // Solo se l’indice è già pronto (costruito in background). Niente build sul click.
+        const idx = catalogIndexRef.current;
+        const localHits = idx
+          ? localToHits(searchText, catalogRef.current, idx)
+          : [];
+        if (cancelled || gen !== searchGen.current) {
+          doneOne();
+          return;
+        }
+        setHits((prev) =>
+          mergeHits(
+            searchText,
+            isSeedQuery ? seedHitsRef.current : [],
+            prev,
+            localHits
+          )
+        );
       } catch {
-        localHits = [];
+        /* ignore */
       }
-      if (cancelled || gen !== searchGen.current) return;
-      setHits(localHits);
-      setError(null);
-      setMostraAltro(false);
+      doneOne();
+    }, 0);
 
-      const strongLocal = localHits.some(
-        (h) => h.score >= CERCA_MATCH_PRIMARY_PCT
-      );
-      if (strongLocal) {
-        setSearching(false);
-        return;
-      }
+    // RPC subito in parallelo (non aspetta l’indice) — chiave per “acquaragia…”
+    const needRpc =
+      !(isSeedQuery && seedHitsRef.current.some((h) => h.score >= CERCA_MATCH_PRIMARY_PCT)) &&
+      !(rpcFallbackDone.current && isSeedQuery);
 
-      if (rpcFallbackDone.current && isSeedQuery) {
-        setSearching(false);
-        return;
-      }
-
+    if (needRpc) {
+      pending += 1;
       void (async () => {
         try {
           const res = await searchCollegaCatalogoAction({
@@ -240,21 +271,26 @@ export function CollegaArticoloModal({
           if (cancelled || gen !== searchGen.current) return;
           rpcFallbackDone.current = true;
           if (!res.success) {
-            if (localHits.length === 0) setError(res.error);
+            if (gen === searchGen.current) {
+              setHits((prev) => {
+                if (prev.length === 0) setError(res.error);
+                return prev;
+              });
+            }
             return;
           }
-          setHits(mergeHits(searchText, localHits, res.hits));
+          setHits((prev) => mergeHits(searchText, prev, res.hits));
         } finally {
-          if (!cancelled && gen === searchGen.current) {
-            setSearching(false);
-          }
+          doneOne();
         }
       })();
-    }, 0);
+    }
+
+    if (pending === 0) setSearching(false);
 
     return () => {
       cancelled = true;
-      window.clearTimeout(handle);
+      window.clearTimeout(localHandle);
     };
   }, [query]);
 
