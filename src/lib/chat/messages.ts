@@ -52,11 +52,18 @@ type InsertPayload = {
   fileName?: string | null;
 };
 
+function needsAutoTranscript(payload: InsertPayload): boolean {
+  if (payload.audioUrl) return true;
+  const ft = (payload.fileType ?? "").toLowerCase();
+  return Boolean(payload.fileUrl && ft.startsWith("video/"));
+}
+
 export async function insertChatMessageAndNotify(
   supabase: SupabaseClient,
   userId: string,
   payload: InsertPayload
 ): Promise<ChatMessage> {
+  const autoTx = needsAutoTranscript(payload);
   const { data, error } = await supabase
     .from("messages")
     .insert({
@@ -69,6 +76,8 @@ export async function insertChatMessageAndNotify(
       file_url: payload.fileUrl ?? null,
       file_type: payload.fileType ?? null,
       file_name: payload.fileName ?? null,
+      transcript_status: autoTx ? "pending" : null,
+      transcript_by: autoTx ? userId : null,
     })
     .select(
       "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"

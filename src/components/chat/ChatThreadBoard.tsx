@@ -12,7 +12,6 @@ import {
   FaFlag,
   FaMicrophone,
   FaTrash,
-  FaClosedCaptioning,
 } from "react-icons/fa6";
 import { transcribeChatVoiceMessageAction } from "@/app/actions/chat-transcribe";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
@@ -32,7 +31,11 @@ import {
   unblockPeer,
   isChatPairBlocked,
 } from "@/lib/chat/messages";
-import { sendChatAttachment, sendVoiceMessage } from "@/lib/chat/media";
+import {
+  isChatTranscribableMessage,
+  sendChatAttachment,
+  sendVoiceMessage,
+} from "@/lib/chat/media";
 import {
   getConversation,
   listMessages,
@@ -79,16 +82,31 @@ function MessageBubble({
   onTranscribe: () => void;
   transcribing: boolean;
 }) {
-  // Vignetta: angolo a spigolo verso l'avatar
+  const [showText, setShowText] = useState(false);
   const bubbleRadius = mine
     ? "rounded-2xl rounded-br-sm"
     : "rounded-2xl rounded-bl-sm";
+
+  const isVideo = Boolean(
+    message.fileUrl &&
+      (message.fileType ?? "").toLowerCase().startsWith("video/")
+  );
+  const isAudio = Boolean(message.audioUrl);
+  const isMediaTx = isAudio || isVideo;
 
   const hasTranscript =
     message.transcriptStatus === "done" &&
     Boolean(message.transcriptText?.trim());
   const transcriptPending =
     transcribing || message.transcriptStatus === "pending";
+  const transcriptError =
+    message.transcriptStatus === "error" && message.transcriptError
+      ? message.transcriptError
+      : null;
+
+  const linkClass = mine
+    ? "text-[10px] font-medium text-white/90 underline underline-offset-2 hover:text-white"
+    : "text-[10px] font-medium text-[var(--primary)] underline underline-offset-2";
 
   return (
     <div
@@ -107,7 +125,6 @@ function MessageBubble({
             : "bg-slate-100 text-slate-900"
         }`}
       >
-        {/* Punta vignetta verso avatar */}
         <span
           aria-hidden
           className={`absolute bottom-1 h-2.5 w-2.5 rotate-45 ${
@@ -119,48 +136,30 @@ function MessageBubble({
         {message.content ? (
           <p className="relative whitespace-pre-wrap">{message.content}</p>
         ) : null}
-        {message.audioUrl ? (
+        {isAudio ? (
           <div className="relative mt-1 space-y-1.5">
-            <audio controls src={message.audioUrl} className="max-w-full" />
-            {hasTranscript ? (
-              <p
-                className={`whitespace-pre-wrap rounded-md px-2 py-1.5 text-xs leading-snug ${
-                  mine
-                    ? "bg-white/15 text-white"
-                    : "bg-white text-slate-800 border border-slate-200"
-                }`}
-              >
-                {message.transcriptText}
-              </p>
-            ) : null}
-            {message.transcriptStatus === "error" && message.transcriptError ? (
+            <audio controls src={message.audioUrl!} className="max-w-full" />
+          </div>
+        ) : null}
+        {isVideo ? (
+          <div className="relative mt-1 space-y-1.5">
+            <video
+              controls
+              src={message.fileUrl!}
+              className="max-h-56 max-w-full rounded-md"
+            />
+            {message.fileName ? (
               <p
                 className={`text-[10px] ${
-                  mine ? "text-red-100" : "text-red-700"
+                  mine ? "text-white/70" : "text-slate-500"
                 }`}
               >
-                Trascrizione: {message.transcriptError}
+                {message.fileName}
               </p>
-            ) : null}
-            {!hasTranscript ? (
-              <button
-                type="button"
-                disabled={transcriptPending}
-                onClick={onTranscribe}
-                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium disabled:opacity-50 ${
-                  mine
-                    ? "bg-white/20 text-white hover:bg-white/30"
-                    : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
-                }`}
-                title="Converti audio in testo (AI)"
-              >
-                <FaClosedCaptioning size={10} />
-                {transcriptPending ? "Trascrizione…" : "Trascrivi"}
-              </button>
             ) : null}
           </div>
         ) : null}
-        {message.fileUrl ? (
+        {message.fileUrl && !isVideo ? (
           <a
             href={message.fileUrl}
             target="_blank"
@@ -171,6 +170,60 @@ function MessageBubble({
           >
             {message.fileName || "Allegato"}
           </a>
+        ) : null}
+        {isMediaTx ? (
+          <div className="relative mt-1.5 space-y-1">
+            {transcriptPending ? (
+              <p
+                className={`text-[10px] ${
+                  mine ? "text-white/75" : "text-slate-500"
+                }`}
+              >
+                Trascrizione in corso…
+              </p>
+            ) : null}
+            {hasTranscript ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowText((v) => !v)}
+                  className={linkClass}
+                >
+                  {showText ? "Nascondi testo" : "Mostra testo"}
+                </button>
+                {showText ? (
+                  <p
+                    className={`whitespace-pre-wrap rounded-md px-2 py-1.5 text-xs leading-snug ${
+                      mine
+                        ? "bg-white/15 text-white"
+                        : "border border-slate-200 bg-white text-slate-800"
+                    }`}
+                  >
+                    {message.transcriptText}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {transcriptError ? (
+              <div className="space-y-0.5">
+                <p
+                  className={`text-[10px] ${
+                    mine ? "text-red-100" : "text-red-700"
+                  }`}
+                >
+                  Trascrizione: {transcriptError}
+                </p>
+                <button
+                  type="button"
+                  disabled={transcriptPending}
+                  onClick={onTranscribe}
+                  className={linkClass}
+                >
+                  Riprova trascrizione
+                </button>
+              </div>
+            ) : null}
+          </div>
         ) : null}
         <div
           className={`relative mt-1 flex items-center gap-1 text-[10px] ${
@@ -218,6 +271,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
   const [transcribingIds, setTranscribingIds] = useState<Set<string>>(
     () => new Set()
   );
+  const kickedTranscriptRef = useRef<Set<string>>(new Set());
 
   const hasText = text.trim().length > 0;
 
@@ -232,6 +286,27 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
       return [...prev, msg];
     });
   }, []);
+
+  const kickoffTranscript = useCallback(
+    async (messageId: string) => {
+      if (kickedTranscriptRef.current.has(messageId)) return;
+      kickedTranscriptRef.current.add(messageId);
+      setTranscribingIds((prev) => new Set(prev).add(messageId));
+      const res = await transcribeChatVoiceMessageAction({ messageId });
+      setTranscribingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(messageId);
+        return next;
+      });
+      if (!res.success) {
+        kickedTranscriptRef.current.delete(messageId);
+        setError(res.error);
+        return;
+      }
+      mergeMessage(res.message);
+    },
+    [mergeMessage]
+  );
 
   const ensureAvatars = useCallback(async (ids: string[]) => {
     const supabase = createClient();
@@ -261,6 +336,16 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
       setPeerId(peer);
       const list = await listMessages(supabase, conversationId);
       setMessages(list);
+      for (const m of list) {
+        if (
+          m.senderId === userId &&
+          isChatTranscribableMessage(m) &&
+          (m.transcriptStatus === "pending" || m.transcriptStatus === null) &&
+          !m.transcriptText?.trim()
+        ) {
+          void kickoffTranscript(m.id);
+        }
+      }
       const senderIds = [
         userId,
         peer,
@@ -284,7 +369,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Errore thread");
     }
-  }, [conversationId, userId]);
+  }, [conversationId, userId, kickoffTranscript]);
 
   useEffect(() => {
     void reload();
@@ -347,6 +432,9 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
         file
       );
       mergeMessage(msg);
+      if (isChatTranscribableMessage(msg)) {
+        void kickoffTranscript(msg.id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload fallito");
     } finally {
@@ -382,6 +470,7 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
               blob
             );
             mergeMessage(msg);
+            void kickoffTranscript(msg.id);
           } catch (e) {
             setError(e instanceof Error ? e.message : "Voice fallita");
           } finally {
@@ -487,23 +576,9 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
                   avatar={avatarFor(m.senderId)}
                   transcribing={transcribingIds.has(m.id)}
                   onTranscribe={() => {
-                    void (async () => {
-                      setTranscribingIds((prev) => new Set(prev).add(m.id));
-                      setError(null);
-                      const res = await transcribeChatVoiceMessageAction({
-                        messageId: m.id,
-                      });
-                      setTranscribingIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(m.id);
-                        return next;
-                      });
-                      if (!res.success) {
-                        setError(res.error);
-                        return;
-                      }
-                      mergeMessage(res.message);
-                    })();
+                    kickedTranscriptRef.current.delete(m.id);
+                    setError(null);
+                    void kickoffTranscript(m.id);
                   }}
                   onDelete={() => {
                     const supabase = createClient();

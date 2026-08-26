@@ -99,6 +99,7 @@ export function ChatSearchExportModal({
     try {
       const payload: ChatFilterInput = {
         ...filters,
+        query: mode === "export" ? "" : filters.query,
         openKind: openContext?.kind ?? filters.openKind,
         openId: openContext?.id ?? filters.openId,
       };
@@ -141,6 +142,7 @@ export function ChatSearchExportModal({
     try {
       const payload: ChatFilterInput = {
         ...filters,
+        query: "",
         openKind: openContext?.kind ?? filters.openKind,
         openId: openContext?.id ?? filters.openId,
       };
@@ -164,7 +166,7 @@ export function ChatSearchExportModal({
         action: "confirm",
         entityType: "chat_export",
         entityId: payload.openId,
-        inputText: payload.query,
+        inputText: "",
         choiceAfter: {
           scope: payload.scope,
           count: results.length,
@@ -233,17 +235,19 @@ export function ChatSearchExportModal({
         </div>
 
         <div className="space-y-3 px-4 py-3">
-          <label className="block text-xs font-medium text-slate-600">
-            Testo / frase / @utente
-            <input
-              value={filters.query}
-              onChange={(e) =>
-                setFilters((p) => ({ ...p, query: e.target.value }))
-              }
-              placeholder='es. consegna @Mario oppure "ordine urgente"'
-              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
+          {mode === "search" ? (
+            <label className="block text-xs font-medium text-slate-600">
+              Testo / frase / @utente
+              <input
+                value={filters.query}
+                onChange={(e) =>
+                  setFilters((p) => ({ ...p, query: e.target.value }))
+                }
+                placeholder='es. consegna @Mario oppure "ordine urgente"'
+                className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+          ) : null}
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="text-xs font-medium text-slate-600">

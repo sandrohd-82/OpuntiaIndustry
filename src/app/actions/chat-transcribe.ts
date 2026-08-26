@@ -16,33 +16,69 @@ const schema = z.object({
 const MESSAGE_SELECT =
   "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error";
 
-function guessAudioFilename(url: string): string {
+type MediaSource = {
+  url: string;
+  kind: "audio" | "video";
+  filename: string;
+  contentType: string;
+};
+
+function guessFilename(url: string, fallback: string): string {
   try {
     const path = new URL(url).pathname;
-    const base = path.split("/").pop() || "voice.webm";
-    return base.includes(".") ? base : `${base}.webm`;
+    const base = path.split("/").pop() || fallback;
+    return base.includes(".") ? base : fallback;
   } catch {
-    return "voice.webm";
+    return fallback;
   }
 }
 
+function resolveMediaSource(row: {
+  audio_url?: string | null;
+  file_url?: string | null;
+  file_type?: string | null;
+  file_name?: string | null;
+}): MediaSource | null {
+  if (row.audio_url) {
+    return {
+      url: row.audio_url,
+      kind: "audio",
+      filename: guessFilename(row.audio_url, "voice.webm"),
+      contentType: "audio/webm",
+    };
+  }
+  const fileType = (row.file_type ?? "").toLowerCase();
+  if (row.file_url && fileType.startsWith("video/")) {
+    const name =
+      row.file_name?.trim() ||
+      guessFilename(row.file_url, "video.mp4");
+    return {
+      url: row.file_url,
+      kind: "video",
+      filename: name.includes(".") ? name : `${name}.mp4`,
+      contentType: fileType || "video/mp4",
+    };
+  }
+  return null;
+}
+
 async function transcribeWithWhisper(
-  audioBytes: ArrayBuffer,
+  bytes: ArrayBuffer,
   filename: string,
   contentType: string
 ): Promise<string> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error(
-      "OPENAI_API_KEY non configurata: impossibile trascrivere l’audio."
+      "OPENAI_API_KEY non configurata: impossibile trascrivere."
     );
   }
 
   const form = new FormData();
   form.append(
     "file",
-    new Blob([new Uint8Array(audioBytes)], {
-      type: contentType || "audio/webm",
+    new Blob([new Uint8Array(bytes)], {
+      type: contentType || "application/octet-stream",
     }),
     filename
   );
@@ -69,7 +105,7 @@ async function transcribeWithWhisper(
 }
 
 /**
- * Trascrive on-demand una nota vocale chat (Whisper) e salva il testo sul messaggio.
+ * Trascrive automaticamente (o in retry) nota vocale / video chat → salva su messages.
  */
 export async function transcribeChatVoiceMessageAction(
   raw: unknown
@@ -94,9 +130,19 @@ export async function transcribeChatVoiceMessageAction(
   if (loadErr) return { success: false, error: loadErr.message };
   if (!row) return { success: false, error: "Messaggio non trovato." };
 
-  const audioUrl = (row as { audio_url?: string | null }).audio_url;
-  if (!audioUrl) {
-    return { success: false, error: "Il messaggio non ha audio." };
+  const media = resolveMediaSource(
+    row as {
+      audio_url?: string | null;
+      file_url?: string | null;
+      file_type?: string | null;
+      file_name?: string | null;
+    }
+  );
+  if (!media) {
+    return {
+      success: false,
+      error: "Il messaggio non ha audio o video trascrivibile.",
+    };
   }
 
   const existingStatus = (row as { transcript_status?: string | null })
@@ -120,23 +166,23 @@ export async function transcribeChatVoiceMessageAction(
     .eq("id", parsed.data.messageId);
 
   try {
-    const audioRes = await fetch(audioUrl);
-    if (!audioRes.ok) {
-      throw new Error(`Download audio fallito (${audioRes.status}).`);
+    const mediaRes = await fetch(media.url);
+    if (!mediaRes.ok) {
+      throw new Error(`Download media fallito (${mediaRes.status}).`);
     }
-    const bytes = await audioRes.arrayBuffer();
+    const bytes = await mediaRes.arrayBuffer();
     if (bytes.byteLength < 64) {
-      throw new Error("File audio troppo piccolo o vuoto.");
+      throw new Error("File media troppo piccolo o vuoto.");
     }
-    if (bytes.byteLength > 24 * 1024 * 1024) {
-      throw new Error("File audio troppo grande per la trascrizione.");
+    if (bytes.byteLength > 25 * 1024 * 1024) {
+      throw new Error("File troppo grande per la trascrizione (max 25 MB).");
     }
 
     const contentType =
-      audioRes.headers.get("content-type") || "audio/webm";
+      mediaRes.headers.get("content-type") || media.contentType;
     const text = await transcribeWithWhisper(
       bytes,
-      guessAudioFilename(audioUrl),
+      media.filename,
       contentType
     );
 
@@ -162,34 +208,42 @@ export async function transcribeChatVoiceMessageAction(
       };
     }
 
+    const context =
+      media.kind === "video"
+        ? "chat_video_transcribe"
+        : "chat_voice_transcribe";
+
     await writeAuditLog({
       entity_type: "messages",
       entity_id: parsed.data.messageId,
-      action: "chat_voice_transcribe",
+      action: context,
       actor_id: auth.userId,
-      summary: `Trascrizione vocale chat (${WHISPER_MODEL})`,
+      summary: `Trascrizione ${media.kind} chat (${WHISPER_MODEL})`,
       payload: {
         model: WHISPER_MODEL,
+        kind: media.kind,
         chars: text.length,
-        conversationId: (updated as { conversation_id: string }).conversation_id,
+        conversationId: (updated as { conversation_id: string })
+          .conversation_id,
       },
     });
 
     await recordDecision({
       actorId: auth.userId,
       module: "chat",
-      context: "chat_voice_transcribe",
+      context,
       action: "transcribe",
       entityType: "messages",
       entityId: parsed.data.messageId,
       inputText: text.slice(0, 500),
-      choiceBefore: { audioUrl: true },
+      choiceBefore: { mediaKind: media.kind },
       choiceAfter: {
         transcriptChars: text.length,
         model: WHISPER_MODEL,
       },
       metadata: {
-        conversationId: (updated as { conversation_id: string }).conversation_id,
+        conversationId: (updated as { conversation_id: string })
+          .conversation_id,
       },
     });
 

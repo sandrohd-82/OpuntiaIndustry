@@ -42,8 +42,14 @@ export async function sendChatAttachment(
   conversationId: string,
   file: File
 ): Promise<ChatMessage> {
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error("Allegato troppo grande (max 10 MB).");
+  const isVideo = (file.type || "").toLowerCase().startsWith("video/");
+  const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error(
+      isVideo
+        ? "Video troppo grande (max 25 MB)."
+        : "Allegato troppo grande (max 10 MB)."
+    );
   }
   const safe = file.name.replace(/[^\w.\-]+/g, "_");
   const path = `${userId}/${conversationId}/${Date.now()}-${safe}`;
@@ -62,4 +68,15 @@ export async function sendChatAttachment(
     fileType: file.type || "application/octet-stream",
     fileName: file.name,
   });
+}
+
+/** True se il messaggio richiede / ha pipeline STT (vocale o video). */
+export function isChatTranscribableMessage(msg: {
+  audioUrl?: string | null;
+  fileUrl?: string | null;
+  fileType?: string | null;
+}): boolean {
+  if (msg.audioUrl) return true;
+  const ft = (msg.fileType ?? "").toLowerCase();
+  return Boolean(msg.fileUrl && ft.startsWith("video/"));
 }
