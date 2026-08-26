@@ -46,6 +46,14 @@ import {
   InvoiceAIMatchModal,
   InvoiceAiMatchBadge,
 } from "@/components/amministrazione/InvoiceAIMatchModal";
+import { NuoviArticoliSyncQueueModal } from "@/components/amministrazione/NuoviArticoliSyncQueueModal";
+import {
+  buildNuovoArticoloDraft,
+  prepareFatturaSyncStructural,
+  type NuovoArticoloSyncDraft,
+  type SyncGhostRiga,
+} from "@/lib/amministrazione/fattura-sync-prep";
+import type { CatalogoAcquistoKind } from "@/lib/sku-generator";
 import {
   listCollegamentiByCodiciAction,
   type ArticoloRef,
@@ -325,6 +333,20 @@ export function FatturaRegistrazioneModal({
     null
   );
   const [aiMatchPending, setAiMatchPending] = useState(false);
+  const [ghostSpedizioneRighe, setGhostSpedizioneRighe] = useState<
+    SyncGhostRiga[]
+  >([]);
+  const [nuoviArticoliQueue, setNuoviArticoliQueue] = useState<
+    NuovoArticoloSyncDraft[]
+  >([]);
+  const [nuoviArticoliIndex, setNuoviArticoliIndex] = useState(0);
+  const [nuoviArticoliOpen, setNuoviArticoliOpen] = useState(false);
+  const [totaleAllineamentoBanner, setTotaleAllineamentoBanner] = useState<{
+    da: number;
+    a: number;
+  } | null>(null);
+  const syncStructuralPrepDoneRef = useRef(false);
+  const totaleAlignDoneRef = useRef(false);
   const initialMatchDocKey = ricevutaMatchDocKey(
     initial?.id,
     prefill?.ficId ?? initial?.ficId,
@@ -794,6 +816,55 @@ export function FatturaRegistrazioneModal({
   }, [isRicevuta]);
 
   /**
+   * Prep strutturale sync (nuova ricevuta da FiC): toglie importo 0 e
+   * righe spedizione → campo spedizione + IVA.
+   */
+  useEffect(() => {
+    if (!isRicevuta || isEdit || syncStructuralPrepDoneRef.current) return;
+    syncStructuralPrepDoneRef.current = true;
+
+    const source: FatturaRiga[] = righe.map((r) => ({
+      prodottoId: r.prodottoId,
+      codice: r.codice,
+      descrizione: r.descrizione,
+      quantita: numberOrZero(r.quantita),
+      unitaMisura: r.unitaMisura,
+      prezzoUnitario: numberOrZero(r.prezzoUnitario),
+      scontoPercentuale: numberOrZero(r.scontoPercentuale),
+      ivaPercentuale: numberOrZero(
+        r.ivaPercentuale === "" || r.ivaPercentuale == null
+          ? 0
+          : r.ivaPercentuale
+      ),
+      importo: r.importo,
+    }));
+
+    const prep = prepareFatturaSyncStructural({
+      righe: source,
+      spedizioneExisting: numberOrZero(spedizione),
+    });
+
+    if (
+      prep.removedZeroCount > 0 ||
+      prep.ghostSpedizioneRighe.length > 0 ||
+      prep.spedizioneImporto !== numberOrZero(spedizione)
+    ) {
+      setRighe(toEditableRighe(prep.activeRighe, kind));
+      setGhostSpedizioneRighe(prep.ghostSpedizioneRighe);
+      setSpedizione(prep.spedizioneImporto);
+      if (prep.spedizioneIvaApplicata) {
+        setSpedizioneIvaApplicata(true);
+        setSpedizioneIvaPercentuale((prev) =>
+          prev === "" || prev == null ? 22 : prev
+        );
+      }
+      // forza riesecuzione auto-link sul set filtrato
+      autoLinkRunKeyRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- una sola volta all'apertura sync
+  }, [isRicevuta, isEdit, kind]);
+
+  /**
    * Auto-link Opzione A: righe con match catalogo 100% univoco → codice già valorizzato.
    * Solo righe ≠ 100% restano all’operatore (badge / Cerca).
    * Overlay: solo all’apertura, una volta; mai di nuovo (anche dopo delete riga / remount).
@@ -920,12 +991,17 @@ export function FatturaRegistrazioneModal({
               nextAi[m.key] = m;
             }
             setAiMatches(nextAi);
-            setRighe((prev) =>
-              prev.map((r, index) => {
+
+            const catalogCodes = new Set(
+              vociAcquisto.map((v) => v.codice.trim().toLowerCase())
+            );
+
+            setRighe((prev) => {
+              const next = prev.map((r, index) => {
                 const m = nextAi[String(index)];
                 if (!m) return r;
                 const current = (r.codice ?? "").trim();
-                if (current && current !== "—") {
+                if (current && current !== "—" && catalogCodes.has(current.toLowerCase())) {
                   return {
                     ...r,
                     aiMatchData: m.ai_match_data as Record<string, unknown>,
@@ -943,11 +1019,96 @@ export function FatturaRegistrazioneModal({
                   aiMatchData: m.ai_match_data as Record<string, unknown>,
                   verificationStatus: m.verification_status,
                 };
-              })
+              });
+
+              // Coda nuovi articoli (non in catalogo) → modale 1/N obbligatoria
+              const drafts: NuovoArticoloSyncDraft[] = [];
+              next.forEach((r, index) => {
+                const code = (r.codice ?? "").trim();
+                if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
+                  return;
+                }
+                const m = nextAi[String(index)];
+                // Match 100% con id catalogo già applicato
+                if (
+                  m?.matched_product_id &&
+                  m.confidence_score >= 100 &&
+                  m.matched_codice &&
+                  catalogCodes.has(m.matched_codice.trim().toLowerCase())
+                ) {
+                  return;
+                }
+                drafts.push(
+                  buildNuovoArticoloDraft({
+                    rigaKey: String(index),
+                    descrizione: r.descrizione ?? "",
+                    suggestedCode:
+                      (code && code !== "—" ? code : null) ||
+                      m?.suggested_internal_code,
+                    suggestedKind:
+                      (m?.matched_kind as CatalogoAcquistoKind) || null,
+                  })
+                );
+              });
+              if (drafts.length > 0) {
+                setNuoviArticoliQueue(drafts);
+                setNuoviArticoliIndex(0);
+                setNuoviArticoliOpen(true);
+              }
+
+              return next;
+            });
+          } else if (!cancelled) {
+            // AI fallita: genera comunque coda locali per codici mancanti
+            const catalogCodes = new Set(
+              vociAcquisto.map((v) => v.codice.trim().toLowerCase())
             );
+            const drafts: NuovoArticoloSyncDraft[] = [];
+            updatedRighe.forEach((r, index) => {
+              const code = (r.codice ?? "").trim();
+              if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
+                return;
+              }
+              drafts.push(
+                buildNuovoArticoloDraft({
+                  rigaKey: String(index),
+                  descrizione: r.descrizione ?? "",
+                  suggestedCode: code && code !== "—" ? code : null,
+                })
+              );
+            });
+            if (drafts.length > 0) {
+              setNuoviArticoliQueue(drafts);
+              setNuoviArticoliIndex(0);
+              setNuoviArticoliOpen(true);
+            }
           }
         } finally {
           if (!cancelled) setAiMatchPending(false);
+        }
+      } else if (!cancelled) {
+        // Tutte auto-linkate o nessuna riga AI: verifica residui senza catalogo
+        const catalogCodes = new Set(
+          vociAcquisto.map((v) => v.codice.trim().toLowerCase())
+        );
+        const drafts: NuovoArticoloSyncDraft[] = [];
+        updatedRighe.forEach((r, index) => {
+          const code = (r.codice ?? "").trim();
+          if (code && code !== "—" && catalogCodes.has(code.toLowerCase())) {
+            return;
+          }
+          drafts.push(
+            buildNuovoArticoloDraft({
+              rigaKey: String(index),
+              descrizione: r.descrizione ?? "",
+              suggestedCode: code && code !== "—" ? code : null,
+            })
+          );
+        });
+        if (drafts.length > 0) {
+          setNuoviArticoliQueue(drafts);
+          setNuoviArticoliIndex(0);
+          setNuoviArticoliOpen(true);
         }
       }
 
@@ -968,6 +1129,30 @@ export function FatturaRegistrazioneModal({
     prefill?.ficId,
     prefill?.numeroDocumentoEsterno,
     anagraficaId,
+  ]);
+
+  /** Allinea totale documento a FiC e mostra banner di modifica. */
+  useEffect(() => {
+    if (!isRicevuta || isEdit || totaleAlignDoneRef.current) return;
+    if (matchScanPending || aiMatchPending) return;
+    if (totaleFic == null || !Number.isFinite(totaleFic)) return;
+    const calcolato = totals.totale;
+    if (Math.abs(calcolato - totaleFic) < 0.015) {
+      totaleAlignDoneRef.current = true;
+      return;
+    }
+    totaleAlignDoneRef.current = true;
+    setTotaleManuale(true);
+    setTotaleEditUnlocked(true);
+    setTotaleOverride(totaleFic);
+    setTotaleAllineamentoBanner({ da: calcolato, a: totaleFic });
+  }, [
+    isRicevuta,
+    isEdit,
+    matchScanPending,
+    aiMatchPending,
+    totaleFic,
+    totals.totale,
   ]);
 
   /** Carica legami articolo↔articolo per le targhe sulle righe (nuvola in fattura). */
@@ -1385,6 +1570,12 @@ export function FatturaRegistrazioneModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (saving) return;
+    if (nuoviArticoliOpen || nuoviArticoliQueue.length > 0) {
+      setFormError(
+        "Completa la revisione dei nuovi articoli (schede 1 di N) prima di salvare la fattura."
+      );
+      return;
+    }
     if (!anagraficaId) {
       setFormError(
         kind === "ricevuta"
@@ -2399,6 +2590,47 @@ export function FatturaRegistrazioneModal({
                       </tr>
                     );
                   })}
+                  {isRicevuta &&
+                    ghostSpedizioneRighe.map((g, gi) => (
+                      <tr
+                        key={`ghost-sped-${gi}`}
+                        className="border-t border-dashed border-slate-200 bg-slate-50/40 text-slate-400 opacity-60"
+                        title="Riga spostata nel campo Spedizione"
+                      >
+                        {!isNc ? <td className="px-2 py-2" /> : null}
+                        <td className="px-2 py-2 font-mono text-[10px]">—</td>
+                        <td className="px-2 py-2">
+                          <span className="mr-1 rounded border border-slate-300 bg-white/70 px-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+                            Riga eliminata → spedizione
+                          </span>
+                          {g.descrizione}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {g.quantita}
+                        </td>
+                        {isRicevuta ? (
+                          <td className="px-2 py-2 text-[10px]">
+                            {g.unitaMisura || "NR"}
+                          </td>
+                        ) : null}
+                        <td className="px-2 py-2 tabular-nums">
+                          {formatEuro(g.prezzoUnitario)}
+                        </td>
+                        <td className="px-2 py-2 tabular-nums">
+                          {g.scontoPercentuale ?? 0}%
+                        </td>
+                        {isRicevuta ? (
+                          <td className="px-2 py-2 tabular-nums">
+                            {g.ivaPercentuale ?? 0}%
+                          </td>
+                        ) : null}
+                        <td className="px-2 py-2 tabular-nums">
+                          {formatEuro(g.importo)}
+                        </td>
+                        {!isNc ? <td className="px-2 py-2" /> : null}
+                        <td className="px-2 py-2" />
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
@@ -2733,6 +2965,15 @@ export function FatturaRegistrazioneModal({
                 )}
               </div>
               <div>
+                {totaleAllineamentoBanner ? (
+                  <div className="mb-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-950">
+                    Totale allineato a Fatture in Cloud:{" "}
+                    <strong>{formatEuro(totaleAllineamentoBanner.da)}</strong>
+                    {" → "}
+                    <strong>{formatEuro(totaleAllineamentoBanner.a)}</strong>
+                    . Modifica automatica in sync (verificabile).
+                  </div>
+                ) : null}
                 <div className="mb-1 flex items-center gap-2">
                   <label className="block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                     Totale
@@ -3470,6 +3711,37 @@ export function FatturaRegistrazioneModal({
           }}
           onAssociaManualmente={() => {
             setCollegaRigaIndex(aiMatchModalIndex);
+          }}
+        />
+      ) : null}
+
+      {nuoviArticoliOpen && nuoviArticoliQueue.length > 0 ? (
+        <NuoviArticoliSyncQueueModal
+          items={nuoviArticoliQueue}
+          currentIndex={nuoviArticoliIndex}
+          onSaved={(item) => {
+            const idx = Number(item.rigaKey);
+            upsertVoceAcquistoLocal({
+              kind: item.kind,
+              id: item.id,
+              codice: item.codice,
+              nome: item.nome,
+            });
+            if (Number.isFinite(idx) && idx >= 0) {
+              patchRiga(idx, {
+                codice: item.codice,
+                prodottoId: null,
+                verificationStatus: "VERIFIED",
+                descrizione:
+                  (righe[idx]?.descrizione ?? "").trim() || item.nome,
+              });
+            }
+            setNuoviArticoliIndex((i) => i + 1);
+          }}
+          onQueueComplete={() => {
+            setNuoviArticoliOpen(false);
+            setNuoviArticoliQueue([]);
+            setNuoviArticoliIndex(0);
           }}
         />
       ) : null}
