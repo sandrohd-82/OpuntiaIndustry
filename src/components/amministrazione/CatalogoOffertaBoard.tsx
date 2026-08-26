@@ -15,6 +15,7 @@ import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoO
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { DocumentiCatalogoQueueModal } from "@/components/amministrazione/DocumentiCatalogoQueueModal";
+import { CatalogoPrezzoMedioCell } from "@/components/amministrazione/CatalogoPrezzoMedioCell";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { ExpandableNomeCell } from "@/components/ui/ExpandableNomeCell";
 import { listFattureDaAggiornareCatalogoAction } from "@/app/actions/catalogo-collega";
@@ -191,6 +192,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
               <tr>
                 <th className="px-4 py-3 font-medium">Codice</th>
                 <th className="px-4 py-3 font-medium">Nome</th>
+                <th className="px-4 py-3 font-medium">Prezzo medio</th>
                 <th className="px-4 py-3 font-medium">Tipo</th>
                 <th className="px-4 py-3 font-medium">Note</th>
                 <th className="px-4 py-3 font-medium" />
@@ -217,6 +219,17 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                   </td>
                   <td className="px-4 py-3 align-top">
                     <ExpandableNomeCell text={item.nome} />
+                  </td>
+                  <td className="px-4 py-3 align-middle">
+                    {kind === "contributo" ? (
+                      <span className="text-xs text-[var(--muted)]">—</span>
+                    ) : (
+                      <CatalogoPrezzoMedioCell
+                        codice={item.codice}
+                        prezzoMedio={item.prezzoUnitarioMedio ?? null}
+                        prezzoMedioCount={item.prezzoMedioCount ?? 0}
+                      />
+                    )}
                   </td>
                   <td className="px-4 py-3 text-[var(--muted)]">
                     {item.isBio ? "Bio" : "Convenzionale"}

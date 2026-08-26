@@ -21,6 +21,7 @@ import {
   type ProdottoPrezzoStoricoHint,
   type SpedizioneIvaStoricoHint,
 } from "@/lib/amministrazione/fatture-storico";
+import { recalcCatalogoPrezzoMedioForCodici } from "@/lib/amministrazione/catalogo-prezzo-medio";
 import {
   planRinumeraFattureEmesse,
   planRinumeraFattureRicevute,
@@ -1402,6 +1403,11 @@ export async function createFatturaAction(
       }
     );
 
+    await recalcCatalogoPrezzoMedioForCodici(
+      input.righe.map((r) => r.codice),
+      auth.userId
+    ).catch((e) => console.error("[prezzo-medio] create ricevuta", e));
+
     let dilazioniData: FatturaRicevutaDilazioneRow[] = [];
     if (input.dilazioni.length > 0) {
       const dilInsert: FatturaRicevutaDilazioneInsert[] = input.dilazioni.map(
@@ -1918,6 +1924,11 @@ export async function updateFatturaAction(
         numeroInterno: String(existingRow.numero_interno),
       }
     );
+
+    await recalcCatalogoPrezzoMedioForCodici(
+      input.righe.map((r) => r.codice),
+      auth.userId
+    ).catch((e) => console.error("[prezzo-medio] update ricevuta", e));
 
     const nowIso = new Date().toISOString();
     await supabase

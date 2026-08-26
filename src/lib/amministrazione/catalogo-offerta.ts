@@ -19,6 +19,9 @@ export type CatalogoOffertaItem = {
   isBio: boolean;
   createdAt: string;
   pendingDeleteAt: string | null;
+  /** Solo Pr/Sz: media prezzi unitari da fatture ricevute. */
+  prezzoUnitarioMedio?: number | null;
+  prezzoMedioCount?: number;
 };
 
 export type CatalogoOffertaInput = {
@@ -140,6 +143,11 @@ export function mapCatalogoServizio(row: CatalogoServizioRow): CatalogoOffertaIt
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
     pendingDeleteAt: row.pending_delete_at ?? null,
+    prezzoUnitarioMedio:
+      row.prezzo_unitario_medio != null
+        ? Number(row.prezzo_unitario_medio)
+        : null,
+    prezzoMedioCount: Number(row.prezzo_medio_count) || 0,
   };
 }
 
@@ -154,6 +162,11 @@ export function mapCatalogoProdottoFornitore(
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
     pendingDeleteAt: row.pending_delete_at ?? null,
+    prezzoUnitarioMedio:
+      row.prezzo_unitario_medio != null
+        ? Number(row.prezzo_unitario_medio)
+        : null,
+    prezzoMedioCount: Number(row.prezzo_medio_count) || 0,
   };
 }
 

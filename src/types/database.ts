@@ -1720,6 +1720,9 @@ export interface CatalogoServizioRow {
   nome: string;
   note: string;
   is_bio: boolean;
+  prezzo_unitario_medio?: number | null;
+  prezzo_medio_count?: number;
+  prezzo_medio_updated_at?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -1753,6 +1756,9 @@ export interface CatalogoProdottoFornitoreRow {
   nome: string;
   note: string;
   is_bio: boolean;
+  prezzo_unitario_medio?: number | null;
+  prezzo_medio_count?: number;
+  prezzo_medio_updated_at?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
