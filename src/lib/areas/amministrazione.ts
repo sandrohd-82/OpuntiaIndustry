@@ -61,6 +61,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/amministrazione/rubrica",
   },
   {
+    slug: "scouting-ai",
+    label: "Scouting AI",
+    description:
+      "Ricerca produttori con Gemini e outreach email personalizzate",
+    path: "/app/amministrazione/scouting-ai",
+  },
+  {
     slug: "schede",
     label: "Schede",
     description: "Cataloghi e schede di riferimento",

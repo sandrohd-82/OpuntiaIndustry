@@ -11,6 +11,7 @@
     "bank-pdf-parser:test": "services/pdf-parser/.venv/Scripts/python.exe services/pdf-parser/test_parse.py"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.8",
     "bwip-js": "^4.11.4",
