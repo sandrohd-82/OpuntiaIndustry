@@ -37,12 +37,49 @@ function mapRow(
   row:
     | CatalogoServizioRow
     | CatalogoProdottoFornitoreRow
-    | CatalogoContributoRow
+    | CatalogoContributoRow,
+  usatoInFattureRicevute = false
 ): CatalogoOffertaItem {
-  if (kind === "servizio") return mapCatalogoServizio(row as CatalogoServizioRow);
+  if (kind === "servizio")
+    return mapCatalogoServizio(
+      row as CatalogoServizioRow,
+      usatoInFattureRicevute
+    );
   if (kind === "contributo")
     return mapCatalogoContributo(row as CatalogoContributoRow);
-  return mapCatalogoProdottoFornitore(row as CatalogoProdottoFornitoreRow);
+  return mapCatalogoProdottoFornitore(
+    row as CatalogoProdottoFornitoreRow,
+    usatoInFattureRicevute
+  );
+}
+
+/** Codici (lower) presenti su fatture ricevute non eliminate. */
+async function loadCodiciUsatiInFattureRicevute(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  prefix: "Pr" | "Sz"
+): Promise<Set<string>> {
+  const used = new Set<string>();
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("fatture_ricevute_righe")
+      .select("codice, fatture_ricevute!inner(deleted_at)")
+      .ilike("codice", `${prefix}%`)
+      .is("fatture_ricevute.deleted_at", null)
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.error("[catalogo] codici usati fatture", error.message);
+      break;
+    }
+    for (const r of data ?? []) {
+      const c = String((r as { codice?: string }).codice ?? "")
+        .trim()
+        .toLowerCase();
+      if (c) used.add(c);
+    }
+    if (!data || data.length < PAGE) break;
+  }
+  return used;
 }
 
 async function assertCodiceAndNomeUnici(
@@ -126,6 +163,13 @@ async function listCatalogoAction(
   const PAGE = 1000;
   const items: CatalogoOffertaItem[] = [];
 
+  const usedCodes =
+    kind === "servizio"
+      ? await loadCodiciUsatiInFattureRicevute(supabase, "Sz")
+      : kind === "prodotto"
+        ? await loadCodiciUsatiInFattureRicevute(supabase, "Pr")
+        : null;
+
   for (let from = 0; ; from += PAGE) {
     const to = from + PAGE - 1;
     // select("*": evita ParserError su select dinamica union (Ct senza colonne medio)
@@ -141,7 +185,13 @@ async function listCatalogoAction(
       | CatalogoProdottoFornitoreRow
       | CatalogoContributoRow
     >;
-    for (const row of rows) items.push(mapRow(kind, row));
+    for (const row of rows) {
+      const usato =
+        usedCodes != null
+          ? usedCodes.has(String(row.codice ?? "").trim().toLowerCase())
+          : false;
+      items.push(mapRow(kind, row, usato));
+    }
     if (rows.length < PAGE) break;
   }
   return { success: true, items };

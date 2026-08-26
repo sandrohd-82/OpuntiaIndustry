@@ -1015,7 +1015,8 @@ export function FatturaRegistrazioneModal({
                 return {
                   ...r,
                   codice: code || r.codice,
-                  prodottoId: m.matched_product_id || r.prodottoId,
+                  // matched_product_id è id catalogo Pr/Sz, NON prodotti_propri
+                  prodottoId: null,
                   aiMatchData: m.ai_match_data as Record<string, unknown>,
                   verificationStatus: m.verification_status,
                 };
@@ -3755,7 +3756,7 @@ export function FatturaRegistrazioneModal({
             const m = aiMatches[String(idx)];
             patchRiga(idx, {
               codice,
-              prodottoId: m?.matched_product_id || null,
+              prodottoId: null,
               verificationStatus: "VERIFIED",
               aiMatchData: m
                 ? ({

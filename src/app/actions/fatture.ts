@@ -1364,10 +1364,11 @@ export async function createFatturaAction(
       row.ricevuta_file_name = up.name;
     }
 
+    // prodotto_id su ricevute → FK prodotti_propri: per acquisti usare solo `codice` catalogo
     const righeInsert: FatturaRicevutaRigaInsert[] = input.righe.map(
       (r, i) => ({
         fattura_id: row.id,
-        prodotto_id: r.prodottoId,
+        prodotto_id: null,
         codice: r.codice,
         descrizione: r.descrizione,
         quantita: r.quantita,
@@ -1886,10 +1887,11 @@ export async function updateFatturaAction(
     }
 
     await supabase.from("fatture_ricevute_righe").delete().eq("fattura_id", id);
+    // prodotto_id su ricevute → FK prodotti_propri: per acquisti usare solo `codice` catalogo
     const righeInsert: FatturaRicevutaRigaInsert[] = input.righe.map(
       (r, i) => ({
         fattura_id: id,
-        prodotto_id: r.prodottoId,
+        prodotto_id: null,
         codice: r.codice,
         descrizione: r.descrizione,
         quantita: r.quantita,

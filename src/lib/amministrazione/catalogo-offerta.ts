@@ -22,6 +22,8 @@ export type CatalogoOffertaItem = {
   /** Solo Pr/Sz: media prezzi unitari da fatture ricevute. */
   prezzoUnitarioMedio?: number | null;
   prezzoMedioCount?: number;
+  /** True se il codice compare su almeno una fattura ricevuta attiva. */
+  usatoInFattureRicevute?: boolean;
 };
 
 export type CatalogoOffertaInput = {
@@ -134,25 +136,9 @@ export function normalizeCatalogoInput(
   };
 }
 
-export function mapCatalogoServizio(row: CatalogoServizioRow): CatalogoOffertaItem {
-  return {
-    id: row.id,
-    codice: row.codice,
-    nome: row.nome,
-    note: row.note ?? "",
-    isBio: Boolean(row.is_bio),
-    createdAt: row.created_at,
-    pendingDeleteAt: row.pending_delete_at ?? null,
-    prezzoUnitarioMedio:
-      row.prezzo_unitario_medio != null
-        ? Number(row.prezzo_unitario_medio)
-        : null,
-    prezzoMedioCount: Number(row.prezzo_medio_count) || 0,
-  };
-}
-
-export function mapCatalogoProdottoFornitore(
-  row: CatalogoProdottoFornitoreRow
+export function mapCatalogoServizio(
+  row: CatalogoServizioRow,
+  usatoInFattureRicevute = false
 ): CatalogoOffertaItem {
   return {
     id: row.id,
@@ -167,6 +153,28 @@ export function mapCatalogoProdottoFornitore(
         ? Number(row.prezzo_unitario_medio)
         : null,
     prezzoMedioCount: Number(row.prezzo_medio_count) || 0,
+    usatoInFattureRicevute,
+  };
+}
+
+export function mapCatalogoProdottoFornitore(
+  row: CatalogoProdottoFornitoreRow,
+  usatoInFattureRicevute = false
+): CatalogoOffertaItem {
+  return {
+    id: row.id,
+    codice: row.codice,
+    nome: row.nome,
+    note: row.note ?? "",
+    isBio: Boolean(row.is_bio),
+    createdAt: row.created_at,
+    pendingDeleteAt: row.pending_delete_at ?? null,
+    prezzoUnitarioMedio:
+      row.prezzo_unitario_medio != null
+        ? Number(row.prezzo_unitario_medio)
+        : null,
+    prezzoMedioCount: Number(row.prezzo_medio_count) || 0,
+    usatoInFattureRicevute,
   };
 }
 

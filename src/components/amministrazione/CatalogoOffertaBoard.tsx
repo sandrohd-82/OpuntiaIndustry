@@ -215,6 +215,15 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                           In eliminazione
                         </span>
                       ) : null}
+                      {kind !== "contributo" &&
+                      item.usatoInFattureRicevute === false ? (
+                        <span
+                          className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                          title="Questo codice non compare su nessuna fattura ricevuta registrata"
+                        >
+                          Mai in fatture
+                        </span>
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-4 py-3 align-top">
