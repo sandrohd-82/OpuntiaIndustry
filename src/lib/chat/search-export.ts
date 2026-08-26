@@ -593,42 +593,11 @@ function safeFilenamePart(value: string): string {
   return value.replace(/[^\w\-]+/g, "_").replace(/_+/g, "_").slice(0, 48);
 }
 
-async function fetchImageDataUrl(
-  url: string
-): Promise<{ dataUrl: string; format: "JPEG" | "PNG"; w: number; h: number } | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (blob.size > 8 * 1024 * 1024) return null;
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error("read failed"));
-      reader.readAsDataURL(blob);
-    });
-    const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-      img.onerror = () => reject(new Error("img failed"));
-      img.src = dataUrl;
-    });
-    const mime = blob.type.toLowerCase();
-    const format: "JPEG" | "PNG" =
-      mime.includes("png") || dataUrl.startsWith("data:image/png")
-        ? "PNG"
-        : "JPEG";
-    return { dataUrl, format, w: dims.w, h: dims.h };
-  } catch {
-    return null;
-  }
-}
-
 /**
- * Genera PDF chat (documento v1) e avvia il download.
- * Allegati stampabili selezionati: immagini incorporate; pdf/doc → pagina con link.
+ * Genera il PDF chat (v1) e concatena subito dopo gli allegati stampabili selezionati
+ * (PDF uniti pagina per pagina; immagini incorporate; office/testo → foglio + link).
  */
-export async function downloadChatPdf(
+export async function buildChatExportPdf(
   hits: ChatSearchHit[],
   filter: ChatFilterInput,
   meta: {
@@ -636,7 +605,7 @@ export async function downloadChatPdf(
     version?: string;
     selectedPrintableIds?: string[];
   }
-): Promise<void> {
+): Promise<{ blob: Blob; filename: string }> {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const margin = 40;
   const pageW = doc.internal.pageSize.getWidth();
@@ -673,11 +642,20 @@ export async function downloadChatPdf(
       ? `Periodo: ${filter.dateFrom || "…"} → ${filter.dateTo || "…"}`
       : "Periodo: tutti",
     `Messaggi: ${hits.length}`,
-    `Allegati stampabili inclusi: ${printables.length}`,
+    `Allegati stampabili allegati in coda: ${printables.length}`,
   ];
   for (const line of lines) {
     ensureSpace(14);
     doc.text(line, margin, y);
+    y += 12;
+  }
+  if (printables.length > 0) {
+    ensureSpace(14);
+    doc.text(
+      "Gli allegati selezionati seguono immediatamente dopo questa chat.",
+      margin,
+      y
+    );
     y += 12;
   }
   y += 8;
@@ -750,7 +728,7 @@ export async function downloadChatPdf(
         printableIndex += 1;
         printablePageRef.set(hit.id, printableIndex);
         bodyParts.push(
-          `[Allegato stampabile #${printableIndex}] ${hit.fileName}`
+          `[Vedi allegato in coda #${printableIndex}] ${hit.fileName}`
         );
       } else if (!printable) {
         bodyParts.push(`[Allegato] ${hit.fileName}`);
@@ -771,84 +749,189 @@ export async function downloadChatPdf(
     y += 8;
   }
 
-  // Append printable attachment pages
-  for (const att of printables) {
-    doc.addPage();
-    y = margin;
-    const n = printablePageRef.get(att.messageId) ?? 0;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.text(`Allegato stampabile #${n}`, margin, y);
-    y += 18;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`File: ${att.fileName}`, margin, y);
-    y += 14;
-    doc.text(`Tipo: ${att.kind} · ${att.fileType || "n/d"}`, margin, y);
-    y += 14;
-    doc.text(`Da: ${att.senderName} · Chat: ${att.threadTitle}`, margin, y);
-    y += 14;
-    doc.setTextColor(30, 80, 160);
-    doc.textWithLink("Apri allegato originale", margin, y, { url: att.fileUrl });
-    doc.setTextColor(20);
-    y += 24;
+  // PDF chat (solo conversazione) → poi merge allegati in coda con pdf-lib
+  const chatBytes = doc.output("arraybuffer");
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+  const merged = await PDFDocument.create();
+  const chatPdf = await PDFDocument.load(chatBytes);
+  const chatPages = await merged.copyPages(
+    chatPdf,
+    chatPdf.getPageIndices()
+  );
+  for (const p of chatPages) merged.addPage(p);
 
-    if (att.kind === "image") {
-      const img = await fetchImageDataUrl(att.fileUrl);
-      if (img) {
-        const maxImgH = pageH - y - margin;
-        let drawW = maxW;
-        let drawH = (img.h / img.w) * drawW;
-        if (drawH > maxImgH) {
-          drawH = maxImgH;
-          drawW = (img.w / img.h) * drawH;
+  const font = await merged.embedFont(StandardFonts.Helvetica);
+  const fontBold = await merged.embedFont(StandardFonts.HelveticaBold);
+  const A4: [number, number] = [595.28, 841.89];
+
+  for (const att of printables) {
+    const n = printablePageRef.get(att.messageId) ?? 0;
+    const sep = merged.addPage(A4);
+    let sy = A4[1] - 50;
+    const draw = (text: string, size = 11, bold = false) => {
+      sep.drawText(text.slice(0, 110), {
+        x: 40,
+        y: sy,
+        size,
+        font: bold ? fontBold : font,
+        color: rgb(0.1, 0.1, 0.1),
+      });
+      sy -= size + 8;
+    };
+    draw(`Allegato in coda #${n}`, 14, true);
+    draw(`File: ${att.fileName}`);
+    draw(`Tipo: ${att.kind} · ${att.fileType || "n/d"}`);
+    draw(`Da: ${att.senderName} · Chat: ${att.threadTitle}`);
+    draw("Contenuto allegato nelle pagine successive.", 10);
+
+    try {
+      if (att.kind === "pdf") {
+        const res = await fetch(att.fileUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = await res.arrayBuffer();
+        if (bytes.byteLength > 20 * 1024 * 1024) {
+          throw new Error("PDF allegato troppo grande (>20 MB)");
         }
-        try {
-          doc.addImage(
-            img.dataUrl,
-            img.format,
-            margin,
-            y,
-            drawW,
-            drawH
-          );
-        } catch {
-          doc.setFontSize(9);
-          doc.setTextColor(120);
-          doc.text("(Anteprima immagine non incorporabile)", margin, y);
-          doc.setTextColor(20);
+        const src = await PDFDocument.load(bytes, {
+          ignoreEncryption: true,
+        });
+        const pages = await merged.copyPages(src, src.getPageIndices());
+        for (const p of pages) merged.addPage(p);
+      } else if (att.kind === "image") {
+        const res = await fetch(att.fileUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.byteLength > 8 * 1024 * 1024) {
+          throw new Error("Immagine troppo grande");
+        }
+        const mime = (res.headers.get("content-type") || att.fileType || "").toLowerCase();
+        const isPng =
+          mime.includes("png") ||
+          att.fileName.toLowerCase().endsWith(".png");
+        const image = isPng
+          ? await merged.embedPng(bytes)
+          : await merged.embedJpg(bytes);
+        const page = merged.addPage(A4);
+        const maxImgW = A4[0] - 80;
+        const maxImgH = A4[1] - 80;
+        const scale = Math.min(
+          maxImgW / image.width,
+          maxImgH / image.height,
+          1
+        );
+        const w = image.width * scale;
+        const h = image.height * scale;
+        page.drawImage(image, {
+          x: (A4[0] - w) / 2,
+          y: (A4[1] - h) / 2,
+          width: w,
+          height: h,
+        });
+      } else if (att.kind === "text") {
+        const res = await fetch(att.fileUrl);
+        const text = res.ok ? (await res.text()).slice(0, 12000) : "";
+        const page = merged.addPage(A4);
+        let ty = A4[1] - 50;
+        page.drawText(`Contenuto: ${att.fileName}`.slice(0, 90), {
+          x: 40,
+          y: ty,
+          size: 11,
+          font: fontBold,
+        });
+        ty -= 20;
+        const linesTxt = text.split(/\r?\n/);
+        for (const raw of linesTxt) {
+          const chunk = raw.slice(0, 95) || " ";
+          if (ty < 40) {
+            ty = A4[1] - 50;
+            const np = merged.addPage(A4);
+            np.drawText(chunk, { x: 40, y: ty, size: 9, font });
+            // continue on new page - simplify: only first page for text overflow
+            break;
+          }
+          page.drawText(chunk, { x: 40, y: ty, size: 9, font });
+          ty -= 12;
         }
       } else {
-        doc.setFontSize(9);
-        doc.setTextColor(120);
-        doc.text("(Impossibile caricare l’immagine)", margin, y);
-        doc.setTextColor(20);
+        // office: solo foglio separatore già creato + nota
+        sep.drawText(
+          "Documento Office: contenuto non unibile; apri il file originale dalla chat.",
+          {
+            x: 40,
+            y: sy,
+            size: 9,
+            font,
+            color: rgb(0.4, 0.4, 0.4),
+          }
+        );
       }
-    } else {
-      doc.setFontSize(9);
-      doc.setTextColor(80);
-      const note =
-        att.kind === "pdf"
-          ? "Documento PDF: apri il link sopra per visualizzare il contenuto completo."
-          : att.kind === "office"
-            ? "Documento Office: apri il link sopra (non incorporabile direttamente nel PDF)."
-            : "File di testo: apri il link sopra per il contenuto completo.";
-      const wrap = doc.splitTextToSize(note, maxW) as string[];
-      for (const line of wrap) {
-        doc.text(line, margin, y);
-        y += 12;
-      }
-      doc.setTextColor(20);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Errore allegato";
+      sep.drawText(`(Non incorporato: ${msg.slice(0, 80)})`, {
+        x: 40,
+        y: Math.max(40, sy),
+        size: 9,
+        font,
+        color: rgb(0.7, 0.2, 0.2),
+      });
     }
   }
 
+  const out = await merged.save();
   const scopeName =
     filter.scope === "open" && filter.openId
       ? filter.openKind === "topic"
         ? `argomento_${filter.openId.slice(0, 8)}`
         : `diretta_${filter.openId.slice(0, 8)}`
       : "tutte";
-  doc.save(
-    `chat_export_${safeFilenamePart(scopeName)}_${safeFilenamePart(stamp)}.pdf`
-  );
+  const filename = `chat_export_${safeFilenamePart(scopeName)}_${safeFilenamePart(stamp)}.pdf`;
+  const bytes = new Uint8Array(out);
+  return {
+    blob: new Blob([bytes], { type: "application/pdf" }),
+    filename,
+  };
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+/** Scarica PDF chat + allegati selezionati in coda. */
+export async function downloadChatPdf(
+  hits: ChatSearchHit[],
+  filter: ChatFilterInput,
+  meta: {
+    exportedBy: string;
+    version?: string;
+    selectedPrintableIds?: string[];
+  }
+): Promise<void> {
+  const { blob, filename } = await buildChatExportPdf(hits, filter, meta);
+  triggerBlobDownload(blob, filename);
+}
+
+/** Apre in nuova scheda l’anteprima dello stesso PDF (chat + allegati in coda). */
+export async function previewChatPdf(
+  hits: ChatSearchHit[],
+  filter: ChatFilterInput,
+  meta: {
+    exportedBy: string;
+    version?: string;
+    selectedPrintableIds?: string[];
+  }
+): Promise<void> {
+  const { blob } = await buildChatExportPdf(hits, filter, meta);
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  if (!w) {
+    // popup bloccato → fallback download
+    triggerBlobDownload(blob, "chat_export_anteprima.pdf");
+  } else {
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  }
 }

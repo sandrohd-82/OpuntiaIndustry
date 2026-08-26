@@ -9,6 +9,7 @@ import {
   downloadChatPdf,
   listChatFilterParticipants,
   listPrintableAttachmentsFromHits,
+  previewChatPdf,
   searchChatMessages,
   type ChatFilterInput,
   type ChatParticipantOption,
@@ -172,6 +173,45 @@ export function ChatSearchExportModal({
     }
   }
 
+  function resolveSelectedIds(
+    results: ChatSearchHit[]
+  ): string[] {
+    const printables = listPrintableAttachmentsFromHits(results);
+    const printableIdSet = new Set(printables.map((p) => p.messageId));
+    if (selectionTouched) {
+      return [...selectedPrintableIds].filter((id) => printableIdSet.has(id));
+    }
+    return printables.map((p) => p.messageId);
+  }
+
+  async function runPreviewPdf() {
+    setPending(true);
+    setError(null);
+    try {
+      const results = await fetchHits();
+      setHits(results);
+      if (results.length === 0) {
+        throw new Error("Nessun messaggio da esportare con i filtri scelti.");
+      }
+      const idsToInclude = resolveSelectedIds(results);
+      const payload: ChatFilterInput = {
+        ...filters,
+        query: "",
+        openKind: openContext?.kind ?? filters.openKind,
+        openId: openContext?.id ?? filters.openId,
+      };
+      await previewChatPdf(results, payload, {
+        exportedBy,
+        version: "v1",
+        selectedPrintableIds: idsToInclude,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Anteprima fallita");
+    } finally {
+      setPending(false);
+    }
+  }
+
   async function runExport() {
     setPending(true);
     setError(null);
@@ -181,11 +221,7 @@ export function ChatSearchExportModal({
       if (results.length === 0) {
         throw new Error("Nessun messaggio da esportare con i filtri scelti.");
       }
-      const printables = listPrintableAttachmentsFromHits(results);
-      const printableIdSet = new Set(printables.map((p) => p.messageId));
-      const idsToInclude = selectionTouched
-        ? [...selectedPrintableIds].filter((id) => printableIdSet.has(id))
-        : printables.map((p) => p.messageId);
+      const idsToInclude = resolveSelectedIds(results);
 
       const payload: ChatFilterInput = {
         ...filters,
@@ -510,10 +546,10 @@ export function ChatSearchExportModal({
                   <button
                     type="button"
                     disabled={pending}
-                    onClick={() => void runSearch()}
+                    onClick={() => void runPreviewPdf()}
                     className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm disabled:opacity-50"
                   >
-                    {pending ? "…" : "Anteprima"}
+                    {pending ? "…" : "Anteprima PDF"}
                   </button>
                   <button
                     type="button"
@@ -594,6 +630,10 @@ export function ChatSearchExportModal({
           setSelectedPrintableIds(next);
         }}
         onClose={() => setAttachModalOpen(false)}
+        onConfirmAndPreview={() => {
+          setAttachModalOpen(false);
+          void runPreviewPdf();
+        }}
       />
     </>
   );

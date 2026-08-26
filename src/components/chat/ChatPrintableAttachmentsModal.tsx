@@ -9,6 +9,7 @@ type Props = {
   selectedIds: Set<string>;
   onChangeSelected: (next: Set<string>) => void;
   onClose: () => void;
+  onConfirmAndPreview?: () => void;
 };
 
 function kindLabel(kind: ChatPrintableAttachment["kind"]): string {
@@ -33,6 +34,7 @@ export function ChatPrintableAttachmentsModal({
   selectedIds,
   onChangeSelected,
   onClose,
+  onConfirmAndPreview,
 }: Props) {
   if (!open) return null;
 
@@ -167,14 +169,31 @@ export function ChatPrintableAttachmentsModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
           >
-            Conferma selezione ({selectedIds.size})
+            Chiudi
           </button>
+          {onConfirmAndPreview ? (
+            <button
+              type="button"
+              onClick={onConfirmAndPreview}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Anteprima PDF con allegati ({selectedIds.size})
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Conferma selezione ({selectedIds.size})
+            </button>
+          )}
         </div>
       </div>
     </div>
