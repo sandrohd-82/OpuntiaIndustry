@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import {
+  scanModificaArticoloRigaAction,
+  type ScanModificaCandidato,
+} from "@/app/actions/invoice-ai-match";
 import type { NuovoArticoloSyncDraft } from "@/lib/amministrazione/fattura-sync-prep";
 import {
   catalogoKindPrefix,
@@ -12,6 +16,10 @@ type Props = {
   open: boolean;
   draft: NuovoArticoloSyncDraft;
   descrizioneRiga: string;
+  quantita?: number | "";
+  prezzoUnitario?: number | "";
+  fatturaId?: string | null;
+  fornitoreId?: string | null;
   onClose: () => void;
   onApply: (next: NuovoArticoloSyncDraft) => void;
 };
@@ -27,6 +35,10 @@ export function ModificaArticoloRigaModal({
   open,
   draft,
   descrizioneRiga,
+  quantita,
+  prezzoUnitario,
+  fatturaId,
+  fornitoreId,
   onClose,
   onApply,
 }: Props) {
@@ -35,6 +47,12 @@ export function ModificaArticoloRigaModal({
   const [codice, setCodice] = useState(draft.codice);
   const [nome, setNome] = useState(draft.nome);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [candidates, setCandidates] = useState<ScanModificaCandidato[] | null>(
+    null
+  );
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -42,6 +60,10 @@ export function ModificaArticoloRigaModal({
     setCodice(draft.codice);
     setNome(draft.nome);
     setError(null);
+    setScanning(false);
+    setCandidates(null);
+    setScanNote(null);
+    setSelectedId(null);
   }, [open, draft]);
 
   if (!open) return null;
@@ -50,11 +72,60 @@ export function ModificaArticoloRigaModal({
 
   function onKindChange(next: CatalogoAcquistoKind) {
     setKind(next);
+    setSelectedId(null);
     const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
     const nextPrefix = catalogoKindPrefix(next);
     setCodice(
       `${nextPrefix}${body || generateSkuProposal(nome || descrizioneRiga, next).body}`
     );
+  }
+
+  function pickCandidate(c: ScanModificaCandidato) {
+    setSelectedId(c.id);
+    setKind(c.kind);
+    setCodice(c.codice);
+    setNome(c.nome);
+    setError(null);
+  }
+
+  async function runScan() {
+    setScanning(true);
+    setError(null);
+    setScanNote(null);
+    setSelectedId(null);
+    const res = await scanModificaArticoloRigaAction({
+      descrizione: descrizioneRiga,
+      quantita: typeof quantita === "number" ? quantita : undefined,
+      prezzoUnitario:
+        typeof prezzoUnitario === "number" ? prezzoUnitario : undefined,
+      codiceAttuale: codice,
+      fatturaId: fatturaId ?? null,
+      fornitoreId: fornitoreId ?? null,
+    });
+    setScanning(false);
+    if (!res.success) {
+      setError(res.error);
+      setCandidates([]);
+      return;
+    }
+    setCandidates(res.candidates);
+    const parts: string[] = [];
+    if (res.usedGemini) parts.push(`Gemini (${res.model})`);
+    else parts.push(res.model);
+    if (res.candidates.length === 0) {
+      parts.push("nessun codice con corrispondenza > 75%");
+      if (res.suggestedCode) {
+        parts.push(`proposta nuova targa: ${res.suggestedCode}`);
+        setCodice(res.suggestedCode);
+      }
+    } else {
+      parts.push(`${res.candidates.length} candidati`);
+    }
+    if (res.geminiReasoning) {
+      setScanNote(`${parts.join(" · ")}\n${res.geminiReasoning}`);
+    } else {
+      setScanNote(parts.join(" · "));
+    }
   }
 
   function apply() {
@@ -84,18 +155,19 @@ export function ModificaArticoloRigaModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white shadow-xl"
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-white shadow-xl"
       >
-        <div className="border-b border-[var(--border)] px-4 py-3">
+        <div className="shrink-0 border-b border-[var(--border)] px-4 py-3">
           <h2 id={titleId} className="text-base font-semibold text-slate-900">
             Modifica targa / categoria
           </h2>
           <p className="text-xs text-slate-500">
-            Le modifiche restano in memoria finché non salvi la fattura.
+            Modifica manuale, scan catalogo o selezione match &gt; 75%. In
+            memoria fino al salvataggio fattura.
           </p>
         </div>
 
-        <div className="space-y-3 px-4 py-4 text-sm">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm">
           <div>
             <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
               Descrizione riga
@@ -104,6 +176,74 @@ export function ModificaArticoloRigaModal({
               {descrizioneRiga || "—"}
             </p>
           </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={scanning || !descrizioneRiga.trim()}
+              onClick={() => void runScan()}
+              className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
+            >
+              {scanning ? "Scansione…" : "Scansiona catalogo"}
+            </button>
+            <span className="text-[11px] text-slate-500">
+              Mostra codici con corrispondenza &gt; 75%
+            </span>
+          </div>
+
+          {scanNote ? (
+            <p className="whitespace-pre-wrap rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+              {scanNote}
+            </p>
+          ) : null}
+
+          {candidates != null ? (
+            <div>
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                Candidati catalogo (&gt; 75%)
+              </p>
+              {candidates.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-slate-500">
+                  Nessun match sopra soglia. Puoi modificare targa e nome a mano.
+                </p>
+              ) : (
+                <ul className="max-h-48 space-y-1.5 overflow-y-auto">
+                  {candidates.map((c) => {
+                    const active = selectedId === c.id;
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onClick={() => pickCandidate(c)}
+                          className={`flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${
+                            active
+                              ? "border-sky-500 bg-sky-50 ring-1 ring-sky-300"
+                              : "border-[var(--border)] hover:bg-slate-50"
+                          }`}
+                        >
+                          <span className="mt-0.5 shrink-0 rounded bg-slate-900 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-white">
+                            {c.score}%
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-mono text-xs font-semibold text-slate-900">
+                              {c.codice}
+                            </span>
+                            <span className="block truncate text-xs text-slate-600">
+                              {c.nome}
+                            </span>
+                            <span className="text-[10px] uppercase text-slate-400">
+                              {c.kind}
+                              {c.source === "gemini" ? " · AI" : ""}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          ) : null}
 
           <label className="block text-xs text-slate-500">
             Categoria
@@ -126,7 +266,10 @@ export function ModificaArticoloRigaModal({
             Targa / codice
             <input
               value={codice}
-              onChange={(e) => setCodice(e.target.value)}
+              onChange={(e) => {
+                setCodice(e.target.value);
+                setSelectedId(null);
+              }}
               className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
             />
           </label>
@@ -135,7 +278,10 @@ export function ModificaArticoloRigaModal({
             Nome anagrafica
             <input
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={(e) => {
+                setNome(e.target.value);
+                setSelectedId(null);
+              }}
               className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
@@ -147,7 +293,7 @@ export function ModificaArticoloRigaModal({
           ) : null}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
           <button
             type="button"
             onClick={onClose}

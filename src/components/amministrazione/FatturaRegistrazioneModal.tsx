@@ -3790,6 +3790,10 @@ export function FatturaRegistrazioneModal({
         <ModificaArticoloRigaModal
           open
           descrizioneRiga={righe[Number(modificaRigaKey)]?.descrizione ?? ""}
+          quantita={righe[Number(modificaRigaKey)]?.quantita}
+          prezzoUnitario={righe[Number(modificaRigaKey)]?.prezzoUnitario}
+          fatturaId={initial?.id ?? null}
+          fornitoreId={anagraficaId || null}
           draft={
             pendingNuoviByKey[modificaRigaKey] ??
             buildNuovoArticoloDraft({

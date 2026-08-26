@@ -352,3 +352,182 @@ export async function verifyInvoiceAiMatchRigaAction(
 
   return { success: true };
 }
+
+const SCAN_CANDIDATE_MIN_EXCLUSIVE = 75;
+
+const scanModificaSchema = z.object({
+  descrizione: z.string().max(2000),
+  quantita: z.number().finite().optional(),
+  prezzoUnitario: z.number().finite().optional(),
+  codiceAttuale: z.string().max(120).optional().default(""),
+  fatturaId: z.string().uuid().nullable().optional(),
+  fornitoreId: z.string().uuid().nullable().optional(),
+});
+
+export type ScanModificaCandidato = {
+  id: string;
+  codice: string;
+  nome: string;
+  kind: "servizio" | "prodotto" | "materia" | "contributo";
+  score: number;
+  source: "local" | "gemini";
+};
+
+/**
+ * Scan on-demand da modal Modifica: candidati catalogo con score > 75%
+ * (affinità locale + eventuale Gemini).
+ */
+export async function scanModificaArticoloRigaAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      candidates: ScanModificaCandidato[];
+      geminiReasoning: string | null;
+      suggestedCode: string | null;
+      model: string;
+      usedGemini: boolean;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = scanModificaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Payload non valido.",
+    };
+  }
+
+  const desc = parsed.data.descrizione.trim();
+  if (!desc) {
+    return { success: false, error: "Descrizione riga vuota." };
+  }
+
+  let catalog: CatalogSnippet[];
+  try {
+    catalog = await loadCatalogSnippets();
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Errore lettura catalogo.",
+    };
+  }
+
+  const relevant = pickRelevantCatalog([{ descrizione: desc }], catalog);
+  const byId = new Map<string, ScanModificaCandidato>();
+
+  for (const c of catalog) {
+    const score = Math.max(
+      scoreNomeAffinity(desc, c.nome),
+      scoreNomeAffinity(desc, c.codice)
+    );
+    if (score <= SCAN_CANDIDATE_MIN_EXCLUSIVE) continue;
+    const prev = byId.get(c.id);
+    if (!prev || score > prev.score) {
+      byId.set(c.id, {
+        id: c.id,
+        codice: c.codice,
+        nome: c.nome,
+        kind: c.kind,
+        score: Math.round(score),
+        source: "local",
+      });
+    }
+  }
+
+  let geminiReasoning: string | null = null;
+  let suggestedCode: string | null = null;
+  let model = "local";
+  let usedGemini = false;
+
+  const lineKey = "modifica";
+  if (process.env.GEMINI_API_KEY?.trim()) {
+    try {
+      const gem = await matchInvoiceLinesWithGemini({
+        lines: [
+          {
+            key: lineKey,
+            descrizione: desc,
+            quantita: parsed.data.quantita,
+            prezzoUnitario: parsed.data.prezzoUnitario,
+            codiceFornitore: "",
+            codiceAttuale: parsed.data.codiceAttuale ?? "",
+          },
+        ],
+        catalog: relevant,
+      });
+      usedGemini = true;
+      model = gem.model;
+      const hit = gem.results.find((r) => r.key === lineKey) ?? gem.results[0];
+      if (hit) {
+        geminiReasoning = hit.ai_reasoning;
+        suggestedCode = hit.suggested_internal_code;
+        if (
+          hit.matched_product_id &&
+          hit.confidence_score > SCAN_CANDIDATE_MIN_EXCLUSIVE
+        ) {
+          const cat = catalog.find((c) => c.id === hit.matched_product_id);
+          if (cat) {
+            const score = Math.round(hit.confidence_score);
+            const prev = byId.get(cat.id);
+            if (!prev || score > prev.score) {
+              byId.set(cat.id, {
+                id: cat.id,
+                codice: cat.codice,
+                nome: cat.nome,
+                kind: cat.kind,
+                score,
+                source: "gemini",
+              });
+            } else {
+              byId.set(cat.id, { ...prev, source: "gemini" });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[scan-modifica] gemini", e);
+      model = "local-fallback";
+      const local = localMatchLine(
+        { key: lineKey, descrizione: desc, codiceAttuale: parsed.data.codiceAttuale },
+        relevant
+      );
+      geminiReasoning = local.ai_reasoning;
+      suggestedCode = local.suggested_internal_code;
+    }
+  } else {
+    const local = localMatchLine(
+      { key: lineKey, descrizione: desc, codiceAttuale: parsed.data.codiceAttuale },
+      relevant
+    );
+    geminiReasoning = local.ai_reasoning;
+    suggestedCode = local.suggested_internal_code;
+    model = "local-no-key";
+  }
+
+  const candidates = [...byId.values()].sort((a, b) => b.score - a.score);
+
+  await writeAuditLog({
+    entity_type: "fatture_ricevute",
+    entity_id: parsed.data.fatturaId ?? "draft",
+    action: "invoice_ai_scan_modifica",
+    actor_id: auth.userId,
+    summary: `Scan modifica riga: ${candidates.length} candidati >${SCAN_CANDIDATE_MIN_EXCLUSIVE}%`,
+    payload: {
+      candidates: candidates.length,
+      usedGemini,
+      model,
+      fornitoreId: parsed.data.fornitoreId ?? null,
+    },
+  });
+
+  return {
+    success: true,
+    candidates,
+    geminiReasoning,
+    suggestedCode,
+    model,
+    usedGemini,
+  };
+}
