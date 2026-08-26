@@ -82,6 +82,32 @@ export async function getTopic(
   return mapTopic(data as Parameters<typeof mapTopic>[0]);
 }
 
+/**
+ * Aggiorna il titolo di un argomento (qualsiasi membro attivo — RLS).
+ */
+export async function updateChatTopicTitolo(
+  supabase: SupabaseClient,
+  topicId: string,
+  titolo: string
+): Promise<string> {
+  const parsed = topicTitoloSchema.safeParse(titolo);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Titolo non valido.");
+  }
+  const { data, error } = await supabase
+    .from("chat_topics")
+    .update({ titolo: parsed.data })
+    .eq("id", topicId)
+    .is("deleted_at", null)
+    .select("titolo")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw new Error("Argomento non trovato o non sei un partecipante.");
+  }
+  return String((data as { titolo: string }).titolo);
+}
+
 export async function insertTopicMessage(
   supabase: SupabaseClient,
   userId: string,

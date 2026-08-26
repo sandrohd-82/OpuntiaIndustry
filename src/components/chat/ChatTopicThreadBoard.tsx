@@ -1,17 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FaArrowLeft,
   FaCheck,
   FaMicrophone,
   FaPaperclip,
   FaPaperPlane,
+  FaPen,
   FaTrash,
 } from "react-icons/fa6";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
+import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
+import { recordDecisionAction } from "@/app/actions/learning";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
+import { chatDayKey, sameChatDay } from "@/lib/chat/day-headers";
 import {
   getTopic,
   insertTopicMessage,
@@ -19,6 +23,7 @@ import {
   markChatTopicOpened,
   markTopicMessagesRead,
   subscribeTopicMessages,
+  updateChatTopicTitolo,
 } from "@/lib/chat/topic-api";
 import {
   loadChatAvatars,
@@ -34,6 +39,9 @@ type Props = {
 
 export function ChatTopicThreadBoard({ userId, topicId }: Props) {
   const [titolo, setTitolo] = useState("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleSaving, setTitleSaving] = useState(false);
   const [messages, setMessages] = useState<TopicMessage[]>([]);
   const [avatars, setAvatars] = useState<Map<string, ChatProfileAvatar>>(
     () => new Map()
@@ -41,6 +49,8 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [filterDate, setFilterDate] = useState("");
+  const [filterUserId, setFilterUserId] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasText = text.trim().length > 0;
 
@@ -65,11 +75,11 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
         return;
       }
       setTitolo(topic.titolo);
+      setTitleDraft(topic.titolo);
       const list = await listTopicMessages(supabase, topicId);
       setMessages(list);
       const ids = [userId, ...list.map((m) => m.senderId)];
       setAvatars(await loadChatAvatars(supabase, ids));
-      // Primo accesso: toglie evidenza "Nuovo" subito e in modo permanente
       const cleared = await markChatTopicOpened(supabase, topicId);
       if (cleared) dispatchChatTopicOpened(topicId);
       await markTopicMessagesRead(supabase, topicId);
@@ -105,9 +115,59 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
     };
   }, [topicId, userId, reload, merge]);
 
+  const participants = useMemo(() => {
+    const ids = [...new Set(messages.map((m) => m.senderId))];
+    return ids.map((id) => ({
+      id,
+      name: avatars.get(id)?.name ?? id.slice(0, 8),
+    }));
+  }, [messages, avatars]);
+
+  const visibleMessages = useMemo(() => {
+    return messages.filter((m) => {
+      if (filterUserId && m.senderId !== filterUserId) return false;
+      if (filterDate && chatDayKey(m.createdAt) !== filterDate) return false;
+      return true;
+    });
+  }, [messages, filterUserId, filterDate]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [visibleMessages.length, messages.length]);
+
+  async function saveTitle() {
+    const next = titleDraft.trim();
+    if (!next || next === titolo) {
+      setEditingTitle(false);
+      setTitleDraft(titolo);
+      return;
+    }
+    setTitleSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const before = titolo;
+    try {
+      const saved = await updateChatTopicTitolo(supabase, topicId, next);
+      setTitolo(saved);
+      setTitleDraft(saved);
+      setEditingTitle(false);
+      void recordDecisionAction({
+        module: "chat",
+        context: "chat_topic_rename",
+        action: "confirm",
+        entityType: "chat_topics",
+        entityId: topicId,
+        inputText: saved,
+        choiceBefore: { titolo: before },
+        choiceAfter: { titolo: saved },
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Salvataggio titolo fallito");
+      setTitleDraft(titolo);
+    } finally {
+      setTitleSaving(false);
+    }
+  }
 
   async function sendText() {
     const body = text.trim();
@@ -133,14 +193,112 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
 
   return (
     <div className="flex h-[min(70vh,720px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]">
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-3 py-2">
-        <Link
-          href="/app/chat/argomenti/elenco"
-          className="inline-flex items-center gap-1 text-sm text-[var(--primary)]"
-        >
-          <FaArrowLeft size={12} /> Argomenti
-        </Link>
-        <h2 className="truncate text-sm font-semibold">{titolo || "…"}</h2>
+      <div className="space-y-2 border-b border-[var(--border)] px-3 py-2">
+        <div className="flex items-center gap-2">
+          <Link
+            href="/app/chat/argomenti/elenco"
+            className="inline-flex shrink-0 items-center gap-1 text-sm text-[var(--primary)]"
+          >
+            <FaArrowLeft size={12} /> Argomenti
+          </Link>
+          {editingTitle ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              <input
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                maxLength={100}
+                autoFocus
+                disabled={titleSaving}
+                className="min-w-0 flex-1 rounded border border-[var(--border)] px-2 py-1 text-sm font-semibold"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void saveTitle();
+                  }
+                  if (e.key === "Escape") {
+                    setEditingTitle(false);
+                    setTitleDraft(titolo);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                disabled={titleSaving}
+                onClick={() => void saveTitle()}
+                className="rounded bg-[var(--primary)] px-2 py-1 text-xs text-white disabled:opacity-50"
+              >
+                Salva
+              </button>
+              <button
+                type="button"
+                disabled={titleSaving}
+                onClick={() => {
+                  setEditingTitle(false);
+                  setTitleDraft(titolo);
+                }}
+                className="rounded border border-[var(--border)] px-2 py-1 text-xs"
+              >
+                Annulla
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setTitleDraft(titolo);
+                setEditingTitle(true);
+              }}
+              className="group flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              title="Modifica titolo (tutti i partecipanti)"
+            >
+              <h2 className="truncate text-sm font-semibold underline-offset-2 group-hover:underline">
+                {titolo || "…"}
+              </h2>
+              <FaPen
+                size={10}
+                className="shrink-0 text-slate-400 opacity-0 transition group-hover:opacity-100"
+              />
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+            Data
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs normal-case text-slate-700"
+            />
+          </label>
+          <label className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
+            Utente
+            <select
+              value={filterUserId}
+              onChange={(e) => setFilterUserId(e.target.value)}
+              className="max-w-[10rem] rounded border border-[var(--border)] px-1.5 py-0.5 text-xs normal-case text-slate-700"
+            >
+              <option value="">Tutti</option>
+              {participants.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.id === userId ? `${p.name} (tu)` : p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {filterDate || filterUserId ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterDate("");
+                setFilterUserId("");
+              }}
+              className="text-[10px] text-[var(--primary)] underline"
+            >
+              Azzera filtri
+            </button>
+          ) : null}
+        </div>
       </div>
       {error ? (
         <p className="mx-3 mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
@@ -148,68 +306,80 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
         </p>
       ) : null}
       <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {messages.map((m) => {
+        {visibleMessages.length === 0 ? (
+          <p className="py-8 text-center text-xs text-slate-400">
+            Nessun messaggio con i filtri selezionati.
+          </p>
+        ) : null}
+        {visibleMessages.map((m, index) => {
           const mine = m.senderId === userId;
           const av = avatarFor(m.senderId);
+          const prev = visibleMessages[index - 1];
+          const showDay =
+            !prev || !sameChatDay(prev.createdAt, m.createdAt);
           return (
-            <div
-              key={m.id}
-              className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}
-            >
-              <ChatAvatar name={av.name} photoUrl={av.photoUrl} size={34} />
+            <div key={m.id}>
+              {showDay ? <ChatDayDivider createdAt={m.createdAt} /> : null}
               <div
-                className={`relative max-w-[min(80%,22rem)] px-3 py-2 text-sm shadow-sm ${
-                  mine
-                    ? "rounded-2xl rounded-br-sm bg-[var(--primary)] text-white"
-                    : "rounded-2xl rounded-bl-sm bg-slate-100 text-slate-900"
-                }`}
+                className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}
               >
-                <span
-                  aria-hidden
-                  className={`absolute bottom-1 h-2.5 w-2.5 rotate-45 ${
-                    mine ? "-right-1 bg-[var(--primary)]" : "-left-1 bg-slate-100"
-                  }`}
-                />
-                {!mine ? (
-                  <p className="relative mb-0.5 text-[10px] font-medium text-slate-500">
-                    {av.name}
-                  </p>
-                ) : null}
-                {m.content ? (
-                  <p className="relative whitespace-pre-wrap">{m.content}</p>
-                ) : null}
+                <ChatAvatar name={av.name} photoUrl={av.photoUrl} size={34} />
                 <div
-                  className={`relative mt-1 flex items-center gap-1 text-[10px] ${
-                    mine ? "text-white/80" : "text-slate-500"
+                  className={`relative max-w-[min(80%,22rem)] px-3 py-2 text-sm shadow-sm ${
+                    mine
+                      ? "rounded-2xl rounded-br-sm bg-[var(--primary)] text-white"
+                      : "rounded-2xl rounded-bl-sm bg-slate-100 text-slate-900"
                   }`}
                 >
-                  <span>
-                    {new Date(m.createdAt).toLocaleTimeString("it-IT", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  {mine ? <FaCheck size={10} /> : null}
-                  {mine ? (
-                    <button
-                      type="button"
-                      className="ml-1 opacity-70"
-                      onClick={() => {
-                        const supabase = createClient();
-                        void supabase
-                          .rpc("delete_chat_topic_message", {
-                            p_message_id: m.id,
-                          })
-                          .then(() =>
-                            setMessages((prev) =>
-                              prev.filter((x) => x.id !== m.id)
-                            )
-                          );
-                      }}
-                    >
-                      <FaTrash size={9} />
-                    </button>
+                  <span
+                    aria-hidden
+                    className={`absolute bottom-1 h-2.5 w-2.5 rotate-45 ${
+                      mine
+                        ? "-right-1 bg-[var(--primary)]"
+                        : "-left-1 bg-slate-100"
+                    }`}
+                  />
+                  {!mine ? (
+                    <p className="relative mb-0.5 text-[10px] font-medium text-slate-500">
+                      {av.name}
+                    </p>
                   ) : null}
+                  {m.content ? (
+                    <p className="relative whitespace-pre-wrap">{m.content}</p>
+                  ) : null}
+                  <div
+                    className={`relative mt-1 flex items-center gap-1 text-[10px] ${
+                      mine ? "text-white/80" : "text-slate-500"
+                    }`}
+                  >
+                    <span>
+                      {new Date(m.createdAt).toLocaleTimeString("it-IT", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {mine ? <FaCheck size={10} /> : null}
+                    {mine ? (
+                      <button
+                        type="button"
+                        className="ml-1 opacity-70"
+                        onClick={() => {
+                          const supabase = createClient();
+                          void supabase
+                            .rpc("delete_chat_topic_message", {
+                              p_message_id: m.id,
+                            })
+                            .then(() =>
+                              setMessages((prev) =>
+                                prev.filter((x) => x.id !== m.id)
+                              )
+                            );
+                        }}
+                      >
+                        <FaTrash size={9} />
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>
