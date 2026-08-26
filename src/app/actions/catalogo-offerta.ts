@@ -125,13 +125,16 @@ async function listCatalogoAction(
   const supabase = await createClient();
   const PAGE = 1000;
   const items: CatalogoOffertaItem[] = [];
+  const selectCols =
+    kind === "contributo"
+      ? "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at"
+      : "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at, prezzo_unitario_medio, prezzo_medio_count, prezzo_medio_updated_at";
+
   for (let from = 0; ; from += PAGE) {
     const to = from + PAGE - 1;
     const { data, error } = await supabase
       .from(tableName(kind))
-      .select(
-        "id, codice, nome, note, is_bio, created_at, pending_delete_at, deleted_at"
-      )
+      .select(selectCols)
       .is("deleted_at", null)
       .order("codice", { ascending: true })
       .range(from, to);
