@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FaFilePdf, FaMagnifyingGlass, FaXmark } from "react-icons/fa6";
 import { recordDecisionAction } from "@/app/actions/learning";
 import { ChatPrintableAttachmentsModal } from "@/components/chat/ChatPrintableAttachmentsModal";
@@ -49,6 +49,18 @@ const defaultFilters = (
   includeSenderName: true,
 });
 
+function hitVisibleInPreview(
+  h: ChatSearchHit,
+  filters: ChatFilterInput
+): boolean {
+  if (filters.includeText && h.content.trim()) return true;
+  if (filters.includeTranscripts && h.transcriptText?.trim()) return true;
+  if (filters.includeTranscripts && h.audioUrl) return true;
+  if (filters.includeAttachments && h.fileName) return true;
+  // messaggio “vuoto” rispetto ai flag: nascondi
+  return false;
+}
+
 export function ChatSearchExportModal({
   open,
   mode,
@@ -64,19 +76,33 @@ export function ChatSearchExportModal({
   );
   const [hits, setHits] = useState<ChatSearchHit[]>([]);
   const [pending, setPending] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportedBy, setExportedBy] = useState("utente");
   const [attachModalOpen, setAttachModalOpen] = useState(false);
   const [selectedPrintableIds, setSelectedPrintableIds] = useState<Set<string>>(
     () => new Set()
   );
-  /** Evita di resettare la selezione utente a ogni ricalcolo printables. */
   const [selectionTouched, setSelectionTouched] = useState(false);
+  const fetchGen = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const printableAttachments = useMemo(
     () => listPrintableAttachmentsFromHits(hits),
     [hits]
   );
+
+  const previewHits = useMemo(
+    () => hits.filter((h) => hitVisibleInPreview(h, filters)),
+    [hits, filters]
+  );
+
+  const selectedPrintableCount = useMemo(() => {
+    if (!selectionTouched) return printableAttachments.length;
+    return printableAttachments.filter((a) =>
+      selectedPrintableIds.has(a.messageId)
+    ).length;
+  }, [printableAttachments, selectedPrintableIds, selectionTouched]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,10 +116,11 @@ export function ChatSearchExportModal({
 
   useEffect(() => {
     if (selectionTouched) {
-      // Mantieni solo id ancora presenti
       setSelectedPrintableIds((prev) => {
         const valid = new Set(
-          printableAttachments.map((a) => a.messageId).filter((id) => prev.has(id))
+          printableAttachments
+            .map((a) => a.messageId)
+            .filter((id) => prev.has(id))
         );
         return valid;
       });
@@ -125,57 +152,98 @@ export function ChatSearchExportModal({
     void loadParticipants();
   }, [open, loadParticipants]);
 
-  async function fetchHits(): Promise<ChatSearchHit[]> {
-    const payload: ChatFilterInput = {
+  const buildPayload = useCallback((): ChatFilterInput => {
+    return {
       ...filters,
       query: mode === "export" ? "" : filters.query,
       openKind: openContext?.kind ?? filters.openKind,
       openId: openContext?.id ?? filters.openId,
     };
-    if (payload.scope === "open" && (!payload.openId || !payload.openKind)) {
-      throw new Error(
-        "Nessuna chat aperta: seleziona «Tutte le chat» oppure apri un thread."
-      );
-    }
-    const supabase = createClient();
-    return searchChatMessages(supabase, userId, payload);
-  }
+  }, [filters, mode, openContext]);
 
-  async function runSearch() {
-    setPending(true);
-    setError(null);
-    try {
-      const results = await fetchHits();
-      setSelectionTouched(false);
-      setHits(results);
-      if (mode === "search") {
-        void recordDecisionAction({
-          module: "chat",
-          context: "chat_search",
-          action: "confirm",
-          entityType: "chat_search",
-          entityId: openContext?.id ?? null,
-          inputText: filters.query,
-          choiceAfter: {
-            scope: filters.scope,
-            count: results.length,
-            dateFrom: filters.dateFrom,
-            dateTo: filters.dateTo,
-            senderIds: filters.senderIds,
-          },
-        });
+  const refreshHits = useCallback(
+    async (opts?: { silent?: boolean; recordSearch?: boolean }) => {
+      const silent = opts?.silent ?? false;
+      const gen = ++fetchGen.current;
+      if (!silent) setPending(true);
+      else setRefreshing(true);
+      setError(null);
+      try {
+        const payload = buildPayload();
+        if (payload.scope === "open" && (!payload.openId || !payload.openKind)) {
+          if (gen === fetchGen.current) {
+            setHits([]);
+            setError(
+              "Nessuna chat aperta: seleziona «Tutte le chat» oppure apri un thread."
+            );
+          }
+          return [];
+        }
+        const supabase = createClient();
+        const results = await searchChatMessages(supabase, userId, payload);
+        if (gen !== fetchGen.current) return results;
+        setSelectionTouched(false);
+        setHits(results);
+        if (opts?.recordSearch && mode === "search") {
+          void recordDecisionAction({
+            module: "chat",
+            context: "chat_search",
+            action: "confirm",
+            entityType: "chat_search",
+            entityId: openContext?.id ?? null,
+            inputText: filters.query,
+            choiceAfter: {
+              scope: filters.scope,
+              count: results.length,
+              dateFrom: filters.dateFrom,
+              dateTo: filters.dateTo,
+              senderIds: filters.senderIds,
+            },
+          });
+        }
+        return results;
+      } catch (e) {
+        if (gen === fetchGen.current) {
+          setError(e instanceof Error ? e.message : "Aggiornamento fallito");
+          setHits([]);
+        }
+        return [];
+      } finally {
+        if (gen === fetchGen.current) {
+          setPending(false);
+          setRefreshing(false);
+        }
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Ricerca fallita");
-      setHits([]);
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+    [buildPayload, userId, mode, openContext?.id, filters.query, filters.scope, filters.dateFrom, filters.dateTo, filters.senderIds]
+  );
 
-  function resolveSelectedIds(
-    results: ChatSearchHit[]
-  ): string[] {
+  // Tempo reale: ogni cambio filtri in export (e query in search) aggiorna i risultati
+  useEffect(() => {
+    if (!open) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const delay = mode === "search" ? 350 : 250;
+    debounceRef.current = setTimeout(() => {
+      void refreshHits({ silent: true });
+    }, delay);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [
+    open,
+    mode,
+    filters.scope,
+    filters.openKind,
+    filters.openId,
+    filters.dateFrom,
+    filters.dateTo,
+    filters.senderIds,
+    filters.query,
+    filters.includeAttachments,
+    refreshHits,
+  ]);
+
+  function resolveSelectedIds(results: ChatSearchHit[]): string[] {
     const printables = listPrintableAttachmentsFromHits(results);
     const printableIdSet = new Set(printables.map((p) => p.messageId));
     if (selectionTouched) {
@@ -188,19 +256,13 @@ export function ChatSearchExportModal({
     setPending(true);
     setError(null);
     try {
-      const results = await fetchHits();
-      setHits(results);
+      const results =
+        hits.length > 0 ? hits : await refreshHits({ silent: false });
       if (results.length === 0) {
         throw new Error("Nessun messaggio da esportare con i filtri scelti.");
       }
       const idsToInclude = resolveSelectedIds(results);
-      const payload: ChatFilterInput = {
-        ...filters,
-        query: "",
-        openKind: openContext?.kind ?? filters.openKind,
-        openId: openContext?.id ?? filters.openId,
-      };
-      await previewChatPdf(results, payload, {
+      await previewChatPdf(results, buildPayload(), {
         exportedBy,
         version: "v1",
         selectedPrintableIds: idsToInclude,
@@ -216,20 +278,13 @@ export function ChatSearchExportModal({
     setPending(true);
     setError(null);
     try {
-      const results = await fetchHits();
-      setHits(results);
+      const results =
+        hits.length > 0 ? hits : await refreshHits({ silent: false });
       if (results.length === 0) {
         throw new Error("Nessun messaggio da esportare con i filtri scelti.");
       }
       const idsToInclude = resolveSelectedIds(results);
-
-      const payload: ChatFilterInput = {
-        ...filters,
-        query: "",
-        openKind: openContext?.kind ?? filters.openKind,
-        openId: openContext?.id ?? filters.openId,
-      };
-
+      const payload = buildPayload();
       await downloadChatPdf(results, payload, {
         exportedBy,
         version: "v1",
@@ -279,6 +334,7 @@ export function ChatSearchExportModal({
 
   const title = mode === "search" ? "Cerca nelle chat" : "Esporta chat in PDF";
   const canOpen = Boolean(openContext);
+  const liveBusy = pending || refreshing;
 
   return (
     <>
@@ -301,6 +357,9 @@ export function ChatSearchExportModal({
                 <FaFilePdf className="text-red-600" size={14} />
               )}
               <h2 className="text-sm font-semibold">{title}</h2>
+              {refreshing ? (
+                <span className="text-[10px] text-slate-400">Aggiorno…</span>
+              ) : null}
             </div>
             <button
               type="button"
@@ -313,6 +372,31 @@ export function ChatSearchExportModal({
           </div>
 
           <div className="space-y-3 px-4 py-3">
+            {mode === "export" ? (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900">
+                <p className="font-medium">Riepilogo live</p>
+                <p className="mt-0.5">
+                  Messaggi in anteprima: <strong>{previewHits.length}</strong>
+                  {" · "}
+                  Allegati in coda:{" "}
+                  <strong>
+                    {selectedPrintableCount}/{printableAttachments.length}
+                  </strong>
+                  {" · "}
+                  Contenuti:{" "}
+                  {[
+                    filters.includeText ? "testo" : null,
+                    filters.includeTranscripts ? "trascrizioni" : null,
+                    filters.includeAttachments ? "allegati" : null,
+                    filters.includeDayHeaders ? "giorni" : null,
+                    filters.includeSenderName ? "mittenti" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "nessuno"}
+                </p>
+              </div>
+            ) : null}
+
             {mode === "search" ? (
               <label className="block text-xs font-medium text-slate-600">
                 Testo / frase / @utente
@@ -502,25 +586,16 @@ export function ChatSearchExportModal({
               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2">
                 <button
                   type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    void (async () => {
-                      if (hits.length === 0) {
-                        await runSearch();
-                      }
-                      setAttachModalOpen(true);
-                    })();
-                  }}
+                  disabled={liveBusy}
+                  onClick={() => setAttachModalOpen(true)}
                   className="text-sm font-medium text-[var(--primary)] underline underline-offset-2 disabled:opacity-50"
                 >
-                  Gestisci allegati stampabili
-                  {printableAttachments.length > 0
-                    ? ` (${selectedPrintableIds.size}/${printableAttachments.length})`
-                    : ""}
+                  Gestisci allegati stampabili (
+                  {selectedPrintableCount}/{printableAttachments.length})
                 </button>
                 <p className="mt-1 text-[10px] text-slate-500">
-                  Img, PDF, DOC/XLS, TXT: selezione e anteprima. Default: tutti
-                  selezionati.
+                  Ogni modifica aggiorna subito il riepilogo. Gli allegati
+                  selezionati finiscono in coda al PDF.
                 </p>
               </div>
             ) : null}
@@ -535,17 +610,19 @@ export function ChatSearchExportModal({
               {mode === "search" ? (
                 <button
                   type="button"
-                  disabled={pending}
-                  onClick={() => void runSearch()}
+                  disabled={liveBusy}
+                  onClick={() =>
+                    void refreshHits({ silent: false, recordSearch: true })
+                  }
                   className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                 >
-                  {pending ? "Ricerca…" : "Cerca"}
+                  {liveBusy ? "Ricerca…" : "Cerca"}
                 </button>
               ) : (
                 <>
                   <button
                     type="button"
-                    disabled={pending}
+                    disabled={liveBusy || previewHits.length === 0}
                     onClick={() => void runPreviewPdf()}
                     className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm disabled:opacity-50"
                   >
@@ -553,7 +630,7 @@ export function ChatSearchExportModal({
                   </button>
                   <button
                     type="button"
-                    disabled={pending}
+                    disabled={liveBusy || previewHits.length === 0}
                     onClick={() => void runExport()}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                   >
@@ -572,12 +649,21 @@ export function ChatSearchExportModal({
             </div>
           </div>
 
-          {hits.length > 0 ? (
-            <div className="max-h-72 space-y-2 overflow-y-auto border-t border-[var(--border)] px-4 py-3">
-              <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                {hits.length} risultati
+          <div className="max-h-72 space-y-2 overflow-y-auto border-t border-[var(--border)] px-4 py-3">
+            <p className="text-[10px] uppercase tracking-wide text-slate-400">
+              {mode === "export"
+                ? `${previewHits.length} messaggi (live)`
+                : `${hits.length} risultati`}
+              {refreshing ? " · aggiornamento…" : ""}
+            </p>
+            {(mode === "export" ? previewHits : hits).length === 0 ? (
+              <p className="py-6 text-center text-xs text-slate-400">
+                {liveBusy
+                  ? "Caricamento…"
+                  : "Nessun messaggio con i filtri attuali."}
               </p>
-              {hits.map((h) => (
+            ) : (
+              (mode === "export" ? previewHits : hits).map((h) => (
                 <Link
                   key={`${h.kind}-${h.id}`}
                   href={h.href}
@@ -598,26 +684,29 @@ export function ChatSearchExportModal({
                       })}
                     </span>
                   </div>
-                  {h.content ? (
+                  {filters.includeText && h.content ? (
                     <p className="mt-0.5 line-clamp-2 text-slate-800">
                       {h.content}
                     </p>
                   ) : null}
-                  {h.transcriptText ? (
+                  {filters.includeTranscripts && h.transcriptText ? (
                     <p className="mt-0.5 line-clamp-2 text-xs italic text-slate-600">
                       {h.audioUrl ? "[Tr. Nota vocale]" : "[Tr. Video]"}{" "}
                       {h.transcriptText}
                     </p>
                   ) : null}
-                  {h.fileName ? (
+                  {filters.includeAttachments && h.fileName ? (
                     <p className="mt-0.5 text-xs text-[var(--primary)]">
                       Allegato: {h.fileName}
+                      {selectedPrintableIds.has(h.id)
+                        ? " · in coda PDF"
+                        : ""}
                     </p>
                   ) : null}
                 </Link>
-              ))}
-            </div>
-          ) : null}
+              ))
+            )}
+          </div>
         </div>
       </div>
 
