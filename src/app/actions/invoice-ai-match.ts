@@ -354,7 +354,13 @@ export async function verifyInvoiceAiMatchRigaAction(
 }
 
 const scanModificaSchema = z.object({
-  descrizione: z.string().max(2000),
+  /** Descrizione originale riga fattura (sola lettura / audit). */
+  descrizione: z.string().max(2000).optional().default(""),
+  /**
+   * Testo usato per lo score (modificabile dall’operatore).
+   * Se vuoto, fallback su descrizione.
+   */
+  testoRicerca: z.string().max(2000).optional().default(""),
   quantita: z.number().finite().optional(),
   prezzoUnitario: z.number().finite().optional(),
   codiceAttuale: z.string().max(120).optional().default(""),
@@ -403,9 +409,11 @@ export async function scanModificaArticoloRigaAction(
     };
   }
 
-  const desc = parsed.data.descrizione.trim();
-  if (!desc) {
-    return { success: false, error: "Descrizione riga vuota." };
+  const descFattura = parsed.data.descrizione.trim();
+  const query =
+    parsed.data.testoRicerca.trim() || descFattura;
+  if (!query) {
+    return { success: false, error: "Testo di ricerca vuoto." };
   }
 
   const kind = parsed.data.kind;
@@ -422,11 +430,11 @@ export async function scanModificaArticoloRigaAction(
   }
 
   const scoped = catalog.filter((c) => c.kind === kind);
-  const relevant = pickRelevantCatalog([{ descrizione: desc }], scoped);
+  const relevant = pickRelevantCatalog([{ descrizione: query }], scoped);
   const byId = new Map<string, ScanModificaCandidato>();
 
   for (const c of scoped) {
-    const score = scoreCatalogVoceRich(desc, c);
+    const score = scoreCatalogVoceRich(query, c);
     if (score < minScore) continue;
     const prev = byId.get(c.id);
     if (!prev || score > prev.score) {
@@ -453,7 +461,7 @@ export async function scanModificaArticoloRigaAction(
         lines: [
           {
             key: lineKey,
-            descrizione: desc,
+            descrizione: query,
             quantita: parsed.data.quantita,
             prezzoUnitario: parsed.data.prezzoUnitario,
             codiceFornitore: "",
@@ -497,7 +505,7 @@ export async function scanModificaArticoloRigaAction(
       const local = localMatchLine(
         {
           key: lineKey,
-          descrizione: desc,
+          descrizione: query,
           codiceAttuale: parsed.data.codiceAttuale,
         },
         relevant.length > 0 ? relevant : scoped
@@ -509,7 +517,7 @@ export async function scanModificaArticoloRigaAction(
     const local = localMatchLine(
       {
         key: lineKey,
-        descrizione: desc,
+        descrizione: query,
         codiceAttuale: parsed.data.codiceAttuale,
       },
       relevant.length > 0 ? relevant : scoped
@@ -533,6 +541,8 @@ export async function scanModificaArticoloRigaAction(
       model,
       kind,
       minScore,
+      testoRicerca: query.slice(0, 200),
+      descrizioneFattura: descFattura.slice(0, 200) || null,
       fornitoreId: parsed.data.fornitoreId ?? null,
     },
   });

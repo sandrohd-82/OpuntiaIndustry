@@ -48,6 +48,7 @@ export function ModificaArticoloRigaModal({
   const [kind, setKind] = useState<CatalogoAcquistoKind>(draft.kind);
   const [codice, setCodice] = useState(draft.codice);
   const [nome, setNome] = useState(draft.nome);
+  const [testoRicerca, setTestoRicerca] = useState(descrizioneRiga);
   const [minScore, setMinScore] = useState(DEFAULT_MIN_SCORE);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -63,6 +64,7 @@ export function ModificaArticoloRigaModal({
     setKind(draft.kind);
     setCodice(draft.codice);
     setNome(draft.nome);
+    setTestoRicerca(descrizioneRiga);
     setMinScore(DEFAULT_MIN_SCORE);
     setError(null);
     setScanning(false);
@@ -70,7 +72,7 @@ export function ModificaArticoloRigaModal({
     setScanNote(null);
     setSelectedId(null);
     setLastScanScore(null);
-  }, [open, draft]);
+  }, [open, draft, descrizioneRiga]);
 
   if (!open) return null;
 
@@ -105,12 +107,18 @@ export function ModificaArticoloRigaModal({
   async function runScan() {
     const soglia = clampScore(minScore);
     setMinScore(soglia);
+    const query = testoRicerca.trim();
+    if (!query) {
+      setError("Inserisci un testo per la ricerca targa.");
+      return;
+    }
     setScanning(true);
     setError(null);
     setScanNote(null);
     setSelectedId(null);
     const res = await scanModificaArticoloRigaAction({
       descrizione: descrizioneRiga,
+      testoRicerca: query,
       quantita: typeof quantita === "number" ? quantita : undefined,
       prezzoUnitario:
         typeof prezzoUnitario === "number" ? prezzoUnitario : undefined,
@@ -185,20 +193,34 @@ export function ModificaArticoloRigaModal({
             Modifica targa / categoria
           </h2>
           <p className="text-xs text-slate-500">
-            Scegli la categoria, regola la soglia e scansiona. In memoria fino
-            al salvataggio fattura.
+            Puoi adattare il testo di ricerca senza cambiare la descrizione
+            della riga in fattura.
           </p>
         </div>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 text-sm">
           <div>
             <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-              Descrizione riga
+              Descrizione riga (fattura — non modificabile qui)
             </p>
             <p className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-slate-800">
               {descrizioneRiga || "—"}
             </p>
           </div>
+
+          <label className="block text-xs text-slate-500">
+            Testo per ricerca targa
+            <textarea
+              value={testoRicerca}
+              onChange={(e) => setTestoRicerca(e.target.value)}
+              rows={2}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
+              placeholder="Es. gestione spedizioni"
+            />
+            <span className="mt-0.5 block text-[10px] text-slate-400">
+              Solo per lo scan: non aggiorna la descrizione della riga.
+            </span>
+          </label>
 
           <label className="block text-xs text-slate-500">
             Categoria (filtra lo scan)
@@ -234,7 +256,7 @@ export function ModificaArticoloRigaModal({
             </label>
             <button
               type="button"
-              disabled={scanning || !descrizioneRiga.trim()}
+              disabled={scanning || !testoRicerca.trim()}
               onClick={() => void runScan()}
               className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-40"
             >
@@ -259,8 +281,8 @@ export function ModificaArticoloRigaModal({
               </p>
               {candidates.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-slate-500">
-                  Nessun match sopra soglia in questa categoria. Abbassa la % o
-                  modifica targa/nome a mano.
+                  Nessun match sopra soglia in questa categoria. Abbassa la %,
+                  modifica il testo di ricerca o inserisci targa/nome a mano.
                 </p>
               ) : (
                 <ul className="max-h-48 space-y-1.5 overflow-y-auto">

@@ -81,24 +81,58 @@ export function scoreNomeAffinity(query: string, nome: string): number {
 }
 
 /**
+ * Stem leggero IT per plurale/genere (spedizione↔spedizioni, servizi↔servizio).
+ */
+function tokenStem(t: string): string {
+  const s = t.toLowerCase();
+  if (s.length >= 6 && s.endsWith("zioni")) return s.slice(0, -1); // …zioni → …zion
+  if (s.length >= 6 && s.endsWith("zione")) return s.slice(0, -1); // …zione → …zion
+  if (s.length >= 5 && (s.endsWith("i") || s.endsWith("e") || s.endsWith("a"))) {
+    return s.slice(0, -1);
+  }
+  return s;
+}
+
+/** Uguaglianza token con stem / prefisso (min 4 caratteri). */
+export function tokensFuzzyEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  const sa = tokenStem(a);
+  const sb = tokenStem(b);
+  return sa.length >= 4 && sa === sb;
+}
+
+function tokenHitsInSet(tokens: string[], haySet: Set<string>): number {
+  const hayList = [...haySet];
+  let hits = 0;
+  for (const t of tokens) {
+    if (haySet.has(t) || hayList.some((h) => tokensFuzzyEqual(t, h))) {
+      hits += 1;
+    }
+  }
+  return hits;
+}
+
+/**
  * Copertura token del nome catalogo nella descrizione fattura (0–100).
  * Utile quando la riga è lunga e il nome anagrafica è corto ma parlante.
+ * Tollerante a plurale/stem (spedizione ↔ spedizioni).
  */
 export function scoreTokenCoverage(query: string, nome: string): number {
-  const qSet = new Set(
-    significantTokensFromNorm(normalizeAffinityText(query))
-  );
+  const qTokens = significantTokensFromNorm(normalizeAffinityText(query));
   const nTokens = significantTokensFromNorm(normalizeAffinityText(nome));
-  if (!qSet.size || !nTokens.length) return 0;
+  if (!qTokens.length || !nTokens.length) return 0;
 
-  let hits = 0;
-  for (const t of nTokens) {
-    if (qSet.has(t)) hits += 1;
-  }
+  const qSet = new Set(qTokens);
+  const hits = tokenHitsInSet(nTokens, qSet);
+
   // Evita falsi positivi su nomi molto corti con 1 solo token generico
   if (nTokens.length === 1 && hits === 1) {
     const only = nTokens[0]!;
-    if (only.length < 5) return Math.min(60, Math.round((hits / nTokens.length) * 100));
+    if (only.length < 5) {
+      return Math.min(60, Math.round((hits / nTokens.length) * 100));
+    }
   }
   if (nTokens.length >= 3 && hits < 2) return 0;
 
