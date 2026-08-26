@@ -1,12 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, useTransition } from "react";
-import {
-  createCatalogoContributoAction,
-  createCatalogoProdottoFornitoreAction,
-  createCatalogoServizioAction,
-} from "@/app/actions/catalogo-offerta";
-import { createMateriaPrimaAction } from "@/app/actions/materie-prime";
+import { useEffect, useId, useState } from "react";
 import type { NuovoArticoloSyncDraft } from "@/lib/amministrazione/fattura-sync-prep";
 import {
   catalogoKindPrefix,
@@ -15,16 +9,11 @@ import {
 } from "@/lib/sku-generator";
 
 type Props = {
-  items: NuovoArticoloSyncDraft[];
-  currentIndex: number;
-  onSaved: (item: {
-    rigaKey: string;
-    kind: CatalogoAcquistoKind;
-    id: string;
-    codice: string;
-    nome: string;
-  }) => void;
-  onQueueComplete: () => void;
+  open: boolean;
+  draft: NuovoArticoloSyncDraft;
+  descrizioneRiga: string;
+  onClose: () => void;
+  onApply: (next: NuovoArticoloSyncDraft) => void;
 };
 
 const KIND_OPTIONS: Array<{ value: CatalogoAcquistoKind; label: string }> = [
@@ -34,45 +23,41 @@ const KIND_OPTIONS: Array<{ value: CatalogoAcquistoKind; label: string }> = [
   { value: "contributo", label: "Ct — Contributo" },
 ];
 
-export function NuoviArticoliSyncQueueModal({
-  items,
-  currentIndex,
-  onSaved,
-  onQueueComplete,
+export function ModificaArticoloRigaModal({
+  open,
+  draft,
+  descrizioneRiga,
+  onClose,
+  onApply,
 }: Props) {
   const titleId = useId();
-  const current = items[currentIndex];
-  const [kind, setKind] = useState<CatalogoAcquistoKind>("prodotto");
-  const [codice, setCodice] = useState("");
-  const [nome, setNome] = useState("");
+  const [kind, setKind] = useState<CatalogoAcquistoKind>(draft.kind);
+  const [codice, setCodice] = useState(draft.codice);
+  const [nome, setNome] = useState(draft.nome);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
 
   useEffect(() => {
-    if (!current) return;
-    setKind(current.kind);
-    setCodice(current.codice);
-    setNome(current.nome);
+    if (!open) return;
+    setKind(draft.kind);
+    setCodice(draft.codice);
+    setNome(draft.nome);
     setError(null);
-  }, [current]);
+  }, [open, draft]);
 
-  if (!current) return null;
+  if (!open) return null;
 
-  const total = items.length;
-  const step = currentIndex + 1;
   const prefix = catalogoKindPrefix(kind);
-  const isLast = currentIndex >= total - 1;
 
   function onKindChange(next: CatalogoAcquistoKind) {
     setKind(next);
     const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
     const nextPrefix = catalogoKindPrefix(next);
     setCodice(
-      `${nextPrefix}${body || generateSkuProposal(nome || current.descrizione, next).body}`
+      `${nextPrefix}${body || generateSkuProposal(nome || descrizioneRiga, next).body}`
     );
   }
 
-  function saveAndContinue() {
+  function apply() {
     const code = codice.trim();
     const name = nome.trim();
     if (!code || !name) {
@@ -83,56 +68,14 @@ export function NuoviArticoliSyncQueueModal({
       setError(`Il codice deve iniziare con ${prefix}.`);
       return;
     }
-
-    startTransition(async () => {
-      setError(null);
-
-      if (kind === "materia") {
-        const mp = await createMateriaPrimaAction({
-          codice: code,
-          nome: name,
-          note: `Da sync fattura: ${current.descrizione}`,
-        });
-        if (!mp.success) {
-          setError(mp.error);
-          return;
-        }
-        onSaved({
-          rigaKey: current.rigaKey,
-          kind,
-          id: mp.materia.id,
-          codice: mp.materia.codice,
-          nome: mp.materia.nome,
-        });
-        if (isLast) onQueueComplete();
-        return;
-      }
-
-      const create =
-        kind === "servizio"
-          ? createCatalogoServizioAction
-          : kind === "contributo"
-            ? createCatalogoContributoAction
-            : createCatalogoProdottoFornitoreAction;
-
-      const res = await create({
-        codice: code,
-        nome: name,
-        note: `Da sync fattura: ${current.descrizione}`,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      onSaved({
-        rigaKey: current.rigaKey,
-        kind,
-        id: res.item.id,
-        codice: res.item.codice,
-        nome: res.item.nome,
-      });
-      if (isLast) onQueueComplete();
+    onApply({
+      rigaKey: draft.rigaKey,
+      descrizione: descrizioneRiga,
+      kind,
+      codice: code,
+      nome: name,
     });
+    onClose();
   }
 
   return (
@@ -145,27 +88,20 @@ export function NuoviArticoliSyncQueueModal({
       >
         <div className="border-b border-[var(--border)] px-4 py-3">
           <h2 id={titleId} className="text-base font-semibold text-slate-900">
-            Nuovo articolo da catalogare
+            Modifica targa / categoria
           </h2>
           <p className="text-xs text-slate-500">
-            Scheda <strong>{step}</strong> di <strong>{total}</strong> — controlla
-            targa e categoria, poi salva.
+            Le modifiche restano in memoria finché non salvi la fattura.
           </p>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-sky-600 transition-all"
-              style={{ width: `${(step / total) * 100}%` }}
-            />
-          </div>
         </div>
 
         <div className="space-y-3 px-4 py-4 text-sm">
           <div>
             <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-              Descrizione riga fattura
+              Descrizione riga
             </p>
             <p className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-slate-800">
-              {current.descrizione || "—"}
+              {descrizioneRiga || "—"}
             </p>
           </div>
 
@@ -187,7 +123,7 @@ export function NuoviArticoliSyncQueueModal({
           </label>
 
           <label className="block text-xs text-slate-500">
-            Targa / codice interno
+            Targa / codice
             <input
               value={codice}
               onChange={(e) => setCodice(e.target.value)}
@@ -214,15 +150,17 @@ export function NuoviArticoliSyncQueueModal({
         <div className="flex justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
           <button
             type="button"
-            disabled={pending}
-            onClick={saveAndContinue}
-            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           >
-            {pending
-              ? "Salvataggio…"
-              : isLast
-                ? "Salva e termina"
-                : "Salva e continua"}
+            Annulla
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+          >
+            Applica
           </button>
         </div>
       </div>

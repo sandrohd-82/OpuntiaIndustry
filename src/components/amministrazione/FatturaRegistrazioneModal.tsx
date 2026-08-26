@@ -46,7 +46,7 @@ import {
   InvoiceAIMatchModal,
   InvoiceAiMatchBadge,
 } from "@/components/amministrazione/InvoiceAIMatchModal";
-import { NuoviArticoliSyncQueueModal } from "@/components/amministrazione/NuoviArticoliSyncQueueModal";
+import { ModificaArticoloRigaModal } from "@/components/amministrazione/ModificaArticoloRigaModal";
 import {
   buildNuovoArticoloDraft,
   prepareFatturaSyncStructural,
@@ -336,11 +336,11 @@ export function FatturaRegistrazioneModal({
   const [ghostSpedizioneRighe, setGhostSpedizioneRighe] = useState<
     SyncGhostRiga[]
   >([]);
-  const [nuoviArticoliQueue, setNuoviArticoliQueue] = useState<
-    NuovoArticoloSyncDraft[]
-  >([]);
-  const [nuoviArticoliIndex, setNuoviArticoliIndex] = useState(0);
-  const [nuoviArticoliOpen, setNuoviArticoliOpen] = useState(false);
+  /** Nuovi articoli solo in memoria fino al salvataggio fattura. */
+  const [pendingNuoviByKey, setPendingNuoviByKey] = useState<
+    Record<string, NuovoArticoloSyncDraft>
+  >({});
+  const [modificaRigaKey, setModificaRigaKey] = useState<string | null>(null);
   const [totaleAllineamentoBanner, setTotaleAllineamentoBanner] = useState<{
     da: number;
     a: number;
@@ -1051,15 +1051,17 @@ export function FatturaRegistrazioneModal({
                 );
               });
               if (drafts.length > 0) {
-                setNuoviArticoliQueue(drafts);
-                setNuoviArticoliIndex(0);
-                setNuoviArticoliOpen(true);
+                setPendingNuoviByKey((prev) => {
+                  const next = { ...prev };
+                  for (const d of drafts) next[d.rigaKey] = d;
+                  return next;
+                });
               }
 
               return next;
             });
           } else if (!cancelled) {
-            // AI fallita: genera comunque coda locali per codici mancanti
+            // AI fallita: genera comunque draft locali per codici mancanti
             const catalogCodes = new Set(
               vociAcquisto.map((v) => v.codice.trim().toLowerCase())
             );
@@ -1078,9 +1080,11 @@ export function FatturaRegistrazioneModal({
               );
             });
             if (drafts.length > 0) {
-              setNuoviArticoliQueue(drafts);
-              setNuoviArticoliIndex(0);
-              setNuoviArticoliOpen(true);
+              setPendingNuoviByKey((prev) => {
+                const next = { ...prev };
+                for (const d of drafts) next[d.rigaKey] = d;
+                return next;
+              });
             }
           }
         } finally {
@@ -1106,9 +1110,11 @@ export function FatturaRegistrazioneModal({
           );
         });
         if (drafts.length > 0) {
-          setNuoviArticoliQueue(drafts);
-          setNuoviArticoliIndex(0);
-          setNuoviArticoliOpen(true);
+          setPendingNuoviByKey((prev) => {
+            const next = { ...prev };
+            for (const d of drafts) next[d.rigaKey] = d;
+            return next;
+          });
         }
       }
 
@@ -1570,12 +1576,6 @@ export function FatturaRegistrazioneModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (saving) return;
-    if (nuoviArticoliOpen || nuoviArticoliQueue.length > 0) {
-      setFormError(
-        "Completa la revisione dei nuovi articoli (schede 1 di N) prima di salvare la fattura."
-      );
-      return;
-    }
     if (!anagraficaId) {
       setFormError(
         kind === "ricevuta"
@@ -1657,6 +1657,65 @@ export function FatturaRegistrazioneModal({
     setSaving(true);
     setFormError(null);
     try {
+      // Persistenza unica: crea in catalogo i nuovi codici tenuti in memoria
+      if (isRicevuta && Object.keys(pendingNuoviByKey).length > 0) {
+        const byCodice = new Map<string, NuovoArticoloSyncDraft>();
+        for (const d of Object.values(pendingNuoviByKey)) {
+          const c = d.codice.trim();
+          if (!c) continue;
+          byCodice.set(c.toLowerCase(), d);
+        }
+        for (const d of byCodice.values()) {
+          const already = vociAcquisto.some(
+            (v) => v.codice.trim().toLowerCase() === d.codice.trim().toLowerCase()
+          );
+          if (already) continue;
+
+          if (d.kind === "materia") {
+            const mp = await createMateriaPrimaAction({
+              codice: d.codice,
+              nome: d.nome,
+              note: `Da sync fattura: ${d.descrizione}`,
+            });
+            if (!mp.success) {
+              setFormError(`Nuovo articolo ${d.codice}: ${mp.error}`);
+              setSaving(false);
+              return;
+            }
+            upsertVoceAcquistoLocal({
+              kind: "materia",
+              id: mp.materia.id,
+              codice: mp.materia.codice,
+              nome: mp.materia.nome,
+            });
+          } else {
+            const create =
+              d.kind === "servizio"
+                ? createCatalogoServizioAction
+                : d.kind === "contributo"
+                  ? createCatalogoContributoAction
+                  : createCatalogoProdottoFornitoreAction;
+            const res = await create({
+              codice: d.codice,
+              nome: d.nome,
+              note: `Da sync fattura: ${d.descrizione}`,
+            });
+            if (!res.success) {
+              setFormError(`Nuovo articolo ${d.codice}: ${res.error}`);
+              setSaving(false);
+              return;
+            }
+            upsertVoceAcquistoLocal({
+              kind: d.kind,
+              id: res.item.id,
+              codice: res.item.codice,
+              nome: res.item.nome,
+            });
+          }
+        }
+        setPendingNuoviByKey({});
+      }
+
       const fd = new FormData();
       const righePayload: FatturaRiga[] = righe.map((r) => {
         const scontoPercentuale = numberOrZero(r.scontoPercentuale);
@@ -2174,12 +2233,12 @@ export function FatturaRegistrazioneModal({
                       <strong>100%</strong> già collegate al catalogo.{" "}
                     </>
                   ) : null}
-                  Badge colorati = confidenza AI (verde 100%, giallo parziale,
-                  blu nuova targa): clicca per la spiegazione. Usa{" "}
-                  <strong>Cerca</strong> per associazione manuale.
+                  Badge colorati = confidenza AI. Righe <strong>gialle</strong> =
+                  nuovo codice in memoria (creato al salvataggio). Usa{" "}
+                  <strong>Modifica</strong> per targa/categoria.
                   {aiMatchPending ? " · Match AI in corso…" : null}
-                  {Object.keys(aiMatches).length > 0
-                    ? ` · ${Object.keys(aiMatches).length} righe analizzate dall'AI`
+                  {Object.keys(pendingNuoviByKey).length > 0
+                    ? ` · ${Object.keys(pendingNuoviByKey).length} nuovi in memoria`
                     : null}
                 </span>
               </div>
@@ -2245,13 +2304,18 @@ export function FatturaRegistrazioneModal({
                     const ammEnabled = canFlagBeneAmmortizzabile(
                       numberOrZero(riga.prezzoUnitario)
                     );
+                    const isPendingNuovo = Boolean(
+                      pendingNuoviByKey[String(index)]
+                    );
                     return (
                       <tr
                         key={index}
                         className={
-                          isStorno && !isNc
-                            ? "border-t border-amber-200 bg-amber-50/50"
-                            : "border-t border-[var(--border)]"
+                          isPendingNuovo
+                            ? "border-t border-amber-200/80 bg-amber-100/45"
+                            : isStorno && !isNc
+                              ? "border-t border-amber-200 bg-amber-50/50"
+                              : "border-t border-[var(--border)]"
                         }
                       >
                         {!isNc ? (
@@ -2292,13 +2356,19 @@ export function FatturaRegistrazioneModal({
                                       c !== "—" &&
                                       c !== (riga.codice ?? "")
                                   )}
-                                onSelectCodice={(cod) =>
-                                  applyVoceAcquisto(index, cod)
-                                }
-                                onCerca={() => {
-                                  setCollegaRigaIndex(index);
+                                onSelectCodice={(cod) => {
+                                  applyVoceAcquisto(index, cod);
+                                  setPendingNuoviByKey((prev) => {
+                                    if (!prev[String(index)]) return prev;
+                                    const next = { ...prev };
+                                    delete next[String(index)];
+                                    return next;
+                                  });
                                 }}
-                                cercaDisabled={false}
+                                onModifica={() => setModificaRigaKey(String(index))}
+                                modificaDisabled={
+                                  matchScanPending || aiMatchPending
+                                }
                               />
                               <ArticoloCollegatiNuvola
                                 linked={
@@ -2318,8 +2388,8 @@ export function FatturaRegistrazioneModal({
                                 }
                                 disabledReason={
                                   !riga.codice || riga.codice === "—"
-                                    ? "Assegna prima un codice alla riga (Cerca)"
-                                    : "Codice non in catalogo: assegna un codice valido"
+                                    ? "Assegna prima un codice alla riga (Modifica)"
+                                    : "Codice non ancora in catalogo: verrà creato al salvataggio"
                                 }
                                 onManage={() => {
                                   const v = vociAcquisto.find(
@@ -3715,33 +3785,49 @@ export function FatturaRegistrazioneModal({
         />
       ) : null}
 
-      {nuoviArticoliOpen && nuoviArticoliQueue.length > 0 ? (
-        <NuoviArticoliSyncQueueModal
-          items={nuoviArticoliQueue}
-          currentIndex={nuoviArticoliIndex}
-          onSaved={(item) => {
-            const idx = Number(item.rigaKey);
-            upsertVoceAcquistoLocal({
-              kind: item.kind,
-              id: item.id,
-              codice: item.codice,
-              nome: item.nome,
+      {modificaRigaKey != null && righe[Number(modificaRigaKey)] ? (
+        <ModificaArticoloRigaModal
+          open
+          descrizioneRiga={righe[Number(modificaRigaKey)]?.descrizione ?? ""}
+          draft={
+            pendingNuoviByKey[modificaRigaKey] ??
+            buildNuovoArticoloDraft({
+              rigaKey: modificaRigaKey,
+              descrizione:
+                righe[Number(modificaRigaKey)]?.descrizione ?? "",
+              suggestedCode: righe[Number(modificaRigaKey)]?.codice,
+              suggestedKind:
+                vociAcquisto.find(
+                  (v) =>
+                    v.codice === (righe[Number(modificaRigaKey)]?.codice ?? "")
+                )?.kind ?? null,
+            })
+          }
+          onClose={() => setModificaRigaKey(null)}
+          onApply={(next) => {
+            const idx = Number(next.rigaKey);
+            const inCatalog = vociAcquisto.some(
+              (v) =>
+                v.codice.trim().toLowerCase() === next.codice.trim().toLowerCase()
+            );
+            patchRiga(idx, {
+              codice: next.codice,
+              prodottoId: null,
+              verificationStatus: inCatalog ? "VERIFIED" : "NEEDS_REVIEW",
             });
-            if (Number.isFinite(idx) && idx >= 0) {
-              patchRiga(idx, {
-                codice: item.codice,
-                prodottoId: null,
-                verificationStatus: "VERIFIED",
-                descrizione:
-                  (righe[idx]?.descrizione ?? "").trim() || item.nome,
-              });
+            setPendingNuoviByKey((prev) => {
+              const copy = { ...prev };
+              if (inCatalog) {
+                delete copy[next.rigaKey];
+              } else {
+                copy[next.rigaKey] = next;
+              }
+              return copy;
+            });
+            if (inCatalog) {
+              applyVoceAcquisto(idx, next.codice);
             }
-            setNuoviArticoliIndex((i) => i + 1);
-          }}
-          onQueueComplete={() => {
-            setNuoviArticoliOpen(false);
-            setNuoviArticoliQueue([]);
-            setNuoviArticoliIndex(0);
+            setModificaRigaKey(null);
           }}
         />
       ) : null}
