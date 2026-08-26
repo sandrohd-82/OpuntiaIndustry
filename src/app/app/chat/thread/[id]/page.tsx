@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
+import { ChatAppHeader } from "@/components/chat/ChatAppHeader";
 import { ChatThreadBoard } from "@/components/chat/ChatThreadBoard";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext } from "@/lib/auth/session";
 
@@ -16,7 +16,11 @@ export default async function ChatThreadPage({ params }: Props) {
 
   return (
     <>
-      <AppHeader title="Conversazione" subtitle="Messaggi in tempo reale" />
+      <ChatAppHeader
+        title="Conversazione"
+        subtitle="Messaggi in tempo reale"
+        userId={auth.userId}
+      />
       <div className="p-6">
         <ChatThreadBoard userId={auth.userId} conversationId={id} />
       </div>

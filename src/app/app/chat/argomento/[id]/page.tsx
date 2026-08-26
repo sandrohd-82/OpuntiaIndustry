@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
+import { ChatAppHeader } from "@/components/chat/ChatAppHeader";
 import { ChatTopicThreadBoard } from "@/components/chat/ChatTopicThreadBoard";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext } from "@/lib/auth/session";
 
@@ -16,9 +16,10 @@ export default async function ChatArgomentoPage({ params }: Props) {
 
   return (
     <>
-      <AppHeader
+      <ChatAppHeader
         title="Argomento"
         subtitle="Chat di gruppo — solo partecipanti"
+        userId={auth.userId}
       />
       <div className="p-6">
         <ChatTopicThreadBoard userId={auth.userId} topicId={id} />

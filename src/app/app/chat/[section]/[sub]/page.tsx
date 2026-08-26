@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { ChatAppHeader } from "@/components/chat/ChatAppHeader";
 import { ChatNuovoArgomentoBoard } from "@/components/chat/ChatNuovoArgomentoBoard";
 import { ChatRubricaBoard } from "@/components/chat/ChatRubricaBoard";
 import { ChatInboxBoard } from "@/components/chat/ChatInboxBoard";
-import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveChatPage } from "@/lib/areas/chat";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext } from "@/lib/auth/session";
@@ -24,7 +24,11 @@ export default async function ChatSubPage({ params }: Props) {
   if (section === "argomenti" && sub === "nuovo") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <ChatAppHeader
+          title={page.label}
+          subtitle={page.description}
+          userId={auth.userId}
+        />
         <div className="p-6">
           <ChatNuovoArgomentoBoard userId={auth.userId} />
         </div>
@@ -35,7 +39,11 @@ export default async function ChatSubPage({ params }: Props) {
   if (section === "argomenti" && sub === "elenco") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <ChatAppHeader
+          title={page.label}
+          subtitle={page.description}
+          userId={auth.userId}
+        />
         <div className="p-6">
           <p className="mb-3 text-sm text-[var(--muted)]">
             Gli argomenti attivi sono anche nell’elenco del menu laterale.
@@ -55,7 +63,11 @@ export default async function ChatSubPage({ params }: Props) {
   if (section === "dirette" && sub === "nuova") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <ChatAppHeader
+          title={page.label}
+          subtitle={page.description}
+          userId={auth.userId}
+        />
         <div className="p-6">
           <ChatRubricaBoard userId={auth.userId} mode="nuova" />
         </div>
@@ -66,7 +78,11 @@ export default async function ChatSubPage({ params }: Props) {
   if (section === "dirette" && sub === "elenco") {
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <ChatAppHeader
+          title={page.label}
+          subtitle={page.description}
+          userId={auth.userId}
+        />
         <div className="p-6">
           <ChatInboxBoard userId={auth.userId} />
         </div>

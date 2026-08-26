@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FaArrowLeft,
   FaCheck,
@@ -15,7 +15,7 @@ import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { recordDecisionAction } from "@/app/actions/learning";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
-import { chatDayKey, sameChatDay } from "@/lib/chat/day-headers";
+import { sameChatDay } from "@/lib/chat/day-headers";
 import {
   getTopic,
   insertTopicMessage,
@@ -49,8 +49,6 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [filterDate, setFilterDate] = useState("");
-  const [filterUserId, setFilterUserId] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const hasText = text.trim().length > 0;
 
@@ -115,25 +113,9 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
     };
   }, [topicId, userId, reload, merge]);
 
-  const participants = useMemo(() => {
-    const ids = [...new Set(messages.map((m) => m.senderId))];
-    return ids.map((id) => ({
-      id,
-      name: avatars.get(id)?.name ?? id.slice(0, 8),
-    }));
-  }, [messages, avatars]);
-
-  const visibleMessages = useMemo(() => {
-    return messages.filter((m) => {
-      if (filterUserId && m.senderId !== filterUserId) return false;
-      if (filterDate && chatDayKey(m.createdAt) !== filterDate) return false;
-      return true;
-    });
-  }, [messages, filterUserId, filterDate]);
-
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [visibleMessages.length, messages.length]);
+  }, [messages.length]);
 
   async function saveTitle() {
     const next = titleDraft.trim();
@@ -261,44 +243,6 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
             </button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
-            Data
-            <input
-              type="date"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
-              className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs normal-case text-slate-700"
-            />
-          </label>
-          <label className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-slate-400">
-            Utente
-            <select
-              value={filterUserId}
-              onChange={(e) => setFilterUserId(e.target.value)}
-              className="max-w-[10rem] rounded border border-[var(--border)] px-1.5 py-0.5 text-xs normal-case text-slate-700"
-            >
-              <option value="">Tutti</option>
-              {participants.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.id === userId ? `${p.name} (tu)` : p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {filterDate || filterUserId ? (
-            <button
-              type="button"
-              onClick={() => {
-                setFilterDate("");
-                setFilterUserId("");
-              }}
-              className="text-[10px] text-[var(--primary)] underline"
-            >
-              Azzera filtri
-            </button>
-          ) : null}
-        </div>
       </div>
       {error ? (
         <p className="mx-3 mt-2 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800">
@@ -306,15 +250,10 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
         </p>
       ) : null}
       <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {visibleMessages.length === 0 ? (
-          <p className="py-8 text-center text-xs text-slate-400">
-            Nessun messaggio con i filtri selezionati.
-          </p>
-        ) : null}
-        {visibleMessages.map((m, index) => {
+        {messages.map((m, index) => {
           const mine = m.senderId === userId;
           const av = avatarFor(m.senderId);
-          const prev = visibleMessages[index - 1];
+          const prev = messages[index - 1];
           const showDay =
             !prev || !sameChatDay(prev.createdAt, m.createdAt);
           return (
