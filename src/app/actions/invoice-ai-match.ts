@@ -366,8 +366,11 @@ const scanModificaSchema = z.object({
   codiceAttuale: z.string().max(120).optional().default(""),
   fatturaId: z.string().uuid().nullable().optional(),
   fornitoreId: z.string().uuid().nullable().optional(),
-  /** Categoria selezionata nel modal: filtra i candidati. */
-  kind: z.enum(["servizio", "prodotto", "materia", "contributo"]),
+  /** Categoria selezionata nel modal: filtra i candidati. "all" = tutte. */
+  kind: z
+    .enum(["all", "servizio", "prodotto", "materia", "contributo"])
+    .optional()
+    .default("all"),
   /** Soglia inclusiva 20–95 (default 50). */
   minScore: z.number().int().min(20).max(95).optional().default(50),
 });
@@ -382,7 +385,7 @@ export type ScanModificaCandidato = {
 };
 
 /**
- * Scan on-demand da modal Modifica: candidati nella categoria scelta
+ * Scan on-demand da modal Modifica: candidati (categoria o tutte)
  * con score >= minScore (token-aware + eventuale Gemini).
  */
 export async function scanModificaArticoloRigaAction(
@@ -396,7 +399,7 @@ export async function scanModificaArticoloRigaAction(
       model: string;
       usedGemini: boolean;
       minScore: number;
-      kind: "servizio" | "prodotto" | "materia" | "contributo";
+      kind: "all" | "servizio" | "prodotto" | "materia" | "contributo";
     }
   | { success: false; error: string }
 > {
@@ -429,7 +432,8 @@ export async function scanModificaArticoloRigaAction(
     };
   }
 
-  const scoped = catalog.filter((c) => c.kind === kind);
+  const scoped =
+    kind === "all" ? catalog : catalog.filter((c) => c.kind === kind);
   const relevant = pickRelevantCatalog([{ descrizione: query }], scoped);
   const byId = new Map<string, ScanModificaCandidato>();
 

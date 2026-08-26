@@ -97,7 +97,7 @@ export async function listConversationsForUser(
     const { data: lastRows } = await supabase
       .from("messages")
       .select(
-        "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
+        "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
       )
       .eq("conversation_id", c.id)
       .is("deleted_at", null)
@@ -117,6 +117,9 @@ export async function listConversationsForUser(
       .neq("sender_id", userId);
 
     let preview = last?.content?.trim() || null;
+    if (!preview && last?.transcriptText?.trim()) {
+      preview = last.transcriptText.trim().slice(0, 80);
+    }
     if (!preview && last?.audioUrl) preview = "Nota vocale";
     if (!preview && last?.fileUrl) preview = last.fileName || "Allegato";
 
@@ -140,7 +143,7 @@ export async function listMessages(
   const { data, error } = await supabase
     .from("messages")
     .select(
-      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
+      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
     )
     .eq("conversation_id", conversationId)
     .is("deleted_at", null)

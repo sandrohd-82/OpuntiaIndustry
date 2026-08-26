@@ -24,7 +24,11 @@ type Props = {
   onApply: (next: NuovoArticoloSyncDraft) => void;
 };
 
-const KIND_OPTIONS: Array<{ value: CatalogoAcquistoKind; label: string }> = [
+const KIND_OPTIONS: Array<{
+  value: "all" | CatalogoAcquistoKind;
+  label: string;
+}> = [
+  { value: "all", label: "Tutte le categorie" },
   { value: "prodotto", label: "Pr — Prodotto" },
   { value: "servizio", label: "Sz — Servizio" },
   { value: "materia", label: "Mp — Materia prima" },
@@ -45,6 +49,11 @@ export function ModificaArticoloRigaModal({
   onApply,
 }: Props) {
   const titleId = useId();
+  /** Filtro ricerca (default: tutte). */
+  const [filterKind, setFilterKind] = useState<"all" | CatalogoAcquistoKind>(
+    "all"
+  );
+  /** Categoria articolo / targa (per Applica). */
   const [kind, setKind] = useState<CatalogoAcquistoKind>(draft.kind);
   const [codice, setCodice] = useState(draft.codice);
   const [nome, setNome] = useState(draft.nome);
@@ -61,6 +70,7 @@ export function ModificaArticoloRigaModal({
 
   useEffect(() => {
     if (!open) return;
+    setFilterKind("all");
     setKind(draft.kind);
     setCodice(draft.codice);
     setNome(draft.nome);
@@ -78,22 +88,26 @@ export function ModificaArticoloRigaModal({
 
   const prefix = catalogoKindPrefix(kind);
 
-  function onKindChange(next: CatalogoAcquistoKind) {
-    setKind(next);
+  function onFilterKindChange(next: "all" | CatalogoAcquistoKind) {
+    setFilterKind(next);
     setSelectedId(null);
     setCandidates(null);
     setScanNote(null);
     setLastScanScore(null);
-    const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
-    const nextPrefix = catalogoKindPrefix(next);
-    setCodice(
-      `${nextPrefix}${body || generateSkuProposal(nome || descrizioneRiga, next).body}`
-    );
+    if (next !== "all") {
+      setKind(next);
+      const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
+      const nextPrefix = catalogoKindPrefix(next);
+      setCodice(
+        `${nextPrefix}${body || generateSkuProposal(nome || descrizioneRiga, next).body}`
+      );
+    }
   }
 
   function pickCandidate(c: ScanModificaCandidato) {
     setSelectedId(c.id);
     setKind(c.kind);
+    if (filterKind !== "all") setFilterKind(c.kind);
     setCodice(c.codice);
     setNome(c.nome);
     setError(null);
@@ -125,7 +139,7 @@ export function ModificaArticoloRigaModal({
       codiceAttuale: codice,
       fatturaId: fatturaId ?? null,
       fornitoreId: fornitoreId ?? null,
-      kind,
+      kind: filterKind,
       minScore: soglia,
     });
     setScanning(false);
@@ -223,11 +237,13 @@ export function ModificaArticoloRigaModal({
           </label>
 
           <label className="block text-xs text-slate-500">
-            Categoria (filtra lo scan)
+            Categoria ricerca (default: tutte)
             <select
-              value={kind}
+              value={filterKind}
               onChange={(e) =>
-                onKindChange(e.target.value as CatalogoAcquistoKind)
+                onFilterKindChange(
+                  e.target.value as "all" | CatalogoAcquistoKind
+                )
               }
               className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
             >
@@ -263,7 +279,10 @@ export function ModificaArticoloRigaModal({
               {scanning ? "Scansione…" : "Scansiona catalogo"}
             </button>
             <span className="pb-2 text-[11px] text-slate-500">
-              Solo {prefix}* con score ≥ soglia
+              {filterKind === "all"
+                ? "Tutte le categorie"
+                : `Solo ${prefix}*`}{" "}
+              · score ≥ soglia
             </span>
           </div>
 
@@ -276,7 +295,8 @@ export function ModificaArticoloRigaModal({
           {candidates != null ? (
             <div>
               <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                Candidati {prefix}*
+                Candidati
+                {filterKind === "all" ? " (tutte)" : ` ${prefix}*`}
                 {lastScanScore != null ? ` (≥ ${lastScanScore}%)` : ""}
               </p>
               {candidates.length === 0 ? (
@@ -322,6 +342,30 @@ export function ModificaArticoloRigaModal({
               )}
             </div>
           ) : null}
+
+          <label className="block text-xs text-slate-500">
+            Categoria articolo (targa)
+            <select
+              value={kind}
+              onChange={(e) => {
+                const next = e.target.value as CatalogoAcquistoKind;
+                setKind(next);
+                if (filterKind !== "all") setFilterKind(next);
+                setSelectedId(null);
+                const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
+                setCodice(
+                  `${catalogoKindPrefix(next)}${body || generateSkuProposal(nome || descrizioneRiga, next).body}`
+                );
+              }}
+              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
+            >
+              {KIND_OPTIONS.filter((o) => o.value !== "all").map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <label className="block text-xs text-slate-500">
             Targa / codice

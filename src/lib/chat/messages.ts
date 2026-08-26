@@ -71,7 +71,7 @@ export async function insertChatMessageAndNotify(
       file_name: payload.fileName ?? null,
     })
     .select(
-      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
+      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
     )
     .single();
 

@@ -11,6 +11,8 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type TranscriptStatus = "pending" | "done" | "error";
+
 export type ChatMessage = {
   id: string;
   conversationId: string;
@@ -23,6 +25,12 @@ export type ChatMessage = {
   fileUrl: string | null;
   fileType: string | null;
   fileName: string | null;
+  transcriptText: string | null;
+  transcriptStatus: TranscriptStatus | null;
+  transcriptAt: string | null;
+  transcriptBy: string | null;
+  transcriptModel: string | null;
+  transcriptError: string | null;
 };
 
 export type ChatContact = {
@@ -75,7 +83,16 @@ export function mapMessage(row: {
   file_url: string | null;
   file_type: string | null;
   file_name: string | null;
+  transcript_text?: string | null;
+  transcript_status?: string | null;
+  transcript_at?: string | null;
+  transcript_by?: string | null;
+  transcript_model?: string | null;
+  transcript_error?: string | null;
 }): ChatMessage {
+  const ts = row.transcript_status;
+  const transcriptStatus =
+    ts === "pending" || ts === "done" || ts === "error" ? ts : null;
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -88,6 +105,12 @@ export function mapMessage(row: {
     fileUrl: row.file_url,
     fileType: row.file_type,
     fileName: row.file_name,
+    transcriptText: row.transcript_text ?? null,
+    transcriptStatus,
+    transcriptAt: row.transcript_at ?? null,
+    transcriptBy: row.transcript_by ?? null,
+    transcriptModel: row.transcript_model ?? null,
+    transcriptError: row.transcript_error ?? null,
   };
 }
 

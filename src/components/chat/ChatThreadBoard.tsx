@@ -12,7 +12,9 @@ import {
   FaFlag,
   FaMicrophone,
   FaTrash,
+  FaClosedCaptioning,
 } from "react-icons/fa6";
+import { transcribeChatVoiceMessageAction } from "@/app/actions/chat-transcribe";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import {
   attachChatLifecycleRefresh,
@@ -65,16 +67,26 @@ function MessageBubble({
   mine,
   avatar,
   onDelete,
+  onTranscribe,
+  transcribing,
 }: {
   message: ChatMessage;
   mine: boolean;
   avatar: ChatProfileAvatar;
   onDelete: () => void;
+  onTranscribe: () => void;
+  transcribing: boolean;
 }) {
   // Vignetta: angolo a spigolo verso l'avatar
   const bubbleRadius = mine
     ? "rounded-2xl rounded-br-sm"
     : "rounded-2xl rounded-bl-sm";
+
+  const hasTranscript =
+    message.transcriptStatus === "done" &&
+    Boolean(message.transcriptText?.trim());
+  const transcriptPending =
+    transcribing || message.transcriptStatus === "pending";
 
   return (
     <div
@@ -106,11 +118,45 @@ function MessageBubble({
           <p className="relative whitespace-pre-wrap">{message.content}</p>
         ) : null}
         {message.audioUrl ? (
-          <audio
-            controls
-            src={message.audioUrl}
-            className="relative mt-1 max-w-full"
-          />
+          <div className="relative mt-1 space-y-1.5">
+            <audio controls src={message.audioUrl} className="max-w-full" />
+            {hasTranscript ? (
+              <p
+                className={`whitespace-pre-wrap rounded-md px-2 py-1.5 text-xs leading-snug ${
+                  mine
+                    ? "bg-white/15 text-white"
+                    : "bg-white text-slate-800 border border-slate-200"
+                }`}
+              >
+                {message.transcriptText}
+              </p>
+            ) : null}
+            {message.transcriptStatus === "error" && message.transcriptError ? (
+              <p
+                className={`text-[10px] ${
+                  mine ? "text-red-100" : "text-red-700"
+                }`}
+              >
+                Trascrizione: {message.transcriptError}
+              </p>
+            ) : null}
+            {!hasTranscript ? (
+              <button
+                type="button"
+                disabled={transcriptPending}
+                onClick={onTranscribe}
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium disabled:opacity-50 ${
+                  mine
+                    ? "bg-white/20 text-white hover:bg-white/30"
+                    : "bg-white text-slate-700 hover:bg-slate-50 border border-slate-200"
+                }`}
+                title="Converti audio in testo (AI)"
+              >
+                <FaClosedCaptioning size={10} />
+                {transcriptPending ? "Trascrizione…" : "Trascrivi"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {message.fileUrl ? (
           <a
@@ -167,6 +213,9 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
+  const [transcribingIds, setTranscribingIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const hasText = text.trim().length > 0;
 
@@ -432,6 +481,26 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
                 message={m}
                 mine={mine}
                 avatar={avatarFor(m.senderId)}
+                transcribing={transcribingIds.has(m.id)}
+                onTranscribe={() => {
+                  void (async () => {
+                    setTranscribingIds((prev) => new Set(prev).add(m.id));
+                    setError(null);
+                    const res = await transcribeChatVoiceMessageAction({
+                      messageId: m.id,
+                    });
+                    setTranscribingIds((prev) => {
+                      const next = new Set(prev);
+                      next.delete(m.id);
+                      return next;
+                    });
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    mergeMessage(res.message);
+                  })();
+                }}
                 onDelete={() => {
                   const supabase = createClient();
                   void deleteChatMessage(supabase, m.id).then(() => {
