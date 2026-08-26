@@ -44,6 +44,9 @@ export type FatturaRiga = {
    * Solo se prezzo unitario di listino ≥ SOGLIA_BENE_AMMORTIZZABILE_EUR.
    */
   isBeneAmmortizzabile?: boolean;
+  /** Match AI Gemini/local (solo ricevute). */
+  aiMatchData?: Record<string, unknown> | null;
+  verificationStatus?: "AUTO_MATCHED" | "NEEDS_REVIEW" | "VERIFIED" | null;
 };
 
 /** Soglia fiscale beni strumentali di basso costo (EUR, listino unitario). */
@@ -560,6 +563,11 @@ const rigaSchemaBase = z.object({
   ivaPercentuale: z.number().min(0).max(100).optional(),
   importo: z.number().optional(),
   isBeneAmmortizzabile: z.boolean().optional(),
+  aiMatchData: z.record(z.string(), z.unknown()).nullable().optional(),
+  verificationStatus: z
+    .enum(["AUTO_MATCHED", "NEEDS_REVIEW", "VERIFIED"])
+    .nullable()
+    .optional(),
 });
 
 const dilazioneSchema = z.object({
@@ -655,6 +663,8 @@ function transformFatturaInput(
         !isNc &&
         canFlagBeneAmmortizzabile(Math.abs(r.prezzoUnitario)) &&
         Boolean(r.isBeneAmmortizzabile),
+      aiMatchData: r.aiMatchData ?? null,
+      verificationStatus: r.verificationStatus ?? null,
     };
   });
   const dilazioni = isNc
@@ -868,6 +878,14 @@ function mapRighe(
             : undefined,
         importo: Number(r.importo) || 0,
         isBeneAmmortizzabile: Boolean(r.is_bene_ammortizzabile),
+        aiMatchData:
+          "ai_match_data" in ricevuta && ricevuta.ai_match_data
+            ? (ricevuta.ai_match_data as Record<string, unknown>)
+            : null,
+        verificationStatus:
+          "verification_status" in ricevuta && ricevuta.verification_status
+            ? (ricevuta.verification_status as FatturaRiga["verificationStatus"])
+            : null,
       };
     });
 }

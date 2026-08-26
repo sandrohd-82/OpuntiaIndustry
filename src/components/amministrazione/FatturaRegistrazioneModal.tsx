@@ -39,6 +39,14 @@ import {
   type RigaCatalogoMatchHint,
 } from "@/app/actions/catalogo-collega";
 import {
+  invoiceAiMatchAction,
+  type InvoiceAiMatchActionResult,
+} from "@/app/actions/invoice-ai-match";
+import {
+  InvoiceAIMatchModal,
+  InvoiceAiMatchBadge,
+} from "@/components/amministrazione/InvoiceAIMatchModal";
+import {
   listCollegamentiByCodiciAction,
   type ArticoloRef,
 } from "@/app/actions/catalogo-collegamenti";
@@ -310,6 +318,13 @@ export function FatturaRegistrazioneModal({
   const [matchHints, setMatchHints] = useState<
     Record<string, RigaCatalogoMatchHint>
   >({});
+  const [aiMatches, setAiMatches] = useState<
+    Record<string, InvoiceAiMatchActionResult>
+  >({});
+  const [aiMatchModalIndex, setAiMatchModalIndex] = useState<number | null>(
+    null
+  );
+  const [aiMatchPending, setAiMatchPending] = useState(false);
   const initialMatchDocKey = ricevutaMatchDocKey(
     initial?.id,
     prefill?.ficId ?? initial?.ficId,
@@ -866,6 +881,76 @@ export function FatturaRegistrazioneModal({
       }
       setMatchHints(hints);
       setAutoLinkCount(res.autoLinkedCount);
+
+      // Gemini / AI match sulle righe non auto-linkate al 100%
+      const updatedRighe = righe.map((r, index) => {
+        const hit = byKey.get(String(index));
+        if (!hit?.autoCodice) return r;
+        const current = (r.codice ?? "").trim();
+        if (current && current !== "—") return r;
+        return { ...r, codice: hit.autoCodice };
+      });
+
+      const linesForAi = updatedRighe
+        .map((r, index) => ({
+          key: String(index),
+          descrizione: r.descrizione ?? "",
+          quantita: typeof r.quantita === "number" ? r.quantita : undefined,
+          prezzoUnitario:
+            typeof r.prezzoUnitario === "number" ? r.prezzoUnitario : undefined,
+          codiceFornitore: "",
+          codiceAttuale: r.codice ?? "",
+        }))
+        .filter((l) => {
+          const hit = byKey.get(l.key);
+          return !hit?.autoCodice;
+        });
+
+      if (linesForAi.length > 0) {
+        setAiMatchPending(true);
+        try {
+          const aiRes = await invoiceAiMatchAction({
+            fornitoreId: anagraficaId || null,
+            fatturaId: initial?.id ?? null,
+            lines: linesForAi,
+          });
+          if (!cancelled && aiRes.success) {
+            const nextAi: Record<string, InvoiceAiMatchActionResult> = {};
+            for (const m of aiRes.results) {
+              nextAi[m.key] = m;
+            }
+            setAiMatches(nextAi);
+            setRighe((prev) =>
+              prev.map((r, index) => {
+                const m = nextAi[String(index)];
+                if (!m) return r;
+                const current = (r.codice ?? "").trim();
+                if (current && current !== "—") {
+                  return {
+                    ...r,
+                    aiMatchData: m.ai_match_data as Record<string, unknown>,
+                    verificationStatus: m.verification_status,
+                  };
+                }
+                const code =
+                  m.confidence_score >= 100 && m.matched_codice
+                    ? m.matched_codice
+                    : m.suggested_internal_code || current;
+                return {
+                  ...r,
+                  codice: code || r.codice,
+                  prodottoId: m.matched_product_id || r.prodottoId,
+                  aiMatchData: m.ai_match_data as Record<string, unknown>,
+                  verificationStatus: m.verification_status,
+                };
+              })
+            );
+          }
+        } finally {
+          if (!cancelled) setAiMatchPending(false);
+        }
+      }
+
       // Chiude overlay se aperto; idempotente dopo delete/remount.
       closeOverlayForever();
     })();
@@ -1532,8 +1617,8 @@ export function FatturaRegistrazioneModal({
               aria-hidden
             />
             <p className="text-sm font-medium leading-relaxed text-slate-800 sm:text-base">
-              Controllo corrispondenze: auto-assegnazione al 100% e
-              segnalazione delle altre…
+              Controllo corrispondenze: auto-assegnazione al 100%, poi match AI
+              Gemini sulle altre righe…
             </p>
           </div>
         </div>
@@ -1898,16 +1983,12 @@ export function FatturaRegistrazioneModal({
                       <strong>100%</strong> già collegate al catalogo.{" "}
                     </>
                   ) : null}
-                  Solo le righe senza corrispondenza esatta restano da
-                  gestire (badge / <strong>Cerca</strong>). Il menu codice
-                  mostra match ≥70%.
-                  {Object.values(matchHints).filter((h) => h.status !== "ok")
-                    .length > 0
-                    ? ` · ${
-                        Object.values(matchHints).filter(
-                          (h) => h.status !== "ok"
-                        ).length
-                      } righe da rivedere`
+                  Badge colorati = confidenza AI (verde 100%, giallo parziale,
+                  blu nuova targa): clicca per la spiegazione. Usa{" "}
+                  <strong>Cerca</strong> per associazione manuale.
+                  {aiMatchPending ? " · Match AI in corso…" : null}
+                  {Object.keys(aiMatches).length > 0
+                    ? ` · ${Object.keys(aiMatches).length} righe analizzate dall'AI`
                     : null}
                 </span>
               </div>
@@ -2104,7 +2185,27 @@ export function FatturaRegistrazioneModal({
                           </div>
                           {isRicevuta
                             ? (() => {
-                                const hint = matchHints[String(index)];
+                                const key = String(index);
+                                const ai = aiMatches[key];
+                                const hint = matchHints[key];
+                                if (ai) {
+                                  const isNewTarga =
+                                    !ai.matched_product_id ||
+                                    ai.confidence_score < 55;
+                                  return (
+                                    <InvoiceAiMatchBadge
+                                      score={ai.confidence_score}
+                                      status={ai.verification_status}
+                                      suggestedCode={
+                                        ai.suggested_internal_code
+                                      }
+                                      isNewTarga={isNewTarga}
+                                      onClick={() =>
+                                        setAiMatchModalIndex(index)
+                                      }
+                                    />
+                                  );
+                                }
                                 if (
                                   !hint ||
                                   hint.status === "ok" ||
@@ -3294,7 +3395,25 @@ export function FatturaRegistrazioneModal({
             patchRiga(idx, {
               prodottoId: null,
               codice: hit.codice,
+              verificationStatus: "VERIFIED",
               ...(keepDesc ? {} : { descrizione: hit.nome }),
+            });
+            setAiMatches((prev) => {
+              const key = String(idx);
+              const cur = prev[key];
+              if (!cur) return prev;
+              return {
+                ...prev,
+                [key]: {
+                  ...cur,
+                  verification_status: "VERIFIED",
+                  suggested_internal_code: hit.codice,
+                  matched_codice: hit.codice,
+                  matched_nome: hit.nome,
+                  matched_product_id: hit.catalogoId,
+                  matched_kind: hit.catalogoKind,
+                },
+              };
             });
             setCollegaRigaIndex(null);
           }}
@@ -3302,6 +3421,55 @@ export function FatturaRegistrazioneModal({
             const idx = collegaRigaIndex;
             setCollegaRigaIndex(null);
             setCodificaRiga({ index: idx, kind });
+          }}
+        />
+      ) : null}
+
+      {aiMatchModalIndex !== null &&
+      aiMatches[String(aiMatchModalIndex)] &&
+      righe[aiMatchModalIndex] ? (
+        <InvoiceAIMatchModal
+          key={`ai-match-${aiMatchModalIndex}`}
+          open
+          line={{
+            descrizione: righe[aiMatchModalIndex].descrizione,
+            quantita: righe[aiMatchModalIndex].quantita,
+            prezzoUnitario: righe[aiMatchModalIndex].prezzoUnitario,
+            codice: righe[aiMatchModalIndex].codice,
+          }}
+          match={aiMatches[String(aiMatchModalIndex)]}
+          onClose={() => setAiMatchModalIndex(null)}
+          onConfirm={(codice) => {
+            const idx = aiMatchModalIndex;
+            const m = aiMatches[String(idx)];
+            patchRiga(idx, {
+              codice,
+              prodottoId: m?.matched_product_id || null,
+              verificationStatus: "VERIFIED",
+              aiMatchData: m
+                ? ({
+                    ...m.ai_match_data,
+                    suggested_internal_code: codice,
+                  } as Record<string, unknown>)
+                : undefined,
+            });
+            setAiMatches((prev) => {
+              const key = String(idx);
+              const cur = prev[key];
+              if (!cur) return prev;
+              return {
+                ...prev,
+                [key]: {
+                  ...cur,
+                  suggested_internal_code: codice,
+                  verification_status: "VERIFIED",
+                },
+              };
+            });
+            setAiMatchModalIndex(null);
+          }}
+          onAssociaManualmente={() => {
+            setCollegaRigaIndex(aiMatchModalIndex);
           }}
         />
       ) : null}

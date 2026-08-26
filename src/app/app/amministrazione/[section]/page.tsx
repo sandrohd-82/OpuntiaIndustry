@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { AiScoutBoard } from "@/components/amministrazione/AiScoutBoard";
 import { RubricaBoard } from "@/components/amministrazione/RubricaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -47,19 +46,6 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RubricaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "scouting-ai") {
-    const page = resolveAmministrazionePage([section]);
-    if (!page) notFound();
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <AiScoutBoard />
         </div>
       </>
     );

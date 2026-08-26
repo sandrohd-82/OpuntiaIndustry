@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { sendLeadEmailAction } from "@/app/actions/ai-scout";
+import { invoiceAiMatchAction } from "@/app/actions/invoice-ai-match";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 
-/** POST /api/amministrazione/send-lead-email */
+/** POST /api/amministrazione/invoices/ai-match */
 export async function POST(req: Request) {
   const auth = await getAuthContext();
   if (!auth) {
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "JSON non valido." }, { status: 400 });
   }
 
-  const result = await sendLeadEmailAction(body);
+  const result = await invoiceAiMatchAction(body);
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

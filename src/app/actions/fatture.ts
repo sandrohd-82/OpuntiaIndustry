@@ -1377,6 +1377,8 @@ export async function createFatturaAction(
         importo: r.importo,
         sort_order: i,
         is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
+        ai_match_data: (r.aiMatchData as Record<string, unknown>) ?? {},
+        verification_status: r.verificationStatus ?? "NEEDS_REVIEW",
         created_by: auth.userId,
         updated_by: auth.userId,
       })
@@ -1892,6 +1894,8 @@ export async function updateFatturaAction(
         importo: r.importo,
         sort_order: i,
         is_bene_ammortizzabile: Boolean(r.isBeneAmmortizzabile),
+        ai_match_data: (r.aiMatchData as Record<string, unknown>) ?? {},
+        verification_status: r.verificationStatus ?? "NEEDS_REVIEW",
         created_by: auth.userId,
         updated_by: auth.userId,
       })

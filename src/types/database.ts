@@ -1205,6 +1205,10 @@ export interface FatturaRicevutaRigaRow {
   importo: number;
   sort_order: number;
   is_bene_ammortizzabile: boolean;
+  ai_match_data: Record<string, unknown>;
+  verification_status: "AUTO_MATCHED" | "NEEDS_REVIEW" | "VERIFIED";
+  ai_verified_by: string | null;
+  ai_verified_at: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -1225,6 +1229,10 @@ export type FatturaRicevutaRigaInsert = {
   importo?: number;
   sort_order?: number;
   is_bene_ammortizzabile?: boolean;
+  ai_match_data?: Record<string, unknown>;
+  verification_status?: "AUTO_MATCHED" | "NEEDS_REVIEW" | "VERIFIED";
+  ai_verified_by?: string | null;
+  ai_verified_at?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
 };
