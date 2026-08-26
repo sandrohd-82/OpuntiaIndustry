@@ -80,6 +80,31 @@ export function scoreNomeAffinity(query: string, nome: string): number {
   return Math.max(0, Math.min(100, Math.round(editSim * 100)));
 }
 
+/**
+ * Copertura token del nome catalogo nella descrizione fattura (0–100).
+ * Utile quando la riga è lunga e il nome anagrafica è corto ma parlante.
+ */
+export function scoreTokenCoverage(query: string, nome: string): number {
+  const qSet = new Set(
+    significantTokensFromNorm(normalizeAffinityText(query))
+  );
+  const nTokens = significantTokensFromNorm(normalizeAffinityText(nome));
+  if (!qSet.size || !nTokens.length) return 0;
+
+  let hits = 0;
+  for (const t of nTokens) {
+    if (qSet.has(t)) hits += 1;
+  }
+  // Evita falsi positivi su nomi molto corti con 1 solo token generico
+  if (nTokens.length === 1 && hits === 1) {
+    const only = nTokens[0]!;
+    if (only.length < 5) return Math.min(60, Math.round((hits / nTokens.length) * 100));
+  }
+  if (nTokens.length >= 3 && hits < 2) return 0;
+
+  return Math.max(0, Math.min(100, Math.round((hits / nTokens.length) * 100)));
+}
+
 export function scoreCatalogVoce(
   query: string,
   voce: LocalCatalogVoce
@@ -87,6 +112,21 @@ export function scoreCatalogVoce(
   const byNome = scoreNomeAffinity(query, voce.nome);
   if (byNome >= 92) return byNome;
   return Math.max(byNome, scoreNomeAffinity(query, voce.codice));
+}
+
+/** Score ricco: stringa + copertura token (per scan descrizione lunga). */
+export function scoreCatalogVoceRich(
+  query: string,
+  voce: LocalCatalogVoce
+): number {
+  return Math.max(
+    scoreCatalogVoce(query, voce),
+    scoreTokenCoverage(query, voce.nome),
+    // codice: solo se abbastanza lungo da essere distintivo
+    voce.codice.trim().length >= 6
+      ? Math.min(85, scoreTokenCoverage(query, voce.codice))
+      : 0
+  );
 }
 
 /**

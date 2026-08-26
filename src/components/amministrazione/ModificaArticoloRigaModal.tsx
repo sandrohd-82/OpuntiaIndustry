@@ -31,6 +31,8 @@ const KIND_OPTIONS: Array<{ value: CatalogoAcquistoKind; label: string }> = [
   { value: "contributo", label: "Ct — Contributo" },
 ];
 
+const DEFAULT_MIN_SCORE = 50;
+
 export function ModificaArticoloRigaModal({
   open,
   draft,
@@ -46,6 +48,7 @@ export function ModificaArticoloRigaModal({
   const [kind, setKind] = useState<CatalogoAcquistoKind>(draft.kind);
   const [codice, setCodice] = useState(draft.codice);
   const [nome, setNome] = useState(draft.nome);
+  const [minScore, setMinScore] = useState(DEFAULT_MIN_SCORE);
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [candidates, setCandidates] = useState<ScanModificaCandidato[] | null>(
@@ -53,17 +56,20 @@ export function ModificaArticoloRigaModal({
   );
   const [scanNote, setScanNote] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastScanScore, setLastScanScore] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setKind(draft.kind);
     setCodice(draft.codice);
     setNome(draft.nome);
+    setMinScore(DEFAULT_MIN_SCORE);
     setError(null);
     setScanning(false);
     setCandidates(null);
     setScanNote(null);
     setSelectedId(null);
+    setLastScanScore(null);
   }, [open, draft]);
 
   if (!open) return null;
@@ -73,6 +79,9 @@ export function ModificaArticoloRigaModal({
   function onKindChange(next: CatalogoAcquistoKind) {
     setKind(next);
     setSelectedId(null);
+    setCandidates(null);
+    setScanNote(null);
+    setLastScanScore(null);
     const body = codice.replace(/^(Sz|Pr|Mp|Ct)/i, "");
     const nextPrefix = catalogoKindPrefix(next);
     setCodice(
@@ -88,7 +97,14 @@ export function ModificaArticoloRigaModal({
     setError(null);
   }
 
+  function clampScore(raw: number): number {
+    if (!Number.isFinite(raw)) return DEFAULT_MIN_SCORE;
+    return Math.min(95, Math.max(20, Math.round(raw)));
+  }
+
   async function runScan() {
+    const soglia = clampScore(minScore);
+    setMinScore(soglia);
     setScanning(true);
     setError(null);
     setScanNote(null);
@@ -101,6 +117,8 @@ export function ModificaArticoloRigaModal({
       codiceAttuale: codice,
       fatturaId: fatturaId ?? null,
       fornitoreId: fornitoreId ?? null,
+      kind,
+      minScore: soglia,
     });
     setScanning(false);
     if (!res.success) {
@@ -109,11 +127,16 @@ export function ModificaArticoloRigaModal({
       return;
     }
     setCandidates(res.candidates);
+    setLastScanScore(res.minScore);
+    const kindLabel =
+      KIND_OPTIONS.find((o) => o.value === res.kind)?.label ?? res.kind;
     const parts: string[] = [];
     if (res.usedGemini) parts.push(`Gemini (${res.model})`);
     else parts.push(res.model);
+    parts.push(kindLabel);
+    parts.push(`soglia ≥ ${res.minScore}%`);
     if (res.candidates.length === 0) {
-      parts.push("nessun codice con corrispondenza > 75%");
+      parts.push("nessun codice sopra soglia");
       if (res.suggestedCode) {
         parts.push(`proposta nuova targa: ${res.suggestedCode}`);
         setCodice(res.suggestedCode);
@@ -162,8 +185,8 @@ export function ModificaArticoloRigaModal({
             Modifica targa / categoria
           </h2>
           <p className="text-xs text-slate-500">
-            Modifica manuale, scan catalogo o selezione match &gt; 75%. In
-            memoria fino al salvataggio fattura.
+            Scegli la categoria, regola la soglia e scansiona. In memoria fino
+            al salvataggio fattura.
           </p>
         </div>
 
@@ -177,7 +200,38 @@ export function ModificaArticoloRigaModal({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <label className="block text-xs text-slate-500">
+            Categoria (filtra lo scan)
+            <select
+              value={kind}
+              onChange={(e) =>
+                onKindChange(e.target.value as CatalogoAcquistoKind)
+              }
+              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
+            >
+              {KIND_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block text-xs text-slate-500">
+              Soglia corrispondenza %
+              <input
+                type="number"
+                min={20}
+                max={95}
+                step={5}
+                value={minScore}
+                onChange={(e) =>
+                  setMinScore(clampScore(Number(e.target.value)))
+                }
+                className="mt-1 w-24 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
+              />
+            </label>
             <button
               type="button"
               disabled={scanning || !descrizioneRiga.trim()}
@@ -186,8 +240,8 @@ export function ModificaArticoloRigaModal({
             >
               {scanning ? "Scansione…" : "Scansiona catalogo"}
             </button>
-            <span className="text-[11px] text-slate-500">
-              Mostra codici con corrispondenza &gt; 75%
+            <span className="pb-2 text-[11px] text-slate-500">
+              Solo {prefix}* con score ≥ soglia
             </span>
           </div>
 
@@ -200,11 +254,13 @@ export function ModificaArticoloRigaModal({
           {candidates != null ? (
             <div>
               <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                Candidati catalogo (&gt; 75%)
+                Candidati {prefix}*
+                {lastScanScore != null ? ` (≥ ${lastScanScore}%)` : ""}
               </p>
               {candidates.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-[var(--border)] px-3 py-3 text-xs text-slate-500">
-                  Nessun match sopra soglia. Puoi modificare targa e nome a mano.
+                  Nessun match sopra soglia in questa categoria. Abbassa la % o
+                  modifica targa/nome a mano.
                 </p>
               ) : (
                 <ul className="max-h-48 space-y-1.5 overflow-y-auto">
@@ -244,23 +300,6 @@ export function ModificaArticoloRigaModal({
               )}
             </div>
           ) : null}
-
-          <label className="block text-xs text-slate-500">
-            Categoria
-            <select
-              value={kind}
-              onChange={(e) =>
-                onKindChange(e.target.value as CatalogoAcquistoKind)
-              }
-              className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-slate-900"
-            >
-              {KIND_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
 
           <label className="block text-xs text-slate-500">
             Targa / codice

@@ -1,6 +1,6 @@
 "use server";
 
-import { scoreNomeAffinity } from "@/lib/amministrazione/catalogo-affinity";
+import { scoreNomeAffinity, scoreCatalogVoceRich } from "@/lib/amministrazione/catalogo-affinity";
 import { AUTO_LINK_EXACT_MATCH_PCT } from "@/lib/amministrazione/catalogo-collega";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
@@ -353,8 +353,6 @@ export async function verifyInvoiceAiMatchRigaAction(
   return { success: true };
 }
 
-const SCAN_CANDIDATE_MIN_EXCLUSIVE = 75;
-
 const scanModificaSchema = z.object({
   descrizione: z.string().max(2000),
   quantita: z.number().finite().optional(),
@@ -362,6 +360,10 @@ const scanModificaSchema = z.object({
   codiceAttuale: z.string().max(120).optional().default(""),
   fatturaId: z.string().uuid().nullable().optional(),
   fornitoreId: z.string().uuid().nullable().optional(),
+  /** Categoria selezionata nel modal: filtra i candidati. */
+  kind: z.enum(["servizio", "prodotto", "materia", "contributo"]),
+  /** Soglia inclusiva 20–95 (default 50). */
+  minScore: z.number().int().min(20).max(95).optional().default(50),
 });
 
 export type ScanModificaCandidato = {
@@ -374,8 +376,8 @@ export type ScanModificaCandidato = {
 };
 
 /**
- * Scan on-demand da modal Modifica: candidati catalogo con score > 75%
- * (affinità locale + eventuale Gemini).
+ * Scan on-demand da modal Modifica: candidati nella categoria scelta
+ * con score >= minScore (token-aware + eventuale Gemini).
  */
 export async function scanModificaArticoloRigaAction(
   raw: unknown
@@ -387,6 +389,8 @@ export async function scanModificaArticoloRigaAction(
       suggestedCode: string | null;
       model: string;
       usedGemini: boolean;
+      minScore: number;
+      kind: "servizio" | "prodotto" | "materia" | "contributo";
     }
   | { success: false; error: string }
 > {
@@ -404,6 +408,9 @@ export async function scanModificaArticoloRigaAction(
     return { success: false, error: "Descrizione riga vuota." };
   }
 
+  const kind = parsed.data.kind;
+  const minScore = parsed.data.minScore;
+
   let catalog: CatalogSnippet[];
   try {
     catalog = await loadCatalogSnippets();
@@ -414,15 +421,13 @@ export async function scanModificaArticoloRigaAction(
     };
   }
 
-  const relevant = pickRelevantCatalog([{ descrizione: desc }], catalog);
+  const scoped = catalog.filter((c) => c.kind === kind);
+  const relevant = pickRelevantCatalog([{ descrizione: desc }], scoped);
   const byId = new Map<string, ScanModificaCandidato>();
 
-  for (const c of catalog) {
-    const score = Math.max(
-      scoreNomeAffinity(desc, c.nome),
-      scoreNomeAffinity(desc, c.codice)
-    );
-    if (score <= SCAN_CANDIDATE_MIN_EXCLUSIVE) continue;
+  for (const c of scoped) {
+    const score = scoreCatalogVoceRich(desc, c);
+    if (score < minScore) continue;
     const prev = byId.get(c.id);
     if (!prev || score > prev.score) {
       byId.set(c.id, {
@@ -455,7 +460,7 @@ export async function scanModificaArticoloRigaAction(
             codiceAttuale: parsed.data.codiceAttuale ?? "",
           },
         ],
-        catalog: relevant,
+        catalog: relevant.length > 0 ? relevant : scoped.slice(0, 180),
       });
       usedGemini = true;
       model = gem.model;
@@ -465,9 +470,9 @@ export async function scanModificaArticoloRigaAction(
         suggestedCode = hit.suggested_internal_code;
         if (
           hit.matched_product_id &&
-          hit.confidence_score > SCAN_CANDIDATE_MIN_EXCLUSIVE
+          hit.confidence_score >= minScore
         ) {
-          const cat = catalog.find((c) => c.id === hit.matched_product_id);
+          const cat = scoped.find((c) => c.id === hit.matched_product_id);
           if (cat) {
             const score = Math.round(hit.confidence_score);
             const prev = byId.get(cat.id);
@@ -490,16 +495,24 @@ export async function scanModificaArticoloRigaAction(
       console.error("[scan-modifica] gemini", e);
       model = "local-fallback";
       const local = localMatchLine(
-        { key: lineKey, descrizione: desc, codiceAttuale: parsed.data.codiceAttuale },
-        relevant
+        {
+          key: lineKey,
+          descrizione: desc,
+          codiceAttuale: parsed.data.codiceAttuale,
+        },
+        relevant.length > 0 ? relevant : scoped
       );
       geminiReasoning = local.ai_reasoning;
       suggestedCode = local.suggested_internal_code;
     }
   } else {
     const local = localMatchLine(
-      { key: lineKey, descrizione: desc, codiceAttuale: parsed.data.codiceAttuale },
-      relevant
+      {
+        key: lineKey,
+        descrizione: desc,
+        codiceAttuale: parsed.data.codiceAttuale,
+      },
+      relevant.length > 0 ? relevant : scoped
     );
     geminiReasoning = local.ai_reasoning;
     suggestedCode = local.suggested_internal_code;
@@ -513,11 +526,13 @@ export async function scanModificaArticoloRigaAction(
     entity_id: parsed.data.fatturaId ?? "draft",
     action: "invoice_ai_scan_modifica",
     actor_id: auth.userId,
-    summary: `Scan modifica riga: ${candidates.length} candidati >${SCAN_CANDIDATE_MIN_EXCLUSIVE}%`,
+    summary: `Scan modifica riga (${kind}): ${candidates.length} candidati ≥${minScore}%`,
     payload: {
       candidates: candidates.length,
       usedGemini,
       model,
+      kind,
+      minScore,
       fornitoreId: parsed.data.fornitoreId ?? null,
     },
   });
@@ -529,5 +544,7 @@ export async function scanModificaArticoloRigaAction(
     suggestedCode,
     model,
     usedGemini,
+    minScore,
+    kind,
   };
 }
