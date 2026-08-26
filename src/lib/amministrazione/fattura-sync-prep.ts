@@ -4,6 +4,7 @@ import {
   type CatalogoAcquistoKind,
 } from "@/lib/sku-generator";
 
+/** @deprecated Ghost spedizione dismesso: le righe restano attive e solo evidenziate in UI. */
 export type SyncGhostRiga = FatturaRiga & {
   ghostReason: "spedizione";
 };
@@ -45,9 +46,10 @@ export function isZeroImportoRiga(r: {
 }
 
 /**
- * Prep strutturale sync (Opzione A):
- * - toglie righe a importo 0
- * - toglie righe spedizione/imballaggio → somma in spedizione + IVA spedizione
+ * Prep strutturale sync (Opzione A aggiornata):
+ * - toglie solo righe a importo ~0
+ * - NON sposta più le righe «spedizione-like» nel campo Spedizione
+ *   (restano in elenco; UI le evidenzia in azzurro)
  */
 export function prepareFatturaSyncStructural(input: {
   righe: FatturaRiga[];
@@ -58,11 +60,11 @@ export function prepareFatturaSyncStructural(input: {
   spedizioneImporto: number;
   spedizioneIvaApplicata: boolean;
   removedZeroCount: number;
+  possibileSpedizioneCount: number;
 } {
-  const ghosts: SyncGhostRiga[] = [];
   const active: FatturaRiga[] = [];
-  let spedFromRows = 0;
   let removedZeroCount = 0;
+  let possibileSpedizioneCount = 0;
 
   for (const r of input.righe) {
     if (isZeroImportoRiga(r)) {
@@ -70,24 +72,21 @@ export function prepareFatturaSyncStructural(input: {
       continue;
     }
     if (isSpedizioneLikeDescrizione(r.descrizione)) {
-      spedFromRows += rigaImportoAssoluto(r);
-      ghosts.push({ ...r, ghostReason: "spedizione" });
-      continue;
+      possibileSpedizioneCount += 1;
     }
     active.push(r);
   }
 
   const existing = Math.max(0, Number(input.spedizioneExisting) || 0);
-  const spedizioneImporto =
-    Math.round((existing + spedFromRows) * 100) / 100;
-  const spedizioneIvaApplicata = spedizioneImporto > 0 || ghosts.length > 0;
+  const spedizioneImporto = Math.round(existing * 100) / 100;
 
   return {
     activeRighe: active,
-    ghostSpedizioneRighe: ghosts,
+    ghostSpedizioneRighe: [],
     spedizioneImporto,
-    spedizioneIvaApplicata,
+    spedizioneIvaApplicata: spedizioneImporto > 0,
     removedZeroCount,
+    possibileSpedizioneCount,
   };
 }
 

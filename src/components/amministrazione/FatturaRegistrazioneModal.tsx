@@ -49,9 +49,9 @@ import {
 import { ModificaArticoloRigaModal } from "@/components/amministrazione/ModificaArticoloRigaModal";
 import {
   buildNuovoArticoloDraft,
+  isSpedizioneLikeDescrizione,
   prepareFatturaSyncStructural,
   type NuovoArticoloSyncDraft,
-  type SyncGhostRiga,
 } from "@/lib/amministrazione/fattura-sync-prep";
 import type { CatalogoAcquistoKind } from "@/lib/sku-generator";
 import {
@@ -333,9 +333,6 @@ export function FatturaRegistrazioneModal({
     null
   );
   const [aiMatchPending, setAiMatchPending] = useState(false);
-  const [ghostSpedizioneRighe, setGhostSpedizioneRighe] = useState<
-    SyncGhostRiga[]
-  >([]);
   /** Nuovi articoli solo in memoria fino al salvataggio fattura. */
   const [pendingNuoviByKey, setPendingNuoviByKey] = useState<
     Record<string, NuovoArticoloSyncDraft>
@@ -816,8 +813,8 @@ export function FatturaRegistrazioneModal({
   }, [isRicevuta]);
 
   /**
-   * Prep strutturale sync (nuova ricevuta da FiC): toglie importo 0 e
-   * righe spedizione → campo spedizione + IVA.
+   * Prep strutturale sync (nuova ricevuta da FiC): toglie solo importo ~0.
+   * Righe «spedizione-like» restano in elenco (evidenziate in azzurro in UI).
    */
   useEffect(() => {
     if (!isRicevuta || isEdit || syncStructuralPrepDoneRef.current) return;
@@ -844,20 +841,8 @@ export function FatturaRegistrazioneModal({
       spedizioneExisting: numberOrZero(spedizione),
     });
 
-    if (
-      prep.removedZeroCount > 0 ||
-      prep.ghostSpedizioneRighe.length > 0 ||
-      prep.spedizioneImporto !== numberOrZero(spedizione)
-    ) {
+    if (prep.removedZeroCount > 0) {
       setRighe(toEditableRighe(prep.activeRighe, kind));
-      setGhostSpedizioneRighe(prep.ghostSpedizioneRighe);
-      setSpedizione(prep.spedizioneImporto);
-      if (prep.spedizioneIvaApplicata) {
-        setSpedizioneIvaApplicata(true);
-        setSpedizioneIvaPercentuale((prev) =>
-          prev === "" || prev == null ? 22 : prev
-        );
-      }
       // forza riesecuzione auto-link sul set filtrato
       autoLinkRunKeyRef.current = null;
     }
@@ -2235,7 +2220,9 @@ export function FatturaRegistrazioneModal({
                     </>
                   ) : null}
                   Badge colorati = confidenza AI. Righe <strong>gialle</strong> =
-                  nuovo codice in memoria (creato al salvataggio). Usa{" "}
+                  nuovo codice in memoria (creato al salvataggio). Righe{" "}
+                  <strong className="text-sky-800">azzurre</strong> = possibile
+                  spedizione (lasciate come riga: può essere un servizio). Usa{" "}
                   <strong>Modifica</strong> per targa/categoria.
                   {aiMatchPending ? " · Match AI in corso…" : null}
                   {Object.keys(pendingNuoviByKey).length > 0
@@ -2308,15 +2295,20 @@ export function FatturaRegistrazioneModal({
                     const isPendingNuovo = Boolean(
                       pendingNuoviByKey[String(index)]
                     );
+                    const isPossibileSpedizione = isSpedizioneLikeDescrizione(
+                      riga.descrizione
+                    );
                     return (
                       <tr
                         key={index}
                         className={
                           isPendingNuovo
                             ? "border-t border-amber-200/80 bg-amber-100/45"
-                            : isStorno && !isNc
-                              ? "border-t border-amber-200 bg-amber-50/50"
-                              : "border-t border-[var(--border)]"
+                            : isPossibileSpedizione
+                              ? "border-t border-sky-200 bg-sky-100/70"
+                              : isStorno && !isNc
+                                ? "border-t border-amber-200 bg-amber-50/50"
+                                : "border-t border-[var(--border)]"
                         }
                       >
                         {!isNc ? (
@@ -2512,6 +2504,15 @@ export function FatturaRegistrazioneModal({
                           </td>
                         ) : null}
                         <td className="px-2 py-2">
+                          <div className="flex flex-col gap-1">
+                            {isPossibileSpedizione ? (
+                              <span
+                                className="w-fit rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-sky-900"
+                                title="Possibile costo spedizione: resta come riga (può essere un servizio di gestione spedizioni)"
+                              >
+                                Possibile spedizione
+                              </span>
+                            ) : null}
                           <input
                             value={riga.descrizione}
                             onChange={(e) =>
@@ -2520,6 +2521,7 @@ export function FatturaRegistrazioneModal({
                             className="w-full min-w-[160px] rounded border border-[var(--border)] px-2 py-1.5"
                             required
                           />
+                          </div>
                         </td>
                         <td className="px-2 py-2">
                           <ClearableNumberInput
@@ -2661,47 +2663,6 @@ export function FatturaRegistrazioneModal({
                       </tr>
                     );
                   })}
-                  {isRicevuta &&
-                    ghostSpedizioneRighe.map((g, gi) => (
-                      <tr
-                        key={`ghost-sped-${gi}`}
-                        className="border-t border-dashed border-slate-200 bg-slate-50/40 text-slate-400 opacity-60"
-                        title="Riga spostata nel campo Spedizione"
-                      >
-                        {!isNc ? <td className="px-2 py-2" /> : null}
-                        <td className="px-2 py-2 font-mono text-[10px]">—</td>
-                        <td className="px-2 py-2">
-                          <span className="mr-1 rounded border border-slate-300 bg-white/70 px-1 text-[9px] font-semibold uppercase tracking-wide text-slate-500">
-                            Riga eliminata → spedizione
-                          </span>
-                          {g.descrizione}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {g.quantita}
-                        </td>
-                        {isRicevuta ? (
-                          <td className="px-2 py-2 text-[10px]">
-                            {g.unitaMisura || "NR"}
-                          </td>
-                        ) : null}
-                        <td className="px-2 py-2 tabular-nums">
-                          {formatEuro(g.prezzoUnitario)}
-                        </td>
-                        <td className="px-2 py-2 tabular-nums">
-                          {g.scontoPercentuale ?? 0}%
-                        </td>
-                        {isRicevuta ? (
-                          <td className="px-2 py-2 tabular-nums">
-                            {g.ivaPercentuale ?? 0}%
-                          </td>
-                        ) : null}
-                        <td className="px-2 py-2 tabular-nums">
-                          {formatEuro(g.importo)}
-                        </td>
-                        {!isNc ? <td className="px-2 py-2" /> : null}
-                        <td className="px-2 py-2" />
-                      </tr>
-                    ))}
                 </tbody>
               </table>
             </div>
