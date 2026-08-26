@@ -1744,6 +1744,9 @@ export type CatalogoServizioInsert = {
 };
 
 export type CatalogoServizioUpdate = Partial<CatalogoServizioInsert> & {
+  prezzo_unitario_medio?: number | null;
+  prezzo_medio_count?: number;
+  prezzo_medio_updated_at?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;
   pending_delete_at?: string | null;
@@ -1780,6 +1783,9 @@ export type CatalogoProdottoFornitoreInsert = {
 };
 
 export type CatalogoProdottoFornitoreUpdate = Partial<CatalogoProdottoFornitoreInsert> & {
+  prezzo_unitario_medio?: number | null;
+  prezzo_medio_count?: number;
+  prezzo_medio_updated_at?: string | null;
   deleted_at?: string | null;
   deleted_by?: string | null;
   pending_delete_at?: string | null;
