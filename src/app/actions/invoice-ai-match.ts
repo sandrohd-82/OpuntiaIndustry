@@ -1,6 +1,10 @@
 "use server";
 
 import { scoreNomeAffinity, scoreCatalogVoceRich } from "@/lib/amministrazione/catalogo-affinity";
+import {
+  recordDecision,
+  suggestCatalogFromHistory,
+} from "@/lib/learning/decision-events";
 import { AUTO_LINK_EXACT_MATCH_PCT } from "@/lib/amministrazione/catalogo-collega";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
@@ -381,7 +385,7 @@ export type ScanModificaCandidato = {
   nome: string;
   kind: "servizio" | "prodotto" | "materia" | "contributo";
   score: number;
-  source: "local" | "gemini";
+  source: "local" | "gemini" | "learning";
 };
 
 /**
@@ -531,7 +535,67 @@ export async function scanModificaArticoloRigaAction(
     model = "local-no-key";
   }
 
+  // Learning loop: boost / aggiungi candidati da decisioni storiche
+  try {
+    const hints = await suggestCatalogFromHistory({
+      query,
+      kind,
+      actorId: auth.userId,
+      limit: 15,
+    });
+    const byCode = new Map(scoped.map((c) => [c.codice.toLowerCase(), c]));
+    for (const h of hints) {
+      if (h.score < minScore) continue;
+      const cat = byCode.get(h.codice.toLowerCase());
+      if (!cat) continue;
+      const prev = byId.get(cat.id);
+      const score = Math.round(h.score);
+      if (!prev) {
+        byId.set(cat.id, {
+          id: cat.id,
+          codice: cat.codice,
+          nome: cat.nome,
+          kind: cat.kind,
+          score,
+          source: "learning",
+        });
+      } else if (score > prev.score) {
+        byId.set(cat.id, {
+          ...prev,
+          score,
+          source: prev.source === "gemini" ? "gemini" : "learning",
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[scan-modifica] learning", e);
+  }
+
   const candidates = [...byId.values()].sort((a, b) => b.score - a.score);
+
+  await recordDecision({
+    actorId: auth.userId,
+    module: "amministrazione",
+    context: "catalog_scan_search",
+    action: "search",
+    entityType: "fatture_ricevute",
+    entityId: parsed.data.fatturaId ?? null,
+    inputText: query,
+    choiceBefore: {
+      codiceAttuale: parsed.data.codiceAttuale ?? "",
+      kind,
+      minScore,
+    },
+    choiceAfter: {
+      candidateCount: candidates.length,
+      topCodici: candidates.slice(0, 5).map((c) => c.codice),
+    },
+    metadata: {
+      usedGemini,
+      model,
+      descrizioneFattura: descFattura.slice(0, 200) || null,
+    },
+  });
 
   await writeAuditLog({
     entity_type: "fatture_ricevute",

@@ -3,6 +3,7 @@
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { mapMessage, type ChatMessage } from "@/lib/chat/types";
+import { recordDecision } from "@/lib/learning/decision-events";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
@@ -170,6 +171,24 @@ export async function transcribeChatVoiceMessageAction(
       payload: {
         model: WHISPER_MODEL,
         chars: text.length,
+        conversationId: (updated as { conversation_id: string }).conversation_id,
+      },
+    });
+
+    await recordDecision({
+      actorId: auth.userId,
+      module: "chat",
+      context: "chat_voice_transcribe",
+      action: "transcribe",
+      entityType: "messages",
+      entityId: parsed.data.messageId,
+      inputText: text.slice(0, 500),
+      choiceBefore: { audioUrl: true },
+      choiceAfter: {
+        transcriptChars: text.length,
+        model: WHISPER_MODEL,
+      },
+      metadata: {
         conversationId: (updated as { conversation_id: string }).conversation_id,
       },
     });

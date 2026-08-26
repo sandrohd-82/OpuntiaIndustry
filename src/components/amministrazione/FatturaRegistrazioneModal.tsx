@@ -42,6 +42,7 @@ import {
   invoiceAiMatchAction,
   type InvoiceAiMatchActionResult,
 } from "@/app/actions/invoice-ai-match";
+import { recordDecisionAction } from "@/app/actions/learning";
 import {
   InvoiceAIMatchModal,
   InvoiceAiMatchBadge,
@@ -3715,6 +3716,7 @@ export function FatturaRegistrazioneModal({
           onConfirm={(codice) => {
             const idx = aiMatchModalIndex;
             const m = aiMatches[String(idx)];
+            const desc = righe[idx]?.descrizione ?? "";
             patchRiga(idx, {
               codice,
               prodottoId: null,
@@ -3738,6 +3740,25 @@ export function FatturaRegistrazioneModal({
                   verification_status: "VERIFIED",
                 },
               };
+            });
+            void recordDecisionAction({
+              module: "amministrazione",
+              context: "invoice_ai_confirm",
+              action: "confirm",
+              entityType: "fatture_ricevute",
+              entityId: initial?.id ?? null,
+              inputText: desc,
+              choiceBefore: {
+                suggested: m?.suggested_internal_code ?? null,
+                matched: m?.matched_codice ?? null,
+                score: m?.confidence_score ?? null,
+              },
+              choiceAfter: {
+                codice,
+                nome: m?.matched_nome ?? null,
+                kind: m?.matched_kind ?? null,
+              },
+              metadata: { rigaIndex: idx },
             });
             setAiMatchModalIndex(null);
           }}

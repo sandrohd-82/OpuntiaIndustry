@@ -945,6 +945,41 @@ export interface AuditLogRow {
   created_at: string;
 }
 
+export interface DecisionEventRow {
+  id: string;
+  actor_id: string | null;
+  occurred_at: string;
+  module: string;
+  context: string;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  input_text: string;
+  input_norm: string;
+  choice_before: Record<string, unknown>;
+  choice_after: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
+}
+
+export type DecisionEventInsert = {
+  id?: string;
+  actor_id?: string | null;
+  occurred_at?: string;
+  module: string;
+  context: string;
+  action: string;
+  entity_type?: string;
+  entity_id?: string | null;
+  input_text?: string;
+  input_norm?: string;
+  choice_before?: Record<string, unknown>;
+  choice_after?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  created_by?: string | null;
+};
+
 export interface AuditLogInsert {
   id?: string;
   entity_type: string;
@@ -2124,6 +2159,12 @@ export interface Database {
       audit_log: {
         Row: AuditLogRow;
         Insert: AuditLogInsert;
+        Update: never;
+        Relationships: [];
+      };
+      decision_events: {
+        Row: DecisionEventRow;
+        Insert: DecisionEventInsert;
         Update: never;
         Relationships: [];
       };

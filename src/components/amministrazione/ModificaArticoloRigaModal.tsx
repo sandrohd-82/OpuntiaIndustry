@@ -5,6 +5,7 @@ import {
   scanModificaArticoloRigaAction,
   type ScanModificaCandidato,
 } from "@/app/actions/invoice-ai-match";
+import { recordDecisionAction } from "@/app/actions/learning";
 import type { NuovoArticoloSyncDraft } from "@/lib/amministrazione/fattura-sync-prep";
 import {
   catalogoKindPrefix,
@@ -111,6 +112,22 @@ export function ModificaArticoloRigaModal({
     setCodice(c.codice);
     setNome(c.nome);
     setError(null);
+    void recordDecisionAction({
+      module: "amministrazione",
+      context: "catalog_scan_choose",
+      action: "choose",
+      entityType: "catalogo",
+      entityId: c.id,
+      inputText: testoRicerca.trim() || descrizioneRiga,
+      choiceBefore: { filterKind, minScore },
+      choiceAfter: {
+        codice: c.codice,
+        nome: c.nome,
+        kind: c.kind,
+        score: c.score,
+        source: c.source,
+      },
+    });
   }
 
   function clampScore(raw: number): number {
@@ -190,6 +207,20 @@ export function ModificaArticoloRigaModal({
       kind,
       codice: code,
       nome: name,
+    });
+    void recordDecisionAction({
+      module: "amministrazione",
+      context: "catalog_apply",
+      action: "confirm",
+      entityType: "fattura_riga",
+      inputText: descrizioneRiga,
+      choiceBefore: {
+        testoRicerca: testoRicerca.trim(),
+        filterKind,
+        selectedId,
+      },
+      choiceAfter: { codice: code, nome: name, kind },
+      metadata: { rigaKey: draft.rigaKey },
     });
     onClose();
   }
@@ -331,7 +362,11 @@ export function ModificaArticoloRigaModal({
                             </span>
                             <span className="text-[10px] uppercase text-slate-400">
                               {c.kind}
-                              {c.source === "gemini" ? " · AI" : ""}
+                              {c.source === "gemini"
+                                ? " · AI"
+                                : c.source === "learning"
+                                  ? " · appreso"
+                                  : ""}
                             </span>
                           </span>
                         </button>
