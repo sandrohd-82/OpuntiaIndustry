@@ -1,6 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
-import { isAdminLikeProfile } from "@/lib/auth/roles";
+import {
+  isAdminLikeProfile,
+  isSuperadminProfile,
+} from "@/lib/auth/roles";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import type { AreaSlug } from "@/types/database";
 
@@ -32,4 +35,13 @@ export async function requireWebmailAccess() {
 
   if (!ok) notFound();
   return { auth, meta: AREA_ROUTES.webmail };
+}
+
+/** Solo SuperAdmin (es. collegamento caselle ↔ profili). */
+export async function requireSuperadmin() {
+  const auth = await getAuthContext();
+  if (!auth) redirect("/login");
+  if (!auth.isSecondFactorVerified) redirect("/verify-email");
+  if (!isSuperadminProfile(auth.profile)) notFound();
+  return { auth };
 }

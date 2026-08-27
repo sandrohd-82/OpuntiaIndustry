@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { FaPlus } from "react-icons/fa6";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
@@ -31,6 +32,7 @@ type Props = {
   userName: string;
   roleName: string;
   userId: string;
+  isSuperadmin?: boolean;
 };
 
 function sortAreasForSidebar(areas: UserArea[]) {
@@ -217,7 +219,13 @@ function NavTree({
   );
 }
 
-export function AppSidebar({ areas, userName, roleName, userId }: Props) {
+export function AppSidebar({
+  areas,
+  userName,
+  roleName,
+  userId,
+  isSuperadmin = false,
+}: Props) {
   const pathname = usePathname();
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
@@ -288,6 +296,17 @@ export function AppSidebar({ areas, userName, roleName, userId }: Props) {
                     </div>
                     {area.slug === "chat" ? (
                       <ChatUnreadBadge userId={userId} />
+                    ) : null}
+                    {area.slug === "webmail" && isSuperadmin ? (
+                      <Link
+                        href="/app/webmail/impostazioni"
+                        title="Impostazioni caselle (SuperAdmin)"
+                        aria-label="Impostazioni caselle WebMail"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--sidebar-muted)] hover:bg-slate-700 hover:text-white"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <FaPlus size={12} />
+                      </Link>
                     ) : null}
                   </div>
                   {open && (

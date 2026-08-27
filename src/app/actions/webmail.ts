@@ -2,7 +2,7 @@
 
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess, requireWebmailAccess } from "@/lib/areas/guard";
+import { requireSuperadmin, requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
@@ -128,7 +128,7 @@ export async function upsertWebmailAccountAction(
   | { success: true; account: WebmailAccountPublic }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireSuperadmin();
   const parsed = webmailAccountInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -192,6 +192,25 @@ export async function upsertWebmailAccountAction(
       .single();
     if (error) return { success: false, error: error.message };
 
+    if (ownerUserId) {
+      const { data: existingGrant } = await supabase
+        .from("webmail_account_grants")
+        .select("id")
+        .eq("account_id", data.id)
+        .eq("user_id", ownerUserId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!existingGrant) {
+        await supabase.from("webmail_account_grants").insert({
+          account_id: data.id,
+          user_id: ownerUserId,
+          can_send: true,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        });
+      }
+    }
+
     await writeAuditLog({
       entity_type: "webmail_accounts",
       entity_id: data.id,
@@ -202,6 +221,7 @@ export async function upsertWebmailAccountAction(
         provider: input.provider,
         email: input.emailAddress,
         username: input.username,
+        ownerUserId,
         password_changed: Boolean(input.password?.trim()),
       },
     });
@@ -227,13 +247,18 @@ export async function upsertWebmailAccountAction(
     .single();
   if (error) return { success: false, error: error.message };
 
-  await supabase.from("webmail_account_grants").insert({
-    account_id: data.id,
-    user_id: auth.userId,
-    can_send: true,
-    created_by: auth.userId,
-    updated_by: auth.userId,
-  });
+  // Grant al proprietario profilo (e al superadmin se diverso)
+  const grantUsers = new Set<string>([auth.userId]);
+  if (ownerUserId) grantUsers.add(ownerUserId);
+  for (const uid of grantUsers) {
+    await supabase.from("webmail_account_grants").insert({
+      account_id: data.id,
+      user_id: uid,
+      can_send: true,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    });
+  }
 
   await writeAuditLog({
     entity_type: "webmail_accounts",
@@ -241,10 +266,42 @@ export async function upsertWebmailAccountAction(
     action: "create",
     actor_id: auth.userId,
     summary: `Casella webmail collegata: ${input.emailAddress} (${input.provider})`,
-    payload: { provider: input.provider, email: input.emailAddress },
+    payload: {
+      provider: input.provider,
+      email: input.emailAddress,
+      ownerUserId,
+    },
   });
 
   return { success: true, account: mapAccount(data as Record<string, unknown>) };
+}
+
+export async function softDeleteWebmailAccountAction(
+  accountId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireSuperadmin();
+  const idParsed = z.string().uuid().safeParse(accountId);
+  if (!idParsed.success) return { success: false, error: "Casella non valida." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("webmail_accounts")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+      sync_enabled: false,
+    })
+    .eq("id", idParsed.data)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "webmail_accounts",
+    entity_id: idParsed.data,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Casella webmail disattivata (soft delete)",
+  });
+  return { success: true };
 }
 
 export type WebmailOperatorOption = {
@@ -266,7 +323,7 @@ export async function listWebmailOperatorsAction(): Promise<
   | { success: true; operators: WebmailOperatorOption[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireSuperadmin();
   const service = createServiceClient();
   const { data, error } = await service
     .from("profiles")
@@ -292,7 +349,7 @@ export async function listWebmailAccountGrantsAction(
   | { success: true; grants: WebmailAccountGrantPublic[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireSuperadmin();
   if (!accountId) return { success: false, error: "Casella non valida." };
   const service = createServiceClient();
   const { data, error } = await service
@@ -339,7 +396,7 @@ export async function setWebmailAccountGrantsAction(input: {
   accountId: string;
   userIds: string[];
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireSuperadmin();
   const accountId = input.accountId?.trim();
   if (!accountId) return { success: false, error: "Casella non valida." };
   const wanted = [

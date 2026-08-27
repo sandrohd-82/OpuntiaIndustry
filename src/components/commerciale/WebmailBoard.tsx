@@ -4,25 +4,18 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import {
   getWebmailBozzaForMessaggioAction,
   linkWebmailMessaggioAnagraficaAction,
-  listWebmailAccountGrantsAction,
   listWebmailAccountsAction,
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
-  listWebmailOperatorsAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
-  setWebmailAccountGrantsAction,
   updateWebmailBozzaAction,
-  upsertWebmailAccountAction,
-  type WebmailOperatorOption,
 } from "@/app/actions/webmail";
-import {
-  WEBMAIL_PROVIDER_PRESETS,
-  type WebmailAccountPublic,
-  type WebmailBozzaAi,
-  type WebmailCategoria,
-  type WebmailMessaggio,
-  type WebmailProvider,
+import type {
+  WebmailAccountPublic,
+  WebmailBozzaAi,
+  WebmailCategoria,
+  WebmailMessaggio,
 } from "@/lib/webmail/types";
 
 function formatWhen(iso: string | null) {
@@ -42,7 +35,6 @@ function linkStatoLabel(stato: WebmailMessaggio["linkStato"]) {
 
 export function WebmailBoard() {
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
-  const [canManageAccounts, setCanManageAccounts] = useState(false);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [messaggi, setMessaggi] = useState<WebmailMessaggio[]>([]);
   const [accountFilter, setAccountFilter] = useState<string>("");
@@ -55,25 +47,6 @@ export function WebmailBoard() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [setupOpen, setSetupOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [syncEnabled, setSyncEnabled] = useState(true);
-  const [grantAccountId, setGrantAccountId] = useState<string | null>(null);
-  const [operators, setOperators] = useState<WebmailOperatorOption[]>([]);
-  const [selectedGrantUserIds, setSelectedGrantUserIds] = useState<string[]>(
-    []
-  );
-
-  const [provider, setProvider] = useState<WebmailProvider>("aruba");
-  const preset = WEBMAIL_PROVIDER_PRESETS[provider];
-  const [accLabel, setAccLabel] = useState("Casella commerciale");
-  const [accEmail, setAccEmail] = useState("");
-  const [accUser, setAccUser] = useState("");
-  const [accPass, setAccPass] = useState("");
-  const [imapHost, setImapHost] = useState(preset.imapHost);
-  const [imapPort, setImapPort] = useState(preset.imapPort);
-  const [smtpHost, setSmtpHost] = useState(preset.smtpHost);
-  const [smtpPort, setSmtpPort] = useState(preset.smtpPort);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -110,50 +83,9 @@ export function WebmailBoard() {
       return;
     }
     setAccounts(a.accounts);
-    setCanManageAccounts(a.canManageAccounts);
     setCategorie(c.items);
     setMessaggi(m.messaggi);
   }, [accountFilter, categoriaFilter, onlyDraft]);
-
-  const grantAccount = useMemo(
-    () => accounts.find((a) => a.id === grantAccountId) ?? null,
-    [accounts, grantAccountId]
-  );
-
-  async function openGrants(accountId: string) {
-    setError(null);
-    setGrantAccountId(accountId);
-    const [ops, grants] = await Promise.all([
-      listWebmailOperatorsAction(),
-      listWebmailAccountGrantsAction(accountId),
-    ]);
-    if (!ops.success) {
-      setError(ops.error);
-      return;
-    }
-    if (!grants.success) {
-      setError(grants.error);
-      return;
-    }
-    setOperators(ops.operators);
-    setSelectedGrantUserIds(grants.grants.map((g) => g.userId));
-  }
-
-  function saveGrants() {
-    if (!grantAccountId) return;
-    startTransition(async () => {
-      const res = await setWebmailAccountGrantsAction({
-        accountId: grantAccountId,
-        userIds: selectedGrantUserIds,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setInfo("Assegnazione operatori salvata (audit registrato).");
-      setGrantAccountId(null);
-    });
-  }
 
   useEffect(() => {
     void reload();
@@ -176,52 +108,6 @@ export function WebmailBoard() {
     })();
   }, [selectedId]);
 
-  useEffect(() => {
-    if (editingId) return;
-    const p = WEBMAIL_PROVIDER_PRESETS[provider];
-    setImapHost(p.imapHost);
-    setImapPort(p.imapPort);
-    setSmtpHost(p.smtpHost);
-    setSmtpPort(p.smtpPort);
-  }, [provider, editingId]);
-
-  function resetAccountForm() {
-    setEditingId(null);
-    setProvider("aruba");
-    const p = WEBMAIL_PROVIDER_PRESETS.aruba;
-    setAccLabel("Casella commerciale");
-    setAccEmail("");
-    setAccUser("");
-    setAccPass("");
-    setImapHost(p.imapHost);
-    setImapPort(p.imapPort);
-    setSmtpHost(p.smtpHost);
-    setSmtpPort(p.smtpPort);
-    setSyncEnabled(true);
-  }
-
-  function openNewAccount() {
-    resetAccountForm();
-    setSetupOpen(true);
-  }
-
-  function openEditAccount(a: WebmailAccountPublic) {
-    setEditingId(a.id);
-    setProvider(a.provider);
-    setAccLabel(a.label);
-    setAccEmail(a.emailAddress);
-    setAccUser(a.username);
-    setAccPass("");
-    setImapHost(a.imapHost);
-    setImapPort(a.imapPort);
-    setSmtpHost(a.smtpHost);
-    setSmtpPort(a.smtpPort);
-    setSyncEnabled(a.syncEnabled);
-    setSetupOpen(true);
-    setError(null);
-    setInfo(null);
-  }
-
   function syncNow() {
     setInfo(null);
     startTransition(async () => {
@@ -233,43 +119,6 @@ export function WebmailBoard() {
       setInfo(
         `Sync: ${res.imported} nuovi, ${res.drafted} bozze` +
           (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
-      );
-      await reload();
-    });
-  }
-
-  function saveAccount() {
-    setInfo(null);
-    const wasEdit = Boolean(editingId);
-    startTransition(async () => {
-      const res = await upsertWebmailAccountAction({
-        id: editingId || undefined,
-        label: accLabel,
-        emailAddress: accEmail,
-        provider,
-        imapHost: imapHost || preset.imapHost,
-        imapPort: imapPort || preset.imapPort,
-        imapSecure: preset.imapSecure,
-        smtpHost: smtpHost || preset.smtpHost,
-        smtpPort: smtpPort || preset.smtpPort,
-        smtpSecure: preset.smtpSecure,
-        username:
-          provider === "generic"
-            ? (accUser || accEmail).trim()
-            : accEmail.trim(),
-        password: accPass.trim() || undefined,
-        syncEnabled,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setSetupOpen(false);
-      resetAccountForm();
-      setInfo(
-        wasEdit
-          ? `Casella ${res.account.emailAddress} aggiornata. Riprova «Sincronizza ora».`
-          : `Casella ${res.account.emailAddress} collegata.`
       );
       await reload();
     });
@@ -287,7 +136,12 @@ export function WebmailBoard() {
         setError(res.error);
         return;
       }
-      setInfo("Bozza aggiornata.");
+      setBozza((prev) =>
+        prev
+          ? { ...prev, subject: draftSubject, bodyText: draftBody }
+          : prev
+      );
+      setInfo("Bozza salvata.");
     });
   }
 
@@ -295,7 +149,7 @@ export function WebmailBoard() {
     if (!bozza) return;
     if (
       !window.confirm(
-        "Inviare questa email al destinatario? L'operazione è tracciata in audit ISO."
+        "Inviare questa email dalla casella collegata? L’operazione sarà registrata in audit."
       )
     ) {
       return;
@@ -316,27 +170,11 @@ export function WebmailBoard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Webmail multi-casella (Gmail / Aruba): sync automatico, smistamento in
-          categorie, bozze AI con human-in-the-loop. Nessun invio senza conferma
-          operatore. Procedure:{" "}
-          <code className="text-xs">docs/WEBMAIL-COLLEGAMENTO-GMAIL-ARUBA.md</code>
+          Webmail multi-casella (Gmail / Aruba): sync, smistamento e bozze AI con
+          conferma operatore. Le caselle si collegano solo da SuperAdmin (+
+          accanto a WebMail).
         </p>
         <div className="flex flex-wrap gap-2">
-          {canManageAccounts ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (setupOpen && !editingId) {
-                  setSetupOpen(false);
-                  return;
-                }
-                openNewAccount();
-              }}
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            >
-              Collega casella
-            </button>
-          ) : null}
           <button
             type="button"
             disabled={pending}
@@ -347,170 +185,6 @@ export function WebmailBoard() {
           </button>
         </div>
       </div>
-
-      {setupOpen && canManageAccounts ? (
-        <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold">
-              {editingId ? "Modifica casella" : "Nuova casella"}
-            </h2>
-            <button
-              type="button"
-              className="text-xs text-[var(--muted)] underline"
-              onClick={() => {
-                setSetupOpen(false);
-                resetAccountForm();
-              }}
-            >
-              Chiudi
-            </button>
-          </div>
-          <p className="text-xs text-[var(--muted)]">{preset.docsHint}</p>
-          {provider === "aruba" ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              Aruba: lo username IMAP è sempre l’email della casella aziendale.
-              Il browser a volte riempie da solo la mail personale del login —
-              quella non viene più usata.
-            </p>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">Provider</span>
-              <select
-                value={provider}
-                onChange={(e) =>
-                  setProvider(e.target.value as WebmailProvider)
-                }
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              >
-                <option value="aruba">Aruba</option>
-                <option value="gmail">Gmail</option>
-                <option value="generic">Generico</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">Etichetta</span>
-              <input
-                value={accLabel}
-                onChange={(e) => setAccLabel(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">Email casella</span>
-              <input
-                value={accEmail}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setAccEmail(v);
-                  if (provider !== "generic") setAccUser(v);
-                }}
-                autoComplete="off"
-                name="webmail-mailbox-email"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            {provider === "generic" ? (
-              <label className="text-sm">
-                <span className="mb-1 block text-xs font-medium">
-                  Username IMAP/SMTP
-                </span>
-                <input
-                  value={accUser}
-                  onChange={(e) => setAccUser(e.target.value)}
-                  autoComplete="off"
-                  name="webmail-mailbox-user"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-                />
-              </label>
-            ) : (
-              <div className="text-sm">
-                <span className="mb-1 block text-xs font-medium">
-                  Username IMAP/SMTP
-                </span>
-                <p className="rounded-lg border border-dashed border-[var(--border)] bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                  = email casella (non usa la mail personale del login)
-                  {accEmail ? (
-                    <>
-                      : <code>{accEmail}</code>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            )}
-            <label className="text-sm sm:col-span-2">
-              <span className="mb-1 block text-xs font-medium">
-                Password casella / App Password
-                {editingId ? " (lascia vuoto per non cambiare)" : ""}
-              </span>
-              <input
-                type="password"
-                value={accPass}
-                onChange={(e) => setAccPass(e.target.value)}
-                autoComplete="new-password"
-                name="webmail-mailbox-pass"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">IMAP host</span>
-              <input
-                value={imapHost}
-                onChange={(e) => setImapHost(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">IMAP porta</span>
-              <input
-                type="number"
-                value={imapPort}
-                onChange={(e) => setImapPort(Number(e.target.value) || 993)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">SMTP host</span>
-              <input
-                value={smtpHost}
-                onChange={(e) => setSmtpHost(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium">SMTP porta</span>
-              <input
-                type="number"
-                value={smtpPort}
-                onChange={(e) => setSmtpPort(Number(e.target.value) || 465)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="inline-flex items-center gap-2 text-sm sm:col-span-2">
-              <input
-                type="checkbox"
-                checked={syncEnabled}
-                onChange={(e) => setSyncEnabled(e.target.checked)}
-              />
-              Sync automatica abilitata
-            </label>
-          </div>
-          <button
-            type="button"
-            disabled={
-              pending ||
-              !accEmail ||
-              (!editingId && !accPass.trim())
-            }
-            onClick={saveAccount}
-            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {editingId
-              ? "Salva modifiche (area Amministrazione)"
-              : "Salva casella (area Amministrazione)"}
-          </button>
-        </section>
-      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <select
@@ -562,7 +236,7 @@ export function WebmailBoard() {
         <ul className="max-h-[70vh] space-y-2 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-2">
           {messaggi.length === 0 ? (
             <li className="p-4 text-center text-sm text-[var(--muted)]">
-              Nessun messaggio. Collega una casella e sincronizza.
+              Nessun messaggio. Se la casella è già collegata, sincronizza.
             </li>
           ) : (
             messaggi.map((m) => {
@@ -757,106 +431,22 @@ export function WebmailBoard() {
         </div>
       </div>
 
-      {grantAccount && canManageAccounts ? (
-        <section className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/60 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold text-sky-950">
-              Assegna operatori · {grantAccount.emailAddress}
-            </h2>
-            <button
-              type="button"
-              className="text-xs text-sky-800 underline"
-              onClick={() => setGrantAccountId(null)}
-            >
-              Chiudi
-            </button>
-          </div>
-          <p className="text-xs text-sky-900/80">
-            Solo gli operatori selezionati vedono messaggi e bozze di questa
-            casella. Superadmin e Amministrazione vedono sempre tutto.
-          </p>
-          <ul className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-sky-100 bg-white p-2">
-            {operators.length === 0 ? (
-              <li className="p-2 text-xs text-[var(--muted)]">
-                Nessun profilo attivo trovato.
-              </li>
-            ) : (
-              operators.map((op) => {
-                const checked = selectedGrantUserIds.includes(op.id);
-                return (
-                  <li key={op.id}>
-                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => {
-                          setSelectedGrantUserIds((prev) =>
-                            checked
-                              ? prev.filter((id) => id !== op.id)
-                              : [...prev, op.id]
-                          );
-                        }}
-                      />
-                      <span>
-                        {op.fullName || op.email}
-                        <span className="ml-1 text-xs text-[var(--muted)]">
-                          ({op.email})
-                        </span>
-                      </span>
-                    </label>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={saveGrants}
-            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Salva assegnazioni
-          </button>
-        </section>
-      ) : null}
-
       {accounts.length > 0 ? (
         <ul className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-xs">
           {accounts.map((a) => (
             <li
               key={a.id}
-              className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--border)] pb-2 last:border-0 last:pb-0"
+              className="border-b border-[var(--border)] pb-2 last:border-0 last:pb-0"
             >
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-slate-800">
-                  {a.label} · {a.emailAddress} ({a.provider})
-                </p>
-                <p className="text-[var(--muted)]">
-                  user IMAP: <code>{a.username}</code> · {a.imapHost}:{a.imapPort}{" "}
-                  · sync {a.syncEnabled ? "ON" : "OFF"} · ultimo{" "}
-                  {formatWhen(a.lastSyncAt)}
-                </p>
-                {a.lastSyncError ? (
-                  <p className="mt-1 text-red-700">{a.lastSyncError}</p>
-                ) : null}
-              </div>
-              {canManageAccounts ? (
-                <div className="flex shrink-0 flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => void openGrants(a.id)}
-                    className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900"
-                  >
-                    Assegna
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openEditAccount(a)}
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                  >
-                    Modifica
-                  </button>
-                </div>
+              <p className="font-medium text-slate-800">
+                {a.label} · {a.emailAddress} ({a.provider})
+              </p>
+              <p className="text-[var(--muted)]">
+                sync {a.syncEnabled ? "ON" : "OFF"} · ultimo{" "}
+                {formatWhen(a.lastSyncAt)}
+              </p>
+              {a.lastSyncError ? (
+                <p className="mt-1 text-red-700">{a.lastSyncError}</p>
               ) : null}
             </li>
           ))}
