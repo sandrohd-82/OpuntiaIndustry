@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FaArrowLeft,
   FaCheck,
+  FaCircleInfo,
   FaMicrophone,
   FaPaperclip,
   FaPaperPlane,
@@ -17,6 +18,7 @@ import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
+import { ChatTopicInfoModal } from "@/components/chat/ChatTopicInfoModal";
 import { recordDecisionAction } from "@/app/actions/learning";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
 import { sameChatDay } from "@/lib/chat/day-headers";
@@ -62,6 +64,7 @@ export function ChatTopicThreadBoard({
   const [pending, setPending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -302,6 +305,15 @@ export function ChatTopicThreadBoard({
               />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            className="shrink-0 rounded-lg border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-slate-50"
+            title="Info gruppo"
+            aria-label="Info gruppo"
+          >
+            <FaCircleInfo size={14} />
+          </button>
           <button
             type="button"
             onClick={() => setAddMembersOpen(true)}
@@ -570,6 +582,13 @@ export function ChatTopicThreadBoard({
             setError(null);
           }
         }}
+        onError={setError}
+      />
+
+      <ChatTopicInfoModal
+        open={infoOpen}
+        onClose={() => setInfoOpen(false)}
+        topicId={topicId}
         onError={setError}
       />
     </div>
