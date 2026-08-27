@@ -124,13 +124,14 @@ export async function syncWebmailAccount(
         const uidStr = String(uid);
         const { data: existing } = await supabase
           .from("webmail_messaggi")
-          .select("id")
+          .select("id, deleted_at")
           .eq("account_id", account.id)
           .eq("folder", "INBOX")
           .eq("message_uid", uidStr)
-          .is("deleted_at", null)
+          .limit(1)
           .maybeSingle();
 
+        // Esiste già (anche soft-deleted) → non reimportare
         if (existing?.id) continue;
 
         const downloaded = await client.download(uid, undefined, { uid: true });
@@ -242,6 +243,75 @@ export async function syncWebmailAccount(
       })
       .eq("id", account.id);
     return { imported, drafted, error: message };
+  }
+}
+
+const TRASH_CANDIDATES = [
+  "Trash",
+  "INBOX.Trash",
+  "INBOX/Trash",
+  "Deleted Messages",
+  "Deleted",
+  "Cestino",
+  "[Gmail]/Trash",
+];
+
+/**
+ * Best effort: sposta in Trash o marca \\Deleted sul server IMAP.
+ * Non fallisce il soft-delete locale se IMAP non risponde.
+ */
+export async function deleteImapMessageBestEffort(input: {
+  account: AccountRow;
+  folder: string;
+  messageUid: string;
+}): Promise<{ ok: boolean; detail: string }> {
+  const uidNum = Number(input.messageUid);
+  if (!Number.isFinite(uidNum) || uidNum <= 0) {
+    return { ok: false, detail: "UID IMAP non valido." };
+  }
+  const password = decryptWebmailSecret(input.account.password_encrypted);
+  const client = new ImapFlow({
+    host: input.account.imap_host,
+    port: input.account.imap_port,
+    secure: input.account.imap_secure,
+    auth: { user: input.account.username, pass: password },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const folder = input.folder || "INBOX";
+    const lock = await client.getMailboxLock(folder);
+    try {
+      for (const trash of TRASH_CANDIDATES) {
+        try {
+          const moved = await client.messageMove(String(uidNum), trash, {
+            uid: true,
+          });
+          if (moved) {
+            return { ok: true, detail: `Spostata in ${trash}` };
+          }
+        } catch {
+          // prova cartella successiva
+        }
+      }
+
+      await client.messageFlagsAdd(String(uidNum), ["\\Deleted"], {
+        uid: true,
+      });
+      return { ok: true, detail: "Marcata \\Deleted su IMAP" };
+    } finally {
+      lock.release();
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Errore IMAP";
+    return { ok: false, detail: msg };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { requireSuperadmin, requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
+  deleteImapMessageBestEffort,
   sendMailViaAccount,
   syncAllWebmailAccounts,
   syncWebmailAccount,
@@ -1395,4 +1396,104 @@ export async function linkWebmailAziendaReferenteAction(raw: unknown): Promise<
     linkStato: "collegata",
     rematch: false,
   });
+}
+
+/**
+ * Soft delete messaggio in gestionale + best effort cancellazione IMAP.
+ * La sync non reimporta UID già presenti (anche soft-deleted).
+ */
+export async function softDeleteWebmailMessaggioAction(
+  messaggioId: string
+): Promise<
+  | { success: true; imapOk: boolean; imapDetail: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id, account_id, folder, message_uid, subject, from_address")
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", msg.id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  // Soft-delete bozze collegate
+  await supabase
+    .from("webmail_bozze_ai")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("messaggio_id", msg.id)
+    .is("deleted_at", null);
+
+  let imapOk = false;
+  let imapDetail = "IMAP non tentato";
+  const { data: account } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", msg.account_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (account && msg.message_uid) {
+    const imapRes = await deleteImapMessageBestEffort({
+      account: account as Parameters<typeof deleteImapMessageBestEffort>[0]["account"],
+      folder: String(msg.folder || "INBOX"),
+      messageUid: String(msg.message_uid),
+    });
+    imapOk = imapRes.ok;
+    imapDetail = imapRes.detail;
+  } else {
+    imapDetail = "Casella o UID non disponibili per IMAP";
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(msg.id),
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Mail eliminata: ${msg.subject ?? ""}`,
+    payload: {
+      from: msg.from_address,
+      message_uid: msg.message_uid,
+      imapOk,
+      imapDetail,
+    },
+  });
+
+  await service.from("webmail_ai_elaborazioni").insert({
+    messaggio_id: msg.id,
+    account_id: msg.account_id,
+    action: "message_deleted",
+    ai_generated: false,
+    summary: `Messaggio soft-deleted (IMAP: ${imapDetail})`,
+    payload: { imapOk, imapDetail },
+    created_by: auth.userId,
+  });
+
+  return { success: true, imapOk, imapDetail };
 }

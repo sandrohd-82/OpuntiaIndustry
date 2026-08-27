@@ -12,6 +12,7 @@ import {
   rejectWebmailCategoriaSuggestionAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
+  softDeleteWebmailMessaggioAction,
   updateWebmailBozzaAction,
 } from "@/app/actions/webmail";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
@@ -497,6 +498,39 @@ export function WebmailBoard({
                     onClick={() => setAziendaModalOpen(true)}
                   >
                     Collega ad azienda
+                  </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Eliminare questa mail dal gestionale? Verrà tentata anche la rimozione dalla casella IMAP (Trash). Non verrà più risincronizzata."
+                        )
+                      ) {
+                        return;
+                      }
+                      startTransition(async () => {
+                        const res = await softDeleteWebmailMessaggioAction(
+                          selected.id
+                        );
+                        if (!res.success) {
+                          setError(res.error);
+                          return;
+                        }
+                        setSelectedId(null);
+                        setBozza(null);
+                        setInfo(
+                          res.imapOk
+                            ? `Mail eliminata. IMAP: ${res.imapDetail}`
+                            : `Mail eliminata dal gestionale (non verrà più sincronizzata). IMAP: ${res.imapDetail}`
+                        );
+                        await reload();
+                      });
+                    }}
+                  >
+                    Elimina
                   </button>
                 </div>
 
