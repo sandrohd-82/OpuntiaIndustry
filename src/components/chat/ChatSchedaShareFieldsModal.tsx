@@ -121,9 +121,9 @@ export function ChatSchedaShareFieldsModal({
         role="dialog"
         aria-modal
         aria-label="Cosa condividere"
-        className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-xl sm:rounded-2xl"
+        className="flex h-[min(90vh,100dvh)] max-h-[min(90vh,100dvh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:h-auto sm:rounded-2xl"
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div>
             <p className="text-sm font-semibold text-slate-900">
               Cosa condividere?
@@ -143,7 +143,7 @@ export function ChatSchedaShareFieldsModal({
           </button>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-4 py-3">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-3">
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -248,7 +248,7 @@ export function ChatSchedaShareFieldsModal({
           ) : null}
         </div>
 
-        <div className="flex gap-2 border-t border-[var(--border)] px-4 py-3">
+        <div className="flex shrink-0 gap-2 border-t border-[var(--border)] bg-white px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
           <button
             type="button"
             onClick={onClose}
@@ -261,7 +261,7 @@ export function ChatSchedaShareFieldsModal({
             type="button"
             onClick={confirm}
             disabled={busy || !canSend}
-            className="flex-1 rounded-xl bg-[var(--accent)] px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="flex-1 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
             {busy ? "Invio…" : "Condividi"}
           </button>
