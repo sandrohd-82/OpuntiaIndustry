@@ -714,6 +714,7 @@ export function ChatThreadBoard({
         conversationId={conversationId}
         isAdmin={isAdmin}
         onSent={(msg) => {
+          if (!("conversationId" in msg)) return;
           mergeMessage(msg);
           if (isChatTranscribableMessage(msg)) {
             void kickoffTranscript(msg.id);

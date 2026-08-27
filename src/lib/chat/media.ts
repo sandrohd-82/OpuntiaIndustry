@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { insertChatMessageAndNotify } from "@/lib/chat/messages";
+import { insertTopicMessage } from "@/lib/chat/topic-api";
 import type { ChatMessage } from "@/lib/chat/types";
+import type { TopicMessage } from "@/lib/chat/topics";
 
 const VOICE_BUCKET = "voice_notes";
 const MEDIA_BUCKET = "chat_media";
@@ -36,6 +38,32 @@ export async function sendVoiceMessage(
   });
 }
 
+export async function sendTopicVoiceMessage(
+  supabase: SupabaseClient,
+  userId: string,
+  topicId: string,
+  blob: Blob,
+  filename = `voice-${Date.now()}.webm`
+): Promise<TopicMessage> {
+  if (blob.size > 5 * 1024 * 1024) {
+    throw new Error("Nota vocale troppo grande (max 5 MB).");
+  }
+  const path = `${userId}/topic/${topicId}/${filename}`;
+  const { error: upErr } = await supabase.storage
+    .from(VOICE_BUCKET)
+    .upload(path, blob, {
+      contentType: blob.type || "audio/webm",
+      upsert: false,
+    });
+  if (upErr) throw new Error(upErr.message);
+  const url = publicUrl(supabase, VOICE_BUCKET, path);
+  return insertTopicMessage(supabase, userId, topicId, {
+    content: "",
+    audioUrl: url,
+    messageKind: "audio",
+  });
+}
+
 export async function sendChatAttachment(
   supabase: SupabaseClient,
   userId: string,
@@ -67,6 +95,40 @@ export async function sendChatAttachment(
     fileUrl: url,
     fileType: file.type || "application/octet-stream",
     fileName: file.name,
+  });
+}
+
+export async function sendTopicAttachment(
+  supabase: SupabaseClient,
+  userId: string,
+  topicId: string,
+  file: File
+): Promise<TopicMessage> {
+  const isVideo = (file.type || "").toLowerCase().startsWith("video/");
+  const maxBytes = isVideo ? 25 * 1024 * 1024 : 10 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error(
+      isVideo
+        ? "Video troppo grande (max 25 MB)."
+        : "Allegato troppo grande (max 10 MB)."
+    );
+  }
+  const safe = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${userId}/topic/${topicId}/${Date.now()}-${safe}`;
+  const { error: upErr } = await supabase.storage
+    .from(MEDIA_BUCKET)
+    .upload(path, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) throw new Error(upErr.message);
+  const url = publicUrl(supabase, MEDIA_BUCKET, path);
+  return insertTopicMessage(supabase, userId, topicId, {
+    content: "",
+    fileUrl: url,
+    fileType: file.type || "application/octet-stream",
+    fileName: file.name,
+    messageKind: "file",
   });
 }
 

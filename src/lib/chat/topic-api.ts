@@ -2,10 +2,12 @@ import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import {
   mapTopic,
   mapTopicMessage,
+  TOPIC_MESSAGE_SELECT,
   topicTitoloSchema,
   type ChatTopic,
   type TopicMessage,
 } from "@/lib/chat/topics";
+import type { ChatMessageKind } from "@/lib/chat/types";
 
 export async function listActiveTopics(
   supabase: SupabaseClient
@@ -53,14 +55,30 @@ export async function listTopicMessages(
   supabase: SupabaseClient,
   topicId: string
 ): Promise<TopicMessage[]> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("chat_topic_messages")
-    .select(
-      "id, topic_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
-    )
+    .select(TOPIC_MESSAGE_SELECT)
     .eq("topic_id", topicId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
+  if (
+    error &&
+    (error.message.includes("message_kind") ||
+      error.message.includes("payload"))
+  ) {
+    const legacy = await supabase
+      .from("chat_topic_messages")
+      .select(
+        "id, topic_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
+      )
+      .eq("topic_id", topicId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+    if (legacy.error) throw new Error(legacy.error.message);
+    return ((legacy.data ?? []) as Parameters<typeof mapTopicMessage>[0][]).map(
+      mapTopicMessage
+    );
+  }
   if (error) throw new Error(error.message);
   return ((data ?? []) as Parameters<typeof mapTopicMessage>[0][]).map(
     mapTopicMessage
@@ -108,25 +126,79 @@ export async function updateChatTopicTitolo(
   return String((data as { titolo: string }).titolo);
 }
 
+export type InsertTopicPayload = {
+  content?: string;
+  messageKind?: ChatMessageKind;
+  payload?: Record<string, unknown>;
+  audioUrl?: string | null;
+  fileUrl?: string | null;
+  fileType?: string | null;
+  fileName?: string | null;
+};
+
+function resolveTopicKind(payload: InsertTopicPayload): ChatMessageKind {
+  if (payload.messageKind) return payload.messageKind;
+  if (payload.audioUrl) return "audio";
+  if (payload.fileUrl) return "file";
+  return "text";
+}
+
 export async function insertTopicMessage(
   supabase: SupabaseClient,
   userId: string,
   topicId: string,
-  content: string
+  contentOrPayload: string | InsertTopicPayload
 ): Promise<TopicMessage> {
-  const { data, error } = await supabase
+  const payload: InsertTopicPayload =
+    typeof contentOrPayload === "string"
+      ? { content: contentOrPayload }
+      : contentOrPayload;
+  const kind = resolveTopicKind(payload);
+  const row = {
+    topic_id: topicId,
+    sender_id: userId,
+    content: payload.content?.trim() ?? "",
+    status: "sent" as const,
+    is_read: false,
+    message_kind: kind,
+    payload: payload.payload ?? {},
+    audio_url: payload.audioUrl ?? null,
+    file_url: payload.fileUrl ?? null,
+    file_type: payload.fileType ?? null,
+    file_name: payload.fileName ?? null,
+  };
+  let { data, error } = await supabase
     .from("chat_topic_messages")
-    .insert({
-      topic_id: topicId,
-      sender_id: userId,
-      content: content.trim(),
-      status: "sent",
-      is_read: false,
-    })
-    .select(
-      "id, topic_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
-    )
+    .insert(row)
+    .select(TOPIC_MESSAGE_SELECT)
     .single();
+  if (
+    error &&
+    (error.message.includes("message_kind") ||
+      error.message.includes("payload"))
+  ) {
+    const legacy = await supabase
+      .from("chat_topic_messages")
+      .insert({
+        topic_id: topicId,
+        sender_id: userId,
+        content: payload.content?.trim() ?? "",
+        status: "sent",
+        is_read: false,
+        audio_url: payload.audioUrl ?? null,
+        file_url: payload.fileUrl ?? null,
+        file_type: payload.fileType ?? null,
+        file_name: payload.fileName ?? null,
+      })
+      .select(
+        "id, topic_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name"
+      )
+      .single();
+    if (legacy.error) throw new Error(legacy.error.message);
+    return mapTopicMessage(
+      legacy.data as Parameters<typeof mapTopicMessage>[0]
+    );
+  }
   if (error) throw new Error(error.message);
   return mapTopicMessage(data as Parameters<typeof mapTopicMessage>[0]);
 }

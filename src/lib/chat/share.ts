@@ -110,14 +110,26 @@ export const schedaPayloadSchema = z.object({
   subtitle: z.string().trim().max(300).optional().default(""),
 });
 
-export const pollCreateSchema = z.object({
-  conversationId: z.string().uuid(),
-  titolo: z.string().trim().min(1).max(200),
-  options: z
-    .array(z.string().trim().min(1).max(120))
-    .min(1)
-    .max(12),
-});
+export const pollCreateSchema = z
+  .object({
+    conversationId: z.string().uuid().optional(),
+    topicId: z.string().uuid().optional(),
+    titolo: z.string().trim().min(1).max(200),
+    options: z
+      .array(z.string().trim().min(1).max(120))
+      .min(1)
+      .max(12),
+  })
+  .superRefine((v, ctx) => {
+    const hasConv = Boolean(v.conversationId);
+    const hasTopic = Boolean(v.topicId);
+    if (hasConv === hasTopic) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Specificare conversationId oppure topicId.",
+      });
+    }
+  });
 
 export type LocationPayload = z.infer<typeof locationPayloadSchema>;
 export type ContactPayload = z.infer<typeof contactPayloadSchema>;

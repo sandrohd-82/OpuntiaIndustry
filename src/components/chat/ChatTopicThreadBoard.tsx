@@ -13,9 +13,12 @@ import {
 } from "react-icons/fa6";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
+import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
+import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
 import { recordDecisionAction } from "@/app/actions/learning";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
 import { sameChatDay } from "@/lib/chat/day-headers";
+import { sendTopicVoiceMessage } from "@/lib/chat/media";
 import {
   getTopic,
   insertTopicMessage,
@@ -30,14 +33,20 @@ import {
   type ChatProfileAvatar,
 } from "@/lib/chat/queries";
 import { dispatchChatTopicOpened, type TopicMessage } from "@/lib/chat/topics";
+import { schedaEntityLabel } from "@/lib/chat/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
   userId: string;
   topicId: string;
+  isAdmin?: boolean;
 };
 
-export function ChatTopicThreadBoard({ userId, topicId }: Props) {
+export function ChatTopicThreadBoard({
+  userId,
+  topicId,
+  isAdmin = false,
+}: Props) {
   const [titolo, setTitolo] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -49,7 +58,11 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const hasText = text.trim().length > 0;
 
   const merge = useCallback((msg: TopicMessage) => {
@@ -167,6 +180,50 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
     }
   }
 
+  async function toggleRecord() {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        void (async () => {
+          setPending(true);
+          const supabase = createClient();
+          try {
+            const msg = await sendTopicVoiceMessage(
+              supabase,
+              userId,
+              topicId,
+              blob
+            );
+            merge(msg);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : "Nota vocale fallita");
+          } finally {
+            setPending(false);
+          }
+        })();
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      setError("Microfono non disponibile.");
+    }
+  }
+
   function avatarFor(id: string): ChatProfileAvatar {
     return (
       avatars.get(id) ?? { id, name: id.slice(0, 8), photoUrl: null }
@@ -256,6 +313,11 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
           const prev = messages[index - 1];
           const showDay =
             !prev || !sameChatDay(prev.createdAt, m.createdAt);
+          const isAudio = Boolean(m.audioUrl);
+          const isVideo = Boolean(
+            m.fileUrl && (m.fileType ?? "").toLowerCase().startsWith("video/")
+          );
+          const isFile = Boolean(m.fileUrl) && !isVideo;
           return (
             <div key={m.id}>
               {showDay ? <ChatDayDivider createdAt={m.createdAt} /> : null}
@@ -283,8 +345,106 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
                       {av.name}
                     </p>
                   ) : null}
-                  {m.content ? (
+                  {m.content &&
+                  m.messageKind !== "poll" &&
+                  m.messageKind !== "location" &&
+                  m.messageKind !== "contact" &&
+                  m.messageKind !== "scheda" ? (
                     <p className="relative whitespace-pre-wrap">{m.content}</p>
+                  ) : null}
+                  {m.messageKind === "location" ? (
+                    <div className="relative space-y-1 text-sm">
+                      <p className="font-medium">
+                        {String(m.payload.label ?? m.content)}
+                      </p>
+                      {typeof m.payload.lat === "number" &&
+                      typeof m.payload.lng === "number" ? (
+                        <a
+                          href={`https://www.openstreetmap.org/?mlat=${m.payload.lat}&mlon=${m.payload.lng}#map=16/${m.payload.lat}/${m.payload.lng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`text-xs underline ${
+                            mine ? "text-white" : "text-[var(--primary)]"
+                          }`}
+                        >
+                          Apri mappa
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {m.messageKind === "contact" ? (
+                    <div className="relative space-y-0.5 text-sm">
+                      <p className="font-medium">
+                        {String(m.payload.name ?? m.content)}
+                      </p>
+                      {m.payload.phone ? (
+                        <p className="text-xs opacity-90">
+                          Tel: {String(m.payload.phone)}
+                        </p>
+                      ) : null}
+                      {m.payload.email ? (
+                        <p className="text-xs opacity-90">
+                          Email: {String(m.payload.email)}
+                        </p>
+                      ) : null}
+                      <p className="text-[10px] opacity-70">
+                        Fonte:{" "}
+                        {m.payload.source === "gestionale"
+                          ? "Gestionale"
+                          : "Dispositivo"}
+                      </p>
+                    </div>
+                  ) : null}
+                  {m.messageKind === "scheda" ? (
+                    <div className="relative space-y-0.5 text-sm">
+                      <p className="text-[10px] uppercase tracking-wide opacity-80">
+                        Scheda{" "}
+                        {schedaEntityLabel[String(m.payload.entityType)] ??
+                          String(m.payload.entityType ?? "")}
+                      </p>
+                      <p className="font-medium">
+                        {String(m.payload.title ?? m.content)}
+                      </p>
+                      {m.payload.subtitle ? (
+                        <p className="text-xs opacity-90">
+                          {String(m.payload.subtitle)}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {m.messageKind === "poll" &&
+                  typeof m.payload.pollId === "string" ? (
+                    <ChatPollBubble pollId={m.payload.pollId} mine={mine} />
+                  ) : null}
+                  {isAudio ? (
+                    <div className="relative mt-1">
+                      <audio
+                        controls
+                        src={m.audioUrl!}
+                        className="max-w-full"
+                      />
+                    </div>
+                  ) : null}
+                  {isVideo ? (
+                    <div className="relative mt-1">
+                      <video
+                        controls
+                        src={m.fileUrl!}
+                        className="max-h-48 max-w-full rounded"
+                      />
+                    </div>
+                  ) : null}
+                  {isFile ? (
+                    <a
+                      href={m.fileUrl!}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`relative mt-1 block text-xs underline ${
+                        mine ? "text-white" : "text-[var(--primary)]"
+                      }`}
+                    >
+                      {m.fileName ?? "Allegato"}
+                    </a>
                   ) : null}
                   <div
                     className={`relative mt-1 flex items-center gap-1 text-[10px] ${
@@ -329,9 +489,11 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
       <div className="flex items-end gap-2 border-t border-[var(--border)] p-2">
         <button
           type="button"
-          disabled
-          className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted)] opacity-40"
-          title="Allegati topic: a breve"
+          disabled={pending}
+          onClick={() => setShareOpen(true)}
+          className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted)]"
+          aria-label="Condividi / allegati"
+          title="Condividi"
         >
           <FaPaperclip size={14} />
         </button>
@@ -353,21 +515,38 @@ export function ChatTopicThreadBoard({ userId, topicId }: Props) {
             type="button"
             disabled={pending}
             onClick={() => void sendText()}
-            className="rounded-lg bg-[var(--primary)] p-2 text-white"
+            className="rounded-lg bg-[var(--primary)] p-2 text-white disabled:opacity-40"
           >
             <FaPaperPlane size={14} />
           </button>
         ) : (
           <button
             type="button"
-            disabled
-            className="rounded-lg bg-[var(--primary)] p-2 text-white opacity-40"
-            title="Nota vocale topic: a breve"
+            disabled={pending}
+            onClick={() => void toggleRecord()}
+            className={`rounded-lg p-2 ${
+              recording
+                ? "bg-red-500 text-white"
+                : "bg-[var(--primary)] text-white"
+            } disabled:opacity-40`}
+            aria-label={recording ? "Ferma registrazione" : "Nota vocale"}
           >
             <FaMicrophone size={14} />
           </button>
         )}
       </div>
+
+      <ChatShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        userId={userId}
+        topicId={topicId}
+        isAdmin={isAdmin}
+        onSent={(msg) => {
+          if ("topicId" in msg) merge(msg);
+        }}
+        onError={setError}
+      />
     </div>
   );
 }

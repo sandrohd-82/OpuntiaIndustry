@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ChatMessageKind } from "@/lib/chat/types";
 
 export const topicTitoloSchema = z
   .string()
@@ -25,11 +26,32 @@ export type TopicMessage = {
   createdAt: string;
   isRead: boolean;
   status: "sent" | "delivered" | "read";
+  messageKind: ChatMessageKind;
+  payload: Record<string, unknown>;
   audioUrl: string | null;
   fileUrl: string | null;
   fileType: string | null;
   fileName: string | null;
 };
+
+export const TOPIC_MESSAGE_SELECT =
+  "id, topic_id, sender_id, content, created_at, is_read, status, message_kind, payload, audio_url, file_url, file_type, file_name";
+
+function parseKind(raw: unknown): ChatMessageKind {
+  const k = String(raw ?? "text");
+  if (
+    k === "text" ||
+    k === "audio" ||
+    k === "file" ||
+    k === "location" ||
+    k === "contact" ||
+    k === "poll" ||
+    k === "scheda"
+  ) {
+    return k;
+  }
+  return "text";
+}
 
 export function mapTopic(row: {
   id: string;
@@ -57,11 +79,16 @@ export function mapTopicMessage(row: {
   created_at: string;
   is_read: boolean;
   status: TopicMessage["status"];
+  message_kind?: string | null;
+  payload?: Record<string, unknown> | null;
   audio_url: string | null;
   file_url: string | null;
   file_type: string | null;
   file_name: string | null;
 }): TopicMessage {
+  let kind = parseKind(row.message_kind);
+  if (kind === "text" && row.audio_url) kind = "audio";
+  if (kind === "text" && row.file_url) kind = "file";
   return {
     id: row.id,
     topicId: row.topic_id,
@@ -70,6 +97,11 @@ export function mapTopicMessage(row: {
     createdAt: row.created_at,
     isRead: Boolean(row.is_read),
     status: row.status,
+    messageKind: kind,
+    payload:
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? row.payload
+        : {},
     audioUrl: row.audio_url,
     fileUrl: row.file_url,
     fileType: row.file_type,

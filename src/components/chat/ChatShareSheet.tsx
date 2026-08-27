@@ -24,17 +24,22 @@ import {
   type SchedaPayload,
 } from "@/lib/chat/share";
 import { schedaEntityLabel, type ChatMessage } from "@/lib/chat/types";
-import { sendChatAttachment } from "@/lib/chat/media";
+import type { TopicMessage } from "@/lib/chat/topics";
+import { sendChatAttachment, sendTopicAttachment } from "@/lib/chat/media";
 import { insertChatMessageAndNotify } from "@/lib/chat/messages";
+import { insertTopicMessage } from "@/lib/chat/topic-api";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   userId: string;
-  conversationId: string;
+  /** Chat 1:1 */
+  conversationId?: string;
+  /** Argomento di gruppo */
+  topicId?: string;
   isAdmin: boolean;
-  onSent: (msg: ChatMessage) => void;
+  onSent: (msg: ChatMessage | TopicMessage) => void;
   onError: (msg: string) => void;
 };
 
@@ -62,6 +67,7 @@ export function ChatShareSheet({
   onClose,
   userId,
   conversationId,
+  topicId,
   isAdmin,
   onSent,
   onError,
@@ -100,6 +106,7 @@ export function ChatShareSheet({
   >([]);
 
   if (!open) return null;
+  if (!conversationId && !topicId) return null;
 
   async function uploadFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -107,12 +114,14 @@ export function ChatShareSheet({
     const supabase = createClient();
     try {
       for (const file of Array.from(files)) {
-        const msg = await sendChatAttachment(
-          supabase,
-          userId,
-          conversationId,
-          file
-        );
+        const msg = topicId
+          ? await sendTopicAttachment(supabase, userId, topicId, file)
+          : await sendChatAttachment(
+              supabase,
+              userId,
+              conversationId!,
+              file
+            );
         onSent(msg);
       }
       onClose();
@@ -128,12 +137,18 @@ export function ChatShareSheet({
     setBusy(true);
     const supabase = createClient();
     try {
-      const msg = await insertChatMessageAndNotify(supabase, userId, {
-        conversationId,
-        content: payload.label,
-        messageKind: "location",
-        payload,
-      });
+      const msg = topicId
+        ? await insertTopicMessage(supabase, userId, topicId, {
+            content: payload.label,
+            messageKind: "location",
+            payload,
+          })
+        : await insertChatMessageAndNotify(supabase, userId, {
+            conversationId: conversationId!,
+            content: payload.label,
+            messageKind: "location",
+            payload,
+          });
       onSent(msg);
       onClose();
       setSub(null);
@@ -148,12 +163,18 @@ export function ChatShareSheet({
     setBusy(true);
     const supabase = createClient();
     try {
-      const msg = await insertChatMessageAndNotify(supabase, userId, {
-        conversationId,
-        content: payload.name,
-        messageKind: "contact",
-        payload,
-      });
+      const msg = topicId
+        ? await insertTopicMessage(supabase, userId, topicId, {
+            content: payload.name,
+            messageKind: "contact",
+            payload,
+          })
+        : await insertChatMessageAndNotify(supabase, userId, {
+            conversationId: conversationId!,
+            content: payload.name,
+            messageKind: "contact",
+            payload,
+          });
       onSent(msg);
       onClose();
       setSub(null);
@@ -168,12 +189,18 @@ export function ChatShareSheet({
     setBusy(true);
     const supabase = createClient();
     try {
-      const msg = await insertChatMessageAndNotify(supabase, userId, {
-        conversationId,
-        content: payload.title,
-        messageKind: "scheda",
-        payload,
-      });
+      const msg = topicId
+        ? await insertTopicMessage(supabase, userId, topicId, {
+            content: payload.title,
+            messageKind: "scheda",
+            payload,
+          })
+        : await insertChatMessageAndNotify(supabase, userId, {
+            conversationId: conversationId!,
+            content: payload.title,
+            messageKind: "scheda",
+            payload,
+          });
       onSent(msg);
       onClose();
       setSub(null);
@@ -342,7 +369,7 @@ export function ChatShareSheet({
     }
     setBusy(true);
     const res = await createChatPollAction({
-      conversationId,
+      ...(topicId ? { topicId } : { conversationId }),
       titolo: pollTitle.trim(),
       options,
     });

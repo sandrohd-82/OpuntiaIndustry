@@ -4,6 +4,11 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
 import { pollCreateSchema } from "@/lib/chat/share";
+import {
+  TOPIC_MESSAGE_SELECT,
+  mapTopicMessage,
+  type TopicMessage,
+} from "@/lib/chat/topics";
 import { MESSAGE_SELECT, mapMessage, type ChatMessage } from "@/lib/chat/types";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
@@ -13,13 +18,15 @@ const voteSchema = z.object({
   optionId: z.string().uuid(),
 });
 
+export type ChatPollCreatedMessage = ChatMessage | TopicMessage;
+
 /**
- * Crea sondaggio + messaggio chat (1 voto a testa, % su partecipanti conversazione).
+ * Crea sondaggio + messaggio chat (1:1 o argomento; 1 voto a testa).
  */
 export async function createChatPollAction(
   raw: unknown
 ): Promise<
-  | { success: true; message: ChatMessage; pollId: string }
+  | { success: true; message: ChatPollCreatedMessage; pollId: string }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("chat");
@@ -34,10 +41,101 @@ export async function createChatPollAction(
     return { success: false, error: "Serve almeno una risposta." };
   }
 
+  const topicId = parsed.data.topicId;
+  const conversationId = parsed.data.conversationId;
+
+  if (topicId) {
+    const { data: msg, error: msgErr } = await supabase
+      .from("chat_topic_messages")
+      .insert({
+        topic_id: topicId,
+        sender_id: auth.userId,
+        content: parsed.data.titolo,
+        status: "sent",
+        is_read: false,
+        message_kind: "poll",
+        payload: {},
+      })
+      .select(TOPIC_MESSAGE_SELECT)
+      .single();
+
+    if (msgErr || !msg) {
+      return {
+        success: false,
+        error: msgErr?.message ?? "Messaggio non creato.",
+      };
+    }
+
+    const messageId = String((msg as { id: string }).id);
+
+    const { data: poll, error: pollErr } = await supabase
+      .from("chat_polls")
+      .insert({
+        message_id: messageId,
+        topic_id: topicId,
+        titolo: parsed.data.titolo,
+        stato: "aperto",
+        versione: 1,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+
+    if (pollErr || !poll) {
+      await supabase
+        .from("chat_topic_messages")
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: auth.userId,
+        })
+        .eq("id", messageId);
+      return {
+        success: false,
+        error: pollErr?.message ?? "Sondaggio non creato.",
+      };
+    }
+
+    const pollId = String((poll as { id: string }).id);
+    const { error: optErr } = await supabase.from("chat_poll_options").insert(
+      options.map((label, i) => ({
+        poll_id: pollId,
+        label,
+        sort_order: i,
+        created_by: auth.userId,
+      }))
+    );
+    if (optErr) {
+      return { success: false, error: optErr.message };
+    }
+
+    await supabase
+      .from("chat_topic_messages")
+      .update({ payload: { pollId } })
+      .eq("id", messageId);
+
+    await writeAuditLog({
+      entity_type: "chat_polls",
+      entity_id: pollId,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Sondaggio argomento: ${parsed.data.titolo}`,
+      payload: { options: options.length, topicId },
+    });
+
+    const mapped = mapTopicMessage({
+      ...(msg as Parameters<typeof mapTopicMessage>[0]),
+      payload: { pollId },
+      message_kind: "poll",
+    });
+
+    return { success: true, message: mapped, pollId };
+  }
+
   const { data: msg, error: msgErr } = await supabase
     .from("messages")
     .insert({
-      conversation_id: parsed.data.conversationId,
+      conversation_id: conversationId,
       sender_id: auth.userId,
       content: parsed.data.titolo,
       status: "sent",
@@ -58,7 +156,7 @@ export async function createChatPollAction(
     .from("chat_polls")
     .insert({
       message_id: messageId,
-      conversation_id: parsed.data.conversationId,
+      conversation_id: conversationId,
       titolo: parsed.data.titolo,
       stato: "aperto",
       versione: 1,
@@ -100,7 +198,7 @@ export async function createChatPollAction(
     action: "create",
     actor_id: auth.userId,
     summary: `Sondaggio chat: ${parsed.data.titolo}`,
-    payload: { options: options.length, conversationId: parsed.data.conversationId },
+    payload: { options: options.length, conversationId },
   });
 
   const mapped = mapMessage({
@@ -156,7 +254,7 @@ export async function getChatPollViewAction(
 
   const { data: poll, error } = await supabase
     .from("chat_polls")
-    .select("id, titolo, stato, conversation_id")
+    .select("id, titolo, stato, conversation_id, topic_id")
     .eq("id", pollId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -164,7 +262,9 @@ export async function getChatPollViewAction(
     return { success: false, error: error?.message ?? "Sondaggio non trovato." };
   }
 
-  const conversationId = String((poll as { conversation_id: string }).conversation_id);
+  const conversationId = (poll as { conversation_id: string | null })
+    .conversation_id;
+  const topicId = (poll as { topic_id: string | null }).topic_id;
 
   const { data: options } = await supabase
     .from("chat_poll_options")
@@ -187,8 +287,17 @@ export async function getChatPollViewAction(
     if (v.user_id === auth.userId) myOptionId = v.option_id;
   }
 
-  // 1:1 → 2 partecipanti
-  const participantCount = 2;
+  let participantCount = 2;
+  if (topicId) {
+    const { count } = await supabase
+      .from("chat_topic_members")
+      .select("id", { count: "exact", head: true })
+      .eq("topic_id", topicId)
+      .is("deleted_at", null);
+    participantCount = Math.max(count ?? 1, 1);
+  } else if (conversationId) {
+    participantCount = 2;
+  }
 
   return {
     success: true,
