@@ -468,15 +468,19 @@ export function ChatThreadBoard({
             `[data-message-id="${unreadId}"]`
           )
         : null;
-      requestAnimationFrame(() => {
-        scrollChatListInitial({
+      let cleanup: (() => void) | void;
+      const raf = requestAnimationFrame(() => {
+        cleanup = scrollChatListInitial({
           container,
           firstUnreadEl,
         });
         initialScrollDoneRef.current = true;
         pendingFirstUnreadIdRef.current = null;
       });
-      return;
+      return () => {
+        cancelAnimationFrame(raf);
+        cleanup?.();
+      };
     }
 
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
