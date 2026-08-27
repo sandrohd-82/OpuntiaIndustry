@@ -118,7 +118,17 @@ export async function getChatTopicInfoAction(
     profileMap.set(p.id, p);
   }
 
-  let { data: messages, error: msgErr } = await supabase
+  type MsgRow = {
+    sender_id: string;
+    message_kind?: string | null;
+    file_type?: string | null;
+    file_name?: string | null;
+    file_url?: string | null;
+    audio_url?: string | null;
+    payload?: Record<string, unknown> | null;
+  };
+
+  const primary = await supabase
     .from("chat_topic_messages")
     .select(
       "sender_id, message_kind, file_type, file_name, file_url, audio_url, payload"
@@ -126,37 +136,31 @@ export async function getChatTopicInfoAction(
     .eq("topic_id", idParsed.data)
     .is("deleted_at", null);
 
+  let messages: MsgRow[] = [];
   if (
-    msgErr &&
-    (msgErr.message.includes("message_kind") ||
-      msgErr.message.includes("payload"))
+    primary.error &&
+    (primary.error.message.includes("message_kind") ||
+      primary.error.message.includes("payload"))
   ) {
     const legacy = await supabase
       .from("chat_topic_messages")
       .select("sender_id, file_type, file_name, file_url, audio_url")
       .eq("topic_id", idParsed.data)
       .is("deleted_at", null);
-    messages = legacy.data;
-    msgErr = legacy.error;
-  }
-
-  if (msgErr) {
-    return { success: false, error: msgErr.message };
+    if (legacy.error) {
+      return { success: false, error: legacy.error.message };
+    }
+    messages = (legacy.data ?? []) as MsgRow[];
+  } else if (primary.error) {
+    return { success: false, error: primary.error.message };
+  } else {
+    messages = (primary.data ?? []) as MsgRow[];
   }
 
   const numMess = new Map<string, number>();
   const attach = new Map<string, Map<TopicAttachmentKind, number>>();
 
-  for (const raw of messages ?? []) {
-    const row = raw as {
-      sender_id: string;
-      message_kind?: string | null;
-      file_type?: string | null;
-      file_name?: string | null;
-      file_url?: string | null;
-      audio_url?: string | null;
-      payload?: Record<string, unknown> | null;
-    };
+  for (const row of messages) {
     numMess.set(row.sender_id, (numMess.get(row.sender_id) ?? 0) + 1);
     const kind = classifyTopicAttachment(row);
     if (!kind) continue;
