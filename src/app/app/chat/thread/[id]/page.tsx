@@ -16,19 +16,19 @@ export default async function ChatThreadPage({ params }: Props) {
   if (!auth?.userId) redirect("/login");
 
   return (
-    <>
+    <div className="flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden">
       <ChatAppHeader
         title="Conversazione"
         subtitle="Messaggi in tempo reale"
         userId={auth.userId}
       />
-      <div className="p-6">
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-[50px] pt-6">
         <ChatThreadBoard
           userId={auth.userId}
           conversationId={id}
           isAdmin={isAdminLikeProfile(auth.profile)}
         />
       </div>
-    </>
+    </div>
   );
 }

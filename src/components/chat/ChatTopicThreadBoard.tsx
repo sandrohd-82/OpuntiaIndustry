@@ -237,7 +237,7 @@ export function ChatTopicThreadBoard({
   }
 
   return (
-    <div className="flex h-[min(70vh,720px)] flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]">
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-[var(--border)] bg-[var(--card)]">
       <div className="space-y-2 border-b border-[var(--border)] px-3 py-2">
         <div className="flex items-center gap-2">
           <Link
@@ -330,7 +330,7 @@ export function ChatTopicThreadBoard({
           {error}
         </p>
       ) : null}
-      <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages.map((m, index) => {
           const mine = m.senderId === userId;
           const av = avatarFor(m.senderId);
