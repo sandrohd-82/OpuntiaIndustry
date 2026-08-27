@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FaCamera,
   FaFileLines,
@@ -35,9 +35,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   userId: string;
-  /** Chat 1:1 */
   conversationId?: string;
-  /** Argomento di gruppo */
   topicId?: string;
   isAdmin: boolean;
   onSent: (msg: ChatMessage | TopicMessage) => void;
@@ -45,6 +43,7 @@ type Props = {
 };
 
 type Sub = null | "contact" | "poll" | "scheda" | "contact_gestionale";
+type SchedaStep = "type" | "search";
 
 const iconFor: Record<ChatShareActionId, ReactNode> = {
   gallery: <FaImage size={16} />,
@@ -56,6 +55,10 @@ const iconFor: Record<ChatShareActionId, ReactNode> = {
   poll: <FaSquarePollVertical size={16} />,
   scheda: <FaIdCard size={16} />,
 };
+
+const SCHEDA_TYPES = Object.keys(schedaEntityLabel) as Array<
+  SchedaPayload["entityType"]
+>;
 
 export function ChatShareSheet({
   open,
@@ -75,11 +78,10 @@ export function ChatShareSheet({
   const [busy, setBusy] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
 
-  // poll
   const [pollTitle, setPollTitle] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
 
-  // scheda
+  const [schedaStep, setSchedaStep] = useState<SchedaStep>("type");
   const [schedaType, setSchedaType] = useState<SchedaPayload["entityType"]>(
     "cliente"
   );
@@ -87,12 +89,60 @@ export function ChatShareSheet({
   const [schedaHits, setSchedaHits] = useState<
     Array<{ id: string; title: string; subtitle: string }>
   >([]);
+  const [schedaSearching, setSchedaSearching] = useState(false);
 
-  // gestionale contacts
   const [gestQ, setGestQ] = useState("");
   const [gestHits, setGestHits] = useState<
     Array<{ id: string; name: string; phone: string; email: string }>
   >([]);
+  const [gestSearching, setGestSearching] = useState(false);
+
+  useEffect(() => {
+    if (!open || sub !== "scheda" || schedaStep !== "search") return;
+    let cancelled = false;
+    setSchedaSearching(true);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const res = await searchChatSchedaAction({
+          entityType: schedaType,
+          query: schedaQ,
+        });
+        if (cancelled) return;
+        setSchedaSearching(false);
+        if (!res.success) {
+          onError(res.error);
+          return;
+        }
+        setSchedaHits(res.hits);
+      })();
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [open, sub, schedaStep, schedaType, schedaQ, onError]);
+
+  useEffect(() => {
+    if (!open || sub !== "contact_gestionale") return;
+    let cancelled = false;
+    setGestSearching(true);
+    const t = window.setTimeout(() => {
+      void (async () => {
+        const res = await listGestionaleRubricaForChatAction(gestQ);
+        if (cancelled) return;
+        setGestSearching(false);
+        if (!res.success) {
+          onError(res.error);
+          return;
+        }
+        setGestHits(res.contacts);
+      })();
+    }, 280);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [open, sub, gestQ, onError]);
 
   if (!open && !mapOpen) return null;
   if (!conversationId && !topicId) return null;
@@ -194,6 +244,7 @@ export function ChatShareSheet({
       onSent(msg);
       onClose();
       setSub(null);
+      setSchedaStep("type");
     } catch (e) {
       onError(e instanceof Error ? e.message : "Scheda non inviata");
     } finally {
@@ -212,15 +263,18 @@ export function ChatShareSheet({
     } else if (id === "contact_device") {
       await pickDeviceContact();
     } else if (id === "contact_gestionale") {
+      setGestQ("");
+      setGestHits([]);
       setSub("contact_gestionale");
-      void loadGest("");
     } else if (id === "poll") {
       setPollTitle("");
       setPollOpts(["", ""]);
       setSub("poll");
     } else if (id === "scheda") {
-      setSub("scheda");
+      setSchedaStep("type");
+      setSchedaQ("");
       setSchedaHits([]);
+      setSub("scheda");
     }
   }
 
@@ -262,7 +316,7 @@ export function ChatShareSheet({
         });
         return;
       } catch {
-        // fallback form
+        // fallback
       }
     }
     const name = window.prompt("Nome contatto?");
@@ -276,29 +330,6 @@ export function ChatShareSheet({
       source: "device",
       rubricaId: null,
     });
-  }
-
-  async function loadGest(q: string) {
-    const res = await listGestionaleRubricaForChatAction(q);
-    if (!res.success) {
-      onError(res.error);
-      return;
-    }
-    setGestHits(res.contacts);
-  }
-
-  async function loadScheda() {
-    setBusy(true);
-    const res = await searchChatSchedaAction({
-      entityType: schedaType,
-      query: schedaQ,
-    });
-    setBusy(false);
-    if (!res.success) {
-      onError(res.error);
-      return;
-    }
-    setSchedaHits(res.hits);
   }
 
   async function createPoll() {
@@ -323,227 +354,264 @@ export function ChatShareSheet({
     setSub(null);
   }
 
+  function pickSchedaType(t: SchedaPayload["entityType"]) {
+    setSchedaType(t);
+    setSchedaQ("");
+    setSchedaHits([]);
+    setSchedaStep("search");
+  }
+
+  const headerTitle =
+    sub === "scheda"
+      ? schedaStep === "type"
+        ? "Tipo di scheda"
+        : `Cerca: ${schedaEntityLabel[schedaType] ?? "Scheda"}`
+      : sub === "contact_gestionale"
+        ? "Contatto gestionale"
+        : sub === null
+          ? "Condividi"
+          : "Dettaglio";
+
   return (
     <>
       {open ? (
-    <div
-      className="fixed inset-0 z-[85] flex items-end justify-center bg-slate-950/50 sm:items-center"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl sm:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">
-            {sub === null ? "Condividi" : "Dettaglio"}
-          </h2>
-          <button
-            type="button"
-            onClick={() => {
-              if (sub) setSub(null);
-              else onClose();
-            }}
-            className="rounded p-1 text-slate-500 hover:bg-slate-100"
+        <div
+          className="fixed inset-0 z-[85] flex items-end justify-center bg-slate-950/50 sm:items-center"
+          onClick={onClose}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <FaXmark size={14} />
-          </button>
-        </div>
-
-        <input
-          ref={galleryRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          className="hidden"
-          onChange={(e) => void uploadFiles(e.target.files)}
-        />
-        <input
-          ref={docRef}
-          type="file"
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.rtf,application/pdf"
-          multiple
-          className="hidden"
-          onChange={(e) => void uploadFiles(e.target.files)}
-        />
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*,video/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => void uploadFiles(e.target.files)}
-        />
-
-        {sub === null ? (
-          <div className="grid grid-cols-2 gap-2">
-            {actions.map((a) => (
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold">{headerTitle}</h2>
               <button
-                key={a.id}
                 type="button"
-                disabled={!a.allowed || busy}
-                onClick={() => void onAction(a.id)}
-                className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition ${
-                  a.allowed
-                    ? "border-[var(--border)] hover:bg-slate-50"
-                    : "cursor-not-allowed border-slate-100 bg-slate-50 opacity-45"
-                }`}
-                title={
-                  a.allowed
-                    ? a.description
-                    : "Non autorizzato (solo admin)"
-                }
+                onClick={() => {
+                  if (sub === "scheda" && schedaStep === "search") {
+                    setSchedaStep("type");
+                    setSchedaQ("");
+                    setSchedaHits([]);
+                    return;
+                  }
+                  if (sub) setSub(null);
+                  else onClose();
+                }}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
               >
-                <span className="text-[var(--primary)]">{iconFor[a.id]}</span>
-                <span className="text-xs font-semibold">{a.label}</span>
-                <span className="text-[10px] text-slate-500">
-                  {a.allowed
-                    ? a.description
-                    : a.adminOnly
-                      ? "Solo admin"
-                      : "Non disponibile"}
-                </span>
+                <FaXmark size={14} />
               </button>
-            ))}
-          </div>
-        ) : null}
-
-        {sub === "poll" ? (
-          <div className="space-y-2">
-            <input
-              value={pollTitle}
-              onChange={(e) => setPollTitle(e.target.value)}
-              placeholder="Titolo sondaggio"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            {pollOpts.map((o, i) => (
-              <input
-                key={i}
-                value={o}
-                onChange={(e) =>
-                  setPollOpts((prev) =>
-                    prev.map((x, j) => (j === i ? e.target.value : x))
-                  )
-                }
-                placeholder={`Risposta ${i + 1}`}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => setPollOpts((p) => [...p, ""])}
-              className="text-xs text-[var(--primary)] underline"
-            >
-              + Aggiungi risposta
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void createPoll()}
-              className="w-full rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white"
-            >
-              Pubblica sondaggio
-            </button>
-          </div>
-        ) : null}
-
-        {sub === "contact_gestionale" ? (
-          <div className="space-y-2">
-            <input
-              value={gestQ}
-              onChange={(e) => setGestQ(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void loadGest(gestQ);
-              }}
-              placeholder="Cerca in rubrica gestionale…"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => void loadGest(gestQ)}
-              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
-            >
-              Cerca
-            </button>
-            <div className="max-h-48 space-y-1 overflow-y-auto">
-              {gestHits.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
-                  onClick={() =>
-                    void sendContact({
-                      name: c.name,
-                      phone: c.phone,
-                      email: c.email,
-                      source: "gestionale",
-                      rubricaId: c.id,
-                    })
-                  }
-                >
-                  <span className="font-medium">{c.name}</span>
-                  <span className="block text-slate-500">
-                    {c.phone} {c.email}
-                  </span>
-                </button>
-              ))}
             </div>
-          </div>
-        ) : null}
 
-        {sub === "scheda" ? (
-          <div className="space-y-2">
-            <select
-              value={schedaType}
-              onChange={(e) =>
-                setSchedaType(e.target.value as SchedaPayload["entityType"])
-              }
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            >
-              {Object.entries(schedaEntityLabel).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
             <input
-              value={schedaQ}
-              onChange={(e) => setSchedaQ(e.target.value)}
-              placeholder="Cerca…"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              ref={galleryRef}
+              type="file"
+              accept="image/*,video/*"
+              multiple
+              className="hidden"
+              onChange={(e) => void uploadFiles(e.target.files)}
             />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void loadScheda()}
-              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm text-white"
-            >
-              Cerca
-            </button>
-            <div className="max-h-48 space-y-1 overflow-y-auto">
-              {schedaHits.map((h) => (
+            <input
+              ref={docRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.rtf,application/pdf"
+              multiple
+              className="hidden"
+              onChange={(e) => void uploadFiles(e.target.files)}
+            />
+            <input
+              ref={cameraRef}
+              type="file"
+              accept="image/*,video/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => void uploadFiles(e.target.files)}
+            />
+
+            {sub === null ? (
+              <div className="grid grid-cols-2 gap-2">
+                {actions.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    disabled={!a.allowed || busy}
+                    onClick={() => void onAction(a.id)}
+                    className={`flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left transition ${
+                      a.allowed
+                        ? "border-[var(--border)] hover:bg-slate-50"
+                        : "cursor-not-allowed border-slate-100 bg-slate-50 opacity-45"
+                    }`}
+                    title={
+                      a.allowed
+                        ? a.description
+                        : "Non autorizzato (solo admin)"
+                    }
+                  >
+                    <span className="text-[var(--primary)]">
+                      {iconFor[a.id]}
+                    </span>
+                    <span className="text-xs font-semibold">{a.label}</span>
+                    <span className="text-[10px] text-slate-500">
+                      {a.allowed
+                        ? a.description
+                        : a.adminOnly
+                          ? "Solo admin"
+                          : "Non disponibile"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {sub === "poll" ? (
+              <div className="space-y-2">
+                <input
+                  value={pollTitle}
+                  onChange={(e) => setPollTitle(e.target.value)}
+                  placeholder="Titolo sondaggio"
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                />
+                {pollOpts.map((o, i) => (
+                  <input
+                    key={i}
+                    value={o}
+                    onChange={(e) =>
+                      setPollOpts((prev) =>
+                        prev.map((x, j) => (j === i ? e.target.value : x))
+                      )
+                    }
+                    placeholder={`Risposta ${i + 1}`}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                ))}
                 <button
-                  key={h.id}
                   type="button"
-                  className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
-                  onClick={() =>
-                    void sendScheda({
-                      entityType: schedaType,
-                      entityId: h.id,
-                      title: h.title,
-                      subtitle: h.subtitle,
-                    })
-                  }
+                  onClick={() => setPollOpts((p) => [...p, ""])}
+                  className="text-xs text-[var(--primary)] underline"
                 >
-                  <span className="font-medium">{h.title}</span>
-                  <span className="block text-slate-500">{h.subtitle}</span>
+                  + Aggiungi risposta
                 </button>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void createPoll()}
+                  className="w-full rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white"
+                >
+                  Pubblica sondaggio
+                </button>
+              </div>
+            ) : null}
+
+            {sub === "contact_gestionale" ? (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500">
+                  Digita per cercare subito in rubrica gestionale.
+                </p>
+                <input
+                  value={gestQ}
+                  onChange={(e) => setGestQ(e.target.value)}
+                  placeholder="Nome, telefono, email…"
+                  autoFocus
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                />
+                {gestSearching ? (
+                  <p className="text-[11px] text-slate-400">Ricerca…</p>
+                ) : null}
+                <div className="max-h-56 space-y-1 overflow-y-auto">
+                  {gestHits.length === 0 && !gestSearching ? (
+                    <p className="text-[11px] text-slate-400">
+                      Nessun contatto trovato.
+                    </p>
+                  ) : null}
+                  {gestHits.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
+                      onClick={() =>
+                        void sendContact({
+                          name: c.name,
+                          phone: c.phone,
+                          email: c.email,
+                          source: "gestionale",
+                          rubricaId: c.id,
+                        })
+                      }
+                    >
+                      <span className="font-medium">{c.name}</span>
+                      <span className="block text-slate-500">
+                        {c.phone} {c.email}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {sub === "scheda" && schedaStep === "type" ? (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500">
+                  Scegli il tipo di scheda da condividere.
+                </p>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {SCHEDA_TYPES.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => pickSchedaType(t)}
+                      className="rounded-xl border border-[var(--border)] px-3 py-2.5 text-left text-sm font-medium hover:bg-slate-50"
+                    >
+                      {schedaEntityLabel[t]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {sub === "scheda" && schedaStep === "search" ? (
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-500">
+                  Digita: i risultati si aggiornano mentre scrivi.
+                </p>
+                <input
+                  value={schedaQ}
+                  onChange={(e) => setSchedaQ(e.target.value)}
+                  placeholder={`Cerca ${schedaEntityLabel[schedaType]?.toLowerCase() ?? "scheda"}…`}
+                  autoFocus
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                />
+                {schedaSearching ? (
+                  <p className="text-[11px] text-slate-400">Ricerca…</p>
+                ) : null}
+                <div className="max-h-56 space-y-1 overflow-y-auto">
+                  {schedaHits.length === 0 && !schedaSearching ? (
+                    <p className="text-[11px] text-slate-400">
+                      Nessun risultato. Continua a digitare.
+                    </p>
+                  ) : null}
+                  {schedaHits.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
+                      onClick={() =>
+                        void sendScheda({
+                          entityType: schedaType,
+                          entityId: h.id,
+                          title: h.title,
+                          subtitle: h.subtitle,
+                        })
+                      }
+                    >
+                      <span className="font-medium">{h.title}</span>
+                      <span className="block text-slate-500">{h.subtitle}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
-        ) : null}
-      </div>
-    </div>
+        </div>
       ) : null}
 
       <ChatLocationMapModal
