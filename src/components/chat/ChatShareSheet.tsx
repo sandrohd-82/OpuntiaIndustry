@@ -416,7 +416,7 @@ export function ChatShareSheet({
 
   return (
     <>
-      {open ? (
+      {open && !schedaFieldsOpen ? (
         <div
           className="fixed inset-0 z-[85] flex items-end justify-center bg-slate-950/50 sm:items-center"
           onClick={onClose}

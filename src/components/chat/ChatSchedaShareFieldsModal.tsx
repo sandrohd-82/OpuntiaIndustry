@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { FaXmark } from "react-icons/fa6";
 import type { SchedaPayload } from "@/lib/chat/share";
 import type { SchedaSharePreview } from "@/lib/chat/scheda-share-fields";
@@ -21,9 +22,14 @@ export function ChatSchedaShareFieldsModal({
   onClose,
   onConfirm,
 }: Props) {
+  const [mounted, setMounted] = useState(false);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
   const [includePrice, setIncludePrice] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open || !preview) return;
@@ -43,8 +49,6 @@ export function ChatSchedaShareFieldsModal({
   }, [open, preview]);
 
   const canSend = Boolean(preview);
-
-  if (!open || !preview) return null;
 
   function toggleField(key: string) {
     setSelectedFields((prev) => {
@@ -106,8 +110,13 @@ export function ChatSchedaShareFieldsModal({
     });
   }
 
-  return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+  if (!mounted || !open || !preview) return null;
+
+  const dialog = (
+    <div
+      data-nested-modal
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
+    >
       <div
         role="dialog"
         aria-modal
@@ -260,4 +269,6 @@ export function ChatSchedaShareFieldsModal({
       </div>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
