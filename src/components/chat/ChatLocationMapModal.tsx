@@ -283,11 +283,11 @@ export function ChatLocationMapModal({
       setPin(null);
       setGeoHint(null);
       setReady(false);
-      if (searchRef.current) searchRef.current.value = "";
+      if (searchInput) searchInput.value = "";
     };
   }, [open, onError, placeMarker]);
 
-  async function useCurrent() {
+  async function locateCurrentPosition() {
     if (!navigator.geolocation) {
       onError("Geolocalizzazione non disponibile su questo browser.");
       return;
@@ -436,7 +436,7 @@ export function ChatLocationMapModal({
           <button
             type="button"
             disabled={geoBusy || busy || missingKey || !ready}
-            onClick={() => void useCurrent()}
+            onClick={() => void locateCurrentPosition()}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium disabled:opacity-40"
           >
             <FaLocationCrosshairs size={12} />
