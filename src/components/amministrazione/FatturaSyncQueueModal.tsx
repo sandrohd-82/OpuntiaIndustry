@@ -207,9 +207,16 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
   /**
    * Ricevute in modalità create: se P.IVA o ragione sociale coincidono con un fornitore
    * già in archivio (anche da fattura precedente nella stessa sessione), passa a existing.
+   *
+   * Importante: se il documento sta ancora idratandosi, non fare nulla qui ma
+   * rieseguire l’effect quando hydrating/needsHydration diventano false
+   * (altrimenti la UI resta bloccata su “Verifica se l’azienda…”).
    */
   useEffect(() => {
-    if (hydrating || current?.needsHydration || hydrateError) {
+    if (hydrating || current?.needsHydration) {
+      return;
+    }
+    if (hydrateError) {
       return;
     }
     if (kind !== "ricevuta" || !current) {
@@ -232,7 +239,16 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     void (async () => {
       try {
         const res = await findFornitoreByPartitaIvaAction(vat, nome);
-        if (cancelled || !res.success || !res.fornitore) return;
+        if (cancelled) return;
+        if (!res.success) {
+          console.error("[fattura-sync] lookup fornitore", res.error);
+          setAnagraficaLookupDone(true);
+          return;
+        }
+        if (!res.fornitore) {
+          setAnagraficaLookupDone(true);
+          return;
+        }
         const f = res.fornitore;
         const label = `${f.codiceTarga} — ${f.ragioneSociale}`;
         const vatKey = normalizeVatKey(vat || f.partitaIva);
@@ -264,7 +280,9 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
         setAnagraficaLabel(label);
         setAnagraficaTarga(f.codiceTarga);
         setAnagraficaNome(f.ragioneSociale);
-      } finally {
+        setAnagraficaLookupDone(true);
+      } catch (e) {
+        console.error("[fattura-sync] lookup fornitore", e);
         if (!cancelled) setAnagraficaLookupDone(true);
       }
     })();
@@ -279,7 +297,10 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
     current?.entityName,
     current?.draft?.partitaIva,
     current?.draft?.ragioneSociale,
+    current?.needsHydration,
     anagraficaId,
+    hydrating,
+    hydrateError,
   ]);
 
   useEffect(() => {
@@ -782,7 +803,16 @@ export function FatturaSyncQueueModal({ items, onFinished, onPaused }: Props) {
                     ? "Caricamento dettaglio documento da Fatture in Cloud…"
                     : "Verifica se l\u2019azienda è già presente in anagrafica…"}
                 </p>
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {!hydrating && !current?.needsHydration ? (
+                    <button
+                      type="button"
+                      onClick={() => setAnagraficaLookupDone(true)}
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                    >
+                      Continua senza attendere
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={onPaused}
