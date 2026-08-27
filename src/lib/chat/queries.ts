@@ -3,6 +3,7 @@ import {
   mapConversation,
   mapMessage,
   peerIdOf,
+  MESSAGE_SELECT,
   type ChatContact,
   type ChatMessage,
   type ChatStatus,
@@ -142,13 +143,25 @@ export async function listMessages(
 ): Promise<ChatMessage[]> {
   const { data, error } = await supabase
     .from("messages")
-    .select(
-      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
-    )
+    .select(MESSAGE_SELECT)
     .eq("conversation_id", conversationId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
-  if (error) throw new Error(error.message);
+  if (error) {
+    // Fallback pre-migrazione share
+    const legacy = await supabase
+      .from("messages")
+      .select(
+        "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
+      )
+      .eq("conversation_id", conversationId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true });
+    if (legacy.error) throw new Error(error.message);
+    return ((legacy.data ?? []) as Parameters<typeof mapMessage>[0][]).map(
+      mapMessage
+    );
+  }
   return ((data ?? []) as Parameters<typeof mapMessage>[0][]).map(mapMessage);
 }
 

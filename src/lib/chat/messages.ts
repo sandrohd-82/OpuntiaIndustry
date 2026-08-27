@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { mapMessage, type ChatMessage } from "@/lib/chat/types";
+import {
+  MESSAGE_SELECT,
+  mapMessage,
+  type ChatMessage,
+  type ChatMessageKind,
+} from "@/lib/chat/types";
 
 export async function isChatPairBlocked(
   supabase: SupabaseClient,
@@ -50,6 +55,8 @@ type InsertPayload = {
   fileUrl?: string | null;
   fileType?: string | null;
   fileName?: string | null;
+  messageKind?: ChatMessageKind;
+  payload?: Record<string, unknown>;
 };
 
 function needsAutoTranscript(payload: InsertPayload): boolean {
@@ -58,12 +65,20 @@ function needsAutoTranscript(payload: InsertPayload): boolean {
   return Boolean(payload.fileUrl && ft.startsWith("video/"));
 }
 
+function resolveKind(payload: InsertPayload): ChatMessageKind {
+  if (payload.messageKind) return payload.messageKind;
+  if (payload.audioUrl) return "audio";
+  if (payload.fileUrl) return "file";
+  return "text";
+}
+
 export async function insertChatMessageAndNotify(
   supabase: SupabaseClient,
   userId: string,
   payload: InsertPayload
 ): Promise<ChatMessage> {
   const autoTx = needsAutoTranscript(payload);
+  const kind = resolveKind(payload);
   const { data, error } = await supabase
     .from("messages")
     .insert({
@@ -72,6 +87,8 @@ export async function insertChatMessageAndNotify(
       content: payload.content?.trim() ?? "",
       status: "sent",
       is_read: false,
+      message_kind: kind,
+      payload: payload.payload ?? {},
       audio_url: payload.audioUrl ?? null,
       file_url: payload.fileUrl ?? null,
       file_type: payload.fileType ?? null,
@@ -79,14 +96,42 @@ export async function insertChatMessageAndNotify(
       transcript_status: autoTx ? "pending" : null,
       transcript_by: autoTx ? userId : null,
     })
-    .select(
-      "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
-    )
+    .select(MESSAGE_SELECT)
     .single();
 
   if (error) {
     if (error.message.includes("chat_blocked")) {
       throw new Error("Messaggio bloccato: la conversazione è bloccata.");
+    }
+    if (
+      error.message.includes("message_kind") ||
+      error.message.includes("payload")
+    ) {
+      const legacy = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: payload.conversationId,
+          sender_id: userId,
+          content: payload.content?.trim() ?? "",
+          status: "sent",
+          is_read: false,
+          audio_url: payload.audioUrl ?? null,
+          file_url: payload.fileUrl ?? null,
+          file_type: payload.fileType ?? null,
+          file_name: payload.fileName ?? null,
+          transcript_status: autoTx ? "pending" : null,
+          transcript_by: autoTx ? userId : null,
+        })
+        .select(
+          "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error"
+        )
+        .single();
+      if (legacy.error) throw new Error(legacy.error.message);
+      const msg = mapMessage(
+        legacy.data as Parameters<typeof mapMessage>[0]
+      );
+      void requestChatPushNotify(msg.id);
+      return msg;
     }
     throw new Error(error.message);
   }

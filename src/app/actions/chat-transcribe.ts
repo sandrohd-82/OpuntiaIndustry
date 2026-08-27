@@ -2,7 +2,7 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { mapMessage, type ChatMessage } from "@/lib/chat/types";
+import { MESSAGE_SELECT, mapMessage, type ChatMessage } from "@/lib/chat/types";
 import { recordDecision } from "@/lib/learning/decision-events";
 import { createClient } from "@/lib/supabase/server";
 import { z } from "zod";
@@ -12,9 +12,6 @@ const WHISPER_MODEL = process.env.CHAT_TRANSCRIBE_MODEL?.trim() || "whisper-1";
 const schema = z.object({
   messageId: z.string().uuid(),
 });
-
-const MESSAGE_SELECT =
-  "id, conversation_id, sender_id, content, created_at, is_read, status, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error";
 
 type MediaSource = {
   url: string;

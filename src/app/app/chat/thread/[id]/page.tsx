@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { ChatAppHeader } from "@/components/chat/ChatAppHeader";
 import { ChatThreadBoard } from "@/components/chat/ChatThreadBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
 
 type Props = {
@@ -22,7 +23,11 @@ export default async function ChatThreadPage({ params }: Props) {
         userId={auth.userId}
       />
       <div className="p-6">
-        <ChatThreadBoard userId={auth.userId} conversationId={id} />
+        <ChatThreadBoard
+          userId={auth.userId}
+          conversationId={id}
+          isAdmin={isAdminLikeProfile(auth.profile)}
+        />
       </div>
     </>
   );

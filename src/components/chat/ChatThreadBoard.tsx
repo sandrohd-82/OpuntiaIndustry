@@ -16,6 +16,9 @@ import {
 import { transcribeChatVoiceMessageAction } from "@/app/actions/chat-transcribe";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
+import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
+import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
+import { schedaEntityLabel } from "@/lib/chat/types";
 import {
   attachChatLifecycleRefresh,
   subscribeConversationMessages,
@@ -33,7 +36,6 @@ import {
 } from "@/lib/chat/messages";
 import {
   isChatTranscribableMessage,
-  sendChatAttachment,
   sendVoiceMessage,
 } from "@/lib/chat/media";
 import {
@@ -48,6 +50,7 @@ import { createClient } from "@/lib/supabase/client";
 type Props = {
   userId: string;
   conversationId: string;
+  isAdmin?: boolean;
 };
 
 function StatusTicks({
@@ -133,8 +136,76 @@ function MessageBubble({
               : "-left-1 bg-slate-100"
           }`}
         />
-        {message.content ? (
+        {message.content &&
+        message.messageKind !== "poll" &&
+        message.messageKind !== "location" &&
+        message.messageKind !== "contact" &&
+        message.messageKind !== "scheda" ? (
           <p className="relative whitespace-pre-wrap">{message.content}</p>
+        ) : null}
+        {message.messageKind === "location" ? (
+          <div className="relative space-y-1 text-sm">
+            <p className="font-medium">
+              {String(message.payload.label ?? message.content)}
+            </p>
+            {typeof message.payload.lat === "number" &&
+            typeof message.payload.lng === "number" ? (
+              <a
+                href={`https://www.openstreetmap.org/?mlat=${message.payload.lat}&mlon=${message.payload.lng}#map=16/${message.payload.lat}/${message.payload.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className={`text-xs underline ${
+                  mine ? "text-white" : "text-[var(--primary)]"
+                }`}
+              >
+                Apri mappa
+              </a>
+            ) : null}
+          </div>
+        ) : null}
+        {message.messageKind === "contact" ? (
+          <div className="relative space-y-0.5 text-sm">
+            <p className="font-medium">
+              {String(message.payload.name ?? message.content)}
+            </p>
+            {message.payload.phone ? (
+              <p className="text-xs opacity-90">
+                Tel: {String(message.payload.phone)}
+              </p>
+            ) : null}
+            {message.payload.email ? (
+              <p className="text-xs opacity-90">
+                Email: {String(message.payload.email)}
+              </p>
+            ) : null}
+            <p className="text-[10px] opacity-70">
+              Fonte:{" "}
+              {message.payload.source === "gestionale"
+                ? "Gestionale"
+                : "Dispositivo"}
+            </p>
+          </div>
+        ) : null}
+        {message.messageKind === "scheda" ? (
+          <div className="relative space-y-0.5 text-sm">
+            <p className="text-[10px] uppercase tracking-wide opacity-80">
+              Scheda{" "}
+              {schedaEntityLabel[String(message.payload.entityType)] ??
+                String(message.payload.entityType ?? "")}
+            </p>
+            <p className="font-medium">
+              {String(message.payload.title ?? message.content)}
+            </p>
+            {message.payload.subtitle ? (
+              <p className="text-xs opacity-90">
+                {String(message.payload.subtitle)}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {message.messageKind === "poll" &&
+        typeof message.payload.pollId === "string" ? (
+          <ChatPollBubble pollId={message.payload.pollId} mine={mine} />
         ) : null}
         {isAudio ? (
           <div className="relative mt-1 space-y-1.5">
@@ -253,7 +324,11 @@ function MessageBubble({
   );
 }
 
-export function ChatThreadBoard({ userId, conversationId }: Props) {
+export function ChatThreadBoard({
+  userId,
+  conversationId,
+  isAdmin = false,
+}: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [avatars, setAvatars] = useState<Map<string, ChatProfileAvatar>>(
     () => new Map()
@@ -263,8 +338,8 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
   const [pending, setPending] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
@@ -417,29 +492,6 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
       setError(e instanceof Error ? e.message : "Invio fallito");
     } finally {
       setPending(false);
-    }
-  }
-
-  async function onFile(file: File | null) {
-    if (!file) return;
-    setPending(true);
-    const supabase = createClient();
-    try {
-      const msg = await sendChatAttachment(
-        supabase,
-        userId,
-        conversationId,
-        file
-      );
-      mergeMessage(msg);
-      if (isChatTranscribableMessage(msg)) {
-        void kickoffTranscript(msg.id);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Upload fallito");
-    } finally {
-      setPending(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
@@ -603,18 +655,13 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
           </p>
         ) : (
           <div className="flex items-end gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
-            />
             <button
               type="button"
               disabled={pending}
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setShareOpen(true)}
               className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted)]"
-              aria-label="Allegato"
+              aria-label="Condividi / allegati"
+              title="Condividi"
             >
               <FaPaperclip size={14} />
             </button>
@@ -659,6 +706,21 @@ export function ChatThreadBoard({ userId, conversationId }: Props) {
           </div>
         )}
       </div>
+
+      <ChatShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        userId={userId}
+        conversationId={conversationId}
+        isAdmin={isAdmin}
+        onSent={(msg) => {
+          mergeMessage(msg);
+          if (isChatTranscribableMessage(msg)) {
+            void kickoffTranscript(msg.id);
+          }
+        }}
+        onError={setError}
+      />
     </div>
   );
 }

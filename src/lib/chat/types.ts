@@ -1,6 +1,16 @@
+import { z } from "zod";
+
 export type MessageStatus = "sent" | "delivered" | "read";
 export type PeerKind = "customer" | "producer";
 export type ChatStatus = "available" | "away" | "offline";
+export type ChatMessageKind =
+  | "text"
+  | "audio"
+  | "file"
+  | "location"
+  | "contact"
+  | "poll"
+  | "scheda";
 
 export type Conversation = {
   id: string;
@@ -21,6 +31,8 @@ export type ChatMessage = {
   createdAt: string;
   isRead: boolean;
   status: MessageStatus;
+  messageKind: ChatMessageKind;
+  payload: Record<string, unknown>;
   audioUrl: string | null;
   fileUrl: string | null;
   fileType: string | null;
@@ -53,6 +65,25 @@ export type ConversationListItem = Conversation & {
   unreadCount: number;
 };
 
+export const MESSAGE_SELECT =
+  "id, conversation_id, sender_id, content, created_at, is_read, status, message_kind, payload, audio_url, file_url, file_type, file_name, transcript_text, transcript_status, transcript_at, transcript_by, transcript_model, transcript_error";
+
+function parseKind(raw: unknown): ChatMessageKind {
+  const k = String(raw ?? "text");
+  if (
+    k === "text" ||
+    k === "audio" ||
+    k === "file" ||
+    k === "location" ||
+    k === "contact" ||
+    k === "poll" ||
+    k === "scheda"
+  ) {
+    return k;
+  }
+  return "text";
+}
+
 export function mapConversation(row: {
   id: string;
   customer_id: string;
@@ -79,6 +110,8 @@ export function mapMessage(row: {
   created_at: string;
   is_read: boolean;
   status: MessageStatus;
+  message_kind?: string | null;
+  payload?: Record<string, unknown> | null;
   audio_url: string | null;
   file_url: string | null;
   file_type: string | null;
@@ -93,6 +126,9 @@ export function mapMessage(row: {
   const ts = row.transcript_status;
   const transcriptStatus =
     ts === "pending" || ts === "done" || ts === "error" ? ts : null;
+  let kind = parseKind(row.message_kind);
+  if (kind === "text" && row.audio_url) kind = "audio";
+  if (kind === "text" && row.file_url) kind = "file";
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -101,6 +137,11 @@ export function mapMessage(row: {
     createdAt: row.created_at,
     isRead: Boolean(row.is_read),
     status: row.status,
+    messageKind: kind,
+    payload:
+      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+        ? row.payload
+        : {},
     audioUrl: row.audio_url,
     fileUrl: row.file_url,
     fileType: row.file_type,
@@ -117,3 +158,17 @@ export function mapMessage(row: {
 export function peerIdOf(c: Conversation, viewerId: string): string {
   return c.customerId === viewerId ? c.producerId : c.customerId;
 }
+
+export const schedaEntityLabel: Record<string, string> = {
+  cliente: "Cliente",
+  possibile_cliente: "Possibile cliente",
+  fornitore: "Fornitore",
+  prodotto: "Prodotto",
+  prodotto_agri: "Prodotto Agrinsicilia",
+  materia_prima: "Materia prima",
+};
+
+export const chatVoteSchema = z.object({
+  pollId: z.string().uuid(),
+  optionId: z.string().uuid(),
+});
