@@ -48,7 +48,7 @@ export async function sendTopicVoiceMessage(
   if (blob.size > 5 * 1024 * 1024) {
     throw new Error("Nota vocale troppo grande (max 5 MB).");
   }
-  const path = `${userId}/topic/${topicId}/${filename}`;
+  const path = `${userId}/${topicId}/${filename}`;
   const { error: upErr } = await supabase.storage
     .from(VOICE_BUCKET)
     .upload(path, blob, {
@@ -114,7 +114,7 @@ export async function sendTopicAttachment(
     );
   }
   const safe = file.name.replace(/[^\w.\-]+/g, "_");
-  const path = `${userId}/topic/${topicId}/${Date.now()}-${safe}`;
+  const path = `${userId}/${topicId}/${Date.now()}-${safe}`;
   const { error: upErr } = await supabase.storage
     .from(MEDIA_BUCKET)
     .upload(path, file, {
