@@ -67,24 +67,26 @@ export function WebmailSidebarNav() {
         </button>
         {open ? (
           <ul className="mt-0.5 space-y-0.5 border-l border-slate-700/60 pl-2 ml-2">
-            <li>
-              <Link
-                href="/app/webmail/caselle"
-                className={itemClass(pathname === "/app/webmail/caselle")}
-              >
-                <span className="truncate">Tutte le caselle mail collegate</span>
-              </Link>
-            </li>
-            {accounts.map((acc) => {
-              const href = `/app/webmail/caselle/${acc.id}`;
-              return (
-                <li key={acc.id}>
-                  <Link href={href} className={itemClass(pathname === href)} title={acc.emailAddress}>
-                    <span className="truncate">{acc.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
+            {accounts.length === 0 ? (
+              <li className="px-3 py-1.5 text-xs text-[var(--sidebar-muted)]">
+                Nessuna casella collegata
+              </li>
+            ) : (
+              accounts.map((acc) => {
+                const href = `/app/webmail/caselle/${acc.id}`;
+                return (
+                  <li key={acc.id}>
+                    <Link
+                      href={href}
+                      className={itemClass(pathname === href)}
+                      title={acc.emailAddress}
+                    >
+                      <span className="truncate">{acc.label}</span>
+                    </Link>
+                  </li>
+                );
+              })
+            )}
           </ul>
         ) : null}
       </li>
