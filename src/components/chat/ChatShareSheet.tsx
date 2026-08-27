@@ -29,6 +29,7 @@ import { sendChatAttachment, sendTopicAttachment } from "@/lib/chat/media";
 import { insertChatMessageAndNotify } from "@/lib/chat/messages";
 import { insertTopicMessage } from "@/lib/chat/topic-api";
 import { createClient } from "@/lib/supabase/client";
+import { ChatLocationMapModal } from "@/components/chat/ChatLocationMapModal";
 
 type Props = {
   open: boolean;
@@ -43,13 +44,7 @@ type Props = {
   onError: (msg: string) => void;
 };
 
-type Sub =
-  | null
-  | "location"
-  | "contact"
-  | "poll"
-  | "scheda"
-  | "contact_gestionale";
+type Sub = null | "contact" | "poll" | "scheda" | "contact_gestionale";
 
 const iconFor: Record<ChatShareActionId, ReactNode> = {
   gallery: <FaImage size={16} />,
@@ -78,13 +73,7 @@ export function ChatShareSheet({
   const cameraRef = useRef<HTMLInputElement>(null);
   const [sub, setSub] = useState<Sub>(null);
   const [busy, setBusy] = useState(false);
-
-  // location
-  const [locMode, setLocMode] = useState<"attuale" | "cerca" | null>(null);
-  const [locQuery, setLocQuery] = useState("");
-  const [locHits, setLocHits] = useState<
-    Array<{ label: string; lat: number; lng: number }>
-  >([]);
+  const [mapOpen, setMapOpen] = useState(false);
 
   // poll
   const [pollTitle, setPollTitle] = useState("");
@@ -105,7 +94,7 @@ export function ChatShareSheet({
     Array<{ id: string; name: string; phone: string; email: string }>
   >([]);
 
-  if (!open) return null;
+  if (!open && !mapOpen) return null;
   if (!conversationId && !topicId) return null;
 
   async function uploadFiles(files: FileList | null) {
@@ -150,6 +139,7 @@ export function ChatShareSheet({
             payload,
           });
       onSent(msg);
+      setMapOpen(false);
       onClose();
       setSub(null);
     } catch (e) {
@@ -218,8 +208,7 @@ export function ChatShareSheet({
     else if (id === "doc") docRef.current?.click();
     else if (id === "camera") cameraRef.current?.click();
     else if (id === "location") {
-      setLocMode(null);
-      setSub("location");
+      setMapOpen(true);
     } else if (id === "contact_device") {
       await pickDeviceContact();
     } else if (id === "contact_gestionale") {
@@ -289,55 +278,6 @@ export function ChatShareSheet({
     });
   }
 
-  async function shareCurrentLocation() {
-    if (!navigator.geolocation) {
-      onError("Geolocalizzazione non disponibile.");
-      return;
-    }
-    setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        const label = `Posizione attuale (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
-        await sendLocation({ lat, lng, label, source: "attuale" });
-      },
-      () => {
-        setBusy(false);
-        onError("Impossibile ottenere la posizione.");
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
-    );
-  }
-
-  async function searchPlaces() {
-    const q = locQuery.trim();
-    if (!q) return;
-    setBusy(true);
-    try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&q=${encodeURIComponent(q)}`;
-      const res = await fetch(url, {
-        headers: { Accept: "application/json" },
-      });
-      const data = (await res.json()) as Array<{
-        display_name: string;
-        lat: string;
-        lon: string;
-      }>;
-      setLocHits(
-        data.map((d) => ({
-          label: d.display_name,
-          lat: Number(d.lat),
-          lng: Number(d.lon),
-        }))
-      );
-    } catch {
-      onError("Ricerca posizione fallita.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function loadGest(q: string) {
     const res = await listGestionaleRubricaForChatAction(q);
     if (!res.success) {
@@ -384,6 +324,8 @@ export function ChatShareSheet({
   }
 
   return (
+    <>
+      {open ? (
     <div
       className="fixed inset-0 z-[85] flex items-end justify-center bg-slate-950/50 sm:items-center"
       onClick={onClose}
@@ -463,66 +405,6 @@ export function ChatShareSheet({
                 </span>
               </button>
             ))}
-          </div>
-        ) : null}
-
-        {sub === "location" ? (
-          <div className="space-y-3">
-            {!locMode ? (
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void shareCurrentLocation()}
-                  className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white"
-                >
-                  Attuale
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLocMode("cerca")}
-                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                >
-                  Cerca
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  value={locQuery}
-                  onChange={(e) => setLocQuery(e.target.value)}
-                  placeholder="Via, città…"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void searchPlaces()}
-                  className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm text-white"
-                >
-                  Cerca sulla mappa
-                </button>
-                <div className="max-h-48 space-y-1 overflow-y-auto">
-                  {locHits.map((h) => (
-                    <button
-                      key={`${h.lat}-${h.lng}-${h.label}`}
-                      type="button"
-                      className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
-                      onClick={() =>
-                        void sendLocation({
-                          lat: h.lat,
-                          lng: h.lng,
-                          label: h.label,
-                          source: "cerca",
-                        })
-                      }
-                    >
-                      {h.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         ) : null}
 
@@ -662,5 +544,15 @@ export function ChatShareSheet({
         ) : null}
       </div>
     </div>
+      ) : null}
+
+      <ChatLocationMapModal
+        open={mapOpen}
+        onClose={() => setMapOpen(false)}
+        onConfirm={(payload) => void sendLocation(payload)}
+        onError={onError}
+        busy={busy}
+      />
+    </>
   );
 }
