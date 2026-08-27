@@ -19,6 +19,8 @@ import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
 import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
+import { ChatAttachmentPreview } from "@/components/chat/ChatAttachmentPreview";
+import { ChatMessageText } from "@/components/chat/ChatMessageText";
 import {
   attachChatLifecycleRefresh,
   subscribeConversationMessages,
@@ -141,7 +143,7 @@ function MessageBubble({
         message.messageKind !== "location" &&
         message.messageKind !== "contact" &&
         message.messageKind !== "scheda" ? (
-          <p className="relative whitespace-pre-wrap">{message.content}</p>
+          <ChatMessageText content={message.content} mine={mine} />
         ) : null}
         {message.messageKind === "location" ? (
           <div className="relative space-y-1 text-sm">
@@ -201,35 +203,13 @@ function MessageBubble({
             <audio controls src={message.audioUrl!} className="max-w-full" />
           </div>
         ) : null}
-        {isVideo ? (
-          <div className="relative mt-1 space-y-1.5">
-            <video
-              controls
-              src={message.fileUrl!}
-              className="max-h-56 max-w-full rounded-md"
-            />
-            {message.fileName ? (
-              <p
-                className={`text-[10px] ${
-                  mine ? "text-white/70" : "text-slate-500"
-                }`}
-              >
-                {message.fileName}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {message.fileUrl && !isVideo ? (
-          <a
-            href={message.fileUrl}
-            target="_blank"
-            rel="noreferrer"
-            className={`relative mt-1 block underline ${
-              mine ? "text-white" : "text-[var(--primary)]"
-            }`}
-          >
-            {message.fileName || "Allegato"}
-          </a>
+        {message.fileUrl ? (
+          <ChatAttachmentPreview
+            fileUrl={message.fileUrl}
+            fileType={message.fileType}
+            fileName={message.fileName}
+            mine={mine}
+          />
         ) : null}
         {isMediaTx ? (
           <div className="relative mt-1.5 space-y-1">

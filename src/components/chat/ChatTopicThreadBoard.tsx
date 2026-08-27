@@ -19,6 +19,8 @@ import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
 import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
+import { ChatAttachmentPreview } from "@/components/chat/ChatAttachmentPreview";
+import { ChatMessageText } from "@/components/chat/ChatMessageText";
 import { ChatTopicInfoModal } from "@/components/chat/ChatTopicInfoModal";
 import { recordDecisionAction } from "@/app/actions/learning";
 import { attachChatLifecycleRefresh } from "@/lib/chat/realtime";
@@ -338,10 +340,6 @@ export function ChatTopicThreadBoard({
           const showDay =
             !prev || !sameChatDay(prev.createdAt, m.createdAt);
           const isAudio = Boolean(m.audioUrl);
-          const isVideo = Boolean(
-            m.fileUrl && (m.fileType ?? "").toLowerCase().startsWith("video/")
-          );
-          const isFile = Boolean(m.fileUrl) && !isVideo;
           return (
             <div key={m.id}>
               {showDay ? <ChatDayDivider createdAt={m.createdAt} /> : null}
@@ -374,7 +372,7 @@ export function ChatTopicThreadBoard({
                   m.messageKind !== "location" &&
                   m.messageKind !== "contact" &&
                   m.messageKind !== "scheda" ? (
-                    <p className="relative whitespace-pre-wrap">{m.content}</p>
+                    <ChatMessageText content={m.content} mine={mine} />
                   ) : null}
                   {m.messageKind === "location" ? (
                     <div className="relative space-y-1 text-sm">
@@ -438,26 +436,13 @@ export function ChatTopicThreadBoard({
                       />
                     </div>
                   ) : null}
-                  {isVideo ? (
-                    <div className="relative mt-1">
-                      <video
-                        controls
-                        src={m.fileUrl!}
-                        className="max-h-48 max-w-full rounded"
-                      />
-                    </div>
-                  ) : null}
-                  {isFile ? (
-                    <a
-                      href={m.fileUrl!}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`relative mt-1 block text-xs underline ${
-                        mine ? "text-white" : "text-[var(--primary)]"
-                      }`}
-                    >
-                      {m.fileName ?? "Allegato"}
-                    </a>
+                  {m.fileUrl ? (
+                    <ChatAttachmentPreview
+                      fileUrl={m.fileUrl}
+                      fileType={m.fileType}
+                      fileName={m.fileName}
+                      mine={mine}
+                    />
                   ) : null}
                   <div
                     className={`relative mt-1 flex items-center gap-1 text-[10px] ${
