@@ -22,9 +22,9 @@ import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
-import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
+import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 type Props = {
@@ -62,7 +62,7 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
     case "chat":
       return null; // gestito da ChatSidebarNav
     case "webmail":
-      return WEBMAIL_SECTIONS;
+      return null; // gestito da WebmailSidebarNav
     case "promemorie-e-note":
       return PROMEMORIE_E_NOTE_SECTIONS;
     case "area-fornitori":
@@ -337,6 +337,36 @@ export function AppSidebar({
                     <ChatUnreadBadge userId={userId} />
                   </div>
                   {open ? <ChatSidebarNav userId={userId} /> : null}
+                </li>
+              );
+            }
+
+            if (area.slug === "webmail") {
+              const open = openKeys.has(area.slug);
+              return (
+                <li key={area.area_id}>
+                  <div className="flex items-center gap-1">
+                    <div className="min-w-0 flex-1">
+                      <BranchButton
+                        label={area.name}
+                        open={open}
+                        active={active}
+                        onToggle={() => toggle(area.slug)}
+                      />
+                    </div>
+                    {isSuperadmin ? (
+                      <Link
+                        href="/app/webmail/impostazioni"
+                        title="Impostazioni caselle (SuperAdmin)"
+                        aria-label="Impostazioni caselle WebMail"
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--sidebar-muted)] hover:bg-slate-700 hover:text-white"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <FaPlus size={12} />
+                      </Link>
+                    ) : null}
+                  </div>
+                  {open ? <WebmailSidebarNav /> : null}
                 </li>
               );
             }

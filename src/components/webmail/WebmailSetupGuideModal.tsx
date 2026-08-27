@@ -91,10 +91,9 @@ export function WebmailSetupGuideModal({ open, onClose }: Props) {
                 copia le <strong>16 lettere</strong>.
               </li>
               <li>
-                In questa pagina scegli provider <strong>Gmail</strong>, email
-                della casella, password = App Password (non la password Google
-                normale), seleziona il <strong>profilo utente</strong> a cui
-                assegnare la casella → Salva.
+                In Opuntia: seleziona uno o più <strong>profili</strong>,
+                provider <strong>Gmail</strong>, email della casella, password =
+                App Password → Salva. Poi usa <strong>Sincronizza</strong>.
               </li>
             </ol>
             <div className="overflow-x-auto rounded-lg border border-sky-200 bg-white">
@@ -163,9 +162,9 @@ export function WebmailSetupGuideModal({ open, onClose }: Props) {
                 Assicurati che IMAP/SMTP siano abilitati (di solito già attivi).
               </li>
               <li>
-                In Opuntia: provider <strong>Aruba</strong>, email = username =
-                indirizzo completo, password casella, collega al profilo →
-                Salva.
+                In Opuntia: seleziona uno o più <strong>profili</strong>,
+                provider <strong>Aruba</strong>, email = username = indirizzo
+                completo, password casella → Salva → <strong>Sincronizza</strong>.
               </li>
             </ol>
             <div className="overflow-x-auto rounded-lg border border-amber-200 bg-white">

@@ -147,8 +147,12 @@ export async function upsertWebmailAccountAction(
       ? input.username.trim()
       : input.emailAddress.trim().toLowerCase();
 
-  // Se non specificato, collega al profilo con stessa email
-  let ownerUserId = input.ownerUserId ?? null;
+  const grantedIds = [
+    ...new Set((input.grantedUserIds ?? []).filter(Boolean)),
+  ];
+  // Owner = primo profilo selezionato (o fallback email matching / owner esplicito)
+  let ownerUserId: string | null =
+    input.ownerUserId ?? grantedIds[0] ?? null;
   if (!ownerUserId) {
     const { data: prof } = await supabase
       .from("profiles")
@@ -156,6 +160,18 @@ export async function upsertWebmailAccountAction(
       .ilike("email", input.emailAddress.trim())
       .maybeSingle();
     ownerUserId = prof?.id ? String(prof.id) : null;
+  }
+  if (grantedIds.length === 0 && ownerUserId) {
+    grantedIds.push(ownerUserId);
+  }
+  if (grantedIds.length === 0) {
+    return {
+      success: false,
+      error: "Seleziona almeno un profilo a cui collegare la casella.",
+    };
+  }
+  if (!grantedIds.includes(ownerUserId ?? "")) {
+    ownerUserId = grantedIds[0]!;
   }
 
   const basePayload = {
@@ -175,6 +191,16 @@ export async function upsertWebmailAccountAction(
     last_sync_error: null as string | null,
   };
 
+  async function syncGrantsForAccount(accountId: string) {
+    const wanted = new Set(grantedIds);
+    wanted.add(auth.userId);
+    const grantRes = await setWebmailAccountGrantsAction({
+      accountId,
+      userIds: [...wanted],
+    });
+    return grantRes;
+  }
+
   if (input.id) {
     const updatePayload: Record<string, unknown> = { ...basePayload };
     if (input.password && input.password.trim().length > 0) {
@@ -192,24 +218,8 @@ export async function upsertWebmailAccountAction(
       .single();
     if (error) return { success: false, error: error.message };
 
-    if (ownerUserId) {
-      const { data: existingGrant } = await supabase
-        .from("webmail_account_grants")
-        .select("id")
-        .eq("account_id", data.id)
-        .eq("user_id", ownerUserId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (!existingGrant) {
-        await supabase.from("webmail_account_grants").insert({
-          account_id: data.id,
-          user_id: ownerUserId,
-          can_send: true,
-          created_by: auth.userId,
-          updated_by: auth.userId,
-        });
-      }
-    }
+    const grants = await syncGrantsForAccount(data.id);
+    if (!grants.success) return grants;
 
     await writeAuditLog({
       entity_type: "webmail_accounts",
@@ -222,6 +232,7 @@ export async function upsertWebmailAccountAction(
         email: input.emailAddress,
         username: input.username,
         ownerUserId,
+        grantedUserIds: grantedIds,
         password_changed: Boolean(input.password?.trim()),
       },
     });
@@ -247,18 +258,8 @@ export async function upsertWebmailAccountAction(
     .single();
   if (error) return { success: false, error: error.message };
 
-  // Grant al proprietario profilo (e al superadmin se diverso)
-  const grantUsers = new Set<string>([auth.userId]);
-  if (ownerUserId) grantUsers.add(ownerUserId);
-  for (const uid of grantUsers) {
-    await supabase.from("webmail_account_grants").insert({
-      account_id: data.id,
-      user_id: uid,
-      can_send: true,
-      created_by: auth.userId,
-      updated_by: auth.userId,
-    });
-  }
+  const grants = await syncGrantsForAccount(data.id);
+  if (!grants.success) return grants;
 
   await writeAuditLog({
     entity_type: "webmail_accounts",
@@ -270,6 +271,7 @@ export async function upsertWebmailAccountAction(
       provider: input.provider,
       email: input.emailAddress,
       ownerUserId,
+      grantedUserIds: grantedIds,
     },
   });
 

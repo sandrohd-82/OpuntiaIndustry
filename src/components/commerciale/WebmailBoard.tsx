@@ -33,11 +33,17 @@ function linkStatoLabel(stato: WebmailMessaggio["linkStato"]) {
   return "Bozza";
 }
 
-export function WebmailBoard() {
+export function WebmailBoard({
+  initialAccountId = null,
+}: {
+  initialAccountId?: string | null;
+}) {
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [messaggi, setMessaggi] = useState<WebmailMessaggio[]>([]);
-  const [accountFilter, setAccountFilter] = useState<string>("");
+  const [accountFilter, setAccountFilter] = useState<string>(
+    initialAccountId ?? ""
+  );
   const [categoriaFilter, setCategoriaFilter] = useState<string>("");
   const [onlyDraft, setOnlyDraft] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -86,6 +92,11 @@ export function WebmailBoard() {
     setCategorie(c.items);
     setMessaggi(m.messaggi);
   }, [accountFilter, categoriaFilter, onlyDraft]);
+
+  useEffect(() => {
+    setAccountFilter(initialAccountId ?? "");
+    setSelectedId(null);
+  }, [initialAccountId]);
 
   useEffect(() => {
     void reload();
@@ -187,18 +198,20 @@ export function WebmailBoard() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <select
-          value={accountFilter}
-          onChange={(e) => setAccountFilter(e.target.value)}
-          className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="">Tutte le caselle</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label} ({a.emailAddress})
-            </option>
-          ))}
-        </select>
+        {initialAccountId ? null : (
+          <select
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Tutte le caselle</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label} ({a.emailAddress})
+              </option>
+            ))}
+          </select>
+        )}
         <select
           value={categoriaFilter}
           onChange={(e) => setCategoriaFilter(e.target.value)}

@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPlus, FaArrowsRotate, FaTrash } from "react-icons/fa6";
 import {
+  listWebmailAccountGrantsAction,
   listWebmailAccountsAction,
   listWebmailOperatorsAction,
+  runWebmailSyncAction,
   softDeleteWebmailAccountAction,
   upsertWebmailAccountAction,
   type WebmailOperatorOption,
@@ -17,8 +19,12 @@ import {
   type WebmailProvider,
 } from "@/lib/webmail/types";
 
+type AccountWithGrants = WebmailAccountPublic & {
+  grantedUserIds: string[];
+};
+
 export function WebmailAdminCaselleBoard() {
-  const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
+  const [accounts, setAccounts] = useState<AccountWithGrants[]>([]);
   const [profiles, setProfiles] = useState<WebmailOperatorOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
@@ -36,7 +42,7 @@ export function WebmailAdminCaselleBoard() {
   const [smtpHost, setSmtpHost] = useState("");
   const [smtpPort, setSmtpPort] = useState(465);
   const [username, setUsername] = useState("");
-  const [ownerUserId, setOwnerUserId] = useState("");
+  const [grantedUserIds, setGrantedUserIds] = useState<string[]>([]);
   const [syncEnabled, setSyncEnabled] = useState(true);
 
   const preset = WEBMAIL_PROVIDER_PRESETS[provider];
@@ -58,7 +64,16 @@ export function WebmailAdminCaselleBoard() {
       setError(p.error);
       return;
     }
-    setAccounts(a.accounts);
+    const withGrants = await Promise.all(
+      a.accounts.map(async (acc) => {
+        const g = await listWebmailAccountGrantsAction(acc.id);
+        return {
+          ...acc,
+          grantedUserIds: g.success ? g.grants.map((x) => x.userId) : [],
+        };
+      })
+    );
+    setAccounts(withGrants);
     setProfiles(p.operators);
     setError(null);
   }, []);
@@ -78,7 +93,7 @@ export function WebmailAdminCaselleBoard() {
     setSmtpHost("");
     setSmtpPort(465);
     setUsername("");
-    setOwnerUserId("");
+    setGrantedUserIds([]);
     setSyncEnabled(true);
   }
 
@@ -87,7 +102,7 @@ export function WebmailAdminCaselleBoard() {
     setFormOpen(true);
   }
 
-  function openEdit(acc: WebmailAccountPublic) {
+  function openEdit(acc: AccountWithGrants) {
     setEditingId(acc.id);
     setLabel(acc.label);
     setEmail(acc.emailAddress);
@@ -98,7 +113,13 @@ export function WebmailAdminCaselleBoard() {
     setSmtpHost(acc.smtpHost);
     setSmtpPort(acc.smtpPort);
     setUsername(acc.username);
-    setOwnerUserId(acc.ownerUserId ?? "");
+    setGrantedUserIds(
+      acc.grantedUserIds.length
+        ? acc.grantedUserIds
+        : acc.ownerUserId
+          ? [acc.ownerUserId]
+          : []
+    );
     setSyncEnabled(acc.syncEnabled);
     setFormOpen(true);
   }
@@ -112,9 +133,15 @@ export function WebmailAdminCaselleBoard() {
     setSmtpPort(p.smtpPort);
   }
 
+  function toggleProfile(id: string) {
+    setGrantedUserIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
   function save() {
-    if (!ownerUserId) {
-      setError("Seleziona il profilo utente a cui collegare la casella.");
+    if (grantedUserIds.length === 0) {
+      setError("Seleziona almeno un profilo a cui collegare la casella.");
       return;
     }
     setInfo(null);
@@ -136,7 +163,8 @@ export function WebmailAdminCaselleBoard() {
             : email.trim(),
         password: password.trim() || undefined,
         syncEnabled,
-        ownerUserId,
+        ownerUserId: grantedUserIds[0],
+        grantedUserIds,
       });
       if (!res.success) {
         setError(res.error);
@@ -147,16 +175,16 @@ export function WebmailAdminCaselleBoard() {
       setInfo(
         editingId
           ? `Casella ${res.account.emailAddress} aggiornata.`
-          : `Casella ${res.account.emailAddress} collegata al profilo.`
+          : `Casella ${res.account.emailAddress} collegata ai profili.`
       );
       await reload();
     });
   }
 
-  function remove(acc: WebmailAccountPublic) {
+  function remove(acc: AccountWithGrants) {
     if (
       !window.confirm(
-        `Disattivare la casella ${acc.emailAddress}? L’utente non la vedrà più (soft delete ISO).`
+        `Disattivare la casella ${acc.emailAddress}? (soft delete ISO)`
       )
     ) {
       return;
@@ -172,13 +200,45 @@ export function WebmailAdminCaselleBoard() {
     });
   }
 
+  function syncAccount(acc: AccountWithGrants) {
+    setInfo(null);
+    startTransition(async () => {
+      const res = await runWebmailSyncAction(acc.id);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setInfo(
+        `Sync ${acc.label}: ${res.imported} nuovi, ${res.drafted} bozze` +
+          (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
+      );
+      await reload();
+    });
+  }
+
+  function syncAll() {
+    setInfo(null);
+    startTransition(async () => {
+      const res = await runWebmailSyncAction();
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setInfo(
+        `Sync tutte: ${res.imported} nuovi, ${res.drafted} bozze` +
+          (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
+      );
+      await reload();
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--muted)]">
-            Solo SuperAdmin: crea o modifica caselle IMAP e collegale a un
-            profilo dell’organigramma. L’utente vedrà solo la propria casella.
+            Solo SuperAdmin: collega caselle IMAP a uno o più profili e
+            sincronizza la posta.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -188,6 +248,15 @@ export function WebmailAdminCaselleBoard() {
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium"
           >
             Spiega come fare
+          </button>
+          <button
+            type="button"
+            disabled={pending || accounts.length === 0}
+            onClick={syncAll}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+          >
+            <FaArrowsRotate size={12} />
+            Sincronizza tutte
           </button>
           <button
             type="button"
@@ -221,7 +290,7 @@ export function WebmailAdminCaselleBoard() {
         <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold">
-              {editingId ? "Modifica casella" : "Nuova casella + profilo"}
+              {editingId ? "Modifica casella" : "Nuova casella + profili"}
             </h2>
             <button
               type="button"
@@ -237,23 +306,39 @@ export function WebmailAdminCaselleBoard() {
           <p className="text-xs text-[var(--muted)]">{preset.docsHint}</p>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm sm:col-span-2">
+            <div className="sm:col-span-2">
               <span className="mb-1 block text-xs font-medium">
-                Profilo utente (obbligatorio)
+                Profili collegati (uno o più)
               </span>
-              <select
-                value={ownerUserId}
-                onChange={(e) => setOwnerUserId(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              >
-                <option value="">— Seleziona profilo —</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.fullName} · {p.email}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-[var(--border)] bg-white p-2">
+                {profiles.length === 0 ? (
+                  <li className="p-2 text-xs text-[var(--muted)]">
+                    Nessun profilo attivo.
+                  </li>
+                ) : (
+                  profiles.map((p) => {
+                    const checked = grantedUserIds.includes(p.id);
+                    return (
+                      <li key={p.id}>
+                        <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleProfile(p.id)}
+                          />
+                          <span>
+                            {p.fullName || p.email}
+                            <span className="ml-1 text-xs text-[var(--muted)]">
+                              ({p.email})
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </div>
 
             <label className="text-sm">
               <span className="mb-1 block text-xs font-medium">Provider</span>
@@ -275,7 +360,7 @@ export function WebmailAdminCaselleBoard() {
               <input
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                placeholder="es. Commerciale"
+                placeholder="es. Info Agrinsicilia"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
               />
             </label>
@@ -397,9 +482,10 @@ export function WebmailAdminCaselleBoard() {
         ) : (
           <ul className="divide-y divide-[var(--border)]">
             {accounts.map((acc) => {
-              const owner = acc.ownerUserId
-                ? profileById.get(acc.ownerUserId)
-                : null;
+              const names = acc.grantedUserIds
+                .map((id) => profileById.get(id))
+                .filter(Boolean)
+                .map((p) => p!.fullName || p!.email);
               return (
                 <li
                   key={acc.id}
@@ -410,16 +496,23 @@ export function WebmailAdminCaselleBoard() {
                       {acc.label} · {acc.emailAddress}
                     </p>
                     <p className="truncate text-xs text-[var(--muted)]">
-                      {acc.provider.toUpperCase()} · Profilo:{" "}
-                      {owner
-                        ? `${owner.fullName} (${owner.email})`
-                        : "non assegnato"}
+                      {acc.provider.toUpperCase()} · Profili:{" "}
+                      {names.length ? names.join(", ") : "nessuno"}
                       {acc.lastSyncError
                         ? ` · Errore sync: ${acc.lastSyncError}`
                         : ""}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => syncAccount(acc)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 disabled:opacity-50"
+                    >
+                      <FaArrowsRotate size={10} />
+                      Sincronizza
+                    </button>
                     <button
                       type="button"
                       onClick={() => openEdit(acc)}

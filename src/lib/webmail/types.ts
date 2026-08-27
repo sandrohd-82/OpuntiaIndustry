@@ -82,6 +82,8 @@ export const webmailAccountInputSchema = z
     password: z.string().optional(),
     syncEnabled: z.boolean().optional(),
     ownerUserId: z.string().uuid().optional().nullable(),
+    /** Profili collegati alla casella (almeno uno in creazione/modifica admin). */
+    grantedUserIds: z.array(z.string().uuid()).optional(),
   })
   .superRefine((val, ctx) => {
     if (!val.id && (!val.password || val.password.length < 1)) {
@@ -89,6 +91,13 @@ export const webmailAccountInputSchema = z
         code: z.ZodIssueCode.custom,
         path: ["password"],
         message: "Password obbligatoria per una nuova casella.",
+      });
+    }
+    if (val.grantedUserIds && val.grantedUserIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["grantedUserIds"],
+        message: "Seleziona almeno un profilo.",
       });
     }
   });

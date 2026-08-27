@@ -4,11 +4,11 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Sottosezioni WebMail (menu laterale) */
+/** Sottosezioni WebMail (menu laterale gestito da WebmailSidebarNav) */
 export const WEBMAIL_SECTIONS: readonly NavItem[] = [
   {
     slug: "caselle",
-    label: "Caselle e messaggi",
+    label: "Caselle mail",
     description:
       "Caselle personali/condivise, categorie, collegamento aziende e referenti",
     path: "/app/webmail/caselle",

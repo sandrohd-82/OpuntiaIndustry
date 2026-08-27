@@ -30,7 +30,7 @@ export default async function WebmailSectionPage({ params }: Props) {
 
   return (
     <>
-      <AppHeader title="WebMail" subtitle={page.description} />
+      <AppHeader title="Caselle mail" subtitle={page.description} />
       <div className="p-6">
         <WebmailBoard />
       </div>
