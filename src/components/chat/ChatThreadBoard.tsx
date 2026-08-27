@@ -27,6 +27,10 @@ import {
 } from "@/lib/chat/realtime";
 import { sameChatDay } from "@/lib/chat/day-headers";
 import {
+  findFirstUnreadMessageId,
+  scrollChatListInitial,
+} from "@/lib/chat/scroll-initial";
+import {
   blockPeer,
   createChatReport,
   deleteChatMessage,
@@ -308,6 +312,7 @@ export function ChatThreadBoard({
   const [blocked, setBlocked] = useState(false);
   const [pending, setPending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -316,6 +321,8 @@ export function ChatThreadBoard({
     () => new Set()
   );
   const kickedTranscriptRef = useRef<Set<string>>(new Set());
+  const initialScrollDoneRef = useRef(false);
+  const pendingFirstUnreadIdRef = useRef<string | null>(null);
 
   const hasText = text.trim().length > 0;
 
@@ -379,6 +386,11 @@ export function ChatThreadBoard({
       const peer = peerIdOf(conv, userId);
       setPeerId(peer);
       const list = await listMessages(supabase, conversationId);
+      pendingFirstUnreadIdRef.current = findFirstUnreadMessageId(
+        list,
+        userId
+      );
+      initialScrollDoneRef.current = false;
       setMessages(list);
       for (const m of list) {
         if (
@@ -441,7 +453,33 @@ export function ChatThreadBoard({
   }, [conversationId, userId, reload, mergeMessage, ensureAvatars]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    initialScrollDoneRef.current = false;
+    pendingFirstUnreadIdRef.current = null;
+  }, [conversationId]);
+
+  useEffect(() => {
+    const container = listRef.current;
+    if (!container || messages.length === 0) return;
+
+    if (!initialScrollDoneRef.current) {
+      const unreadId = pendingFirstUnreadIdRef.current;
+      const firstUnreadEl = unreadId
+        ? container.querySelector<HTMLElement>(
+            `[data-message-id="${unreadId}"]`
+          )
+        : null;
+      requestAnimationFrame(() => {
+        scrollChatListInitial({
+          container,
+          firstUnreadEl,
+        });
+        initialScrollDoneRef.current = true;
+        pendingFirstUnreadIdRef.current = null;
+      });
+      return;
+    }
+
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length]);
 
   async function sendText() {
@@ -581,14 +619,17 @@ export function ChatThreadBoard({
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3"
+      >
         {messages.map((m, index) => {
           const mine = m.senderId === userId;
           const prev = messages[index - 1];
           const showDay =
             !prev || !sameChatDay(prev.createdAt, m.createdAt);
           return (
-            <div key={m.id}>
+            <div key={m.id} data-message-id={m.id}>
               {showDay ? <ChatDayDivider createdAt={m.createdAt} /> : null}
               <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                 <MessageBubble

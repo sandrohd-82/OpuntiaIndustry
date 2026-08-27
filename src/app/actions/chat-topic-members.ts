@@ -139,3 +139,135 @@ export async function listTopicMemberIdsAction(
     ),
   };
 }
+
+export type TopicMemberListItem = {
+  userId: string;
+  name: string;
+  email: string;
+  ruolo: string;
+};
+
+/** Membri attivi con nome (per gestione / rimozione). */
+export async function listTopicMembersAction(
+  topicId: string
+): Promise<
+  | { success: true; members: TopicMemberListItem[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("chat");
+  const idParsed = z.string().uuid().safeParse(topicId);
+  if (!idParsed.success) {
+    return { success: false, error: "Argomento non valido." };
+  }
+  const supabase = await createClient();
+  const { data: rows, error } = await supabase
+    .from("chat_topic_members")
+    .select("user_id, ruolo")
+    .eq("topic_id", idParsed.data)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const memberRows = (rows ?? []) as Array<{ user_id: string; ruolo: string }>;
+  const ids = memberRows.map((r) => r.user_id);
+  if (ids.length === 0) return { success: true, members: [] };
+
+  const { data: profiles, error: pErr } = await supabase
+    .from("profiles")
+    .select("id, email, full_name, first_name, last_name")
+    .in("id", ids);
+  if (pErr) return { success: false, error: pErr.message };
+
+  const byId = new Map(
+    ((profiles ?? []) as Array<{
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      first_name: string | null;
+      last_name: string | null;
+    }>).map((p) => [p.id, p])
+  );
+
+  return {
+    success: true,
+    members: memberRows.map((r) => {
+      const p = byId.get(r.user_id);
+      const name =
+        [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() ||
+        p?.full_name?.trim() ||
+        p?.email ||
+        "Utente";
+      return {
+        userId: r.user_id,
+        name,
+        email: p?.email ?? "",
+        ruolo: r.ruolo || "member",
+      };
+    }),
+  };
+}
+
+const removeMemberSchema = z.object({
+  topicId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
+/**
+ * Soft-remove membro: perde accesso all’argomento (ISO 9001 audit).
+ */
+export async function removeChatTopicMemberAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("chat");
+  const parsed = removeMemberSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati rimozione non validi." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("remove_chat_topic_member", {
+    p_topic_id: parsed.data.topicId,
+    p_user_id: parsed.data.userId,
+  });
+
+  if (error) {
+    if (error.message.includes("not_participant")) {
+      return {
+        success: false,
+        error: "Non sei un partecipante di questo argomento.",
+      };
+    }
+    if (
+      error.message.includes("remove_chat_topic_member") ||
+      error.code === "PGRST202"
+    ) {
+      return {
+        success: false,
+        error:
+          "Migrazione non applicata: esegui 20260827170000_chat_topic_remove_member.sql.",
+      };
+    }
+    return { success: false, error: error.message };
+  }
+
+  if (!data) {
+    return { success: false, error: "Membro non trovato o già rimosso." };
+  }
+
+  await writeAuditLog({
+    entity_type: "chat_topic_members",
+    entity_id: parsed.data.topicId,
+    action: "remove",
+    actor_id: auth.userId,
+    summary:
+      parsed.data.userId === auth.userId
+        ? "Uscita dall’argomento"
+        : "Rimozione membro dall’argomento",
+    payload: {
+      topicId: parsed.data.topicId,
+      removedUserId: parsed.data.userId,
+      self: parsed.data.userId === auth.userId,
+    },
+  });
+
+  return { success: true };
+}

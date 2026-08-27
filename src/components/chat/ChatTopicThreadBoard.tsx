@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FaArrowLeft,
@@ -40,6 +41,10 @@ import {
   type ChatProfileAvatar,
 } from "@/lib/chat/queries";
 import { dispatchChatTopicOpened, type TopicMessage } from "@/lib/chat/topics";
+import {
+  findFirstUnreadMessageId,
+  scrollChatListInitial,
+} from "@/lib/chat/scroll-initial";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
@@ -68,9 +73,13 @@ export function ChatTopicThreadBoard({
   const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [recording, setRecording] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const initialScrollDoneRef = useRef(false);
+  const pendingFirstUnreadIdRef = useRef<string | null>(null);
+  const router = useRouter();
   const hasText = text.trim().length > 0;
 
   const merge = useCallback((msg: TopicMessage) => {
@@ -96,6 +105,11 @@ export function ChatTopicThreadBoard({
       setTitolo(topic.titolo);
       setTitleDraft(topic.titolo);
       const list = await listTopicMessages(supabase, topicId);
+      pendingFirstUnreadIdRef.current = findFirstUnreadMessageId(
+        list,
+        userId
+      );
+      initialScrollDoneRef.current = false;
       setMessages(list);
       const ids = [userId, ...list.map((m) => m.senderId)];
       setAvatars(await loadChatAvatars(supabase, ids));
@@ -107,6 +121,11 @@ export function ChatTopicThreadBoard({
       setError(e instanceof Error ? e.message : "Errore");
     }
   }, [topicId, userId]);
+
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
+    pendingFirstUnreadIdRef.current = null;
+  }, [topicId]);
 
   useEffect(() => {
     void reload();
@@ -135,7 +154,28 @@ export function ChatTopicThreadBoard({
   }, [topicId, userId, reload, merge]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = listRef.current;
+    if (!container || messages.length === 0) return;
+
+    if (!initialScrollDoneRef.current) {
+      const unreadId = pendingFirstUnreadIdRef.current;
+      const firstUnreadEl = unreadId
+        ? container.querySelector<HTMLElement>(
+            `[data-message-id="${unreadId}"]`
+          )
+        : null;
+      requestAnimationFrame(() => {
+        scrollChatListInitial({
+          container,
+          firstUnreadEl,
+        });
+        initialScrollDoneRef.current = true;
+        pendingFirstUnreadIdRef.current = null;
+      });
+      return;
+    }
+
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length]);
 
   async function saveTitle() {
@@ -332,7 +372,10 @@ export function ChatTopicThreadBoard({
           {error}
         </p>
       ) : null}
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3"
+      >
         {messages.map((m, index) => {
           const mine = m.senderId === userId;
           const av = avatarFor(m.senderId);
@@ -341,7 +384,7 @@ export function ChatTopicThreadBoard({
             !prev || !sameChatDay(prev.createdAt, m.createdAt);
           const isAudio = Boolean(m.audioUrl);
           return (
-            <div key={m.id}>
+            <div key={m.id} data-message-id={m.id}>
               {showDay ? <ChatDayDivider createdAt={m.createdAt} /> : null}
               <div
                 className={`flex items-end gap-1.5 ${mine ? "flex-row-reverse" : ""}`}
@@ -557,6 +600,11 @@ export function ChatTopicThreadBoard({
           }
         }}
         onError={setError}
+        onMemberRemoved={(removedUserId) => {
+          if (removedUserId === userId) {
+            router.push("/app/chat/argomenti/elenco");
+          }
+        }}
       />
 
       <ChatTopicInfoModal

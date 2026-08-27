@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FaUserPlus, FaXmark } from "react-icons/fa6";
+import { FaUserMinus, FaUserPlus, FaXmark } from "react-icons/fa6";
 import {
   addChatTopicMembersAction,
   countTopicMessagesAction,
-  listTopicMemberIdsAction,
+  listTopicMembersAction,
+  removeChatTopicMemberAction,
+  type TopicMemberListItem,
 } from "@/app/actions/chat-topic-members";
 import { listPeerCandidates } from "@/lib/chat/queries";
 import type { ChatStatus } from "@/lib/chat/types";
@@ -31,13 +33,14 @@ type Props = {
   topicId: string;
   onDone: (added: number) => void;
   onError: (msg: string) => void;
+  /** Dopo rimozione (anche se self → parent può redirect). */
+  onMemberRemoved?: (removedUserId: string) => void;
 };
 
 type Phase = "pick" | "history" | "saving";
 
 /**
- * Aggiunge utenti all’argomento.
- * Se esiste cronologia, chiede per ogni utente se può vedere i messaggi precedenti.
+ * Gestisce membri argomento: aggiunta (con scelta storia) e rimozione soft-delete.
  */
 export function ChatAddTopicMembersModal({
   open,
@@ -46,10 +49,11 @@ export function ChatAddTopicMembersModal({
   topicId,
   onDone,
   onError,
+  onMemberRemoved,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("pick");
   const [peers, setPeers] = useState<Peer[]>([]);
-  const [memberIds, setMemberIds] = useState<Set<string>>(new Set());
+  const [members, setMembers] = useState<TopicMemberListItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hasHistory, setHasHistory] = useState(false);
   const [queue, setQueue] = useState<Peer[]>([]);
@@ -57,6 +61,13 @@ export function ChatAddTopicMembersModal({
   const [decisions, setDecisions] = useState<InviteDecision[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  async function refreshMembers() {
+    const membersRes = await listTopicMembersAction(topicId);
+    if (membersRes.success) setMembers(membersRes.members);
+    else onError(membersRes.error);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -71,12 +82,12 @@ export function ChatAddTopicMembersModal({
       try {
         const [peerList, membersRes, countRes] = await Promise.all([
           listPeerCandidates(supabase, userId),
-          listTopicMemberIdsAction(topicId),
+          listTopicMembersAction(topicId),
           countTopicMessagesAction(topicId),
         ]);
         setPeers(peerList);
         if (membersRes.success) {
-          setMemberIds(new Set(membersRes.memberIds));
+          setMembers(membersRes.members);
         } else {
           onError(membersRes.error);
         }
@@ -92,6 +103,11 @@ export function ChatAddTopicMembersModal({
       }
     })();
   }, [open, userId, topicId, onError]);
+
+  const memberIds = useMemo(
+    () => new Set(members.map((m) => m.userId)),
+    [members]
+  );
 
   const candidates = useMemo(
     () => peers.filter((p) => !memberIds.has(p.id)),
@@ -112,7 +128,7 @@ export function ChatAddTopicMembersModal({
   function startInvite() {
     const picked = candidates.filter((p) => selected.has(p.id));
     if (picked.length === 0) {
-      onError("Seleziona almeno un utente.");
+      onError("Seleziona almeno un utente da aggiungere.");
       return;
     }
     if (!hasHistory) {
@@ -167,6 +183,32 @@ export function ChatAddTopicMembersModal({
     onClose();
   }
 
+  async function removeMember(member: TopicMemberListItem) {
+    const isSelf = member.userId === userId;
+    const ok = window.confirm(
+      isSelf
+        ? "Vuoi uscire da questo argomento? Non avrai più accesso alla chat."
+        : `Rimuovere ${member.name} dall’argomento? Non avrà più accesso alla chat.`
+    );
+    if (!ok) return;
+    setRemovingId(member.userId);
+    const res = await removeChatTopicMemberAction({
+      topicId,
+      userId: member.userId,
+    });
+    setRemovingId(null);
+    if (!res.success) {
+      onError(res.error);
+      return;
+    }
+    onMemberRemoved?.(member.userId);
+    if (isSelf) {
+      onClose();
+      return;
+    }
+    await refreshMembers();
+  }
+
   if (!open) return null;
 
   return (
@@ -175,17 +217,17 @@ export function ChatAddTopicMembersModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl sm:rounded-2xl"
+        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-[var(--card)] shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3 flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <FaUserPlus size={14} className="text-[var(--primary)]" />
             {phase === "history"
               ? "Cronologia chat"
               : phase === "saving"
                 ? "Invito in corso…"
-                : "Aggiungi utenti"}
+                : "Gestisci utenti"}
           </h2>
           <button
             type="button"
@@ -198,97 +240,162 @@ export function ChatAddTopicMembersModal({
           </button>
         </div>
 
-        {loading ? (
-          <p className="text-xs text-slate-500">Caricamento…</p>
-        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          {loading ? (
+            <p className="text-xs text-slate-500">Caricamento…</p>
+          ) : null}
+
+          {phase === "pick" && !loading ? (
+            <div className="space-y-4">
+              <section className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Membri attivi
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Rimuovendo un utente perde subito l’accesso a questa chat.
+                </p>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {members.length === 0 ? (
+                    <p className="text-xs text-slate-400">Nessun membro.</p>
+                  ) : (
+                    members.map((m) => (
+                      <div
+                        key={m.userId}
+                        className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
+                            {m.name}
+                            {m.userId === userId ? " (tu)" : ""}
+                          </span>
+                          <span className="block truncate text-[10px] text-slate-500">
+                            {m.email || m.ruolo}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          disabled={busy || removingId === m.userId}
+                          onClick={() => void removeMember(m)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+                          title={
+                            m.userId === userId
+                              ? "Esci dall’argomento"
+                              : "Rimuovi dall’argomento"
+                          }
+                        >
+                          <FaUserMinus size={11} />
+                          {removingId === m.userId
+                            ? "…"
+                            : m.userId === userId
+                              ? "Esci"
+                              : "Rimuovi"}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  Aggiungi utenti
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  Seleziona uno o più utenti da aggiungere.
+                  {hasHistory
+                    ? " Per ciascuno chiederemo se può vedere la chat precedente."
+                    : " Non ci sono ancora messaggi: vedranno la conversazione da subito."}
+                </p>
+                <div className="max-h-48 space-y-1 overflow-y-auto">
+                  {candidates.length === 0 ? (
+                    <p className="text-xs text-slate-500">
+                      Nessun altro utente disponibile da aggiungere.
+                    </p>
+                  ) : (
+                    candidates.map((p) => (
+                      <label
+                        key={p.id}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.has(p.id)}
+                          onChange={() => toggle(p.id)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
+                            {p.name}
+                          </span>
+                          <span className="block truncate text-[10px] text-slate-500">
+                            {p.email}
+                          </span>
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+          ) : null}
+
+          {phase === "history" && current ? (
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500">
+                Utente {queueIdx + 1} di {queue.length}
+              </p>
+              <p className="text-sm">
+                Vuoi concedere a{" "}
+                <span className="font-semibold">{current.name}</span> di
+                visualizzare la chat antecedente al suo ingresso in questo
+                gruppo?
+              </p>
+            </div>
+          ) : null}
+
+          {phase === "saving" ? (
+            <p className="text-xs text-slate-500">Salvataggio inviti…</p>
+          ) : null}
+        </div>
 
         {phase === "pick" && !loading ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500">
-              Seleziona uno o più utenti da aggiungere all’argomento.
-              {hasHistory
-                ? " Per ciascuno chiederemo se può vedere la chat precedente."
-                : " Non ci sono ancora messaggi: vedranno la conversazione da subito."}
-            </p>
-            <div className="max-h-64 space-y-1 overflow-y-auto">
-              {candidates.length === 0 ? (
-                <p className="text-xs text-slate-500">
-                  Nessun altro utente disponibile da aggiungere.
-                </p>
-              ) : (
-                candidates.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-2 py-1.5 text-sm hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.has(p.id)}
-                      onChange={() => toggle(p.id)}
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{p.name}</span>
-                      <span className="block truncate text-[10px] text-slate-500">
-                        {p.email}
-                      </span>
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
-              >
-                Annulla
-              </button>
-              <button
-                type="button"
-                disabled={selected.size === 0 || busy}
-                onClick={startInvite}
-                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm text-white disabled:opacity-40"
-              >
-                Continua ({selected.size})
-              </button>
-            </div>
+          <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
+            >
+              Chiudi
+            </button>
+            <button
+              type="button"
+              disabled={selected.size === 0 || busy}
+              onClick={startInvite}
+              className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm text-white disabled:opacity-40"
+            >
+              Aggiungi ({selected.size})
+            </button>
           </div>
         ) : null}
 
         {phase === "history" && current ? (
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500">
-              Utente {queueIdx + 1} di {queue.length}
-            </p>
-            <p className="text-sm">
-              Vuoi concedere a{" "}
-              <span className="font-semibold">{current.name}</span> di
-              visualizzare la chat antecedente al suo ingresso in questo gruppo?
-            </p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => answerHistory(false)}
-                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              >
-                No — solo messaggi da ora
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => answerHistory(true)}
-                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white"
-              >
-                Sì — vede la cronologia
-              </button>
-            </div>
+          <div className="flex shrink-0 flex-col gap-2 border-t border-[var(--border)] px-4 py-3 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => answerHistory(false)}
+              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              No — solo messaggi da ora
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => answerHistory(true)}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white"
+            >
+              Sì — vede la cronologia
+            </button>
           </div>
-        ) : null}
-
-        {phase === "saving" ? (
-          <p className="text-xs text-slate-500">Salvataggio inviti…</p>
         ) : null}
       </div>
     </div>
