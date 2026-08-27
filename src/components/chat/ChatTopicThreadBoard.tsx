@@ -10,7 +10,9 @@ import {
   FaPaperPlane,
   FaPen,
   FaTrash,
+  FaUserPlus,
 } from "react-icons/fa6";
+import { ChatAddTopicMembersModal } from "@/components/chat/ChatAddTopicMembersModal";
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
@@ -59,6 +61,7 @@ export function ChatTopicThreadBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [recording, setRecording] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -299,6 +302,15 @@ export function ChatTopicThreadBoard({
               />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setAddMembersOpen(true)}
+            className="shrink-0 rounded-lg border border-[var(--border)] p-2 text-[var(--muted)] hover:bg-slate-50"
+            title="Aggiungi utenti"
+            aria-label="Aggiungi utenti"
+          >
+            <FaUserPlus size={14} />
+          </button>
         </div>
       </div>
       {error ? (
@@ -544,6 +556,19 @@ export function ChatTopicThreadBoard({
         isAdmin={isAdmin}
         onSent={(msg) => {
           if ("topicId" in msg) merge(msg);
+        }}
+        onError={setError}
+      />
+
+      <ChatAddTopicMembersModal
+        open={addMembersOpen}
+        onClose={() => setAddMembersOpen(false)}
+        userId={userId}
+        topicId={topicId}
+        onDone={(added) => {
+          if (added > 0) {
+            setError(null);
+          }
         }}
         onError={setError}
       />
