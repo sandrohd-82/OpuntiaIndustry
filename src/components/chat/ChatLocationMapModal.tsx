@@ -216,6 +216,7 @@ export function ChatLocationMapModal({
 
     let cancelled = false;
     let clickListener: google.maps.MapsEventListener | null = null;
+    const searchInput = searchRef.current;
 
     void (async () => {
       try {
@@ -239,8 +240,8 @@ export function ChatLocationMapModal({
           void placeMarker(ll.lat(), ll.lng(), "cerca");
         });
 
-        if (searchRef.current) {
-          const ac = new g.maps.places.Autocomplete(searchRef.current, {
+        if (searchInput) {
+          const ac = new g.maps.places.Autocomplete(searchInput, {
             fields: ["formatted_address", "geometry", "name"],
             componentRestrictions: { country: ["it"] },
           });
