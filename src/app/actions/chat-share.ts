@@ -971,13 +971,14 @@ export async function getChatSchedaSharePreviewAction(
       row.is_bio ? "Sì" : "No",
       false
     );
-    if (row.prezzo_unitario_medio != null) {
-      price = {
-        label: "Prezzo medio unitario",
-        value: formatEuroIt(Number(row.prezzo_unitario_medio)),
-        defaultSelected: false,
-      };
-    }
+    price = {
+      label: "Prezzo medio unitario",
+      value:
+        row.prezzo_unitario_medio != null
+          ? formatEuroIt(Number(row.prezzo_unitario_medio))
+          : "Non disponibile",
+      defaultSelected: false,
+    };
   } else if (entityType === "prodotto_agri") {
     const { data, error } = await supabase
       .from("prodotti_propri")
@@ -1007,13 +1008,14 @@ export async function getChatSchedaSharePreviewAction(
       row.is_bio ? "Sì" : "No",
       false
     );
-    if (row.prezzo_listino != null) {
-      price = {
-        label: "Prezzo listino",
-        value: formatEuroIt(Number(row.prezzo_listino)),
-        defaultSelected: false,
-      };
-    }
+    price = {
+      label: "Prezzo listino",
+      value:
+        row.prezzo_listino != null
+          ? formatEuroIt(Number(row.prezzo_listino))
+          : "Non ancora in listino",
+      defaultSelected: false,
+    };
   } else if (entityType === "materia_prima") {
     const { data, error } = await supabase
       .from("materie_prime")

@@ -242,6 +242,11 @@ export function ChatSchedaShareFieldsModal({
                   <span className="block text-[11px] text-slate-600">
                     {preview.price.value}
                   </span>
+                  {preview.entityType === "prodotto_agri" ? (
+                    <span className="mt-0.5 block text-[10px] text-amber-800/80">
+                      Pronto per listino, generatore e scontistica.
+                    </span>
+                  ) : null}
                 </span>
               </label>
             </section>
