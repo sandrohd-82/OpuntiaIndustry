@@ -59,7 +59,7 @@ function loadGoogleMaps(apiKey: string): Promise<typeof google> {
 }
 
 /**
- * Modale posizione con Google Maps (Places + pin + GPS).
+ * Modale posizione con Google Maps (Places + pin + GPS ad alta precisione).
  */
 export function ChatLocationMapModal({
   open,
@@ -74,8 +74,10 @@ export function ChatLocationMapModal({
   const markerRef = useRef<google.maps.Marker | null>(null);
   const geocoderRef = useRef<google.maps.Geocoder | null>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const accuracyCircleRef = useRef<google.maps.Circle | null>(null);
 
   const [geoBusy, setGeoBusy] = useState(false);
+  const [geoHint, setGeoHint] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [missingKey, setMissingKey] = useState(false);
   const [pin, setPin] = useState<{
@@ -83,6 +85,7 @@ export function ChatLocationMapModal({
     lng: number;
     label: string;
     source: "attuale" | "cerca";
+    accuracyM?: number | null;
   } | null>(null);
 
   const reverseGeocode = useCallback(async (lat: number, lng: number) => {
@@ -106,7 +109,8 @@ export function ChatLocationMapModal({
       lat: number,
       lng: number,
       source: "attuale" | "cerca",
-      label?: string
+      label?: string,
+      accuracyM?: number | null
     ) => {
       const map = mapRef.current;
       const g = window.google;
@@ -132,18 +136,64 @@ export function ChatLocationMapModal({
               lng: p.lng(),
               label: lbl,
               source: "cerca",
+              accuracyM: null,
             });
+            setGeoHint(null);
+            if (accuracyCircleRef.current) {
+              accuracyCircleRef.current.setMap(null);
+              accuracyCircleRef.current = null;
+            }
             if (searchRef.current) searchRef.current.value = lbl;
           })();
         });
       }
 
+      if (accuracyCircleRef.current) {
+        accuracyCircleRef.current.setMap(null);
+        accuracyCircleRef.current = null;
+      }
+      if (
+        typeof accuracyM === "number" &&
+        accuracyM > 0 &&
+        Number.isFinite(accuracyM)
+      ) {
+        accuracyCircleRef.current = new g.maps.Circle({
+          map,
+          center: pos,
+          radius: accuracyM,
+          strokeColor: "#2563eb",
+          strokeOpacity: 0.8,
+          strokeWeight: 1,
+          fillColor: "#3b82f6",
+          fillOpacity: 0.15,
+        });
+      }
+
       map.panTo(pos);
-      if ((map.getZoom() ?? 0) < 15) map.setZoom(16);
+      const zoom = accuracyM && accuracyM > 200 ? 15 : 17;
+      if ((map.getZoom() ?? 0) < zoom) map.setZoom(zoom);
 
       const resolved = label ?? (await reverseGeocode(lat, lng));
-      setPin({ lat, lng, label: resolved, source });
+      setPin({
+        lat,
+        lng,
+        label: resolved,
+        source,
+        accuracyM: accuracyM ?? null,
+      });
       if (searchRef.current) searchRef.current.value = resolved;
+
+      if (source === "attuale" && typeof accuracyM === "number") {
+        if (accuracyM > 150) {
+          setGeoHint(
+            `Attenzione: precisione scarsa (±${Math.round(accuracyM)} m). Su PC/Wi‑Fi aziendale il browser stima spesso la sede (IP/rete), non il GPS. Trascina il pin o usa un telefono.`
+          );
+        } else {
+          setGeoHint(`Precisione rilevata: circa ±${Math.round(accuracyM)} m.`);
+        }
+      } else {
+        setGeoHint(null);
+      }
     },
     [reverseGeocode]
   );
@@ -199,7 +249,9 @@ export function ChatLocationMapModal({
             const place = ac.getPlace();
             const loc = place.geometry?.location;
             if (!loc) {
-              onError("Luogo senza coordinate. Scegli un suggerimento dalla lista.");
+              onError(
+                "Luogo senza coordinate. Scegli un suggerimento dalla lista."
+              );
               return;
             }
             void placeMarker(
@@ -224,32 +276,107 @@ export function ChatLocationMapModal({
       markerRef.current = null;
       mapRef.current = null;
       geocoderRef.current = null;
+      if (accuracyCircleRef.current) {
+        accuracyCircleRef.current.setMap(null);
+        accuracyCircleRef.current = null;
+      }
       setPin(null);
+      setGeoHint(null);
       setReady(false);
       if (searchRef.current) searchRef.current.value = "";
     };
   }, [open, onError, placeMarker]);
 
-  function useCurrent() {
+  async function useCurrent() {
     if (!navigator.geolocation) {
-      onError("Geolocalizzazione non disponibile.");
+      onError("Geolocalizzazione non disponibile su questo browser.");
       return;
     }
+
+    try {
+      const perm = await navigator.permissions?.query({
+        name: "geolocation" as PermissionName,
+      });
+      if (perm?.state === "denied") {
+        onError(
+          "Permesso posizione negato. Nel lucchetto vicino all’URL consenti la posizione per questo sito, poi riprova."
+        );
+        return;
+      }
+    } catch {
+      // permissions API non ovunque
+    }
+
     setGeoBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        void placeMarker(
-          pos.coords.latitude,
-          pos.coords.longitude,
-          "attuale"
-        ).finally(() => setGeoBusy(false));
-      },
-      () => {
-        setGeoBusy(false);
-        onError("Impossibile ottenere la posizione.");
-      },
-      { enableHighAccuracy: true, timeout: 12000 }
+    setGeoHint(
+      "Richiesta permesso e rilevamento GPS in corso… attendi qualche secondo."
     );
+
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 20000,
+    };
+
+    const best = await new Promise<GeolocationPosition | null>((resolve) => {
+      let settled = false;
+      let bestPos: GeolocationPosition | null = null;
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+            bestPos = pos;
+          }
+          if (pos.coords.accuracy <= 40) {
+            if (settled) return;
+            settled = true;
+            navigator.geolocation.clearWatch(watchId);
+            resolve(pos);
+          }
+        },
+        (err) => {
+          if (settled) return;
+          settled = true;
+          navigator.geolocation.clearWatch(watchId);
+          if (err.code === err.PERMISSION_DENIED) {
+            onError(
+              "Hai negato il permesso di posizione. Abilitalo nel lucchetto vicino all’URL del browser."
+            );
+          } else if (err.code === err.TIMEOUT) {
+            onError(
+              "Timeout GPS. Riprova all’aperto o trascina il pin sulla mappa."
+            );
+          } else {
+            onError("Impossibile ottenere la posizione attuale.");
+          }
+          resolve(null);
+        },
+        options
+      );
+
+      window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        navigator.geolocation.clearWatch(watchId);
+        resolve(bestPos);
+      }, 10000);
+    });
+
+    if (!best) {
+      setGeoBusy(false);
+      return;
+    }
+
+    try {
+      await placeMarker(
+        best.coords.latitude,
+        best.coords.longitude,
+        "attuale",
+        undefined,
+        best.coords.accuracy
+      );
+    } finally {
+      setGeoBusy(false);
+    }
   }
 
   async function confirm() {
@@ -309,12 +436,17 @@ export function ChatLocationMapModal({
           <button
             type="button"
             disabled={geoBusy || busy || missingKey || !ready}
-            onClick={useCurrent}
+            onClick={() => void useCurrent()}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium disabled:opacity-40"
           >
             <FaLocationCrosshairs size={12} />
-            Usa posizione attuale
+            {geoBusy ? "Rilevamento GPS…" : "Usa posizione attuale"}
           </button>
+          {geoHint ? (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-2 py-1.5 text-[11px] text-sky-950">
+              {geoHint}
+            </p>
+          ) : null}
         </div>
 
         <div
@@ -326,6 +458,8 @@ export function ChatLocationMapModal({
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3">
           <p className="text-[11px] text-slate-500">
             Digita e scegli un suggerimento, tocca la mappa o trascina il pin.
+            Su PC senza GPS la “posizione attuale” può risultare la sede
+            aziendale (Wi‑Fi/IP).
           </p>
           {pin ? (
             <p className="line-clamp-2 text-xs text-slate-800">{pin.label}</p>
