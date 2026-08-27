@@ -153,6 +153,11 @@ export type WebmailMessaggio = {
   aziendaLabel: string;
   contattoId: string | null;
   linkStato: "bozza" | "collegata" | "da_salvare";
+  categoriaSuggestId: string | null;
+  categoriaSuggestMode: "suggest" | "auto_notify" | "auto_silent" | null;
+  categoriaAutoPending: boolean;
+  categoriaAutoAppliedAt: string | null;
+  categoriaAutoNotified: boolean;
 };
 
 export type WebmailBozzaAi = {

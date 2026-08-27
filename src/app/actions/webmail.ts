@@ -65,8 +65,19 @@ function mapMessaggio(r: Record<string, unknown>): WebmailMessaggio {
     aziendaLabel: String(r.azienda_label ?? ""),
     contattoId: (r.contatto_id as string | null) ?? null,
     linkStato: (r.link_stato as WebmailMessaggio["linkStato"]) ?? "bozza",
+    categoriaSuggestId: (r.categoria_suggest_id as string | null) ?? null,
+    categoriaSuggestMode:
+      (r.categoria_suggest_mode as WebmailMessaggio["categoriaSuggestMode"]) ??
+      null,
+    categoriaAutoPending: Boolean(r.categoria_auto_pending),
+    categoriaAutoAppliedAt:
+      (r.categoria_auto_applied_at as string | null) ?? null,
+    categoriaAutoNotified: Boolean(r.categoria_auto_notified),
   };
 }
+
+const MESSAGGIO_SELECT =
+  "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato, categoria_suggest_id, categoria_suggest_mode, categoria_auto_pending, categoria_auto_applied_at, categoria_auto_notified";
 
 export async function listWebmailCategorieAction(): Promise<
   | { success: true; items: WebmailCategoria[] }
@@ -475,9 +486,7 @@ export async function listWebmailMessaggiAction(input?: {
   const supabase = await createClient();
   let q = supabase
     .from("webmail_messaggi")
-    .select(
-      "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
-    )
+    .select(MESSAGGIO_SELECT)
     .is("deleted_at", null)
     .eq("direction", "inbound")
     .order("received_at", { ascending: false })
@@ -790,7 +799,7 @@ export async function linkWebmailMessaggioAnagraficaAction(
   const { data: msg, error: msgErr } = await supabase
     .from("webmail_messaggi")
     .select(
-      "id, account_id, from_address, categoria_id, direction, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
+      "id, account_id, from_address, from_name, subject, body_text, has_ai_draft"
     )
     .eq("id", parsed.data.messaggioId)
     .is("deleted_at", null)
@@ -834,9 +843,7 @@ export async function linkWebmailMessaggioAnagraficaAction(
     .from("webmail_messaggi")
     .update(patch)
     .eq("id", parsed.data.messaggioId)
-    .select(
-      "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
-    )
+    .select(MESSAGGIO_SELECT)
     .single();
   if (error || !updated) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito." };
@@ -855,4 +862,537 @@ export async function linkWebmailMessaggioAnagraficaAction(
     success: true,
     messaggio: mapMessaggio(updated as Record<string, unknown>),
   };
+}
+
+export async function generateWebmailAiReplyAction(
+  messaggioId: string
+): Promise<
+  | { success: true; bozza: WebmailBozzaAi }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select(
+      "id, account_id, from_address, from_name, subject, body_text, has_ai_draft"
+    )
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+
+  const { classifyInboundEmail, generateDraftReply } = await import(
+    "@/lib/webmail/ai"
+  );
+  const { buildRagForIntent } = await import("@/lib/webmail/rag");
+
+  const classification = await classifyInboundEmail({
+    subject: String(msg.subject ?? ""),
+    bodyText: String(msg.body_text ?? ""),
+    fromName: String(msg.from_name ?? ""),
+  });
+  const rag = await buildRagForIntent(
+    service,
+    classification.intent,
+    classification.productQuery,
+    String(msg.body_text ?? "")
+  );
+  const draft = await generateDraftReply({
+    intent: classification.intent,
+    subject: String(msg.subject ?? ""),
+    bodyText: String(msg.body_text ?? ""),
+    fromName: String(msg.from_name ?? ""),
+    referentName: classification.referentName,
+    ragContext: rag.notes,
+  });
+
+  await supabase
+    .from("webmail_bozze_ai")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("messaggio_id", msg.id)
+    .is("deleted_at", null)
+    .in("documento_stato", ["bozza", "approvata"]);
+
+  const { data: bozza, error: bozzaErr } = await supabase
+    .from("webmail_bozze_ai")
+    .insert({
+      messaggio_id: msg.id,
+      account_id: msg.account_id,
+      documento_stato: "bozza",
+      to_address: String(msg.from_address ?? ""),
+      subject: draft.subject,
+      body_text: draft.bodyText,
+      body_html: draft.bodyText.replace(/\n/g, "<br/>"),
+      intent: classification.intent,
+      confidence: classification.confidence,
+      model_name: draft.modelName,
+      rag_notes: rag.notes,
+      ai_generated: true,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("*")
+    .single();
+  if (bozzaErr || !bozza) {
+    return {
+      success: false,
+      error: bozzaErr?.message ?? "Creazione bozza fallita.",
+    };
+  }
+
+  if (rag.allegati.length > 0) {
+    await supabase.from("webmail_bozze_allegati").insert(
+      rag.allegati.map((a) => ({
+        bozza_id: bozza.id,
+        file_name: a.fileName,
+        storage_path: a.storagePath,
+        content_type: "application/pdf",
+        source: a.source,
+        prodotto_id: a.prodottoId,
+      }))
+    );
+  }
+
+  await supabase
+    .from("webmail_messaggi")
+    .update({
+      has_ai_draft: true,
+      ai_intent: classification.intent,
+      ai_confidence: classification.confidence,
+      ai_processed_at: new Date().toISOString(),
+      updated_by: auth.userId,
+    })
+    .eq("id", msg.id);
+
+  await supabase.from("webmail_ai_elaborazioni").insert({
+    messaggio_id: msg.id,
+    bozza_id: bozza.id,
+    account_id: msg.account_id,
+    action: "draft_created_on_demand",
+    ai_generated: true,
+    summary: `Bozza AI generata su richiesta operatore (${classification.intent})`,
+    payload: { model: draft.modelName },
+    created_by: auth.userId,
+  });
+
+  await writeAuditLog({
+    entity_type: "webmail_bozze_ai",
+    entity_id: String(bozza.id),
+    action: "create_on_demand",
+    actor_id: auth.userId,
+    summary: "Genera risposta AI (on-demand)",
+  });
+
+  const loaded = await getWebmailBozzaForMessaggioAction(String(msg.id));
+  if (!loaded.success || !loaded.bozza) {
+    return { success: false, error: "Bozza creata ma non ricaricabile." };
+  }
+  return { success: true, bozza: loaded.bozza };
+}
+
+export async function createWebmailCategoriaAction(raw: unknown): Promise<
+  | { success: true; item: WebmailCategoria }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const schema = z.object({
+    nome: z.string().trim().min(2).max(80),
+    colore: z
+      .string()
+      .trim()
+      .regex(/^#[0-9a-fA-F]{6}$/)
+      .optional()
+      .default("#64748b"),
+    descrizione: z.string().trim().max(300).optional().default(""),
+  });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Nome categoria non valido." };
+  }
+  const { slugifyCategoriaCodice } = await import(
+    "@/lib/webmail/category-learn"
+  );
+  let codice = slugifyCategoriaCodice(parsed.data.nome);
+  const supabase = await createClient();
+  const { data: clash } = await supabase
+    .from("webmail_categorie")
+    .select("id")
+    .ilike("codice", codice)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (clash) codice = `${codice}_${Date.now().toString(36).slice(-4)}`;
+
+  const { data, error } = await supabase
+    .from("webmail_categorie")
+    .insert({
+      codice,
+      nome: parsed.data.nome,
+      descrizione: parsed.data.descrizione,
+      colore: parsed.data.colore,
+      is_system: false,
+      sort_order: 500,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("*")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Creazione fallita." };
+  }
+  await writeAuditLog({
+    entity_type: "webmail_categorie",
+    entity_id: data.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Categoria webmail creata: ${parsed.data.nome}`,
+  });
+  return {
+    success: true,
+    item: {
+      id: String(data.id),
+      codice: String(data.codice),
+      nome: String(data.nome),
+      descrizione: String(data.descrizione ?? ""),
+      colore: String(data.colore ?? "#64748b"),
+      isSystem: Boolean(data.is_system),
+      sortOrder: Number(data.sort_order) || 0,
+    },
+  };
+}
+
+export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
+  | { success: true; messaggio: WebmailMessaggio; learnMode: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const schema = z.object({
+    messaggioId: z.string().uuid(),
+    categoriaId: z.string().uuid(),
+    reinforce: z.boolean().optional().default(true),
+  });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+
+  const supabase = await createClient();
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id, account_id, from_address")
+    .eq("id", parsed.data.messaggioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      categoria_id: parsed.data.categoriaId,
+      categoria_suggest_id: null,
+      categoria_suggest_mode: null,
+      categoria_auto_pending: false,
+      updated_by: auth.userId,
+    })
+    .eq("id", msg.id)
+    .select(MESSAGGIO_SELECT)
+    .single();
+  if (error || !updated) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+
+  let learnMode = "none";
+  if (parsed.data.reinforce) {
+    const { reinforceCategoriaLearning } = await import(
+      "@/lib/webmail/category-learn-db"
+    );
+    const rule = await reinforceCategoriaLearning(supabase, {
+      accountId: String(msg.account_id),
+      fromAddress: String(msg.from_address ?? ""),
+      categoriaId: parsed.data.categoriaId,
+      userId: auth.userId,
+    });
+    learnMode = rule.mode;
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(msg.id),
+    action: "set_categoria",
+    actor_id: auth.userId,
+    summary: "Categoria messaggio impostata manualmente",
+    payload: {
+      categoriaId: parsed.data.categoriaId,
+      learnMode,
+    },
+  });
+
+  return {
+    success: true,
+    messaggio: mapMessaggio(updated as Record<string, unknown>),
+    learnMode,
+  };
+}
+
+export async function confirmWebmailCategoriaSuggestionAction(
+  messaggioId: string
+): Promise<
+  | { success: true; messaggio: WebmailMessaggio; learnMode: string }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+  const supabase = await createClient();
+  const { data: msg } = await supabase
+    .from("webmail_messaggi")
+    .select(
+      "id, account_id, from_address, categoria_suggest_id, categoria_id, categoria_auto_pending"
+    )
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!msg) return { success: false, error: "Messaggio non trovato." };
+
+  const catId =
+    (msg.categoria_suggest_id as string | null) ||
+    (msg.categoria_auto_pending ? (msg.categoria_id as string | null) : null);
+  if (!catId) {
+    return { success: false, error: "Nessun suggerimento da confermare." };
+  }
+
+  return setWebmailMessaggioCategoriaAction({
+    messaggioId: idParsed.data,
+    categoriaId: catId,
+    reinforce: true,
+  });
+}
+
+export async function rejectWebmailCategoriaSuggestionAction(
+  messaggioId: string
+): Promise<
+  | { success: true; messaggio: WebmailMessaggio }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+  const supabase = await createClient();
+  const { data: updated, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      categoria_suggest_id: null,
+      categoria_suggest_mode: null,
+      categoria_auto_pending: false,
+      updated_by: auth.userId,
+    })
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .select(MESSAGGIO_SELECT)
+    .single();
+  if (error || !updated) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: idParsed.data,
+    action: "reject_categoria_suggest",
+    actor_id: auth.userId,
+    summary: "Suggerimento/auto-categoria rifiutato",
+  });
+  return {
+    success: true,
+    messaggio: mapMessaggio(updated as Record<string, unknown>),
+  };
+}
+
+export type WebmailAziendaOption = {
+  tipo: "cliente" | "fornitore" | "cliente_possibile";
+  id: string;
+  label: string;
+};
+
+export async function searchWebmailAziendeAction(
+  query: string
+): Promise<
+  | { success: true; items: WebmailAziendaOption[] }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const q = query.trim();
+  if (q.length < 1) return { success: true, items: [] };
+  const service = createServiceClient();
+  const like = `%${q}%`;
+  const [c, f, p] = await Promise.all([
+    service
+      .from("clienti")
+      .select("id, ragione_sociale")
+      .is("deleted_at", null)
+      .ilike("ragione_sociale", like)
+      .limit(20),
+    service
+      .from("fornitori")
+      .select("id, ragione_sociale")
+      .is("deleted_at", null)
+      .ilike("ragione_sociale", like)
+      .limit(20),
+    service
+      .from("clienti_possibili")
+      .select("id, ragione_sociale")
+      .is("deleted_at", null)
+      .ilike("ragione_sociale", like)
+      .limit(20),
+  ]);
+  const items: WebmailAziendaOption[] = [
+    ...(c.data ?? []).map((r) => ({
+      tipo: "cliente" as const,
+      id: String(r.id),
+      label: String(r.ragione_sociale ?? ""),
+    })),
+    ...(f.data ?? []).map((r) => ({
+      tipo: "fornitore" as const,
+      id: String(r.id),
+      label: String(r.ragione_sociale ?? ""),
+    })),
+    ...(p.data ?? []).map((r) => ({
+      tipo: "cliente_possibile" as const,
+      id: String(r.id),
+      label: String(r.ragione_sociale ?? ""),
+    })),
+  ].sort((a, b) => a.label.localeCompare(b.label, "it"));
+  return { success: true, items };
+}
+
+export async function listWebmailReferentiAziendaAction(input: {
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
+  aziendaId: string;
+}): Promise<
+  | {
+      success: true;
+      items: Array<{
+        id: string;
+        nome: string;
+        cognome: string;
+        email: string;
+        telefono: string;
+      }>;
+    }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("rubrica_contatti")
+    .select("id, nome, cognome, email, telefono")
+    .eq("azienda_tipo", input.aziendaTipo)
+    .eq("azienda_id", input.aziendaId)
+    .is("deleted_at", null)
+    .order("cognome", { ascending: true })
+    .limit(100);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((r) => ({
+      id: String(r.id),
+      nome: String(r.nome ?? ""),
+      cognome: String(r.cognome ?? ""),
+      email: String(r.email ?? ""),
+      telefono: String(r.telefono ?? ""),
+    })),
+  };
+}
+
+export async function linkWebmailAziendaReferenteAction(raw: unknown): Promise<
+  | { success: true; messaggio: WebmailMessaggio }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const schema = z.object({
+    messaggioId: z.string().uuid(),
+    aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
+    aziendaId: z.string().uuid(),
+    aziendaLabel: z.string().trim().max(300).optional().default(""),
+    contattoId: z.string().uuid().nullable().optional(),
+    nuovoReferente: z
+      .object({
+        nome: z.string().trim().max(80).optional().default(""),
+        cognome: z.string().trim().max(80).optional().default(""),
+        email: z.string().trim().max(120).optional().default(""),
+        telefono: z.string().trim().max(60).optional().default(""),
+        mansione: z.string().trim().max(120).optional().default(""),
+        note: z.string().trim().max(2000).optional().default(""),
+      })
+      .optional(),
+  });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+
+  const service = createServiceClient();
+  let contattoId = parsed.data.contattoId ?? null;
+
+  if (parsed.data.nuovoReferente && !contattoId) {
+    const nr = parsed.data.nuovoReferente;
+    const supabase = await createClient();
+    const { data: msg } = await supabase
+      .from("webmail_messaggi")
+      .select("from_address, from_name")
+      .eq("id", parsed.data.messaggioId)
+      .maybeSingle();
+    const email =
+      nr.email.trim() || String(msg?.from_address ?? "").trim() || "";
+    const nome = nr.nome.trim() || "Referente";
+    const cognome = nr.cognome.trim() || "—";
+    const { data: created, error: cErr } = await service
+      .from("rubrica_contatti")
+      .insert({
+        nome,
+        cognome,
+        telefono: nr.telefono.trim() || "",
+        email,
+        rapporto: "referente",
+        azienda_tipo: parsed.data.aziendaTipo,
+        azienda_id: parsed.data.aziendaId,
+        azienda_label: parsed.data.aziendaLabel,
+        mansione: nr.mansione.trim() || "",
+        note: nr.note.trim() || "",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (cErr || !created) {
+      return {
+        success: false,
+        error: cErr?.message ?? "Creazione referente fallita.",
+      };
+    }
+    contattoId = String(created.id);
+    await writeAuditLog({
+      entity_type: "rubrica_contatti",
+      entity_id: contattoId,
+      action: "create_from_webmail",
+      actor_id: auth.userId,
+      summary: "Referente creato da WebMail",
+    });
+  }
+
+  return linkWebmailMessaggioAnagraficaAction({
+    messaggioId: parsed.data.messaggioId,
+    aziendaTipo: parsed.data.aziendaTipo,
+    aziendaId: parsed.data.aziendaId,
+    aziendaLabel: parsed.data.aziendaLabel,
+    contattoId,
+    linkStato: "collegata",
+    rematch: false,
+  });
 }

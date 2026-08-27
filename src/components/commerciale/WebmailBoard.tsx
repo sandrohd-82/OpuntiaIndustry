@@ -2,15 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
+  confirmWebmailCategoriaSuggestionAction,
+  generateWebmailAiReplyAction,
   getWebmailBozzaForMessaggioAction,
   linkWebmailMessaggioAnagraficaAction,
   listWebmailAccountsAction,
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
+  rejectWebmailCategoriaSuggestionAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
   updateWebmailBozzaAction,
 } from "@/app/actions/webmail";
+import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
+import { WebmailCollegaAziendaModal } from "@/components/webmail/WebmailCollegaAziendaModal";
 import type {
   WebmailAccountPublic,
   WebmailBozzaAi,
@@ -53,6 +58,8 @@ export function WebmailBoard({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [catModalOpen, setCatModalOpen] = useState(false);
+  const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -119,6 +126,10 @@ export function WebmailBoard({
     })();
   }, [selectedId]);
 
+  function patchMessaggio(m: WebmailMessaggio) {
+    setMessaggi((prev) => prev.map((x) => (x.id === m.id ? m : x)));
+  }
+
   function syncNow() {
     setInfo(null);
     startTransition(async () => {
@@ -128,10 +139,27 @@ export function WebmailBoard({
         return;
       }
       setInfo(
-        `Sync: ${res.imported} nuovi, ${res.drafted} bozze` +
+        `Sync: ${res.imported} nuovi` +
           (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
       );
       await reload();
+    });
+  }
+
+  function generateAi() {
+    if (!selected) return;
+    setInfo(null);
+    startTransition(async () => {
+      const res = await generateWebmailAiReplyAction(selected.id);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setBozza(res.bozza);
+      setDraftSubject(res.bozza.subject);
+      setDraftBody(res.bozza.bodyText);
+      patchMessaggio({ ...selected, hasAiDraft: true });
+      setInfo("Risposta AI generata — controlla e invia se corretta.");
     });
   }
 
@@ -171,30 +199,35 @@ export function WebmailBoard({
         setError(res.error);
         return;
       }
-      setInfo("Email inviata. Audit registrato (ai_generated + approved_by).");
+      setInfo("Email inviata. Audit registrato.");
       setBozza(null);
       await reload();
     });
   }
 
+  const suggestCat = selected?.categoriaSuggestId
+    ? catById.get(selected.categoriaSuggestId)
+    : null;
+  const currentCat = selected?.categoriaId
+    ? catById.get(selected.categoriaId)
+    : null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Webmail multi-casella (Gmail / Aruba): sync, smistamento e bozze AI con
-          conferma operatore. Le caselle si collegano solo da SuperAdmin (+
-          accanto a WebMail).
+          Leggi la mail, genera la risposta AI solo quando serve, sposta in
+          categoria e collega l’azienda. Il sistema impara dalle tue conferme
+          (soglie 2 / 4 / 6).
         </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={pending}
-            onClick={syncNow}
-            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Sincronizza ora
-          </button>
-        </div>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={syncNow}
+          className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+        >
+          Sincronizza ora
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -230,7 +263,7 @@ export function WebmailBoard({
             checked={onlyDraft}
             onChange={(e) => setOnlyDraft(e.target.checked)}
           />
-          Solo Bozza AI pronta
+          Solo con bozza AI
         </label>
       </div>
 
@@ -287,12 +320,17 @@ export function WebmailBoard({
                           {cat.nome}
                         </span>
                       ) : null}
+                      {m.categoriaAutoPending ? (
+                        <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                          Auto-spostata
+                        </span>
+                      ) : null}
                       {m.aziendaLabel ? (
                         <span className="inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
                           {m.aziendaLabel}
                         </span>
                       ) : (
-                        <span className="inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
                           {linkStatoLabel(m.linkStato)}
                         </span>
                       )}
@@ -307,7 +345,7 @@ export function WebmailBoard({
         <div className="min-h-[24rem] rounded-xl border border-[var(--border)] bg-[var(--card)]">
           {!selected ? (
             <p className="p-6 text-sm text-[var(--muted)]">
-              Seleziona una mail per la revisione affiancata.
+              Seleziona una mail per leggerla e agire.
             </p>
           ) : (
             <div className="grid h-full gap-0 lg:grid-cols-2">
@@ -322,6 +360,146 @@ export function WebmailBoard({
                   Da {selected.fromName || selected.fromAddress} ·{" "}
                   {formatWhen(selected.receivedAt)}
                 </p>
+
+                {selected.categoriaAutoPending && currentCat ? (
+                  <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                    <p>
+                      Il sistema ha spostato questa mail in{" "}
+                      <strong>{currentCat.nome}</strong>. Confermi che è
+                      corretto?
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded bg-amber-800 px-2 py-1 text-[11px] font-medium text-white"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res =
+                              await confirmWebmailCategoriaSuggestionAction(
+                                selected.id
+                              );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            patchMessaggio(res.messaggio);
+                            setInfo(
+                              `Confermato. Apprendimento: ${res.learnMode}.`
+                            );
+                          });
+                        }}
+                      >
+                        Sì, corretto
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res =
+                              await rejectWebmailCategoriaSuggestionAction(
+                                selected.id
+                              );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            patchMessaggio(res.messaggio);
+                            setCatModalOpen(true);
+                          });
+                        }}
+                      >
+                        No, cambia
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selected.categoriaSuggestMode === "suggest" &&
+                suggestCat &&
+                !selected.categoriaAutoPending ? (
+                  <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+                    <p>
+                      Questa mail sembra della categoria{" "}
+                      <strong>{suggestCat.nome}</strong>. Confermi?
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded bg-sky-700 px-2 py-1 text-[11px] font-medium text-white"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res =
+                              await confirmWebmailCategoriaSuggestionAction(
+                                selected.id
+                              );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            patchMessaggio(res.messaggio);
+                            setInfo(
+                              `Categoria applicata. Apprendimento: ${res.learnMode}.`
+                            );
+                          });
+                        }}
+                      >
+                        Conferma
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-medium"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res =
+                              await rejectWebmailCategoriaSuggestionAction(
+                                selected.id
+                              );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            patchMessaggio(res.messaggio);
+                          });
+                        }}
+                      >
+                        Ignora
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {selected.categoriaSuggestMode === "auto_silent" &&
+                selected.categoriaAutoNotified &&
+                currentCat &&
+                !selected.categoriaAutoPending ? (
+                  <p className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                    Spostata automaticamente in <strong>{currentCat.nome}</strong>{" "}
+                    (apprendimento consolidato).
+                  </p>
+                ) : null}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                    onClick={() => setCatModalOpen(true)}
+                  >
+                    Sposta in categoria
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                    onClick={() => setAziendaModalOpen(true)}
+                  >
+                    Collega ad azienda
+                  </button>
+                </div>
+
                 <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-xs">
                   <p className="font-semibold text-slate-700">Anagrafica</p>
                   <p className="mt-1 text-slate-600">
@@ -330,7 +508,7 @@ export function WebmailBoard({
                       : "Nessuna azienda collegata"}
                     {" · "}
                     {linkStatoLabel(selected.linkStato)}
-                    {selected.contattoId ? " · referente trovato" : ""}
+                    {selected.contattoId ? " · referente collegato" : ""}
                   </p>
                   <button
                     type="button"
@@ -346,12 +524,8 @@ export function WebmailBoard({
                           setError(res.error);
                           return;
                         }
-                        setMessaggi((prev) =>
-                          prev.map((m) =>
-                            m.id === res.messaggio.id ? res.messaggio : m
-                          )
-                        );
-                        setInfo("Collegamento anagrafica aggiornato.");
+                        patchMessaggio(res.messaggio);
+                        setInfo("Match mittente aggiornato.");
                       });
                     }}
                   >
@@ -364,12 +538,23 @@ export function WebmailBoard({
               </section>
               <section className="p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Bozza AI proposta
+                  Risposta AI
                 </h3>
                 {!bozza ? (
-                  <p className="mt-4 text-sm text-[var(--muted)]">
-                    Nessuna bozza AI per questo messaggio.
-                  </p>
+                  <div className="mt-4 space-y-3">
+                    <p className="text-sm text-[var(--muted)]">
+                      Nessuna bozza. Dopo aver letto la mail, genera una
+                      proposta di risposta.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={generateAi}
+                      className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      Genera risposta AI
+                    </button>
+                  </div>
                 ) : (
                   <div className="mt-2 space-y-3">
                     <p className="text-xs text-[var(--muted)]">
@@ -377,7 +562,6 @@ export function WebmailBoard({
                       {bozza.confidence != null
                         ? ` · ${bozza.confidence}%`
                         : ""}
-                      {bozza.aiGenerated ? " · AI" : ""}
                     </p>
                     <label className="block text-sm">
                       <span className="mb-1 block text-xs font-medium">
@@ -403,22 +587,19 @@ export function WebmailBoard({
                     {bozza.allegati.length > 0 ? (
                       <ul className="space-y-1 text-xs text-slate-700">
                         {bozza.allegati.map((a) => (
-                          <li key={a.id}>
-                            Allegato: {a.fileName}
-                            {a.storagePath ? ` (${a.storagePath})` : ""}
-                          </li>
+                          <li key={a.id}>Allegato: {a.fileName}</li>
                         ))}
                       </ul>
                     ) : null}
-                    {bozza.ragNotes ? (
-                      <details className="text-xs text-[var(--muted)]">
-                        <summary>Note RAG</summary>
-                        <pre className="mt-1 whitespace-pre-wrap">
-                          {bozza.ragNotes}
-                        </pre>
-                      </details>
-                    ) : null}
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={generateAi}
+                        className="rounded-lg border border-violet-300 px-3 py-2 text-sm text-violet-900"
+                      >
+                        Rigenera AI
+                      </button>
                       <button
                         type="button"
                         disabled={pending}
@@ -444,26 +625,34 @@ export function WebmailBoard({
         </div>
       </div>
 
-      {accounts.length > 0 ? (
-        <ul className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3 text-xs">
-          {accounts.map((a) => (
-            <li
-              key={a.id}
-              className="border-b border-[var(--border)] pb-2 last:border-0 last:pb-0"
-            >
-              <p className="font-medium text-slate-800">
-                {a.label} · {a.emailAddress} ({a.provider})
-              </p>
-              <p className="text-[var(--muted)]">
-                sync {a.syncEnabled ? "ON" : "OFF"} · ultimo{" "}
-                {formatWhen(a.lastSyncAt)}
-              </p>
-              {a.lastSyncError ? (
-                <p className="mt-1 text-red-700">{a.lastSyncError}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+      {selected ? (
+        <>
+          <WebmailCategoriaModal
+            open={catModalOpen}
+            messaggioId={selected.id}
+            categorie={categorie}
+            currentCategoriaId={selected.categoriaId}
+            onClose={() => setCatModalOpen(false)}
+            onCategoriaCreated={(c) =>
+              setCategorie((prev) =>
+                prev.some((x) => x.id === c.id) ? prev : [...prev, c]
+              )
+            }
+            onDone={(_id, learnMode) => {
+              setInfo(`Categoria aggiornata. Apprendimento: ${learnMode}.`);
+              void reload();
+            }}
+          />
+          <WebmailCollegaAziendaModal
+            open={aziendaModalOpen}
+            messaggio={selected}
+            onClose={() => setAziendaModalOpen(false)}
+            onDone={(m) => {
+              patchMessaggio(m);
+              setInfo("Azienda/referente collegati.");
+            }}
+          />
+        </>
       ) : null}
     </div>
   );

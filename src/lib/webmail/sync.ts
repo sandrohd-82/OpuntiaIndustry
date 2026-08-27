@@ -1,13 +1,9 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
-import { classifyInboundEmail, generateDraftReply } from "@/lib/webmail/ai";
-import {
-  intentToCategoriaCodice,
-  matchWebmailAnagrafica,
-} from "@/lib/webmail/anagrafica-link";
+import { matchWebmailAnagrafica } from "@/lib/webmail/anagrafica-link";
+import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
-import { buildRagForIntent } from "@/lib/webmail/rag";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
@@ -68,20 +64,6 @@ function formatImapSyncError(
   return responseText ? `${base}: ${responseText}` : base;
 }
 
-async function loadCategoriaMap(
-  supabase: Service
-): Promise<Map<string, string>> {
-  const { data } = await supabase
-    .from("webmail_categorie")
-    .select("id, codice")
-    .is("deleted_at", null);
-  const map = new Map<string, string>();
-  for (const row of data ?? []) {
-    map.set(String(row.codice), String(row.id));
-  }
-  return map;
-}
-
 async function logElaborazione(
   supabase: Service,
   input: {
@@ -118,31 +100,18 @@ export async function syncWebmailAccount(
 ): Promise<{ imported: number; drafted: number; error?: string }> {
   const limit = options?.limit ?? 40;
   const password = decryptWebmailSecret(account.password_encrypted);
-  const categorie = await loadCategoriaMap(supabase);
   let imported = 0;
-  let drafted = 0;
+  const drafted = 0;
 
   const client = new ImapFlow({
     host: account.imap_host,
     port: account.imap_port,
     secure: account.imap_secure,
-    auth: {
-      user: account.username,
-      pass: password,
-    },
+    auth: { user: account.username, pass: password },
     logger: false,
   });
 
   try {
-    if (
-      account.provider === "aruba" &&
-      account.username.trim().toLowerCase() !==
-        account.email_address.trim().toLowerCase()
-    ) {
-      throw new Error(
-        `Username Aruba errato: «${account.username}» deve coincidere con la casella «${account.email_address}». Apri Modifica casella e correggi.`
-      );
-    }
     await client.connect();
     const lock = await client.getMailboxLock("INBOX");
     try {
@@ -155,16 +124,14 @@ export async function syncWebmailAccount(
         const uidStr = String(uid);
         const { data: existing } = await supabase
           .from("webmail_messaggi")
-          .select("id, ai_processed_at, has_ai_draft")
+          .select("id")
           .eq("account_id", account.id)
           .eq("folder", "INBOX")
           .eq("message_uid", uidStr)
           .is("deleted_at", null)
           .maybeSingle();
 
-        if (existing?.ai_processed_at && existing.has_ai_draft) {
-          continue;
-        }
+        if (existing?.id) continue;
 
         const downloaded = await client.download(uid, undefined, { uid: true });
         const parsed = await simpleParser(downloaded.content);
@@ -188,165 +155,61 @@ export async function syncWebmailAccount(
         const receivedAt =
           parsed.date?.toISOString() || new Date().toISOString();
 
-        let messaggioId = existing?.id as string | undefined;
-        if (!messaggioId) {
-          const { data: inserted, error } = await supabase
-            .from("webmail_messaggi")
-            .insert({
-              account_id: account.id,
-              direction: "inbound",
-              message_uid: uidStr,
-              message_id_header: parsed.messageId || null,
-              folder: "INBOX",
-              from_address: fromAddr,
-              from_name: fromName,
-              to_addresses: toAddresses,
-              subject,
-              body_text: bodyText,
-              body_html: bodyHtml,
-              received_at: receivedAt,
-              is_seen: false,
-            })
-            .select("id")
-            .single();
-          if (error) {
-            console.error("[webmail sync insert]", error.message);
-            continue;
-          }
-          messaggioId = inserted.id;
-          imported += 1;
-        }
-
-        if (!messaggioId) continue;
-
-        const classification = await classifyInboundEmail({
-          subject,
-          bodyText,
-          fromName,
-        });
-        const catCode = intentToCategoriaCodice(classification.intent);
-        const categoriaId =
-          categorie.get(catCode) ??
-          categorie.get(classification.intent) ??
-          categorie.get("da_revisionare") ??
-          null;
-
         const anagrafica = await matchWebmailAnagrafica(supabase, fromAddr);
+        const learned = await applyLearningOnImport(supabase, {
+          accountId: account.id,
+          fromAddress: fromAddr,
+        });
 
-        await supabase
+        const { data: inserted, error } = await supabase
           .from("webmail_messaggi")
-          .update({
-            categoria_id: categoriaId,
-            ai_intent: classification.intent,
-            ai_confidence: classification.confidence,
-            ai_processed_at: new Date().toISOString(),
+          .insert({
+            account_id: account.id,
+            direction: "inbound",
+            message_uid: uidStr,
+            message_id_header: parsed.messageId || null,
+            folder: "INBOX",
+            from_address: fromAddr,
+            from_name: fromName,
+            to_addresses: toAddresses,
+            subject,
+            body_text: bodyText,
+            body_html: bodyHtml,
+            received_at: receivedAt,
+            is_seen: false,
+            categoria_id: learned.categoriaId,
+            categoria_suggest_id: learned.categoriaSuggestId,
+            categoria_suggest_mode: learned.categoriaSuggestMode,
+            categoria_auto_pending: learned.categoriaAutoPending,
+            categoria_auto_applied_at: learned.categoriaAutoAppliedAt,
+            categoria_auto_notified: learned.categoriaAutoNotified,
             azienda_tipo: anagrafica.aziendaTipo,
             azienda_id: anagrafica.aziendaId,
             azienda_label: anagrafica.aziendaLabel,
             contatto_id: anagrafica.contattoId,
             link_stato: anagrafica.linkStato,
           })
-          .eq("id", messaggioId);
+          .select("id")
+          .single();
+        if (error) {
+          console.error("[webmail sync insert]", error.message);
+          continue;
+        }
+        imported += 1;
 
         await logElaborazione(supabase, {
-          messaggioId,
+          messaggioId: inserted.id,
           accountId: account.id,
-          action: "classified",
-          aiGenerated: true,
-          summary: `Classificata come ${classification.intent} (${classification.confidence}%)`,
+          action: "imported",
+          aiGenerated: false,
+          summary: learned.info
+            ? `Import INBOX + ${learned.info}`
+            : "Import INBOX (senza bozza AI automatica)",
           payload: {
-            intent: classification.intent,
-            confidence: classification.confidence,
-            model: classification.modelName,
+            learnedMode: learned.categoriaSuggestMode,
+            categoriaId: learned.categoriaId,
           },
         });
-
-        if (
-          classification.intent === "scartate" ||
-          classification.intent === "da_revisionare"
-        ) {
-          // bozza opzionale solo se confidence media su da_revisionare
-          if (classification.intent === "scartate") continue;
-        }
-
-        const rag = await buildRagForIntent(
-          supabase,
-          classification.intent,
-          classification.productQuery,
-          bodyText
-        );
-        const draft = await generateDraftReply({
-          intent: classification.intent,
-          subject,
-          bodyText,
-          fromName,
-          referentName: classification.referentName,
-          ragContext: rag.notes,
-        });
-
-        const { data: existingDraft } = await supabase
-          .from("webmail_bozze_ai")
-          .select("id")
-          .eq("messaggio_id", messaggioId)
-          .is("deleted_at", null)
-          .in("documento_stato", ["bozza", "approvata"])
-          .maybeSingle();
-
-        let bozzaId = existingDraft?.id as string | undefined;
-        if (!bozzaId) {
-          const { data: bozza, error: bozzaErr } = await supabase
-            .from("webmail_bozze_ai")
-            .insert({
-              messaggio_id: messaggioId,
-              account_id: account.id,
-              documento_stato: "bozza",
-              to_address: fromAddr,
-              subject: draft.subject,
-              body_text: draft.bodyText,
-              body_html: draft.bodyText.replace(/\n/g, "<br/>"),
-              intent: classification.intent,
-              confidence: classification.confidence,
-              model_name: draft.modelName,
-              rag_notes: rag.notes,
-              ai_generated: true,
-            })
-            .select("id")
-            .single();
-          if (bozzaErr) {
-            console.error("[webmail draft]", bozzaErr.message);
-            continue;
-          }
-          bozzaId = bozza.id;
-          drafted += 1;
-
-          if (rag.allegati.length > 0) {
-            await supabase.from("webmail_bozze_allegati").insert(
-              rag.allegati.map((a) => ({
-                bozza_id: bozzaId,
-                file_name: a.fileName,
-                storage_path: a.storagePath,
-                content_type: "application/pdf",
-                source: a.source,
-                prodotto_id: a.prodottoId,
-              }))
-            );
-          }
-
-          await supabase
-            .from("webmail_messaggi")
-            .update({ has_ai_draft: true })
-            .eq("id", messaggioId);
-
-          await logElaborazione(supabase, {
-            messaggioId,
-            bozzaId,
-            accountId: account.id,
-            action: "draft_created",
-            aiGenerated: true,
-            summary: `Bozza AI creata (${classification.intent})`,
-            payload: { model: draft.modelName },
-          });
-        }
       }
     } finally {
       lock.release();
@@ -364,7 +227,7 @@ export async function syncWebmailAccount(
     await logElaborazione(supabase, {
       accountId: account.id,
       action: "sync",
-      summary: `Sync INBOX: ${imported} nuovi, ${drafted} bozze`,
+      summary: `Sync INBOX: ${imported} nuovi (bozze AI solo on-demand)`,
       payload: { imported, drafted },
     });
 
@@ -384,7 +247,12 @@ export async function syncWebmailAccount(
 
 export async function syncAllWebmailAccounts(
   supabase: Service
-): Promise<{ accounts: number; imported: number; drafted: number; errors: string[] }> {
+): Promise<{
+  accounts: number;
+  imported: number;
+  drafted: number;
+  errors: string[];
+}> {
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
@@ -419,7 +287,11 @@ export async function sendMailViaAccount(input: {
   subject: string;
   text: string;
   html?: string;
-  attachments?: Array<{ filename: string; content: Buffer; contentType?: string }>;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType?: string;
+  }>;
 }): Promise<void> {
   const password = decryptWebmailSecret(input.account.password_encrypted);
   const transporter = nodemailer.createTransport({
