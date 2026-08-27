@@ -32,7 +32,7 @@ export const TOPIC_ATTACHMENT_LABELS: Record<TopicAttachmentKind, string> = {
   scheda_cliente: "Scheda cliente",
   scheda_possibile_cliente: "Scheda possibile cliente",
   scheda_fornitore: "Scheda fornitore",
-  scheda_prodotto: "Scheda prodotto",
+  scheda_prodotto: "Scheda prodotto acquistato",
   scheda_prodotto_agri: "Scheda prodotto Agrinsicilia",
   scheda_materia_prima: "Scheda materia prima",
 };

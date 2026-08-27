@@ -429,18 +429,38 @@ export async function searchChatSchedaAction(
         });
       }
     }
-  } else if (
-    parsed.data.entityType === "prodotto" ||
-    parsed.data.entityType === "prodotto_agri"
-  ) {
+  } else if (parsed.data.entityType === "prodotto") {
+    // Prodotti acquistati (catalogo Pr / fornitori)
+    let query = supabase
+      .from("catalogo_prodotti_fornitore")
+      .select("id, codice, nome")
+      .is("deleted_at", null)
+      .limit(30);
+    if (q) {
+      query = query.or(`nome.ilike.%${q}%,codice.ilike.%${q}%`);
+    }
+    const { data, error } = await query;
+    if (!error) {
+      for (const r of data ?? []) {
+        const row = r as {
+          id: string;
+          codice: string;
+          nome: string;
+        };
+        hits.push({
+          id: row.id,
+          title: row.nome,
+          subtitle: row.codice,
+        });
+      }
+    }
+  } else if (parsed.data.entityType === "prodotto_agri") {
+    // Prodotti Agrinsicilia (prodotti propri)
     let query = supabase
       .from("prodotti_propri")
       .select("id, codice, nome")
       .is("deleted_at", null)
       .limit(30);
-    if (parsed.data.entityType === "prodotto_agri") {
-      query = query.ilike("nome", "%agri%");
-    }
     if (q) {
       query = query.or(`nome.ilike.%${q}%,codice.ilike.%${q}%`);
     }

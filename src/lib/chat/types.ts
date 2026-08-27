@@ -163,7 +163,7 @@ export const schedaEntityLabel: Record<string, string> = {
   cliente: "Cliente",
   possibile_cliente: "Possibile cliente",
   fornitore: "Fornitore",
-  prodotto: "Prodotto",
+  prodotto: "Prodotto acquistato",
   prodotto_agri: "Prodotto Agrinsicilia",
   materia_prima: "Materia prima",
 };
