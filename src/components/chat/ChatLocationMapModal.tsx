@@ -225,8 +225,8 @@ export function ChatLocationMapModal({
       mapRef.current = null;
       geocoderRef.current = null;
       setPin(null);
-      setQuery("");
       setReady(false);
+      if (searchRef.current) searchRef.current.value = "";
     };
   }, [open, onError, placeMarker]);
 
