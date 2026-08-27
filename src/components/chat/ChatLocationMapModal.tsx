@@ -4,8 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FaLocationCrosshairs, FaXmark } from "react-icons/fa6";
 import type { LocationPayload } from "@/lib/chat/share";
 
-type Hit = { label: string; lat: number; lng: number };
-
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -14,44 +12,54 @@ type Props = {
   busy?: boolean;
 };
 
-const IT_CENTER: [number, number] = [41.9028, 12.4964];
+const IT_CENTER = { lat: 41.9028, lng: 12.4964 };
 
-async function nominatimSearch(q: string): Promise<Hit[]> {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=8&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) throw new Error("Ricerca fallita");
-  const data = (await res.json()) as Array<{
-    display_name: string;
-    lat: string;
-    lon: string;
-  }>;
-  return data.map((d) => ({
-    label: d.display_name,
-    lat: Number(d.lat),
-    lng: Number(d.lon),
-  }));
+declare global {
+  interface Window {
+    google?: typeof google;
+    __opuntiaGmapsPromise?: Promise<typeof google>;
+  }
 }
 
-async function nominatimReverse(lat: number, lng: number): Promise<string> {
-  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=0`;
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) {
-    return `Posizione (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+function getApiKey(): string {
+  return (process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "").trim();
+}
+
+function loadGoogleMaps(apiKey: string): Promise<typeof google> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("Solo browser"));
   }
-  const data = (await res.json()) as { display_name?: string };
-  return (
-    data.display_name?.trim() ||
-    `Posizione (${lat.toFixed(5)}, ${lng.toFixed(5)})`
-  );
+  if (window.google?.maps) return Promise.resolve(window.google);
+  if (window.__opuntiaGmapsPromise) return window.__opuntiaGmapsPromise;
+
+  window.__opuntiaGmapsPromise = new Promise((resolve, reject) => {
+    const existing = document.getElementById("opuntia-google-maps");
+    if (existing) {
+      existing.addEventListener("load", () => {
+        if (window.google?.maps) resolve(window.google);
+        else reject(new Error("Google Maps non caricato"));
+      });
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "opuntia-google-maps";
+    script.async = true;
+    script.defer = true;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&language=it&region=IT`;
+    script.onload = () => {
+      if (window.google?.maps) resolve(window.google);
+      else reject(new Error("Google Maps non disponibile"));
+    };
+    script.onerror = () =>
+      reject(new Error("Impossibile caricare Google Maps (controlla la API key)."));
+    document.head.appendChild(script);
+  });
+
+  return window.__opuntiaGmapsPromise;
 }
 
 /**
- * Modale mappa OSM/Leaflet: cerca, click pin, posizione attuale, conferma.
- * Leaflet caricato solo client-side (no SSR).
+ * Modale posizione con Google Maps (Places + pin + GPS).
  */
 export function ChatLocationMapModal({
   open,
@@ -61,21 +69,37 @@ export function ChatLocationMapModal({
   busy = false,
 }: Props) {
   const mapElRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import("leaflet").Map | null>(null);
-  const markerRef = useRef<import("leaflet").Marker | null>(null);
-  const LRef = useRef<typeof import("leaflet") | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const geocoderRef = useRef<google.maps.Geocoder | null>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<Hit[]>([]);
-  const [searching, setSearching] = useState(false);
   const [geoBusy, setGeoBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [missingKey, setMissingKey] = useState(false);
   const [pin, setPin] = useState<{
     lat: number;
     lng: number;
     label: string;
     source: "attuale" | "cerca";
   } | null>(null);
+
+  const reverseGeocode = useCallback(async (lat: number, lng: number) => {
+    const geocoder = geocoderRef.current;
+    if (!geocoder) {
+      return `Posizione (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    }
+    return new Promise<string>((resolve) => {
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === "OK" && results?.[0]?.formatted_address) {
+          resolve(results[0].formatted_address);
+          return;
+        }
+        resolve(`Posizione (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+      });
+    });
+  }, []);
 
   const placeMarker = useCallback(
     async (
@@ -84,36 +108,44 @@ export function ChatLocationMapModal({
       source: "attuale" | "cerca",
       label?: string
     ) => {
-      const L = LRef.current;
       const map = mapRef.current;
-      if (!L || !map) return;
+      const g = window.google;
+      if (!map || !g?.maps) return;
 
+      const pos = { lat, lng };
       if (markerRef.current) {
-        markerRef.current.setLatLng([lat, lng]);
+        markerRef.current.setPosition(pos);
       } else {
-        markerRef.current = L.marker([lat, lng], { draggable: true }).addTo(
-          map
-        );
-        markerRef.current.on("dragend", () => {
-          const pos = markerRef.current?.getLatLng();
-          if (!pos) return;
+        markerRef.current = new g.maps.Marker({
+          map,
+          position: pos,
+          draggable: true,
+          animation: g.maps.Animation.DROP,
+        });
+        markerRef.current.addListener("dragend", () => {
+          const p = markerRef.current?.getPosition();
+          if (!p) return;
           void (async () => {
-            const lbl = await nominatimReverse(pos.lat, pos.lng);
+            const lbl = await reverseGeocode(p.lat(), p.lng());
             setPin({
-              lat: pos.lat,
-              lng: pos.lng,
+              lat: p.lat(),
+              lng: p.lng(),
               label: lbl,
               source: "cerca",
             });
+            if (searchRef.current) searchRef.current.value = lbl;
           })();
         });
       }
 
-      map.setView([lat, lng], Math.max(map.getZoom(), 15));
-      const resolved = label ?? (await nominatimReverse(lat, lng));
+      map.panTo(pos);
+      if ((map.getZoom() ?? 0) < 15) map.setZoom(16);
+
+      const resolved = label ?? (await reverseGeocode(lat, lng));
       setPin({ lat, lng, label: resolved, source });
+      if (searchRef.current) searchRef.current.value = resolved;
     },
-    []
+    [reverseGeocode]
   );
 
   useEffect(() => {
@@ -122,90 +154,81 @@ export function ChatLocationMapModal({
       return;
     }
 
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setMissingKey(true);
+      onError(
+        "Manca NEXT_PUBLIC_GOOGLE_MAPS_API_KEY. Aggiungila in .env.local e su Vercel."
+      );
+      return;
+    }
+    setMissingKey(false);
+
     let cancelled = false;
-    let resizeTimer: number | undefined;
+    let clickListener: google.maps.MapsEventListener | null = null;
 
     void (async () => {
-      const L = await import("leaflet");
-      if (cancelled || !mapElRef.current) return;
+      try {
+        const g = await loadGoogleMaps(apiKey);
+        if (cancelled || !mapElRef.current) return;
 
-      // CSS Leaflet (CDN, evita import TS di .css)
-      if (!document.getElementById("leaflet-css")) {
-        const link = document.createElement("link");
-        link.id = "leaflet-css";
-        link.rel = "stylesheet";
-        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-        document.head.appendChild(link);
+        geocoderRef.current = new g.maps.Geocoder();
+        const map = new g.maps.Map(mapElRef.current, {
+          center: IT_CENTER,
+          zoom: 6,
+          mapTypeControl: true,
+          streetViewControl: true,
+          fullscreenControl: true,
+          zoomControl: true,
+        });
+        mapRef.current = map;
+
+        clickListener = map.addListener("click", (e: google.maps.MapMouseEvent) => {
+          const ll = e.latLng;
+          if (!ll) return;
+          void placeMarker(ll.lat(), ll.lng(), "cerca");
+        });
+
+        if (searchRef.current) {
+          const ac = new g.maps.places.Autocomplete(searchRef.current, {
+            fields: ["formatted_address", "geometry", "name"],
+            componentRestrictions: { country: ["it"] },
+          });
+          autocompleteRef.current = ac;
+          ac.addListener("place_changed", () => {
+            const place = ac.getPlace();
+            const loc = place.geometry?.location;
+            if (!loc) {
+              onError("Luogo senza coordinate. Scegli un suggerimento dalla lista.");
+              return;
+            }
+            void placeMarker(
+              loc.lat(),
+              loc.lng(),
+              "cerca",
+              place.formatted_address || place.name || undefined
+            );
+          });
+        }
+
+        setReady(true);
+      } catch (e) {
+        onError(e instanceof Error ? e.message : "Errore Google Maps");
       }
-
-      LRef.current = L;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl:
-          "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-        shadowUrl:
-          "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-      });
-
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-        markerRef.current = null;
-      }
-
-      const map = L.map(mapElRef.current, {
-        center: IT_CENTER,
-        zoom: 6,
-      });
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(map);
-
-      map.on("click", (e) => {
-        void placeMarker(e.latlng.lat, e.latlng.lng, "cerca");
-      });
-
-      mapRef.current = map;
-      setReady(true);
-      resizeTimer = window.setTimeout(() => map.invalidateSize(), 120);
     })();
 
     return () => {
       cancelled = true;
-      if (resizeTimer) window.clearTimeout(resizeTimer);
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-        markerRef.current = null;
-      }
-      LRef.current = null;
+      if (clickListener) clickListener.remove();
+      autocompleteRef.current = null;
+      markerRef.current = null;
+      mapRef.current = null;
+      geocoderRef.current = null;
       setPin(null);
-      setHits([]);
       setQuery("");
       setReady(false);
     };
-  }, [open, placeMarker]);
-
-  async function runSearch() {
-    const q = query.trim();
-    if (!q) return;
-    setSearching(true);
-    try {
-      const list = await nominatimSearch(q);
-      setHits(list);
-      if (list[0]) {
-        await placeMarker(list[0].lat, list[0].lng, "cerca", list[0].label);
-      }
-    } catch {
-      onError("Ricerca posizione fallita.");
-    } finally {
-      setSearching(false);
-    }
-  }
+  }, [open, onError, placeMarker]);
 
   function useCurrent() {
     if (!navigator.geolocation) {
@@ -254,7 +277,7 @@ export function ChatLocationMapModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-          <h2 className="text-sm font-semibold">Posizione sulla mappa</h2>
+          <h2 className="text-sm font-semibold">Posizione (Google Maps)</h2>
           <button
             type="button"
             onClick={onClose}
@@ -265,54 +288,33 @@ export function ChatLocationMapModal({
           </button>
         </div>
 
+        {missingKey ? (
+          <p className="m-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            Chiave Google Maps assente. Aggiungi{" "}
+            <code className="font-mono">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in{" "}
+            <code className="font-mono">.env.local</code> e su Vercel, poi
+            riavvia l’app.
+          </p>
+        ) : null}
+
         <div className="space-y-2 border-b border-[var(--border)] px-3 py-2">
-          <div className="flex gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cerca indirizzo, città…"
-              className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void runSearch();
-                }
-              }}
-            />
-            <button
-              type="button"
-              disabled={searching || busy || !ready}
-              onClick={() => void runSearch()}
-              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white disabled:opacity-40"
-            >
-              Cerca
-            </button>
-          </div>
+          <input
+            ref={searchRef}
+            defaultValue=""
+            placeholder="Cerca indirizzo con Google…"
+            disabled={missingKey || !ready}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50"
+            autoComplete="off"
+          />
           <button
             type="button"
-            disabled={geoBusy || busy || !ready}
+            disabled={geoBusy || busy || missingKey || !ready}
             onClick={useCurrent}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium disabled:opacity-40"
           >
             <FaLocationCrosshairs size={12} />
             Usa posizione attuale
           </button>
-          {hits.length > 1 ? (
-            <div className="max-h-24 space-y-1 overflow-y-auto">
-              {hits.map((h) => (
-                <button
-                  key={`${h.lat}-${h.lng}-${h.label}`}
-                  type="button"
-                  className="block w-full rounded border border-[var(--border)] px-2 py-1 text-left text-[11px] hover:bg-slate-50"
-                  onClick={() =>
-                    void placeMarker(h.lat, h.lng, "cerca", h.label)
-                  }
-                >
-                  {h.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
 
         <div
@@ -323,7 +325,7 @@ export function ChatLocationMapModal({
 
         <div className="space-y-2 border-t border-[var(--border)] px-3 py-3">
           <p className="text-[11px] text-slate-500">
-            Tocca la mappa o trascina il pin per scegliere il punto.
+            Digita e scegli un suggerimento, tocca la mappa o trascina il pin.
           </p>
           {pin ? (
             <p className="line-clamp-2 text-xs text-slate-800">{pin.label}</p>
@@ -340,7 +342,7 @@ export function ChatLocationMapModal({
             </button>
             <button
               type="button"
-              disabled={!pin || busy}
+              disabled={!pin || busy || missingKey}
               onClick={() => void confirm()}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm text-white disabled:opacity-40"
             >
