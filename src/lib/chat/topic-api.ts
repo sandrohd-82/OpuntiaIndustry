@@ -55,7 +55,7 @@ export async function listTopicMessages(
   supabase: SupabaseClient,
   topicId: string
 ): Promise<TopicMessage[]> {
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from("chat_topic_messages")
     .select(TOPIC_MESSAGE_SELECT)
     .eq("topic_id", topicId)
@@ -167,7 +167,7 @@ export async function insertTopicMessage(
     file_type: payload.fileType ?? null,
     file_name: payload.fileName ?? null,
   };
-  let { data, error } = await supabase
+  const { data, error } = await supabase
     .from("chat_topic_messages")
     .insert(row)
     .select(TOPIC_MESSAGE_SELECT)
