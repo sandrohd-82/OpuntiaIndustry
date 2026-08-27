@@ -30,6 +30,11 @@ export const AREA_ROUTES: Record<
     label: "Chat",
     description: "Argomenti e discussioni operative",
   },
+  webmail: {
+    path: "/app/webmail",
+    label: "WebMail",
+    description: "Caselle aziendali, categorie e anagrafiche",
+  },
   "promemorie-e-note": {
     path: "/app/promemorie-e-note",
     label: "Promemorie e note",
@@ -79,8 +84,9 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
-  "magazzino",
   "chat",
+  "webmail",
+  "magazzino",
   "promemorie-e-note",
   "area-fiscale",
   "area-fornitori",

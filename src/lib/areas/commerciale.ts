@@ -13,6 +13,7 @@ export const COMMERCIALE_SECTIONS: readonly NavItem[] = [
       "Caselle Gmail/Aruba, categorie, bozze AI e invio con approvazione",
     path: "/app/commerciale/webmail",
   },
+  // redirect legacy → /app/webmail/caselle (gestito in page)
   {
     slug: "clienti-con-storico",
     label: "Clienti con storico",

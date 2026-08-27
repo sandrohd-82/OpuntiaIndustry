@@ -21,6 +21,7 @@ import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
+import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import type { AreaSlug, UserArea } from "@/types/database";
@@ -58,6 +59,8 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
       return AREA_FISCALE_SECTIONS;
     case "chat":
       return null; // gestito da ChatSidebarNav
+    case "webmail":
+      return WEBMAIL_SECTIONS;
     case "promemorie-e-note":
       return PROMEMORIE_E_NOTE_SECTIONS;
     case "area-fornitori":

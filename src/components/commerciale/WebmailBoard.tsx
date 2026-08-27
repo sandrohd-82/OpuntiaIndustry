@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
   getWebmailBozzaForMessaggioAction,
+  linkWebmailMessaggioAnagraficaAction,
   listWebmailAccountGrantsAction,
   listWebmailAccountsAction,
   listWebmailCategorieAction,
@@ -31,6 +32,12 @@ function formatWhen(iso: string | null) {
   } catch {
     return iso;
   }
+}
+
+function linkStatoLabel(stato: WebmailMessaggio["linkStato"]) {
+  if (stato === "collegata") return "Collegata";
+  if (stato === "da_salvare") return "Da salvare";
+  return "Bozza";
 }
 
 export function WebmailBoard() {
@@ -584,14 +591,25 @@ export function WebmailBoard() {
                     <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
                       {m.fromName || m.fromAddress} · {formatWhen(m.receivedAt)}
                     </p>
-                    {cat ? (
-                      <span
-                        className="mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                        style={{ background: cat.colore }}
-                      >
-                        {cat.nome}
-                      </span>
-                    ) : null}
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {cat ? (
+                        <span
+                          className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                          style={{ background: cat.colore }}
+                        >
+                          {cat.nome}
+                        </span>
+                      ) : null}
+                      {m.aziendaLabel ? (
+                        <span className="inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
+                          {m.aziendaLabel}
+                        </span>
+                      ) : (
+                        <span className="inline-block rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          {linkStatoLabel(m.linkStato)}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 </li>
               );
@@ -617,6 +635,42 @@ export function WebmailBoard() {
                   Da {selected.fromName || selected.fromAddress} ·{" "}
                   {formatWhen(selected.receivedAt)}
                 </p>
+                <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-xs">
+                  <p className="font-semibold text-slate-700">Anagrafica</p>
+                  <p className="mt-1 text-slate-600">
+                    {selected.aziendaLabel
+                      ? `${selected.aziendaTipo ?? "azienda"} · ${selected.aziendaLabel}`
+                      : "Nessuna azienda collegata"}
+                    {" · "}
+                    {linkStatoLabel(selected.linkStato)}
+                    {selected.contattoId ? " · referente trovato" : ""}
+                  </p>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="mt-2 rounded border border-[var(--border)] bg-white px-2 py-1 text-[11px] font-medium hover:bg-slate-100 disabled:opacity-50"
+                    onClick={() => {
+                      startTransition(async () => {
+                        const res = await linkWebmailMessaggioAnagraficaAction({
+                          messaggioId: selected.id,
+                          rematch: true,
+                        });
+                        if (!res.success) {
+                          setError(res.error);
+                          return;
+                        }
+                        setMessaggi((prev) =>
+                          prev.map((m) =>
+                            m.id === res.messaggio.id ? res.messaggio : m
+                          )
+                        );
+                        setInfo("Collegamento anagrafica aggiornato.");
+                      });
+                    }}
+                  >
+                    Ricalcola match mittente
+                  </button>
+                </div>
                 <pre className="mt-4 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
                   {selected.bodyText || "(vuoto)"}
                 </pre>

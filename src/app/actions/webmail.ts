@@ -2,7 +2,7 @@
 
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAreaAccess, requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
@@ -21,6 +21,7 @@ import {
   type WebmailMessaggio,
   type WebmailProvider,
 } from "@/lib/webmail/types";
+import { z } from "zod";
 
 function mapAccount(row: Record<string, unknown>): WebmailAccountPublic {
   return {
@@ -38,6 +39,32 @@ function mapAccount(row: Record<string, unknown>): WebmailAccountPublic {
     syncEnabled: Boolean(row.sync_enabled),
     lastSyncAt: (row.last_sync_at as string | null) ?? null,
     lastSyncError: (row.last_sync_error as string | null) ?? null,
+    ownerUserId: (row.owner_user_id as string | null) ?? null,
+  };
+}
+
+function mapMessaggio(r: Record<string, unknown>): WebmailMessaggio {
+  return {
+    id: String(r.id),
+    accountId: String(r.account_id),
+    categoriaId: (r.categoria_id as string | null) ?? null,
+    direction: r.direction as "inbound" | "outbound",
+    fromAddress: String(r.from_address ?? ""),
+    fromName: String(r.from_name ?? ""),
+    toAddresses: (r.to_addresses as string[]) ?? [],
+    subject: String(r.subject ?? ""),
+    bodyText: String(r.body_text ?? ""),
+    bodyHtml: String(r.body_html ?? ""),
+    receivedAt: (r.received_at as string | null) ?? null,
+    isSeen: Boolean(r.is_seen),
+    aiIntent: (r.ai_intent as WebmailMessaggio["aiIntent"]) ?? null,
+    aiConfidence: r.ai_confidence == null ? null : Number(r.ai_confidence),
+    hasAiDraft: Boolean(r.has_ai_draft),
+    aziendaTipo: (r.azienda_tipo as WebmailMessaggio["aziendaTipo"]) ?? null,
+    aziendaId: (r.azienda_id as string | null) ?? null,
+    aziendaLabel: String(r.azienda_label ?? ""),
+    contattoId: (r.contatto_id as string | null) ?? null,
+    linkStato: (r.link_stato as WebmailMessaggio["linkStato"]) ?? "bozza",
   };
 }
 
@@ -45,7 +72,7 @@ export async function listWebmailCategorieAction(): Promise<
   | { success: true; items: WebmailCategoria[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("commerciale");
+  await requireWebmailAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_categorie")
@@ -75,7 +102,7 @@ export async function listWebmailAccountsAction(): Promise<
     }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("commerciale");
+  const { auth } = await requireWebmailAccess();
   const canManageAccounts =
     isAdminLikeProfile(auth.profile) ||
     auth.areas.some((a) => a.slug === "amministrazione");
@@ -83,7 +110,7 @@ export async function listWebmailAccountsAction(): Promise<
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
-      "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error"
+      "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error, owner_user_id"
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -113,12 +140,23 @@ export async function upsertWebmailAccountAction(
   const preset = WEBMAIL_PROVIDER_PRESETS[input.provider];
   const supabase = await createClient();
   const selectCols =
-    "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error";
+    "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error, owner_user_id";
 
   const forcedUsername =
     input.provider === "generic"
       ? input.username.trim()
       : input.emailAddress.trim().toLowerCase();
+
+  // Se non specificato, collega al profilo con stessa email
+  let ownerUserId = input.ownerUserId ?? null;
+  if (!ownerUserId) {
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("id")
+      .ilike("email", input.emailAddress.trim())
+      .maybeSingle();
+    ownerUserId = prof?.id ? String(prof.id) : null;
+  }
 
   const basePayload = {
     label: input.label,
@@ -132,6 +170,7 @@ export async function upsertWebmailAccountAction(
     smtp_secure: input.smtpSecure,
     username: forcedUsername,
     sync_enabled: input.syncEnabled ?? true,
+    owner_user_id: ownerUserId,
     updated_by: auth.userId,
     last_sync_error: null as string | null,
   };
@@ -373,12 +412,12 @@ export async function listWebmailMessaggiAction(input?: {
   | { success: true; messaggi: WebmailMessaggio[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("commerciale");
+  await requireWebmailAccess();
   const supabase = await createClient();
   let q = supabase
     .from("webmail_messaggi")
     .select(
-      "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft"
+      "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
     )
     .is("deleted_at", null)
     .eq("direction", "inbound")
@@ -391,24 +430,9 @@ export async function listWebmailMessaggiAction(input?: {
   if (error) return { success: false, error: error.message };
   return {
     success: true,
-    messaggi: (data ?? []).map((r) => ({
-      id: String(r.id),
-      accountId: String(r.account_id),
-      categoriaId: (r.categoria_id as string | null) ?? null,
-      direction: r.direction as "inbound" | "outbound",
-      fromAddress: String(r.from_address ?? ""),
-      fromName: String(r.from_name ?? ""),
-      toAddresses: (r.to_addresses as string[]) ?? [],
-      subject: String(r.subject ?? ""),
-      bodyText: String(r.body_text ?? ""),
-      bodyHtml: String(r.body_html ?? ""),
-      receivedAt: (r.received_at as string | null) ?? null,
-      isSeen: Boolean(r.is_seen),
-      aiIntent: (r.ai_intent as WebmailMessaggio["aiIntent"]) ?? null,
-      aiConfidence:
-        r.ai_confidence == null ? null : Number(r.ai_confidence),
-      hasAiDraft: Boolean(r.has_ai_draft),
-    })),
+    messaggi: (data ?? []).map((r) =>
+      mapMessaggio(r as Record<string, unknown>)
+    ),
   };
 }
 
@@ -418,7 +442,7 @@ export async function getWebmailBozzaForMessaggioAction(
   | { success: true; bozza: WebmailBozzaAi | null }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("commerciale");
+  await requireWebmailAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_bozze_ai")
@@ -466,7 +490,7 @@ export async function getWebmailBozzaForMessaggioAction(
 export async function updateWebmailBozzaAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("commerciale");
+  const { auth } = await requireWebmailAccess();
   const parsed = updateBozzaSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -503,7 +527,7 @@ export async function updateWebmailBozzaAction(
 export async function sendWebmailBozzaAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("commerciale");
+  const { auth } = await requireWebmailAccess();
   const parsed = sendBozzaSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: "Bozza non valida." };
@@ -636,7 +660,7 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
   | { success: true; imported: number; drafted: number; errors: string[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("commerciale");
+  await requireWebmailAccess();
   const service = createServiceClient();
   if (accountId) {
     const { data: account, error } = await service
@@ -672,4 +696,104 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
 
 export async function getWebmailProviderPresetsAction() {
   return WEBMAIL_PROVIDER_PRESETS;
+}
+
+const linkMessaggioSchema = z.object({
+  messaggioId: z.string().uuid(),
+  aziendaTipo: z
+    .enum(["cliente", "fornitore", "cliente_possibile"])
+    .nullable()
+    .optional(),
+  aziendaId: z.string().uuid().nullable().optional(),
+  aziendaLabel: z.string().trim().max(300).optional().default(""),
+  contattoId: z.string().uuid().nullable().optional(),
+  linkStato: z.enum(["bozza", "collegata", "da_salvare"]).optional(),
+  /** Se true, ricalcola match automatico dal mittente. */
+  rematch: z.boolean().optional().default(false),
+});
+
+/**
+ * Collega (o ricalcola) anagrafica/referente su un messaggio webmail.
+ */
+export async function linkWebmailMessaggioAnagraficaAction(
+  raw: unknown
+): Promise<
+  | { success: true; messaggio: WebmailMessaggio }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = linkMessaggioSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati collegamento non validi." };
+  }
+
+  const supabase = await createClient();
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select(
+      "id, account_id, from_address, categoria_id, direction, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
+    )
+    .eq("id", parsed.data.messaggioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+
+  let patch: Record<string, unknown>;
+  if (parsed.data.rematch) {
+    const { matchWebmailAnagrafica } = await import(
+      "@/lib/webmail/anagrafica-link"
+    );
+    const match = await matchWebmailAnagrafica(
+      supabase,
+      String(msg.from_address ?? "")
+    );
+    patch = {
+      azienda_tipo: match.aziendaTipo,
+      azienda_id: match.aziendaId,
+      azienda_label: match.aziendaLabel,
+      contatto_id: match.contattoId,
+      link_stato: match.linkStato,
+      updated_by: auth.userId,
+    };
+  } else {
+    const hasAzienda = Boolean(parsed.data.aziendaId && parsed.data.aziendaTipo);
+    patch = {
+      azienda_tipo: parsed.data.aziendaTipo ?? null,
+      azienda_id: parsed.data.aziendaId ?? null,
+      azienda_label: parsed.data.aziendaLabel ?? "",
+      contatto_id: parsed.data.contattoId ?? null,
+      link_stato:
+        parsed.data.linkStato ??
+        (hasAzienda ? "collegata" : "da_salvare"),
+      updated_by: auth.userId,
+    };
+  }
+
+  const { data: updated, error } = await supabase
+    .from("webmail_messaggi")
+    .update(patch)
+    .eq("id", parsed.data.messaggioId)
+    .select(
+      "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato"
+    )
+    .single();
+  if (error || !updated) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: parsed.data.messaggioId,
+    action: parsed.data.rematch ? "rematch_anagrafica" : "link_anagrafica",
+    actor_id: auth.userId,
+    summary: "Collegamento anagrafica messaggio webmail",
+    payload: patch,
+  });
+
+  return {
+    success: true,
+    messaggio: mapMessaggio(updated as Record<string, unknown>),
+  };
 }

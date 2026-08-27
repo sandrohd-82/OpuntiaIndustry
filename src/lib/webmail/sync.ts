@@ -2,6 +2,10 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { classifyInboundEmail, generateDraftReply } from "@/lib/webmail/ai";
+import {
+  intentToCategoriaCodice,
+  matchWebmailAnagrafica,
+} from "@/lib/webmail/anagrafica-link";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
 import { buildRagForIntent } from "@/lib/webmail/rag";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -220,10 +224,14 @@ export async function syncWebmailAccount(
           bodyText,
           fromName,
         });
+        const catCode = intentToCategoriaCodice(classification.intent);
         const categoriaId =
+          categorie.get(catCode) ??
           categorie.get(classification.intent) ??
           categorie.get("da_revisionare") ??
           null;
+
+        const anagrafica = await matchWebmailAnagrafica(supabase, fromAddr);
 
         await supabase
           .from("webmail_messaggi")
@@ -232,6 +240,11 @@ export async function syncWebmailAccount(
             ai_intent: classification.intent,
             ai_confidence: classification.confidence,
             ai_processed_at: new Date().toISOString(),
+            azienda_tipo: anagrafica.aziendaTipo,
+            azienda_id: anagrafica.aziendaId,
+            azienda_label: anagrafica.aziendaLabel,
+            contatto_id: anagrafica.contattoId,
+            link_stato: anagrafica.linkStato,
           })
           .eq("id", messaggioId);
 

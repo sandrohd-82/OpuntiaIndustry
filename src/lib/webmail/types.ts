@@ -81,6 +81,7 @@ export const webmailAccountInputSchema = z
     /** Obbligatoria in creazione; in modifica lascia vuota per non cambiare. */
     password: z.string().optional(),
     syncEnabled: z.boolean().optional(),
+    ownerUserId: z.string().uuid().optional().nullable(),
   })
   .superRefine((val, ctx) => {
     if (!val.id && (!val.password || val.password.length < 1)) {
@@ -119,6 +120,7 @@ export type WebmailAccountPublic = {
   syncEnabled: boolean;
   lastSyncAt: string | null;
   lastSyncError: string | null;
+  ownerUserId: string | null;
 };
 
 export type WebmailMessaggio = {
@@ -137,6 +139,11 @@ export type WebmailMessaggio = {
   aiIntent: WebmailIntent | null;
   aiConfidence: number | null;
   hasAiDraft: boolean;
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile" | null;
+  aziendaId: string | null;
+  aziendaLabel: string;
+  contattoId: string | null;
+  linkStato: "bozza" | "collegata" | "da_salvare";
 };
 
 export type WebmailBozzaAi = {
