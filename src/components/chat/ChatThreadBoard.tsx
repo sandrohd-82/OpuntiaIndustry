@@ -17,8 +17,8 @@ import { transcribeChatVoiceMessageAction } from "@/app/actions/chat-transcribe"
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
+import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
-import { schedaEntityLabel } from "@/lib/chat/types";
 import {
   attachChatLifecycleRefresh,
   subscribeConversationMessages,
@@ -187,21 +187,10 @@ function MessageBubble({
           </div>
         ) : null}
         {message.messageKind === "scheda" ? (
-          <div className="relative space-y-0.5 text-sm">
-            <p className="text-[10px] uppercase tracking-wide opacity-80">
-              Scheda{" "}
-              {schedaEntityLabel[String(message.payload.entityType)] ??
-                String(message.payload.entityType ?? "")}
-            </p>
-            <p className="font-medium">
-              {String(message.payload.title ?? message.content)}
-            </p>
-            {message.payload.subtitle ? (
-              <p className="text-xs opacity-90">
-                {String(message.payload.subtitle)}
-              </p>
-            ) : null}
-          </div>
+          <ChatSchedaBubble
+            payload={message.payload}
+            contentFallback={message.content}
+          />
         ) : null}
         {message.messageKind === "poll" &&
         typeof message.payload.pollId === "string" ? (

@@ -13,16 +13,19 @@ import {
 } from "react-icons/fa6";
 import {
   createChatPollAction,
+  getChatSchedaSharePreviewAction,
   listGestionaleRubricaForChatAction,
   searchChatSchedaAction,
 } from "@/app/actions/chat-share";
 import {
   buildChatShareActions,
+  schedaPayloadSchema,
   type ChatShareActionId,
   type ContactPayload,
   type LocationPayload,
   type SchedaPayload,
 } from "@/lib/chat/share";
+import type { SchedaSharePreview } from "@/lib/chat/scheda-share-fields";
 import { schedaEntityLabel, type ChatMessage } from "@/lib/chat/types";
 import type { TopicMessage } from "@/lib/chat/topics";
 import { sendChatAttachment, sendTopicAttachment } from "@/lib/chat/media";
@@ -30,6 +33,7 @@ import { insertChatMessageAndNotify } from "@/lib/chat/messages";
 import { insertTopicMessage } from "@/lib/chat/topic-api";
 import { createClient } from "@/lib/supabase/client";
 import { ChatLocationMapModal } from "@/components/chat/ChatLocationMapModal";
+import { ChatSchedaShareFieldsModal } from "@/components/chat/ChatSchedaShareFieldsModal";
 
 type Props = {
   open: boolean;
@@ -90,6 +94,11 @@ export function ChatShareSheet({
     Array<{ id: string; title: string; subtitle: string }>
   >([]);
   const [schedaSearching, setSchedaSearching] = useState(false);
+  const [schedaPreview, setSchedaPreview] = useState<SchedaSharePreview | null>(
+    null
+  );
+  const [schedaFieldsOpen, setSchedaFieldsOpen] = useState(false);
+  const [schedaPreviewLoading, setSchedaPreviewLoading] = useState(false);
 
   const [gestQ, setGestQ] = useState("");
   const [gestHits, setGestHits] = useState<
@@ -226,29 +235,62 @@ export function ChatShareSheet({
   }
 
   async function sendScheda(payload: SchedaPayload) {
+    const parsed = schedaPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      onError("Selezione scheda non valida.");
+      return;
+    }
     setBusy(true);
     const supabase = createClient();
     try {
       const msg = topicId
         ? await insertTopicMessage(supabase, userId, topicId, {
-            content: payload.title,
+            content: parsed.data.title,
             messageKind: "scheda",
-            payload,
+            payload: parsed.data,
           })
         : await insertChatMessageAndNotify(supabase, userId, {
             conversationId: conversationId!,
-            content: payload.title,
+            content: parsed.data.title,
             messageKind: "scheda",
-            payload,
+            payload: parsed.data,
           });
       onSent(msg);
       onClose();
       setSub(null);
       setSchedaStep("type");
+      setSchedaFieldsOpen(false);
+      setSchedaPreview(null);
     } catch (e) {
       onError(e instanceof Error ? e.message : "Scheda non inviata");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function pickSchedaHit(hit: {
+    id: string;
+    title: string;
+    subtitle: string;
+  }) {
+    setSchedaPreviewLoading(true);
+    try {
+      const res = await getChatSchedaSharePreviewAction({
+        entityType: schedaType,
+        entityId: hit.id,
+      });
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      setSchedaPreview(res.preview);
+      setSchedaFieldsOpen(true);
+    } catch (e) {
+      onError(
+        e instanceof Error ? e.message : "Anteprima scheda non disponibile"
+      );
+    } finally {
+      setSchedaPreviewLoading(false);
     }
   }
 
@@ -593,21 +635,20 @@ export function ChatShareSheet({
                     <button
                       key={h.id}
                       type="button"
-                      className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50"
-                      onClick={() =>
-                        void sendScheda({
-                          entityType: schedaType,
-                          entityId: h.id,
-                          title: h.title,
-                          subtitle: h.subtitle,
-                        })
-                      }
+                      disabled={busy || schedaPreviewLoading}
+                      className="block w-full rounded border border-[var(--border)] px-2 py-1.5 text-left text-xs hover:bg-slate-50 disabled:opacity-50"
+                      onClick={() => void pickSchedaHit(h)}
                     >
                       <span className="font-medium">{h.title}</span>
                       <span className="block text-slate-500">{h.subtitle}</span>
                     </button>
                   ))}
                 </div>
+                {schedaPreviewLoading ? (
+                  <p className="text-[11px] text-slate-400">
+                    Carico campi condivisibili…
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -620,6 +661,17 @@ export function ChatShareSheet({
         onConfirm={(payload) => void sendLocation(payload)}
         onError={onError}
         busy={busy}
+      />
+
+      <ChatSchedaShareFieldsModal
+        open={schedaFieldsOpen}
+        preview={schedaPreview}
+        busy={busy}
+        onClose={() => {
+          setSchedaFieldsOpen(false);
+          setSchedaPreview(null);
+        }}
+        onConfirm={(payload) => void sendScheda(payload)}
       />
     </>
   );

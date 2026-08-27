@@ -17,6 +17,7 @@ import { ChatAddTopicMembersModal } from "@/components/chat/ChatAddTopicMembersM
 import { ChatAvatar } from "@/components/chat/ChatAvatar";
 import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
+import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
 import { ChatTopicInfoModal } from "@/components/chat/ChatTopicInfoModal";
 import { recordDecisionAction } from "@/app/actions/learning";
@@ -37,7 +38,6 @@ import {
   type ChatProfileAvatar,
 } from "@/lib/chat/queries";
 import { dispatchChatTopicOpened, type TopicMessage } from "@/lib/chat/topics";
-import { schedaEntityLabel } from "@/lib/chat/types";
 import { createClient } from "@/lib/supabase/client";
 
 type Props = {
@@ -420,21 +420,10 @@ export function ChatTopicThreadBoard({
                     </div>
                   ) : null}
                   {m.messageKind === "scheda" ? (
-                    <div className="relative space-y-0.5 text-sm">
-                      <p className="text-[10px] uppercase tracking-wide opacity-80">
-                        Scheda{" "}
-                        {schedaEntityLabel[String(m.payload.entityType)] ??
-                          String(m.payload.entityType ?? "")}
-                      </p>
-                      <p className="font-medium">
-                        {String(m.payload.title ?? m.content)}
-                      </p>
-                      {m.payload.subtitle ? (
-                        <p className="text-xs opacity-90">
-                          {String(m.payload.subtitle)}
-                        </p>
-                      ) : null}
-                    </div>
+                    <ChatSchedaBubble
+                      payload={m.payload}
+                      contentFallback={m.content}
+                    />
                   ) : null}
                   {m.messageKind === "poll" &&
                   typeof m.payload.pollId === "string" ? (

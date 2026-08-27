@@ -96,6 +96,18 @@ export const contactPayloadSchema = z.object({
   rubricaId: z.string().uuid().optional().nullable(),
 });
 
+export const schedaSharedFieldSchema = z.object({
+  key: z.string().trim().min(1).max(64),
+  label: z.string().trim().min(1).max(120),
+  value: z.string().trim().min(1).max(2000),
+});
+
+export const schedaSharedReferenteSchema = z.object({
+  id: z.string().uuid(),
+  label: z.string().trim().min(1).max(200),
+  dettaglio: z.string().trim().max(500).optional().default(""),
+});
+
 export const schedaPayloadSchema = z.object({
   entityType: z.enum([
     "cliente",
@@ -108,6 +120,12 @@ export const schedaPayloadSchema = z.object({
   entityId: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
   subtitle: z.string().trim().max(300).optional().default(""),
+  /** Snapshot campi scelti al momento della condivisione (ISO 7.5). */
+  fields: z.array(schedaSharedFieldSchema).max(40).optional().default([]),
+  referenti: z.array(schedaSharedReferenteSchema).max(20).optional().default([]),
+  includePrice: z.boolean().optional().default(false),
+  priceLabel: z.string().trim().max(80).optional().default(""),
+  priceValue: z.string().trim().max(80).optional().default(""),
 });
 
 export const pollCreateSchema = z
