@@ -44,6 +44,7 @@ export function WebmailAdminCaselleBoard() {
   const [username, setUsername] = useState("");
   const [grantedUserIds, setGrantedUserIds] = useState<string[]>([]);
   const [syncEnabled, setSyncEnabled] = useState(true);
+  const [syncSince, setSyncSince] = useState("");
 
   const preset = WEBMAIL_PROVIDER_PRESETS[provider];
   const profileById = useMemo(
@@ -95,6 +96,7 @@ export function WebmailAdminCaselleBoard() {
     setUsername("");
     setGrantedUserIds([]);
     setSyncEnabled(true);
+    setSyncSince("");
   }
 
   function openNew() {
@@ -121,6 +123,7 @@ export function WebmailAdminCaselleBoard() {
           : []
     );
     setSyncEnabled(acc.syncEnabled);
+    setSyncSince(acc.syncSince ?? "");
     setFormOpen(true);
   }
 
@@ -163,6 +166,7 @@ export function WebmailAdminCaselleBoard() {
             : email.trim(),
         password: password.trim() || undefined,
         syncEnabled,
+        syncSince: syncSince.trim() ? syncSince.trim() : null,
         ownerUserId: grantedUserIds[0],
         grantedUserIds,
       });
@@ -445,6 +449,22 @@ export function WebmailAdminCaselleBoard() {
               />
               Sync automatica abilitata
             </label>
+
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1 block text-xs font-medium">
+                Sincronizza dal (inclusa)
+              </span>
+              <input
+                type="date"
+                value={syncSince}
+                onChange={(e) => setSyncSince(e.target.value)}
+                className="w-full max-w-xs rounded-lg border border-[var(--border)] px-3 py-2"
+              />
+              <span className="mt-1 block text-[11px] text-[var(--muted)]">
+                Es. 2026-01-01. Vuoto = ultimi 30 giorni. La sync non
+                reimporta mail già presenti o eliminate.
+              </span>
+            </label>
           </div>
 
           <div className="flex justify-end gap-2">
@@ -498,6 +518,8 @@ export function WebmailAdminCaselleBoard() {
                     <p className="truncate text-xs text-[var(--muted)]">
                       {acc.provider.toUpperCase()} · Profili:{" "}
                       {names.length ? names.join(", ") : "nessuno"}
+                      {" · Sync da: "}
+                      {acc.syncSince ?? "ultimi 30 gg"}
                       {acc.lastSyncError
                         ? ` · Errore sync: ${acc.lastSyncError}`
                         : ""}

@@ -81,6 +81,12 @@ export const webmailAccountInputSchema = z
     /** Obbligatoria in creazione; in modifica lascia vuota per non cambiare. */
     password: z.string().optional(),
     syncEnabled: z.boolean().optional(),
+    /** YYYY-MM-DD oppure null = fallback ultimi 30 giorni. */
+    syncSince: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida (AAAA-MM-GG)")
+      .nullable()
+      .optional(),
     ownerUserId: z.string().uuid().optional().nullable(),
     /** Profili collegati alla casella (almeno uno in creazione/modifica admin). */
     grantedUserIds: z.array(z.string().uuid()).optional(),
@@ -127,6 +133,8 @@ export type WebmailAccountPublic = {
   smtpSecure: boolean;
   username: string;
   syncEnabled: boolean;
+  /** Data inclusiva di inizio sync (YYYY-MM-DD) oppure null. */
+  syncSince: string | null;
   lastSyncAt: string | null;
   lastSyncError: string | null;
   ownerUserId: string | null;

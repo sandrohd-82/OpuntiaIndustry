@@ -38,6 +38,9 @@ function mapAccount(row: Record<string, unknown>): WebmailAccountPublic {
     smtpSecure: row.smtp_secure == null ? true : Boolean(row.smtp_secure),
     username: String(row.username ?? ""),
     syncEnabled: Boolean(row.sync_enabled),
+    syncSince: row.sync_since
+      ? String(row.sync_since).slice(0, 10)
+      : null,
     lastSyncAt: (row.last_sync_at as string | null) ?? null,
     lastSyncError: (row.last_sync_error as string | null) ?? null,
     ownerUserId: (row.owner_user_id as string | null) ?? null,
@@ -122,7 +125,7 @@ export async function listWebmailAccountsAction(): Promise<
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
-      "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error, owner_user_id"
+      "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, sync_since, last_sync_at, last_sync_error, owner_user_id"
     )
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
@@ -152,7 +155,7 @@ export async function upsertWebmailAccountAction(
   const preset = WEBMAIL_PROVIDER_PRESETS[input.provider];
   const supabase = await createClient();
   const selectCols =
-    "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, last_sync_at, last_sync_error, owner_user_id";
+    "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, sync_since, last_sync_at, last_sync_error, owner_user_id";
 
   const forcedUsername =
     input.provider === "generic"
@@ -186,7 +189,7 @@ export async function upsertWebmailAccountAction(
     ownerUserId = grantedIds[0]!;
   }
 
-  const basePayload = {
+  const basePayload: Record<string, unknown> = {
     label: input.label,
     email_address: input.emailAddress.toLowerCase(),
     provider: input.provider,
@@ -202,6 +205,9 @@ export async function upsertWebmailAccountAction(
     updated_by: auth.userId,
     last_sync_error: null as string | null,
   };
+  if (input.syncSince !== undefined) {
+    basePayload.sync_since = input.syncSince;
+  }
 
   async function syncGrantsForAccount(accountId: string) {
     const wanted = new Set(grantedIds);
@@ -735,7 +741,7 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
     const { data: account, error } = await service
       .from("webmail_accounts")
       .select(
-        "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+        "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
       )
       .eq("id", accountId)
       .is("deleted_at", null)

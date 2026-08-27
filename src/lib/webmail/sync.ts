@@ -20,7 +20,23 @@ type AccountRow = {
   smtp_secure: boolean;
   username: string;
   password_encrypted: string;
+  sync_since?: string | null;
 };
+
+/** Data SINCE per IMAP: sync_since casella oppure ultimi 30 giorni. */
+export function resolveWebmailSyncSince(
+  syncSince: string | null | undefined
+): Date {
+  if (syncSince && /^\d{4}-\d{2}-\d{2}$/.test(syncSince.slice(0, 10))) {
+    const [y, m, d] = syncSince.slice(0, 10).split("-").map(Number);
+    return new Date(y!, m! - 1, d!, 0, 0, 0, 0);
+  }
+  const fallbackDays = Number(process.env.WEBMAIL_SYNC_FALLBACK_DAYS ?? "30");
+  const since = new Date();
+  since.setDate(since.getDate() - (Number.isFinite(fallbackDays) ? fallbackDays : 30));
+  since.setHours(0, 0, 0, 0);
+  return since;
+}
 
 function formatImapSyncError(
   e: unknown,
@@ -98,7 +114,14 @@ export async function syncWebmailAccount(
   account: AccountRow,
   options?: { limit?: number }
 ): Promise<{ imported: number; drafted: number; error?: string }> {
-  const limit = options?.limit ?? 40;
+  const hasCustomSince = Boolean(
+    account.sync_since && /^\d{4}-\d{2}-\d{2}$/.test(String(account.sync_since).slice(0, 10))
+  );
+  const limit =
+    options?.limit ??
+    (hasCustomSince
+      ? Number(process.env.WEBMAIL_SYNC_MAX_MESSAGES ?? "2000")
+      : 80);
   const password = decryptWebmailSecret(account.password_encrypted);
   let imported = 0;
   const drafted = 0;
@@ -115,10 +138,13 @@ export async function syncWebmailAccount(
     await client.connect();
     const lock = await client.getMailboxLock("INBOX");
     try {
-      const since = new Date();
-      since.setDate(since.getDate() - 14);
+      const since = resolveWebmailSyncSince(account.sync_since);
       const uids = await client.search({ since }, { uid: true });
-      const list = (uids || []).slice(-limit);
+      const all = uids || [];
+      // Con data personalizzata: dal più vecchio (storico); altrimenti ultimi N
+      const list = hasCustomSince
+        ? all.slice(0, Math.max(1, limit))
+        : all.slice(-Math.max(1, limit));
 
       for (const uid of list) {
         const uidStr = String(uid);
@@ -326,7 +352,7 @@ export async function syncAllWebmailAccounts(
   const { data, error } = await supabase
     .from("webmail_accounts")
     .select(
-      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
     )
     .eq("sync_enabled", true)
     .is("deleted_at", null);
