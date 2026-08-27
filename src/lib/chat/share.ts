@@ -74,7 +74,7 @@ export function buildChatShareActions(isAdmin: boolean): ChatShareAction[] {
     {
       id: "scheda",
       label: "Scheda",
-      description: "Clienti, fornitori, prodotti…",
+      description: "Scegli tipo e cerca in tempo reale",
       allowed: isAdmin,
       adminOnly: true,
     },
