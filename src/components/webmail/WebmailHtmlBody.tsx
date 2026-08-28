@@ -88,10 +88,9 @@ export function WebmailHtmlBody({
       <div className="overflow-hidden rounded-lg border border-[var(--border)] bg-white">
         <iframe
           title="Corpo messaggio HTML"
-          sandbox="allow-popups allow-popups-to-escape-sandbox"
+          sandbox="allow-popups allow-popups-to-escape-sandbox allow-downloads"
           srcDoc={html}
           className="min-h-[50vh] w-full border-0 bg-white"
-          referrerPolicy="no-referrer"
         />
       </div>
       {downloadable.length > 0 ? (

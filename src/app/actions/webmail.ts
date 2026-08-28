@@ -13,9 +13,11 @@ import {
   syncWebmailAccount,
 } from "@/lib/webmail/sync";
 import {
+  bufferToDataUrl,
   normalizeContentId,
   rewriteWebmailHtml,
   WEBMAIL_ALLEGATI_BUCKET,
+  WEBMAIL_INLINE_DATA_URL_MAX_BYTES,
 } from "@/lib/webmail/html-render";
 import {
   composeNuovaMailSchema,
@@ -2136,14 +2138,41 @@ export async function getWebmailMessaggioHtmlAction(
   for (const r of rows ?? []) {
     const bucket = String(r.storage_bucket || WEBMAIL_ALLEGATI_BUCKET);
     const path = String(r.storage_path || "");
-    let url: string | null = null;
-    if (path) {
-      const { data: signed } = await service.storage
-        .from(bucket)
-        .createSignedUrl(path, 3600);
-      url = signed?.signedUrl ?? null;
-    }
+    const mime = String(r.mime_type ?? "application/octet-stream");
+    const sizeBytes = Number(r.size_bytes) || 0;
     const contentId = normalizeContentId(String(r.content_id ?? ""));
+    const isInline = Boolean(r.is_inline);
+    const isImage = /^image\//i.test(mime);
+    let url: string | null = null;
+
+    if (path) {
+      // Inline/immagini piccole → data URL (affidabile in iframe sandbox)
+      const useDataUrl =
+        (isInline || isImage || Boolean(contentId)) &&
+        sizeBytes > 0 &&
+        sizeBytes <= WEBMAIL_INLINE_DATA_URL_MAX_BYTES;
+
+      if (useDataUrl) {
+        const { data: blob, error: dlErr } = await service.storage
+          .from(bucket)
+          .download(path);
+        if (!dlErr && blob) {
+          const ab = await blob.arrayBuffer();
+          const buf = Buffer.from(ab);
+          if (buf.length > 0) {
+            url = bufferToDataUrl(mime, buf);
+          }
+        }
+      }
+
+      if (!url) {
+        const { data: signed } = await service.storage
+          .from(bucket)
+          .createSignedUrl(path, 3600);
+        url = signed?.signedUrl ?? null;
+      }
+    }
+
     if (contentId && url) {
       cidMap[contentId] = url;
       cidMap[contentId.toLowerCase()] = url;
@@ -2151,10 +2180,10 @@ export async function getWebmailMessaggioHtmlAction(
     allegati.push({
       id: String(r.id),
       filename: String(r.filename ?? ""),
-      mimeType: String(r.mime_type ?? ""),
-      sizeBytes: Number(r.size_bytes) || 0,
+      mimeType: mime,
+      sizeBytes,
       contentId,
-      isInline: Boolean(r.is_inline),
+      isInline,
       url,
     });
   }

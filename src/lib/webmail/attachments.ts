@@ -1,5 +1,6 @@
 import type { Attachment } from "mailparser";
 import {
+  normalizeAttachmentMime,
   normalizeContentId,
   WEBMAIL_ALLEGATI_BUCKET,
 } from "@/lib/webmail/html-render";
@@ -61,9 +62,7 @@ export async function persistMessaggioAttachments(input: {
       att.filename || undefined,
       contentId ? `cid-${contentId.slice(0, 40)}` : `part-${i + 1}`
     );
-    const mime =
-      (att.contentType || "application/octet-stream").split(";")[0]!.trim() ||
-      "application/octet-stream";
+    const mime = normalizeAttachmentMime(att.contentType);
     const path = `${accountId}/${messaggioId}/${Date.now()}-${i}-${filename}`;
 
     const { error: upErr } = await supabase.storage
@@ -73,8 +72,17 @@ export async function persistMessaggioAttachments(input: {
         upsert: false,
       });
     if (upErr) {
-      errors.push(upErr.message);
-      continue;
+      // Retry con octet-stream se il bucket rifiuta il MIME
+      const { error: up2 } = await supabase.storage
+        .from(WEBMAIL_ALLEGATI_BUCKET)
+        .upload(path, buf, {
+          contentType: "application/octet-stream",
+          upsert: false,
+        });
+      if (up2) {
+        errors.push(upErr.message);
+        continue;
+      }
     }
 
     const { error: insErr } = await supabase
