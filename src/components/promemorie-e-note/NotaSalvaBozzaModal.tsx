@@ -18,11 +18,11 @@ type Props = {
   bodyTemplate: string;
   onClose: () => void;
   onSaved: (item: PnNotaBozza) => void;
-  onError: (msg: string) => void;
 };
 
 /**
  * Modale z alta: richiede titolo bozza + titolo nota, evidenzia variabili.
+ * Gli avvisi restano dentro questa modale (non sulla form nota).
  */
 export function NotaSalvaBozzaModal({
   open,
@@ -30,7 +30,6 @@ export function NotaSalvaBozzaModal({
   bodyTemplate: bodyInitial,
   onClose,
   onSaved,
-  onError,
 }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [titoloBozza, setTitoloBozza] = useState("");
@@ -39,6 +38,7 @@ export function NotaSalvaBozzaModal({
   const [placeholders, setPlaceholders] = useState<PnNotaBozzaPlaceholder[]>(
     []
   );
+  const [localError, setLocalError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -47,20 +47,24 @@ export function NotaSalvaBozzaModal({
     setTitoloNota(titoloNotaInitial);
     setBody(bodyInitial);
     setPlaceholders([]);
+    setLocalError(null);
   }, [open, titoloNotaInitial, bodyInitial]);
 
   function evidenziaSelezione() {
+    setLocalError(null);
     const el = taRef.current;
     if (!el) return;
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? 0;
     if (end <= start) {
-      onError("Seleziona il testo da rendere variabile (stile evidenziatore).");
+      setLocalError(
+        "Seleziona il testo da rendere variabile (stile evidenziatore)."
+      );
       return;
     }
     const selected = body.slice(start, end);
     if (!selected.trim()) {
-      onError("La selezione è vuota.");
+      setLocalError("La selezione è vuota.");
       return;
     }
     const key = nextPlaceholderKey(placeholders);
@@ -88,13 +92,14 @@ export function NotaSalvaBozzaModal({
   }
 
   function save() {
+    setLocalError(null);
     const tb = titoloBozza.trim();
     if (!tb) {
-      onError("Il titolo della bozza è obbligatorio.");
+      setLocalError("Il titolo della bozza è obbligatorio.");
       return;
     }
     if (!body.trim()) {
-      onError("Il testo della bozza è obbligatorio.");
+      setLocalError("Il testo della bozza è obbligatorio.");
       return;
     }
     startTransition(async () => {
@@ -106,7 +111,7 @@ export function NotaSalvaBozzaModal({
         documentoStato: "approvata",
       });
       if (!res.success) {
-        onError(res.error);
+        setLocalError(res.error);
         return;
       }
       onSaved(res.item);
@@ -150,6 +155,12 @@ export function NotaSalvaBozzaModal({
         </div>
 
         <div className="space-y-3 overflow-y-auto px-4 py-3">
+          {localError ? (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              {localError}
+            </p>
+          ) : null}
+
           <label className="block text-xs font-medium text-slate-600">
             Titolo della bozza *
             <input

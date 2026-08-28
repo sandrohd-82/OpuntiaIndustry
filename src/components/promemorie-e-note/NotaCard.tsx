@@ -8,6 +8,7 @@ import {
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
 import type { PnNota } from "@/lib/promemorie-e-note/types";
+import { NotaRichBody } from "@/components/promemorie-e-note/NotaRichBody";
 
 const NOTE_COLORS: Record<PnNota["colore"], string> = {
   giallo: "bg-amber-100 border-amber-300",
@@ -105,11 +106,13 @@ export function NotaCard({ nota, onUpdated, compact, onError }: Props) {
           {nota.titolo ? (
             <p className="text-sm font-semibold">{nota.titolo}</p>
           ) : null}
-          <p
-            className={`whitespace-pre-wrap text-sm ${nota.titolo ? "mt-1" : ""}`}
-          >
-            {nota.body}
-          </p>
+          <NotaRichBody
+            className={nota.titolo ? "mt-1" : ""}
+            compact={compact}
+            body={nota.body}
+            bodyRich={nota.bodyRich}
+            allegati={nota.allegati}
+          />
           {nota.dueAt ? (
             <p className="mt-1 text-xs text-slate-600">
               {formatWhen(nota.dueAt)}

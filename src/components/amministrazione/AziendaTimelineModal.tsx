@@ -35,6 +35,7 @@ import type {
   PnNotaBozza,
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
+import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -78,6 +79,7 @@ function TimelineCard({
   item: AziendaTimelineItem;
   align: "left" | "right";
 }) {
+  const isNota = item.kind === "nota";
   return (
     <article
       className={`rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-sm shadow-sm ${
@@ -99,7 +101,20 @@ function TimelineCard({
         </time>
       </div>
       <p className="mt-1.5 font-medium text-slate-900">{item.title}</p>
-      {item.subtitle ? (
+      {isNota ? (
+        <div
+          className={`mt-2 ${
+            align === "left" ? "md:text-left" : ""
+          }`}
+        >
+          <NotaRichBody
+            compact
+            body={item.notaBody}
+            bodyRich={item.notaBodyRich}
+            allegati={item.notaAllegati}
+          />
+        </div>
+      ) : item.subtitle ? (
         <p className="mt-0.5 text-xs text-[var(--muted)]">{item.subtitle}</p>
       ) : null}
     </article>
@@ -438,31 +453,18 @@ export function AziendaTimelineModal({
                 />
               )}
               {notaAllegati.length > 0 ? (
-                <ul className="flex flex-wrap gap-2">
+                <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {notaAllegati.map((a) => (
-                    <li
-                      key={a.id}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px]"
-                    >
-                      <a
-                        href={a.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sky-700 hover:underline"
-                      >
-                        {a.label}
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() =>
+                    <li key={a.id}>
+                      <NotaAllegatoPreview
+                        allegato={a}
+                        compact
+                        onRemove={() =>
                           setNotaAllegati((prev) =>
                             prev.filter((x) => x.id !== a.id)
                           )
                         }
-                        className="text-slate-400 hover:text-red-600"
-                      >
-                        ×
-                      </button>
+                      />
                     </li>
                   ))}
                 </ul>
@@ -706,7 +708,6 @@ export function AziendaTimelineModal({
         titoloNota={notaTitolo}
         bodyTemplate={resolvedNotaBody()}
         onClose={() => setSalvaBozzaOpen(false)}
-        onError={(msg) => setError(msg)}
         onSaved={(item) => {
           setInfo(`Bozza «${item.titoloBozza}» salvata.`);
           setNotaBozzaId(item.id);

@@ -200,7 +200,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   {
     const { data } = await service
       .from("pn_note")
-      .select("id, titolo, body, due_at, created_at, colore")
+      .select("id, titolo, body, body_rich, allegati, due_at, created_at, colore")
       .eq("entity_type", aziendaTipo)
       .eq("entity_id", aziendaId)
       .is("deleted_at", null)
@@ -209,13 +209,27 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       const when =
         (r.due_at as string | null) || (r.created_at as string | null);
       if (!when) continue;
+      const body = String(r.body ?? "");
+      const bodyRich = String(r.body_rich ?? body);
+      const allegati = Array.isArray(r.allegati)
+        ? (r.allegati as Array<{
+            id: string;
+            kind: string;
+            label: string;
+            url: string;
+            storagePath?: string;
+          }>)
+        : [];
       pushSorted(items, {
         id: `nota:${r.id}`,
         kind: "nota",
         occurredAt: when,
         title: String(r.titolo || "Nota").trim() || "Nota",
-        subtitle: String(r.body ?? "").slice(0, 120),
+        subtitle: body.slice(0, 120),
         href: "/app/promemorie-e-note",
+        notaBody: body,
+        notaBodyRich: bodyRich,
+        notaAllegati: allegati,
       });
     }
   }
