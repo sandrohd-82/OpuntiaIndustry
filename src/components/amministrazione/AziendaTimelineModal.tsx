@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
 } from "react";
@@ -17,25 +16,13 @@ import {
   type AziendaTimelineMailHint,
   type AziendaTimelineMailHit,
 } from "@/app/actions/azienda-timeline";
-import { createNotaPnAction } from "@/app/actions/promemorie-e-note";
-import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
-import { NotaInserisciSheet } from "@/components/promemorie-e-note/NotaInserisciSheet";
-import { NotaSalvaBozzaModal } from "@/components/promemorie-e-note/NotaSalvaBozzaModal";
 import type {
   AziendaTimelineItem,
   AziendaTimelineKind,
   AziendaTimelineTipo,
 } from "@/lib/amministrazione/azienda-timeline";
-import {
-  applyPlaceholderValues,
-  richToPlain,
-} from "@/lib/promemorie-e-note/bozze";
-import type {
-  PnNotaAllegato,
-  PnNotaBozza,
-} from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
-import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
+import { NotaRichBody } from "@/components/promemorie-e-note/NotaRichBody";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -102,11 +89,7 @@ function TimelineCard({
       </div>
       <p className="mt-1.5 font-medium text-slate-900">{item.title}</p>
       {isNota ? (
-        <div
-          className={`mt-2 ${
-            align === "left" ? "md:text-left" : ""
-          }`}
-        >
+        <div className={`mt-2 ${align === "left" ? "md:text-left" : ""}`}>
           <NotaRichBody
             compact
             body={item.notaBody}
@@ -142,56 +125,7 @@ export function AziendaTimelineModal({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [panel, setPanel] = useState<"none" | "nota" | "mail">("none");
-
-  const [notaTitolo, setNotaTitolo] = useState("");
-  const [notaBody, setNotaBody] = useState("");
-  const [notaAllegati, setNotaAllegati] = useState<PnNotaAllegato[]>([]);
-  const [notaBozzaId, setNotaBozzaId] = useState<string | null>(null);
-  const [activeBozza, setActiveBozza] = useState<PnNotaBozza | null>(null);
-  const [bozzaValues, setBozzaValues] = useState<Record<string, string>>({});
-  const [bozzaEditMode, setBozzaEditMode] = useState<"placeholders" | "free">(
-    "placeholders"
-  );
-  const [inserisciOpen, setInserisciOpen] = useState(false);
-  const [salvaBozzaOpen, setSalvaBozzaOpen] = useState(false);
-  const notaBodyRef = useRef<HTMLTextAreaElement>(null);
-  const cursorRef = useRef<{ start: number; end: number }>({
-    start: 0,
-    end: 0,
-  });
-
-  function rememberNotaCursor() {
-    const el = notaBodyRef.current;
-    if (!el) return;
-    cursorRef.current = {
-      start: el.selectionStart ?? el.value.length,
-      end: el.selectionEnd ?? el.value.length,
-    };
-  }
-
-  function insertNotaChunkAtCursor(chunk: string) {
-    setActiveBozza(null);
-    setNotaBozzaId(null);
-    setBozzaEditMode("free");
-    const { start, end } = cursorRef.current;
-    let nextPos = start + chunk.length;
-    setNotaBody((prev) => {
-      const s = Math.max(0, Math.min(start, prev.length));
-      const e = Math.max(s, Math.min(end, prev.length));
-      nextPos = s + chunk.length;
-      return prev.slice(0, s) + chunk + prev.slice(e);
-    });
-    cursorRef.current = { start: nextPos, end: nextPos };
-    requestAnimationFrame(() => {
-      const el = notaBodyRef.current;
-      if (!el) return;
-      el.focus();
-      const pos = Math.min(cursorRef.current.start, el.value.length);
-      el.setSelectionRange(pos, pos);
-      cursorRef.current = { start: pos, end: pos };
-    });
-  }
+  const [panel, setPanel] = useState<"none" | "mail">("none");
 
   const [mailHints, setMailHints] = useState<AziendaTimelineMailHint[]>([]);
   const [mailDomains, setMailDomains] = useState<string[]>([]);
@@ -249,67 +183,6 @@ export function AziendaTimelineModal({
 
   const displayItems = useMemo(() => [...items].reverse(), [items]);
 
-  function resetNotaForm() {
-    setNotaTitolo("");
-    setNotaBody("");
-    setNotaAllegati([]);
-    setNotaBozzaId(null);
-    setActiveBozza(null);
-    setBozzaValues({});
-    setBozzaEditMode("placeholders");
-  }
-
-  function resolvedNotaBody(): string {
-    if (activeBozza && bozzaEditMode === "placeholders") {
-      return applyPlaceholderValues(activeBozza.bodyTemplate, bozzaValues);
-    }
-    return notaBody;
-  }
-
-  function saveNota() {
-    setError(null);
-    setInfo(null);
-    const bodyRich = resolvedNotaBody().trim();
-    if (!bodyRich) {
-      setError("Il testo della nota è obbligatorio.");
-      return;
-    }
-    startTransition(async () => {
-      const res = await createNotaPnAction({
-        titolo: notaTitolo,
-        body: richToPlain(bodyRich) || bodyRich,
-        bodyRich,
-        entityType: aziendaTipo,
-        entityId: aziendaId,
-        entityLabel: aziendaLabel,
-        bozzaId: notaBozzaId,
-        allegati: notaAllegati,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      resetNotaForm();
-      setPanel("none");
-      setInfo("Nota aggiunta alla timeline.");
-      await reload();
-    });
-  }
-
-  function applyBozza(bozza: PnNotaBozza) {
-    setActiveBozza(bozza);
-    setNotaBozzaId(bozza.id);
-    setNotaTitolo(bozza.titoloNota || "");
-    const init: Record<string, string> = {};
-    for (const p of bozza.placeholders) {
-      init[p.key] = p.sample || "";
-    }
-    setBozzaValues(init);
-    setNotaBody(applyPlaceholderValues(bozza.bodyTemplate, init));
-    setBozzaEditMode(
-      bozza.placeholders.length > 0 ? "placeholders" : "free"
-    );
-  }
   function linkMail(hit: AziendaTimelineMailHit) {
     if (hit.alreadyLinked) return;
     setError(null);
@@ -339,13 +212,7 @@ export function AziendaTimelineModal({
       role="presentation"
       onClick={(e) => {
         e.stopPropagation();
-        if (
-          inserisciOpen ||
-          salvaBozzaOpen ||
-          hasNestedModalOpen()
-        ) {
-          return;
-        }
+        if (hasNestedModalOpen()) return;
         onClose();
       }}
     >
@@ -363,20 +230,11 @@ export function AziendaTimelineModal({
               Timeline — {aziendaLabel || "Azienda"}
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
-              Asse dal basso (passato) all’alto (recente). Puoi aggiungere note
-              o collegare mail WebMail.
+              Asse dal basso (passato) all’alto (recente). Le note si creano
+              dalla scheda azienda; qui puoi collegare mail WebMail.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setPanel((p) => (p === "nota" ? "none" : "nota"))
-              }
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
-            >
-              + Nota
-            </button>
             <button
               type="button"
               onClick={() =>
@@ -395,111 +253,6 @@ export function AziendaTimelineModal({
             </button>
           </div>
         </div>
-
-        {panel === "nota" ? (
-          <div className="shrink-0 border-b border-[var(--border)] bg-amber-50/80 px-5 py-4 sm:px-8">
-            <p className="text-sm font-medium text-amber-950">Nuova nota</p>
-            <div className="mt-2 space-y-2">
-              <input
-                value={notaTitolo}
-                onChange={(e) => setNotaTitolo(e.target.value)}
-                placeholder="Titolo (opzionale)"
-                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    rememberNotaCursor();
-                    setInserisciOpen(true);
-                  }}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                >
-                  Inserisci
-                </button>
-                {activeBozza ? (
-                  <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] text-amber-950">
-                    Bozza: {activeBozza.titoloBozza}
-                  </span>
-                ) : null}
-              </div>
-              {activeBozza ? (
-                <NotaBozzaFillEditor
-                  template={activeBozza.bodyTemplate}
-                  placeholders={activeBozza.placeholders}
-                  values={bozzaValues}
-                  onChangeValues={setBozzaValues}
-                  freeBody={notaBody}
-                  onChangeFreeBody={setNotaBody}
-                  mode={bozzaEditMode}
-                  onToggleFree={() =>
-                    setBozzaEditMode((m) =>
-                      m === "free" ? "placeholders" : "free"
-                    )
-                  }
-                />
-              ) : (
-                <textarea
-                  ref={notaBodyRef}
-                  value={notaBody}
-                  onChange={(e) => setNotaBody(e.target.value)}
-                  onSelect={rememberNotaCursor}
-                  onKeyUp={rememberNotaCursor}
-                  onClick={rememberNotaCursor}
-                  onBlur={rememberNotaCursor}
-                  rows={4}
-                  placeholder="Testo nota *"
-                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-                />
-              )}
-              {notaAllegati.length > 0 ? (
-                <ul className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {notaAllegati.map((a) => (
-                    <li key={a.id}>
-                      <NotaAllegatoPreview
-                        allegato={a}
-                        compact
-                        onRemove={() =>
-                          setNotaAllegati((prev) =>
-                            prev.filter((x) => x.id !== a.id)
-                          )
-                        }
-                      />
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={pending || !resolvedNotaBody().trim()}
-                onClick={saveNota}
-                className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-              >
-                Salva nota
-              </button>
-              <button
-                type="button"
-                disabled={pending || !resolvedNotaBody().trim()}
-                onClick={() => setSalvaBozzaOpen(true)}
-                className="rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-950 disabled:opacity-50"
-              >
-                Rivedi e Salva come Bozza
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  resetNotaForm();
-                  setPanel("none");
-                }}
-                className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs"
-              >
-                Annulla
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         {panel === "mail" ? (
           <div className="shrink-0 border-b border-[var(--border)] bg-sky-50/80 px-5 py-4 sm:px-8">
@@ -630,7 +383,8 @@ export function AziendaTimelineModal({
             </p>
           ) : displayItems.length === 0 ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">
-              Nessuna attività. Usa + Nota o + Mail per iniziare.
+              Nessuna attività. Usa + Mail per collegare una mail, oppure crea
+              una nota dalla scheda azienda.
             </p>
           ) : (
             <div className="relative mx-auto w-full max-w-6xl">
@@ -690,29 +444,6 @@ export function AziendaTimelineModal({
           )}
         </div>
       </div>
-
-      <NotaInserisciSheet
-        open={inserisciOpen}
-        onClose={() => setInserisciOpen(false)}
-        isAdmin
-        onError={(msg) => setError(msg)}
-        onInsertText={insertNotaChunkAtCursor}
-        onAddAllegati={(items) =>
-          setNotaAllegati((prev) => [...prev, ...items])
-        }
-        onApplyBozza={applyBozza}
-      />
-
-      <NotaSalvaBozzaModal
-        open={salvaBozzaOpen}
-        titoloNota={notaTitolo}
-        bodyTemplate={resolvedNotaBody()}
-        onClose={() => setSalvaBozzaOpen(false)}
-        onSaved={(item) => {
-          setInfo(`Bozza «${item.titoloBozza}» salvata.`);
-          setNotaBozzaId(item.id);
-        }}
-      />
     </div>
   );
 
