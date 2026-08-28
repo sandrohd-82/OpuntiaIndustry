@@ -241,7 +241,7 @@ export function NotaInserisciSheet({
         });
       }
       onAddAllegati(out);
-      onClose();
+      closeSheetSoon();
     } catch (e) {
       onError(e instanceof Error ? e.message : "Upload fallito");
     } finally {
@@ -250,6 +250,16 @@ export function NotaInserisciSheet({
       if (docRef.current) docRef.current.value = "";
       if (cameraRef.current) cameraRef.current.value = "";
     }
+  }
+
+  /** Chiude solo lo sheet Inserisci; delay anti click-through sul backdrop Timeline. */
+  function closeSheetSoon() {
+    window.setTimeout(() => onClose(), 80);
+  }
+
+  function finishInsert(chunk: string) {
+    onInsertText(chunk);
+    closeSheetSoon();
   }
 
   async function onAction(id: ChatShareActionId | "link" | "bozza") {
@@ -312,7 +322,7 @@ export function NotaInserisciSheet({
         onInsertText(
           `\nContatto: ${name}${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}\n`
         );
-        onClose();
+        closeSheetSoon();
       } catch {
         onError("Impossibile leggere i contatti del dispositivo.");
       }
@@ -326,8 +336,7 @@ export function NotaInserisciSheet({
       return;
     }
     const label = linkLabel.trim() || url;
-    onInsertText(formatMarkdownLink(label, url));
-    onClose();
+    finishInsert(formatMarkdownLink(label, url));
   }
 
   function confirmPoll() {
@@ -337,10 +346,9 @@ export function NotaInserisciSheet({
       onError("Sondaggio: titolo e almeno 2 opzioni.");
       return;
     }
-    onInsertText(
+    finishInsert(
       `\nSondaggio: ${title}\n${opts.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`
     );
-    onClose();
   }
 
   const headerTitle =
@@ -364,12 +372,17 @@ export function NotaInserisciSheet({
     <>
       {!schedaFieldsOpen ? (
         <div
-          className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/50 sm:items-center"
-          onClick={onClose}
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 sm:items-center"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
         >
           <div
             className="w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-semibold">{headerTitle}</h2>
@@ -510,7 +523,7 @@ export function NotaInserisciSheet({
                       type="button"
                       onClick={() => {
                         onApplyBozza(b);
-                        onClose();
+                        closeSheetSoon();
                       }}
                       className="w-full rounded-xl border border-[var(--border)] px-3 py-2.5 text-left hover:bg-amber-50"
                     >
@@ -655,10 +668,9 @@ export function NotaInserisciSheet({
                         key={h.id}
                         type="button"
                         onClick={() => {
-                          onInsertText(
+                          finishInsert(
                             `\nContatto: ${h.name}${h.phone ? ` · ${h.phone}` : ""}${h.email ? ` · ${h.email}` : ""}\n`
                           );
-                          onClose();
                         }}
                         className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-left hover:bg-slate-50"
                       >
@@ -686,7 +698,7 @@ export function NotaInserisciSheet({
             `\nPosizione: ${payload.label} (${payload.lat.toFixed(5)}, ${payload.lng.toFixed(5)})\n`
           );
           setMapOpen(false);
-          onClose();
+          closeSheetSoon();
         }}
       />
 
@@ -716,7 +728,7 @@ export function NotaInserisciSheet({
             );
             setSchedaFieldsOpen(false);
             setSchedaPreview(null);
-            onClose();
+            closeSheetSoon();
           }}
         />
       ) : null}

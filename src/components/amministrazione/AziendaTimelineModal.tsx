@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { createPortal } from "react-dom";
 import {
   linkWebmailToAziendaTimelineAction,
@@ -27,6 +34,7 @@ import type {
   PnNotaAllegato,
   PnNotaBozza,
 } from "@/lib/promemorie-e-note/types";
+import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -132,6 +140,43 @@ export function AziendaTimelineModal({
   );
   const [inserisciOpen, setInserisciOpen] = useState(false);
   const [salvaBozzaOpen, setSalvaBozzaOpen] = useState(false);
+  const notaBodyRef = useRef<HTMLTextAreaElement>(null);
+  const cursorRef = useRef<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
+
+  function rememberNotaCursor() {
+    const el = notaBodyRef.current;
+    if (!el) return;
+    cursorRef.current = {
+      start: el.selectionStart ?? el.value.length,
+      end: el.selectionEnd ?? el.value.length,
+    };
+  }
+
+  function insertNotaChunkAtCursor(chunk: string) {
+    setActiveBozza(null);
+    setNotaBozzaId(null);
+    setBozzaEditMode("free");
+    const { start, end } = cursorRef.current;
+    let nextPos = start + chunk.length;
+    setNotaBody((prev) => {
+      const s = Math.max(0, Math.min(start, prev.length));
+      const e = Math.max(s, Math.min(end, prev.length));
+      nextPos = s + chunk.length;
+      return prev.slice(0, s) + chunk + prev.slice(e);
+    });
+    cursorRef.current = { start: nextPos, end: nextPos };
+    requestAnimationFrame(() => {
+      const el = notaBodyRef.current;
+      if (!el) return;
+      el.focus();
+      const pos = Math.min(cursorRef.current.start, el.value.length);
+      el.setSelectionRange(pos, pos);
+      cursorRef.current = { start: pos, end: pos };
+    });
+  }
 
   const [mailHints, setMailHints] = useState<AziendaTimelineMailHint[]>([]);
   const [mailDomains, setMailDomains] = useState<string[]>([]);
@@ -279,6 +324,13 @@ export function AziendaTimelineModal({
       role="presentation"
       onClick={(e) => {
         e.stopPropagation();
+        if (
+          inserisciOpen ||
+          salvaBozzaOpen ||
+          hasNestedModalOpen()
+        ) {
+          return;
+        }
         onClose();
       }}
     >
@@ -342,7 +394,10 @@ export function AziendaTimelineModal({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setInserisciOpen(true)}
+                  onClick={() => {
+                    rememberNotaCursor();
+                    setInserisciOpen(true);
+                  }}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
                 >
                   Inserisci
@@ -370,8 +425,13 @@ export function AziendaTimelineModal({
                 />
               ) : (
                 <textarea
+                  ref={notaBodyRef}
                   value={notaBody}
                   onChange={(e) => setNotaBody(e.target.value)}
+                  onSelect={rememberNotaCursor}
+                  onKeyUp={rememberNotaCursor}
+                  onClick={rememberNotaCursor}
+                  onBlur={rememberNotaCursor}
                   rows={4}
                   placeholder="Testo nota *"
                   className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
@@ -634,12 +694,7 @@ export function AziendaTimelineModal({
         onClose={() => setInserisciOpen(false)}
         isAdmin
         onError={(msg) => setError(msg)}
-        onInsertText={(chunk) => {
-          setActiveBozza(null);
-          setNotaBozzaId(null);
-          setBozzaEditMode("free");
-          setNotaBody((prev) => `${prev}${chunk}`);
-        }}
+        onInsertText={insertNotaChunkAtCursor}
         onAddAllegati={(items) =>
           setNotaAllegati((prev) => [...prev, ...items])
         }

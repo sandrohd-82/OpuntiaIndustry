@@ -115,13 +115,19 @@ export function ChatSchedaShareFieldsModal({
   const dialog = (
     <div
       data-nested-modal
-      className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       <div
         role="dialog"
         aria-modal
         aria-label="Cosa condividere"
         className="flex h-[min(90vh,100dvh)] max-h-[min(90vh,100dvh)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:h-auto sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div>
@@ -264,7 +270,11 @@ export function ChatSchedaShareFieldsModal({
           </button>
           <button
             type="button"
-            onClick={confirm}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              e.stopPropagation();
+              confirm();
+            }}
             disabled={busy || !canSend}
             className="flex-1 rounded-xl bg-[var(--primary)] px-3 py-2.5 text-sm font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
           >
