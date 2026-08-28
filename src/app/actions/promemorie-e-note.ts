@@ -28,6 +28,7 @@ import {
 } from "@/lib/promemorie-e-note/types";
 import { createClient } from "@/lib/supabase/server";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
+import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
   "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_at, updated_at";
@@ -519,6 +520,22 @@ export async function createNotaPnAction(input: unknown): Promise<
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
   const item = mapPnNotaRow(data as Record<string, unknown>);
+
+  const trackingIds = (d.allegati ?? [])
+    .filter((a) => String(a.kind).toLowerCase() === "tracking")
+    .map((a) => a.id)
+    .filter((id) => z.string().uuid().safeParse(id).success);
+  if (trackingIds.length > 0) {
+    await supabase
+      .from("shipping_trackings")
+      .update({
+        nota_id: item.id,
+        updated_by: auth.userId,
+      })
+      .in("id", trackingIds)
+      .is("deleted_at", null);
+  }
+
   await writeAuditLog({
     entity_type: "pn_note",
     entity_id: item.id,
@@ -531,6 +548,7 @@ export async function createNotaPnAction(input: unknown): Promise<
       linked_promemoria_id: item.linkedPromemoriaId,
       linked_attivita_id: item.linkedAttivitaId,
       bozza_id: item.bozzaId,
+      tracking_ids: trackingIds,
     },
   });
   return { success: true, item };

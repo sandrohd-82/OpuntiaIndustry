@@ -1,7 +1,9 @@
 "use client";
 
 import { FaFileLines, FaFilm, FaLink } from "react-icons/fa6";
+import { ShippingTrackingCard } from "@/components/shipping/ShippingTrackingCard";
 import type { PnNotaAllegato } from "@/lib/promemorie-e-note/types";
+import { isTrackingAllegato } from "@/lib/shipping/tracking";
 
 type Props = {
   body?: string;
@@ -97,13 +99,24 @@ export function NotaRichBody({
         <ul
           className={`mt-2 grid gap-2 ${
             compact
-              ? "grid-cols-1 sm:grid-cols-2"
+              ? "grid-cols-1"
               : "grid-cols-1 sm:grid-cols-2"
           }`}
         >
           {allegati.map((a) => (
-            <li key={a.id}>
-              <NotaAllegatoPreview allegato={a} compact={compact} />
+            <li
+              key={a.id}
+              className={isTrackingAllegato(a.kind) ? "sm:col-span-2" : undefined}
+            >
+              {isTrackingAllegato(a.kind) ? (
+                <ShippingTrackingCard
+                  trackingId={a.id}
+                  compact={compact}
+                  autoCheck
+                />
+              ) : (
+                <NotaAllegatoPreview allegato={a} compact={compact} />
+              )}
             </li>
           ))}
         </ul>
@@ -121,6 +134,23 @@ export function NotaAllegatoPreview({
   compact?: boolean;
   onRemove?: () => void;
 }) {
+  if (isTrackingAllegato(a.kind)) {
+    return (
+      <div className="space-y-1">
+        <ShippingTrackingCard trackingId={a.id} compact={compact} autoCheck />
+        {onRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-[10px] text-red-600 hover:underline"
+          >
+            Rimuovi tracking dalla nota
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   const imgH = compact ? "h-28" : "h-40";
 
   if (isImageAllegato(a)) {

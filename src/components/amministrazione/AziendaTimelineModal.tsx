@@ -695,6 +695,8 @@ export function AziendaTimelineModal({
         open={inserisciOpen}
         onClose={() => setInserisciOpen(false)}
         isAdmin
+        entityType={aziendaTipo}
+        entityId={aziendaId}
         onError={(msg) => setError(msg)}
         onInsertText={insertNotaChunkAtCursor}
         onAddAllegati={(items) =>

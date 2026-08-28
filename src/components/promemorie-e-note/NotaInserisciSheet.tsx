@@ -11,6 +11,7 @@ import {
   FaFilePen,
   FaSquarePollVertical,
   FaAddressBook,
+  FaTruckFast,
   FaXmark,
 } from "react-icons/fa6";
 import {
@@ -19,6 +20,7 @@ import {
   searchChatSchedaAction,
 } from "@/app/actions/chat-share";
 import { listNotaBozzePnAction } from "@/app/actions/promemorie-e-note";
+import { createShippingTrackingAction } from "@/app/actions/shipping-tracking";
 import { ChatLocationMapModal } from "@/components/chat/ChatLocationMapModal";
 import { ChatSchedaShareFieldsModal } from "@/components/chat/ChatSchedaShareFieldsModal";
 import { NotaInserisciDraftModal } from "@/components/promemorie-e-note/NotaInserisciDraftModal";
@@ -36,12 +38,17 @@ import {
 import type {
   PnNotaAllegato,
   PnNotaBozza,
+  PnEntityType,
 } from "@/lib/promemorie-e-note/types";
+import {
+  buildTrackingInsertText,
+} from "@/lib/shipping/tracking";
 import { createClient } from "@/lib/supabase/client";
 
 type Sub =
   | null
   | "link"
+  | "tracking"
   | "bozza"
   | "poll"
   | "scheda"
@@ -57,11 +64,17 @@ type Props = {
   onAddAllegati: (items: PnNotaAllegato[]) => void;
   onApplyBozza: (bozza: PnNotaBozza) => void;
   onError: (msg: string) => void;
+  /** Contesto anagrafica Timeline (per collegare il tracking) */
+  entityType?: PnEntityType | null;
+  entityId?: string | null;
 };
 
 const MEDIA_BUCKET = "chat_media";
 
-const iconFor: Record<ChatShareActionId | "link" | "bozza", ReactNode> = {
+const iconFor: Record<
+  ChatShareActionId | "link" | "bozza" | "tracking",
+  ReactNode
+> = {
   gallery: <FaImage size={16} />,
   doc: <FaFileLines size={16} />,
   camera: <FaCamera size={16} />,
@@ -71,6 +84,7 @@ const iconFor: Record<ChatShareActionId | "link" | "bozza", ReactNode> = {
   poll: <FaSquarePollVertical size={16} />,
   scheda: <FaIdCard size={16} />,
   link: <FaLink size={16} />,
+  tracking: <FaTruckFast size={16} />,
   bozza: <FaFilePen size={16} />,
 };
 
@@ -82,6 +96,8 @@ export function NotaInserisciSheet({
   onAddAllegati,
   onApplyBozza,
   onError,
+  entityType = null,
+  entityId = null,
 }: Props) {
   const actions = useMemo(() => buildChatShareActions(isAdmin), [isAdmin]);
   const galleryRef = useRef<HTMLInputElement>(null);
@@ -93,6 +109,15 @@ export function NotaInserisciSheet({
 
   const [linkUrl, setLinkUrl] = useState("");
   const [linkLabel, setLinkLabel] = useState("");
+
+  const [trackingUrl, setTrackingUrl] = useState("");
+  const [trackingCarrier, setTrackingCarrier] = useState("");
+  const [trackingCode, setTrackingCode] = useState("");
+  const [pendingTracking, setPendingTracking] = useState<{
+    id: string;
+    label: string;
+    url: string;
+  } | null>(null);
 
   const [pollTitle, setPollTitle] = useState("");
   const [pollOpts, setPollOpts] = useState<string[]>(["", ""]);
@@ -277,6 +302,17 @@ export function NotaInserisciSheet({
       return;
     }
     onInsertText(t);
+    if (pendingTracking) {
+      onAddAllegati([
+        {
+          id: pendingTracking.id,
+          kind: "tracking",
+          label: pendingTracking.label,
+          url: pendingTracking.url,
+        },
+      ]);
+      setPendingTracking(null);
+    }
     setDraftOpen(false);
     setDraftText("");
     setSchedaFieldsOpen(false);
@@ -286,7 +322,9 @@ export function NotaInserisciSheet({
     closeSheetSoon();
   }
 
-  async function onAction(id: ChatShareActionId | "link" | "bozza") {
+  async function onAction(
+    id: ChatShareActionId | "link" | "bozza" | "tracking"
+  ) {
     if (id === "gallery") {
       galleryRef.current?.click();
       return;
@@ -305,6 +343,13 @@ export function NotaInserisciSheet({
     }
     if (id === "link") {
       setSub("link");
+      return;
+    }
+    if (id === "tracking") {
+      setTrackingUrl("");
+      setTrackingCarrier("");
+      setTrackingCode("");
+      setSub("tracking");
       return;
     }
     if (id === "bozza") {
@@ -348,8 +393,52 @@ export function NotaInserisciSheet({
           "Anteprima contatto"
         );
       } catch {
-        onError("Impossibile leggere i contatti del dispositivo.");
+        onError("Selezione contatti annullata o non disponibile.");
       }
+      return;
+    }
+  }
+
+  async function confirmTracking() {
+    const url = ensureHttpUrl(trackingUrl.trim());
+    if (!url || !/^https?:\/\//i.test(url)) {
+      onError("Inserisci un URL tracking valido (es. https://…).");
+      return;
+    }
+    const carrier = trackingCarrier.trim();
+    if (!carrier) {
+      onError("Indica il nome del corriere o il codice spedizione.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await createShippingTrackingAction({
+        trackingUrl: url,
+        carrier,
+        trackingCode: trackingCode.trim(),
+        entityType: entityType ?? null,
+        entityId: entityId ?? null,
+        runCheck: true,
+      });
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      setPendingTracking({
+        id: res.item.id,
+        label: `${res.item.carrier}${res.item.trackingCode ? ` · ${res.item.trackingCode}` : ""}`,
+        url: res.item.trackingUrl,
+      });
+      openDraftPreview(
+        buildTrackingInsertText({
+          carrier: res.item.carrier,
+          trackingUrl: res.item.trackingUrl,
+          trackingCode: res.item.trackingCode,
+        }),
+        "Anteprima tracking spedizione"
+      );
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -379,17 +468,19 @@ export function NotaInserisciSheet({
   const headerTitle =
     sub === "link"
       ? "Inserisci link"
-      : sub === "bozza"
-        ? "Bozza nota"
-        : sub === "poll"
-          ? "Sondaggio"
-          : sub === "scheda"
-            ? schedaStep === "type"
-              ? "Tipo di scheda"
-              : `Cerca: ${schedaEntityLabel[schedaType] ?? "Scheda"}`
-            : sub === "contact_gestionale"
-              ? "Contatto gestionale"
-              : "Inserisci";
+      : sub === "tracking"
+        ? "Tracking spedizione"
+        : sub === "bozza"
+          ? "Bozza nota"
+          : sub === "poll"
+            ? "Sondaggio"
+            : sub === "scheda"
+              ? schedaStep === "type"
+                ? "Tipo di scheda"
+                : `Cerca: ${schedaEntityLabel[schedaType] ?? "Scheda"}`
+              : sub === "contact_gestionale"
+                ? "Contatto gestionale"
+                : "Inserisci";
 
   if (!open) return null;
 
@@ -492,6 +583,20 @@ export function NotaInserisciSheet({
                 <button
                   type="button"
                   disabled={busy}
+                  onClick={() => void onAction("tracking")}
+                  className="flex flex-col items-start gap-1 rounded-xl border border-[var(--border)] px-3 py-2.5 text-left hover:bg-slate-50"
+                >
+                  <span className="text-[var(--primary)]">
+                    {iconFor.tracking}
+                  </span>
+                  <span className="text-xs font-semibold">+ Tracking</span>
+                  <span className="text-[10px] text-slate-500">
+                    URL corriere + stato automatico
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
                   onClick={() => void onAction("bozza")}
                   className="flex flex-col items-start gap-1 rounded-xl border border-[var(--border)] px-3 py-2.5 text-left hover:bg-slate-50"
                 >
@@ -500,6 +605,46 @@ export function NotaInserisciSheet({
                   <span className="text-[10px] text-slate-500">
                     Template operazioni standard
                   </span>
+                </button>
+              </div>
+            ) : null}
+
+            {sub === "tracking" ? (
+              <div className="space-y-3">
+                <label className="block text-xs text-slate-500">
+                  URL tracking *
+                  <input
+                    value={trackingUrl}
+                    onChange={(e) => setTrackingUrl(e.target.value)}
+                    placeholder="https://… (BRT, Mondospedizioni, …)"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs text-slate-500">
+                  Corriere / codice *
+                  <input
+                    value={trackingCarrier}
+                    onChange={(e) => setTrackingCarrier(e.target.value)}
+                    placeholder="Es. BRT, GLS, Mondospedizioni…"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-xs text-slate-500">
+                  Codice spedizione (opz.)
+                  <input
+                    value={trackingCode}
+                    onChange={(e) => setTrackingCode(e.target.value)}
+                    placeholder="Numero tracking"
+                    className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void confirmTracking()}
+                  className="w-full rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {busy ? "Creazione…" : "Continua"}
                 </button>
               </div>
             ) : null}
