@@ -13,7 +13,7 @@ function requireGeminiKey(): string {
 }
 
 export function webmailGeminiModel(): string {
-  return process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
+  return process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash";
 }
 
 const translateResultSchema = z.object({
