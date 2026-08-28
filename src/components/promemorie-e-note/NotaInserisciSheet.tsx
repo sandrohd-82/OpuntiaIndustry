@@ -21,6 +21,7 @@ import {
 import { listNotaBozzePnAction } from "@/app/actions/promemorie-e-note";
 import { ChatLocationMapModal } from "@/components/chat/ChatLocationMapModal";
 import { ChatSchedaShareFieldsModal } from "@/components/chat/ChatSchedaShareFieldsModal";
+import { NotaInserisciDraftModal } from "@/components/promemorie-e-note/NotaInserisciDraftModal";
 import {
   buildChatShareActions,
   type ChatShareActionId,
@@ -120,6 +121,10 @@ export function NotaInserisciSheet({
   >([]);
   const [gestSearching, setGestSearching] = useState(false);
 
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [draftTitle, setDraftTitle] = useState("Rivedi prima di inserire");
+
   useEffect(() => {
     if (!open) {
       setSub(null);
@@ -129,6 +134,8 @@ export function NotaInserisciSheet({
       setPollOpts(["", ""]);
       setMapOpen(false);
       setSchedaFieldsOpen(false);
+      setDraftOpen(false);
+      setDraftText("");
       return;
     }
   }, [open]);
@@ -257,8 +264,25 @@ export function NotaInserisciSheet({
     window.setTimeout(() => onClose(), 80);
   }
 
-  function finishInsert(chunk: string) {
-    onInsertText(chunk);
+  function openDraftPreview(text: string, title?: string) {
+    setDraftTitle(title ?? "Rivedi prima di inserire");
+    setDraftText(text);
+    setDraftOpen(true);
+  }
+
+  function confirmDraftInsert() {
+    const t = draftText;
+    if (!t.trim()) {
+      onError("Il testo da inserire è vuoto.");
+      return;
+    }
+    onInsertText(t);
+    setDraftOpen(false);
+    setDraftText("");
+    setSchedaFieldsOpen(false);
+    setSchedaPreview(null);
+    setMapOpen(false);
+    setSub(null);
     closeSheetSoon();
   }
 
@@ -319,10 +343,10 @@ export function NotaInserisciSheet({
         const name = Array.isArray(c.name) ? c.name[0] : c.name || "Contatto";
         const phone = Array.isArray(c.tel) ? c.tel[0] : c.tel || "";
         const email = Array.isArray(c.email) ? c.email[0] : c.email || "";
-        onInsertText(
-          `\nContatto: ${name}${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}\n`
+        openDraftPreview(
+          `\nContatto: ${name}${phone ? ` · ${phone}` : ""}${email ? ` · ${email}` : ""}\n`,
+          "Anteprima contatto"
         );
-        closeSheetSoon();
       } catch {
         onError("Impossibile leggere i contatti del dispositivo.");
       }
@@ -336,7 +360,7 @@ export function NotaInserisciSheet({
       return;
     }
     const label = linkLabel.trim() || url;
-    finishInsert(formatMarkdownLink(label, url));
+    openDraftPreview(formatMarkdownLink(label, url), "Anteprima link");
   }
 
   function confirmPoll() {
@@ -346,8 +370,9 @@ export function NotaInserisciSheet({
       onError("Sondaggio: titolo e almeno 2 opzioni.");
       return;
     }
-    finishInsert(
-      `\nSondaggio: ${title}\n${opts.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`
+    openDraftPreview(
+      `\nSondaggio: ${title}\n${opts.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n`,
+      "Anteprima sondaggio"
     );
   }
 
@@ -368,9 +393,11 @@ export function NotaInserisciSheet({
 
   if (!open) return null;
 
+  const showMainSheet = !schedaFieldsOpen && !draftOpen;
+
   return (
     <>
-      {!schedaFieldsOpen ? (
+      {showMainSheet ? (
         <div
           className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 sm:items-center"
           onClick={(e) => {
@@ -668,8 +695,9 @@ export function NotaInserisciSheet({
                         key={h.id}
                         type="button"
                         onClick={() => {
-                          finishInsert(
-                            `\nContatto: ${h.name}${h.phone ? ` · ${h.phone}` : ""}${h.email ? ` · ${h.email}` : ""}\n`
+                          openDraftPreview(
+                            `\nContatto: ${h.name}${h.phone ? ` · ${h.phone}` : ""}${h.email ? ` · ${h.email}` : ""}\n`,
+                            "Anteprima contatto"
                           );
                         }}
                         className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-left hover:bg-slate-50"
@@ -689,20 +717,20 @@ export function NotaInserisciSheet({
       ) : null}
 
       <ChatLocationMapModal
-        open={mapOpen}
+        open={mapOpen && !draftOpen}
         busy={busy}
         onClose={() => setMapOpen(false)}
         onError={onError}
         onConfirm={(payload) => {
-          onInsertText(
-            `\nPosizione: ${payload.label} (${payload.lat.toFixed(5)}, ${payload.lng.toFixed(5)})\n`
-          );
           setMapOpen(false);
-          closeSheetSoon();
+          openDraftPreview(
+            `\nPosizione: ${payload.label} (${payload.lat.toFixed(5)}, ${payload.lng.toFixed(5)})\n`,
+            "Anteprima posizione"
+          );
         }}
       />
 
-      {schedaPreview && schedaFieldsOpen ? (
+      {schedaPreview && schedaFieldsOpen && !draftOpen ? (
         <ChatSchedaShareFieldsModal
           open={schedaFieldsOpen}
           preview={schedaPreview}
@@ -723,15 +751,24 @@ export function NotaInserisciSheet({
                 `· ${payload.priceLabel || "Prezzo"}: ${payload.priceValue}`
               );
             }
-            onInsertText(
-              `\nScheda ${schedaEntityLabel[payload.entityType] ?? ""}: ${payload.title}\n${lines.join("\n")}\n`
-            );
             setSchedaFieldsOpen(false);
             setSchedaPreview(null);
-            closeSheetSoon();
+            openDraftPreview(
+              `\nScheda ${schedaEntityLabel[payload.entityType] ?? ""}: ${payload.title}\n${lines.join("\n")}\n`,
+              `Anteprima scheda — ${payload.title}`
+            );
           }}
         />
       ) : null}
+
+      <NotaInserisciDraftModal
+        open={draftOpen}
+        title={draftTitle}
+        value={draftText}
+        onChange={setDraftText}
+        onClose={() => setDraftOpen(false)}
+        onConfirm={confirmDraftInsert}
+      />
     </>
   );
 }
