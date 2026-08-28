@@ -39,6 +39,7 @@ export type PnNota = {
   id: string;
   titolo: string;
   body: string;
+  bodyRich: string;
   colore: "giallo" | "verde" | "blu" | "rosa" | "grigio";
   dueAt: string | null;
   entityType: PnEntityType | null;
@@ -47,6 +48,33 @@ export type PnNota = {
   linkedPromemoriaId: string | null;
   linkedAttivitaId: string | null;
   stato: "attiva" | "archiviata";
+  bozzaId: string | null;
+  allegati: PnNotaAllegato[];
+  createdAt: string;
+};
+
+export type PnNotaAllegato = {
+  id: string;
+  kind: string;
+  label: string;
+  url: string;
+  storagePath?: string;
+};
+
+export type PnNotaBozzaPlaceholder = {
+  key: string;
+  label: string;
+  sample: string;
+};
+
+export type PnNotaBozza = {
+  id: string;
+  titoloBozza: string;
+  titoloNota: string;
+  bodyTemplate: string;
+  placeholders: PnNotaBozzaPlaceholder[];
+  versione: number;
+  documentoStato: "bozza" | "approvata" | "archiviata";
   createdAt: string;
 };
 
@@ -91,6 +119,7 @@ export const createAttivitaSchema = z.object({
 export const createNotaSchema = z.object({
   titolo: z.string().trim().max(200).optional().default(""),
   body: z.string().trim().min(1).max(8000),
+  bodyRich: z.string().trim().max(20000).optional().default(""),
   colore: z
     .enum(["giallo", "verde", "blu", "rosa", "grigio"])
     .optional()
@@ -106,12 +135,47 @@ export const createNotaSchema = z.object({
   /** Oppure collega elementi già esistenti. */
   linkedPromemoriaId: z.string().uuid().nullable().optional(),
   linkedAttivitaId: z.string().uuid().nullable().optional(),
+  bozzaId: z.string().uuid().nullable().optional(),
+  allegati: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.string().min(1).max(40),
+        label: z.string().trim().max(300),
+        url: z.string().trim().max(2000),
+        storagePath: z.string().trim().max(500).optional(),
+      })
+    )
+    .optional()
+    .default([]),
+});
+
+export const createNotaBozzaSchema = z.object({
+  titoloBozza: z.string().trim().min(1, "Titolo bozza obbligatorio").max(200),
+  titoloNota: z.string().trim().max(200).optional().default(""),
+  bodyTemplate: z.string().trim().min(1).max(20000),
+  placeholders: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1).max(40),
+        label: z.string().trim().min(1).max(120),
+        sample: z.string().trim().max(500).optional().default(""),
+      })
+    )
+    .max(40)
+    .optional()
+    .default([]),
+  documentoStato: z
+    .enum(["bozza", "approvata", "archiviata"])
+    .optional()
+    .default("approvata"),
 });
 
 export const updateNotaSchema = z.object({
   id: z.string().uuid(),
   titolo: z.string().trim().max(200).optional().default(""),
   body: z.string().trim().min(1).max(8000),
+  bodyRich: z.string().trim().max(20000).optional().default(""),
   colore: z
     .enum(["giallo", "verde", "blu", "rosa", "grigio"])
     .optional()
@@ -121,6 +185,17 @@ export const updateNotaSchema = z.object({
   createAttivita: z.boolean().optional().default(false),
   linkedPromemoriaId: z.string().uuid().nullable().optional(),
   linkedAttivitaId: z.string().uuid().nullable().optional(),
+  allegati: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        kind: z.string().min(1).max(40),
+        label: z.string().trim().max(300),
+        url: z.string().trim().max(2000),
+        storagePath: z.string().trim().max(500).optional(),
+      })
+    )
+    .optional(),
 });
 
 const sedeSchema = z.object({

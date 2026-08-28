@@ -12,15 +12,18 @@ import {
   type ClienteInput,
   type ConsegnaAltraAzienda,
 } from "@/lib/amministrazione/clienti";
+import { richToPlain } from "@/lib/promemorie-e-note/bozze";
 import {
   createAttivitaSchema,
   createClientePossibileSchema,
+  createNotaBozzaSchema,
   createNotaSchema,
   createPromemoriaSchema,
   updateNotaSchema,
   type ClientePossibile,
   type PnAttivita,
   type PnNota,
+  type PnNotaBozza,
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
 import { createClient } from "@/lib/supabase/server";
@@ -329,6 +332,53 @@ export async function createAttivitaPnAction(input: {
   return { success: true, item };
 }
 
+function mapPnNotaRow(r: Record<string, unknown>): PnNota {
+  return {
+    id: String(r.id),
+    titolo: String(r.titolo ?? ""),
+    body: String(r.body ?? ""),
+    bodyRich: String(r.body_rich ?? r.body ?? ""),
+    colore: r.colore as PnNota["colore"],
+    dueAt: r.due_at ? String(r.due_at) : null,
+    entityType: (r.entity_type as PnNota["entityType"]) ?? null,
+    entityId: r.entity_id ? String(r.entity_id) : null,
+    entityLabel: String(r.entity_label ?? ""),
+    linkedPromemoriaId: r.linked_promemoria_id
+      ? String(r.linked_promemoria_id)
+      : null,
+    linkedAttivitaId: r.linked_attivita_id
+      ? String(r.linked_attivita_id)
+      : null,
+    stato: r.stato as PnNota["stato"],
+    bozzaId: r.bozza_id ? String(r.bozza_id) : null,
+    allegati: Array.isArray(r.allegati)
+      ? (r.allegati as PnNota["allegati"])
+      : [],
+    createdAt: String(r.created_at),
+  };
+}
+
+function mapPnNotaBozzaRow(r: Record<string, unknown>): PnNotaBozza {
+  return {
+    id: String(r.id),
+    titoloBozza: String(r.titolo_bozza ?? ""),
+    titoloNota: String(r.titolo_nota ?? ""),
+    bodyTemplate: String(r.body_template ?? ""),
+    placeholders: Array.isArray(r.placeholders)
+      ? (r.placeholders as PnNotaBozza["placeholders"])
+      : [],
+    versione: Number(r.versione ?? 1),
+    documentoStato: r.documento_stato as PnNotaBozza["documentoStato"],
+    createdAt: String(r.created_at),
+  };
+}
+
+const PN_NOTE_SELECT =
+  "id, titolo, body, body_rich, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, bozza_id, allegati, created_at";
+
+const PN_NOTE_BOZZE_SELECT =
+  "id, titolo_bozza, titolo_nota, body_template, placeholders, versione, documento_stato, created_at";
+
 // —— Note ——
 export async function listNotePnAction(input?: {
   entityType?: string | null;
@@ -340,9 +390,7 @@ export async function listNotePnAction(input?: {
   const supabase = await createClient();
   let q = supabase
     .from("pn_note")
-    .select(
-      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at"
-    )
+    .select(PN_NOTE_SELECT)
     .is("deleted_at", null)
     .eq("stato", "attiva")
     .order("created_at", { ascending: false });
@@ -355,24 +403,9 @@ export async function listNotePnAction(input?: {
   if (error) return { success: false, error: error.message };
   return {
     success: true,
-    items: (data ?? []).map((r) => ({
-      id: String(r.id),
-      titolo: String(r.titolo ?? ""),
-      body: String(r.body ?? ""),
-      colore: r.colore as PnNota["colore"],
-      dueAt: r.due_at ? String(r.due_at) : null,
-      entityType: (r.entity_type as PnNota["entityType"]) ?? null,
-      entityId: r.entity_id ? String(r.entity_id) : null,
-      entityLabel: String(r.entity_label ?? ""),
-      linkedPromemoriaId: r.linked_promemoria_id
-        ? String(r.linked_promemoria_id)
-        : null,
-      linkedAttivitaId: r.linked_attivita_id
-        ? String(r.linked_attivita_id)
-        : null,
-      stato: r.stato as PnNota["stato"],
-      createdAt: String(r.created_at),
-    })),
+    items: (data ?? []).map((r) =>
+      mapPnNotaRow(r as Record<string, unknown>)
+    ),
   };
 }
 
@@ -465,7 +498,8 @@ export async function createNotaPnAction(input: unknown): Promise<
     .from("pn_note")
     .insert({
       titolo: d.titolo ?? "",
-      body: d.body,
+      body: richToPlain(d.bodyRich || d.body) || d.body,
+      body_rich: d.bodyRich || d.body,
       colore: d.colore ?? "giallo",
       due_at: dueAt,
       entity_type: d.entityType ?? null,
@@ -473,35 +507,18 @@ export async function createNotaPnAction(input: unknown): Promise<
       entity_label: d.entityLabel ?? "",
       linked_promemoria_id: linkedPromemoriaId,
       linked_attivita_id: linkedAttivitaId,
+      bozza_id: d.bozzaId ?? null,
+      allegati: d.allegati ?? [],
       stato: "attiva",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select(
-      "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at"
-    )
+    .select(PN_NOTE_SELECT)
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
-  const item: PnNota = {
-    id: String(data.id),
-    titolo: String(data.titolo ?? ""),
-    body: String(data.body ?? ""),
-    colore: data.colore as PnNota["colore"],
-    dueAt: data.due_at ? String(data.due_at) : null,
-    entityType: (data.entity_type as PnNota["entityType"]) ?? null,
-    entityId: data.entity_id ? String(data.entity_id) : null,
-    entityLabel: String(data.entity_label ?? ""),
-    linkedPromemoriaId: data.linked_promemoria_id
-      ? String(data.linked_promemoria_id)
-      : null,
-    linkedAttivitaId: data.linked_attivita_id
-      ? String(data.linked_attivita_id)
-      : null,
-    stato: data.stato as PnNota["stato"],
-    createdAt: String(data.created_at),
-  };
+  const item = mapPnNotaRow(data as Record<string, unknown>);
   await writeAuditLog({
     entity_type: "pn_note",
     entity_id: item.id,
@@ -513,34 +530,11 @@ export async function createNotaPnAction(input: unknown): Promise<
       due_at: item.dueAt,
       linked_promemoria_id: item.linkedPromemoriaId,
       linked_attivita_id: item.linkedAttivitaId,
+      bozza_id: item.bozzaId,
     },
   });
   return { success: true, item };
 }
-
-function mapPnNotaRow(r: Record<string, unknown>): PnNota {
-  return {
-    id: String(r.id),
-    titolo: String(r.titolo ?? ""),
-    body: String(r.body ?? ""),
-    colore: r.colore as PnNota["colore"],
-    dueAt: r.due_at ? String(r.due_at) : null,
-    entityType: (r.entity_type as PnNota["entityType"]) ?? null,
-    entityId: r.entity_id ? String(r.entity_id) : null,
-    entityLabel: String(r.entity_label ?? ""),
-    linkedPromemoriaId: r.linked_promemoria_id
-      ? String(r.linked_promemoria_id)
-      : null,
-    linkedAttivitaId: r.linked_attivita_id
-      ? String(r.linked_attivita_id)
-      : null,
-    stato: r.stato as PnNota["stato"],
-    createdAt: String(r.created_at),
-  };
-}
-
-const PN_NOTE_SELECT =
-  "id, titolo, body, colore, due_at, entity_type, entity_id, entity_label, linked_promemoria_id, linked_attivita_id, stato, created_at";
 
 export async function updateNotaPnAction(input: unknown): Promise<
   { success: true; item: PnNota } | { success: false; error: string }
@@ -649,18 +643,23 @@ export async function updateNotaPnAction(input: unknown): Promise<
   }
 
   const nextVersione = Number(existing.versione ?? 1) + 1;
+  const bodyRich = (d.bodyRich || d.body).trim();
+  const bodyPlain = richToPlain(bodyRich) || d.body;
+  const patch: Record<string, unknown> = {
+    titolo: d.titolo ?? "",
+    body: bodyPlain,
+    body_rich: bodyRich,
+    colore: d.colore ?? "giallo",
+    due_at: dueAt,
+    linked_promemoria_id: linkedPromemoriaId,
+    linked_attivita_id: linkedAttivitaId,
+    versione: nextVersione,
+    updated_by: auth.userId,
+  };
+  if (d.allegati !== undefined) patch.allegati = d.allegati;
   const { data, error } = await supabase
     .from("pn_note")
-    .update({
-      titolo: d.titolo ?? "",
-      body: d.body,
-      colore: d.colore ?? "giallo",
-      due_at: dueAt,
-      linked_promemoria_id: linkedPromemoriaId,
-      linked_attivita_id: linkedAttivitaId,
-      versione: nextVersione,
-      updated_by: auth.userId,
-    })
+    .update(patch)
     .eq("id", d.id)
     .is("deleted_at", null)
     .select(PN_NOTE_SELECT)
@@ -952,6 +951,73 @@ export async function updateClientePossibileAction(
     actor_id: auth.userId,
     summary: `Possibile cliente aggiornato: ${item.ragioneSociale}`,
     payload: { referenti: referenteIds.length },
+  });
+  return { success: true, item };
+}
+
+// —— Bozze nota standard ——
+export async function listNotaBozzePnAction(): Promise<
+  { success: true; items: PnNotaBozza[] } | { success: false; error: string }
+> {
+  await guardPnOrAdmin();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("pn_note_bozze")
+    .select(PN_NOTE_BOZZE_SELECT)
+    .is("deleted_at", null)
+    .neq("documento_stato", "archiviata")
+    .order("titolo_bozza", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((r) =>
+      mapPnNotaBozzaRow(r as Record<string, unknown>)
+    ),
+  };
+}
+
+export async function createNotaBozzaPnAction(input: unknown): Promise<
+  { success: true; item: PnNotaBozza } | { success: false; error: string }
+> {
+  const { auth } = await guardPnOrAdmin();
+  const parsed = createNotaBozzaSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const d = parsed.data;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("pn_note_bozze")
+    .insert({
+      titolo_bozza: d.titoloBozza,
+      titolo_nota: d.titoloNota ?? "",
+      body_template: d.bodyTemplate,
+      placeholders: d.placeholders ?? [],
+      versione: 1,
+      documento_stato: d.documentoStato ?? "approvata",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select(PN_NOTE_BOZZE_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Creazione bozza fallita" };
+  }
+  const item = mapPnNotaBozzaRow(data as Record<string, unknown>);
+  await writeAuditLog({
+    entity_type: "pn_note_bozze",
+    entity_id: item.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Bozza nota: ${item.titoloBozza}`,
+    payload: {
+      titolo_nota: item.titoloNota,
+      placeholders: item.placeholders.length,
+      documento_stato: item.documentoStato,
+    },
   });
   return { success: true, item };
 }

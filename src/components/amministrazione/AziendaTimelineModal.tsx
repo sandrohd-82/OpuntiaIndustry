@@ -11,11 +11,22 @@ import {
   type AziendaTimelineMailHit,
 } from "@/app/actions/azienda-timeline";
 import { createNotaPnAction } from "@/app/actions/promemorie-e-note";
+import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
+import { NotaInserisciSheet } from "@/components/promemorie-e-note/NotaInserisciSheet";
+import { NotaSalvaBozzaModal } from "@/components/promemorie-e-note/NotaSalvaBozzaModal";
 import type {
   AziendaTimelineItem,
   AziendaTimelineKind,
   AziendaTimelineTipo,
 } from "@/lib/amministrazione/azienda-timeline";
+import {
+  applyPlaceholderValues,
+  richToPlain,
+} from "@/lib/promemorie-e-note/bozze";
+import type {
+  PnNotaAllegato,
+  PnNotaBozza,
+} from "@/lib/promemorie-e-note/types";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -112,6 +123,15 @@ export function AziendaTimelineModal({
 
   const [notaTitolo, setNotaTitolo] = useState("");
   const [notaBody, setNotaBody] = useState("");
+  const [notaAllegati, setNotaAllegati] = useState<PnNotaAllegato[]>([]);
+  const [notaBozzaId, setNotaBozzaId] = useState<string | null>(null);
+  const [activeBozza, setActiveBozza] = useState<PnNotaBozza | null>(null);
+  const [bozzaValues, setBozzaValues] = useState<Record<string, string>>({});
+  const [bozzaEditMode, setBozzaEditMode] = useState<"placeholders" | "free">(
+    "placeholders"
+  );
+  const [inserisciOpen, setInserisciOpen] = useState(false);
+  const [salvaBozzaOpen, setSalvaBozzaOpen] = useState(false);
 
   const [mailHints, setMailHints] = useState<AziendaTimelineMailHint[]>([]);
   const [mailDomains, setMailDomains] = useState<string[]>([]);
@@ -169,29 +189,67 @@ export function AziendaTimelineModal({
 
   const displayItems = useMemo(() => [...items].reverse(), [items]);
 
+  function resetNotaForm() {
+    setNotaTitolo("");
+    setNotaBody("");
+    setNotaAllegati([]);
+    setNotaBozzaId(null);
+    setActiveBozza(null);
+    setBozzaValues({});
+    setBozzaEditMode("placeholders");
+  }
+
+  function resolvedNotaBody(): string {
+    if (activeBozza && bozzaEditMode === "placeholders") {
+      return applyPlaceholderValues(activeBozza.bodyTemplate, bozzaValues);
+    }
+    return notaBody;
+  }
+
   function saveNota() {
     setError(null);
     setInfo(null);
+    const bodyRich = resolvedNotaBody().trim();
+    if (!bodyRich) {
+      setError("Il testo della nota è obbligatorio.");
+      return;
+    }
     startTransition(async () => {
       const res = await createNotaPnAction({
         titolo: notaTitolo,
-        body: notaBody,
+        body: richToPlain(bodyRich) || bodyRich,
+        bodyRich,
         entityType: aziendaTipo,
         entityId: aziendaId,
         entityLabel: aziendaLabel,
+        bozzaId: notaBozzaId,
+        allegati: notaAllegati,
       });
       if (!res.success) {
         setError(res.error);
         return;
       }
-      setNotaTitolo("");
-      setNotaBody("");
+      resetNotaForm();
       setPanel("none");
       setInfo("Nota aggiunta alla timeline.");
       await reload();
     });
   }
 
+  function applyBozza(bozza: PnNotaBozza) {
+    setActiveBozza(bozza);
+    setNotaBozzaId(bozza.id);
+    setNotaTitolo(bozza.titoloNota || "");
+    const init: Record<string, string> = {};
+    for (const p of bozza.placeholders) {
+      init[p.key] = p.sample || "";
+    }
+    setBozzaValues(init);
+    setNotaBody(applyPlaceholderValues(bozza.bodyTemplate, init));
+    setBozzaEditMode(
+      bozza.placeholders.length > 0 ? "placeholders" : "free"
+    );
+  }
   function linkMail(hit: AziendaTimelineMailHit) {
     if (hit.alreadyLinked) return;
     setError(null);
@@ -274,25 +332,86 @@ export function AziendaTimelineModal({
         {panel === "nota" ? (
           <div className="shrink-0 border-b border-[var(--border)] bg-amber-50/80 px-5 py-4 sm:px-8">
             <p className="text-sm font-medium text-amber-950">Nuova nota</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_2fr]">
+            <div className="mt-2 space-y-2">
               <input
                 value={notaTitolo}
                 onChange={(e) => setNotaTitolo(e.target.value)}
                 placeholder="Titolo (opzionale)"
-                className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
               />
-              <textarea
-                value={notaBody}
-                onChange={(e) => setNotaBody(e.target.value)}
-                rows={2}
-                placeholder="Testo nota *"
-                className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setInserisciOpen(true)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                >
+                  Inserisci
+                </button>
+                {activeBozza ? (
+                  <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] text-amber-950">
+                    Bozza: {activeBozza.titoloBozza}
+                  </span>
+                ) : null}
+              </div>
+              {activeBozza ? (
+                <NotaBozzaFillEditor
+                  template={activeBozza.bodyTemplate}
+                  placeholders={activeBozza.placeholders}
+                  values={bozzaValues}
+                  onChangeValues={setBozzaValues}
+                  freeBody={notaBody}
+                  onChangeFreeBody={setNotaBody}
+                  mode={bozzaEditMode}
+                  onToggleFree={() =>
+                    setBozzaEditMode((m) =>
+                      m === "free" ? "placeholders" : "free"
+                    )
+                  }
+                />
+              ) : (
+                <textarea
+                  value={notaBody}
+                  onChange={(e) => setNotaBody(e.target.value)}
+                  rows={4}
+                  placeholder="Testo nota *"
+                  className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                />
+              )}
+              {notaAllegati.length > 0 ? (
+                <ul className="flex flex-wrap gap-2">
+                  {notaAllegati.map((a) => (
+                    <li
+                      key={a.id}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px]"
+                    >
+                      <a
+                        href={a.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sky-700 hover:underline"
+                      >
+                        {a.label}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNotaAllegati((prev) =>
+                            prev.filter((x) => x.id !== a.id)
+                          )
+                        }
+                        className="text-slate-400 hover:text-red-600"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={pending || !notaBody.trim()}
+                disabled={pending || !resolvedNotaBody().trim()}
                 onClick={saveNota}
                 className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               >
@@ -300,7 +419,18 @@ export function AziendaTimelineModal({
               </button>
               <button
                 type="button"
-                onClick={() => setPanel("none")}
+                disabled={pending || !resolvedNotaBody().trim()}
+                onClick={() => setSalvaBozzaOpen(true)}
+                className="rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-950 disabled:opacity-50"
+              >
+                Rivedi e Salva come Bozza
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetNotaForm();
+                  setPanel("none");
+                }}
                 className="rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs"
               >
                 Annulla
@@ -498,6 +628,35 @@ export function AziendaTimelineModal({
           )}
         </div>
       </div>
+
+      <NotaInserisciSheet
+        open={inserisciOpen}
+        onClose={() => setInserisciOpen(false)}
+        isAdmin
+        onError={(msg) => setError(msg)}
+        onInsertText={(chunk) => {
+          setActiveBozza(null);
+          setNotaBozzaId(null);
+          setBozzaEditMode("free");
+          setNotaBody((prev) => `${prev}${chunk}`);
+        }}
+        onAddAllegati={(items) =>
+          setNotaAllegati((prev) => [...prev, ...items])
+        }
+        onApplyBozza={applyBozza}
+      />
+
+      <NotaSalvaBozzaModal
+        open={salvaBozzaOpen}
+        titoloNota={notaTitolo}
+        bodyTemplate={resolvedNotaBody()}
+        onClose={() => setSalvaBozzaOpen(false)}
+        onError={(msg) => setError(msg)}
+        onSaved={(item) => {
+          setInfo(`Bozza «${item.titoloBozza}» salvata.`);
+          setNotaBozzaId(item.id);
+        }}
+      />
     </div>
   );
 
