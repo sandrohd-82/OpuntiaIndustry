@@ -7,10 +7,16 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
   deleteImapMessageBestEffort,
+  reloadMessaggioBodyAndAttachments,
   sendMailViaAccount,
   syncAllWebmailAccounts,
   syncWebmailAccount,
 } from "@/lib/webmail/sync";
+import {
+  normalizeContentId,
+  rewriteWebmailHtml,
+  WEBMAIL_ALLEGATI_BUCKET,
+} from "@/lib/webmail/html-render";
 import {
   composeNuovaMailSchema,
   sendBozzaSchema,
@@ -2071,4 +2077,194 @@ export async function isWebmailSenderBlacklistedAction(input: {
     .maybeSingle();
   if (error) return { success: false, error: error.message };
   return { success: true, blacklisted: Boolean(data?.id) };
+}
+
+const messaggioIdSchema = z.string().uuid();
+
+export type WebmailMessaggioAllegatoPublic = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentId: string;
+  isInline: boolean;
+  url: string | null;
+};
+
+/**
+ * HTML messaggio con CID risolti (URL firmati) per iframe sandbox.
+ */
+export async function getWebmailMessaggioHtmlAction(
+  messaggioId: string
+): Promise<
+  | {
+      success: true;
+      hasHtml: boolean;
+      htmlRewritten: string;
+      allegati: WebmailMessaggioAllegatoPublic[];
+    }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const parsedId = messaggioIdSchema.safeParse(messaggioId);
+  if (!parsedId.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: msg, error } = await supabase
+    .from("webmail_messaggi")
+    .select("id, account_id, body_html")
+    .eq("id", parsedId.data)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!msg) return { success: false, error: "Messaggio non trovato." };
+
+  const { data: rows, error: aErr } = await supabase
+    .from("webmail_messaggi_allegati")
+    .select(
+      "id, filename, mime_type, size_bytes, content_id, is_inline, storage_bucket, storage_path"
+    )
+    .eq("messaggio_id", parsedId.data)
+    .is("deleted_at", null);
+  if (aErr) return { success: false, error: aErr.message };
+
+  const service = createServiceClient();
+  const cidMap: Record<string, string> = {};
+  const allegati: WebmailMessaggioAllegatoPublic[] = [];
+
+  for (const r of rows ?? []) {
+    const bucket = String(r.storage_bucket || WEBMAIL_ALLEGATI_BUCKET);
+    const path = String(r.storage_path || "");
+    let url: string | null = null;
+    if (path) {
+      const { data: signed } = await service.storage
+        .from(bucket)
+        .createSignedUrl(path, 3600);
+      url = signed?.signedUrl ?? null;
+    }
+    const contentId = normalizeContentId(String(r.content_id ?? ""));
+    if (contentId && url) {
+      cidMap[contentId] = url;
+      cidMap[contentId.toLowerCase()] = url;
+    }
+    allegati.push({
+      id: String(r.id),
+      filename: String(r.filename ?? ""),
+      mimeType: String(r.mime_type ?? ""),
+      sizeBytes: Number(r.size_bytes) || 0,
+      contentId,
+      isInline: Boolean(r.is_inline),
+      url,
+    });
+  }
+
+  const rawHtml = String(msg.body_html ?? "");
+  const hasHtml = Boolean(rawHtml.trim());
+  const htmlRewritten = hasHtml
+    ? rewriteWebmailHtml({ html: rawHtml, cidMap })
+    : "";
+
+  return { success: true, hasHtml, htmlRewritten, allegati };
+}
+
+/**
+ * Ricarica corpo HTML/testo e allegati CID dal server IMAP.
+ */
+export async function reloadWebmailMessaggioBodyAction(
+  messaggioId: string
+): Promise<
+  | {
+      success: true;
+      messaggio: WebmailMessaggio;
+      allegatiSaved: number;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsedId = messaggioIdSchema.safeParse(messaggioId);
+  if (!parsedId.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: msg, error } = await supabase
+    .from("webmail_messaggi")
+    .select(
+      "id, account_id, message_uid, folder, deleted_at"
+    )
+    .eq("id", parsedId.data)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!msg || msg.deleted_at) {
+    return { success: false, error: "Messaggio non trovato." };
+  }
+
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", msg.account_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return {
+      success: false,
+      error: accErr?.message ?? "Casella non trovata.",
+    };
+  }
+
+  const reload = await reloadMessaggioBodyAndAttachments({
+    supabase: service,
+    account: account as {
+      id: string;
+      email_address: string;
+      provider?: string;
+      imap_host: string;
+      imap_port: number;
+      imap_secure: boolean;
+      smtp_host: string;
+      smtp_port: number;
+      smtp_secure: boolean;
+      username: string;
+      password_encrypted: string;
+    },
+    messaggioId: parsedId.data,
+    folder: String(msg.folder || "INBOX"),
+    messageUid: String(msg.message_uid || ""),
+    userId: auth.userId,
+  });
+  if (!reload.success) return reload;
+
+  const { data: refreshed, error: refErr } = await supabase
+    .from("webmail_messaggi")
+    .select(MESSAGGIO_SELECT)
+    .eq("id", parsedId.data)
+    .maybeSingle();
+  if (refErr || !refreshed) {
+    return {
+      success: false,
+      error: refErr?.message ?? "Messaggio aggiornato ma non ricaricabile.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: parsedId.data,
+    action: "update",
+    actor_id: auth.userId,
+    summary: "Ricarica corpo HTML e allegati IMAP",
+    payload: {
+      allegati_saved: reload.allegatiSaved,
+      has_html: Boolean(reload.bodyHtml.trim()),
+    },
+  });
+
+  return {
+    success: true,
+    messaggio: mapMessaggio(refreshed as Record<string, unknown>),
+    allegatiSaved: reload.allegatiSaved,
+  };
 }

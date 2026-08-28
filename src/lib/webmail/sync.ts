@@ -2,9 +2,11 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { matchWebmailAnagrafica } from "@/lib/webmail/anagrafica-link";
+import { persistMessaggioAttachments } from "@/lib/webmail/attachments";
 import { normalizeBlacklistEmail } from "@/lib/webmail/blacklist";
 import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
+import { extractPlainFromHtml } from "@/lib/webmail/html-render";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
@@ -247,9 +249,7 @@ export async function syncWebmailAccount(
         const subject = parsed.subject?.trim() || "(senza oggetto)";
         const bodyText = (
           parsed.text?.trim() ||
-          (parsed.html
-            ? String(parsed.html).replace(/<[^>]+>/g, " ").trim()
-            : "")
+          (parsed.html ? extractPlainFromHtml(String(parsed.html)) : "")
         ).slice(0, 500_000);
         const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
         const bodyHtml =
@@ -301,6 +301,20 @@ export async function syncWebmailAccount(
         }
         imported += 1;
 
+        const attRes = await persistMessaggioAttachments({
+          supabase,
+          messaggioId: String(inserted.id),
+          accountId: account.id,
+          attachments: parsed.attachments,
+        });
+        if (attRes.errors.length) {
+          console.error(
+            "[webmail sync allegati]",
+            inserted.id,
+            attRes.errors.slice(0, 3).join("; ")
+          );
+        }
+
         await logElaborazione(supabase, {
           messaggioId: inserted.id,
           accountId: account.id,
@@ -312,6 +326,7 @@ export async function syncWebmailAccount(
           payload: {
             learnedMode: learned.categoriaSuggestMode,
             categoriaId: learned.categoriaId,
+            allegati: attRes.saved,
           },
         });
       }
@@ -507,4 +522,94 @@ export async function sendMailViaAccount(input: {
     html: input.html || input.text.replace(/\n/g, "<br/>"),
     attachments: input.attachments,
   });
+}
+
+/**
+ * Re-download IMAP del singolo messaggio: aggiorna body_html/text + allegati CID.
+ */
+export async function reloadMessaggioBodyAndAttachments(input: {
+  supabase: Service;
+  account: AccountRow;
+  messaggioId: string;
+  folder: string;
+  messageUid: string;
+  userId?: string | null;
+}): Promise<
+  | {
+      success: true;
+      bodyHtml: string;
+      bodyText: string;
+      allegatiSaved: number;
+    }
+  | { success: false; error: string }
+> {
+  const uidNum = Number(input.messageUid);
+  if (!Number.isFinite(uidNum) || uidNum <= 0) {
+    return { success: false, error: "UID IMAP non valido." };
+  }
+
+  const password = decryptWebmailSecret(input.account.password_encrypted);
+  const client = new ImapFlow({
+    host: input.account.imap_host,
+    port: input.account.imap_port,
+    secure: input.account.imap_secure,
+    auth: { user: input.account.username, pass: password },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const folder = input.folder || "INBOX";
+    const lock = await client.getMailboxLock(folder);
+    try {
+      const downloaded = await client.download(uidNum, undefined, { uid: true });
+      const parsed = await simpleParser(downloaded.content);
+      const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
+      const bodyHtml =
+        rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
+      const bodyText = (
+        parsed.text?.trim() ||
+        (rawHtml ? extractPlainFromHtml(rawHtml) : "")
+      ).slice(0, 500_000);
+
+      const { error: upErr } = await input.supabase
+        .from("webmail_messaggi")
+        .update({
+          body_html: bodyHtml,
+          body_text: bodyText,
+          updated_by: input.userId ?? null,
+        })
+        .eq("id", input.messaggioId)
+        .is("deleted_at", null);
+      if (upErr) return { success: false, error: upErr.message };
+
+      const attRes = await persistMessaggioAttachments({
+        supabase: input.supabase,
+        messaggioId: input.messaggioId,
+        accountId: input.account.id,
+        attachments: parsed.attachments,
+        userId: input.userId,
+      });
+
+      return {
+        success: true,
+        bodyHtml,
+        bodyText,
+        allegatiSaved: attRes.saved,
+      };
+    } finally {
+      lock.release();
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: formatImapSyncError(e, input.account),
+    };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
+  }
 }

@@ -19,9 +19,11 @@ import {
   softDeleteWebmailMessaggioAction,
   translateWebmailTextAction,
   updateWebmailBozzaAction,
+  reloadWebmailMessaggioBodyAction,
 } from "@/app/actions/webmail";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
 import { WebmailCollegaAziendaModal } from "@/components/webmail/WebmailCollegaAziendaModal";
+import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import type {
   WebmailAccountPublic,
   WebmailBozzaAi,
@@ -92,6 +94,8 @@ export function WebmailBoard({
     bodyText: string;
     targetLangLabel: string;
   } | null>(null);
+  const [showPlainText, setShowPlainText] = useState(false);
+  const [htmlReloadToken, setHtmlReloadToken] = useState(0);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -103,6 +107,8 @@ export function WebmailBoard({
     setInboundTranslation(null);
     setShowInboundTranslation(false);
     setOutboundTranslation(null);
+    setShowPlainText(false);
+    setHtmlReloadToken(0);
   }, [selectedId]);
 
   const catById = useMemo(() => {
@@ -904,25 +910,69 @@ export function WebmailBoard({
                         : "Mostra traduzione"}
                     </button>
                   ) : null}
+                  {!showInboundTranslation ? (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                        onClick={() => setShowPlainText((v) => !v)}
+                      >
+                        {showPlainText ? "Mostra HTML" : "Solo testo"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res =
+                              await reloadWebmailMessaggioBodyAction(
+                                selected.id
+                              );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            patchMessaggio(res.messaggio);
+                            setHtmlReloadToken((t) => t + 1);
+                            setShowPlainText(false);
+                            setInfo(
+                              `Corpo e allegati ricaricati (${res.allegatiSaved} file).`
+                            );
+                          });
+                        }}
+                      >
+                        Ricarica corpo e allegati
+                      </button>
+                    </>
+                  ) : null}
                 </div>
-                <pre className="mt-2 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
-                  {showInboundTranslation && inboundTranslation
-                    ? [
+                {showInboundTranslation && inboundTranslation ? (
+                  <>
+                    <pre className="mt-2 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+                      {[
                         inboundTranslation.subject
                           ? `Oggetto: ${inboundTranslation.subject}`
                           : null,
                         inboundTranslation.bodyText,
                       ]
                         .filter(Boolean)
-                        .join("\n\n")
-                    : selected.bodyText || "(vuoto)"}
-                </pre>
-                {showInboundTranslation && inboundTranslation ? (
-                  <p className="mt-1 text-[10px] text-[var(--muted)]">
-                    Traduzione Gemini → {inboundTranslation.targetLangLabel}{" "}
-                    (originale non modificato)
-                  </p>
-                ) : null}
+                        .join("\n\n")}
+                    </pre>
+                    <p className="mt-1 text-[10px] text-[var(--muted)]">
+                      Traduzione Gemini → {inboundTranslation.targetLangLabel}{" "}
+                      (originale non modificato)
+                    </p>
+                  </>
+                ) : (
+                  <WebmailHtmlBody
+                    messaggioId={selected.id}
+                    bodyText={selected.bodyText}
+                    forcePlain={showPlainText}
+                    reloadToken={htmlReloadToken}
+                    onError={(msg) => setError(msg)}
+                  />
+                )}
               </section>
               {view === "cestino" ? null : (
               <section className="p-4">
