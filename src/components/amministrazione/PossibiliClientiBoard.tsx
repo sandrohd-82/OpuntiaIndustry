@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaNoteSticky, FaPen, FaPlus } from "react-icons/fa6";
+import { FaClockRotateLeft, FaNoteSticky, FaPen, FaPlus } from "react-icons/fa6";
 import {
   createClientePossibileAction,
   createNotaPnAction,
@@ -9,6 +9,7 @@ import {
   listNotePnAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import {
   EMPTY_NOTA_EXTRAS,
@@ -25,6 +26,7 @@ export function PossibiliClientiBoard() {
   const [pending, startTransition] = useTransition();
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
+  const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [noteFor, setNoteFor] = useState<ClientePossibile | null>(null);
   const [noteBody, setNoteBody] = useState("");
   const [noteExtras, setNoteExtras] =
@@ -129,6 +131,15 @@ export function PossibiliClientiBoard() {
                   {lead.email ? ` · ${lead.email}` : ""}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setTimelineFor(lead)}
+                className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+                title="Cronologia attività"
+              >
+                <FaClockRotateLeft size={10} />
+                Timeline
+              </button>
               <button
                 type="button"
                 onClick={() => setEditingLead(lead)}
@@ -248,6 +259,15 @@ export function PossibiliClientiBoard() {
             reload();
             return true;
           }}
+        />
+      ) : null}
+
+      {timelineFor ? (
+        <AziendaTimelineModal
+          aziendaTipo="cliente_possibile"
+          aziendaId={timelineFor.id}
+          aziendaLabel={timelineFor.ragioneSociale}
+          onClose={() => setTimelineFor(null)}
         />
       ) : null}
     </div>

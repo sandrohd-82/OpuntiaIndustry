@@ -5,6 +5,7 @@ import {
   FaArrowsRotate,
   FaChevronDown,
   FaChevronUp,
+  FaClockRotateLeft,
   FaFilePdf,
   FaMagnifyingGlass,
   FaPen,
@@ -15,6 +16,7 @@ import {
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -58,6 +60,7 @@ function ClienteRow({
   cliente,
   onEdit,
   onDelete,
+  onTimeline,
   prodottiByCode,
   selectMode,
   selected,
@@ -66,6 +69,7 @@ function ClienteRow({
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
   onDelete: (cliente: Cliente) => void;
+  onTimeline: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
   selected: boolean;
@@ -140,6 +144,15 @@ function ClienteRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onTimeline(cliente)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              title="Cronologia attività"
+            >
+              <FaClockRotateLeft size={11} />
+              Timeline
+            </button>
             <button
               type="button"
               onClick={() => onEdit(cliente)}
@@ -258,6 +271,7 @@ export function ClientiBoard() {
   } = useClienti();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
+  const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState<Cliente | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prodottiByCode, setProdottiByCode] = useState<
@@ -610,6 +624,7 @@ export function ClientiBoard() {
                     setSaveError(null);
                     setEditing(item);
                   }}
+                  onTimeline={(item) => setTimelineFor(item)}
                   onDelete={(item) => {
                     setSaveError(null);
                     setDeleting(item);
@@ -657,6 +672,15 @@ export function ClientiBoard() {
           }}
         />
       )}
+
+      {timelineFor ? (
+        <AziendaTimelineModal
+          aziendaTipo="cliente"
+          aziendaId={timelineFor.id}
+          aziendaLabel={timelineFor.ragioneSociale}
+          onClose={() => setTimelineFor(null)}
+        />
+      ) : null}
 
       {deleting && (
         <SoftDeleteConfirmModal

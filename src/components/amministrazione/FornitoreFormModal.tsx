@@ -10,7 +10,6 @@ import { BioCertificatoPdfField } from "@/components/amministrazione/BioCertific
 import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffertaTags";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
-import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import {
   listEntityReferentiAction,
@@ -94,7 +93,6 @@ export function FornitoreFormModal({
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [anagraficaVerificata, setAnagraficaVerificata] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [timelineOpen, setTimelineOpen] = useState(false);
   const [email, setEmail] = useState(initial?.email ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
@@ -363,31 +361,14 @@ export function FornitoreFormModal({
         className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <h2 id={titleId} className="text-lg font-semibold">
-              {isEdit ? "Modifica scheda fornitore" : "Nuovo fornitore"}
-            </h2>
-            <p className="mt-1 text-sm text-[var(--muted)]">
-              {isEdit
-                ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
-                : "Compila i dati anagrafici e i prodotti acquistati."}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={!initial?.id}
-            title={
-              initial?.id
-                ? "Cronologia attività dell’azienda"
-                : "Salva prima la scheda per aprire la timeline"
-            }
-            onClick={() => setTimelineOpen(true)}
-            className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Timeline
-          </button>
-        </div>
+        <h2 id={titleId} className="text-lg font-semibold">
+          {isEdit ? "Modifica scheda fornitore" : "Nuovo fornitore"}
+        </h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          {isEdit
+            ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
+            : "Compila i dati anagrafici e i prodotti acquistati."}
+        </p>
         {ficDocument ? (
           <div className="mt-3">
             <ApriFatturaFicActions
@@ -761,15 +742,6 @@ export function FornitoreFormModal({
           </div>
         </form>
       </div>
-      {timelineOpen && initial?.id ? (
-        <AziendaTimelineModal
-          aziendaTipo="fornitore"
-          aziendaId={initial.id}
-          aziendaLabel={ragioneSociale || initial.ragioneSociale || "Fornitore"}
-          elevated={elevated}
-          onClose={() => setTimelineOpen(false)}
-        />
-      ) : null}
     </div>
   );
 }

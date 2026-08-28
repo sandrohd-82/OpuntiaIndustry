@@ -5,6 +5,7 @@ import {
   FaArrowsRotate,
   FaChevronDown,
   FaChevronUp,
+  FaClockRotateLeft,
   FaFilePdf,
   FaMagnifyingGlass,
   FaPen,
@@ -14,6 +15,7 @@ import {
 import { rinumeraTutteFattureRicevuteAction } from "@/app/actions/fatture";
 import { startFattureRicevuteSyncAction } from "@/app/actions/fatture-sync";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
@@ -60,6 +62,7 @@ function FornitoreRow({
   fornitore,
   onEdit,
   onDelete,
+  onTimeline,
   materie,
   selectMode,
   selected,
@@ -68,6 +71,7 @@ function FornitoreRow({
   fornitore: Fornitore;
   onEdit: (fornitore: Fornitore) => void;
   onDelete: (fornitore: Fornitore) => void;
+  onTimeline: (fornitore: Fornitore) => void;
   materie: MateriaPrima[];
   selectMode: boolean;
   selected: boolean;
@@ -119,6 +123,15 @@ function FornitoreRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onTimeline(fornitore)}
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              title="Cronologia attività"
+            >
+              <FaClockRotateLeft size={11} />
+              Timeline
+            </button>
             <button
               type="button"
               onClick={() => onEdit(fornitore)}
@@ -210,6 +223,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
   } = useFornitori();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Fornitore | null>(null);
+  const [timelineFor, setTimelineFor] = useState<Fornitore | null>(null);
   const [deleting, setDeleting] = useState<Fornitore | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [materie, setMaterie] = useState<MateriaPrima[]>([]);
@@ -600,6 +614,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
                     setSaveError(null);
                     setEditing(item);
                   }}
+                  onTimeline={(item) => setTimelineFor(item)}
                   onDelete={(item) => {
                     setSaveError(null);
                     setDeleting(item);
@@ -645,6 +660,15 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
           }}
         />
       )}
+
+      {timelineFor ? (
+        <AziendaTimelineModal
+          aziendaTipo="fornitore"
+          aziendaId={timelineFor.id}
+          aziendaLabel={timelineFor.ragioneSociale}
+          onClose={() => setTimelineFor(null)}
+        />
+      ) : null}
 
       {deleting && (
         <SoftDeleteConfirmModal
