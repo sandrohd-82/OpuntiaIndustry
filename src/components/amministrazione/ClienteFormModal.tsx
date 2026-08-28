@@ -10,6 +10,7 @@ import { AddressSedeFields } from "@/components/amministrazione/AddressSedeField
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
@@ -108,6 +109,7 @@ export function ClienteFormModal({
   );
   const [archivioId, setArchivioId] = useState<string | null>(null);
   const [archivioHint, setArchivioHint] = useState<string | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const [email, setEmail] = useState(initial?.email ?? "");
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
@@ -407,24 +409,41 @@ export function ClienteFormModal({
         className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 id={titleId} className="text-lg font-semibold">
-          {isPossibile
-            ? isEdit
-              ? "Modifica possibile cliente"
-              : "Nuovo possibile cliente"
-            : isEdit
-              ? "Modifica scheda cliente"
-              : "Nuovo cliente"}
-        </h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          {isPossibile
-            ? isEdit
-              ? "Aggiorna i dati del lead. La targa verrà assegnata solo in conversione a cliente."
-              : "Stessi campi del cliente: i prodotti sono «interessati», non ancora acquistati. Nessuna targa finché non converti."
-            : isEdit
-              ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
-              : "Compila i dati anagrafici e i prodotti acquistati."}
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 id={titleId} className="text-lg font-semibold">
+              {isPossibile
+                ? isEdit
+                  ? "Modifica possibile cliente"
+                  : "Nuovo possibile cliente"
+                : isEdit
+                  ? "Modifica scheda cliente"
+                  : "Nuovo cliente"}
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {isPossibile
+                ? isEdit
+                  ? "Aggiorna i dati del lead. La targa verrà assegnata solo in conversione a cliente."
+                  : "Stessi campi del cliente: i prodotti sono «interessati», non ancora acquistati. Nessuna targa finché non converti."
+                : isEdit
+                  ? "Puoi modificare tutti i dati della scheda. La targa non è modificabile."
+                  : "Compila i dati anagrafici e i prodotti acquistati."}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={!initial?.id}
+            title={
+              initial?.id
+                ? "Cronologia attività dell’azienda"
+                : "Salva prima la scheda per aprire la timeline"
+            }
+            onClick={() => setTimelineOpen(true)}
+            className="shrink-0 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Timeline
+          </button>
+        </div>
         {ficDocument ? (
           <div className="mt-3">
             <ApriFatturaFicActions
@@ -821,5 +840,18 @@ export function ClienteFormModal({
   );
 
   if (typeof document === "undefined") return null;
-  return createPortal(dialog, document.body);
+  return (
+    <>
+      {createPortal(dialog, document.body)}
+      {timelineOpen && initial?.id ? (
+        <AziendaTimelineModal
+          aziendaTipo={isPossibile ? "cliente_possibile" : "cliente"}
+          aziendaId={initial.id}
+          aziendaLabel={ragioneSociale || initial.ragioneSociale || "Cliente"}
+          elevated={elevated}
+          onClose={() => setTimelineOpen(false)}
+        />
+      ) : null}
+    </>
+  );
 }
