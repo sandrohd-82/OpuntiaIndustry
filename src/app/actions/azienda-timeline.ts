@@ -1,9 +1,11 @@
 "use server";
 
 import { z } from "zod";
-import { requireAreaAccess } from "@/lib/areas/guard";
-import { createServiceClient } from "@/lib/supabase/server";
+import { writeAuditLog } from "@/lib/audit";
+import { requireAreaAccess, requireWebmailAccess } from "@/lib/areas/guard";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
+import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";
 
 const inputSchema = z.object({
   aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
@@ -16,6 +18,100 @@ function pushSorted(
 ) {
   if (!item.occurredAt) return;
   items.push(item);
+}
+
+function normalizeEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+function domainOf(email: string): string {
+  const e = normalizeEmail(email);
+  const at = e.lastIndexOf("@");
+  if (at < 0) return "";
+  return e.slice(at + 1);
+}
+
+function pushUniqueEmail(
+  set: Set<string>,
+  list: Array<{ email: string; source: string }>,
+  email: string,
+  source: string
+) {
+  const e = normalizeEmail(email);
+  if (!e || !e.includes("@") || set.has(e)) return;
+  set.add(e);
+  list.push({ email: e, source });
+}
+
+const CONSUMER_DOMAINS = new Set([
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "yahoo.com",
+  "live.com",
+  "icloud.com",
+  "me.com",
+  "libero.it",
+  "virgilio.it",
+  "alice.it",
+]);
+
+async function collectAziendaEmailHints(
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile",
+  aziendaId: string
+): Promise<{
+  emails: Array<{ email: string; source: string }>;
+  domains: string[];
+}> {
+  const service = createServiceClient();
+  const emails: Array<{ email: string; source: string }> = [];
+  const emailSet = new Set<string>();
+
+  const table =
+    aziendaTipo === "cliente"
+      ? "clienti"
+      : aziendaTipo === "fornitore"
+        ? "fornitori"
+        : "clienti_possibili";
+
+  const { data: az } = await service
+    .from(table)
+    .select("email, pec")
+    .eq("id", aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (az) {
+    pushUniqueEmail(emailSet, emails, String(az.email ?? ""), "scheda");
+    pushUniqueEmail(emailSet, emails, String(az.pec ?? ""), "scheda PEC");
+  }
+
+  const { data: contatti } = await service
+    .from("rubrica_contatti")
+    .select("email, nome, cognome")
+    .eq("azienda_tipo", aziendaTipo)
+    .eq("azienda_id", aziendaId)
+    .is("deleted_at", null)
+    .limit(200);
+  for (const c of contatti ?? []) {
+    const who = [c.nome, c.cognome].filter(Boolean).join(" ").trim();
+    pushUniqueEmail(
+      emailSet,
+      emails,
+      String(c.email ?? ""),
+      who ? `referente ${who}` : "referente"
+    );
+  }
+
+  const domains = [
+    ...new Set(
+      emails
+        .map((e) => domainOf(e.email))
+        .filter((d) => d && !CONSUMER_DOMAINS.has(d))
+    ),
+  ];
+
+  return { emails, domains };
 }
 
 /**
@@ -35,7 +131,6 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   const service = createServiceClient();
   const items: AziendaTimelineItem[] = [];
 
-  // 1) WebMail
   {
     const { data } = await service
       .from("webmail_messaggi")
@@ -59,7 +154,6 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  // 2) Rubrica timeline via contatti dell'azienda
   {
     const { data: contatti } = await service
       .from("rubrica_contatti")
@@ -103,7 +197,6 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  // 3) Note
   {
     const { data } = await service
       .from("pn_note")
@@ -127,7 +220,6 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  // 4) Ordini (solo clienti)
   if (aziendaTipo === "cliente") {
     const { data } = await service
       .from("ordini")
@@ -151,11 +243,12 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  // 5) Fatture emesse (cliente)
   if (aziendaTipo === "cliente") {
     const { data } = await service
       .from("fatture_emesse")
-      .select("id, numero_interno, numero_fattura, data_emissione, totale, stato_pagamento")
+      .select(
+        "id, numero_interno, numero_fattura, data_emissione, totale, stato_pagamento"
+      )
       .eq("cliente_id", aziendaId)
       .is("deleted_at", null)
       .order("data_emissione", { ascending: true })
@@ -175,7 +268,6 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  // 6) Fatture ricevute (fornitore)
   if (aziendaTipo === "fornitore") {
     const { data } = await service
       .from("fatture_ricevute")
@@ -209,4 +301,157 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   );
 
   return { success: true, items };
+}
+
+export type AziendaTimelineMailHint = {
+  email: string;
+  source: string;
+};
+
+export type AziendaTimelineMailHit = {
+  id: string;
+  subject: string;
+  fromAddress: string;
+  fromName: string;
+  receivedAt: string | null;
+  alreadyLinked: boolean;
+  matchReason: string;
+};
+
+export async function listAziendaTimelineMailHintsAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      emails: AziendaTimelineMailHint[];
+      domains: string[];
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const parsed = inputSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Azienda non valida." };
+  const hints = await collectAziendaEmailHints(
+    parsed.data.aziendaTipo,
+    parsed.data.aziendaId
+  );
+  return {
+    success: true,
+    emails: hints.emails,
+    domains: hints.domains,
+  };
+}
+
+const searchSchema = inputSchema.extend({
+  emailQuery: z.string().trim().max(200).optional().default(""),
+});
+
+export async function searchWebmailForAziendaTimelineAction(
+  raw: unknown
+): Promise<
+  | { success: true; items: AziendaTimelineMailHit[]; domains: string[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  await requireWebmailAccess();
+  const parsed = searchSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Ricerca non valida." };
+
+  const { aziendaTipo, aziendaId, emailQuery } = parsed.data;
+  const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+  const manual = normalizeEmail(emailQuery);
+
+  const orParts: string[] = [];
+  if (manual) {
+    orParts.push(`from_address.ilike.%${manual}%`);
+  } else {
+    for (const e of hints.emails) {
+      orParts.push(`from_address.ilike.%${e.email}%`);
+    }
+    for (const d of hints.domains) {
+      orParts.push(`from_address.ilike.%@${d}%`);
+    }
+  }
+
+  if (orParts.length === 0) {
+    return { success: true, items: [], domains: hints.domains };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select(
+      "id, subject, from_address, from_name, received_at, azienda_tipo, azienda_id"
+    )
+    .is("deleted_at", null)
+    .or(orParts.join(","))
+    .order("received_at", { ascending: false })
+    .limit(60);
+
+  if (error) return { success: false, error: error.message };
+
+  const emailSet = new Set(hints.emails.map((e) => e.email));
+  const domainSet = new Set(hints.domains);
+
+  const items: AziendaTimelineMailHit[] = (data ?? []).map((r) => {
+    const from = normalizeEmail(String(r.from_address ?? ""));
+    const dom = domainOf(from);
+    let matchReason = "ricerca";
+    if (manual && from.includes(manual)) matchReason = "indirizzo cercato";
+    else if (emailSet.has(from)) matchReason = "scheda / referente";
+    else if (dom && domainSet.has(dom)) matchReason = `dominio @${dom}`;
+
+    const alreadyLinked =
+      String(r.azienda_tipo ?? "") === aziendaTipo &&
+      String(r.azienda_id ?? "") === aziendaId;
+
+    return {
+      id: String(r.id),
+      subject: String(r.subject ?? "(senza oggetto)"),
+      fromAddress: String(r.from_address ?? ""),
+      fromName: String(r.from_name ?? ""),
+      receivedAt: (r.received_at as string | null) ?? null,
+      alreadyLinked,
+      matchReason,
+    };
+  });
+
+  return { success: true, items, domains: hints.domains };
+}
+
+const linkSchema = inputSchema.extend({
+  messaggioId: z.string().uuid(),
+  aziendaLabel: z.string().trim().max(300).optional().default(""),
+});
+
+export async function linkWebmailToAziendaTimelineAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = linkSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+
+  const res = await linkWebmailMessaggioAnagraficaAction({
+    messaggioId: parsed.data.messaggioId,
+    aziendaTipo: parsed.data.aziendaTipo,
+    aziendaId: parsed.data.aziendaId,
+    aziendaLabel: parsed.data.aziendaLabel || "",
+    linkStato: "collegata",
+    rematch: false,
+  });
+  if (!res.success) return { success: false, error: res.error };
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: parsed.data.messaggioId,
+    action: "link_timeline_azienda",
+    actor_id: auth.userId,
+    summary: `Mail collegata a timeline ${parsed.data.aziendaTipo}`,
+    payload: {
+      aziendaId: parsed.data.aziendaId,
+      aziendaTipo: parsed.data.aziendaTipo,
+    },
+  });
+
+  return { success: true };
 }
