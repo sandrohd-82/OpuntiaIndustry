@@ -1,4 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
+import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
+import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
 
@@ -6,8 +8,7 @@ type Props = {
   params: Promise<{ accountId: string }>;
 };
 
-/** Redirect legacy `/caselle/[id]` → In Arrivo. */
-export default async function WebmailCasellaRedirectPage({ params }: Props) {
+export default async function WebmailInArrivoPage({ params }: Props) {
   await requireWebmailAccess();
   const { accountId } = await params;
 
@@ -18,12 +19,26 @@ export default async function WebmailCasellaRedirectPage({ params }: Props) {
   const supabase = await createClient();
   const { data: account, error } = await supabase
     .from("webmail_accounts")
-    .select("id")
+    .select("id, label, email_address")
     .eq("id", accountId)
     .is("deleted_at", null)
     .maybeSingle();
 
   if (error || !account) notFound();
 
-  redirect(`/app/webmail/caselle/${accountId}/in-arrivo`);
+  return (
+    <>
+      <AppHeader
+        title={`${account.label} · In Arrivo`}
+        subtitle={`${account.email_address} · mail senza categoria`}
+      />
+      <div className="p-6">
+        <WebmailBoard
+          initialAccountId={account.id}
+          view="inbox"
+          hideTopFilters
+        />
+      </div>
+    </>
+  );
 }

@@ -478,6 +478,7 @@ export async function syncAllWebmailAccounts(
 export async function sendMailViaAccount(input: {
   account: AccountRow;
   to: string;
+  cc?: string;
   subject: string;
   text: string;
   html?: string;
@@ -500,6 +501,7 @@ export async function sendMailViaAccount(input: {
   await transporter.sendMail({
     from: input.account.email_address,
     to: input.to,
+    cc: input.cc || undefined,
     subject: input.subject,
     text: input.text,
     html: input.html || input.text.replace(/\n/g, "<br/>"),

@@ -207,3 +207,47 @@ export const updateBozzaSchema = z.object({
 export const sendBozzaSchema = z.object({
   bozzaId: z.string().uuid(),
 });
+
+export const composeNuovaMailSchema = z.object({
+  accountId: z.string().uuid(),
+  to: z
+    .string()
+    .trim()
+    .min(3)
+    .max(500)
+    .refine(
+      (v) =>
+        v
+          .split(/[,;]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .every((e) => z.string().email().safeParse(e).success),
+      "Indirizzo Destinatario non valido"
+    ),
+  cc: z
+    .string()
+    .trim()
+    .max(500)
+    .optional()
+    .refine(
+      (v) =>
+        !v ||
+        v
+          .split(/[,;]/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .every((e) => z.string().email().safeParse(e).success),
+      "Cc non valido"
+    ),
+  subject: z.string().trim().min(1).max(500),
+  bodyText: z.string().trim().min(1).max(50000),
+});
+
+export type ComposeNuovaMailInput = z.infer<typeof composeNuovaMailSchema>;
+
+export type WebmailMailboxView =
+  | "all"
+  | "inbox"
+  | "categoria"
+  | "bozze"
+  | "cestino";

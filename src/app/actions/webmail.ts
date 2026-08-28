@@ -12,6 +12,7 @@ import {
   syncWebmailAccount,
 } from "@/lib/webmail/sync";
 import {
+  composeNuovaMailSchema,
   sendBozzaSchema,
   updateBozzaSchema,
   webmailAccountInputSchema,
@@ -19,10 +20,12 @@ import {
   type WebmailAccountPublic,
   type WebmailBozzaAi,
   type WebmailCategoria,
+  type WebmailMailboxView,
   type WebmailMessaggio,
   type WebmailProvider,
 } from "@/lib/webmail/types";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 function mapAccount(row: Record<string, unknown>): WebmailAccountPublic {
   return {
@@ -491,22 +494,48 @@ export async function listWebmailMessaggiAction(input?: {
   accountId?: string | null;
   categoriaId?: string | null;
   onlyAiDraft?: boolean;
+  /** Vista casella: inbox = senza categoria; cestino = soft-deleted. */
+  view?: WebmailMailboxView;
 }): Promise<
   | { success: true; messaggi: WebmailMessaggio[] }
   | { success: false; error: string }
 > {
   await requireWebmailAccess();
   const supabase = await createClient();
+  const view = input?.view ?? "all";
+
   let q = supabase
     .from("webmail_messaggi")
     .select(MESSAGGIO_SELECT)
-    .is("deleted_at", null)
-    .eq("direction", "inbound")
     .order("received_at", { ascending: false })
-    .limit(100);
+    .limit(150);
+
+  if (view === "cestino") {
+    q = q.not("deleted_at", "is", null);
+  } else {
+    q = q.is("deleted_at", null);
+  }
+
+  if (view !== "bozze") {
+    // bozze possono includere outbound con bozza; le altre viste restano inbound
+    if (view === "inbox" || view === "categoria" || view === "all") {
+      q = q.eq("direction", "inbound");
+    }
+  } else {
+    q = q.eq("has_ai_draft", true);
+  }
+
+  if (view === "inbox") {
+    q = q.is("categoria_id", null);
+  } else if (view === "categoria" && input?.categoriaId) {
+    q = q.eq("categoria_id", input.categoriaId);
+  } else if (input?.categoriaId) {
+    q = q.eq("categoria_id", input.categoriaId);
+  }
+
   if (input?.accountId) q = q.eq("account_id", input.accountId);
-  if (input?.categoriaId) q = q.eq("categoria_id", input.categoriaId);
-  if (input?.onlyAiDraft) q = q.eq("has_ai_draft", true);
+  if (input?.onlyAiDraft && view !== "bozze") q = q.eq("has_ai_draft", true);
+
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   return {
@@ -1530,6 +1559,180 @@ export async function softDeleteWebmailMessaggioAction(
   });
 
   return { success: true, imapOk, imapDetail };
+}
+
+/** Ripristina mail soft-deleted (esce dal Cestino). */
+export async function restoreWebmailMessaggioAction(
+  messaggioId: string
+): Promise<{ success: true; messaggio: WebmailMessaggio } | { success: false; error: string }> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+
+  const supabase = await createClient();
+  const { data: msg, error: findErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id, subject")
+    .eq("id", idParsed.data)
+    .not("deleted_at", "is", null)
+    .maybeSingle();
+  if (findErr || !msg) {
+    return {
+      success: false,
+      error: findErr?.message ?? "Messaggio non trovato nel cestino.",
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      deleted_at: null,
+      deleted_by: null,
+      updated_by: auth.userId,
+    })
+    .eq("id", msg.id)
+    .select(MESSAGGIO_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Ripristino non riuscito." };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(msg.id),
+    action: "restore",
+    actor_id: auth.userId,
+    summary: `Mail ripristinata dal cestino: ${msg.subject ?? ""}`,
+    payload: {},
+  });
+
+  return {
+    success: true,
+    messaggio: mapMessaggio(data as Record<string, unknown>),
+  };
+}
+
+/**
+ * Composizione e invio nuova mail (SMTP) + riga outbound in webmail_messaggi.
+ */
+export async function sendWebmailNuovaMailAction(
+  raw: unknown
+): Promise<
+  | { success: true; messaggioId: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = composeNuovaMailSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati mail non validi.",
+    };
+  }
+  const d = parsed.data;
+  const toList = d.to
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const ccList = (d.cc ?? "")
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const service = createServiceClient();
+  const { data: account, error: accErr } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted"
+    )
+    .eq("id", d.accountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (accErr || !account) {
+    return { success: false, error: accErr?.message ?? "Casella non trovata." };
+  }
+
+  try {
+    await sendMailViaAccount({
+      account: account as {
+        id: string;
+        email_address: string;
+        imap_host: string;
+        imap_port: number;
+        imap_secure: boolean;
+        smtp_host: string;
+        smtp_port: number;
+        smtp_secure: boolean;
+        username: string;
+        password_encrypted: string;
+      },
+      to: toList.join(", "),
+      cc: ccList.length ? ccList.join(", ") : undefined,
+      subject: d.subject,
+      text: d.bodyText,
+    });
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Invio SMTP fallito.",
+    };
+  }
+
+  const sentAt = new Date().toISOString();
+  const uid = `compose-${randomUUID()}`;
+  const { data: inserted, error: insErr } = await service
+    .from("webmail_messaggi")
+    .insert({
+      account_id: d.accountId,
+      direction: "outbound",
+      message_uid: uid,
+      message_id_header: null,
+      folder: "SENT",
+      from_address: String(account.email_address),
+      from_name: "",
+      to_addresses: toList,
+      cc_addresses: ccList,
+      subject: d.subject,
+      body_text: d.bodyText,
+      body_html: d.bodyText.replace(/\n/g, "<br/>"),
+      received_at: sentAt,
+      sent_at: sentAt,
+      is_seen: true,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (insErr || !inserted) {
+    return {
+      success: false,
+      error:
+        insErr?.message ??
+        "Mail inviata ma registrazione gestionale non riuscita.",
+    };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(inserted.id),
+    action: "send_compose",
+    actor_id: auth.userId,
+    summary: `Nuova mail inviata a ${toList.join(", ")}: ${d.subject}`,
+    payload: { to: toList, cc: ccList, accountId: d.accountId },
+  });
+
+  await service.from("webmail_ai_elaborazioni").insert({
+    messaggio_id: inserted.id,
+    account_id: d.accountId,
+    action: "compose_sent",
+    ai_generated: false,
+    sent_at: sentAt,
+    summary: `Nuova mail inviata a ${toList.join(", ")}`,
+    payload: { to: toList, cc: ccList, subject: d.subject },
+    created_by: auth.userId,
+  });
+
+  return { success: true, messaggioId: String(inserted.id) };
 }
 
 export type WebmailBlacklistItem = {

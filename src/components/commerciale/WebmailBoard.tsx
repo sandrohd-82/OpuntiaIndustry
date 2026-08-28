@@ -13,6 +13,7 @@ import {
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
   rejectWebmailCategoriaSuggestionAction,
+  restoreWebmailMessaggioAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
   softDeleteWebmailMessaggioAction,
@@ -24,6 +25,7 @@ import type {
   WebmailAccountPublic,
   WebmailBozzaAi,
   WebmailCategoria,
+  WebmailMailboxView,
   WebmailMessaggio,
 } from "@/lib/webmail/types";
 
@@ -44,8 +46,15 @@ function linkStatoLabel(stato: WebmailMessaggio["linkStato"]) {
 
 export function WebmailBoard({
   initialAccountId = null,
+  view = "all",
+  categoriaId = null,
+  hideTopFilters = false,
 }: {
   initialAccountId?: string | null;
+  view?: WebmailMailboxView;
+  categoriaId?: string | null;
+  /** Nasconde filtri account/categoria quando la vista è guidata dal menu. */
+  hideTopFilters?: boolean;
 }) {
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
@@ -53,8 +62,10 @@ export function WebmailBoard({
   const [accountFilter, setAccountFilter] = useState<string>(
     initialAccountId ?? ""
   );
-  const [categoriaFilter, setCategoriaFilter] = useState<string>("");
-  const [onlyDraft, setOnlyDraft] = useState(false);
+  const [categoriaFilter, setCategoriaFilter] = useState<string>(
+    categoriaId ?? ""
+  );
+  const [onlyDraft, setOnlyDraft] = useState(view === "bozze");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [bozza, setBozza] = useState<WebmailBozzaAi | null>(null);
   const [draftSubject, setDraftSubject] = useState("");
@@ -85,13 +96,20 @@ export function WebmailBoard({
 
   const reload = useCallback(async () => {
     setError(null);
+    const effectiveView = view;
     const [a, c, m] = await Promise.all([
       listWebmailAccountsAction(),
       listWebmailCategorieAction(),
       listWebmailMessaggiAction({
         accountId: accountFilter || null,
-        categoriaId: categoriaFilter || null,
-        onlyAiDraft: onlyDraft,
+        categoriaId:
+          effectiveView === "categoria"
+            ? categoriaId || categoriaFilter || null
+            : effectiveView === "all"
+              ? categoriaFilter || null
+              : null,
+        onlyAiDraft: effectiveView === "bozze" ? true : onlyDraft,
+        view: effectiveView,
       }),
     ]);
     if (!a.success) {
@@ -109,12 +127,21 @@ export function WebmailBoard({
     setAccounts(a.accounts);
     setCategorie(c.items);
     setMessaggi(m.messaggi);
-  }, [accountFilter, categoriaFilter, onlyDraft]);
+  }, [accountFilter, categoriaFilter, onlyDraft, view, categoriaId]);
 
   useEffect(() => {
     setAccountFilter(initialAccountId ?? "");
     setSelectedId(null);
   }, [initialAccountId]);
+
+  useEffect(() => {
+    setCategoriaFilter(categoriaId ?? "");
+    setSelectedId(null);
+  }, [categoriaId]);
+
+  useEffect(() => {
+    setOnlyDraft(view === "bozze");
+  }, [view]);
 
   useEffect(() => {
     void reload();
@@ -252,20 +279,29 @@ export function WebmailBoard({
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          Leggi la mail, genera la risposta AI solo quando serve, sposta in
-          categoria e collega l’azienda. Il sistema impara dalle tue conferme
-          (soglie 2 / 4 / 6).
+          {view === "cestino"
+            ? "Mail eliminate (soft delete). Puoi ripristinarle nel gestionale."
+            : view === "inbox"
+              ? "In arrivo: messaggi senza categoria. Spostali in una categoria quando li classifichi."
+              : view === "bozze"
+                ? "Messaggi con bozza AI da revisionare o inviare."
+                : view === "categoria"
+                  ? "Messaggi nella categoria selezionata."
+                  : "Leggi la mail, genera la risposta AI solo quando serve, sposta in categoria e collega l’azienda. Il sistema impara dalle tue conferme (soglie 2 / 4 / 6)."}
         </p>
-        <button
-          type="button"
-          disabled={pending}
-          onClick={syncNow}
-          className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-        >
-          Sincronizza ora
-        </button>
+        {view !== "cestino" ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={syncNow}
+            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Sincronizza ora
+          </button>
+        ) : null}
       </div>
 
+      {hideTopFilters ? null : (
       <div className="flex flex-wrap gap-2">
         {initialAccountId ? null : (
           <select
@@ -281,27 +317,32 @@ export function WebmailBoard({
             ))}
           </select>
         )}
-        <select
-          value={categoriaFilter}
-          onChange={(e) => setCategoriaFilter(e.target.value)}
-          className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="">Tutte le categorie</option>
-          {categorie.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.nome}
-            </option>
-          ))}
-        </select>
-        <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm">
-          <input
-            type="checkbox"
-            checked={onlyDraft}
-            onChange={(e) => setOnlyDraft(e.target.checked)}
-          />
-          Solo con bozza AI
-        </label>
+        {view === "all" ? (
+          <>
+            <select
+              value={categoriaFilter}
+              onChange={(e) => setCategoriaFilter(e.target.value)}
+              className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Tutte le categorie</option>
+              {categorie.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+            <label className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={onlyDraft}
+                onChange={(e) => setOnlyDraft(e.target.checked)}
+              />
+              Solo con bozza AI
+            </label>
+          </>
+        ) : null}
       </div>
+      )}
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -384,7 +425,11 @@ export function WebmailBoard({
               Seleziona una mail per leggerla e agire.
             </p>
           ) : (
-            <div className="grid h-full gap-0 lg:grid-cols-2">
+            <div
+              className={`grid h-full gap-0 ${
+                view === "cestino" ? "" : "lg:grid-cols-2"
+              }`}
+            >
               <section className="border-b border-[var(--border)] p-4 lg:border-b-0 lg:border-r">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Mail ricevuta
@@ -690,53 +735,79 @@ export function WebmailBoard({
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                    onClick={() => setCatModalOpen(true)}
-                  >
-                    Sposta in categoria
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                    onClick={() => setAziendaModalOpen(true)}
-                  >
-                    Collega ad azienda
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                    onClick={() => {
-                      if (
-                        !window.confirm(
-                          "Eliminare questa mail dal gestionale? Verrà tentata anche la rimozione dalla casella IMAP (Trash). Non verrà più risincronizzata."
-                        )
-                      ) {
-                        return;
-                      }
-                      startTransition(async () => {
-                        const res = await softDeleteWebmailMessaggioAction(
-                          selected.id
-                        );
-                        if (!res.success) {
-                          setError(res.error);
-                          return;
-                        }
-                        setSelectedId(null);
-                        setBozza(null);
-                        setInfo(
-                          res.imapOk
-                            ? `Mail eliminata. IMAP: ${res.imapDetail}`
-                            : `Mail eliminata dal gestionale (non verrà più sincronizzata). IMAP: ${res.imapDetail}`
-                        );
-                        await reload();
-                      });
-                    }}
-                  >
-                    Elimina
-                  </button>
+                  {view === "cestino" ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await restoreWebmailMessaggioAction(
+                            selected.id
+                          );
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setSelectedId(null);
+                          setInfo("Mail ripristinata dal cestino.");
+                          await reload();
+                        });
+                      }}
+                    >
+                      Ripristina
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                        onClick={() => setCatModalOpen(true)}
+                      >
+                        Sposta in categoria
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                        onClick={() => setAziendaModalOpen(true)}
+                      >
+                        Collega ad azienda
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              "Eliminare questa mail dal gestionale? Verrà tentata anche la rimozione dalla casella IMAP (Trash). Non verrà più risincronizzata."
+                            )
+                          ) {
+                            return;
+                          }
+                          startTransition(async () => {
+                            const res = await softDeleteWebmailMessaggioAction(
+                              selected.id
+                            );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setSelectedId(null);
+                            setBozza(null);
+                            setInfo(
+                              res.imapOk
+                                ? `Mail eliminata. IMAP: ${res.imapDetail}`
+                                : `Mail eliminata dal gestionale (non verrà più sincronizzata). IMAP: ${res.imapDetail}`
+                            );
+                            await reload();
+                          });
+                        }}
+                      >
+                        Elimina
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-3 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-xs">
@@ -775,6 +846,7 @@ export function WebmailBoard({
                   {selected.bodyText || "(vuoto)"}
                 </pre>
               </section>
+              {view === "cestino" ? null : (
               <section className="p-4">
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Risposta AI
@@ -859,6 +931,7 @@ export function WebmailBoard({
                   </div>
                 )}
               </section>
+              )}
             </div>
           )}
         </div>
