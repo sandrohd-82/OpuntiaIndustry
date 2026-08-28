@@ -56,10 +56,16 @@ function mapMessaggio(r: Record<string, unknown>): WebmailMessaggio {
     fromAddress: String(r.from_address ?? ""),
     fromName: String(r.from_name ?? ""),
     toAddresses: (r.to_addresses as string[]) ?? [],
+    ccAddresses: (r.cc_addresses as string[]) ?? [],
     subject: String(r.subject ?? ""),
     bodyText: String(r.body_text ?? ""),
     bodyHtml: String(r.body_html ?? ""),
     receivedAt: (r.received_at as string | null) ?? null,
+    sentAt: (r.sent_at as string | null) ?? null,
+    messageIdHeader: String(r.message_id_header ?? ""),
+    messageUid: String(r.message_uid ?? ""),
+    folder: String(r.folder ?? "INBOX"),
+    createdAt: (r.created_at as string | null) ?? null,
     isSeen: Boolean(r.is_seen),
     aiIntent: (r.ai_intent as WebmailMessaggio["aiIntent"]) ?? null,
     aiConfidence: r.ai_confidence == null ? null : Number(r.ai_confidence),
@@ -81,7 +87,7 @@ function mapMessaggio(r: Record<string, unknown>): WebmailMessaggio {
 }
 
 const MESSAGGIO_SELECT =
-  "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, subject, body_text, body_html, received_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato, categoria_suggest_id, categoria_suggest_mode, categoria_auto_pending, categoria_auto_applied_at, categoria_auto_notified";
+  "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, cc_addresses, subject, body_text, body_html, received_at, sent_at, message_id_header, message_uid, folder, created_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato, categoria_suggest_id, categoria_suggest_mode, categoria_auto_pending, categoria_auto_applied_at, categoria_auto_notified";
 
 export async function listWebmailCategorieAction(): Promise<
   | { success: true; items: WebmailCategoria[] }

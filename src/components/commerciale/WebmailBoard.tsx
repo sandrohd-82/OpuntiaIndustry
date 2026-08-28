@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { FaChevronDown } from "react-icons/fa6";
 import {
   addWebmailBlacklistAction,
   confirmWebmailCategoriaSuggestionAction,
@@ -65,11 +66,16 @@ export function WebmailBoard({
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
   const [blacklistAllAccounts, setBlacklistAllAccounts] = useState(false);
+  const [headersOpen, setHeadersOpen] = useState(false);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
     [messaggi, selectedId]
   );
+
+  useEffect(() => {
+    setHeadersOpen(false);
+  }, [selectedId]);
 
   const catById = useMemo(() => {
     const m = new Map<string, WebmailCategoria>();
@@ -386,10 +392,120 @@ export function WebmailBoard({
                 <p className="mt-2 font-semibold text-slate-900">
                   {selected.subject}
                 </p>
-                <p className="text-xs text-[var(--muted)]">
-                  Da {selected.fromName || selected.fromAddress} ·{" "}
-                  {formatWhen(selected.receivedAt)}
-                </p>
+                <div className="mt-0.5">
+                  <div className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                    <span className="min-w-0 truncate">
+                      Da {selected.fromName || selected.fromAddress} ·{" "}
+                      {formatWhen(selected.receivedAt)}
+                    </span>
+                    <button
+                      type="button"
+                      aria-expanded={headersOpen}
+                      aria-label={
+                        headersOpen
+                          ? "Nascondi dettagli mail e header"
+                          : "Mostra dettagli mail e header"
+                      }
+                      title="Dettagli mail e header"
+                      onClick={() => setHeadersOpen((v) => !v)}
+                      className="inline-flex shrink-0 items-center justify-center rounded p-0.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                    >
+                      <FaChevronDown
+                        size={11}
+                        className={`transition-transform duration-150 ${
+                          headersOpen ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {headersOpen ? (
+                    <dl className="mt-2 space-y-1.5 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2.5 text-xs text-slate-800">
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">Da</dt>
+                        <dd className="break-all">
+                          {selected.fromName
+                            ? `${selected.fromName} <${selected.fromAddress}>`
+                            : selected.fromAddress || "—"}
+                        </dd>
+                      </div>
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">A</dt>
+                        <dd className="break-all">
+                          {selected.toAddresses.length
+                            ? selected.toAddresses.join(", ")
+                            : "—"}
+                        </dd>
+                      </div>
+                      {selected.ccAddresses.length > 0 ? (
+                        <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                          <dt className="font-medium text-[var(--muted)]">Cc</dt>
+                          <dd className="break-all">
+                            {selected.ccAddresses.join(", ")}
+                          </dd>
+                        </div>
+                      ) : null}
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">
+                          Oggetto
+                        </dt>
+                        <dd className="break-words">
+                          {selected.subject || "—"}
+                        </dd>
+                      </div>
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">
+                          Data arrivo
+                        </dt>
+                        <dd>{formatWhen(selected.receivedAt)}</dd>
+                      </div>
+                      {selected.sentAt ? (
+                        <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                          <dt className="font-medium text-[var(--muted)]">
+                            Data invio
+                          </dt>
+                          <dd>{formatWhen(selected.sentAt)}</dd>
+                        </div>
+                      ) : null}
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">
+                          Message-ID
+                        </dt>
+                        <dd className="break-all font-mono text-[11px]">
+                          {selected.messageIdHeader || "—"}
+                        </dd>
+                      </div>
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">
+                          Cartella
+                        </dt>
+                        <dd>
+                          {selected.folder || "INBOX"}
+                          {selected.messageUid
+                            ? ` · UID ${selected.messageUid}`
+                            : ""}
+                        </dd>
+                      </div>
+                      <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                        <dt className="font-medium text-[var(--muted)]">
+                          Direzione
+                        </dt>
+                        <dd>
+                          {selected.direction === "outbound"
+                            ? "In uscita"
+                            : "In arrivo"}
+                        </dd>
+                      </div>
+                      {selected.createdAt ? (
+                        <div className="grid gap-0.5 sm:grid-cols-[7.5rem_1fr]">
+                          <dt className="font-medium text-[var(--muted)]">
+                            Importata
+                          </dt>
+                          <dd>{formatWhen(selected.createdAt)}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
+                </div>
 
                 {selected.categoriaAutoPending && currentCat ? (
                   <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">

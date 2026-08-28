@@ -148,10 +148,16 @@ export type WebmailMessaggio = {
   fromAddress: string;
   fromName: string;
   toAddresses: string[];
+  ccAddresses: string[];
   subject: string;
   bodyText: string;
   bodyHtml: string;
   receivedAt: string | null;
+  sentAt: string | null;
+  messageIdHeader: string;
+  messageUid: string;
+  folder: string;
+  createdAt: string | null;
   isSeen: boolean;
   aiIntent: WebmailIntent | null;
   aiConfidence: number | null;

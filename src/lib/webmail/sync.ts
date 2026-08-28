@@ -240,6 +240,10 @@ export async function syncWebmailAccount(
         const toAddresses = (toObj?.value ?? [])
           .map((v: { address?: string }) => v.address || "")
           .filter(Boolean);
+        const ccObj = Array.isArray(parsed.cc) ? parsed.cc[0] : parsed.cc;
+        const ccAddresses = (ccObj?.value ?? [])
+          .map((v: { address?: string }) => v.address || "")
+          .filter(Boolean);
         const subject = parsed.subject?.trim() || "(senza oggetto)";
         const bodyText = (
           parsed.text?.trim() ||
@@ -270,10 +274,12 @@ export async function syncWebmailAccount(
             from_address: fromAddr,
             from_name: fromName,
             to_addresses: toAddresses,
+            cc_addresses: ccAddresses,
             subject,
             body_text: bodyText,
             body_html: bodyHtml,
             received_at: receivedAt,
+            sent_at: receivedAt,
             is_seen: false,
             categoria_id: learned.categoriaId,
             categoria_suggest_id: learned.categoriaSuggestId,
