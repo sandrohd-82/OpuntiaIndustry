@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import { matchWebmailAnagrafica } from "@/lib/webmail/anagrafica-link";
+import { normalizeBlacklistEmail } from "@/lib/webmail/blacklist";
 import { applyLearningOnImport } from "@/lib/webmail/category-learn-db";
 import { decryptWebmailSecret } from "@/lib/webmail/crypto";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -176,6 +177,18 @@ export async function syncWebmailAccount(
       const uids = await client.search({ since }, { uid: true });
       const all = (uids || []).map((u) => String(u));
 
+      // Blacklist: casella + globale
+      const { data: blRows } = await supabase
+        .from("webmail_blacklist")
+        .select("email_address, account_id")
+        .is("deleted_at", null)
+        .or(`account_id.eq.${account.id},account_id.is.null`);
+      const blacklist = new Set(
+        (blRows ?? []).map((r) =>
+          normalizeBlacklistEmail(String(r.email_address ?? ""))
+        )
+      );
+
       const existingSet = new Set<string>();
       const chunkSize = 200;
       for (let i = 0; i < all.length; i += chunkSize) {
@@ -218,6 +231,11 @@ export async function syncWebmailAccount(
         const toObj = Array.isArray(parsed.to) ? parsed.to[0] : parsed.to;
         const fromAddr =
           fromObj?.value?.[0]?.address?.trim() || fromObj?.text || "";
+        const fromNorm = normalizeBlacklistEmail(fromAddr);
+        if (fromNorm && blacklist.has(fromNorm)) {
+          // Mittente in blacklist: non importare (resta solo sul server se non eliminato)
+          continue;
+        }
         const fromName = fromObj?.value?.[0]?.name?.trim() || "";
         const toAddresses = (toObj?.value ?? [])
           .map((v: { address?: string }) => v.address || "")

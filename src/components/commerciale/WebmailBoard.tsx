@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import {
+  addWebmailBlacklistAction,
   confirmWebmailCategoriaSuggestionAction,
   generateWebmailAiReplyAction,
   getWebmailBozzaForMessaggioAction,
+  isWebmailSenderBlacklistedAction,
   linkWebmailMessaggioAnagraficaAction,
   listWebmailAccountsAction,
   listWebmailCategorieAction,
@@ -61,6 +63,8 @@ export function WebmailBoard({
   const [pending, startTransition] = useTransition();
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
+  const [senderBlacklisted, setSenderBlacklisted] = useState(false);
+  const [blacklistAllAccounts, setBlacklistAllAccounts] = useState(false);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -126,6 +130,19 @@ export function WebmailBoard({
       setDraftBody(res.bozza?.bodyText ?? "");
     })();
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selected?.fromAddress || !selected.accountId) {
+      setSenderBlacklisted(false);
+      return;
+    }
+    void isWebmailSenderBlacklistedAction({
+      emailAddress: selected.fromAddress,
+      accountId: selected.accountId,
+    }).then((res) => {
+      if (res.success) setSenderBlacklisted(res.blacklisted);
+    });
+  }, [selected?.id, selected?.fromAddress, selected?.accountId]);
 
   function patchMessaggio(m: WebmailMessaggio) {
     setMessaggi((prev) => prev.map((x) => (x.id === m.id ? m : x)));
@@ -495,6 +512,66 @@ export function WebmailBoard({
                     (apprendimento consolidato).
                   </p>
                 ) : null}
+
+                <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/70 px-3 py-2 text-xs text-rose-950">
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={senderBlacklisted}
+                      disabled={pending || senderBlacklisted}
+                      onChange={(e) => {
+                        if (!e.target.checked || !selected) return;
+                        const applyAll = blacklistAllAccounts;
+                        if (
+                          !window.confirm(
+                            applyAll
+                              ? `Non importare più mail da ${selected.fromAddress} su TUTTE le caselle?\nVerranno eliminate dal gestionale tutte le mail già presenti da questo mittente.`
+                              : `Non importare più mail da ${selected.fromAddress} su questa casella?\nVerranno eliminate dal gestionale tutte le mail già presenti da questo mittente.`
+                          )
+                        ) {
+                          return;
+                        }
+                        startTransition(async () => {
+                          const res = await addWebmailBlacklistAction({
+                            emailAddress: selected.fromAddress,
+                            accountId: selected.accountId,
+                            applyToAllAccounts: applyAll,
+                            messaggioId: selected.id,
+                          });
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setSenderBlacklisted(true);
+                          setSelectedId(null);
+                          setBozza(null);
+                          setInfo(
+                            `Blacklist ${res.item.emailAddress}: eliminate ${res.purged} mail. Non verranno più importate.`
+                          );
+                          await reload();
+                        });
+                      }}
+                    />
+                    <span>
+                      <span className="font-semibold">Non importare più</span>{" "}
+                      da <code>{selected.fromAddress}</code>
+                      {senderBlacklisted ? " (già in blacklist)" : ""}
+                    </span>
+                  </label>
+                  {!senderBlacklisted ? (
+                    <label className="mt-2 flex items-center gap-2 pl-5 text-[11px]">
+                      <input
+                        type="checkbox"
+                        checked={blacklistAllAccounts}
+                        onChange={(e) =>
+                          setBlacklistAllAccounts(e.target.checked)
+                        }
+                      />
+                      Applica a tutte le caselle
+                    </label>
+                  ) : null}
+                </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button

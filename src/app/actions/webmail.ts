@@ -1525,3 +1525,265 @@ export async function softDeleteWebmailMessaggioAction(
 
   return { success: true, imapOk, imapDetail };
 }
+
+export type WebmailBlacklistItem = {
+  id: string;
+  accountId: string | null;
+  emailAddress: string;
+  note: string;
+  createdAt: string;
+};
+
+export async function listWebmailBlacklistAction(accountId?: string | null): Promise<
+  | { success: true; items: WebmailBlacklistItem[] }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const supabase = await createClient();
+  let q = supabase
+    .from("webmail_blacklist")
+    .select("id, account_id, email_address, note, created_at")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (accountId) {
+    q = q.or(`account_id.eq.${accountId},account_id.is.null`);
+  }
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((r) => ({
+      id: String(r.id),
+      accountId: r.account_id ? String(r.account_id) : null,
+      emailAddress: String(r.email_address ?? ""),
+      note: String(r.note ?? ""),
+      createdAt: String(r.created_at),
+    })),
+  };
+}
+
+/**
+ * Aggiunge mittente in blacklist, soft-delete tutte le mail da quell'indirizzo
+ * (best-effort IMAP) e blocca futuri import.
+ */
+export async function addWebmailBlacklistAction(raw: unknown): Promise<
+  | {
+      success: true;
+      purged: number;
+      imapTried: number;
+      item: WebmailBlacklistItem;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const schema = z.object({
+    emailAddress: z.string().trim().min(3).max(320),
+    accountId: z.string().uuid().nullable().optional(),
+    /** Se true, account_id = null (tutte le caselle). */
+    applyToAllAccounts: z.boolean().optional().default(false),
+    messaggioId: z.string().uuid().nullable().optional(),
+    note: z.string().trim().max(500).optional().default(""),
+  });
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati blacklist non validi." };
+  }
+
+  const { normalizeBlacklistEmail, isValidBlacklistEmail } = await import(
+    "@/lib/webmail/blacklist"
+  );
+  const email = normalizeBlacklistEmail(parsed.data.emailAddress);
+  if (!isValidBlacklistEmail(email)) {
+    return { success: false, error: "Indirizzo email mittente non valido." };
+  }
+
+  const accountId = parsed.data.applyToAllAccounts
+    ? null
+    : (parsed.data.accountId ?? null);
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  // Upsert-like: se già presente attiva, riusa
+  let blQuery = service
+    .from("webmail_blacklist")
+    .select("id, account_id, email_address, note, created_at")
+    .ilike("email_address", email)
+    .is("deleted_at", null);
+  if (accountId) {
+    blQuery = blQuery.or(`account_id.eq.${accountId},account_id.is.null`);
+  } else {
+    blQuery = blQuery.is("account_id", null);
+  }
+  const { data: existingRows } = await blQuery.limit(1);
+  let itemRow = existingRows?.[0] ?? null;
+  if (!itemRow) {
+    const { data: inserted, error: insErr } = await service
+      .from("webmail_blacklist")
+      .insert({
+        account_id: accountId,
+        email_address: email,
+        note: parsed.data.note || "Blacklist da WebMail",
+        source_messaggio_id: parsed.data.messaggioId ?? null,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id, account_id, email_address, note, created_at")
+      .single();
+    if (insErr || !inserted) {
+      return {
+        success: false,
+        error: insErr?.message ?? "Impossibile salvare in blacklist.",
+      };
+    }
+    itemRow = inserted;
+  }
+
+  const now = new Date().toISOString();
+
+  // Soft-delete tutte le mail con quel mittente (scope casella o globale)
+  let msgQuery = service
+    .from("webmail_messaggi")
+    .select("id, account_id, folder, message_uid")
+    .ilike("from_address", email)
+    .is("deleted_at", null);
+  if (accountId) {
+    msgQuery = msgQuery.eq("account_id", accountId);
+  }
+  const { data: toPurge, error: purgeErr } = await msgQuery.limit(2000);
+  if (purgeErr) {
+    return { success: false, error: purgeErr.message };
+  }
+
+  const ids = (toPurge ?? []).map((m) => String(m.id));
+  if (ids.length > 0) {
+    await service
+      .from("webmail_messaggi")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .in("id", ids);
+
+    await service
+      .from("webmail_bozze_ai")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .in("messaggio_id", ids)
+      .is("deleted_at", null);
+  }
+
+  // Best-effort IMAP (max 30 per non timeout)
+  let imapTried = 0;
+  const accountCache = new Map<
+    string,
+    Parameters<typeof deleteImapMessageBestEffort>[0]["account"]
+  >();
+  for (const m of (toPurge ?? []).slice(0, 30)) {
+    const accId = String(m.account_id);
+    let account = accountCache.get(accId);
+    if (!account) {
+      const { data: acc } = await service
+        .from("webmail_accounts")
+        .select(
+          "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+        )
+        .eq("id", accId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!acc) continue;
+      account = acc as Parameters<typeof deleteImapMessageBestEffort>[0]["account"];
+      accountCache.set(accId, account);
+    }
+    if (!m.message_uid) continue;
+    imapTried += 1;
+    await deleteImapMessageBestEffort({
+      account,
+      folder: String(m.folder || "INBOX"),
+      messageUid: String(m.message_uid),
+    });
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_blacklist",
+    entity_id: String(itemRow.id),
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Blacklist mittente ${email} (purgate ${ids.length} mail)`,
+    payload: {
+      email,
+      accountId,
+      applyToAll: parsed.data.applyToAllAccounts,
+      purged: ids.length,
+      imapTried,
+    },
+  });
+
+  return {
+    success: true,
+    purged: ids.length,
+    imapTried,
+    item: {
+      id: String(itemRow.id),
+      accountId: itemRow.account_id ? String(itemRow.account_id) : null,
+      emailAddress: String(itemRow.email_address),
+      note: String(itemRow.note ?? ""),
+      createdAt: String(itemRow.created_at),
+    },
+  };
+}
+
+export async function restoreWebmailBlacklistAction(
+  blacklistId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireSuperadmin();
+  const idParsed = z.string().uuid().safeParse(blacklistId);
+  if (!idParsed.success) return { success: false, error: "Voce non valida." };
+  const service = createServiceClient();
+  const { error } = await service
+    .from("webmail_blacklist")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", idParsed.data)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "webmail_blacklist",
+    entity_id: idParsed.data,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Voce blacklist ripristinata (rimossa dal blocco)",
+  });
+  return { success: true };
+}
+
+export async function isWebmailSenderBlacklistedAction(input: {
+  emailAddress: string;
+  accountId: string;
+}): Promise<
+  { success: true; blacklisted: boolean } | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const { normalizeBlacklistEmail } = await import("@/lib/webmail/blacklist");
+  const email = normalizeBlacklistEmail(input.emailAddress);
+  if (!email) return { success: true, blacklisted: false };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_blacklist")
+    .select("id")
+    .ilike("email_address", email)
+    .is("deleted_at", null)
+    .or(`account_id.eq.${input.accountId},account_id.is.null`)
+    .limit(1)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  return { success: true, blacklisted: Boolean(data?.id) };
+}
