@@ -245,6 +245,20 @@ export const composeNuovaMailSchema = z.object({
 
 export type ComposeNuovaMailInput = z.infer<typeof composeNuovaMailSchema>;
 
+export const translateWebmailSchema = z.object({
+  bodyText: z.string().trim().min(1).max(100000),
+  subject: z.string().trim().max(500).optional().nullable(),
+  targetLang: z
+    .string()
+    .trim()
+    .min(2)
+    .max(16)
+    .regex(/^[a-z]{2}(-[A-Z]{2})?$/, "Lingua non valida"),
+  direction: z.enum(["inbound", "outbound"]),
+  messaggioId: z.string().uuid().optional().nullable(),
+  bozzaId: z.string().uuid().optional().nullable(),
+});
+
 export type WebmailMailboxView =
   | "all"
   | "inbox"

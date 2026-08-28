@@ -17,6 +17,7 @@ import {
   runWebmailSyncAction,
   sendWebmailBozzaAction,
   softDeleteWebmailMessaggioAction,
+  translateWebmailTextAction,
   updateWebmailBozzaAction,
 } from "@/app/actions/webmail";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
@@ -28,6 +29,7 @@ import type {
   WebmailMailboxView,
   WebmailMessaggio,
 } from "@/lib/webmail/types";
+import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -78,6 +80,18 @@ export function WebmailBoard({
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
   const [blacklistAllAccounts, setBlacklistAllAccounts] = useState(false);
   const [headersOpen, setHeadersOpen] = useState(false);
+  const [inboundTranslation, setInboundTranslation] = useState<{
+    subject: string | null;
+    bodyText: string;
+    targetLangLabel: string;
+  } | null>(null);
+  const [showInboundTranslation, setShowInboundTranslation] = useState(false);
+  const [outboundLang, setOutboundLang] = useState("en");
+  const [outboundTranslation, setOutboundTranslation] = useState<{
+    subject: string | null;
+    bodyText: string;
+    targetLangLabel: string;
+  } | null>(null);
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -86,6 +100,9 @@ export function WebmailBoard({
 
   useEffect(() => {
     setHeadersOpen(false);
+    setInboundTranslation(null);
+    setShowInboundTranslation(false);
+    setOutboundTranslation(null);
   }, [selectedId]);
 
   const catById = useMemo(() => {
@@ -842,9 +859,70 @@ export function WebmailBoard({
                     Ricalcola match mittente
                   </button>
                 </div>
-                <pre className="mt-4 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
-                  {selected.bodyText || "(vuoto)"}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={pending || !selected.bodyText.trim()}
+                    className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+                    onClick={() => {
+                      startTransition(async () => {
+                        const res = await translateWebmailTextAction({
+                          messaggioId: selected.id,
+                          subject: selected.subject,
+                          bodyText: selected.bodyText,
+                          targetLang: "it",
+                          direction: "inbound",
+                        });
+                        if (!res.success) {
+                          setError(res.error);
+                          return;
+                        }
+                        setInboundTranslation({
+                          subject: res.subject,
+                          bodyText: res.bodyText,
+                          targetLangLabel: res.targetLangLabel,
+                        });
+                        setShowInboundTranslation(true);
+                        setInfo(
+                          `Traduzione in ${res.targetLangLabel} (${res.model}).`
+                        );
+                      });
+                    }}
+                  >
+                    Traduci in italiano
+                  </button>
+                  {inboundTranslation ? (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
+                      onClick={() =>
+                        setShowInboundTranslation((v) => !v)
+                      }
+                    >
+                      {showInboundTranslation
+                        ? "Mostra originale"
+                        : "Mostra traduzione"}
+                    </button>
+                  ) : null}
+                </div>
+                <pre className="mt-2 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+                  {showInboundTranslation && inboundTranslation
+                    ? [
+                        inboundTranslation.subject
+                          ? `Oggetto: ${inboundTranslation.subject}`
+                          : null,
+                        inboundTranslation.bodyText,
+                      ]
+                        .filter(Boolean)
+                        .join("\n\n")
+                    : selected.bodyText || "(vuoto)"}
                 </pre>
+                {showInboundTranslation && inboundTranslation ? (
+                  <p className="mt-1 text-[10px] text-[var(--muted)]">
+                    Traduzione Gemini → {inboundTranslation.targetLangLabel}{" "}
+                    (originale non modificato)
+                  </p>
+                ) : null}
               </section>
               {view === "cestino" ? null : (
               <section className="p-4">
@@ -895,6 +973,88 @@ export function WebmailBoard({
                         className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                       />
                     </label>
+                    <div className="flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
+                      <label className="text-xs">
+                        <span className="mb-1 block font-medium text-[var(--muted)]">
+                          Traduci bozza in
+                        </span>
+                        <select
+                          value={outboundLang}
+                          onChange={(e) => setOutboundLang(e.target.value)}
+                          className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                        >
+                          {WEBMAIL_TRANSLATE_LANGS.filter(
+                            (l) => l.code !== "it"
+                          ).map((l) => (
+                            <option key={l.code} value={l.code}>
+                              {l.label}
+                            </option>
+                          ))}
+                          <option value="it">Italiano</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={pending || !draftBody.trim()}
+                        className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 disabled:opacity-50"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res = await translateWebmailTextAction({
+                              messaggioId: selected.id,
+                              bozzaId: bozza.id,
+                              subject: draftSubject,
+                              bodyText: draftBody,
+                              targetLang: outboundLang,
+                              direction: "outbound",
+                            });
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setOutboundTranslation({
+                              subject: res.subject,
+                              bodyText: res.bodyText,
+                              targetLangLabel: res.targetLangLabel,
+                            });
+                            setInfo(
+                              `Traduzione bozza → ${res.targetLangLabel} (${res.model}).`
+                            );
+                          });
+                        }}
+                      >
+                        Traduci
+                      </button>
+                      {outboundTranslation ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          className="rounded-lg bg-sky-700 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                          onClick={() => {
+                            if (outboundTranslation.subject) {
+                              setDraftSubject(outboundTranslation.subject);
+                            }
+                            setDraftBody(outboundTranslation.bodyText);
+                            setInfo(
+                              `Traduzione applicata al testo della bozza (${outboundTranslation.targetLangLabel}). Salva se vuoi conservarla.`
+                            );
+                          }}
+                        >
+                          Applica alla bozza
+                        </button>
+                      ) : null}
+                    </div>
+                    {outboundTranslation ? (
+                      <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-slate-800">
+                        {[
+                          outboundTranslation.subject
+                            ? `Oggetto: ${outboundTranslation.subject}`
+                            : null,
+                          outboundTranslation.bodyText,
+                        ]
+                          .filter(Boolean)
+                          .join("\n\n")}
+                      </pre>
+                    ) : null}
                     {bozza.allegati.length > 0 ? (
                       <ul className="space-y-1 text-xs text-slate-700">
                         {bozza.allegati.map((a) => (

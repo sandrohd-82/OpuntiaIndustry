@@ -14,6 +14,7 @@ import {
 import {
   composeNuovaMailSchema,
   sendBozzaSchema,
+  translateWebmailSchema,
   updateBozzaSchema,
   webmailAccountInputSchema,
   WEBMAIL_PROVIDER_PRESETS,
@@ -24,6 +25,7 @@ import {
   type WebmailMessaggio,
   type WebmailProvider,
 } from "@/lib/webmail/types";
+import { translateMailWithGemini } from "@/lib/webmail/translate";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 
@@ -1733,6 +1735,80 @@ export async function sendWebmailNuovaMailAction(
   });
 
   return { success: true, messaggioId: String(inserted.id) };
+}
+
+/**
+ * Traduzione on-demand Gemini (non persiste sul body originale).
+ * Inbound → tipicamente IT; outbound → lingua scelta.
+ */
+export async function translateWebmailTextAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      subject: string | null;
+      bodyText: string;
+      model: string;
+      targetLang: string;
+      targetLangLabel: string;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = translateWebmailSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati traduzione non validi.",
+    };
+  }
+  const d = parsed.data;
+
+  // Inbound forzato a italiano se non specificato altrimenti; UI passa "it"
+  const targetLang =
+    d.direction === "inbound" ? d.targetLang || "it" : d.targetLang;
+
+  try {
+    const result = await translateMailWithGemini({
+      subject: d.subject ?? null,
+      bodyText: d.bodyText,
+      targetLang,
+    });
+
+    await writeAuditLog({
+      entity_type: d.messaggioId
+        ? "webmail_messaggi"
+        : d.bozzaId
+          ? "webmail_bozze_ai"
+          : "webmail_translate",
+      entity_id: d.messaggioId || d.bozzaId || auth.userId,
+      action: "translate",
+      actor_id: auth.userId,
+      summary: `Traduzione ${d.direction} → ${result.targetLangLabel} (${result.model})`,
+      payload: {
+        direction: d.direction,
+        targetLang,
+        model: result.model,
+        messaggioId: d.messaggioId ?? null,
+        bozzaId: d.bozzaId ?? null,
+        chars: d.bodyText.length,
+      },
+    });
+
+    return {
+      success: true,
+      subject: result.subject,
+      bodyText: result.bodyText,
+      model: result.model,
+      targetLang,
+      targetLangLabel: result.targetLangLabel,
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Traduzione fallita.",
+    };
+  }
 }
 
 export type WebmailBlacklistItem = {

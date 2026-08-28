@@ -2,7 +2,11 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { sendWebmailNuovaMailAction } from "@/app/actions/webmail";
+import {
+  sendWebmailNuovaMailAction,
+  translateWebmailTextAction,
+} from "@/app/actions/webmail";
+import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 
 type Props = {
   accountId: string;
@@ -20,6 +24,12 @@ export function WebmailComposeForm({
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
+  const [outboundLang, setOutboundLang] = useState("en");
+  const [translation, setTranslation] = useState<{
+    subject: string | null;
+    bodyText: string;
+    targetLangLabel: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -45,8 +55,32 @@ export function WebmailComposeForm({
       setCc("");
       setSubject("");
       setBodyText("");
+      setTranslation(null);
       router.push(`/app/webmail/caselle/${accountId}/in-arrivo`);
       router.refresh();
+    });
+  }
+
+  function translateOutbound() {
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const res = await translateWebmailTextAction({
+        subject,
+        bodyText,
+        targetLang: outboundLang,
+        direction: "outbound",
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setTranslation({
+        subject: res.subject,
+        bodyText: res.bodyText,
+        targetLangLabel: res.targetLangLabel,
+      });
+      setInfo(`Traduzione → ${res.targetLangLabel} (${res.model}).`);
     });
   }
 
@@ -106,6 +140,60 @@ export function WebmailComposeForm({
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
         />
       </label>
+
+      <div className="flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3">
+        <label className="text-sm">
+          <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
+            Traduci in
+          </span>
+          <select
+            value={outboundLang}
+            onChange={(e) => setOutboundLang(e.target.value)}
+            className="rounded-lg border border-[var(--border)] bg-white px-2 py-2 text-sm"
+          >
+            {WEBMAIL_TRANSLATE_LANGS.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          disabled={pending || !bodyText.trim()}
+          onClick={translateOutbound}
+          className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-900 disabled:opacity-50"
+        >
+          Traduci
+        </button>
+        {translation ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              if (translation.subject) setSubject(translation.subject);
+              setBodyText(translation.bodyText);
+              setInfo(
+                `Traduzione applicata (${translation.targetLangLabel}). Puoi rivedere e inviare.`
+              );
+            }}
+            className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Applica al messaggio
+          </button>
+        ) : null}
+      </div>
+      {translation ? (
+        <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-slate-800">
+          {[
+            translation.subject ? `Oggetto: ${translation.subject}` : null,
+            translation.bodyText,
+          ]
+            .filter(Boolean)
+            .join("\n\n")}
+        </pre>
+      ) : null}
+
       <div className="flex gap-2">
         <button
           type="submit"
