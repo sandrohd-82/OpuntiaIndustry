@@ -207,32 +207,52 @@ export function WebmailAdminCaselleBoard() {
   function syncAccount(acc: AccountWithGrants) {
     setInfo(null);
     startTransition(async () => {
-      const res = await runWebmailSyncAction(acc.id);
-      if (!res.success) {
-        setError(res.error);
-        return;
+      try {
+        const res = await runWebmailSyncAction(acc.id);
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        const errs = res.errors ?? [];
+        setInfo(
+          `Sync ${acc.label}: ${res.imported} nuovi` +
+            (res.pending > 0
+              ? ` · ancora ${res.pending} (sincronizza di nuovo)`
+              : "") +
+            (errs.length ? ` · ${errs.join("; ")}` : "")
+        );
+        await reload();
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Errore sync. Riprova."
+        );
       }
-      setInfo(
-        `Sync ${acc.label}: ${res.imported} nuovi, ${res.drafted} bozze` +
-          (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
-      );
-      await reload();
     });
   }
 
   function syncAll() {
     setInfo(null);
     startTransition(async () => {
-      const res = await runWebmailSyncAction();
-      if (!res.success) {
-        setError(res.error);
-        return;
+      try {
+        const res = await runWebmailSyncAction();
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        const errs = res.errors ?? [];
+        setInfo(
+          `Sync tutte: ${res.imported} nuovi` +
+            (res.pending > 0
+              ? ` · ancora ${res.pending} (sincronizza di nuovo)`
+              : "") +
+            (errs.length ? ` · ${errs.join("; ")}` : "")
+        );
+        await reload();
+      } catch (e) {
+        setError(
+          e instanceof Error ? e.message : "Errore sync. Riprova."
+        );
       }
-      setInfo(
-        `Sync tutte: ${res.imported} nuovi, ${res.drafted} bozze` +
-          (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
-      );
-      await reload();
     });
   }
 

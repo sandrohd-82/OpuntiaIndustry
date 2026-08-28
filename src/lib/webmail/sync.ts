@@ -27,13 +27,16 @@ type AccountRow = {
 export function resolveWebmailSyncSince(
   syncSince: string | null | undefined
 ): Date {
-  if (syncSince && /^\d{4}-\d{2}-\d{2}$/.test(syncSince.slice(0, 10))) {
-    const [y, m, d] = syncSince.slice(0, 10).split("-").map(Number);
+  const raw = syncSince ? String(syncSince).slice(0, 10) : "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split("-").map(Number);
     return new Date(y!, m! - 1, d!, 0, 0, 0, 0);
   }
   const fallbackDays = Number(process.env.WEBMAIL_SYNC_FALLBACK_DAYS ?? "30");
   const since = new Date();
-  since.setDate(since.getDate() - (Number.isFinite(fallbackDays) ? fallbackDays : 30));
+  since.setDate(
+    since.getDate() - (Number.isFinite(fallbackDays) ? fallbackDays : 30)
+  );
   since.setHours(0, 0, 0, 0);
   return since;
 }
@@ -109,22 +112,53 @@ async function logElaborazione(
   });
 }
 
+export type SyncWebmailResult = {
+  imported: number;
+  drafted: number;
+  skipped: number;
+  pending: number;
+  error?: string;
+};
+
+/**
+ * Sync IMAP in batch. Con sync_since storico non importa tutto in un colpo
+ * (evita timeout Vercel / schermata bianca): rilanciare sync per continuare.
+ */
 export async function syncWebmailAccount(
   supabase: Service,
   account: AccountRow,
   options?: { limit?: number }
-): Promise<{ imported: number; drafted: number; error?: string }> {
+): Promise<SyncWebmailResult> {
   const hasCustomSince = Boolean(
-    account.sync_since && /^\d{4}-\d{2}-\d{2}$/.test(String(account.sync_since).slice(0, 10))
+    account.sync_since &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(account.sync_since).slice(0, 10))
   );
   const limit =
     options?.limit ??
-    (hasCustomSince
-      ? Number(process.env.WEBMAIL_SYNC_MAX_MESSAGES ?? "2000")
-      : 80);
-  const password = decryptWebmailSecret(account.password_encrypted);
+    Number(
+      process.env.WEBMAIL_SYNC_BATCH_SIZE ?? (hasCustomSince ? "40" : "60")
+    );
+  const batchLimit = Math.max(1, Number.isFinite(limit) ? limit : 40);
+
   let imported = 0;
+  let skipped = 0;
   const drafted = 0;
+
+  let password: string;
+  try {
+    password = decryptWebmailSecret(account.password_encrypted);
+  } catch (e) {
+    return {
+      imported: 0,
+      drafted: 0,
+      skipped: 0,
+      pending: 0,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Password casella non decifrabile (WEBMAIL_ENCRYPTION_KEY?).",
+    };
+  }
 
   const client = new ImapFlow({
     host: account.imap_host,
@@ -140,27 +174,43 @@ export async function syncWebmailAccount(
     try {
       const since = resolveWebmailSyncSince(account.sync_since);
       const uids = await client.search({ since }, { uid: true });
-      const all = uids || [];
-      // Con data personalizzata: dal più vecchio (storico); altrimenti ultimi N
-      const list = hasCustomSince
-        ? all.slice(0, Math.max(1, limit))
-        : all.slice(-Math.max(1, limit));
+      const all = (uids || []).map((u) => String(u));
 
-      for (const uid of list) {
-        const uidStr = String(uid);
-        const { data: existing } = await supabase
+      const existingSet = new Set<string>();
+      const chunkSize = 200;
+      for (let i = 0; i < all.length; i += chunkSize) {
+        const chunk = all.slice(i, i + chunkSize);
+        const { data: existingRows } = await supabase
           .from("webmail_messaggi")
-          .select("id, deleted_at")
+          .select("message_uid")
           .eq("account_id", account.id)
           .eq("folder", "INBOX")
-          .eq("message_uid", uidStr)
-          .limit(1)
-          .maybeSingle();
+          .in("message_uid", chunk);
+        for (const row of existingRows ?? []) {
+          existingSet.add(String(row.message_uid));
+        }
+      }
 
-        // Esiste già (anche soft-deleted) → non reimportare
-        if (existing?.id) continue;
+      const missing = all.filter((uid) => !existingSet.has(uid));
+      skipped = all.length - missing.length;
+      // Ultime mancanti per prime (INBOX recente); ripeti sync per le più vecchie
+      const list = missing.slice(-batchLimit);
+      const pending = Math.max(0, missing.length - list.length);
 
-        const downloaded = await client.download(uid, undefined, { uid: true });
+      for (const uidStr of list) {
+        const uid = Number(uidStr);
+        let downloaded;
+        try {
+          downloaded = await client.download(uid, undefined, { uid: true });
+        } catch (dlErr) {
+          console.error(
+            "[webmail sync download]",
+            uidStr,
+            dlErr instanceof Error ? dlErr.message : dlErr
+          );
+          continue;
+        }
+
         const parsed = await simpleParser(downloaded.content);
         const fromObj = Array.isArray(parsed.from)
           ? parsed.from[0]
@@ -173,12 +223,15 @@ export async function syncWebmailAccount(
           .map((v: { address?: string }) => v.address || "")
           .filter(Boolean);
         const subject = parsed.subject?.trim() || "(senza oggetto)";
-        const bodyText =
+        const bodyText = (
           parsed.text?.trim() ||
           (parsed.html
             ? String(parsed.html).replace(/<[^>]+>/g, " ").trim()
-            : "");
-        const bodyHtml = typeof parsed.html === "string" ? parsed.html : "";
+            : "")
+        ).slice(0, 500_000);
+        const rawHtml = typeof parsed.html === "string" ? parsed.html : "";
+        const bodyHtml =
+          rawHtml.length > 200_000 ? rawHtml.slice(0, 200_000) : rawHtml;
         const receivedAt =
           parsed.date?.toISOString() || new Date().toISOString();
 
@@ -238,27 +291,33 @@ export async function syncWebmailAccount(
           },
         });
       }
+
+      await supabase
+        .from("webmail_accounts")
+        .update({
+          last_sync_at: new Date().toISOString(),
+          last_sync_error: null,
+        })
+        .eq("id", account.id);
+
+      await logElaborazione(supabase, {
+        accountId: account.id,
+        action: "sync",
+        summary: `Sync INBOX: ${imported} nuovi, ${pending} ancora da importare (dal ${since.toISOString().slice(0, 10)})`,
+        payload: {
+          imported,
+          drafted,
+          skipped,
+          pending,
+          since: since.toISOString().slice(0, 10),
+          totalMatched: all.length,
+        },
+      });
+
+      return { imported, drafted, skipped, pending };
     } finally {
       lock.release();
     }
-    await client.logout();
-
-    await supabase
-      .from("webmail_accounts")
-      .update({
-        last_sync_at: new Date().toISOString(),
-        last_sync_error: null,
-      })
-      .eq("id", account.id);
-
-    await logElaborazione(supabase, {
-      accountId: account.id,
-      action: "sync",
-      summary: `Sync INBOX: ${imported} nuovi (bozze AI solo on-demand)`,
-      payload: { imported, drafted },
-    });
-
-    return { imported, drafted };
   } catch (e) {
     const message = formatImapSyncError(e, account);
     await supabase
@@ -268,7 +327,13 @@ export async function syncWebmailAccount(
         last_sync_error: message.slice(0, 900),
       })
       .eq("id", account.id);
-    return { imported, drafted, error: message };
+    return { imported, drafted, skipped, pending: 0, error: message };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -284,7 +349,6 @@ const TRASH_CANDIDATES = [
 
 /**
  * Best effort: sposta in Trash o marca \\Deleted sul server IMAP.
- * Non fallisce il soft-delete locale se IMAP non risponde.
  */
 export async function deleteImapMessageBestEffort(input: {
   account: AccountRow;
@@ -347,6 +411,7 @@ export async function syncAllWebmailAccounts(
   accounts: number;
   imported: number;
   drafted: number;
+  pending: number;
   errors: string[];
 }> {
   const { data, error } = await supabase
@@ -357,22 +422,31 @@ export async function syncAllWebmailAccounts(
     .eq("sync_enabled", true)
     .is("deleted_at", null);
   if (error) {
-    return { accounts: 0, imported: 0, drafted: 0, errors: [error.message] };
+    return {
+      accounts: 0,
+      imported: 0,
+      drafted: 0,
+      pending: 0,
+      errors: [error.message],
+    };
   }
 
   let imported = 0;
   let drafted = 0;
+  let pending = 0;
   const errors: string[] = [];
   for (const row of (data ?? []) as AccountRow[]) {
     const res = await syncWebmailAccount(supabase, row);
     imported += res.imported;
     drafted += res.drafted;
+    pending += res.pending;
     if (res.error) errors.push(`${row.email_address}: ${res.error}`);
   }
   return {
     accounts: (data ?? []).length,
     imported,
     drafted,
+    pending,
     errors,
   };
 }

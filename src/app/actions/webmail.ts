@@ -732,41 +732,63 @@ export async function sendWebmailBozzaAction(
 }
 
 export async function runWebmailSyncAction(accountId?: string): Promise<
-  | { success: true; imported: number; drafted: number; errors: string[] }
+  | {
+      success: true;
+      imported: number;
+      drafted: number;
+      pending: number;
+      errors: string[];
+    }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
-  const service = createServiceClient();
-  if (accountId) {
-    const { data: account, error } = await service
-      .from("webmail_accounts")
-      .select(
-        "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
-      )
-      .eq("id", accountId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (error || !account) {
-      return { success: false, error: error?.message ?? "Casella non trovata." };
+  try {
+    await requireWebmailAccess();
+    const service = createServiceClient();
+    if (accountId) {
+      const { data: account, error } = await service
+        .from("webmail_accounts")
+        .select(
+          "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+        )
+        .eq("id", accountId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error || !account) {
+        return {
+          success: false,
+          error: error?.message ?? "Casella non trovata.",
+        };
+      }
+      const res = await syncWebmailAccount(
+        service,
+        account as Parameters<typeof syncWebmailAccount>[1]
+      );
+      return {
+        success: true,
+        imported: res.imported,
+        drafted: res.drafted,
+        pending: res.pending,
+        errors: res.error ? [res.error] : [],
+      };
     }
-    const res = await syncWebmailAccount(
-      service,
-      account as Parameters<typeof syncWebmailAccount>[1]
-    );
+    const res = await syncAllWebmailAccounts(service);
     return {
       success: true,
       imported: res.imported,
       drafted: res.drafted,
-      errors: res.error ? [res.error] : [],
+      pending: res.pending,
+      errors: res.errors,
+    };
+  } catch (e) {
+    console.error("[runWebmailSyncAction]", e);
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Errore imprevisto durante la sincronizzazione.",
     };
   }
-  const res = await syncAllWebmailAccounts(service);
-  return {
-    success: true,
-    imported: res.imported,
-    drafted: res.drafted,
-    errors: res.errors,
-  };
 }
 
 export async function getWebmailProviderPresetsAction() {

@@ -134,16 +134,28 @@ export function WebmailBoard({
   function syncNow() {
     setInfo(null);
     startTransition(async () => {
-      const res = await runWebmailSyncAction(accountFilter || undefined);
-      if (!res.success) {
-        setError(res.error);
-        return;
+      try {
+        const res = await runWebmailSyncAction(accountFilter || undefined);
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        const errs = res.errors ?? [];
+        setInfo(
+          `Sync: ${res.imported} nuovi` +
+            (res.pending > 0
+              ? ` · ancora ${res.pending} da importare (premi di nuovo Sincronizza)`
+              : "") +
+            (errs.length ? ` · ${errs.join("; ")}` : "")
+        );
+        await reload();
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Errore sync (timeout o connessione). Riprova."
+        );
       }
-      setInfo(
-        `Sync: ${res.imported} nuovi` +
-          (res.errors.length ? ` · ${res.errors.join("; ")}` : "")
-      );
-      await reload();
     });
   }
 
