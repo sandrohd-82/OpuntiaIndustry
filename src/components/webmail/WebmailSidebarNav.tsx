@@ -134,17 +134,6 @@ export function WebmailSidebarNav() {
                           </Link>
                         </li>
                         <li>
-                          <Link
-                            href={`${base}/in-arrivo`}
-                            className={itemClass(
-                              pathname === `${base}/in-arrivo` ||
-                                pathname === base
-                            )}
-                          >
-                            <span className="truncate">In Arrivo</span>
-                          </Link>
-                        </li>
-                        <li>
                           <button
                             type="button"
                             onClick={() =>
@@ -190,6 +179,17 @@ export function WebmailSidebarNav() {
                               )}
                             </ul>
                           ) : null}
+                        </li>
+                        <li>
+                          <Link
+                            href={`${base}/in-arrivo`}
+                            className={itemClass(
+                              pathname === `${base}/in-arrivo` ||
+                                pathname === base
+                            )}
+                          >
+                            <span className="truncate">In Arrivo</span>
+                          </Link>
                         </li>
                         <li>
                           <Link
