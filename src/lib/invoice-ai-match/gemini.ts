@@ -33,7 +33,7 @@ export function invoiceAiGeminiModel(): string {
   return (
     process.env.GEMINI_MODEL?.trim() ||
     process.env.INVOICE_AI_GEMINI_MODEL?.trim() ||
-    "gemini-2.0-flash"
+    "gemini-3.6-flash"
   );
 }
 
@@ -65,7 +65,7 @@ const geminiBatchSchema = z.object({
 
 /**
  * Match Gemini sulle righe fattura vs catalogo (snippet già filtrato).
- * Usa @google/generative-ai; modello da GEMINI_MODEL (default gemini-2.0-flash).
+ * Usa @google/generative-ai; modello da GEMINI_MODEL (default gemini-3.6-flash).
  */
 export async function matchInvoiceLinesWithGemini(input: {
   lines: InvoiceAiMatchLineInput[];
