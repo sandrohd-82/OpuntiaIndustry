@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
+import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient } from "@/lib/supabase/server";
@@ -33,11 +34,16 @@ export default async function WebmailBozzePage({ params }: Props) {
         subtitle={`${account.email_address} · bozze AI da revisionare`}
       />
       <div className="p-6">
-        <WebmailBoard
-          initialAccountId={account.id}
-          view="bozze"
-          hideTopFilters
-        />
+        <WebmailCasellaShell
+          accountId={account.id}
+          accountLabel={account.label}
+        >
+          <WebmailBoard
+            initialAccountId={account.id}
+            view="bozze"
+            hideTopFilters
+          />
+        </WebmailCasellaShell>
       </div>
     </>
   );

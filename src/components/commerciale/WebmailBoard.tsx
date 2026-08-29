@@ -392,92 +392,101 @@ export function WebmailBoard({
         </p>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
-        <ul className="max-h-[70vh] space-y-2 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] p-2">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Messaggi
+          </p>
+          <p className="text-[11px] text-slate-500">
+            Clicca una riga per aprire il contenuto
+          </p>
+        </div>
+        <ul className="max-h-[min(78vh,52rem)] divide-y divide-slate-100 overflow-y-auto">
           {messaggi.length === 0 ? (
-            <li className="p-4 text-center text-sm text-[var(--muted)]">
-              Nessun messaggio. Se la casella è già collegata, sincronizza.
+            <li className="p-8 text-center text-sm text-[var(--muted)]">
+              Nessun messaggio in questa vista. Sincronizza o cambia cartella.
             </li>
           ) : (
             messaggi.map((m) => {
               const cat = m.categoriaId ? catById.get(m.categoriaId) : null;
+              const expanded = selectedId === m.id;
               return (
-                <li key={m.id}>
+                <li
+                  key={m.id}
+                  className={expanded ? "bg-sky-50/40" : "bg-white"}
+                >
                   <button
                     type="button"
-                    onClick={() => setSelectedId(m.id)}
-                    className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                      selectedId === m.id
-                        ? "border-sky-400 bg-sky-50"
-                        : "border-transparent hover:bg-slate-50"
-                    }`}
+                    onClick={() =>
+                      setSelectedId((prev) => (prev === m.id ? null : m.id))
+                    }
+                    className="flex w-full items-start gap-2 px-4 py-3 text-left text-sm transition hover:bg-slate-50"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p
-                        className={`line-clamp-1 ${
-                          m.isSeen
-                            ? "font-medium text-slate-900"
-                            : "font-semibold text-slate-950"
-                        }`}
-                      >
-                        {m.subject}
+                    <FaChevronDown
+                      size={12}
+                      className={`mt-1 shrink-0 text-slate-400 transition ${
+                        expanded ? "rotate-180 text-sky-600" : ""
+                      }`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <p
+                          className={`line-clamp-1 ${
+                            m.isSeen
+                              ? "font-medium text-slate-900"
+                              : "font-semibold text-slate-950"
+                          }`}
+                        >
+                          {m.subject}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {!m.isSeen ? (
+                            <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                              new
+                            </span>
+                          ) : null}
+                          {m.hasAiDraft ? (
+                            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+                              Bozza AI
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
+                        {m.fromName || m.fromAddress} ·{" "}
+                        {formatWhen(m.receivedAt)}
                       </p>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {!m.isSeen ? (
-                          <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
-                            new
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {cat ? (
+                          <span
+                            className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
+                            style={{ background: cat.colore }}
+                          >
+                            {cat.nome}
                           </span>
                         ) : null}
-                        {m.hasAiDraft ? (
-                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-                            Bozza AI
+                        {m.categoriaAutoPending ? (
+                          <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
+                            Auto-spostata
                           </span>
                         ) : null}
+                        {m.aziendaLabel ? (
+                          <span className="inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
+                            {m.aziendaLabel}
+                          </span>
+                        ) : (
+                          <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
+                            {linkStatoLabel(m.linkStato)}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
-                      {m.fromName || m.fromAddress} · {formatWhen(m.receivedAt)}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {cat ? (
-                        <span
-                          className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
-                          style={{ background: cat.colore }}
-                        >
-                          {cat.nome}
-                        </span>
-                      ) : null}
-                      {m.categoriaAutoPending ? (
-                        <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-900">
-                          Auto-spostata
-                        </span>
-                      ) : null}
-                      {m.aziendaLabel ? (
-                        <span className="inline-block rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-900">
-                          {m.aziendaLabel}
-                        </span>
-                      ) : (
-                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
-                          {linkStatoLabel(m.linkStato)}
-                        </span>
-                      )}
-                    </div>
                   </button>
-                </li>
-              );
-            })
-          )}
-        </ul>
 
-        <div className="min-h-[24rem] rounded-xl border border-[var(--border)] bg-[var(--card)]">
-          {!selected ? (
-            <p className="p-6 text-sm text-[var(--muted)]">
-              Seleziona una mail per leggerla e agire.
-            </p>
-          ) : (
+                  {expanded && selected ? (
             <div
-              className={`grid h-full gap-0 ${
-                view === "cestino" ? "" : "lg:grid-cols-2"
+              className={`border-t border-sky-100 bg-white ${
+                view === "cestino" ? "" : "lg:grid lg:grid-cols-2"
               }`}
             >
               <section className="border-b border-[var(--border)] p-4 lg:border-b-0 lg:border-r">
@@ -1023,8 +1032,12 @@ export function WebmailBoard({
               </section>
               )}
             </div>
+                  ) : null}
+                </li>
+              );
+            })
           )}
-        </div>
+        </ul>
       </div>
 
       {selected && aiReplyModalOpen ? (

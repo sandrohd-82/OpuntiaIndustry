@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
 import { WebmailComposeForm } from "@/components/webmail/WebmailComposeForm";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
@@ -33,11 +34,18 @@ export default async function WebmailNuovaMailPage({ params }: Props) {
         subtitle={`Composizione da ${account.email_address}`}
       />
       <div className="p-6">
-        <WebmailComposeForm
+        <WebmailCasellaShell
           accountId={account.id}
           accountLabel={account.label}
-          fromAddress={account.email_address}
-        />
+        >
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <WebmailComposeForm
+              accountId={account.id}
+              accountLabel={account.label}
+              fromAddress={account.email_address}
+            />
+          </div>
+        </WebmailCasellaShell>
       </div>
     </>
   );
