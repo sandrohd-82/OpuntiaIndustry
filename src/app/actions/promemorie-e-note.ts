@@ -689,6 +689,24 @@ export async function updateNotaPnAction(input: unknown): Promise<
     return { success: false, error: error?.message ?? "Aggiornamento fallito" };
   }
   const item = mapPnNotaRow(data as Record<string, unknown>);
+
+  if (d.allegati !== undefined) {
+    const trackingIds = d.allegati
+      .filter((a) => String(a.kind).toLowerCase() === "tracking")
+      .map((a) => a.id)
+      .filter((id) => z.string().uuid().safeParse(id).success);
+    if (trackingIds.length > 0) {
+      await supabase
+        .from("shipping_trackings")
+        .update({
+          nota_id: item.id,
+          updated_by: auth.userId,
+        })
+        .in("id", trackingIds)
+        .is("deleted_at", null);
+    }
+  }
+
   await writeAuditLog({
     entity_type: "pn_note",
     entity_id: item.id,

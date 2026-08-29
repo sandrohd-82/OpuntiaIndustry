@@ -36,7 +36,7 @@ import type {
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
-import { FaPen, FaXmark } from "react-icons/fa6";
+import { FaPen } from "react-icons/fa6";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -177,9 +177,11 @@ export function AziendaTimelineModal({
   );
   const [inserisciOpen, setInserisciOpen] = useState(false);
   const [salvaBozzaOpen, setSalvaBozzaOpen] = useState(false);
-  const [editNota, setEditNota] = useState<AziendaTimelineItem | null>(null);
-  const [editTitolo, setEditTitolo] = useState("");
-  const [editBody, setEditBody] = useState("");
+  /** Se valorizzato: pannello nota in modalità modifica (stesso UI della creazione). */
+  const [editingNotaId, setEditingNotaId] = useState<string | null>(null);
+  const [editingNotaCreatedAt, setEditingNotaCreatedAt] = useState<
+    string | null
+  >(null);
   const notaBodyRef = useRef<HTMLTextAreaElement>(null);
   const cursorRef = useRef<{ start: number; end: number }>({
     start: 0,
@@ -282,6 +284,8 @@ export function AziendaTimelineModal({
     setActiveBozza(null);
     setBozzaValues({});
     setBozzaEditMode("placeholders");
+    setEditingNotaId(null);
+    setEditingNotaCreatedAt(null);
   }
 
   function resolvedNotaBody(): string {
@@ -300,6 +304,25 @@ export function AziendaTimelineModal({
       return;
     }
     startTransition(async () => {
+      if (editingNotaId) {
+        const res = await updateNotaPnAction({
+          id: editingNotaId,
+          titolo: notaTitolo,
+          body: richToPlain(bodyRich) || bodyRich,
+          bodyRich,
+          allegati: notaAllegati,
+        });
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        resetNotaForm();
+        setPanel("none");
+        setInfo("Nota aggiornata (data di creazione invariata).");
+        await reload();
+        return;
+      }
+
       const res = await createNotaPnAction({
         titolo: notaTitolo,
         body: richToPlain(bodyRich) || bodyRich,
@@ -335,36 +358,35 @@ export function AziendaTimelineModal({
       bozza.placeholders.length > 0 ? "placeholders" : "free"
     );
   }
+
   function openEditNota(item: AziendaTimelineItem) {
     if (!item.notaId) return;
     setError(null);
-    setEditNota(item);
-    setEditTitolo(item.title === "Nota" ? "" : item.title);
-    setEditBody(item.notaBodyRich || item.notaBody || "");
-  }
-
-  function saveEditNota() {
-    if (!editNota?.notaId) return;
-    const bodyRich = editBody.trim();
-    if (!bodyRich) {
-      setError("Il testo della nota è obbligatorio.");
-      return;
-    }
-    setError(null);
-    startTransition(async () => {
-      const res = await updateNotaPnAction({
-        id: editNota.notaId,
-        titolo: editTitolo,
-        body: richToPlain(bodyRich) || bodyRich,
-        bodyRich,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setEditNota(null);
-      setInfo("Nota aggiornata (data di creazione invariata).");
-      await reload();
+    setInfo(null);
+    setActiveBozza(null);
+    setBozzaValues({});
+    setBozzaEditMode("free");
+    setNotaBozzaId(null);
+    setEditingNotaId(item.notaId);
+    setEditingNotaCreatedAt(item.notaCreatedAt ?? item.occurredAt);
+    setNotaTitolo(item.title === "Nota" ? "" : item.title);
+    setNotaBody(item.notaBodyRich || item.notaBody || "");
+    setNotaAllegati(
+      (item.notaAllegati ?? []).map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        label: a.label,
+        url: a.url,
+        storagePath: a.storagePath,
+      }))
+    );
+    setPanel("nota");
+    cursorRef.current = {
+      start: (item.notaBodyRich || item.notaBody || "").length,
+      end: (item.notaBodyRich || item.notaBody || "").length,
+    };
+    requestAnimationFrame(() => {
+      notaBodyRef.current?.focus();
     });
   }
 
@@ -400,7 +422,6 @@ export function AziendaTimelineModal({
         if (
           inserisciOpen ||
           salvaBozzaOpen ||
-          editNota ||
           hasNestedModalOpen()
         ) {
           return;
@@ -429,9 +450,14 @@ export function AziendaTimelineModal({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() =>
-                setPanel((p) => (p === "nota" ? "none" : "nota"))
-              }
+              onClick={() => {
+                if (panel === "nota" && !editingNotaId) {
+                  setPanel("none");
+                  return;
+                }
+                resetNotaForm();
+                setPanel("nota");
+              }}
               className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
             >
               + Nota
@@ -457,7 +483,18 @@ export function AziendaTimelineModal({
 
         {panel === "nota" ? (
           <div className="shrink-0 border-b border-[var(--border)] bg-amber-50/80 px-5 py-4 sm:px-8">
-            <p className="text-sm font-medium text-amber-950">Nuova nota</p>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm font-medium text-amber-950">
+                {editingNotaId ? "Modifica nota" : "Nuova nota"}
+              </p>
+              {editingNotaId && editingNotaCreatedAt ? (
+                <p className="text-[11px] text-amber-900/80">
+                  Creata il{" "}
+                  {new Date(editingNotaCreatedAt).toLocaleString("it-IT")} —
+                  non cambia al salvataggio
+                </p>
+              ) : null}
+            </div>
             <div className="mt-2 space-y-2">
               <input
                 value={notaTitolo}
@@ -536,7 +573,7 @@ export function AziendaTimelineModal({
                 onClick={saveNota}
                 className="rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               >
-                Salva nota
+                {editingNotaId ? "Salva modifiche" : "Salva nota"}
               </button>
               <button
                 type="button"
@@ -786,93 +823,6 @@ export function AziendaTimelineModal({
           setNotaBozzaId(item.id);
         }}
       />
-
-      {editNota ? (
-        <div
-          data-nested-modal
-          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/55 p-4"
-          onClick={(e) => {
-            e.stopPropagation();
-            setEditNota(null);
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div
-            role="dialog"
-            aria-modal
-            aria-label="Modifica nota"
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h3 className="font-semibold">Modifica nota</h3>
-                <p className="mt-0.5 text-[11px] text-slate-500">
-                  La data di creazione resta{" "}
-                  {editNota.notaCreatedAt
-                    ? new Date(editNota.notaCreatedAt).toLocaleString("it-IT")
-                    : "invariata"}
-                  .
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditNota(null)}
-                className="rounded p-1 text-slate-500 hover:bg-slate-100"
-                aria-label="Chiudi"
-              >
-                <FaXmark size={14} />
-              </button>
-            </div>
-            <label className="mt-3 block text-xs font-medium">
-              Titolo (opz.)
-              <input
-                value={editTitolo}
-                onChange={(e) => setEditTitolo(e.target.value.slice(0, 200))}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-            <label className="mt-3 block text-xs font-medium">
-              Testo
-              <textarea
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-                rows={8}
-                className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-            {editNota.notaAllegati && editNota.notaAllegati.length > 0 ? (
-              <div className="mt-3">
-                <p className="mb-1 text-[11px] font-medium text-slate-500">
-                  Allegati (invariati)
-                </p>
-                <NotaRichBody
-                  compact
-                  allegati={editNota.notaAllegati}
-                />
-              </div>
-            ) : null}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditNota(null)}
-                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
-              >
-                Annulla
-              </button>
-              <button
-                type="button"
-                disabled={pending || !editBody.trim()}
-                onClick={saveEditNota}
-                className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {pending ? "Salvataggio…" : "Salva"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 
