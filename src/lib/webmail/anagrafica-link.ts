@@ -123,17 +123,17 @@ export function intentToCategoriaCodice(intent: string): string {
     case "ordini":
     case "ordine_lotto":
       return "ordini";
-    case "contatti":
-      return "contatti";
     case "info":
-    case "generico":
     case "scheda_tecnica":
+    case "contatti":
       return "info";
-    case "da_revisionare":
-      return "da_revisionare";
+    case "pubblicita":
     case "scartate":
-      return "scartate";
+      return "pubblicita";
+    case "generico":
+    case "da_revisionare":
+      return "generico";
     default:
-      return "info";
+      return "generico";
   }
 }

@@ -12,6 +12,7 @@ import {
   listWebmailAccountsAction,
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
+  markWebmailMessaggioSeenAction,
   rejectWebmailCategoriaSuggestionAction,
   restoreWebmailMessaggioAction,
   runWebmailSyncAction,
@@ -179,6 +180,10 @@ export function WebmailBoard({
     }
     setAiReplyModalOpen(false);
     void (async () => {
+      const seen = await markWebmailMessaggioSeenAction(selectedId);
+      if (seen.success) {
+        patchMessaggio(seen.messaggio);
+      }
       const res = await getWebmailBozzaForMessaggioAction(selectedId);
       if (!res.success) {
         setError(res.error);
@@ -408,14 +413,27 @@ export function WebmailBoard({
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="line-clamp-1 font-medium text-slate-900">
+                      <p
+                        className={`line-clamp-1 ${
+                          m.isSeen
+                            ? "font-medium text-slate-900"
+                            : "font-semibold text-slate-950"
+                        }`}
+                      >
                         {m.subject}
                       </p>
-                      {m.hasAiDraft ? (
-                        <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-                          Bozza AI
-                        </span>
-                      ) : null}
+                      <div className="flex shrink-0 items-center gap-1">
+                        {!m.isSeen ? (
+                          <span className="rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                            new
+                          </span>
+                        ) : null}
+                        {m.hasAiDraft ? (
+                          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+                            Bozza AI
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
                       {m.fromName || m.fromAddress} · {formatWhen(m.receivedAt)}

@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 import {
   listWebmailAccountsAction,
   listWebmailCategorieAction,
+  listWebmailUnreadCountsAction,
+  type WebmailUnreadCounts,
 } from "@/app/actions/webmail";
 import type {
   WebmailAccountPublic,
@@ -37,6 +39,19 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+function UnreadBanner({ count }: { count: number }) {
+  if (count <= 0) return null;
+  const label = count > 99 ? "99+" : String(count);
+  return (
+    <span
+      className="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold leading-none text-white shadow-sm"
+      title={`${count} non aperte`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function accountBase(id: string) {
   return `/app/webmail/caselle/${id}`;
 }
@@ -49,22 +64,46 @@ export function WebmailSidebarNav() {
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [expandedAcc, setExpandedAcc] = useState<Record<string, boolean>>({});
   const [catOpen, setCatOpen] = useState<Record<string, boolean>>({});
+  const [unreadByAccount, setUnreadByAccount] = useState<
+    Record<string, WebmailUnreadCounts>
+  >({});
+
+  const loadUnread = useCallback(async (accIds: string[]) => {
+    const entries = await Promise.all(
+      accIds.map(async (id) => {
+        const res = await listWebmailUnreadCountsAction(id);
+        return [id, res.success ? res.counts : { inbox: 0, byCategoriaId: {} }] as const;
+      })
+    );
+    setUnreadByAccount(Object.fromEntries(entries));
+  }, []);
 
   const load = useCallback(() => {
     void Promise.all([
       listWebmailAccountsAction(),
       listWebmailCategorieAction(),
     ]).then(([a, c]) => {
-      if (a.success) setAccounts(a.accounts);
-      else setAccounts([]);
-      if (c.success) setCategorie(c.items);
-      else setCategorie([]);
+      const accs = a.success ? a.accounts : [];
+      setAccounts(accs);
+      setCategorie(c.success ? c.items : []);
+      if (accs.length) void loadUnread(accs.map((x) => x.id));
     });
-  }, []);
+  }, [loadUnread]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Aggiorna i badge quando si naviga nelle caselle (es. dopo aver aperto una mail)
+  useEffect(() => {
+    if (!pathname.startsWith("/app/webmail/caselle") || accounts.length === 0) {
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void loadUnread(accounts.map((x) => x.id));
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [pathname, accounts, loadUnread]);
 
   useEffect(() => {
     if (pathname.startsWith("/app/webmail")) setOpen(true);
@@ -104,6 +143,10 @@ export function WebmailSidebarNav() {
                 const accOpen = Boolean(expandedAcc[acc.id]);
                 const accActive = pathname.startsWith(base);
                 const catsExpanded = Boolean(catOpen[acc.id]);
+                const counts = unreadByAccount[acc.id] ?? {
+                  inbox: 0,
+                  byCategoriaId: {},
+                };
 
                 return (
                   <li key={acc.id}>
@@ -159,11 +202,13 @@ export function WebmailSidebarNav() {
                                 categorie.map((cat) => {
                                   const href = `${base}/categoria/${cat.id}`;
                                   const active = pathname === href;
+                                  const unread =
+                                    counts.byCategoriaId[cat.id] ?? 0;
                                   return (
                                     <li key={cat.id}>
                                       <Link
                                         href={href}
-                                        className={`inline-flex max-w-full items-center truncate rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm ring-1 ring-black/10 transition ${
+                                        className={`inline-flex w-full max-w-full items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold text-white shadow-sm ring-1 ring-black/10 transition ${
                                           active
                                             ? "ring-2 ring-white/80"
                                             : "opacity-90 hover:opacity-100"
@@ -171,7 +216,14 @@ export function WebmailSidebarNav() {
                                         style={{ background: cat.colore }}
                                         title={cat.nome}
                                       >
-                                        {cat.nome}
+                                        <span className="min-w-0 flex-1 truncate">
+                                          {cat.nome}
+                                        </span>
+                                        {unread > 0 ? (
+                                          <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-black/35 px-1 text-[9px] font-bold text-white ring-1 ring-white/40">
+                                            {unread > 99 ? "99+" : unread}
+                                          </span>
+                                        ) : null}
                                       </Link>
                                     </li>
                                   );
@@ -183,12 +235,13 @@ export function WebmailSidebarNav() {
                         <li>
                           <Link
                             href={`${base}/in-arrivo`}
-                            className={itemClass(
+                            className={`${itemClass(
                               pathname === `${base}/in-arrivo` ||
                                 pathname === base
-                            )}
+                            )} justify-between gap-2`}
                           >
                             <span className="truncate">In Arrivo</span>
+                            <UnreadBanner count={counts.inbox} />
                           </Link>
                         </li>
                         <li>
@@ -198,7 +251,7 @@ export function WebmailSidebarNav() {
                               pathname === `${base}/bozze`
                             )}
                           >
-                            <span className="truncate">Bozze</span>
+                            <span className="truncate">Bozze AI</span>
                           </Link>
                         </li>
                         <li>

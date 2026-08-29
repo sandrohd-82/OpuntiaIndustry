@@ -128,6 +128,95 @@ export async function listWebmailCategorieAction(): Promise<
   };
 }
 
+export type WebmailUnreadCounts = {
+  inbox: number;
+  byCategoriaId: Record<string, number>;
+};
+
+/**
+ * Conteggio mail non aperte (is_seen=false) per In arrivo e per categoria, per casella.
+ */
+export async function listWebmailUnreadCountsAction(
+  accountId: string
+): Promise<
+  | { success: true; counts: WebmailUnreadCounts }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const parsed = z.string().uuid().safeParse(accountId);
+  if (!parsed.success) {
+    return { success: false, error: "Casella non valida." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("id, categoria_id")
+    .eq("account_id", parsed.data)
+    .eq("direction", "inbound")
+    .eq("is_seen", false)
+    .is("deleted_at", null)
+    .neq("folder", "TRASH")
+    .limit(5000);
+  if (error) return { success: false, error: error.message };
+
+  let inbox = 0;
+  const byCategoriaId: Record<string, number> = {};
+  for (const r of data ?? []) {
+    const cat = r.categoria_id ? String(r.categoria_id) : null;
+    if (!cat) {
+      inbox += 1;
+    } else {
+      byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + 1;
+    }
+  }
+  return { success: true, counts: { inbox, byCategoriaId } };
+}
+
+export async function markWebmailMessaggioSeenAction(
+  messaggioId: string
+): Promise<
+  | { success: true; messaggio: WebmailMessaggio }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = z.string().uuid().safeParse(messaggioId);
+  if (!parsed.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+  const supabase = await createClient();
+  const { data: existing, error: exErr } = await supabase
+    .from("webmail_messaggi")
+    .select(MESSAGGIO_SELECT)
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (exErr) return { success: false, error: exErr.message };
+  if (!existing) return { success: false, error: "Messaggio non trovato." };
+  if (Boolean(existing.is_seen)) {
+    return {
+      success: true,
+      messaggio: mapMessaggio(existing as Record<string, unknown>),
+    };
+  }
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      is_seen: true,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data)
+    .is("deleted_at", null)
+    .select(MESSAGGIO_SELECT)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+  return {
+    success: true,
+    messaggio: mapMessaggio(data as Record<string, unknown>),
+  };
+}
+
 export async function listWebmailAccountsAction(): Promise<
   | {
       success: true;
@@ -1094,7 +1183,7 @@ export async function createWebmailCategoriaAction(raw: unknown): Promise<
   if (!parsed.success) {
     return { success: false, error: "Nome categoria non valido." };
   }
-  const { slugifyCategoriaCodice } = await import(
+  const { slugifyCategoriaCodice, pickUnusedCategoriaColore } = await import(
     "@/lib/webmail/category-learn"
   );
   let codice = slugifyCategoriaCodice(parsed.data.nome);
@@ -1107,13 +1196,27 @@ export async function createWebmailCategoriaAction(raw: unknown): Promise<
     .maybeSingle();
   if (clash) codice = `${codice}_${Date.now().toString(36).slice(-4)}`;
 
+  const { data: existingColors } = await supabase
+    .from("webmail_categorie")
+    .select("colore")
+    .is("deleted_at", null);
+  const usedColors = (existingColors ?? []).map((r) =>
+    String(r.colore ?? "")
+  );
+  const requested = parsed.data.colore;
+  const colore =
+    requested &&
+    !usedColors.some((c) => c.toLowerCase() === requested.toLowerCase())
+      ? requested
+      : pickUnusedCategoriaColore(usedColors);
+
   const { data, error } = await supabase
     .from("webmail_categorie")
     .insert({
       codice,
       nome: parsed.data.nome,
       descrizione: parsed.data.descrizione,
-      colore: parsed.data.colore,
+      colore,
       is_system: false,
       sort_order: 500,
       created_by: auth.userId,
