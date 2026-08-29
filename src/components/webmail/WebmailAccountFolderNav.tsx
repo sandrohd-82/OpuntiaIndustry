@@ -24,23 +24,44 @@ type Props = {
 
 function UnreadPill({
   count,
-  onColor,
+  color,
 }: {
   count: number;
-  onColor?: boolean;
+  /** Colore categoria per bordo/testo del badge */
+  color?: string;
 }) {
   if (count <= 0) return null;
+  if (color) {
+    return (
+      <span
+        className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border bg-white px-1.5 text-[10px] font-bold"
+        style={{ color, borderColor: color }}
+        title={`${count} non aperte`}
+      >
+        {count}
+      </span>
+    );
+  }
   return (
     <span
-      className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
-        onColor
-          ? "bg-black/30 text-white ring-1 ring-white/40"
-          : "bg-emerald-500 text-white"
-      }`}
+      className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white"
+      title={`${count} non aperte`}
     >
-      {count > 99 ? "99+" : count}
+      {count}
     </span>
   );
+}
+
+/** Hex #RRGGBB → rgba con alpha (selezione semitrasparente). */
+function hexToRgba(hex: string, alpha: number): string {
+  const raw = hex.replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(raw)) {
+    return `rgba(100, 116, 139, ${alpha})`;
+  }
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 function navItemClass(active: boolean) {
@@ -138,18 +159,23 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
             const href = `${base}/categoria/${cat.id}`;
             const active = pathname === href;
             const unread = counts.byCategoriaId[cat.id] ?? 0;
+            const color = cat.colore || "#64748b";
             return (
               <Link
                 key={cat.id}
                 href={href}
-                className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-white shadow-sm ring-1 ring-black/10 transition ${
-                  active ? "ring-2 ring-slate-900/40" : "opacity-90 hover:opacity-100"
-                }`}
-                style={{ background: cat.colore }}
+                className="flex w-full items-center gap-2 rounded-xl border-2 bg-white px-3 py-2 text-left text-sm font-semibold transition hover:bg-slate-50"
+                style={{
+                  color,
+                  borderColor: color,
+                  backgroundColor: active
+                    ? hexToRgba(color, 0.14)
+                    : "#ffffff",
+                }}
                 title={cat.nome}
               >
                 <span className="min-w-0 flex-1 truncate">{cat.nome}</span>
-                <UnreadPill count={unread} onColor />
+                <UnreadPill count={unread} color={color} />
               </Link>
             );
           })
