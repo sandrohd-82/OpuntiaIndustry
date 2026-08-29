@@ -200,15 +200,17 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   {
     const { data } = await service
       .from("pn_note")
-      .select("id, titolo, body, body_rich, allegati, due_at, created_at, colore")
+      .select(
+        "id, titolo, body, body_rich, allegati, due_at, created_at, colore"
+      )
       .eq("entity_type", aziendaTipo)
       .eq("entity_id", aziendaId)
       .is("deleted_at", null)
       .limit(200);
     for (const r of data ?? []) {
-      const when =
-        (r.due_at as string | null) || (r.created_at as string | null);
-      if (!when) continue;
+      const createdAt = r.created_at as string | null;
+      if (!createdAt) continue;
+      // Posizione timeline = data creazione (immutabile alle modifiche)
       const body = String(r.body ?? "");
       const bodyRich = String(r.body_rich ?? body);
       const allegati = Array.isArray(r.allegati)
@@ -223,12 +225,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       pushSorted(items, {
         id: `nota:${r.id}`,
         kind: "nota",
-        occurredAt: when,
+        occurredAt: createdAt,
         title: String(r.titolo || "Nota").trim() || "Nota",
         subtitle: body.slice(0, 120),
         href: "/app/promemorie-e-note",
+        notaId: String(r.id),
         notaBody: body,
         notaBodyRich: bodyRich,
+        notaCreatedAt: createdAt,
         notaAllegati: allegati,
       });
     }

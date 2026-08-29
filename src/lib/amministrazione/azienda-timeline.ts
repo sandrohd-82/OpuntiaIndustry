@@ -18,9 +18,11 @@ export type AziendaTimelineItem = {
   title: string;
   subtitle: string;
   href?: string | null;
-  /** Solo kind=nota: corpo e allegati per anteprima ricca */
+  /** Solo kind=nota */
+  notaId?: string;
   notaBody?: string;
   notaBodyRich?: string;
+  notaCreatedAt?: string;
   notaAllegati?: Array<{
     id: string;
     kind: string;

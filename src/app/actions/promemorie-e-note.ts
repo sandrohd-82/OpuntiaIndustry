@@ -668,12 +668,15 @@ export async function updateNotaPnAction(input: unknown): Promise<
     body: bodyPlain,
     body_rich: bodyRich,
     colore: d.colore ?? "giallo",
-    due_at: dueAt,
     linked_promemoria_id: linkedPromemoriaId,
     linked_attivita_id: linkedAttivitaId,
     versione: nextVersione,
     updated_by: auth.userId,
   };
+  // due_at solo se esplicitamente inviato — non toccare created_at (immutabile)
+  if (d.dueAt !== undefined) {
+    patch.due_at = d.dueAt || null;
+  }
   if (d.allegati !== undefined) patch.allegati = d.allegati;
   const { data, error } = await supabase
     .from("pn_note")

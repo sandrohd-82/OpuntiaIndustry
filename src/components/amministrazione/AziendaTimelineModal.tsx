@@ -17,7 +17,7 @@ import {
   type AziendaTimelineMailHint,
   type AziendaTimelineMailHit,
 } from "@/app/actions/azienda-timeline";
-import { createNotaPnAction } from "@/app/actions/promemorie-e-note";
+import { createNotaPnAction, updateNotaPnAction } from "@/app/actions/promemorie-e-note";
 import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
 import { NotaInserisciSheet } from "@/components/promemorie-e-note/NotaInserisciSheet";
 import { NotaSalvaBozzaModal } from "@/components/promemorie-e-note/NotaSalvaBozzaModal";
@@ -36,6 +36,7 @@ import type {
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
+import { FaPen, FaXmark } from "react-icons/fa6";
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -75,21 +76,36 @@ type Props = {
 function TimelineCard({
   item,
   align,
+  onEditNota,
 }: {
   item: AziendaTimelineItem;
   align: "left" | "right";
+  onEditNota?: (item: AziendaTimelineItem) => void;
 }) {
   const isNota = item.kind === "nota";
   return (
     <article
-      className={`rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-sm shadow-sm ${
+      className={`relative rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-sm shadow-sm ${
         align === "left" ? "md:text-right" : "md:text-left"
       }`}
     >
+      {isNota && onEditNota ? (
+        <button
+          type="button"
+          onClick={() => onEditNota(item)}
+          aria-label="Modifica nota"
+          title="Modifica nota"
+          className={`absolute top-2 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-black/10 bg-white/90 text-slate-700 hover:bg-white ${
+            align === "left" ? "left-2 md:left-auto md:right-2" : "right-2"
+          }`}
+        >
+          <FaPen size={11} />
+        </button>
+      ) : null}
       <div
         className={`flex flex-wrap items-center gap-2 ${
-          align === "left" ? "md:justify-end" : "md:justify-start"
-        }`}
+          isNota && onEditNota ? "pr-9" : ""
+        } ${align === "left" ? "md:justify-end" : "md:justify-start"}`}
       >
         <span
           className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${KIND_CLASS[item.kind]}`}
@@ -100,7 +116,13 @@ function TimelineCard({
           {new Date(item.occurredAt).toLocaleString("it-IT")}
         </time>
       </div>
-      <p className="mt-1.5 font-medium text-slate-900">{item.title}</p>
+      <p
+        className={`mt-1.5 font-medium text-slate-900 ${
+          isNota && onEditNota ? "pr-9" : ""
+        }`}
+      >
+        {item.title}
+      </p>
       {isNota ? (
         <div
           className={`mt-2 ${
@@ -155,6 +177,9 @@ export function AziendaTimelineModal({
   );
   const [inserisciOpen, setInserisciOpen] = useState(false);
   const [salvaBozzaOpen, setSalvaBozzaOpen] = useState(false);
+  const [editNota, setEditNota] = useState<AziendaTimelineItem | null>(null);
+  const [editTitolo, setEditTitolo] = useState("");
+  const [editBody, setEditBody] = useState("");
   const notaBodyRef = useRef<HTMLTextAreaElement>(null);
   const cursorRef = useRef<{ start: number; end: number }>({
     start: 0,
@@ -310,6 +335,39 @@ export function AziendaTimelineModal({
       bozza.placeholders.length > 0 ? "placeholders" : "free"
     );
   }
+  function openEditNota(item: AziendaTimelineItem) {
+    if (!item.notaId) return;
+    setError(null);
+    setEditNota(item);
+    setEditTitolo(item.title === "Nota" ? "" : item.title);
+    setEditBody(item.notaBodyRich || item.notaBody || "");
+  }
+
+  function saveEditNota() {
+    if (!editNota?.notaId) return;
+    const bodyRich = editBody.trim();
+    if (!bodyRich) {
+      setError("Il testo della nota è obbligatorio.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const res = await updateNotaPnAction({
+        id: editNota.notaId,
+        titolo: editTitolo,
+        body: richToPlain(bodyRich) || bodyRich,
+        bodyRich,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setEditNota(null);
+      setInfo("Nota aggiornata (data di creazione invariata).");
+      await reload();
+    });
+  }
+
   function linkMail(hit: AziendaTimelineMailHit) {
     if (hit.alreadyLinked) return;
     setError(null);
@@ -342,6 +400,7 @@ export function AziendaTimelineModal({
         if (
           inserisciOpen ||
           salvaBozzaOpen ||
+          editNota ||
           hasNestedModalOpen()
         ) {
           return;
@@ -653,11 +712,19 @@ export function AziendaTimelineModal({
                         />
                       </div>
                       <div className="md:hidden">
-                        <TimelineCard item={item} align="right" />
+                        <TimelineCard
+                          item={item}
+                          align="right"
+                          onEditNota={openEditNota}
+                        />
                       </div>
                       <div className="hidden md:block">
                         {onLeft ? (
-                          <TimelineCard item={item} align="left" />
+                          <TimelineCard
+                            item={item}
+                            align="left"
+                            onEditNota={openEditNota}
+                          />
                         ) : (
                           <div aria-hidden className="h-1" />
                         )}
@@ -670,7 +737,11 @@ export function AziendaTimelineModal({
                       </div>
                       <div className="hidden md:block">
                         {!onLeft ? (
-                          <TimelineCard item={item} align="right" />
+                          <TimelineCard
+                            item={item}
+                            align="right"
+                            onEditNota={openEditNota}
+                          />
                         ) : (
                           <div aria-hidden className="h-1" />
                         )}
@@ -715,6 +786,93 @@ export function AziendaTimelineModal({
           setNotaBozzaId(item.id);
         }}
       />
+
+      {editNota ? (
+        <div
+          data-nested-modal
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/55 p-4"
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditNota(null);
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <div
+            role="dialog"
+            aria-modal
+            aria-label="Modifica nota"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-semibold">Modifica nota</h3>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  La data di creazione resta{" "}
+                  {editNota.notaCreatedAt
+                    ? new Date(editNota.notaCreatedAt).toLocaleString("it-IT")
+                    : "invariata"}
+                  .
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditNota(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Chiudi"
+              >
+                <FaXmark size={14} />
+              </button>
+            </div>
+            <label className="mt-3 block text-xs font-medium">
+              Titolo (opz.)
+              <input
+                value={editTitolo}
+                onChange={(e) => setEditTitolo(e.target.value.slice(0, 200))}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="mt-3 block text-xs font-medium">
+              Testo
+              <textarea
+                value={editBody}
+                onChange={(e) => setEditBody(e.target.value)}
+                rows={8}
+                className="mt-1 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+            {editNota.notaAllegati && editNota.notaAllegati.length > 0 ? (
+              <div className="mt-3">
+                <p className="mb-1 text-[11px] font-medium text-slate-500">
+                  Allegati (invariati)
+                </p>
+                <NotaRichBody
+                  compact
+                  allegati={editNota.notaAllegati}
+                />
+              </div>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditNota(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending || !editBody.trim()}
+                onClick={saveEditNota}
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {pending ? "Salvataggio…" : "Salva"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 

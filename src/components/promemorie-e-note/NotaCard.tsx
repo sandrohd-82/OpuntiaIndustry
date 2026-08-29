@@ -70,6 +70,7 @@ export function NotaCard({ nota, onUpdated, compact, onError }: Props) {
         id: nota.id,
         titolo,
         body,
+        bodyRich: body,
         colore,
         dueAt: extras.dueAt,
         createPromemoria: extras.createPromemoria,
