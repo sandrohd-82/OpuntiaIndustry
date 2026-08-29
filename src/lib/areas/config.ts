@@ -55,6 +55,12 @@ export const AREA_ROUTES: Record<
     label: "Ricerca e sviluppo",
     description: "Ricerche processi e materie prime — timeline report",
   },
+  wikiopuntia: {
+    path: "/app/wikiopuntia",
+    label: "WikiOpuntia",
+    description:
+      "Biblioteca scientifica, Knowledge Base AI e pubblicazione wikiopuntia.com",
+  },
   commerciale: {
     path: "/app/commerciale",
     label: "Commerciale",
@@ -83,6 +89,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
   "amministrazione",
   "ricerca-sviluppo",
+  "wikiopuntia",
   "produzione",
   "chat",
   "webmail",

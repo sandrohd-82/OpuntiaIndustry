@@ -97,6 +97,40 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Catalogo movimentazione, confezione, isolamento e corrieri",
         path: "/app/amministrazione/schede/imballaggi-spedizioni",
       },
+      {
+        slug: "listini-b2b",
+        label: "Listini B2B",
+        description:
+          "Listini versionati per OpuntiaItalia (bozza / approvato / pubblicato)",
+        path: "/app/amministrazione/schede/listini-b2b",
+      },
+      {
+        slug: "canali-pubblicazione",
+        label: "Canali pubblicazione",
+        description:
+          "Visibilità B2B / Wiki / B2C e stato pubblicazione prodotti",
+        path: "/app/amministrazione/schede/canali-pubblicazione",
+      },
+    ],
+  },
+  {
+    slug: "portale",
+    label: "Portale web",
+    description: "Lead da OpuntiaItalia: contatti e newsletter",
+    path: "/app/amministrazione/portale",
+    children: [
+      {
+        slug: "richieste-contatto",
+        label: "Richieste contatto",
+        description: "Form contatti del sito B2B",
+        path: "/app/amministrazione/portale/richieste-contatto",
+      },
+      {
+        slug: "newsletter",
+        label: "Newsletter",
+        description: "Iscritti newsletter / pillole",
+        path: "/app/amministrazione/portale/newsletter",
+      },
     ],
   },
   {

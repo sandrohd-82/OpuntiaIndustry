@@ -22,6 +22,7 @@ import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
+import { WIKIOPUNTIA_SECTIONS } from "@/lib/areas/wikiopuntia";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
@@ -53,6 +54,8 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
       return PRODUZIONE_SECTIONS;
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
+    case "wikiopuntia":
+      return WIKIOPUNTIA_SECTIONS;
     case "magazzino":
       return MAGAZZINO_SECTIONS;
     case "amministrazione":

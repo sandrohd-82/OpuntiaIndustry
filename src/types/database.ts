@@ -21,6 +21,7 @@ export type AreaSlug =
   | "promemorie-e-note"
   | "area-fornitori"
   | "ricerca-sviluppo"
+  | "wikiopuntia"
   | "impostazioni";
 
 export interface AppRole {
@@ -413,6 +414,19 @@ export interface MateriaPrimaUpdate {
   deleted_by?: string | null;
 }
 
+export type StatoPubblicazioneCanale =
+  | "bozza"
+  | "approvato"
+  | "pubblicato"
+  | "ritirato";
+
+export type ListinoCanale = "b2b" | "b2c";
+export type ListinoStato = "bozza" | "approvato" | "pubblicato" | "chiuso";
+export type OrdineCanale = "gestionale" | "b2b" | "b2c";
+export type PortaleRichiestaStato = "nuova" | "presa_in_carico" | "chiusa";
+export type WikiResearchStatus = "draft" | "published" | "archived";
+export type WikiIngestStatus = "pending" | "processing" | "done" | "error";
+
 export interface ProdottoProprioRow {
   id: string;
   codice: string;
@@ -421,6 +435,16 @@ export interface ProdottoProprioRow {
   is_bio: boolean;
   scheda_tecnica_path?: string;
   prezzo_listino?: number | null;
+  slug_pubblico?: string | null;
+  nome_pubblico?: string;
+  descrizione_pubblica?: string;
+  unita_misura?: string;
+  visibile_b2b?: boolean;
+  visibile_b2c?: boolean;
+  visibile_wiki?: boolean;
+  stato_pubblicazione?: StatoPubblicazioneCanale;
+  published_at?: string | null;
+  published_by?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -453,12 +477,145 @@ export interface ProdottoProprioUpdate {
   is_bio?: boolean;
   scheda_tecnica_path?: string;
   prezzo_listino?: number | null;
+  slug_pubblico?: string | null;
+  nome_pubblico?: string;
+  descrizione_pubblica?: string;
+  unita_misura?: string;
+  visibile_b2b?: boolean;
+  visibile_b2c?: boolean;
+  visibile_wiki?: boolean;
+  stato_pubblicazione?: StatoPubblicazioneCanale;
+  published_at?: string | null;
+  published_by?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
   created_at?: string;
   updated_at?: string;
   deleted_at?: string | null;
   deleted_by?: string | null;
+}
+
+export interface ListinoRow {
+  id: string;
+  codice: string;
+  nome: string;
+  canale: ListinoCanale;
+  valuta: string;
+  valido_dal: string;
+  valido_al: string | null;
+  versione: number;
+  stato: ListinoStato;
+  approved_at: string | null;
+  approved_by: string | null;
+  published_at: string | null;
+  published_by: string | null;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface ListinoRigaRow {
+  id: string;
+  listino_id: string;
+  prodotto_id: string;
+  prezzo: number;
+  iva_percentuale: number;
+  min_qty: number;
+  sconto_max_pct: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface WikiScientificResearchRow {
+  id: string;
+  legacy_id: number | null;
+  title: string;
+  abstract: string;
+  slug: string;
+  plant_parts: string[];
+  sectors: string[];
+  is_most_searched: boolean;
+  is_evidence: boolean;
+  published_year: number;
+  published_month: number;
+  published_at: string;
+  storage_path: string | null;
+  external_link: string;
+  pdf_available: boolean;
+  status: WikiResearchStatus;
+  published_at_portal: string | null;
+  published_by: string | null;
+  ingest_status: WikiIngestStatus;
+  ingest_error: string;
+  versione: number;
+  approved_at: string | null;
+  approved_by: string | null;
+  rs_ricerca_id: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface WikiDocumentRequestRow {
+  id: string;
+  research_id: string;
+  email: string;
+  document_name: string;
+  locale: string;
+  notified_at: string | null;
+  created_at: string;
+}
+
+export interface PortaleRichiestaContattoRow {
+  id: string;
+  nome: string;
+  cognome: string;
+  email: string;
+  telefono: string;
+  paese: string;
+  azienda: string;
+  oggetto: string;
+  prodotto_slug: string;
+  messaggio: string;
+  token_conferma: string | null;
+  email_confermata: boolean;
+  origine: string;
+  locale: string;
+  stato: PortaleRichiestaStato;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface PortaleNewsletterIscrittoRow {
+  id: string;
+  email: string;
+  vuole_news: boolean;
+  vuole_pillole: boolean;
+  locale: string;
+  confermato: boolean;
+  token_conferma: string | null;
+  utente_id: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
 }
 
 export type AttivitaDocumentoStato = "bozza" | "approvato" | "chiuso";
@@ -641,6 +798,10 @@ export interface OrdineRow {
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia: number | null;
   giorni_produzione: string[];
+  canale?: OrdineCanale;
+  listino_id?: string | null;
+  external_ref?: string;
+  portale_utente_id?: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -2081,6 +2242,78 @@ export interface Database {
         Update: ProdottoProprioUpdate;
         Relationships: [];
       };
+      listini: {
+        Row: ListinoRow;
+        Insert: Partial<ListinoRow> & { codice: string; nome: string };
+        Update: Partial<ListinoRow>;
+        Relationships: [];
+      };
+      listini_righe: {
+        Row: ListinoRigaRow;
+        Insert: Partial<ListinoRigaRow> & {
+          listino_id: string;
+          prodotto_id: string;
+          prezzo: number;
+        };
+        Update: Partial<ListinoRigaRow>;
+        Relationships: [];
+      };
+      wiki_scientific_research: {
+        Row: WikiScientificResearchRow;
+        Insert: Partial<WikiScientificResearchRow> & {
+          title: string;
+          slug: string;
+          published_year: number;
+          published_month: number;
+          published_at: string;
+        };
+        Update: Partial<WikiScientificResearchRow>;
+        Relationships: [];
+      };
+      wiki_document_requests: {
+        Row: WikiDocumentRequestRow;
+        Insert: Partial<WikiDocumentRequestRow> & {
+          research_id: string;
+          email: string;
+        };
+        Update: Partial<WikiDocumentRequestRow>;
+        Relationships: [];
+      };
+      wiki_document_chunks: {
+        Row: {
+          id: string;
+          research_id: string | null;
+          source_type: "abstract" | "pdf" | "article";
+          chunk_index: number;
+          content: string;
+          metadata: Record<string, unknown>;
+          embedding: number[] | null;
+          token_count: number;
+          embedding_model: string;
+          created_at: string;
+          updated_at: string;
+          created_by: string | null;
+        };
+        Insert: Record<string, unknown>;
+        Update: Record<string, unknown>;
+        Relationships: [];
+      };
+      portale_richieste_contatto: {
+        Row: PortaleRichiestaContattoRow;
+        Insert: Partial<PortaleRichiestaContattoRow> & {
+          nome: string;
+          email: string;
+          messaggio: string;
+        };
+        Update: Partial<PortaleRichiestaContattoRow>;
+        Relationships: [];
+      };
+      portale_newsletter_iscritti: {
+        Row: PortaleNewsletterIscrittoRow;
+        Insert: Partial<PortaleNewsletterIscrittoRow> & { email: string };
+        Update: Partial<PortaleNewsletterIscrittoRow>;
+        Relationships: [];
+      };
       ordini: {
         Row: OrdineRow;
         Insert: OrdineInsert;
@@ -2376,7 +2609,53 @@ export interface Database {
       };
     };
     Views: {
-      [_ in never]: never;
+      v_catalogo_b2b: {
+        Row: {
+          id: string;
+          codice: string;
+          slug_pubblico: string | null;
+          nome: string;
+          descrizione_pubblica: string;
+          unita_misura: string;
+          is_bio: boolean;
+          updated_at: string;
+        };
+      };
+      v_listino_b2b_vigente: {
+        Row: {
+          listino_id: string;
+          listino_codice: string;
+          listino_versione: number;
+          valido_dal: string;
+          valido_al: string | null;
+          prodotto_id: string;
+          prodotto_codice: string;
+          slug_pubblico: string | null;
+          nome: string;
+          prezzo: number;
+          iva_percentuale: number;
+          min_qty: number;
+          sconto_max_pct: number;
+        };
+      };
+      v_wiki_pubblicati: {
+        Row: {
+          id: string;
+          slug: string;
+          title: string;
+          abstract: string;
+          plant_parts: string[];
+          sectors: string[];
+          is_most_searched: boolean;
+          is_evidence: boolean;
+          published_year: number;
+          published_month: number;
+          published_at: string;
+          external_link: string;
+          pdf_available: boolean;
+          versione: number;
+        };
+      };
     };
     Functions: {
       get_user_areas: {
@@ -2390,6 +2669,21 @@ export interface Database {
       is_superadmin: {
         Args: Record<string, never>;
         Returns: boolean;
+      };
+      match_wiki_document_chunks: {
+        Args: {
+          query_embedding: number[];
+          match_count?: number;
+          filter_source?: string | null;
+        };
+        Returns: {
+          id: string;
+          research_id: string;
+          source_type: string;
+          content: string;
+          metadata: Record<string, unknown>;
+          similarity: number;
+        }[];
       };
       archive_unused_cliente: {
         Args: {

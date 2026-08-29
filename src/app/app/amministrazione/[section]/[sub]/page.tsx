@@ -10,6 +10,12 @@ import { PossibiliClientiBoard } from "@/components/amministrazione/PossibiliCli
 import { FornitoriBoard } from "@/components/amministrazione/FornitoriBoard";
 import { ImballaggiSpedizioniBoard } from "@/components/amministrazione/ImballaggiSpedizioniBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
+import { ListiniB2bBoard } from "@/components/amministrazione/ListiniB2bBoard";
+import { CanaliPubblicazioneBoard } from "@/components/amministrazione/CanaliPubblicazioneBoard";
+import {
+  PortaleNewsletterBoard,
+  PortaleRichiesteBoard,
+} from "@/components/amministrazione/PortaleLeadBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
@@ -190,6 +196,50 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           >
             <ProdottiPropriBoard />
           </Suspense>
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "listini-b2b") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ListiniB2bBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "schede" && sub === "canali-pubblicazione") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <CanaliPubblicazioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "portale" && sub === "richieste-contatto") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PortaleRichiesteBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "portale" && sub === "newsletter") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PortaleNewsletterBoard />
         </div>
       </>
     );
