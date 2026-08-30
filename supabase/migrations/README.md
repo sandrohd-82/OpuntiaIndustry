@@ -17,8 +17,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260829160000` | `wiki_is_public_categorie_multi.sql` | `is_public` + vista/RLS solo aperte |
 | `20260829170000` | `wiki_download_access_vs_invio_portale.sql` | PDF libero vs login; invio = published |
 | `20260829180000` | `wiki_close_richiesta_email.sql` | close=1 = richiesta + email, niente URL |
+| `20260829190000` | `wiki_backfill_is_public_from_close.sql` | Allinea is_public al dump (66 liberi, 28 richiesta) |
 
-**Prossimo timestamp libero: `20260829190000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260829200000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 
