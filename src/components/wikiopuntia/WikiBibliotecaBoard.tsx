@@ -5,13 +5,18 @@ import {
   createWikiResearchAction,
   listWikiResearchAction,
   setWikiResearchStatusAction,
+  setWikiResearchVisibilityAction,
 } from "@/app/actions/wikiopuntia";
 import { syncLegacyWikiArchiveAction } from "@/app/actions/wikiopuntia-sync";
 import {
+  labelsForApplicazioni,
+  labelsForPlantParts,
   slugFromTitle,
+  WIKI_APPLICAZIONE_LABELS,
+  WIKI_APPLICAZIONI,
   WIKI_PAPER_CATEGORIES,
+  WIKI_PLANT_PART_LABELS,
   WIKI_PLANT_PARTS,
-  WIKI_SECTORS,
   type WikiResearch,
 } from "@/lib/ecosystem/wiki";
 import type { WikiPaperCategory, WikiResearchStatus } from "@/types/database";
@@ -36,6 +41,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
   const [publishedMonth, setPublishedMonth] = useState(1);
   const [plantParts, setPlantParts] = useState<string[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
+  const [isPublic, setIsPublic] = useState(true);
   const [authorsText, setAuthorsText] = useState("");
   const [keywordsText, setKeywordsText] = useState("");
   const [category, setCategory] = useState<WikiPaperCategory>("");
@@ -88,6 +94,8 @@ export function WikiBibliotecaBoard({ mode }: Props) {
           abstract: string;
           authors: string[];
           publication_year: number;
+          plant_parts?: string[];
+          sectors?: string[];
           category: WikiPaperCategory;
           keywords: string[];
           ai_summary: string;
@@ -101,6 +109,8 @@ export function WikiBibliotecaBoard({ mode }: Props) {
       setSlug(json.slug || slugFromTitle(json.extracted.title));
       setAbstract(json.extracted.abstract);
       setPublishedYear(json.extracted.publication_year);
+      setPlantParts(json.extracted.plant_parts ?? []);
+      setSectors(json.extracted.sectors ?? []);
       setCategory(json.extracted.category);
       setAuthorsText(json.extracted.authors.join(", "));
       setKeywordsText(json.extracted.keywords.join(", "));
@@ -159,6 +169,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
         publishedMonth,
         plantParts,
         sectors,
+        isPublic,
         authors: authorsText
           .split(",")
           .map((s) => s.trim())
@@ -179,6 +190,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
       setTitle("");
       setSlug("");
       setAbstract("");
+      setPlantParts([]);
+      setSectors([]);
+      setIsPublic(true);
       setError(null);
       window.location.href = "/app/wikiopuntia/biblioteca/elenco";
     });
@@ -187,6 +201,20 @@ export function WikiBibliotecaBoard({ mode }: Props) {
   function setStatus(id: string, status: WikiResearchStatus) {
     startTransition(async () => {
       const res = await setWikiResearchStatusAction({ id, status });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      reload();
+    });
+  }
+
+  function setVisibility(id: string, nextPublic: boolean) {
+    startTransition(async () => {
+      const res = await setWikiResearchVisibilityAction({
+        id,
+        isPublic: nextPublic,
+      });
       if (!res.success) {
         setError(res.error);
         return;
@@ -216,10 +244,11 @@ export function WikiBibliotecaBoard({ mode }: Props) {
             </button>
           </div>
           <p className="mt-2 text-xs text-[var(--muted)]">
-            Legge le 94 schede da MySQL legacy (titolo, abstract, settori, path/file)
-            e carica i PDF da{" "}
-            <code>Img/Research/&#123;path&#125;/&#123;file&#125;</code> sul bucket
-            pubblico <code>wikiopuntia-docs</code>. Idempotente su <code>legacy_id</code>.
+            Legge le 94 schede da MySQL legacy: titolo, abstract, categorie multiple
+            (cladodes/fruits/flowers + nutrace/pharma/food/cosmetic/veterina/technical/other)
+            e flag <code>close</code> (0 = aperta/pubblica, 1 = chiusa/non pubblica).
+            I PDF vanno su <code>wikiopuntia-docs</code>. Idempotente su{" "}
+            <code>legacy_id</code>: una nuova sync aggiorna anche pubblica/chiusa.
           </p>
           {syncLog ? (
             <p className="mt-2 text-xs text-emerald-800">{syncLog}</p>
@@ -268,8 +297,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h2 className="text-sm font-semibold">Nuova ricerca scientifica</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Stato iniziale: Bozza · versione 1. La pubblicazione su wikiopuntia.com
-            richiede approvazione esplicita. Il PDF usa un publicUrl permanente.
+            Obbligatori: almeno una categoria di riferimento, almeno
+            un&apos;applicazione, e se la ricerca è aperta (pubblica sul portale)
+            o chiusa (solo gestionale). Versione 1, audit ISO 9001.
           </p>
           <label className="mt-3 block text-xs font-medium">Titolo</label>
           <input
@@ -361,7 +391,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
               />
             </div>
           </div>
-          <p className="mt-3 text-xs font-medium">Parti della pianta</p>
+          <p className="mt-3 text-xs font-medium">
+            Categoria di riferimento (obbligatorio, anche più di una)
+          </p>
           <div className="mt-1 flex flex-wrap gap-2">
             {WIKI_PLANT_PARTS.map((p) => (
               <label key={p} className="flex items-center gap-1 text-xs">
@@ -370,22 +402,45 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                   checked={plantParts.includes(p)}
                   onChange={() => toggle(plantParts, p, setPlantParts)}
                 />
-                {p}
+                {WIKI_PLANT_PART_LABELS[p]}
               </label>
             ))}
           </div>
-          <p className="mt-3 text-xs font-medium">Settori</p>
+          <p className="mt-3 text-xs font-medium">
+            Applicazione (obbligatorio, anche più di una)
+          </p>
           <div className="mt-1 flex flex-wrap gap-2">
-            {WIKI_SECTORS.map((s) => (
+            {WIKI_APPLICAZIONI.map((s) => (
               <label key={s} className="flex items-center gap-1 text-xs">
                 <input
                   type="checkbox"
                   checked={sectors.includes(s)}
                   onChange={() => toggle(sectors, s, setSectors)}
                 />
-                {s}
+                {WIKI_APPLICAZIONE_LABELS[s]}
               </label>
             ))}
+          </div>
+          <p className="mt-3 text-xs font-medium">Visibilità sul portale</p>
+          <div className="mt-1 flex flex-wrap gap-4 text-xs">
+            <label className="flex items-center gap-1">
+              <input
+                type="radio"
+                name="wiki-is-public"
+                checked={isPublic}
+                onChange={() => setIsPublic(true)}
+              />
+              Aperta — pubblica su wikiopuntia.com
+            </label>
+            <label className="flex items-center gap-1">
+              <input
+                type="radio"
+                name="wiki-is-public"
+                checked={!isPublic}
+                onChange={() => setIsPublic(false)}
+              />
+              Chiusa — non pubblica (solo gestionale)
+            </label>
           </div>
           <button
             type="button"
@@ -393,7 +448,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
             onClick={create}
             className="mt-4 rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            Salva bozza
+            {isPublic ? "Salva e pubblica sul portale" : "Salva come non pubblica"}
           </button>
         </div>
       </div>
@@ -412,10 +467,10 @@ export function WikiBibliotecaBoard({ mode }: Props) {
           <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
             <tr>
               <th className="px-3 py-2">Titolo</th>
-              <th className="px-3 py-2">Slug</th>
+              <th className="px-3 py-2">Riferimento</th>
+              <th className="px-3 py-2">Applicazione</th>
+              <th className="px-3 py-2">Portale</th>
               <th className="px-3 py-2">Stato</th>
-              <th className="px-3 py-2">Ingest AI</th>
-              <th className="px-3 py-2">Chunk</th>
               <th className="px-3 py-2">PDF</th>
               <th className="px-3 py-2">Azioni</th>
             </tr>
@@ -424,10 +479,24 @@ export function WikiBibliotecaBoard({ mode }: Props) {
             {items.map((item) => (
               <tr key={item.id} className="border-t border-[var(--border)]">
                 <td className="px-3 py-2 font-medium">{item.title}</td>
-                <td className="px-3 py-2 text-[var(--muted)]">{item.slug}</td>
+                <td className="px-3 py-2 text-xs">
+                  {labelsForPlantParts(item.plantParts) || "—"}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {labelsForApplicazioni(item.sectors) || "—"}
+                </td>
+                <td className="px-3 py-2">
+                  {item.isPublic ? (
+                    <span className="text-xs font-medium text-emerald-800">
+                      Pubblica
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-amber-800">
+                      Non pubblica
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2">{STATUS_LABEL[item.status]}</td>
-                <td className="px-3 py-2">{item.ingestStatus}</td>
-                <td className="px-3 py-2">{item.chunkCount ?? 0}</td>
                 <td className="px-3 py-2">
                   {item.publicUrl ? (
                     <a
@@ -443,7 +512,17 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                   )}
                 </td>
                 <td className="px-3 py-2 space-x-2">
-                  {item.status !== "published" && mode === "elenco" ? (
+                  {mode === "elenco" ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="text-xs text-emerald-700 underline"
+                      onClick={() => setVisibility(item.id, !item.isPublic)}
+                    >
+                      {item.isPublic ? "Rendi non pubblica" : "Rendi pubblica"}
+                    </button>
+                  ) : null}
+                  {item.status !== "published" && mode === "elenco" && !item.isPublic ? (
                     <button
                       type="button"
                       disabled={pending}

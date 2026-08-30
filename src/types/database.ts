@@ -550,6 +550,7 @@ export interface WikiScientificResearchRow {
   sectors: string[];
   is_most_searched: boolean;
   is_evidence: boolean;
+  is_public: boolean;
   published_year: number;
   published_month: number;
   published_at: string;
@@ -2665,6 +2666,7 @@ export interface Database {
           sectors: string[];
           is_most_searched: boolean;
           is_evidence: boolean;
+          is_public: boolean;
           published_year: number;
           published_month: number;
           published_at: string;

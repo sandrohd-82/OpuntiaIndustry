@@ -118,11 +118,12 @@ export async function syncLegacyWikiArchiveAction(input: {
         public_url: publicUrl || existing?.public_url || "",
         storage_path: storagePath || null,
         pdf_available: Boolean(publicUrl || existing?.public_url),
-        status: "published" as const,
-        published_at_portal: new Date().toISOString(),
-        published_by: auth.userId,
-        approved_at: new Date().toISOString(),
-        approved_by: auth.userId,
+        is_public: !paper.closed,
+        status: paper.closed ? ("draft" as const) : ("published" as const),
+        published_at_portal: paper.closed ? null : new Date().toISOString(),
+        published_by: paper.closed ? null : auth.userId,
+        approved_at: paper.closed ? null : new Date().toISOString(),
+        approved_by: paper.closed ? null : auth.userId,
         ingest_status: "pending" as const,
         updated_by: auth.userId,
       };
@@ -143,7 +144,13 @@ export async function syncLegacyWikiArchiveAction(input: {
           action: "update",
           actor_id: auth.userId,
           summary: `Sync archivio legacy #${paper.legacyId}`,
-          payload: { slug: paper.slug, pdf: Boolean(publicUrl) },
+          payload: {
+            slug: paper.slug,
+            pdf: Boolean(publicUrl),
+            is_public: !paper.closed,
+            plant_parts: paper.plantParts,
+            sectors: paper.sectors,
+          },
         });
       } else {
         const { data, error } = await supabase
@@ -163,7 +170,13 @@ export async function syncLegacyWikiArchiveAction(input: {
           action: "create",
           actor_id: auth.userId,
           summary: `Import archivio legacy #${paper.legacyId} — ${paper.title.slice(0, 80)}`,
-          payload: { slug: paper.slug, pdf: Boolean(publicUrl) },
+          payload: {
+            slug: paper.slug,
+            pdf: Boolean(publicUrl),
+            is_public: !paper.closed,
+            plant_parts: paper.plantParts,
+            sectors: paper.sectors,
+          },
         });
       }
     } catch (err) {

@@ -78,6 +78,8 @@ export async function createWikiResearchAction(input: unknown): Promise<
   const publishedAt = new Date(
     Date.UTC(parsed.data.publishedYear, parsed.data.publishedMonth - 1, 1)
   ).toISOString();
+  const isPublic = parsed.data.isPublic;
+  const status = isPublic ? "published" : "draft";
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -88,6 +90,7 @@ export async function createWikiResearchAction(input: unknown): Promise<
       slug: parsed.data.slug,
       plant_parts: parsed.data.plantParts,
       sectors: parsed.data.sectors,
+      is_public: isPublic,
       is_most_searched: parsed.data.isMostSearched,
       is_evidence: parsed.data.isEvidence,
       published_year: parsed.data.publishedYear,
@@ -101,7 +104,11 @@ export async function createWikiResearchAction(input: unknown): Promise<
       public_url: parsed.data.publicUrl,
       storage_path: parsed.data.storagePath || null,
       pdf_available: Boolean(parsed.data.publicUrl || parsed.data.storagePath),
-      status: "draft",
+      status,
+      published_at_portal: isPublic ? now.toISOString() : null,
+      published_by: isPublic ? auth.userId : null,
+      approved_at: isPublic ? now.toISOString() : null,
+      approved_by: isPublic ? auth.userId : null,
       ingest_status: "pending",
       versione: 1,
       created_by: auth.userId,
@@ -120,8 +127,14 @@ export async function createWikiResearchAction(input: unknown): Promise<
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creata ricerca Wiki ${row.slug} (bozza v1)`,
-    payload: { slug: row.slug, title: row.title },
+    summary: `Creata ricerca Wiki ${row.slug} (${isPublic ? "pubblica" : "non pubblica"} v1)`,
+    payload: {
+      slug: row.slug,
+      title: row.title,
+      is_public: isPublic,
+      plant_parts: parsed.data.plantParts,
+      sectors: parsed.data.sectors,
+    },
   });
 
   return { success: true, item: mapWikiResearch(row, 0) };
@@ -154,10 +167,14 @@ export async function setWikiResearchStatusAction(input: {
     versione: Number(current.versione ?? 1) + 1,
   };
   if (input.status === "published") {
+    patch.is_public = true;
     patch.published_at_portal = new Date().toISOString();
     patch.published_by = auth.userId;
     patch.approved_at = new Date().toISOString();
     patch.approved_by = auth.userId;
+  }
+  if (input.status === "archived") {
+    patch.is_public = false;
   }
 
   const { error } = await supabase
@@ -174,6 +191,58 @@ export async function setWikiResearchStatusAction(input: {
     actor_id: auth.userId,
     summary: `Wiki ${current.slug}: ${current.status} → ${input.status}`,
     payload: { from: current.status, to: input.status },
+  });
+
+  return { success: true };
+}
+
+export async function setWikiResearchVisibilityAction(input: {
+  id: string;
+  isPublic: boolean;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardWiki();
+  const supabase = await createClient();
+  const { data: current, error: readError } = await supabase
+    .from("wiki_scientific_research")
+    .select("id, status, versione, slug, is_public")
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (readError || !current) {
+    return { success: false, error: readError?.message ?? "Record non trovato" };
+  }
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    is_public: input.isPublic,
+    updated_by: auth.userId,
+    versione: Number(current.versione ?? 1) + 1,
+  };
+  if (input.isPublic) {
+    patch.status = "published";
+    patch.published_at_portal = now;
+    patch.published_by = auth.userId;
+    patch.approved_at = now;
+    patch.approved_by = auth.userId;
+  } else if (current.status === "published") {
+    patch.status = "draft";
+  }
+
+  const { error } = await supabase
+    .from("wiki_scientific_research")
+    .update(patch)
+    .eq("id", input.id);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "wiki_scientific_research",
+    entity_id: input.id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Wiki ${current.slug}: portale ${input.isPublic ? "pubblica (aperta)" : "non pubblica (chiusa)"}`,
+    payload: { is_public: input.isPublic },
   });
 
   return { success: true };

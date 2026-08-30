@@ -1,7 +1,11 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { jsonrepair } from "jsonrepair";
 import { z } from "zod";
-import { WIKI_PAPER_CATEGORIES } from "@/lib/ecosystem/wiki";
+import {
+  WIKI_APPLICAZIONI,
+  WIKI_PAPER_CATEGORIES,
+  WIKI_PLANT_PARTS,
+} from "@/lib/ecosystem/wiki";
 
 function requireGeminiKey(): string {
   const key = process.env.GEMINI_API_KEY?.trim();
@@ -36,7 +40,9 @@ const extractedPaperSchema = z.object({
   abstract: z.string().trim().max(20000).default(""),
   authors: z.array(z.string().trim().min(1)).max(40).default([]),
   publication_year: z.number().int().min(1900).max(2100),
-  category: z.enum(WIKI_PAPER_CATEGORIES),
+  plant_parts: z.array(z.enum(WIKI_PLANT_PARTS)).max(3).default([]),
+  sectors: z.array(z.enum(WIKI_APPLICAZIONI)).max(7).default([]),
+  category: z.enum(WIKI_PAPER_CATEGORIES).optional().default("Agronomia"),
   keywords: z.array(z.string().trim().min(1)).max(40).default([]),
   ai_summary: z.string().trim().max(8000).default(""),
 });
@@ -70,7 +76,11 @@ Estrai SOLO un JSON con:
 - abstract: abstract originale (se assente, stringa vuota)
 - authors: array di nomi autori
 - publication_year: anno di pubblicazione (numero)
-- category: una sola tra ${WIKI_PAPER_CATEGORIES.join(" | ")}
+- plant_parts: array con UNA O PIÙ tra: cladodes, fruits, flowers
+  (riferimento botanico: cladodi / frutti / fiori). Se il paper riguarda la pianta in generale, includi tutte e tre.
+- sectors: array con UNA O PIÙ tra: nutrace, pharma, food, cosmetic, veterina, technical, other
+  (applicazione: nutraceutico, farmaceutico, alimentare, cosmetico, veterinario, tecnico, altro).
+- category: una sola vetrina tra ${WIKI_PAPER_CATEGORIES.join(" | ")} (derivata dai sectors)
 - keywords: 3-8 tag principali
 - ai_summary: sintesi divulgativa in elenco puntato (italiano), max 8 punti
 Niente testo fuori dal JSON.`,

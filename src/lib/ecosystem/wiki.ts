@@ -14,16 +14,36 @@ export const WIKI_PAPER_CATEGORIES = [
 ] as const;
 
 export const WIKI_PLANT_PARTS = ["cladodes", "fruits", "flowers"] as const;
-export const WIKI_SECTORS = [
-  "most_searched",
-  "pharma",
+/** Applicazioni (ex flag MySQL, multi-valore). */
+export const WIKI_APPLICAZIONI = [
   "nutrace",
+  "pharma",
   "food",
   "cosmetic",
   "veterina",
   "technical",
   "other",
 ] as const;
+export const WIKI_SECTORS = WIKI_APPLICAZIONI;
+
+export const WIKI_PLANT_PART_LABELS: Record<(typeof WIKI_PLANT_PARTS)[number], string> = {
+  cladodes: "Cladodi",
+  fruits: "Frutti",
+  flowers: "Fiori",
+};
+
+export const WIKI_APPLICAZIONE_LABELS: Record<
+  (typeof WIKI_APPLICAZIONI)[number],
+  string
+> = {
+  nutrace: "Nutraceutico",
+  pharma: "Farmaceutico",
+  food: "Alimentare",
+  cosmetic: "Cosmetico",
+  veterina: "Veterinario",
+  technical: "Tecnico / industriale",
+  other: "Altro",
+};
 
 export const wikiResearchStatusSchema = z.enum([
   "draft",
@@ -43,7 +63,10 @@ export const createWikiResearchSchema = z.object({
   publishedYear: z.number().int().min(1900).max(2100),
   publishedMonth: z.number().int().min(1).max(12),
   plantParts: z.array(z.enum(WIKI_PLANT_PARTS)).default([]),
-  sectors: z.array(z.enum(WIKI_SECTORS)).default([]),
+  sectors: z.array(z.enum(WIKI_APPLICAZIONI)).default([]),
+  isPublic: z.boolean({
+    error: "Indica se la ricerca è pubblica (aperta) o non pubblica (chiusa)",
+  }),
   isMostSearched: z.boolean().optional().default(false),
   isEvidence: z.boolean().optional().default(false),
   externalLink: z.string().trim().max(2000).optional().default(""),
@@ -56,7 +79,17 @@ export const createWikiResearchSchema = z.object({
   aiSummary: z.string().trim().max(8000).optional().default(""),
   publicUrl: z.string().trim().max(2000).optional().default(""),
   storagePath: z.string().trim().max(500).optional().default(""),
-});
+})
+  .refine((d) => d.plantParts.length >= 1, {
+    message:
+      "Seleziona almeno una categoria di riferimento (cladodi, frutti o fiori)",
+    path: ["plantParts"],
+  })
+  .refine((d) => d.sectors.length >= 1, {
+    message:
+      "Seleziona almeno un'applicazione (nutraceutico, farmaceutico, alimentare, …)",
+    path: ["sectors"],
+  });
 
 export type CreateWikiResearchInput = z.infer<typeof createWikiResearchSchema>;
 
@@ -67,6 +100,7 @@ export type WikiResearch = {
   slug: string;
   plantParts: string[];
   sectors: string[];
+  isPublic: boolean;
   isMostSearched: boolean;
   isEvidence: boolean;
   publishedYear: number;
@@ -87,6 +121,26 @@ export type WikiResearch = {
   createdAt: string;
   updatedAt: string;
 };
+
+export function labelsForPlantParts(parts: string[]): string {
+  return parts
+    .map((p) =>
+      p in WIKI_PLANT_PART_LABELS
+        ? WIKI_PLANT_PART_LABELS[p as keyof typeof WIKI_PLANT_PART_LABELS]
+        : p
+    )
+    .join(", ");
+}
+
+export function labelsForApplicazioni(sectors: string[]): string {
+  return sectors
+    .map((s) =>
+      s in WIKI_APPLICAZIONE_LABELS
+        ? WIKI_APPLICAZIONE_LABELS[s as keyof typeof WIKI_APPLICAZIONE_LABELS]
+        : s
+    )
+    .join(", ");
+}
 
 export function slugFromTitle(title: string): string {
   return title
@@ -109,6 +163,7 @@ export function mapWikiResearch(
     slug: row.slug,
     plantParts: row.plant_parts ?? [],
     sectors: row.sectors ?? [],
+    isPublic: Boolean(row.is_public),
     isMostSearched: Boolean(row.is_most_searched),
     isEvidence: Boolean(row.is_evidence),
     publishedYear: row.published_year,
