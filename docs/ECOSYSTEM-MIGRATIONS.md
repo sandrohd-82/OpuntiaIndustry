@@ -9,8 +9,8 @@ WikiOpuntia e OpuntiaItalia sono satelliti: leggono viste pubbliche e, se serve 
 E:\Progetti Cursor\OpuntiaIndustry\supabase\migrations
 ```
 
-Ultima migrazione: `20260829160000_wiki_is_public_categorie_multi.sql`  
-**Prossimo timestamp libero: `20260829170000` o maggiore.**
+Ultima migrazione: `20260829170000_wiki_download_access_vs_invio_portale.sql`  
+**Prossimo timestamp libero: `20260829180000` o maggiore.**
 
 Prompt ricerche Wiki (categorie multi + pubblica/chiusa): `docs/PROMPTS/WIKIOPUNTIA-RICERCHE.md`.
 
@@ -33,8 +33,9 @@ node "E:\Progetti Cursor\OpuntiaIndustry\scripts\next-migration-stamp.mjs"
 |-------------|----------|-----|
 | `v_catalogo_b2b` | OpuntiaItalia | Prodotti pubblicati B2B (slug, nome, bio, UM) |
 | `v_listino_b2b_vigente` | OpuntiaItalia | Prezzi listino B2B pubblicato in validità |
-| `v_wiki_pubblicati` | WikiOpuntia | Solo paper **aperti** (`is_public`) + `published` + `public_url` |
-| `wiki_scientific_research` (RLS: `published` **e** `is_public`) | WikiOpuntia | Dettaglio; filtra `plant_parts` / `sectors` (array multi) |
+| `v_wiki_pubblicati` | WikiOpuntia | Tutte le ricerche **inviate** (`status=published`). `public_url` solo se PDF pubblico |
+| `wiki_research_download_url(uuid)` | WikiOpuntia | URL PDF: libero se `is_public`, altrimenti solo dopo login |
+| `wiki_scientific_research` (RLS authenticated: `published`) | WikiOpuntia | Dettaglio dopo login (anche PDF non pubblici) |
 | `match_wiki_document_chunks(vector, int, text)` | WikiOpuntia | RAG chatbot |
 | `portale_utenti` | entrambi | Profilo utente portale (`auth.users`) |
 | `portale_newsletter_iscritti` | OpuntiaItalia | INSERT iscrizione |
@@ -86,15 +87,16 @@ TABELLE GIÀ ESISTENTI (usale, non ricrearle):
 - wiki_document_requests
 - wiki_document_chunks (embedding vector(1536) + HNSW)
 - wiki_chat_sessions, wiki_chat_messages
-- v_wiki_pubblicati (solo aperte: status=published AND is_public=true)
-- Categorie multi: plant_parts (cladodes/fruits/flowers) + sectors (nutrace/pharma/food/cosmetic/veterina/technical/other)
-- is_public: true=aperta sul sito, false=chiusa (solo gestionale). Ex MySQL close 0/1.
+- v_wiki_pubblicati (inviate al portale: status=published; anche PDF con login)
+- Categorie multi: plant_parts + sectors
+- is_public: true=PDF scaricabile da chiunque; false=PDF solo dopo login. Ex close 0/1.
+- Invia a WikiOpuntia = status published (azione del gestionale, non è pubblica/non pubblica)
 - RPC match_wiki_document_chunks(query_embedding vector(1536), match_count int, filter_source text)
 - Storage bucket privato: wiki-research-pdfs
 - portale_utenti (origine può essere wikiopuntia)
 
 REGOLE DATI:
-- Il portale ANON legge solo v_wiki_pubblicati (published AND is_public). Le chiuse non esistono sul sito.
+- Catalogo: v_wiki_pubblicati. PDF non pubblico: mostra login, poi RPC wiki_research_download_url.
 - L’ingest PDF → chunk/embedding lo fai tu (Wiki) aggiornando ingest_status. Non pubblicare paper: lo fa il gestionale.
 - Non scrivere su prodotti_propri, listini, ordini, clienti, fatture.
 

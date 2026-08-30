@@ -4,8 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import {
   createWikiResearchAction,
   listWikiResearchAction,
+  setWikiResearchDownloadAccessAction,
   setWikiResearchStatusAction,
-  setWikiResearchVisibilityAction,
 } from "@/app/actions/wikiopuntia";
 import { syncLegacyWikiArchiveAction } from "@/app/actions/wikiopuntia-sync";
 import {
@@ -24,9 +24,9 @@ import type { WikiPaperCategory, WikiResearchStatus } from "@/types/database";
 type Props = { mode: "nuova" | "elenco" | "archivio" };
 
 const STATUS_LABEL: Record<WikiResearchStatus, string> = {
-  draft: "Bozza",
-  published: "Pubblicato",
-  archived: "Archiviato",
+  draft: "Non inviata",
+  published: "Su WikiOpuntia",
+  archived: "Archiviata",
 };
 
 export function WikiBibliotecaBoard({ mode }: Props) {
@@ -42,6 +42,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
   const [plantParts, setPlantParts] = useState<string[]>([]);
   const [sectors, setSectors] = useState<string[]>([]);
   const [isPublic, setIsPublic] = useState(true);
+  const [sendToWiki, setSendToWiki] = useState(false);
   const [authorsText, setAuthorsText] = useState("");
   const [keywordsText, setKeywordsText] = useState("");
   const [category, setCategory] = useState<WikiPaperCategory>("");
@@ -170,6 +171,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
         plantParts,
         sectors,
         isPublic,
+        sendToWiki,
         authors: authorsText
           .split(",")
           .map((s) => s.trim())
@@ -193,6 +195,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
       setPlantParts([]);
       setSectors([]);
       setIsPublic(true);
+      setSendToWiki(false);
       setError(null);
       window.location.href = "/app/wikiopuntia/biblioteca/elenco";
     });
@@ -209,9 +212,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
     });
   }
 
-  function setVisibility(id: string, nextPublic: boolean) {
+  function setDownloadAccess(id: string, nextPublic: boolean) {
     startTransition(async () => {
-      const res = await setWikiResearchVisibilityAction({
+      const res = await setWikiResearchDownloadAccessAction({
         id,
         isPublic: nextPublic,
       });
@@ -244,11 +247,10 @@ export function WikiBibliotecaBoard({ mode }: Props) {
             </button>
           </div>
           <p className="mt-2 text-xs text-[var(--muted)]">
-            Legge le 94 schede da MySQL legacy: titolo, abstract, categorie multiple
-            (cladodes/fruits/flowers + nutrace/pharma/food/cosmetic/veterina/technical/other)
-            e flag <code>close</code> (0 = aperta/pubblica, 1 = chiusa/non pubblica).
-            I PDF vanno su <code>wikiopuntia-docs</code>. Idempotente su{" "}
-            <code>legacy_id</code>: una nuova sync aggiorna anche pubblica/chiusa.
+            Importa le 94 schede e le invia a WikiOpuntia. Il flag{" "}
+            <code>close</code> diventa accesso PDF: 0 = pubblica (download
+            libero), 1 = non pubblica (serve login). Idempotente su{" "}
+            <code>legacy_id</code>.
           </p>
           {syncLog ? (
             <p className="mt-2 text-xs text-emerald-800">{syncLog}</p>
@@ -297,9 +299,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h2 className="text-sm font-semibold">Nuova ricerca scientifica</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Obbligatori: almeno una categoria di riferimento, almeno
-            un&apos;applicazione, e se la ricerca è aperta (pubblica sul portale)
-            o chiusa (solo gestionale). Versione 1, audit ISO 9001.
+            Obbligatori: riferimento, applicazione e accesso PDF (pubblico =
+            chiunque scarica; non pubblico = serve login). L&apos;invio al sito
+            è un passo a parte: Invia a WikiOpuntia.
           </p>
           <label className="mt-3 block text-xs font-medium">Titolo</label>
           <input
@@ -421,34 +423,51 @@ export function WikiBibliotecaBoard({ mode }: Props) {
               </label>
             ))}
           </div>
-          <p className="mt-3 text-xs font-medium">Visibilità sul portale</p>
-          <div className="mt-1 flex flex-wrap gap-4 text-xs">
-            <label className="flex items-center gap-1">
+          <p className="mt-3 text-xs font-medium">Accesso al PDF</p>
+          <div className="mt-1 flex flex-col gap-2 text-xs">
+            <label className="flex items-start gap-2">
               <input
                 type="radio"
                 name="wiki-is-public"
+                className="mt-0.5"
                 checked={isPublic}
                 onChange={() => setIsPublic(true)}
               />
-              Aperta — pubblica su wikiopuntia.com
+              <span>
+                <strong>Pubblica</strong> — chiunque può scaricare il PDF, senza
+                registrazione.
+              </span>
             </label>
-            <label className="flex items-center gap-1">
+            <label className="flex items-start gap-2">
               <input
                 type="radio"
                 name="wiki-is-public"
+                className="mt-0.5"
                 checked={!isPublic}
                 onChange={() => setIsPublic(false)}
               />
-              Chiusa — non pubblica (solo gestionale)
+              <span>
+                <strong>Non pubblica</strong> — sul sito si vede la scheda, per
+                scaricare serve login.
+              </span>
             </label>
           </div>
+          <label className="mt-3 flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={sendToWiki}
+              onChange={(e) => setSendToWiki(e.target.checked)}
+            />
+            Invia subito a WikiOpuntia (altrimenti resta in bozza e la invii
+            dall&apos;elenco)
+          </label>
           <button
             type="button"
             disabled={pending}
             onClick={create}
             className="mt-4 rounded-md bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {isPublic ? "Salva e pubblica sul portale" : "Salva come non pubblica"}
+            {sendToWiki ? "Salva e invia a WikiOpuntia" : "Salva bozza"}
           </button>
         </div>
       </div>
@@ -462,6 +481,14 @@ export function WikiBibliotecaBoard({ mode }: Props) {
           {error}
         </p>
       ) : null}
+      {mode === "elenco" ? (
+        <p className="text-xs text-[var(--muted)]">
+          <strong>Accesso PDF</strong>: pubblica = download libero; non pubblica
+          = serve login. <strong>WikiOpuntia</strong>: se la scheda è sul
+          portale. L&apos;azione Invia a WikiOpuntia non cambia l&apos;accesso
+          al PDF.
+        </p>
+      ) : null}
       <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
@@ -469,8 +496,8 @@ export function WikiBibliotecaBoard({ mode }: Props) {
               <th className="px-3 py-2">Titolo</th>
               <th className="px-3 py-2">Riferimento</th>
               <th className="px-3 py-2">Applicazione</th>
-              <th className="px-3 py-2">Portale</th>
-              <th className="px-3 py-2">Stato</th>
+              <th className="px-3 py-2">Accesso PDF</th>
+              <th className="px-3 py-2">WikiOpuntia</th>
               <th className="px-3 py-2">PDF</th>
               <th className="px-3 py-2">Azioni</th>
             </tr>
@@ -489,10 +516,16 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                   {item.isPublic ? (
                     <span className="text-xs font-medium text-emerald-800">
                       Pubblica
+                      <span className="block font-normal text-[var(--muted)]">
+                        Download libero
+                      </span>
                     </span>
                   ) : (
                     <span className="text-xs font-medium text-amber-800">
                       Non pubblica
+                      <span className="block font-normal text-[var(--muted)]">
+                        Serve login
+                      </span>
                     </span>
                   )}
                 </td>
@@ -511,25 +544,37 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                     "—"
                   )}
                 </td>
-                <td className="px-3 py-2 space-x-2">
+                <td className="px-3 py-2 space-x-2 whitespace-nowrap">
                   {mode === "elenco" ? (
                     <button
                       type="button"
                       disabled={pending}
                       className="text-xs text-emerald-700 underline"
-                      onClick={() => setVisibility(item.id, !item.isPublic)}
+                      onClick={() => setDownloadAccess(item.id, !item.isPublic)}
                     >
-                      {item.isPublic ? "Rendi non pubblica" : "Rendi pubblica"}
+                      {item.isPublic
+                        ? "Richiedi login per il PDF"
+                        : "Download libero"}
                     </button>
                   ) : null}
-                  {item.status !== "published" && mode === "elenco" && !item.isPublic ? (
+                  {item.status !== "published" && mode === "elenco" ? (
                     <button
                       type="button"
                       disabled={pending}
-                      className="text-xs text-emerald-700 underline"
+                      className="text-xs font-medium text-emerald-800 underline"
                       onClick={() => setStatus(item.id, "published")}
                     >
-                      Pubblica
+                      Invia a WikiOpuntia
+                    </button>
+                  ) : null}
+                  {item.status === "published" && mode === "elenco" ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="text-xs text-amber-800 underline"
+                      onClick={() => setStatus(item.id, "draft")}
+                    >
+                      Rimuovi da WikiOpuntia
                     </button>
                   ) : null}
                   {item.status !== "archived" ? (

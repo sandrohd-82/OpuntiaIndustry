@@ -65,8 +65,10 @@ export const createWikiResearchSchema = z.object({
   plantParts: z.array(z.enum(WIKI_PLANT_PARTS)).default([]),
   sectors: z.array(z.enum(WIKI_APPLICAZIONI)).default([]),
   isPublic: z.boolean({
-    error: "Indica se la ricerca è pubblica (aperta) o non pubblica (chiusa)",
+    error:
+      "Indica se il PDF è pubblico (chiunque scarica) o non pubblico (serve login)",
   }),
+  sendToWiki: z.boolean().optional().default(false),
   isMostSearched: z.boolean().optional().default(false),
   isEvidence: z.boolean().optional().default(false),
   externalLink: z.string().trim().max(2000).optional().default(""),

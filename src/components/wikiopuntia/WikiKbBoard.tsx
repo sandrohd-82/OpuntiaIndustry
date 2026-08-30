@@ -24,7 +24,7 @@ export function WikiKbBoard() {
     });
   }, []);
 
-  const published = items.filter((i) => i.status === "published" && i.isPublic);
+  const published = items.filter((i) => i.status === "published");
   const withChunks = published.filter((i) => (i.chunkCount ?? 0) > 0);
   const pendingIngest = items.filter(
     (i) => i.ingestStatus === "pending" || i.ingestStatus === "processing"
@@ -67,7 +67,8 @@ export function WikiKbBoard() {
                   <div className="text-xs text-[var(--muted)]">{item.slug}</div>
                 </td>
                 <td className="px-3 py-2">
-                  {item.isPublic ? "Pubblica" : "Non pubblica"} · {item.status}
+                  {item.status === "published" ? "Su WikiOpuntia" : item.status}{" "}
+                  · {item.isPublic ? "PDF libero" : "PDF con login"}
                 </td>
                 <td className="px-3 py-2">{item.ingestStatus}</td>
                 <td className="px-3 py-2">{item.chunkCount ?? 0}</td>

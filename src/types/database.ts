@@ -2672,7 +2672,7 @@ export interface Database {
           published_at: string;
           external_link: string;
           pdf_available: boolean;
-          public_url: string;
+          public_url: string | null;
           versione: number;
         };
       };
