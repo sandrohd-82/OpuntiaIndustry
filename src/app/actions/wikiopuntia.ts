@@ -197,7 +197,7 @@ export async function setWikiResearchStatusAction(input: {
   return { success: true };
 }
 
-/** Accesso PDF: pubblica = chiunque; non pubblica = serve login. Non invia al portale. */
+/** Accesso PDF: pubblica = download libero; non pubblica = login + richiesta + email. */
 export async function setWikiResearchDownloadAccessAction(input: {
   id: string;
   isPublic: boolean;
@@ -231,7 +231,7 @@ export async function setWikiResearchDownloadAccessAction(input: {
     entity_id: input.id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Wiki ${current.slug}: PDF ${input.isPublic ? "pubblico (download libero)" : "non pubblico (serve login)"}`,
+    summary: `Wiki ${current.slug}: PDF ${input.isPublic ? "pubblico (download libero)" : "non pubblico (richiesta + email)"}`,
     payload: { is_public: input.isPublic },
   });
 

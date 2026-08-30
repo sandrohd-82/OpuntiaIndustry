@@ -68,7 +68,7 @@ export function WikiKbBoard() {
                 </td>
                 <td className="px-3 py-2">
                   {item.status === "published" ? "Su WikiOpuntia" : item.status}{" "}
-                  · {item.isPublic ? "PDF libero" : "PDF con login"}
+                  · {item.isPublic ? "PDF libero" : "Richiesta + email"}
                 </td>
                 <td className="px-3 py-2">{item.ingestStatus}</td>
                 <td className="px-3 py-2">{item.chunkCount ?? 0}</td>

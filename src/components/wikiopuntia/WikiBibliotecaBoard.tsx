@@ -248,8 +248,8 @@ export function WikiBibliotecaBoard({ mode }: Props) {
           </div>
           <p className="mt-2 text-xs text-[var(--muted)]">
             Importa le 94 schede e le invia a WikiOpuntia. Il flag{" "}
-            <code>close</code> diventa accesso PDF: 0 = pubblica (download
-            libero), 1 = non pubblica (serve login). Idempotente su{" "}
+            <code>close</code>: 0 = download libero; 1 = login + richiesta,
+            poi l&apos;operatore invia la ricerca via email. Idempotente su{" "}
             <code>legacy_id</code>.
           </p>
           {syncLog ? (
@@ -300,8 +300,8 @@ export function WikiBibliotecaBoard({ mode }: Props) {
           <h2 className="text-sm font-semibold">Nuova ricerca scientifica</h2>
           <p className="mt-1 text-xs text-[var(--muted)]">
             Obbligatori: riferimento, applicazione e accesso PDF (pubblico =
-            chiunque scarica; non pubblico = serve login). L&apos;invio al sito
-            è un passo a parte: Invia a WikiOpuntia.
+            download libero; non pubblico = login + richiesta, invio via
+            email). L&apos;invio al sito è a parte: Invia a WikiOpuntia.
           </p>
           <label className="mt-3 block text-xs font-medium">Titolo</label>
           <input
@@ -447,8 +447,9 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                 onChange={() => setIsPublic(false)}
               />
               <span>
-                <strong>Non pubblica</strong> — sul sito si vede la scheda, per
-                scaricare serve login.
+                <strong>Non pubblica</strong> — scheda visibile; per il PDF
+                l&apos;utente fa login, richiede il documento e l&apos;operatore
+                lo invia via email.
               </span>
             </label>
           </div>
@@ -483,10 +484,10 @@ export function WikiBibliotecaBoard({ mode }: Props) {
       ) : null}
       {mode === "elenco" ? (
         <p className="text-xs text-[var(--muted)]">
-          <strong>Accesso PDF</strong>: pubblica = download libero; non pubblica
-          = serve login. <strong>WikiOpuntia</strong>: se la scheda è sul
-          portale. L&apos;azione Invia a WikiOpuntia non cambia l&apos;accesso
-          al PDF.
+          <strong>Accesso PDF</strong>: pubblica = download libero; non
+          pubblica = login + richiesta, poi invio via email (Richieste PDF).{" "}
+          <strong>WikiOpuntia</strong>: se la scheda è sul portale. Invia a
+          WikiOpuntia non cambia l&apos;accesso al file.
         </p>
       ) : null}
       <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
@@ -524,7 +525,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                     <span className="text-xs font-medium text-amber-800">
                       Non pubblica
                       <span className="block font-normal text-[var(--muted)]">
-                        Serve login
+                        Richiesta + email
                       </span>
                     </span>
                   )}
@@ -553,7 +554,7 @@ export function WikiBibliotecaBoard({ mode }: Props) {
                       onClick={() => setDownloadAccess(item.id, !item.isPublic)}
                     >
                       {item.isPublic
-                        ? "Richiedi login per il PDF"
+                        ? "Passa a richiesta + email"
                         : "Download libero"}
                     </button>
                   ) : null}

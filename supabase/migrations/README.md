@@ -16,8 +16,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260829151000` | `wikiopuntia_docs_view_bucket_fix.sql` | Fix vista + bucket |
 | `20260829160000` | `wiki_is_public_categorie_multi.sql` | `is_public` + vista/RLS solo aperte |
 | `20260829170000` | `wiki_download_access_vs_invio_portale.sql` | PDF libero vs login; invio = published |
+| `20260829180000` | `wiki_close_richiesta_email.sql` | close=1 = richiesta + email, niente URL |
 
-**Prossimo timestamp libero: `20260829180000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260829190000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 

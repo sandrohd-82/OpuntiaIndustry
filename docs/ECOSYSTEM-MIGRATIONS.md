@@ -9,8 +9,8 @@ WikiOpuntia e OpuntiaItalia sono satelliti: leggono viste pubbliche e, se serve 
 E:\Progetti Cursor\OpuntiaIndustry\supabase\migrations
 ```
 
-Ultima migrazione: `20260829170000_wiki_download_access_vs_invio_portale.sql`  
-**Prossimo timestamp libero: `20260829180000` o maggiore.**
+Ultima migrazione: `20260829180000_wiki_close_richiesta_email.sql`  
+**Prossimo timestamp libero: `20260829190000` o maggiore.**
 
 Prompt ricerche Wiki (categorie multi + pubblica/chiusa): `docs/PROMPTS/WIKIOPUNTIA-RICERCHE.md`.
 
@@ -34,13 +34,12 @@ node "E:\Progetti Cursor\OpuntiaIndustry\scripts\next-migration-stamp.mjs"
 | `v_catalogo_b2b` | OpuntiaItalia | Prodotti pubblicati B2B (slug, nome, bio, UM) |
 | `v_listino_b2b_vigente` | OpuntiaItalia | Prezzi listino B2B pubblicato in validità |
 | `v_wiki_pubblicati` | WikiOpuntia | Tutte le ricerche **inviate** (`status=published`). `public_url` solo se PDF pubblico |
-| `wiki_research_download_url(uuid)` | WikiOpuntia | URL PDF: libero se `is_public`, altrimenti solo dopo login |
-| `wiki_scientific_research` (RLS authenticated: `published`) | WikiOpuntia | Dettaglio dopo login (anche PDF non pubblici) |
+| `wiki_research_download_url(uuid)` | WikiOpuntia | URL PDF **solo** se `is_public` (close=0). Se close=1 → null |
+| `wiki_document_requests` | WikiOpuntia | INSERT richiesta PDF non pubblico (dopo login); operatore invia via email |
 | `match_wiki_document_chunks(vector, int, text)` | WikiOpuntia | RAG chatbot |
 | `portale_utenti` | entrambi | Profilo utente portale (`auth.users`) |
 | `portale_newsletter_iscritti` | OpuntiaItalia | INSERT iscrizione |
 | `portale_richieste_contatto` | OpuntiaItalia | INSERT form contatto |
-| `wiki_document_requests` | WikiOpuntia | INSERT richiesta PDF |
 | `wiki_chat_sessions` / `wiki_chat_messages` | WikiOpuntia | Chat pubblica |
 
 ## Cosa i satelliti NON devono toccare
@@ -87,16 +86,16 @@ TABELLE GIÀ ESISTENTI (usale, non ricrearle):
 - wiki_document_requests
 - wiki_document_chunks (embedding vector(1536) + HNSW)
 - wiki_chat_sessions, wiki_chat_messages
-- v_wiki_pubblicati (inviate al portale: status=published; anche PDF con login)
-- Categorie multi: plant_parts + sectors
-- is_public: true=PDF scaricabile da chiunque; false=PDF solo dopo login. Ex close 0/1.
-- Invia a WikiOpuntia = status published (azione del gestionale, non è pubblica/non pubblica)
+- v_wiki_pubblicati (inviate: status=published; pubbliche e non)
+- close 0 = is_public true = download libero
+- close 1 = is_public false = login + wiki_document_requests; operatore invia via email
+- Invia a WikiOpuntia = status published (non è pubblica/non pubblica)
 - RPC match_wiki_document_chunks(query_embedding vector(1536), match_count int, filter_source text)
 - Storage bucket privato: wiki-research-pdfs
 - portale_utenti (origine può essere wikiopuntia)
 
 REGOLE DATI:
-- Catalogo: v_wiki_pubblicati. PDF non pubblico: mostra login, poi RPC wiki_research_download_url.
+- Catalogo: v_wiki_pubblicati. PDF close=1: login + INSERT wiki_document_requests; niente URL.
 - L’ingest PDF → chunk/embedding lo fai tu (Wiki) aggiornando ingest_status. Non pubblicare paper: lo fa il gestionale.
 - Non scrivere su prodotti_propri, listini, ordini, clienti, fatture.
 

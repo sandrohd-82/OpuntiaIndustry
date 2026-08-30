@@ -66,7 +66,7 @@ export const createWikiResearchSchema = z.object({
   sectors: z.array(z.enum(WIKI_APPLICAZIONI)).default([]),
   isPublic: z.boolean({
     error:
-      "Indica se il PDF è pubblico (chiunque scarica) o non pubblico (serve login)",
+      "Indica se il PDF è pubblico (download libero) o non pubblico (login + richiesta, invio via email)",
   }),
   sendToWiki: z.boolean().optional().default(false),
   isMostSearched: z.boolean().optional().default(false),
