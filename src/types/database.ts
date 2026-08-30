@@ -426,6 +426,12 @@ export type OrdineCanale = "gestionale" | "b2b" | "b2c";
 export type PortaleRichiestaStato = "nuova" | "presa_in_carico" | "chiusa";
 export type WikiResearchStatus = "draft" | "published" | "archived";
 export type WikiIngestStatus = "pending" | "processing" | "done" | "error";
+export type WikiPaperCategory =
+  | ""
+  | "Agronomia"
+  | "Nutrizione"
+  | "Cosmetica"
+  | "Usi Industriali";
 
 export interface ProdottoProprioRow {
   id: string;
@@ -559,6 +565,13 @@ export interface WikiScientificResearchRow {
   approved_at: string | null;
   approved_by: string | null;
   rs_ricerca_id: string | null;
+  authors?: string[];
+  keywords?: string[];
+  category?: WikiPaperCategory;
+  ai_summary?: string;
+  public_url?: string;
+  legacy_path?: string;
+  legacy_file?: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -2644,6 +2657,10 @@ export interface Database {
           slug: string;
           title: string;
           abstract: string;
+          authors: string[];
+          keywords: string[];
+          category: string;
+          ai_summary: string;
           plant_parts: string[];
           sectors: string[];
           is_most_searched: boolean;
@@ -2653,6 +2670,7 @@ export interface Database {
           published_at: string;
           external_link: string;
           pdf_available: boolean;
+          public_url: string;
           versione: number;
         };
       };

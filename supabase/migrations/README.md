@@ -12,8 +12,10 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260829120000` | `wikiopuntia_foundation.sql` | WikiOpuntia |
 | `20260829130000` | `wikiopuntia_pgvector_rag.sql` | WikiOpuntia |
 | `20260829140000` | `ecosystem_master_layer_iso9001.sql` | OpuntiaIndustry (layer A) |
+| `20260829150000` | `wikiopuntia_docs_public_ai.sql` | Bucket pubblico + campi AI |
+| `20260829151000` | `wikiopuntia_docs_view_bucket_fix.sql` | Fix vista + bucket |
 
-**Prossimo timestamp libero: `20260829150000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260829160000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 

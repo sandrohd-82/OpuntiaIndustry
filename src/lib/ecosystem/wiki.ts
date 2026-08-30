@@ -1,9 +1,17 @@
 import { z } from "zod";
 import type {
   WikiIngestStatus,
+  WikiPaperCategory,
   WikiResearchStatus,
   WikiScientificResearchRow,
 } from "@/types/database";
+
+export const WIKI_PAPER_CATEGORIES = [
+  "Agronomia",
+  "Nutrizione",
+  "Cosmetica",
+  "Usi Industriali",
+] as const;
 
 export const WIKI_PLANT_PARTS = ["cladodes", "fruits", "flowers"] as const;
 export const WIKI_SECTORS = [
@@ -39,6 +47,15 @@ export const createWikiResearchSchema = z.object({
   isMostSearched: z.boolean().optional().default(false),
   isEvidence: z.boolean().optional().default(false),
   externalLink: z.string().trim().max(2000).optional().default(""),
+  authors: z.array(z.string().trim().min(1)).max(40).optional().default([]),
+  keywords: z.array(z.string().trim().min(1)).max(40).optional().default([]),
+  category: z
+    .enum(["", "Agronomia", "Nutrizione", "Cosmetica", "Usi Industriali"])
+    .optional()
+    .default(""),
+  aiSummary: z.string().trim().max(8000).optional().default(""),
+  publicUrl: z.string().trim().max(2000).optional().default(""),
+  storagePath: z.string().trim().max(500).optional().default(""),
 });
 
 export type CreateWikiResearchInput = z.infer<typeof createWikiResearchSchema>;
@@ -57,6 +74,11 @@ export type WikiResearch = {
   publishedAt: string;
   externalLink: string;
   pdfAvailable: boolean;
+  publicUrl: string;
+  authors: string[];
+  keywords: string[];
+  category: WikiPaperCategory;
+  aiSummary: string;
   status: WikiResearchStatus;
   ingestStatus: WikiIngestStatus;
   ingestError: string;
@@ -94,6 +116,11 @@ export function mapWikiResearch(
     publishedAt: row.published_at,
     externalLink: row.external_link ?? "",
     pdfAvailable: Boolean(row.pdf_available),
+    publicUrl: row.public_url ?? "",
+    authors: row.authors ?? [],
+    keywords: row.keywords ?? [],
+    category: (row.category as WikiPaperCategory) ?? "",
+    aiSummary: row.ai_summary ?? "",
     status: row.status,
     ingestStatus: row.ingest_status,
     ingestError: row.ingest_error ?? "",

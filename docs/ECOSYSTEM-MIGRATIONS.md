@@ -9,8 +9,8 @@ WikiOpuntia e OpuntiaItalia sono satelliti: leggono viste pubbliche e, se serve 
 E:\Progetti Cursor\OpuntiaIndustry\supabase\migrations
 ```
 
-Ultima migrazione Master (layer A): `20260829140000_ecosystem_master_layer_iso9001.sql`  
-**Prossimo timestamp libero: `20260829150000` o maggiore.**
+Ultima migrazione: `20260829151000_wikiopuntia_docs_view_bucket_fix.sql`  
+**Prossimo timestamp libero: `20260829160000` o maggiore.**
 
 ## Collegamento (da fare una volta sul PC, nei progetti satelliti)
 
@@ -31,7 +31,7 @@ node "E:\Progetti Cursor\OpuntiaIndustry\scripts\next-migration-stamp.mjs"
 |-------------|----------|-----|
 | `v_catalogo_b2b` | OpuntiaItalia | Prodotti pubblicati B2B (slug, nome, bio, UM) |
 | `v_listino_b2b_vigente` | OpuntiaItalia | Prezzi listino B2B pubblicato in validità |
-| `v_wiki_pubblicati` | WikiOpuntia | Paper pubblicati (no path storage interni) |
+| `v_wiki_pubblicati` | WikiOpuntia | Paper pubblicati + `public_url` permanente PDF |
 | `wiki_scientific_research` (RLS: `status = published`) | WikiOpuntia | Dettaglio paper |
 | `match_wiki_document_chunks(vector, int, text)` | WikiOpuntia | RAG chatbot |
 | `portale_utenti` | entrambi | Profilo utente portale (`auth.users`) |
