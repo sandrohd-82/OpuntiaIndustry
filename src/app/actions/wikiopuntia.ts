@@ -2,6 +2,7 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   createWikiResearchSchema,
   mapWikiResearch,
@@ -17,6 +18,16 @@ import type {
 
 async function guardWiki() {
   return requireAreaAccess("wikiopuntia");
+}
+
+async function getAuthContextForPortaleLeads() {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) return { auth: null };
+  const ok =
+    userCanAccessArea(auth.areas, "amministrazione") ||
+    userCanAccessArea(auth.areas, "wikiopuntia");
+  if (!ok) return { auth: null };
+  return { auth };
 }
 
 export async function listWikiResearchAction(input: {
@@ -302,18 +313,25 @@ export async function markWikiDocumentRequestNotifiedAction(
   return { success: true };
 }
 
-export async function listPortaleRichiesteAction(): Promise<
+export async function listPortaleRichiesteAction(input?: {
+  origine?: "opuntiaitalia" | "wikiopuntia";
+}): Promise<
   | { success: true; items: import("@/types/database").PortaleRichiestaContattoRow[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await getAuthContextForPortaleLeads();
+  if (!auth) return { success: false, error: "Permesso negato" };
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let q = supabase
     .from("portale_richieste_contatto")
     .select("*")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(200);
+  if (input?.origine) {
+    q = q.eq("origine", input.origine);
+  }
+  const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   return {
     success: true,
@@ -325,7 +343,8 @@ export async function setPortaleRichiestaStatoAction(input: {
   id: string;
   stato: PortaleRichiestaStato;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await getAuthContextForPortaleLeads();
+  if (!auth) return { success: false, error: "Permesso negato" };
   if (!["nuova", "presa_in_carico", "chiusa"].includes(input.stato)) {
     return { success: false, error: "Stato non valido" };
   }

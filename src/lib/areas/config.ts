@@ -89,7 +89,6 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
   "amministrazione",
   "ricerca-sviluppo",
-  "wikiopuntia",
   "produzione",
   "chat",
   "webmail",
@@ -105,6 +104,7 @@ export const SIDEBAR_HIDDEN_AREAS: ReadonlySet<AreaSlug> = new Set([
   "commerciale",
   "acquisti",
   "hr",
+  "wikiopuntia",
 ]);
 
 export function areaPathFromSlug(slug: AreaSlug): string {

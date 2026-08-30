@@ -44,6 +44,12 @@ export const WIKIOPUNTIA_SECTIONS: readonly NavItem[] = [
     description: "Visitatori che chiedono un documento non pubblico",
     path: "/app/wikiopuntia/richieste-documenti",
   },
+  {
+    slug: "richieste-contatto",
+    label: "Richieste di contatto",
+    description: "Form contatti da wikiopuntia.com",
+    path: "/app/wikiopuntia/richieste-contatto",
+  },
 ] as const;
 
 export function getFirstWikiopuntiaPath(): string {

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { PortaleRichiesteBoard } from "@/components/amministrazione/PortaleLeadBoard";
 import { WikiKbBoard } from "@/components/wikiopuntia/WikiKbBoard";
 import { WikiRichiesteBoard } from "@/components/wikiopuntia/WikiRichiesteBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -34,6 +35,17 @@ export default async function WikiopuntiaSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <WikiKbBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "richieste-contatto") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PortaleRichiesteBoard origine="wikiopuntia" />
         </div>
       </>
     );

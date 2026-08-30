@@ -228,7 +228,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <PortaleRichiesteBoard />
+          <PortaleRichiesteBoard origine="opuntiaitalia" />
         </div>
       </>
     );

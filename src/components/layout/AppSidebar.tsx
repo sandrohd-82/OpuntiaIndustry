@@ -22,7 +22,7 @@ import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
-import { WIKIOPUNTIA_SECTIONS } from "@/lib/areas/wikiopuntia";
+import { webSectionsForAccess } from "@/lib/areas/web";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
@@ -55,7 +55,7 @@ function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
     case "wikiopuntia":
-      return WIKIOPUNTIA_SECTIONS;
+      return null;
     case "magazzino":
       return MAGAZZINO_SECTIONS;
     case "amministrazione":
@@ -231,6 +231,19 @@ export function AppSidebar({
 }: Props) {
   const pathname = usePathname();
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
+  const showWeb = useMemo(
+    () =>
+      areas.some((a) => a.slug === "wikiopuntia" || a.slug === "amministrazione"),
+    [areas]
+  );
+  const webSections = useMemo(
+    () =>
+      webSectionsForAccess({
+        italia: areas.some((a) => a.slug === "amministrazione"),
+        wiki: areas.some((a) => a.slug === "wikiopuntia"),
+      }),
+    [areas]
+  );
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -239,6 +252,15 @@ export function AppSidebar({
       const areaSlug = pathname.match(/^\/app\/([^/]+)/)?.[1] as
         | AreaSlug
         | undefined;
+      if (
+        pathname.startsWith("/app/wikiopuntia") ||
+        pathname.startsWith("/app/amministrazione/portale")
+      ) {
+        next.add("web");
+        for (const key of openKeysFromPathname(webSections, pathname, ["web"])) {
+          next.add(key);
+        }
+      }
       if (areaSlug) {
         next.add(areaSlug);
         const sections = sectionsForArea(areaSlug);
@@ -252,7 +274,7 @@ export function AppSidebar({
       }
       return next;
     });
-  }, [pathname]);
+  }, [pathname, webSections]);
 
   function toggle(key: string) {
     setOpenKeys((prev) => {
@@ -279,9 +301,59 @@ export function AppSidebar({
       </div>
       <nav className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-0.5">
-          {sortedAreas.map((area) => {
+          {(() => {
+            const rows: Array<
+              { type: "web" } | { type: "area"; area: (typeof sortedAreas)[number] }
+            > = [];
+            let webDone = false;
+            for (const area of sortedAreas) {
+              rows.push({ type: "area", area });
+              if (area.slug === "ricerca-sviluppo" && showWeb && webSections.length) {
+                rows.push({ type: "web" });
+                webDone = true;
+              }
+            }
+            if (showWeb && webSections.length && !webDone) {
+              const afterAdmin = rows.findIndex(
+                (r) => r.type === "area" && r.area.slug === "amministrazione"
+              );
+              if (afterAdmin >= 0) rows.splice(afterAdmin + 1, 0, { type: "web" });
+              else rows.unshift({ type: "web" });
+            }
+            return rows;
+          })().map((row) => {
+            if (row.type === "web") {
+              const open = openKeys.has("web");
+              const active =
+                pathname.startsWith("/app/wikiopuntia") ||
+                pathname.startsWith("/app/amministrazione/portale");
+              return (
+                <li key="web">
+                  <BranchButton
+                    label="Web"
+                    open={open}
+                    active={active}
+                    onToggle={() => toggle("web")}
+                  />
+                  {open ? (
+                    <NavTree
+                      sections={webSections}
+                      pathname={pathname}
+                      openKeys={openKeys}
+                      toggle={toggle}
+                    />
+                  ) : null}
+                </li>
+              );
+            }
+
+            const area = row.area;
             const href = areaPathFromSlug(area.slug);
-            const active = pathMatches(pathname, href);
+            const active =
+              area.slug === "amministrazione"
+                ? pathMatches(pathname, href) &&
+                  !pathname.startsWith("/app/amministrazione/portale")
+                : pathMatches(pathname, href);
             const treeSections = sectionsForArea(area.slug);
 
             if (treeSections) {

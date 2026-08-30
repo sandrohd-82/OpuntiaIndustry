@@ -12,14 +12,20 @@ import type {
   PortaleRichiestaStato,
 } from "@/types/database";
 
-export function PortaleRichiesteBoard() {
+export function PortaleRichiesteBoard({
+  origine,
+}: {
+  origine?: "opuntiaitalia" | "wikiopuntia";
+}) {
   const [items, setItems] = useState<PortaleRichiestaContattoRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function reload() {
     startTransition(async () => {
-      const res = await listPortaleRichiesteAction();
+      const res = await listPortaleRichiesteAction(
+        origine ? { origine } : undefined
+      );
       if (!res.success) {
         setError(res.error);
         return;
@@ -31,7 +37,7 @@ export function PortaleRichiesteBoard() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [origine]);
 
   return (
     <div className="space-y-3">
@@ -93,7 +99,11 @@ export function PortaleRichiesteBoard() {
             {!items.length && !pending ? (
               <tr>
                 <td className="px-3 py-6 text-[var(--muted)]" colSpan={5}>
-                  Nessuna richiesta dal portale.
+                  {origine === "wikiopuntia"
+                    ? "Nessuna richiesta da WikiOpuntia."
+                    : origine === "opuntiaitalia"
+                      ? "Nessuna richiesta da Opuntia Italia."
+                      : "Nessuna richiesta dal portale."}
                 </td>
               </tr>
             ) : null}

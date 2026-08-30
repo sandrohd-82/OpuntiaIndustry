@@ -1,3 +1,4 @@
+import { OPUNTIA_ITALIA_NAV } from "@/lib/areas/web";
 import {
   firstNavLeafPath,
   resolveNavPage,
@@ -114,26 +115,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "portale",
-    label: "Portale web",
-    description: "Lead da OpuntiaItalia: contatti e newsletter",
-    path: "/app/amministrazione/portale",
-    children: [
-      {
-        slug: "richieste-contatto",
-        label: "Richieste contatto",
-        description: "Form contatti del sito B2B",
-        path: "/app/amministrazione/portale/richieste-contatto",
-      },
-      {
-        slug: "newsletter",
-        label: "Newsletter",
-        description: "Iscritti newsletter / pillole",
-        path: "/app/amministrazione/portale/newsletter",
-      },
-    ],
-  },
-  {
     slug: "ordini",
     label: "Ordini",
     description: "Creazione, processi e storico ordini",
@@ -216,5 +197,8 @@ export function getFirstAmministrazionePath(): string {
 }
 
 export function resolveAmministrazionePage(segments: string[]) {
-  return resolveNavPage(AMMINISTRAZIONE_SECTIONS, segments);
+  return (
+    resolveNavPage(AMMINISTRAZIONE_SECTIONS, segments) ??
+    resolveNavPage([OPUNTIA_ITALIA_NAV], segments)
+  );
 }
