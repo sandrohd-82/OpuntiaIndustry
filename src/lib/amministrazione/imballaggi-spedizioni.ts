@@ -31,6 +31,9 @@ export const IMBALLAGGIO_STADI: {
   },
 ];
 
+/** Prefisso codice per voci a doppio ruolo (Confezione e Isolamento). */
+export const IMBALLAGGIO_CI_PREFIX = "C&I-";
+
 export const IMBALLAGGIO_PRODOTTO_UM = ["kg", "g", "lt", "ml", "pz"] as const;
 
 export type ImballaggioProdottoUm = (typeof IMBALLAGGIO_PRODOTTO_UM)[number];
@@ -62,6 +65,7 @@ export type ImballaggioVoce = {
   note: string;
   sortOrder: number;
   doppioRuolo: boolean;
+  voceGemellaId: string | null;
   prodotti: ImballaggioVoceProdottoLink[];
 };
 
@@ -141,6 +145,30 @@ export const corriereInputSchema = z.object({
   note: z.string().optional(),
 });
 
+export function normalizeCiCodice(codice: string): string {
+  const t = codice.trim();
+  const suffix = t.replace(/^(C&I|CNF|ISO|MOV)[-_]?/i, "").trim();
+  return `${IMBALLAGGIO_CI_PREFIX}${suffix || t}`;
+}
+
+export function otherDualStadio(
+  stadio: ImballaggioStadio
+): "confezione" | "isolamento" | null {
+  if (stadio === "confezione") return "isolamento";
+  if (stadio === "isolamento") return "confezione";
+  return null;
+}
+
+export function imballaggiPerCondizioneListino(
+  voci: ImballaggioVoce[]
+): ImballaggioVoce[] {
+  return voci.filter((v) => {
+    if (v.stadio === "movimentazione") return false;
+    if (v.doppioRuolo && v.stadio === "isolamento") return false;
+    return v.stadio === "confezione" || v.stadio === "isolamento";
+  });
+}
+
 export function parseImballaggioProdottoUm(
   value: string | null | undefined
 ): ImballaggioProdottoUm {
@@ -165,12 +193,13 @@ export function mapImballaggioVoceRow(
     note: row.note ?? "",
     sortOrder: row.sort_order ?? 0,
     doppioRuolo: Boolean(row.doppio_ruolo),
+    voceGemellaId: row.voce_gemella_id ?? null,
     prodotti,
   };
 }
 
 export function labelImballaggioVoce(v: ImballaggioVoce): string {
-  return v.doppioRuolo ? `${v.nome} (confezione + isolamento)` : v.nome;
+  return v.doppioRuolo ? `${v.nome} (C&I)` : v.nome;
 }
 
 export function voceCollegaProdotti(v: Pick<ImballaggioVoce, "stadio" | "doppioRuolo">) {
@@ -192,12 +221,7 @@ export function filterVociForWizardStadio(
   if (stadio === "confezione") {
     return voci.filter((v) => {
       if (v.stadio === "confezione" && !v.doppioRuolo) return true;
-      if (
-        v.doppioRuolo &&
-        (v.stadio === "confezione" || v.stadio === "isolamento")
-      ) {
-        return linked(v);
-      }
+      if (v.doppioRuolo && v.stadio === "confezione") return linked(v);
       return false;
     });
   }

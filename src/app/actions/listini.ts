@@ -4,14 +4,19 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   createListinoSchema,
+  listinoCondizioniSovrapposte,
   mapListino,
   mapListinoRiga,
+  mapListinoRigaCondizione,
+  upsertListinoRigaCondizioneSchema,
   upsertListinoRigaSchema,
   type Listino,
   type ListinoRiga,
+  type ListinoRigaCondizione,
 } from "@/lib/ecosystem/listini";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  ListinoRigaCondizioneRow,
   ListinoRigaRow,
   ListinoRow,
   ListinoStato,
@@ -164,10 +169,54 @@ export async function listListinoRigheAction(
     }
   }
 
+  const condizioniByRiga = await loadCondizioniByRiga(
+    supabase,
+    rows.map((r) => r.id)
+  );
+
   return {
     success: true,
-    items: rows.map((r) => mapListinoRiga(r, prodotti.get(r.prodotto_id))),
+    items: rows.map((r) =>
+      mapListinoRiga(
+        r,
+        prodotti.get(r.prodotto_id),
+        condizioniByRiga.get(r.id) ?? []
+      )
+    ),
   };
+}
+
+async function loadCondizioniByRiga(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rigaIds: string[]
+): Promise<Map<string, ListinoRigaCondizione[]>> {
+  const map = new Map<string, ListinoRigaCondizione[]>();
+  if (!rigaIds.length) return map;
+  const { data } = await supabase
+    .from("listini_righe_condizioni")
+    .select("*")
+    .in("listino_riga_id", rigaIds)
+    .is("deleted_at", null)
+    .order("qty_da", { ascending: true });
+  const rows = (data ?? []) as ListinoRigaCondizioneRow[];
+  const imbIds = [...new Set(rows.map((r) => r.imballaggio_voce_id))];
+  const imballaggi = new Map<string, { codice: string; nome: string }>();
+  if (imbIds.length) {
+    const { data: vs } = await supabase
+      .from("imballaggi_voci")
+      .select("id, codice, nome")
+      .in("id", imbIds);
+    for (const v of vs ?? []) {
+      const row = v as { id: string; codice: string; nome: string };
+      imballaggi.set(row.id, { codice: row.codice, nome: row.nome });
+    }
+  }
+  for (const r of rows) {
+    const list = map.get(r.listino_riga_id) ?? [];
+    list.push(mapListinoRigaCondizione(r, imballaggi.get(r.imballaggio_voce_id)));
+    map.set(r.listino_riga_id, list);
+  }
+  return map;
 }
 
 export async function upsertListinoRigaAction(input: unknown): Promise<
@@ -197,6 +246,7 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
       .from("listini_righe")
       .update({
         prezzo: parsed.data.prezzo,
+        unita_misura: parsed.data.unitaMisura,
         iva_percentuale: parsed.data.ivaPercentuale,
         min_qty: parsed.data.minQty,
         sconto_max_pct: parsed.data.scontoMaxPct,
@@ -216,6 +266,7 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
         listino_id: parsed.data.listinoId,
         prodotto_id: parsed.data.prodottoId,
         prezzo: parsed.data.prezzo,
+        unita_misura: parsed.data.unitaMisura,
         iva_percentuale: parsed.data.ivaPercentuale,
         min_qty: parsed.data.minQty,
         sconto_max_pct: parsed.data.scontoMaxPct,
@@ -236,10 +287,14 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
     action: existing?.id ? "update" : "create",
     actor_id: auth.userId,
     summary: `Riga listino prodotto ${parsed.data.prodottoId}`,
-    payload: { prezzo: parsed.data.prezzo },
+    payload: {
+      prezzo: parsed.data.prezzo,
+      unita_misura: parsed.data.unitaMisura,
+    },
   });
 
-  return { success: true, item: mapListinoRiga(row) };
+  const condizioni = (await loadCondizioniByRiga(supabase, [row.id])).get(row.id);
+  return { success: true, item: mapListinoRiga(row, undefined, condizioni) };
 }
 
 export async function softDeleteListinoRigaAction(
@@ -247,10 +302,22 @@ export async function softDeleteListinoRigaAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
   const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error: condErr } = await supabase
+    .from("listini_righe_condizioni")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("listino_riga_id", id)
+    .is("deleted_at", null);
+  if (condErr) return { success: false, error: condErr.message };
+
   const { error } = await supabase
     .from("listini_righe")
     .update({
-      deleted_at: new Date().toISOString(),
+      deleted_at: now,
       deleted_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -263,6 +330,152 @@ export async function softDeleteListinoRigaAction(
     action: "soft_delete",
     actor_id: auth.userId,
     summary: "Rimossa riga listino (soft delete)",
+  });
+  return { success: true };
+}
+
+export async function upsertListinoRigaCondizioneAction(input: unknown): Promise<
+  | { success: true; item: ListinoRigaCondizione }
+  | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  const parsed = upsertListinoRigaCondizioneSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+
+  const supabase = await createClient();
+  const { data: riga, error: rigaErr } = await supabase
+    .from("listini_righe")
+    .select("id")
+    .eq("id", parsed.data.listinoRigaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (rigaErr || !riga) {
+    return { success: false, error: rigaErr?.message ?? "Riga listino non trovata" };
+  }
+
+  const { data: existingRows } = await supabase
+    .from("listini_righe_condizioni")
+    .select("*")
+    .eq("listino_riga_id", parsed.data.listinoRigaId)
+    .eq("imballaggio_voce_id", parsed.data.imballaggioVoceId)
+    .is("deleted_at", null);
+  const esistenti = ((existingRows ?? []) as ListinoRigaCondizioneRow[]).map(
+    (r) => ({
+      id: r.id,
+      qtyDa: Number(r.qty_da),
+      qtyA: r.qty_a == null ? null : Number(r.qty_a),
+    })
+  );
+  if (
+    listinoCondizioniSovrapposte(esistenti, {
+      id: parsed.data.id,
+      qtyDa: parsed.data.qtyDa,
+      qtyA: parsed.data.qtyA ?? null,
+    })
+  ) {
+    return {
+      success: false,
+      error:
+        "Lo scaglione si sovrappone a un’altra condizione per la stessa confezione.",
+    };
+  }
+
+  let row: ListinoRigaCondizioneRow | null = null;
+  if (parsed.data.id) {
+    const { data, error } = await supabase
+      .from("listini_righe_condizioni")
+      .update({
+        qty_da: parsed.data.qtyDa,
+        qty_a: parsed.data.qtyA ?? null,
+        imballaggio_voce_id: parsed.data.imballaggioVoceId,
+        sconto_pct: parsed.data.scontoPct,
+        updated_by: auth.userId,
+      })
+      .eq("id", parsed.data.id)
+      .is("deleted_at", null)
+      .select("*")
+      .single();
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+    }
+    row = data as ListinoRigaCondizioneRow;
+  } else {
+    const { data, error } = await supabase
+      .from("listini_righe_condizioni")
+      .insert({
+        listino_riga_id: parsed.data.listinoRigaId,
+        qty_da: parsed.data.qtyDa,
+        qty_a: parsed.data.qtyA ?? null,
+        imballaggio_voce_id: parsed.data.imballaggioVoceId,
+        sconto_pct: parsed.data.scontoPct,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("*")
+      .single();
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Inserimento fallito" };
+    }
+    row = data as ListinoRigaCondizioneRow;
+  }
+
+  await writeAuditLog({
+    entity_type: "listini_righe_condizioni",
+    entity_id: row.id,
+    action: parsed.data.id ? "update" : "create",
+    actor_id: auth.userId,
+    summary: `Condizione sconto listino ${parsed.data.scontoPct}%`,
+    payload: {
+      qty_da: parsed.data.qtyDa,
+      qty_a: parsed.data.qtyA ?? null,
+      imballaggio_voce_id: parsed.data.imballaggioVoceId,
+      sconto_pct: parsed.data.scontoPct,
+    },
+  });
+
+  const { data: imb } = await supabase
+    .from("imballaggi_voci")
+    .select("codice, nome")
+    .eq("id", row.imballaggio_voce_id)
+    .maybeSingle();
+  return {
+    success: true,
+    item: mapListinoRigaCondizione(
+      row,
+      imb
+        ? { codice: (imb as { codice: string; nome: string }).codice, nome: (imb as { codice: string; nome: string }).nome }
+        : undefined
+    ),
+  };
+}
+
+export async function softDeleteListinoRigaCondizioneAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardAmm();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("listini_righe_condizioni")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "listini_righe_condizioni",
+    entity_id: id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Rimossa condizione sconto listino (soft delete)",
   });
   return { success: true };
 }

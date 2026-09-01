@@ -22,6 +22,8 @@ import { InfoHint, LabelWithInfo } from "@/components/ui/InfoHint";
 import {
   formatMisureImballaggio,
   IMBALLAGGIO_STADI,
+  normalizeCiCodice,
+  otherDualStadio,
   voceCollegaProdotti,
   type Corriere,
   type ImballaggioStadio,
@@ -52,7 +54,7 @@ type EditCorriere = {
 const INFO = {
   cerca: "Filtra l’elenco per nome, codice o note della voce visibile in questo stadio.",
   codice:
-    "Identificativo univoco della voce nel catalogo (es. CNF-BIDONE-20). Deve essere unico nello stesso stadio.",
+    "Identificativo univoco nello stadio. Con doppio ruolo il codice diventa C&I-… (Confezione e isolamento) e la voce è duplicata nell’altro stadio.",
   nome: "Nome visibile in elenco e nel wizard ordini quando scegli l’imballaggio.",
   largo: "Larghezza esterna in millimetri.",
   prof: "Profondità esterna in millimetri.",
@@ -60,7 +62,7 @@ const INFO = {
   capLt: "Capacità in litri (bidoni, taniche). Lascia vuoto se usi solo le misure mm.",
   note: "Annotazioni interne per l’operatore. Non finiscono sul documento cliente.",
   doppio:
-    "Se attivo, la voce funge sia da confezione sia da isolamento (es. bidone gel). Nel wizard compare in un’unica selezione, solo per i prodotti collegati.",
+    "Se attivo, la voce è duplicata nell’altro stadio con lo stesso codice C&I- (Confezione e isolamento). Nome, misure e prodotti restano allineati. Nel wizard una sola selezione.",
   prodotti:
     "Quanti prodotti Agrinsicilia sono collegati a questa voce, ciascuno con quantità max e unità (kg, lt, g, ml, pz).",
   ordine:
@@ -477,7 +479,13 @@ export function ImballaggiSpedizioniBoard() {
                   value={nuovoCodice}
                   onChange={(e) => setNuovoCodice(e.target.value)}
                   className="w-40 rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
-                  placeholder="CNF-…"
+                  placeholder={
+                    nuovoDoppioRuolo
+                      ? "C&I-…"
+                      : tab === "isolamento"
+                        ? "ISO-…"
+                        : "CNF-…"
+                  }
                 />
               </label>
               <label className="block text-sm">
@@ -558,7 +566,13 @@ export function ImballaggiSpedizioniBoard() {
               <input
                 type="checkbox"
                 checked={nuovoDoppioRuolo}
-                onChange={(e) => setNuovoDoppioRuolo(e.target.checked)}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setNuovoDoppioRuolo(on);
+                  if (on && nuovoCodice.trim()) {
+                    setNuovoCodice(normalizeCiCodice(nuovoCodice));
+                  }
+                }}
               />
               {tab === "isolamento"
                 ? "Fa anche da confezionamento"
@@ -797,7 +811,14 @@ export function ImballaggiSpedizioniBoard() {
                             className={`${inputCls} font-mono text-xs`}
                           />
                         ) : (
-                          <span className="font-mono text-xs">{v.codice}</span>
+                          <span className="font-mono text-xs">
+                            {v.codice}
+                            {v.doppioRuolo ? (
+                              <span className="ml-1 rounded bg-emerald-50 px-1 py-0.5 text-[10px] font-sans font-semibold text-emerald-800">
+                                C&I
+                              </span>
+                            ) : null}
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2">
@@ -892,6 +913,13 @@ export function ImballaggiSpedizioniBoard() {
                               onChange={(e) =>
                                 patchEditVoce({
                                   doppioRuolo: e.target.checked,
+                                  ...(e.target.checked
+                                    ? {
+                                        codice: normalizeCiCodice(
+                                          editVoce.codice
+                                        ),
+                                      }
+                                    : {}),
                                 })
                               }
                             />
@@ -902,7 +930,14 @@ export function ImballaggiSpedizioniBoard() {
                           </label>
                         ) : v.doppioRuolo ? (
                           <span className="text-xs font-medium text-emerald-800">
-                            Sì
+                            C&I
+                            {otherDualStadio(v.stadio)
+                              ? ` · anche in ${
+                                  otherDualStadio(v.stadio) === "isolamento"
+                                    ? "isolamento"
+                                    : "confezione"
+                                }`
+                              : ""}
                           </span>
                         ) : (
                           <span className="text-[var(--muted)]">No</span>

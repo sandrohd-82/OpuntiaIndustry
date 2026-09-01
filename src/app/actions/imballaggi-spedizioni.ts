@@ -9,6 +9,8 @@ import {
   imballaggioVoceInputSchema,
   mapCorriereRow,
   mapImballaggioVoceRow,
+  normalizeCiCodice,
+  otherDualStadio,
   parseImballaggioProdottoUm,
   syncImballaggioVoceProdottiSchema,
   type Corriere,
@@ -66,6 +68,104 @@ async function attachProdottiLinks(
   return map;
 }
 
+function voceSharedFields(
+  v: {
+    nome: string;
+    largoMm?: number | null;
+    profonditaMm?: number | null;
+    altezzaMm?: number | null;
+    capacitaLt?: number | null;
+    note?: string;
+    sortOrder?: number;
+  },
+  codice: string,
+  doppio: boolean,
+  userId: string
+) {
+  return {
+    codice,
+    nome: v.nome.trim(),
+    largo_mm: v.largoMm ?? null,
+    profondita_mm: v.profonditaMm ?? null,
+    altezza_mm: v.altezzaMm ?? null,
+    capacita_lt: v.capacitaLt ?? null,
+    note: (v.note ?? "").trim(),
+    sort_order: v.sortOrder ?? 0,
+    doppio_ruolo: doppio,
+    updated_by: userId,
+  };
+}
+
+async function createVoceGemella(
+  source: ImballaggioVoceRow,
+  userId: string
+): Promise<{ id: string } | { error: string }> {
+  const other = otherDualStadio(source.stadio);
+  if (!other) return { error: "Doppio ruolo non valido per questo stadio." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("imballaggi_voci")
+    .insert({
+      stadio: other,
+      codice: source.codice,
+      nome: source.nome,
+      largo_mm: source.largo_mm,
+      profondita_mm: source.profondita_mm,
+      altezza_mm: source.altezza_mm,
+      capacita_lt: source.capacita_lt,
+      note: source.note,
+      sort_order: source.sort_order,
+      doppio_ruolo: true,
+      voce_gemella_id: source.id,
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error || !data) {
+    return { error: error?.message ?? "Creazione gemella C&I fallita." };
+  }
+  const twinId = (data as { id: string }).id;
+  const { error: linkErr } = await supabase
+    .from("imballaggi_voci")
+    .update({ voce_gemella_id: twinId, updated_by: userId })
+    .eq("id", source.id);
+  if (linkErr) return { error: linkErr.message };
+  await copyProdottiLinks(source.id, twinId, userId);
+  return { id: twinId };
+}
+
+async function copyProdottiLinks(
+  fromId: string,
+  toId: string,
+  userId: string
+): Promise<void> {
+  const links = await attachProdottiLinks([fromId]);
+  const list = links.get(fromId) ?? [];
+  if (!list.length) return;
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("imballaggi_voci_prodotti")
+    .select("prodotto_id")
+    .eq("voce_id", toId)
+    .is("deleted_at", null);
+  const have = new Set(
+    ((existing ?? []) as { prodotto_id: string }[]).map((r) => r.prodotto_id)
+  );
+  const toInsert = list.filter((l) => !have.has(l.prodottoId));
+  if (!toInsert.length) return;
+  await supabase.from("imballaggi_voci_prodotti").insert(
+    toInsert.map((l) => ({
+      voce_id: toId,
+      prodotto_id: l.prodottoId,
+      max_kg: l.maxKg,
+      unita_misura: l.unitaMisura,
+      created_by: userId,
+      updated_by: userId,
+    }))
+  );
+}
+
 export async function listImballaggiVociAction(
   stadio?: ImballaggioStadio
 ): Promise<ListVociResult> {
@@ -100,29 +200,29 @@ export async function createImballaggioVoceAction(
     };
   }
   const v = parsed.data;
+  const doppio = Boolean(v.doppioRuolo) && v.stadio !== "movimentazione";
+  const codice = doppio ? normalizeCiCodice(v.codice) : v.codice.trim();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("imballaggi_voci")
     .insert({
       stadio: v.stadio,
-      codice: v.codice.trim(),
-      nome: v.nome.trim(),
-      largo_mm: v.largoMm ?? null,
-      profondita_mm: v.profonditaMm ?? null,
-      altezza_mm: v.altezzaMm ?? null,
-      capacita_lt: v.capacitaLt ?? null,
-      note: (v.note ?? "").trim(),
-      sort_order: v.sortOrder ?? 0,
-      doppio_ruolo: Boolean(v.doppioRuolo) && v.stadio !== "movimentazione",
+      ...voceSharedFields(v, codice, doppio, auth.userId),
       created_by: auth.userId,
-      updated_by: auth.userId,
     })
     .select("*")
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Salvataggio fallito." };
   }
-  const row = data as ImballaggioVoceRow;
+  let row = data as ImballaggioVoceRow;
+  if (doppio) {
+    const twin = await createVoceGemella(row, auth.userId);
+    if ("error" in twin) {
+      return { success: false, error: twin.error };
+    }
+    row = { ...row, voce_gemella_id: twin.id, codice, doppio_ruolo: true };
+  }
   await writeAuditLog({
     entity_type: "imballaggi_voci",
     entity_id: row.id,
@@ -134,6 +234,7 @@ export async function createImballaggioVoceAction(
       nome: row.nome,
       stadio: row.stadio,
       doppio_ruolo: row.doppio_ruolo,
+      voce_gemella_id: row.voce_gemella_id,
     },
   });
   return { success: true, item: mapImballaggioVoceRow(row) };
@@ -153,20 +254,22 @@ export async function updateImballaggioVoceAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
+  const { data: current, error: readErr } = await supabase
+    .from("imballaggi_voci")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr || !current) {
+    return { success: false, error: readErr?.message ?? "Voce non trovata." };
+  }
+  const prev = current as ImballaggioVoceRow;
+  const doppio = Boolean(v.doppioRuolo) && v.stadio !== "movimentazione";
+  const codice = doppio ? normalizeCiCodice(v.codice) : v.codice.trim();
+
   const { data, error } = await supabase
     .from("imballaggi_voci")
-    .update({
-      codice: v.codice.trim(),
-      nome: v.nome.trim(),
-      largo_mm: v.largoMm ?? null,
-      profondita_mm: v.profonditaMm ?? null,
-      altezza_mm: v.altezzaMm ?? null,
-      capacita_lt: v.capacitaLt ?? null,
-      note: (v.note ?? "").trim(),
-      sort_order: v.sortOrder ?? 0,
-      doppio_ruolo: Boolean(v.doppioRuolo) && v.stadio !== "movimentazione",
-      updated_by: auth.userId,
-    })
+    .update(voceSharedFields(v, codice, doppio, auth.userId))
     .eq("id", id)
     .is("deleted_at", null)
     .select("*")
@@ -174,7 +277,42 @@ export async function updateImballaggioVoceAction(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito." };
   }
-  const row = data as ImballaggioVoceRow;
+  let row = data as ImballaggioVoceRow;
+
+  if (doppio && !prev.voce_gemella_id) {
+    const twin = await createVoceGemella(row, auth.userId);
+    if ("error" in twin) {
+      return { success: false, error: twin.error };
+    }
+    row = { ...row, voce_gemella_id: twin.id };
+  } else if (doppio && prev.voce_gemella_id) {
+    const { error: twinErr } = await supabase
+      .from("imballaggi_voci")
+      .update(voceSharedFields(v, codice, true, auth.userId))
+      .eq("id", prev.voce_gemella_id)
+      .is("deleted_at", null);
+    if (twinErr) return { success: false, error: twinErr.message };
+    await copyProdottiLinks(row.id, prev.voce_gemella_id, auth.userId);
+    row = { ...row, voce_gemella_id: prev.voce_gemella_id };
+  } else if (!doppio && prev.voce_gemella_id) {
+    const now = new Date().toISOString();
+    await supabase
+      .from("imballaggi_voci")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+        voce_gemella_id: null,
+      })
+      .eq("id", prev.voce_gemella_id)
+      .is("deleted_at", null);
+    await supabase
+      .from("imballaggi_voci")
+      .update({ voce_gemella_id: null, updated_by: auth.userId })
+      .eq("id", row.id);
+    row = { ...row, voce_gemella_id: null };
+  }
+
   await writeAuditLog({
     entity_type: "imballaggi_voci",
     entity_id: row.id,
@@ -185,6 +323,7 @@ export async function updateImballaggioVoceAction(
       codice: row.codice,
       nome: row.nome,
       doppio_ruolo: row.doppio_ruolo,
+      voce_gemella_id: row.voce_gemella_id,
     },
   });
   const links = await attachProdottiLinks([row.id]);
@@ -304,11 +443,51 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
     },
   });
 
+  if (row.voce_gemella_id) {
+    const gemellaRes = await replaceProdottiLinks(
+      row.voce_gemella_id,
+      links,
+      auth.userId
+    );
+    if (gemellaRes) return { success: false, error: gemellaRes };
+  }
+
   const refreshed = await attachProdottiLinks([voceId]);
   return {
     success: true,
     item: mapImballaggioVoceRow(row, refreshed.get(voceId) ?? []),
   };
+}
+
+async function replaceProdottiLinks(
+  voceId: string,
+  links: ImballaggioVoceProdottoLink[],
+  userId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error: delErr } = await supabase
+    .from("imballaggi_voci_prodotti")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("voce_id", voceId)
+    .is("deleted_at", null);
+  if (delErr) return delErr.message;
+  if (!links.length) return null;
+  const { error } = await supabase.from("imballaggi_voci_prodotti").insert(
+    links.map((l) => ({
+      voce_id: voceId,
+      prodotto_id: l.prodottoId,
+      max_kg: l.maxKg,
+      unita_misura: l.unitaMisura ?? "kg",
+      created_by: userId,
+      updated_by: userId,
+    }))
+  );
+  return error?.message ?? null;
 }
 
 function checkConferma(
@@ -347,6 +526,15 @@ export async function softDeleteImballaggiVociBulkAction(input: {
   const ids = [...new Set(input.ids.filter(Boolean))];
   if (!ids.length) return { success: false, error: "Nessun record selezionato." };
   const supabase = await createClient();
+  const { data: found } = await supabase
+    .from("imballaggi_voci")
+    .select("id, voce_gemella_id")
+    .in("id", ids)
+    .is("deleted_at", null);
+  const allIds = new Set(ids);
+  for (const r of (found ?? []) as { id: string; voce_gemella_id: string | null }[]) {
+    if (r.voce_gemella_id) allIds.add(r.voce_gemella_id);
+  }
   const now = new Date().toISOString();
   const { error } = await supabase
     .from("imballaggi_voci")
@@ -355,7 +543,7 @@ export async function softDeleteImballaggiVociBulkAction(input: {
       deleted_by: auth.userId,
       updated_by: auth.userId,
     })
-    .in("id", ids)
+    .in("id", [...allIds])
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
   await writeAuditLog({

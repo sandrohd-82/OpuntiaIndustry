@@ -529,9 +529,25 @@ export interface ListinoRigaRow {
   listino_id: string;
   prodotto_id: string;
   prezzo: number;
+  unita_misura: "kg" | "lt";
   iva_percentuale: number;
   min_qty: number;
   sconto_max_pct: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface ListinoRigaCondizioneRow {
+  id: string;
+  listino_riga_id: string;
+  qty_da: number;
+  qty_a: number | null;
+  imballaggio_voce_id: string;
+  sconto_pct: number;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -961,6 +977,7 @@ export interface ImballaggioVoceRow {
   note: string;
   sort_order: number;
   doppio_ruolo: boolean;
+  voce_gemella_id: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
@@ -995,6 +1012,7 @@ export type ImballaggioVoceInsert = {
   note?: string;
   sort_order?: number;
   doppio_ruolo?: boolean;
+  voce_gemella_id?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
 };
@@ -2406,6 +2424,15 @@ export interface Database {
         Update: Partial<ListinoRigaRow>;
         Relationships: [];
       };
+      listini_righe_condizioni: {
+        Row: ListinoRigaCondizioneRow;
+        Insert: Partial<ListinoRigaCondizioneRow> & {
+          listino_riga_id: string;
+          imballaggio_voce_id: string;
+        };
+        Update: Partial<ListinoRigaCondizioneRow>;
+        Relationships: [];
+      };
       wiki_scientific_research: {
         Row: WikiScientificResearchRow;
         Insert: Partial<WikiScientificResearchRow> & {
@@ -2825,6 +2852,7 @@ export interface Database {
           slug_pubblico: string | null;
           nome: string;
           prezzo: number;
+          unita_misura: string;
           iva_percentuale: number;
           min_qty: number;
           sconto_max_pct: number;
