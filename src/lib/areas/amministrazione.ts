@@ -1,4 +1,7 @@
-import { OPUNTIA_ITALIA_NAV } from "@/lib/areas/web";
+import {
+  CANALI_PUBBLICAZIONE_NAV,
+  OPUNTIA_ITALIA_NAV,
+} from "@/lib/areas/web";
 import {
   firstNavLeafPath,
   resolveNavPage,
@@ -105,13 +108,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Listini versionati per OpuntiaItalia (bozza / approvato / pubblicato)",
         path: "/app/amministrazione/schede/listini-b2b",
       },
-      {
-        slug: "canali-pubblicazione",
-        label: "Canali pubblicazione",
-        description:
-          "Visibilità B2B / Wiki / B2C e stato pubblicazione prodotti",
-        path: "/app/amministrazione/schede/canali-pubblicazione",
-      },
     ],
   },
   {
@@ -204,8 +200,18 @@ export function getFirstAmministrazionePath(): string {
 }
 
 export function resolveAmministrazionePage(segments: string[]) {
-  return (
+  const fromTree =
     resolveNavPage(AMMINISTRAZIONE_SECTIONS, segments) ??
-    resolveNavPage([OPUNTIA_ITALIA_NAV], segments)
-  );
+    resolveNavPage([OPUNTIA_ITALIA_NAV], segments);
+  if (fromTree) return fromTree;
+  if (
+    segments[0] === "schede" &&
+    segments[1] === "canali-pubblicazione"
+  ) {
+    return {
+      label: CANALI_PUBBLICAZIONE_NAV.label,
+      description: CANALI_PUBBLICAZIONE_NAV.description,
+    };
+  }
+  return null;
 }

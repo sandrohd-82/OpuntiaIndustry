@@ -22,7 +22,7 @@ import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
-import { webSectionsForAccess } from "@/lib/areas/web";
+import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
@@ -252,10 +252,7 @@ export function AppSidebar({
       const areaSlug = pathname.match(/^\/app\/([^/]+)/)?.[1] as
         | AreaSlug
         | undefined;
-      if (
-        pathname.startsWith("/app/wikiopuntia") ||
-        pathname.startsWith("/app/amministrazione/portale")
-      ) {
+      if (isWebHubPath(pathname)) {
         next.add("web");
         for (const key of openKeysFromPathname(webSections, pathname, ["web"])) {
           next.add(key);
@@ -324,9 +321,7 @@ export function AppSidebar({
           })().map((row) => {
             if (row.type === "web") {
               const open = openKeys.has("web");
-              const active =
-                pathname.startsWith("/app/wikiopuntia") ||
-                pathname.startsWith("/app/amministrazione/portale");
+              const active = isWebHubPath(pathname);
               return (
                 <li key="web">
                   <BranchButton
@@ -351,8 +346,7 @@ export function AppSidebar({
             const href = areaPathFromSlug(area.slug);
             const active =
               area.slug === "amministrazione"
-                ? pathMatches(pathname, href) &&
-                  !pathname.startsWith("/app/amministrazione/portale")
+                ? pathMatches(pathname, href) && !isWebHubPath(pathname)
                 : pathMatches(pathname, href);
             const treeSections = sectionsForArea(area.slug);
 

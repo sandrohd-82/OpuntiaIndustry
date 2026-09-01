@@ -23,6 +23,15 @@ export const OPUNTIA_ITALIA_NAV: NavItem = {
   ],
 };
 
+/** Visibilità prodotti sui siti — sotto Web, non più in Schede. */
+export const CANALI_PUBBLICAZIONE_NAV: NavItem = {
+  slug: "canali-pubblicazione",
+  label: "Canali pubblicazione",
+  description:
+    "Visibilità B2B / Wiki / B2C e stato pubblicazione prodotti",
+  path: "/app/amministrazione/schede/canali-pubblicazione",
+};
+
 /** WikiOpuntia sotto Web (stesse voci dell’area, incluso contatto). */
 export const WIKI_UNDER_WEB: NavItem = {
   slug: "wikiopuntia-hub",
@@ -32,12 +41,23 @@ export const WIKI_UNDER_WEB: NavItem = {
   children: [...WIKIOPUNTIA_SECTIONS],
 };
 
+export function isWebHubPath(pathname: string): boolean {
+  return (
+    pathname.startsWith("/app/wikiopuntia") ||
+    pathname.startsWith("/app/amministrazione/portale") ||
+    pathname.startsWith(CANALI_PUBBLICAZIONE_NAV.path)
+  );
+}
+
 export function webSectionsForAccess(input: {
   italia: boolean;
   wiki: boolean;
 }): NavItem[] {
   const items: NavItem[] = [];
-  if (input.italia) items.push(OPUNTIA_ITALIA_NAV);
+  if (input.italia) {
+    items.push(OPUNTIA_ITALIA_NAV);
+    items.push(CANALI_PUBBLICAZIONE_NAV);
+  }
   if (input.wiki) items.push(WIKI_UNDER_WEB);
   return items;
 }
