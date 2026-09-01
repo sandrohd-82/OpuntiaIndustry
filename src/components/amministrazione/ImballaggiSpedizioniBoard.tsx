@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/ClearableNumberInput";
 import { ImballaggioVoceProdottiModal } from "@/components/amministrazione/ImballaggioVoceProdottiModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { InfoHint, LabelWithInfo } from "@/components/ui/InfoHint";
 import {
   formatMisureImballaggio,
   IMBALLAGGIO_STADI,
@@ -47,6 +48,29 @@ type EditCorriere = {
   nome: string;
   note: string;
 };
+
+const INFO = {
+  cerca: "Filtra l’elenco per nome, codice o note della voce visibile in questo stadio.",
+  codice:
+    "Identificativo univoco della voce nel catalogo (es. CNF-BIDONE-20). Deve essere unico nello stesso stadio.",
+  nome: "Nome visibile in elenco e nel wizard ordini quando scegli l’imballaggio.",
+  largo: "Larghezza esterna in millimetri.",
+  prof: "Profondità esterna in millimetri.",
+  alt: "Altezza esterna in millimetri (lascia vuoto se non serve).",
+  capLt: "Capacità in litri (bidoni, taniche). Lascia vuoto se usi solo le misure mm.",
+  note: "Annotazioni interne per l’operatore. Non finiscono sul documento cliente.",
+  doppio:
+    "Se attivo, la voce funge sia da confezione sia da isolamento (es. bidone gel). Nel wizard compare in un’unica selezione, solo per i prodotti collegati.",
+  prodotti:
+    "Quanti prodotti Agrinsicilia sono collegati a questa voce, ciascuno con max kg inseribili.",
+  ordine:
+    "Posizione in elenco (sort). Il numero più basso sta più in alto. Non è un ordine cliente.",
+  azioni: "Modifica, collega ai prodotti ed elimina. L’eliminazione chiede sempre conferma.",
+  seleziona: "Spunta una o più righe per eliminarle insieme (sempre con conferma).",
+  misure: "Dimensioni esterne largo × profondità × altezza in millimetri.",
+  corriereNome: "Nome del corriere selezionabile nello step spedizione dell’ordine.",
+  corriereNote: "Note operative sul corriere (tempi, vincoli, recapiti).",
+} as const;
 
 function numOrNull(v: number | ""): number | null {
   if (v === "" || !Number.isFinite(v) || v <= 0) return null;
@@ -364,21 +388,30 @@ export function ImballaggiSpedizioniBoard() {
         ruolo) si collegano ai prodotti con max kg. Usato nel wizard ordini.
       </p>
 
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-              tab === t.id
-                ? "bg-[var(--primary)] text-white"
-                : "border border-[var(--border)] bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        {tabs.map((t) => {
+          const meta = IMBALLAGGIO_STADI.find((s) => s.id === t.id);
+          const tabInfo =
+            t.id === "corrieri"
+              ? "Anagrafica corrieri usata nello step spedizione dell’ordine. Puoi compilare il corriere dopo."
+              : meta?.descrizione ?? "";
+          return (
+            <span key={t.id} className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  tab === t.id
+                    ? "bg-[var(--primary)] text-white"
+                    : "border border-[var(--border)] bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {t.label}
+              </button>
+              <InfoHint title={t.label}>{tabInfo}</InfoHint>
+            </span>
+          );
+        })}
       </div>
 
       {stadioMeta ? (
@@ -392,7 +425,7 @@ export function ImballaggiSpedizioniBoard() {
       <div className="flex flex-wrap items-end gap-2">
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            Cerca
+            <LabelWithInfo label="Cerca" info={INFO.cerca} />
           </span>
           <input
             value={query}
@@ -424,7 +457,7 @@ export function ImballaggiSpedizioniBoard() {
             <>
               <label className="block text-sm">
                 <span className="mb-1 block text-xs text-[var(--muted)]">
-                  Codice
+                  <LabelWithInfo label="Codice" info={INFO.codice} />
                 </span>
                 <input
                   value={nuovoCodice}
@@ -435,7 +468,7 @@ export function ImballaggiSpedizioniBoard() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block text-xs text-[var(--muted)]">
-                  Largo mm
+                  <LabelWithInfo label="Largo mm" info={INFO.largo} />
                 </span>
                 <ClearableNumberInput
                   min={0}
@@ -446,7 +479,7 @@ export function ImballaggiSpedizioniBoard() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block text-xs text-[var(--muted)]">
-                  Prof. mm
+                  <LabelWithInfo label="Prof. mm" info={INFO.prof} />
                 </span>
                 <ClearableNumberInput
                   min={0}
@@ -457,7 +490,7 @@ export function ImballaggiSpedizioniBoard() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block text-xs text-[var(--muted)]">
-                  Alt. mm
+                  <LabelWithInfo label="Alt. mm" info={INFO.alt} />
                 </span>
                 <ClearableNumberInput
                   min={0}
@@ -468,7 +501,7 @@ export function ImballaggiSpedizioniBoard() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block text-xs text-[var(--muted)]">
-                  Cap. lt
+                  <LabelWithInfo label="Cap. lt" info={INFO.capLt} />
                 </span>
                 <ClearableNumberInput
                   min={0}
@@ -480,7 +513,12 @@ export function ImballaggiSpedizioniBoard() {
             </>
           ) : null}
           <label className="block text-sm">
-            <span className="mb-1 block text-xs text-[var(--muted)]">Nome</span>
+            <span className="mb-1 block text-xs text-[var(--muted)]">
+              <LabelWithInfo
+                label="Nome"
+                info={tab === "corrieri" ? INFO.corriereNome : INFO.nome}
+              />
+            </span>
             <input
               value={nuovoNome}
               onChange={(e) => setNuovoNome(e.target.value)}
@@ -489,7 +527,12 @@ export function ImballaggiSpedizioniBoard() {
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block text-xs text-[var(--muted)]">Note</span>
+            <span className="mb-1 block text-xs text-[var(--muted)]">
+              <LabelWithInfo
+                label="Note"
+                info={tab === "corrieri" ? INFO.corriereNote : INFO.note}
+              />
+            </span>
             <input
               value={nuovoNote}
               onChange={(e) => setNuovoNote(e.target.value)}
@@ -506,6 +549,7 @@ export function ImballaggiSpedizioniBoard() {
               {tab === "isolamento"
                 ? "Fa anche da confezionamento"
                 : "Fa anche da isolamento"}
+              <InfoHint title="Doppio ruolo">{INFO.doppio}</InfoHint>
             </label>
           ) : null}
           <button
@@ -536,16 +580,25 @@ export function ImballaggiSpedizioniBoard() {
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleSelectAllVisible}
-                    aria-label="Seleziona tutti i corrieri visibili"
-                  />
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Seleziona tutti i corrieri visibili"
+                    />
+                    <InfoHint title="Selezione">{INFO.seleziona}</InfoHint>
+                  </span>
                 </th>
-                <th className="px-3 py-2">Nome</th>
-                <th className="px-3 py-2">Note</th>
-                <th className="px-3 py-2 text-right">Azioni</th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Nome" info={INFO.corriereNome} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Note" info={INFO.corriereNote} />
+                </th>
+                <th className="px-3 py-2 text-right">
+                  <LabelWithInfo label="Azioni" info={INFO.azioni} />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -657,22 +710,47 @@ export function ImballaggiSpedizioniBoard() {
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleSelectAllVisible}
-                    aria-label="Seleziona tutte le voci visibili"
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={toggleSelectAllVisible}
+                      aria-label="Seleziona tutte le voci visibili"
+                    />
+                    <InfoHint title="Selezione">{INFO.seleziona}</InfoHint>
+                  </span>
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Codice" info={INFO.codice} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Nome" info={INFO.nome} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="L×P×H mm" info={INFO.misure} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="lt" info={INFO.capLt} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Note" info={INFO.note} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Doppio" info={INFO.doppio} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo label="Prodotti" info={INFO.prodotti} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo
+                    label="Ordine"
+                    title="Ordine in elenco"
+                    info={INFO.ordine}
                   />
                 </th>
-                <th className="px-3 py-2">Codice</th>
-                <th className="px-3 py-2">Nome</th>
-                <th className="px-3 py-2">L×P×H mm</th>
-                <th className="px-3 py-2">lt</th>
-                <th className="px-3 py-2">Note</th>
-                <th className="px-3 py-2">Doppio</th>
-                <th className="px-3 py-2">Prodotti</th>
-                <th className="px-3 py-2">Ord.</th>
-                <th className="px-3 py-2 text-right">Azioni</th>
+                <th className="px-3 py-2 text-right">
+                  <LabelWithInfo label="Azioni" info={INFO.azioni} />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -818,6 +896,7 @@ export function ImballaggiSpedizioniBoard() {
                             {tab === "isolamento"
                               ? "Anche confezione"
                               : "Anche isolamento"}
+                            <InfoHint title="Doppio ruolo">{INFO.doppio}</InfoHint>
                           </label>
                         ) : v.doppioRuolo ? (
                           <span className="text-xs font-medium text-emerald-800">
