@@ -7,11 +7,12 @@ export function OrdiniRicevutiBoard() {
     <OrdiniBoard
       stato="ricevuto"
       description="Ordini ricevuti con wizard capacità produttiva (essiccatori, rese periodo, magazzino). Tracciabilità ISO 9001; i dati di prova sono soft-delete con «Pulisci dati test»."
-      createLabel="Nuovo ordine"
+      createLabel="Crea ordine"
       emptyTitle="Nessun ordine ricevuto"
-      emptyHint="Avvia il wizard: cliente → prodotto → quantità/prezzo → consegna."
+      emptyHint="Scegli Crea ordine o Invio campionatura."
       loadingLabel="Caricamento ordini…"
       useWizardCreate
+      dualCreateActions
       showPurgeTest
     />
   );

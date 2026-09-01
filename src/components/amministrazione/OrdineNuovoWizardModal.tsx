@@ -47,6 +47,7 @@ import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { OrdineConfezionamentoNodoStadio } from "@/types/database";
 
 type Props = {
+  variant?: "ordine" | "campionatura";
   onClose: () => void;
   onSaved: (ordine: Ordine) => void;
 };
@@ -116,7 +117,11 @@ function addChildToNode(
   });
 }
 
-export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
+export function OrdineNuovoWizardModal({
+  variant = "ordine",
+  onClose,
+  onSaved,
+}: Props) {
   const titleId = useId();
   const { prodotti, ready: prodottiReady, addProdotto, refresh } =
     useProdottiPropri();
@@ -588,8 +593,15 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Nuovo ordine ricevuto
+          {variant === "campionatura"
+            ? "Invio campionatura"
+            : "Crea ordine"}
         </h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          {variant === "campionatura"
+            ? "Seleziona l’azienda digitando il nome: l’elenco si filtra subito."
+            : "Seleziona l’azienda digitando il nome: l’elenco sotto si filtra mentre scrivi."}
+        </p>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Wizard con capacità, spedizione corriere e confezionamento a stadi.
         </p>
@@ -615,7 +627,9 @@ export function OrdineNuovoWizardModal({ onClose, onSaved }: Props) {
           {step === 1 && (
             <>
               <div className="block text-sm">
-                <span className="mb-1 block font-medium">Cliente</span>
+                <span className="mb-1 block font-medium">
+                  Azienda / cliente
+                </span>
                 <ClienteSelectField
                   value={clienteId}
                   autoFocus

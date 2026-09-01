@@ -203,6 +203,8 @@ type Props = {
   loadingLabel: string;
   /** Wizard capacità per Ordini Ricevuti */
   useWizardCreate?: boolean;
+  /** Due azioni: Crea ordine / Invio campionatura */
+  dualCreateActions?: boolean;
   /** Pulsante soft-purge dati is_test */
   showPurgeTest?: boolean;
 };
@@ -215,11 +217,14 @@ export function OrdiniBoard({
   emptyHint,
   loadingLabel,
   useWizardCreate = false,
+  dualCreateActions = false,
   showPurgeTest = false,
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
     useOrdini(stato);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<"ordine" | "campionatura" | false>(
+    false
+  );
   const [editing, setEditing] = useState<Ordine | null>(null);
   const [deleting, setDeleting] = useState<Ordine | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -296,17 +301,43 @@ export function OrdiniBoard({
               {purgeBusy ? "Pulizia…" : "Pulisci dati test"}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => {
-              setActionError(null);
-              setCreating(true);
-            }}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-          >
-            <FaPlus size={14} />
-            {createLabel}
-          </button>
+          {dualCreateActions ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setCreating("ordine");
+                }}
+                className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                <FaPlus size={14} />
+                Crea ordine
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActionError(null);
+                  setCreating("campionatura");
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Invio campionatura
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setActionError(null);
+                setCreating("ordine");
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              <FaPlus size={14} />
+              {createLabel}
+            </button>
+          )}
         </div>
       </div>
 
@@ -327,14 +358,34 @@ export function OrdiniBoard({
           {emptyHint ? (
             <p className="mt-1 text-xs text-[var(--muted)]">{emptyHint}</p>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
-          >
-            <FaPlus size={14} />
-            {createLabel}
-          </button>
+          {dualCreateActions ? (
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCreating("ordine")}
+                className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+              >
+                <FaPlus size={14} />
+                Crea ordine
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreating("campionatura")}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                Invio campionatura
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCreating("ordine")}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
+            >
+              <FaPlus size={14} />
+              {createLabel}
+            </button>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
@@ -435,6 +486,7 @@ export function OrdiniBoard({
 
       {creating && useWizardCreate && (
         <OrdineNuovoWizardModal
+          variant={creating}
           onClose={() => setCreating(false)}
           onSaved={(ordine) => {
             upsertLocal(ordine);
