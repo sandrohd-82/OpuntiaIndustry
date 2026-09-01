@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FaCheck, FaPen, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
 import {
   createCorriereAction,
@@ -97,6 +97,17 @@ export function ImballaggiSpedizioniBoard() {
   const [linkVoce, setLinkVoce] = useState<ImballaggioVoce | null>(null);
 
   const [editVoce, setEditVoce] = useState<EditVoce | null>(null);
+  const editVoceRef = useRef<EditVoce | null>(null);
+  editVoceRef.current = editVoce;
+
+  function patchEditVoce(patch: Partial<EditVoce>) {
+    setEditVoce((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      editVoceRef.current = next;
+      return next;
+    });
+  }
   const [editCorriere, setEditCorriere] = useState<EditCorriere | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<{
@@ -239,7 +250,7 @@ export function ImballaggiSpedizioniBoard() {
 
   function startEditVoce(v: ImballaggioVoce) {
     setEditCorriere(null);
-    setEditVoce({
+    const draft: EditVoce = {
       id: v.id,
       codice: v.codice,
       nome: v.nome,
@@ -250,7 +261,9 @@ export function ImballaggiSpedizioniBoard() {
       capacitaLt: v.capacitaLt ?? "",
       sortOrder: v.sortOrder,
       doppioRuolo: v.doppioRuolo,
-    });
+    };
+    editVoceRef.current = draft;
+    setEditVoce(draft);
   }
 
   function startEditCorriere(c: Corriere) {
@@ -292,24 +305,25 @@ export function ImballaggiSpedizioniBoard() {
   }
 
   async function saveEditVoce() {
-    if (!editVoce || tab === "corrieri" || saving) return;
-    if (!editVoce.nome.trim() || !editVoce.codice.trim()) {
+    const draft = editVoceRef.current;
+    if (!draft || tab === "corrieri" || saving) return;
+    if (!draft.nome.trim() || !draft.codice.trim()) {
       setError("Codice e nome sono obbligatori.");
       return;
     }
     setSaving(true);
     setError(null);
-    const res = await updateImballaggioVoceAction(editVoce.id, {
+    const res = await updateImballaggioVoceAction(draft.id, {
       stadio: tab,
-      codice: editVoce.codice.trim(),
-      nome: editVoce.nome.trim(),
-      note: editVoce.note.trim(),
-      largoMm: numOrNull(editVoce.largoMm),
-      profonditaMm: numOrNull(editVoce.profonditaMm),
-      altezzaMm: numOrNull(editVoce.altezzaMm),
-      capacitaLt: numOrNull(editVoce.capacitaLt),
-      sortOrder: numberOrZero(editVoce.sortOrder),
-      doppioRuolo: tab !== "movimentazione" && editVoce.doppioRuolo,
+      codice: draft.codice.trim(),
+      nome: draft.nome.trim(),
+      note: draft.note.trim(),
+      largoMm: numOrNull(draft.largoMm),
+      profonditaMm: numOrNull(draft.profonditaMm),
+      altezzaMm: numOrNull(draft.altezzaMm),
+      capacitaLt: numOrNull(draft.capacitaLt),
+      sortOrder: numberOrZero(draft.sortOrder),
+      doppioRuolo: tab !== "movimentazione" && draft.doppioRuolo,
     });
     setSaving(false);
     if (!res.success) {
@@ -778,10 +792,7 @@ export function ImballaggiSpedizioniBoard() {
                           <input
                             value={editVoce.codice}
                             onChange={(e) =>
-                              setEditVoce({
-                                ...editVoce,
-                                codice: e.target.value,
-                              })
+                              patchEditVoce({ codice: e.target.value })
                             }
                             className={`${inputCls} font-mono text-xs`}
                           />
@@ -794,10 +805,7 @@ export function ImballaggiSpedizioniBoard() {
                           <input
                             value={editVoce.nome}
                             onChange={(e) =>
-                              setEditVoce({
-                                ...editVoce,
-                                nome: e.target.value,
-                              })
+                              patchEditVoce({ nome: e.target.value })
                             }
                             className={inputCls}
                           />
@@ -812,7 +820,7 @@ export function ImballaggiSpedizioniBoard() {
                               min={0}
                               value={editVoce.largoMm}
                               onValueChange={(n) =>
-                                setEditVoce({ ...editVoce, largoMm: n })
+                                patchEditVoce({ largoMm: n })
                               }
                               className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
                               title="Largo mm"
@@ -821,7 +829,7 @@ export function ImballaggiSpedizioniBoard() {
                               min={0}
                               value={editVoce.profonditaMm}
                               onValueChange={(n) =>
-                                setEditVoce({ ...editVoce, profonditaMm: n })
+                                patchEditVoce({ profonditaMm: n })
                               }
                               className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
                               title="Profondità mm"
@@ -830,7 +838,7 @@ export function ImballaggiSpedizioniBoard() {
                               min={0}
                               value={editVoce.altezzaMm}
                               onValueChange={(n) =>
-                                setEditVoce({ ...editVoce, altezzaMm: n })
+                                patchEditVoce({ altezzaMm: n })
                               }
                               className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
                               title="Altezza mm"
@@ -838,9 +846,7 @@ export function ImballaggiSpedizioniBoard() {
                           </div>
                         ) : (
                           <span className="tabular-nums text-[var(--muted)]">
-                            {formatMisureImballaggio(v).includes("lt")
-                              ? "—"
-                              : formatMisureImballaggio(v)}
+                            {formatMisureImballaggio(v)}
                           </span>
                         )}
                       </td>
@@ -850,7 +856,7 @@ export function ImballaggiSpedizioniBoard() {
                             min={0}
                             value={editVoce.capacitaLt}
                             onValueChange={(n) =>
-                              setEditVoce({ ...editVoce, capacitaLt: n })
+                              patchEditVoce({ capacitaLt: n })
                             }
                             className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
                           />
@@ -865,10 +871,7 @@ export function ImballaggiSpedizioniBoard() {
                           <input
                             value={editVoce.note}
                             onChange={(e) =>
-                              setEditVoce({
-                                ...editVoce,
-                                note: e.target.value,
-                              })
+                              patchEditVoce({ note: e.target.value })
                             }
                             className={inputCls}
                           />
@@ -887,8 +890,7 @@ export function ImballaggiSpedizioniBoard() {
                               type="checkbox"
                               checked={editVoce.doppioRuolo}
                               onChange={(e) =>
-                                setEditVoce({
-                                  ...editVoce,
+                                patchEditVoce({
                                   doppioRuolo: e.target.checked,
                                 })
                               }
@@ -915,7 +917,7 @@ export function ImballaggiSpedizioniBoard() {
                             min={0}
                             value={editVoce.sortOrder}
                             onValueChange={(n) =>
-                              setEditVoce({ ...editVoce, sortOrder: n })
+                              patchEditVoce({ sortOrder: n })
                             }
                             className="w-14 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
                           />

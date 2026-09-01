@@ -89,15 +89,28 @@ export type CorriereInput = {
   note?: string;
 };
 
+/** Accetta numero > 0, stringa numerica, vuoto o null (mai 0 da coerce). */
+const optionalPositiveQty = z.preprocess((val) => {
+  if (val === "" || val === undefined || val === null) return null;
+  if (typeof val === "string") {
+    const n = Number(val.trim().replace(",", "."));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (typeof val === "number") {
+    return Number.isFinite(val) && val > 0 ? val : null;
+  }
+  return val;
+}, z.number().positive().nullable());
+
 export const imballaggioVoceInputSchema = z
   .object({
     stadio: z.enum(["movimentazione", "confezione", "isolamento"]),
     codice: z.string().trim().min(1, "Codice obbligatorio").max(64),
     nome: z.string().trim().min(1, "Nome obbligatorio").max(200),
-    largoMm: z.number().positive().nullable().optional(),
-    profonditaMm: z.number().positive().nullable().optional(),
-    altezzaMm: z.number().positive().nullable().optional(),
-    capacitaLt: z.number().positive().nullable().optional(),
+    largoMm: optionalPositiveQty,
+    profonditaMm: optionalPositiveQty,
+    altezzaMm: optionalPositiveQty,
+    capacitaLt: optionalPositiveQty,
     note: z.string().optional(),
     sortOrder: z.number().int().optional(),
     doppioRuolo: z.boolean().optional().default(false),
@@ -202,7 +215,6 @@ export function mapCorriereRow(row: CorriereRow): Corriere {
 }
 
 export function formatMisureImballaggio(v: ImballaggioVoce): string {
-  if (v.capacitaLt != null) return `${v.capacitaLt} lt`;
   const parts = [v.largoMm, v.profonditaMm, v.altezzaMm].filter(
     (n): n is number => n != null
   );
