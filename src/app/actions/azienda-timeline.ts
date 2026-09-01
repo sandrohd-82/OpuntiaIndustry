@@ -259,6 +259,29 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         href: "/app/amministrazione/ordini",
       });
     }
+
+    const { data: camp } = await service
+      .from("campionature")
+      .select(
+        "id, numero_interno, data_invio, stato, mezzo, pn_nota_id"
+      )
+      .eq("cliente_id", aziendaId)
+      .is("deleted_at", null)
+      .order("data_invio", { ascending: true })
+      .limit(200);
+    for (const r of camp ?? []) {
+      const when = (r.data_invio as string | null) ?? null;
+      if (!when) continue;
+      const day = when.length === 10 ? `${when}T12:00:00.000Z` : when;
+      pushSorted(items, {
+        id: `campionatura:${r.id}`,
+        kind: "campionatura",
+        occurredAt: day,
+        title: `Campionatura ${r.numero_interno ?? ""}`.trim(),
+        subtitle: `Stato: ${r.stato ?? "—"} · Mezzo: ${r.mezzo ?? "—"}`,
+        href: "/app/amministrazione/ordini",
+      });
+    }
   }
 
   if (aziendaTipo === "cliente") {

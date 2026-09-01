@@ -5,11 +5,12 @@ import {
   createCampionaturaSchema,
   formatNumeroCampionatura,
   type Campionatura,
+  type CampionaturaMezzo,
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
 import type { CampionaturaRigaRow, CampionaturaRow } from "@/types/database";
 
 async function requireCampionaturaAccess(mode: "read" | "write") {
@@ -46,7 +47,8 @@ function mapRiga(row: CampionaturaRigaRow): CampionaturaRiga {
 
 function mapCampionatura(
   row: CampionaturaRow,
-  righe: CampionaturaRigaRow[]
+  righe: CampionaturaRigaRow[],
+  extra?: { notaTitolo?: string; mailOggetto?: string }
 ): Campionatura {
   return {
     id: row.id,
@@ -55,6 +57,11 @@ function mapCampionatura(
     cliente: row.cliente_ragione_sociale,
     clienteCodiceTarga: row.cliente_codice_targa,
     dataInvio: row.data_invio,
+    mezzo: (row.mezzo as CampionaturaMezzo | null) ?? null,
+    pnNotaId: row.pn_nota_id,
+    pnNotaTitolo: extra?.notaTitolo ?? "",
+    webmailMessaggioId: row.webmail_messaggio_id,
+    webmailOggetto: extra?.mailOggetto ?? "",
     destinatario: row.destinatario,
     indirizzoSpedizione: row.indirizzo_spedizione,
     note: row.note,
@@ -119,9 +126,40 @@ export async function listCampionatureAction(): Promise<
       righeByParent.set(r.campionatura_id, list);
     }
   }
+  const notaIds = rows.map((r) => r.pn_nota_id).filter(Boolean) as string[];
+  const mailIds = rows
+    .map((r) => r.webmail_messaggio_id)
+    .filter(Boolean) as string[];
+  const notaTitle = new Map<string, string>();
+  const mailSubject = new Map<string, string>();
+  if (notaIds.length) {
+    const { data: note } = await supabase
+      .from("pn_note")
+      .select("id, titolo")
+      .in("id", notaIds);
+    for (const n of note ?? []) {
+      notaTitle.set(String(n.id), String(n.titolo || "Nota"));
+    }
+  }
+  if (mailIds.length) {
+    const { data: mails } = await supabase
+      .from("webmail_messaggi")
+      .select("id, subject")
+      .in("id", mailIds);
+    for (const m of mails ?? []) {
+      mailSubject.set(String(m.id), String(m.subject || "(senza oggetto)"));
+    }
+  }
   return {
     success: true,
-    items: rows.map((r) => mapCampionatura(r, righeByParent.get(r.id) ?? [])),
+    items: rows.map((r) =>
+      mapCampionatura(r, righeByParent.get(r.id) ?? [], {
+        notaTitolo: r.pn_nota_id ? notaTitle.get(r.pn_nota_id) : undefined,
+        mailOggetto: r.webmail_messaggio_id
+          ? mailSubject.get(r.webmail_messaggio_id)
+          : undefined,
+      })
+    ),
   };
 }
 
@@ -149,6 +187,25 @@ export async function createCampionaturaAction(
   );
 
   const supabase = await createClient();
+  const { data: notaCheck, error: notaErr } = await supabase
+    .from("pn_note")
+    .select("id, titolo, entity_type, entity_id")
+    .eq("id", input.pnNotaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (notaErr || !notaCheck) {
+    return { success: false, error: "Nota timeline non trovata" };
+  }
+  if (
+    notaCheck.entity_type !== "cliente" ||
+    notaCheck.entity_id !== input.clienteId
+  ) {
+    return {
+      success: false,
+      error: "La nota deve appartenere all’azienda selezionata",
+    };
+  }
+
   const { data, error } = await supabase
     .from("campionature")
     .insert({
@@ -157,6 +214,9 @@ export async function createCampionaturaAction(
       cliente_ragione_sociale: input.cliente,
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_invio: input.dataInvio,
+      mezzo: input.mezzo,
+      pn_nota_id: input.pnNotaId,
+      webmail_messaggio_id: input.webmailMessaggioId || null,
       destinatario: input.destinatario || input.cliente,
       indirizzo_spedizione: input.indirizzoSpedizione,
       note: input.note,
@@ -208,6 +268,16 @@ export async function createCampionaturaAction(
     return { success: false, error: rErr.message };
   }
 
+  const service = createServiceClient();
+  await service
+    .from("pn_note")
+    .update({
+      linked_campionatura_id: header.id,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", input.pnNotaId)
+    .is("deleted_at", null);
+
   await writeAuditLog({
     entity_type: "campionature",
     entity_id: header.id,
@@ -217,13 +287,26 @@ export async function createCampionaturaAction(
     payload: {
       numero_interno: numero,
       cliente_id: input.clienteId,
+      mezzo: input.mezzo,
+      pn_nota_id: input.pnNotaId,
+      webmail_messaggio_id: input.webmailMessaggioId,
       lotti: input.righe.map((r) => r.lottoCodice),
     },
+  });
+  await writeAuditLog({
+    entity_type: "pn_note",
+    entity_id: input.pnNotaId,
+    action: "link_campionatura",
+    actor_id: gate.auth.userId,
+    summary: `Nota collegata a campionatura ${numero}`,
+    payload: { campionatura_id: header.id },
   });
 
   return {
     success: true,
-    item: mapCampionatura(header, (righe ?? []) as CampionaturaRigaRow[]),
+    item: mapCampionatura(header, (righe ?? []) as CampionaturaRigaRow[], {
+      notaTitolo: String(notaCheck.titolo || "Nota"),
+    }),
   };
 }
 

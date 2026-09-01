@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa6";
 import { useCampionature } from "@/hooks/useCampionature";
 import {
+  CAMPIONATURA_MEZZO_LABEL,
   CAMPIONATURA_STATO_LABEL,
   type Campionatura,
 } from "@/lib/amministrazione/campionature";
@@ -235,6 +236,28 @@ function CampionaturaTableRow({
                 </dt>
                 <dd>{item.indirizzoSpedizione || "—"}</dd>
               </div>
+              <div>
+                <dt className="text-xs uppercase text-[var(--muted)]">
+                  A mezzo di
+                </dt>
+                <dd>
+                  {item.mezzo ? CAMPIONATURA_MEZZO_LABEL[item.mezzo] : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase text-[var(--muted)]">
+                  Nota timeline
+                </dt>
+                <dd>{item.pnNotaTitolo || "—"}</dd>
+              </div>
+              {item.webmailOggetto ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs uppercase text-[var(--muted)]">
+                    Mail collegata
+                  </dt>
+                  <dd>{item.webmailOggetto}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">
                   Documento

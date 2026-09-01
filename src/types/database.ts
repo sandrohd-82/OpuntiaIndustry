@@ -1123,6 +1123,9 @@ export interface CampionaturaRow {
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_invio: string;
+  mezzo: "mail" | "messaggio" | "chiamata" | "in_presenza" | null;
+  pn_nota_id: string | null;
+  webmail_messaggio_id: string | null;
   destinatario: string;
   indirizzo_spedizione: string;
   note: string;

@@ -8,6 +8,7 @@ export type AziendaTimelineKind =
   | "rubrica"
   | "nota"
   | "ordine"
+  | "campionatura"
   | "fattura_emessa"
   | "fattura_ricevuta";
 

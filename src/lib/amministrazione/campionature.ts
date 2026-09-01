@@ -9,8 +9,23 @@ export const CAMPIONATURA_STATI = [
 
 export const CAMPIONATURA_UM = ["g", "kg", "pz", "ml"] as const;
 
+export const CAMPIONATURA_MEZZI = [
+  "mail",
+  "messaggio",
+  "chiamata",
+  "in_presenza",
+] as const;
+
 export type CampionaturaStato = (typeof CAMPIONATURA_STATI)[number];
 export type CampionaturaUm = (typeof CAMPIONATURA_UM)[number];
+export type CampionaturaMezzo = (typeof CAMPIONATURA_MEZZI)[number];
+
+export const CAMPIONATURA_MEZZO_LABEL: Record<CampionaturaMezzo, string> = {
+  mail: "Mail",
+  messaggio: "Messaggio",
+  chiamata: "Chiamata",
+  in_presenza: "In presenza",
+};
 
 export type CampionaturaRiga = {
   id: string;
@@ -30,6 +45,11 @@ export type Campionatura = {
   cliente: string;
   clienteCodiceTarga: string;
   dataInvio: string;
+  mezzo: CampionaturaMezzo | null;
+  pnNotaId: string | null;
+  pnNotaTitolo: string;
+  webmailMessaggioId: string | null;
+  webmailOggetto: string;
   destinatario: string;
   indirizzoSpedizione: string;
   note: string;
@@ -57,7 +77,12 @@ export const createCampionaturaSchema = z.object({
   clienteId: z.string().uuid("Seleziona un’azienda"),
   cliente: z.string().trim().min(1),
   codiceTargaCliente: z.string().trim().min(1),
-  dataInvio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data invio obbligatoria"),
+  dataInvio: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data richiesta obbligatoria"),
+  mezzo: z.enum(CAMPIONATURA_MEZZI, { message: "Indica a mezzo di" }),
+  pnNotaId: z.string().uuid("Collega o crea una nota della timeline"),
+  webmailMessaggioId: z.string().uuid().nullable().optional().default(null),
   destinatario: z.string().trim().max(200).optional().default(""),
   indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(4000).optional().default(""),

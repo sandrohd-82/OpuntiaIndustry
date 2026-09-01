@@ -43,6 +43,7 @@ const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   rubrica: "Rubrica",
   nota: "Nota",
   ordine: "Ordine",
+  campionatura: "Campionatura",
   fattura_emessa: "Fattura emessa",
   fattura_ricevuta: "Fattura ricevuta",
 };
@@ -52,6 +53,7 @@ const KIND_CLASS: Record<AziendaTimelineKind, string> = {
   rubrica: "bg-violet-100 text-violet-800",
   nota: "bg-amber-100 text-amber-900",
   ordine: "bg-emerald-100 text-emerald-800",
+  campionatura: "bg-lime-100 text-lime-900",
   fattura_emessa: "bg-teal-100 text-teal-800",
   fattura_ricevuta: "bg-orange-100 text-orange-900",
 };
@@ -61,9 +63,22 @@ const KIND_DOT: Record<AziendaTimelineKind, string> = {
   rubrica: "bg-violet-500",
   nota: "bg-amber-500",
   ordine: "bg-emerald-500",
+  campionatura: "bg-lime-500",
   fattura_emessa: "bg-teal-500",
   fattura_ricevuta: "bg-orange-500",
 };
+
+export type TimelinePickMode =
+  | {
+      purpose: "campionatura-nota";
+      dataRichiesta: string;
+      openCreate?: boolean;
+      onPicked: (nota: { id: string; titolo: string }) => void;
+    }
+  | {
+      purpose: "campionatura-mail";
+      onPicked: (mail: { id: string; subject: string }) => void;
+    };
 
 type Props = {
   aziendaTipo: AziendaTimelineTipo;
@@ -71,16 +86,19 @@ type Props = {
   aziendaLabel: string;
   onClose: () => void;
   elevated?: boolean;
+  pickMode?: TimelinePickMode;
 };
 
 function TimelineCard({
   item,
   align,
   onEditNota,
+  onPickNota,
 }: {
   item: AziendaTimelineItem;
   align: "left" | "right";
   onEditNota?: (item: AziendaTimelineItem) => void;
+  onPickNota?: (item: AziendaTimelineItem) => void;
 }) {
   const isNota = item.kind === "nota";
   return (
@@ -123,6 +141,19 @@ function TimelineCard({
       >
         {item.title}
       </p>
+      {isNota && onPickNota ? (
+        <div
+          className={`mt-2 ${align === "left" ? "md:text-left" : ""}`}
+        >
+          <button
+            type="button"
+            onClick={() => onPickNota(item)}
+            className="rounded-lg bg-amber-700 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-800"
+          >
+            Collega questa nota
+          </button>
+        </div>
+      ) : null}
       {isNota ? (
         <div
           className={`mt-2 ${
@@ -158,16 +189,31 @@ export function AziendaTimelineModal({
   aziendaLabel,
   onClose,
   elevated = false,
+  pickMode,
 }: Props) {
   const [items, setItems] = useState<AziendaTimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [panel, setPanel] = useState<"none" | "nota" | "mail">("none");
+  const [panel, setPanel] = useState<"none" | "nota" | "mail">(
+    pickMode?.purpose === "campionatura-mail"
+      ? "mail"
+      : pickMode?.purpose === "campionatura-nota" && pickMode.openCreate
+        ? "nota"
+        : "none"
+  );
 
-  const [notaTitolo, setNotaTitolo] = useState("");
-  const [notaBody, setNotaBody] = useState("");
+  const [notaTitolo, setNotaTitolo] = useState(
+    pickMode?.purpose === "campionatura-nota" && pickMode.openCreate
+      ? "Richiesta campionatura"
+      : ""
+  );
+  const [notaBody, setNotaBody] = useState(
+    pickMode?.purpose === "campionatura-nota" && pickMode.openCreate
+      ? `Data richiesta: ${pickMode.dataRichiesta}\nConversazione (argomenti principali, inclusa la richiesta di campionatura):\n`
+      : ""
+  );
   const [notaAllegati, setNotaAllegati] = useState<PnNotaAllegato[]>([]);
   const [notaBozzaId, setNotaBozzaId] = useState<string | null>(null);
   const [activeBozza, setActiveBozza] = useState<PnNotaBozza | null>(null);
@@ -288,6 +334,17 @@ export function AziendaTimelineModal({
     setEditingNotaCreatedAt(null);
   }
 
+  function openCreateNotaForCampionatura() {
+    resetNotaForm();
+    if (pickMode?.purpose === "campionatura-nota") {
+      setNotaTitolo("Richiesta campionatura");
+      setNotaBody(
+        `Data richiesta: ${pickMode.dataRichiesta}\nConversazione (argomenti principali, inclusa la richiesta di campionatura):\n`
+      );
+    }
+    setPanel("nota");
+  }
+
   function resolvedNotaBody(): string {
     if (activeBozza && bozzaEditMode === "placeholders") {
       return applyPlaceholderValues(activeBozza.bodyTemplate, bozzaValues);
@@ -323,10 +380,15 @@ export function AziendaTimelineModal({
         return;
       }
 
+      const dueAt =
+        pickMode?.purpose === "campionatura-nota" && pickMode.dataRichiesta
+          ? `${pickMode.dataRichiesta}T12:00:00`
+          : undefined;
       const res = await createNotaPnAction({
         titolo: notaTitolo,
         body: richToPlain(bodyRich) || bodyRich,
         bodyRich,
+        dueAt: dueAt || undefined,
         entityType: aziendaTipo,
         entityId: aziendaId,
         entityLabel: aziendaLabel,
@@ -341,6 +403,12 @@ export function AziendaTimelineModal({
       setPanel("none");
       setInfo("Nota aggiunta alla timeline.");
       await reload();
+      if (pickMode?.purpose === "campionatura-nota") {
+        pickMode.onPicked({
+          id: res.item.id,
+          titolo: res.item.titolo || "Nota",
+        });
+      }
     });
   }
 
@@ -408,6 +476,9 @@ export function AziendaTimelineModal({
       setInfo("Mail collegata alla timeline.");
       await reload();
       await runMailSearch(mailQuery);
+      if (pickMode?.purpose === "campionatura-mail") {
+        pickMode.onPicked({ id: hit.id, subject: hit.subject });
+      }
     });
   }
 
@@ -443,8 +514,11 @@ export function AziendaTimelineModal({
               Timeline — {aziendaLabel || "Azienda"}
             </h3>
             <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
-              Asse dal basso (passato) all’alto (recente). Puoi aggiungere note
-              o collegare mail WebMail.
+              {pickMode?.purpose === "campionatura-nota"
+                ? "Seleziona la nota da collegare alla richiesta di campionatura, oppure creane una."
+                : pickMode?.purpose === "campionatura-mail"
+                  ? "Collega la mail WebMail della richiesta di campionatura."
+                  : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note o collegare mail WebMail."}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -455,12 +529,18 @@ export function AziendaTimelineModal({
                   setPanel("none");
                   return;
                 }
+                if (pickMode?.purpose === "campionatura-nota") {
+                  openCreateNotaForCampionatura();
+                  return;
+                }
                 resetNotaForm();
                 setPanel("nota");
               }}
               className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
             >
-              + Nota
+              {pickMode?.purpose === "campionatura-nota"
+                ? "Creane una"
+                : "+ Nota"}
             </button>
             <button
               type="button"
@@ -752,7 +832,22 @@ export function AziendaTimelineModal({
                         <TimelineCard
                           item={item}
                           align="right"
-                          onEditNota={openEditNota}
+                          onEditNota={
+                            pickMode?.purpose === "campionatura-nota"
+                              ? undefined
+                              : openEditNota
+                          }
+                          onPickNota={
+                            pickMode?.purpose === "campionatura-nota"
+                              ? (n) => {
+                                  if (!n.notaId) return;
+                                  pickMode.onPicked({
+                                    id: n.notaId,
+                                    titolo: n.title,
+                                  });
+                                }
+                              : undefined
+                          }
                         />
                       </div>
                       <div className="hidden md:block">
@@ -760,7 +855,22 @@ export function AziendaTimelineModal({
                           <TimelineCard
                             item={item}
                             align="left"
-                            onEditNota={openEditNota}
+                            onEditNota={
+                              pickMode?.purpose === "campionatura-nota"
+                                ? undefined
+                                : openEditNota
+                            }
+                            onPickNota={
+                              pickMode?.purpose === "campionatura-nota"
+                                ? (n) => {
+                                    if (!n.notaId) return;
+                                    pickMode.onPicked({
+                                      id: n.notaId,
+                                      titolo: n.title,
+                                    });
+                                  }
+                                : undefined
+                            }
                           />
                         ) : (
                           <div aria-hidden className="h-1" />
@@ -777,7 +887,22 @@ export function AziendaTimelineModal({
                           <TimelineCard
                             item={item}
                             align="right"
-                            onEditNota={openEditNota}
+                            onEditNota={
+                              pickMode?.purpose === "campionatura-nota"
+                                ? undefined
+                                : openEditNota
+                            }
+                            onPickNota={
+                              pickMode?.purpose === "campionatura-nota"
+                                ? (n) => {
+                                    if (!n.notaId) return;
+                                    pickMode.onPicked({
+                                      id: n.notaId,
+                                      titolo: n.title,
+                                    });
+                                  }
+                                : undefined
+                            }
                           />
                         ) : (
                           <div aria-hidden className="h-1" />

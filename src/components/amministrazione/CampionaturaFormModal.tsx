@@ -6,14 +6,18 @@ import {
   createCampionaturaAction,
   previewNumeroCampionaturaAction,
 } from "@/app/actions/campionature";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import {
+  CAMPIONATURA_MEZZI,
+  CAMPIONATURA_MEZZO_LABEL,
   CAMPIONATURA_UM,
   formatIndirizzoSede,
   type Campionatura,
+  type CampionaturaMezzo,
   type CampionaturaUm,
 } from "@/lib/amministrazione/campionature";
 
@@ -51,6 +55,15 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   const { prodotti, ready: prodottiReady } = useProdottiPropri();
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [dataInvio, setDataInvio] = useState(todayInputValue);
+  const [mezzo, setMezzo] = useState<CampionaturaMezzo | null>(null);
+  const [nota, setNota] = useState<{ id: string; titolo: string } | null>(null);
+  const [mail, setMail] = useState<{ id: string; subject: string } | null>(
+    null
+  );
+  const [origineOpen, setOrigineOpen] = useState(false);
+  const [timelinePick, setTimelinePick] = useState<
+    null | "nota" | "nota-create" | "mail"
+  >(null);
   const [destinatario, setDestinatario] = useState("");
   const [indirizzo, setIndirizzo] = useState("");
   const [note, setNote] = useState("");
@@ -61,7 +74,16 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !saving) onClose();
+      if (e.key !== "Escape" || saving) return;
+      if (timelinePick) {
+        setTimelinePick(null);
+        return;
+      }
+      if (origineOpen) {
+        setOrigineOpen(false);
+        return;
+      }
+      onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -70,7 +92,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving]);
+  }, [onClose, saving, timelinePick, origineOpen]);
 
   useEffect(() => {
     if (!cliente?.codiceTarga || !dataInvio) {
@@ -92,6 +114,8 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
 
   function applyCliente(next: Cliente | null) {
     setCliente(next);
+    setNota(null);
+    setMail(null);
     if (!next) return;
     setDestinatario((prev) => prev.trim() || next.ragioneSociale);
     const mag = formatIndirizzoSede(next.sedeMagazzino);
@@ -109,6 +133,14 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     e.preventDefault();
     if (!cliente) {
       setFormError("Seleziona un’azienda.");
+      return;
+    }
+    if (!mezzo) {
+      setFormError("Indica a mezzo di.");
+      return;
+    }
+    if (!nota) {
+      setFormError("Collega o crea una nota della timeline.");
       return;
     }
     const mapped = righe.map((r) => {
@@ -130,6 +162,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       cliente: cliente.ragioneSociale,
       codiceTargaCliente: cliente.codiceTarga,
       dataInvio,
+      mezzo,
+      pnNotaId: nota.id,
+      webmailMessaggioId: mail?.id ?? null,
       destinatario: destinatario.trim() || cliente.ragioneSociale,
       indirizzoSpedizione: indirizzo,
       note,
@@ -186,7 +221,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Data invio</span>
+              <span className="mb-1 block font-medium">Data richiesta</span>
               <input
                 type="date"
                 required
@@ -195,6 +230,52 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                 className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            <div className="block text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">A mezzo di</span>
+              <div className="flex flex-wrap gap-2">
+                {CAMPIONATURA_MEZZI.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => {
+                      if (!cliente) {
+                        setFormError("Seleziona prima un’azienda.");
+                        return;
+                      }
+                      setFormError(null);
+                      setMezzo(m);
+                      setOrigineOpen(true);
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                      mezzo === m
+                        ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                        : "border-[var(--border)] bg-white hover:bg-slate-50"
+                    }`}
+                  >
+                    {CAMPIONATURA_MEZZO_LABEL[m]}
+                  </button>
+                ))}
+              </div>
+              {nota || mail ? (
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  {nota ? (
+                    <>
+                      Nota: <span className="font-medium">{nota.titolo}</span>
+                    </>
+                  ) : null}
+                  {nota && mail ? " · " : null}
+                  {mail ? (
+                    <>
+                      Mail: <span className="font-medium">{mail.subject}</span>
+                    </>
+                  ) : null}
+                </p>
+              ) : mezzo ? (
+                <p className="mt-2 text-xs text-amber-800">
+                  Collega una nota della timeline (obbligatoria).
+                </p>
+              ) : null}
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Destinatario</span>
               <input
@@ -359,6 +440,95 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           </div>
         </form>
       </div>
+
+      {origineOpen && cliente ? (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 px-4"
+          role="presentation"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setOrigineOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl"
+          >
+            <h3 className="text-base font-semibold">
+              Collegamento richiesta
+            </h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {mezzo === "mail"
+                ? "Collega la mail oppure una nota della timeline. La nota è obbligatoria."
+                : "Collega una nota già creata o creane una sulla timeline dell’azienda."}
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              {mezzo === "mail" ? (
+                <button
+                  type="button"
+                  onClick={() => setTimelinePick("mail")}
+                  className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-left text-sm font-medium text-sky-950 hover:bg-sky-100"
+                >
+                  Collega Mail
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setTimelinePick("nota")}
+                className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-left text-sm font-medium text-amber-950 hover:bg-amber-100"
+              >
+                Nota creata
+              </button>
+              <button
+                type="button"
+                onClick={() => setTimelinePick("nota-create")}
+                className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-left text-sm font-medium hover:bg-slate-50"
+              >
+                Creane una
+              </button>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setOrigineOpen(false)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {timelinePick && cliente ? (
+        <AziendaTimelineModal
+          elevated
+          aziendaTipo="cliente"
+          aziendaId={cliente.id}
+          aziendaLabel={cliente.ragioneSociale}
+          onClose={() => setTimelinePick(null)}
+          pickMode={
+            timelinePick === "mail"
+              ? {
+                  purpose: "campionatura-mail",
+                  onPicked: (picked) => {
+                    setMail(picked);
+                    setTimelinePick(null);
+                  },
+                }
+              : {
+                  purpose: "campionatura-nota",
+                  dataRichiesta: dataInvio,
+                  openCreate: timelinePick === "nota-create",
+                  onPicked: (picked) => {
+                    setNota(picked);
+                    setTimelinePick(null);
+                    setOrigineOpen(false);
+                  },
+                }
+          }
+        />
+      ) : null}
     </div>
   );
 }

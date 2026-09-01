@@ -19,8 +19,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260829180000` | `wiki_close_richiesta_email.sql` | close=1 = richiesta + email, niente URL |
 | `20260829190000` | `wiki_backfill_is_public_from_close.sql` | Allinea is_public al dump (66 liberi, 28 richiesta) |
 | `20260901120000` | `campionature_iso9001.sql` | Tabelle `campionature` + `campionature_righe` (distinte da ordini) |
+| `20260901130000` | `campionature_mezzo_nota.sql` | Mezzo richiesta + link nota/mail |
 
-**Prossimo timestamp libero: `20260901130000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260901140000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 
