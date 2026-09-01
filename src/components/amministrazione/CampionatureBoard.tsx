@@ -100,7 +100,7 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
                 />
                 <SortableTh
-                  label="Data invio"
+                  label="Data richiesta"
                   sortKey="dataInvio"
                   sort={sort}
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
@@ -234,7 +234,17 @@ function CampionaturaTableRow({
                 <dt className="text-xs uppercase text-[var(--muted)]">
                   Indirizzo
                 </dt>
-                <dd>{item.indirizzoSpedizione || "—"}</dd>
+                <dd>
+                  {item.spedizioneTipo === "altro_posto"
+                    ? "Altro posto"
+                    : "Sede azienda"}
+                  {item.referenteRicezioneLabel
+                    ? ` · ${item.referenteRicezioneLabel}`
+                    : ""}
+                  {item.indirizzoSpedizione
+                    ? ` — ${item.indirizzoSpedizione}`
+                    : ""}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">

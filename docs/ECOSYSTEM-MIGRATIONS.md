@@ -9,8 +9,8 @@ WikiOpuntia e OpuntiaItalia sono satelliti: leggono viste pubbliche e, se serve 
 E:\Progetti Cursor\OpuntiaIndustry\supabase\migrations
 ```
 
-Ultima migrazione: `20260901130000_campionature_mezzo_nota.sql`  
-**Prossimo timestamp libero: `20260901140000` o maggiore.**
+Ultima migrazione: `20260901140000_campionature_data_richiesta_spedizione.sql`  
+**Prossimo timestamp libero: `20260901150000` o maggiore.**
 
 Prompt ricerche Wiki (categorie multi + pubblica/chiusa): `docs/PROMPTS/WIKIOPUNTIA-RICERCHE.md`.
 

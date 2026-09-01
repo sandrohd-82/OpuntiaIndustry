@@ -3,7 +3,9 @@
 import { writeAuditLog } from "@/lib/audit";
 import {
   createCampionaturaSchema,
+  createReferenteRicezioneSchema,
   formatNumeroCampionatura,
+  REFERENTE_RICEZIONE_MERCE,
   type Campionatura,
   type CampionaturaMezzo,
   type CampionaturaRiga,
@@ -48,7 +50,11 @@ function mapRiga(row: CampionaturaRigaRow): CampionaturaRiga {
 function mapCampionatura(
   row: CampionaturaRow,
   righe: CampionaturaRigaRow[],
-  extra?: { notaTitolo?: string; mailOggetto?: string }
+  extra?: {
+    notaTitolo?: string;
+    mailOggetto?: string;
+    referenteLabel?: string;
+  }
 ): Campionatura {
   return {
     id: row.id,
@@ -62,6 +68,10 @@ function mapCampionatura(
     pnNotaTitolo: extra?.notaTitolo ?? "",
     webmailMessaggioId: row.webmail_messaggio_id,
     webmailOggetto: extra?.mailOggetto ?? "",
+    spedizioneTipo: row.spedizione_tipo ?? "sede_azienda",
+    spedizionePrivato: Boolean(row.spedizione_privato),
+    referenteRicezioneId: row.referente_ricezione_id,
+    referenteRicezioneLabel: extra?.referenteLabel ?? "",
     destinatario: row.destinatario,
     indirizzoSpedizione: row.indirizzo_spedizione,
     note: row.note,
@@ -132,6 +142,10 @@ export async function listCampionatureAction(): Promise<
     .filter(Boolean) as string[];
   const notaTitle = new Map<string, string>();
   const mailSubject = new Map<string, string>();
+  const refLabel = new Map<string, string>();
+  const refIds = rows
+    .map((r) => r.referente_ricezione_id)
+    .filter(Boolean) as string[];
   if (notaIds.length) {
     const { data: note } = await supabase
       .from("pn_note")
@@ -139,6 +153,19 @@ export async function listCampionatureAction(): Promise<
       .in("id", notaIds);
     for (const n of note ?? []) {
       notaTitle.set(String(n.id), String(n.titolo || "Nota"));
+    }
+  }
+  if (refIds.length) {
+    const { data: refs } = await supabase
+      .from("rubrica_contatti")
+      .select("id, nome, cognome, mansione")
+      .in("id", refIds);
+    for (const c of refs ?? []) {
+      refLabel.set(
+        String(c.id),
+        `${String(c.nome ?? "")} ${String(c.cognome ?? "")}`.trim() ||
+          String(c.mansione || "Ricezione merce")
+      );
     }
   }
   if (mailIds.length) {
@@ -157,6 +184,9 @@ export async function listCampionatureAction(): Promise<
         notaTitolo: r.pn_nota_id ? notaTitle.get(r.pn_nota_id) : undefined,
         mailOggetto: r.webmail_messaggio_id
           ? mailSubject.get(r.webmail_messaggio_id)
+          : undefined,
+        referenteLabel: r.referente_ricezione_id
+          ? refLabel.get(r.referente_ricezione_id)
           : undefined,
       })
     ),
@@ -217,6 +247,9 @@ export async function createCampionaturaAction(
       mezzo: input.mezzo,
       pn_nota_id: input.pnNotaId,
       webmail_messaggio_id: input.webmailMessaggioId || null,
+      spedizione_tipo: input.spedizioneTipo,
+      spedizione_privato: input.spedizionePrivato,
+      referente_ricezione_id: input.referenteRicezioneId || null,
       destinatario: input.destinatario || input.cliente,
       indirizzo_spedizione: input.indirizzoSpedizione,
       note: input.note,
@@ -370,4 +403,80 @@ export async function softDeleteCampionaturaAction(
     summary: `Campionatura ${existing.numero_interno} archiviata (soft delete)`,
   });
   return { success: true };
+}
+
+export async function createReferenteRicezioneMerceAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      id: string;
+      destinatario: string;
+      label: string;
+    }
+  | { success: false; error: string }
+> {
+  const gate = await requireCampionaturaAccess("write");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const parsed = createReferenteRicezioneSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const d = parsed.data;
+  const destinatario = d.isPrivato
+    ? `${d.nome} ${d.cognome}`.trim()
+    : [d.ragioneSociale, `${d.nome} ${d.cognome}`.trim()]
+        .filter(Boolean)
+        .join(" — ");
+  const noteParts = [
+    d.isPrivato ? "Spedizione a privato" : `Spedizione presso ${d.ragioneSociale}`,
+    d.indirizzo,
+  ];
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("rubrica_contatti")
+    .insert({
+      nome: d.nome,
+      cognome: d.cognome,
+      telefono: d.telefono,
+      email: d.email,
+      rapporto: "referente",
+      azienda_tipo: "cliente",
+      azienda_id: d.clienteId,
+      azienda_label: d.clienteLabel,
+      mansione: REFERENTE_RICEZIONE_MERCE,
+      note: noteParts.join("\n"),
+      created_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    })
+    .select("id, nome, cognome")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Creazione referente fallita" };
+  }
+  const { error: linkErr } = await service.from("clienti_referenti").insert({
+    cliente_id: d.clienteId,
+    contatto_id: data.id,
+    created_by: gate.auth.userId,
+  });
+  if (linkErr && !/duplicate|unique/i.test(linkErr.message)) {
+    return { success: false, error: linkErr.message };
+  }
+  await writeAuditLog({
+    entity_type: "rubrica_contatti",
+    entity_id: String(data.id),
+    action: "create",
+    actor_id: gate.auth.userId,
+    summary: `Referente ${REFERENTE_RICEZIONE_MERCE}: ${d.nome} ${d.cognome}`,
+    payload: { cliente_id: d.clienteId, campionatura: true },
+  });
+  return {
+    success: true,
+    id: String(data.id),
+    destinatario,
+    label: `${d.nome} ${d.cognome}`.trim(),
+  };
 }

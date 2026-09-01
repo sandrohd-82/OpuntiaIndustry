@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Cliente } from "@/lib/amministrazione/clienti";
 
 export const CAMPIONATURA_STATI = [
   "bozza",
@@ -50,6 +51,10 @@ export type Campionatura = {
   pnNotaTitolo: string;
   webmailMessaggioId: string | null;
   webmailOggetto: string;
+  spedizioneTipo: "sede_azienda" | "altro_posto";
+  spedizionePrivato: boolean;
+  referenteRicezioneId: string | null;
+  referenteRicezioneLabel: string;
   destinatario: string;
   indirizzoSpedizione: string;
   note: string;
@@ -83,6 +88,12 @@ export const createCampionaturaSchema = z.object({
   mezzo: z.enum(CAMPIONATURA_MEZZI, { message: "Indica a mezzo di" }),
   pnNotaId: z.string().uuid("Collega o crea una nota della timeline"),
   webmailMessaggioId: z.string().uuid().nullable().optional().default(null),
+  spedizioneTipo: z
+    .enum(["sede_azienda", "altro_posto"])
+    .optional()
+    .default("sede_azienda"),
+  spedizionePrivato: z.boolean().optional().default(false),
+  referenteRicezioneId: z.string().uuid().nullable().optional().default(null),
   destinatario: z.string().trim().max(200).optional().default(""),
   indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(4000).optional().default(""),
@@ -90,6 +101,18 @@ export const createCampionaturaSchema = z.object({
 });
 
 export type CreateCampionaturaInput = z.infer<typeof createCampionaturaSchema>;
+
+export const createReferenteRicezioneSchema = z.object({
+  clienteId: z.string().uuid(),
+  clienteLabel: z.string().trim().min(1),
+  isPrivato: z.boolean(),
+  ragioneSociale: z.string().trim().max(200).optional().default(""),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(80),
+  cognome: z.string().trim().min(1, "Cognome obbligatorio").max(80),
+  telefono: z.string().trim().max(60).optional().default(""),
+  email: z.string().trim().max(120).optional().default(""),
+  indirizzo: z.string().trim().min(1, "Indirizzo obbligatorio").max(500),
+});
 
 export function formatNumeroCampionatura(
   dataInvio: string,
@@ -120,6 +143,50 @@ export function formatIndirizzoSede(sede: {
     .filter(Boolean)
     .join(", ");
 }
+
+export type SpedizioneOption = {
+  key: string;
+  label: string;
+  destinatario: string;
+  indirizzo: string;
+};
+
+export function clienteSpedizioneOptions(cliente: Cliente): SpedizioneOption[] {
+  const out: SpedizioneOption[] = [];
+  const amm = formatIndirizzoSede(cliente.sedeAmministrativa);
+  if (amm) {
+    out.push({
+      key: "amm",
+      label: "Sede amministrativa",
+      destinatario: cliente.ragioneSociale,
+      indirizzo: amm,
+    });
+  }
+  const mag = formatIndirizzoSede(cliente.sedeMagazzino);
+  if (mag && mag !== amm) {
+    out.push({
+      key: "mag",
+      label: "Sede magazzino",
+      destinatario: cliente.ragioneSociale,
+      indirizzo: mag,
+    });
+  }
+  cliente.consegneAltraAzienda.forEach((c, i) => {
+    const addr = formatIndirizzoSede(c);
+    if (!addr) return;
+    out.push({
+      key: `consegna-${i}`,
+      label: c.ragioneSociale.trim()
+        ? `Consegna: ${c.ragioneSociale}`
+        : `Altro indirizzo ${i + 1}`,
+      destinatario: c.ragioneSociale.trim() || cliente.ragioneSociale,
+      indirizzo: addr,
+    });
+  });
+  return out;
+}
+
+export const REFERENTE_RICEZIONE_MERCE = "Ricezione merce";
 
 export function emptyCampionaturaRiga(): Omit<CampionaturaRiga, "id"> {
   return {

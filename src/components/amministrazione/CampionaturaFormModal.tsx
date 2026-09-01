@@ -7,6 +7,7 @@ import {
   previewNumeroCampionaturaAction,
 } from "@/app/actions/campionature";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
@@ -15,7 +16,7 @@ import {
   CAMPIONATURA_MEZZI,
   CAMPIONATURA_MEZZO_LABEL,
   CAMPIONATURA_UM,
-  formatIndirizzoSede,
+  clienteSpedizioneOptions,
   type Campionatura,
   type CampionaturaMezzo,
   type CampionaturaUm,
@@ -66,6 +67,13 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   >(null);
   const [destinatario, setDestinatario] = useState("");
   const [indirizzo, setIndirizzo] = useState("");
+  const [addressKey, setAddressKey] = useState<string | "altro">("");
+  const [spedizionePrivato, setSpedizionePrivato] = useState(false);
+  const [referenteRicezione, setReferenteRicezione] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [altroPostoOpen, setAltroPostoOpen] = useState(false);
   const [note, setNote] = useState("");
   const [righe, setRighe] = useState<DraftRiga[]>([emptyRiga()]);
   const [numeroPreview, setNumeroPreview] = useState<string | null>(null);
@@ -77,6 +85,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       if (e.key !== "Escape" || saving) return;
       if (timelinePick) {
         setTimelinePick(null);
+        return;
+      }
+      if (altroPostoOpen) {
+        setAltroPostoOpen(false);
         return;
       }
       if (origineOpen) {
@@ -92,7 +104,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving, timelinePick, origineOpen]);
+  }, [onClose, saving, timelinePick, origineOpen, altroPostoOpen]);
 
   useEffect(() => {
     if (!cliente?.codiceTarga || !dataInvio) {
@@ -116,11 +128,26 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     setCliente(next);
     setNota(null);
     setMail(null);
-    if (!next) return;
-    setDestinatario((prev) => prev.trim() || next.ragioneSociale);
-    const mag = formatIndirizzoSede(next.sedeMagazzino);
-    const amm = formatIndirizzoSede(next.sedeAmministrativa);
-    setIndirizzo((prev) => prev.trim() || mag || amm);
+    setReferenteRicezione(null);
+    setSpedizionePrivato(false);
+    if (!next) {
+      setDestinatario("");
+      setIndirizzo("");
+      setAddressKey("");
+      return;
+    }
+    const options = clienteSpedizioneOptions(next);
+    const preferred =
+      options.find((o) => o.key === "mag") ?? options[0] ?? null;
+    if (preferred) {
+      setAddressKey(preferred.key);
+      setDestinatario(preferred.destinatario);
+      setIndirizzo(preferred.indirizzo);
+    } else {
+      setAddressKey("");
+      setDestinatario(next.ragioneSociale);
+      setIndirizzo("");
+    }
   }
 
   function updateRiga(index: number, patch: Partial<DraftRiga>) {
@@ -141,6 +168,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     }
     if (!nota) {
       setFormError("Collega o crea una nota della timeline.");
+      return;
+    }
+    if (!indirizzo.trim()) {
+      setFormError("Seleziona un indirizzo di spedizione o spedisci in altro posto.");
       return;
     }
     const mapped = righe.map((r) => {
@@ -165,6 +196,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       mezzo,
       pnNotaId: nota.id,
       webmailMessaggioId: mail?.id ?? null,
+      spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
+      spedizionePrivato,
+      referenteRicezioneId: referenteRicezione?.id ?? null,
       destinatario: destinatario.trim() || cliente.ragioneSociale,
       indirizzoSpedizione: indirizzo,
       note,
@@ -221,7 +255,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               />
             </label>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium">Data richiesta</span>
+              <span className="mb-1 block font-medium">
+                Data richiesta
+              </span>
+              <span className="mb-1 block text-xs text-[var(--muted)]">
+                Data in cui è arrivata la richiesta, non la spedizione.
+              </span>
               <input
                 type="date"
                 required
@@ -276,28 +315,76 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                 </p>
               ) : null}
             </div>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Destinatario</span>
-              <input
-                type="text"
-                value={destinatario}
-                onChange={(e) => setDestinatario(e.target.value)}
-                placeholder="Ragione sociale o referente"
-                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
+            <div className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">
                 Indirizzo di spedizione
               </span>
-              <input
-                type="text"
-                value={indirizzo}
-                onChange={(e) => setIndirizzo(e.target.value)}
-                placeholder="Si precompila dalla sede magazzino del cliente"
-                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
+              <p className="mb-2 text-xs text-[var(--muted)]">
+                Di default le sedi dell’azienda. Destinatario: {destinatario || "—"}.
+              </p>
+              <div className="space-y-2">
+                {(cliente ? clienteSpedizioneOptions(cliente) : []).map((opt) => (
+                  <label
+                    key={opt.key}
+                    className={`flex cursor-pointer gap-2 rounded-lg border px-3 py-2 ${
+                      addressKey === opt.key
+                        ? "border-[var(--primary)] bg-slate-50"
+                        : "border-[var(--border)] bg-white"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="spedizione-indirizzo"
+                      checked={addressKey === opt.key}
+                      onChange={() => {
+                        setAddressKey(opt.key);
+                        setDestinatario(opt.destinatario);
+                        setIndirizzo(opt.indirizzo);
+                        setReferenteRicezione(null);
+                        setSpedizionePrivato(false);
+                      }}
+                      className="mt-1"
+                    />
+                    <span>
+                      <span className="font-medium">{opt.label}</span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        {opt.indirizzo}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+                {addressKey === "altro" && indirizzo ? (
+                  <label className="flex cursor-pointer gap-2 rounded-lg border border-[var(--primary)] bg-slate-50 px-3 py-2">
+                    <input type="radio" checked readOnly className="mt-1" />
+                    <span>
+                      <span className="font-medium">
+                        Altro posto
+                        {referenteRicezione
+                          ? ` · ${referenteRicezione.label}`
+                          : ""}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        {destinatario} — {indirizzo}
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                disabled={!cliente}
+                onClick={() => {
+                  if (!cliente) {
+                    setFormError("Seleziona prima un’azienda.");
+                    return;
+                  }
+                  setAltroPostoOpen(true);
+                }}
+                className="mt-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                Spedisci in altro posto
+              </button>
+            </div>
           </div>
 
           <div>
@@ -498,6 +585,22 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {altroPostoOpen && cliente ? (
+        <CampionaturaAltroPostoModal
+          clienteId={cliente.id}
+          clienteLabel={cliente.ragioneSociale}
+          onClose={() => setAltroPostoOpen(false)}
+          onSaved={(r) => {
+            setAddressKey("altro");
+            setDestinatario(r.destinatario);
+            setIndirizzo(r.indirizzo);
+            setSpedizionePrivato(r.isPrivato);
+            setReferenteRicezione({ id: r.referenteId, label: r.label });
+            setAltroPostoOpen(false);
+          }}
+        />
       ) : null}
 
       {timelinePick && cliente ? (
