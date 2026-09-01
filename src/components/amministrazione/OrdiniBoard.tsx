@@ -13,6 +13,8 @@ import {
   getOrdineAllegatoSignedUrlAction,
   purgeOrdiniTestAction,
 } from "@/app/actions/ordini";
+import { CampionaturaFormModal } from "@/components/amministrazione/CampionaturaFormModal";
+import { CampionatureBoard } from "@/components/amministrazione/CampionatureBoard";
 import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettaglioPanel";
 import { OrdineEliminaConfirmModal } from "@/components/amministrazione/OrdineEliminaConfirmModal";
 import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
@@ -231,6 +233,7 @@ export function OrdiniBoard({
   const [actionError, setActionError] = useState<string | null>(null);
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
+  const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
     key: "dataOrdine",
     dir: "desc",
@@ -484,9 +487,9 @@ export function OrdiniBoard({
         </div>
       )}
 
-      {creating && useWizardCreate && (
+      {creating === "ordine" && useWizardCreate && (
         <OrdineNuovoWizardModal
-          variant={creating}
+          variant="ordine"
           onClose={() => setCreating(false)}
           onSaved={(ordine) => {
             upsertLocal(ordine);
@@ -496,7 +499,7 @@ export function OrdiniBoard({
         />
       )}
 
-      {creating && !useWizardCreate && (
+      {creating === "ordine" && !useWizardCreate && (
         <OrdineFormModal
           mode="create"
           stato={stato}
@@ -508,6 +511,20 @@ export function OrdiniBoard({
           }}
         />
       )}
+
+      {creating === "campionatura" && (
+        <CampionaturaFormModal
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            setCampionaturaTick((n) => n + 1);
+          }}
+        />
+      )}
+
+      {dualCreateActions ? (
+        <CampionatureBoard refreshToken={campionaturaTick} />
+      ) : null}
 
       {editing && (
         <OrdineFormModal

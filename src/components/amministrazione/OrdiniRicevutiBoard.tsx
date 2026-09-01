@@ -6,7 +6,7 @@ export function OrdiniRicevutiBoard() {
   return (
     <OrdiniBoard
       stato="ricevuto"
-      description="Ordini ricevuti con wizard capacità produttiva (essiccatori, rese periodo, magazzino). Tracciabilità ISO 9001; i dati di prova sono soft-delete con «Pulisci dati test»."
+      description="Ordini ricevuti con wizard capacità produttiva. «Invio campionatura» registra un documento distinto (tabella campionature), non un ordine. Soft-delete e «Pulisci dati test» sugli ordini di prova."
       createLabel="Crea ordine"
       emptyTitle="Nessun ordine ricevuto"
       emptyHint="Scegli Crea ordine o Invio campionatura."

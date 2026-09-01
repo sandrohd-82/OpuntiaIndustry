@@ -1110,6 +1110,54 @@ export interface OrdineRigaInsert {
   sort_order?: number;
 }
 
+export type CampionaturaStatoDb =
+  | "bozza"
+  | "inviata"
+  | "consegnata"
+  | "annullata";
+
+export interface CampionaturaRow {
+  id: string;
+  numero_interno: string;
+  cliente_id: string | null;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_invio: string;
+  destinatario: string;
+  indirizzo_spedizione: string;
+  note: string;
+  stato: CampionaturaStatoDb;
+  documento_stato: "bozza" | "approvato" | "chiuso";
+  versione: number;
+  approved_at: string | null;
+  approved_by: string | null;
+  sent_at: string | null;
+  sent_by: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface CampionaturaRigaRow {
+  id: string;
+  campionatura_id: string;
+  prodotto_id: string | null;
+  prodotto_codice: string;
+  prodotto_nome: string;
+  quantita: number;
+  unita_misura: "g" | "kg" | "pz" | "ml";
+  lotto_codice: string;
+  note: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
 export interface AuditLogRow {
   id: string;
   entity_type: string;
@@ -2338,6 +2386,23 @@ export interface Database {
         Row: OrdineRigaRow;
         Insert: OrdineRigaInsert;
         Update: Partial<OrdineRigaInsert>;
+        Relationships: [];
+      };
+      campionature: {
+        Row: CampionaturaRow;
+        Insert: Partial<CampionaturaRow> & {
+          numero_interno: string;
+          cliente_ragione_sociale: string;
+          cliente_codice_targa: string;
+          data_invio: string;
+        };
+        Update: Partial<CampionaturaRow>;
+        Relationships: [];
+      };
+      campionature_righe: {
+        Row: CampionaturaRigaRow;
+        Insert: Partial<CampionaturaRigaRow> & { campionatura_id: string };
+        Update: Partial<CampionaturaRigaRow>;
         Relationships: [];
       };
       imballaggi_voci: {
