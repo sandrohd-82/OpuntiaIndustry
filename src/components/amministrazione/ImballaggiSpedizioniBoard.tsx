@@ -62,7 +62,7 @@ const INFO = {
   doppio:
     "Se attivo, la voce funge sia da confezione sia da isolamento (es. bidone gel). Nel wizard compare in un’unica selezione, solo per i prodotti collegati.",
   prodotti:
-    "Quanti prodotti Agrinsicilia sono collegati a questa voce, ciascuno con max kg inseribili.",
+    "Quanti prodotti Agrinsicilia sono collegati a questa voce, ciascuno con quantità max e unità (kg, lt, g, ml, pz).",
   ordine:
     "Posizione in elenco (sort). Il numero più basso sta più in alto. Non è un ordine cliente.",
   azioni: "Modifica, collega ai prodotti ed elimina. L’eliminazione chiede sempre conferma.",

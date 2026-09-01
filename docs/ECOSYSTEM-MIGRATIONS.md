@@ -9,8 +9,8 @@ WikiOpuntia e OpuntiaItalia sono satelliti: leggono viste pubbliche e, se serve 
 E:\Progetti Cursor\OpuntiaIndustry\supabase\migrations
 ```
 
-Ultima migrazione: `20260901160000_imballaggi_voci_prodotti_doppio_ruolo.sql`  
-**Prossimo timestamp libero: `20260901170000` o maggiore.**
+Ultima migrazione: `20260901170000_imballaggi_voci_prodotti_unita_misura.sql`  
+**Prossimo timestamp libero: `20260901180000` o maggiore.**
 
 Prompt ricerche Wiki (categorie multi + pubblica/chiusa): `docs/PROMPTS/WIKIOPUNTIA-RICERCHE.md`.
 

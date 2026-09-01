@@ -974,6 +974,7 @@ export interface ImballaggioVoceProdottoRow {
   voce_id: string;
   prodotto_id: string;
   max_kg: number;
+  unita_misura: "kg" | "g" | "lt" | "ml" | "pz";
   created_at: string;
   updated_at: string;
   created_by: string | null;

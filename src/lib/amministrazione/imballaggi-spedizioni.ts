@@ -31,9 +31,23 @@ export const IMBALLAGGIO_STADI: {
   },
 ];
 
+export const IMBALLAGGIO_PRODOTTO_UM = ["kg", "g", "lt", "ml", "pz"] as const;
+
+export type ImballaggioProdottoUm = (typeof IMBALLAGGIO_PRODOTTO_UM)[number];
+
+export const IMBALLAGGIO_PRODOTTO_UM_LABEL: Record<ImballaggioProdottoUm, string> =
+  {
+    kg: "kg",
+    g: "g",
+    lt: "lt",
+    ml: "ml",
+    pz: "pz",
+  };
+
 export type ImballaggioVoceProdottoLink = {
   prodottoId: string;
   maxKg: number;
+  unitaMisura: ImballaggioProdottoUm;
 };
 
 export type ImballaggioVoce = {
@@ -103,7 +117,8 @@ export const syncImballaggioVoceProdottiSchema = z.object({
   links: z.array(
     z.object({
       prodottoId: z.string().uuid(),
-      maxKg: z.number().positive("Max kg deve essere maggiore di zero"),
+      maxKg: z.number().positive("La quantità max deve essere maggiore di zero"),
+      unitaMisura: z.enum(IMBALLAGGIO_PRODOTTO_UM).default("kg"),
     })
   ),
 });
@@ -112,6 +127,14 @@ export const corriereInputSchema = z.object({
   nome: z.string().trim().min(1, "Nome corriere obbligatorio").max(200),
   note: z.string().optional(),
 });
+
+export function parseImballaggioProdottoUm(
+  value: string | null | undefined
+): ImballaggioProdottoUm {
+  return (IMBALLAGGIO_PRODOTTO_UM as readonly string[]).includes(value ?? "")
+    ? (value as ImballaggioProdottoUm)
+    : "kg";
+}
 
 export function mapImballaggioVoceRow(
   row: ImballaggioVoceRow,

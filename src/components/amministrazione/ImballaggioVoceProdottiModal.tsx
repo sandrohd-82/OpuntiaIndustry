@@ -4,11 +4,16 @@ import { useMemo, useState } from "react";
 import { syncImballaggioVoceProdottiAction } from "@/app/actions/imballaggi-spedizioni";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
-import type { ImballaggioVoce } from "@/lib/amministrazione/imballaggi-spedizioni";
+import {
+  IMBALLAGGIO_PRODOTTO_UM,
+  type ImballaggioProdottoUm,
+  type ImballaggioVoce,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 
 type Draft = {
   selected: boolean;
   maxKg: number | "";
+  unitaMisura: ImballaggioProdottoUm;
 };
 
 type Props = {
@@ -35,7 +40,11 @@ export function ImballaggioVoceProdottiModal({
   const [draft, setDraft] = useState<Record<string, Draft>>(() => {
     const init: Record<string, Draft> = {};
     for (const p of voce.prodotti) {
-      init[p.prodottoId] = { selected: true, maxKg: p.maxKg };
+      init[p.prodottoId] = {
+        selected: true,
+        maxKg: p.maxKg,
+        unitaMisura: p.unitaMisura ?? "kg",
+      };
     }
     return init;
   });
@@ -57,7 +66,7 @@ export function ImballaggioVoceProdottiModal({
   const selectedCount = Object.values(draft).filter((d) => d.selected).length;
 
   function rowState(id: string): Draft {
-    return draft[id] ?? { selected: false, maxKg: "" };
+    return draft[id] ?? { selected: false, maxKg: "", unitaMisura: "kg" };
   }
 
   async function save() {
@@ -66,9 +75,10 @@ export function ImballaggioVoceProdottiModal({
       .map(([prodottoId, d]) => ({
         prodottoId,
         maxKg: d.maxKg === "" ? 0 : d.maxKg,
+        unitaMisura: d.unitaMisura,
       }));
     if (links.some((l) => !(l.maxKg > 0))) {
-      setError("Per ogni prodotto selezionato indica max kg maggiore di zero.");
+      setError("Per ogni prodotto selezionato indica una quantità max maggiore di zero.");
       return;
     }
     setSaving(true);
@@ -100,8 +110,8 @@ export function ImballaggioVoceProdottiModal({
       >
         <h2 className="text-lg font-semibold">Collega a prodotti</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          {voce.codice} — {voce.nome}. Spunta i prodotti e indica il max kg
-          inseribili in questa voce (da 0 a X kg).
+          {voce.codice} — {voce.nome}. Spunta i prodotti, indica la quantità
+          massima inseribile e l’unità (kg, lt, g, ml, pz).
         </p>
 
         <input
@@ -136,6 +146,7 @@ export function ImballaggioVoceProdottiModal({
                           [p.id]: {
                             selected: e.target.checked,
                             maxKg: prev[p.id]?.maxKg ?? "",
+                            unitaMisura: prev[p.id]?.unitaMisura ?? "kg",
                           },
                         }))
                       }
@@ -156,24 +167,52 @@ export function ImballaggioVoceProdottiModal({
                         {breve(p.note)}
                       </p>
                     </div>
-                    <label className="shrink-0 text-xs">
-                      Max kg
-                      <ClearableNumberInput
-                        min={0}
-                        disabled={!st.selected}
-                        value={st.maxKg}
-                        onValueChange={(v) =>
-                          setDraft((prev) => ({
-                            ...prev,
-                            [p.id]: {
-                              selected: prev[p.id]?.selected ?? true,
-                              maxKg: v,
-                            },
-                          }))
-                        }
-                        className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm disabled:opacity-40"
-                      />
-                    </label>
+                    <div className="flex shrink-0 items-end gap-1">
+                      <label className="text-xs">
+                        Max
+                        <ClearableNumberInput
+                          min={0}
+                          disabled={!st.selected}
+                          value={st.maxKg}
+                          onValueChange={(v) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              [p.id]: {
+                                selected: prev[p.id]?.selected ?? true,
+                                maxKg: v,
+                                unitaMisura: prev[p.id]?.unitaMisura ?? "kg",
+                              },
+                            }))
+                          }
+                          className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1 text-sm disabled:opacity-40"
+                        />
+                      </label>
+                      <label className="text-xs">
+                        UM
+                        <select
+                          disabled={!st.selected}
+                          value={st.unitaMisura}
+                          onChange={(e) =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              [p.id]: {
+                                selected: prev[p.id]?.selected ?? true,
+                                maxKg: prev[p.id]?.maxKg ?? "",
+                                unitaMisura: e.target
+                                  .value as ImballaggioProdottoUm,
+                              },
+                            }))
+                          }
+                          className="ml-1 rounded border border-[var(--border)] px-1.5 py-1 text-sm disabled:opacity-40"
+                        >
+                          {IMBALLAGGIO_PRODOTTO_UM.map((u) => (
+                            <option key={u} value={u}>
+                              {u}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
                   </li>
                 );
               })}

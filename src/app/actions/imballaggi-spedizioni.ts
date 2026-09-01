@@ -9,6 +9,7 @@ import {
   imballaggioVoceInputSchema,
   mapCorriereRow,
   mapImballaggioVoceRow,
+  parseImballaggioProdottoUm,
   syncImballaggioVoceProdottiSchema,
   type Corriere,
   type CorriereInput,
@@ -47,15 +48,19 @@ async function attachProdottiLinks(
   const supabase = await createClient();
   const { data } = await supabase
     .from("imballaggi_voci_prodotti")
-    .select("voce_id, prodotto_id, max_kg")
+    .select("voce_id, prodotto_id, max_kg, unita_misura")
     .in("voce_id", ids)
     .is("deleted_at", null);
   for (const r of (data ?? []) as Pick<
     ImballaggioVoceProdottoRow,
-    "voce_id" | "prodotto_id" | "max_kg"
+    "voce_id" | "prodotto_id" | "max_kg" | "unita_misura"
   >[]) {
     const list = map.get(r.voce_id) ?? [];
-    list.push({ prodottoId: r.prodotto_id, maxKg: Number(r.max_kg) });
+    list.push({
+      prodottoId: r.prodotto_id,
+      maxKg: Number(r.max_kg),
+      unitaMisura: parseImballaggioProdottoUm(r.unita_misura),
+    });
     map.set(r.voce_id, list);
   }
   return map;
@@ -232,12 +237,17 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
     .eq("voce_id", voceId)
     .is("deleted_at", null);
   const current = (existing ?? []) as ImballaggioVoceProdottoRow[];
-  const wanted = new Map(links.map((l) => [l.prodottoId, l.maxKg]));
+  const wanted = new Map(
+    links.map((l) => [
+      l.prodottoId,
+      { maxKg: l.maxKg, unitaMisura: l.unitaMisura ?? "kg" },
+    ])
+  );
   const now = new Date().toISOString();
 
   for (const cur of current) {
-    const nextKg = wanted.get(cur.prodotto_id);
-    if (nextKg == null) {
+    const next = wanted.get(cur.prodotto_id);
+    if (next == null) {
       const { error } = await supabase
         .from("imballaggi_voci_prodotti")
         .update({
@@ -248,11 +258,15 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
         .eq("id", cur.id)
         .is("deleted_at", null);
       if (error) return { success: false, error: error.message };
-    } else if (Number(cur.max_kg) !== nextKg) {
+    } else if (
+      Number(cur.max_kg) !== next.maxKg ||
+      parseImballaggioProdottoUm(cur.unita_misura) !== next.unitaMisura
+    ) {
       const { error } = await supabase
         .from("imballaggi_voci_prodotti")
         .update({
-          max_kg: nextKg,
+          max_kg: next.maxKg,
+          unita_misura: next.unitaMisura,
           updated_by: auth.userId,
         })
         .eq("id", cur.id)
@@ -265,10 +279,11 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
   const toInsert = [...wanted.entries()];
   if (toInsert.length) {
     const { error } = await supabase.from("imballaggi_voci_prodotti").insert(
-      toInsert.map(([prodotto_id, max_kg]) => ({
+      toInsert.map(([prodotto_id, v]) => ({
         voce_id: voceId,
         prodotto_id,
-        max_kg,
+        max_kg: v.maxKg,
+        unita_misura: v.unitaMisura,
         created_by: auth.userId,
         updated_by: auth.userId,
       }))
@@ -285,6 +300,7 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
     payload: {
       prodotto_ids: links.map((l) => l.prodottoId),
       max_kg: links.map((l) => l.maxKg),
+      unita_misura: links.map((l) => l.unitaMisura),
     },
   });
 
