@@ -960,10 +960,24 @@ export interface ImballaggioVoceRow {
   capacita_lt: number | null;
   note: string;
   sort_order: number;
+  doppio_ruolo: boolean;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface ImballaggioVoceProdottoRow {
+  id: string;
+  voce_id: string;
+  prodotto_id: string;
+  max_kg: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
   deleted_at: string | null;
   deleted_by: string | null;
 }
@@ -979,6 +993,7 @@ export type ImballaggioVoceInsert = {
   capacita_lt?: number | null;
   note?: string;
   sort_order?: number;
+  doppio_ruolo?: boolean;
   created_by?: string | null;
   updated_by?: string | null;
 };
@@ -2496,6 +2511,16 @@ export interface Database {
         Row: ImballaggioVoceRow;
         Insert: ImballaggioVoceInsert;
         Update: ImballaggioVoceUpdate;
+        Relationships: [];
+      };
+      imballaggi_voci_prodotti: {
+        Row: ImballaggioVoceProdottoRow;
+        Insert: Partial<ImballaggioVoceProdottoRow> & {
+          voce_id: string;
+          prodotto_id: string;
+          max_kg: number;
+        };
+        Update: Partial<ImballaggioVoceProdottoRow>;
         Relationships: [];
       };
       corrieri: {

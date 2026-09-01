@@ -16,9 +16,11 @@ import {
   ClearableNumberInput,
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
+import { ImballaggioVoceProdottiModal } from "@/components/amministrazione/ImballaggioVoceProdottiModal";
 import {
   formatMisureImballaggio,
   IMBALLAGGIO_STADI,
+  voceCollegaProdotti,
   type Corriere,
   type ImballaggioStadio,
   type ImballaggioVoce,
@@ -36,6 +38,7 @@ type EditVoce = {
   altezzaMm: number | "";
   capacitaLt: number | "";
   sortOrder: number | "";
+  doppioRuolo: boolean;
 };
 
 type EditCorriere = {
@@ -64,7 +67,9 @@ export function ImballaggiSpedizioniBoard() {
   const [nuovoProf, setNuovoProf] = useState<number | "">("");
   const [nuovoAlt, setNuovoAlt] = useState<number | "">("");
   const [nuovoLt, setNuovoLt] = useState<number | "">("");
+  const [nuovoDoppioRuolo, setNuovoDoppioRuolo] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [linkVoce, setLinkVoce] = useState<ImballaggioVoce | null>(null);
 
   const [editVoce, setEditVoce] = useState<EditVoce | null>(null);
   const [editCorriere, setEditCorriere] = useState<EditCorriere | null>(null);
@@ -101,6 +106,8 @@ export function ImballaggiSpedizioniBoard() {
     setNuovoProf("");
     setNuovoAlt("");
     setNuovoLt("");
+    setNuovoDoppioRuolo(false);
+    setLinkVoce(null);
     setEditVoce(null);
     setEditCorriere(null);
     void refresh();
@@ -139,6 +146,7 @@ export function ImballaggiSpedizioniBoard() {
       altezzaMm: v.altezzaMm ?? "",
       capacitaLt: v.capacitaLt ?? "",
       sortOrder: v.sortOrder,
+      doppioRuolo: v.doppioRuolo,
     });
   }
 
@@ -162,6 +170,7 @@ export function ImballaggiSpedizioniBoard() {
       altezzaMm: numOrNull(nuovoAlt),
       capacitaLt: numOrNull(nuovoLt),
       sortOrder: (voci[voci.length - 1]?.sortOrder ?? 0) + 10,
+      doppioRuolo: tab !== "movimentazione" && nuovoDoppioRuolo,
     });
     setSaving(false);
     if (!res.success) {
@@ -176,6 +185,7 @@ export function ImballaggiSpedizioniBoard() {
     setNuovoProf("");
     setNuovoAlt("");
     setNuovoLt("");
+    setNuovoDoppioRuolo(false);
   }
 
   async function saveEditVoce() {
@@ -196,6 +206,7 @@ export function ImballaggiSpedizioniBoard() {
       altezzaMm: numOrNull(editVoce.altezzaMm),
       capacitaLt: numOrNull(editVoce.capacitaLt),
       sortOrder: numberOrZero(editVoce.sortOrder),
+      doppioRuolo: tab !== "movimentazione" && editVoce.doppioRuolo,
     });
     setSaving(false);
     if (!res.success) {
@@ -270,7 +281,8 @@ export function ImballaggiSpedizioniBoard() {
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
         Catalogo imballaggi per stadio e anagrafica corrieri: creazione,
-        modifica e soft delete (ISO 9001). Usato nel wizard ordini.
+        modifica e soft delete (ISO 9001). Isolamento (e confezione a doppio
+        ruolo) si collegano ai prodotti con max kg. Usato nel wizard ordini.
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -391,6 +403,18 @@ export function ImballaggiSpedizioniBoard() {
               className="w-48 rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
             />
           </label>
+          {tab === "isolamento" || tab === "confezione" ? (
+            <label className="flex items-center gap-2 pb-2 text-sm">
+              <input
+                type="checkbox"
+                checked={nuovoDoppioRuolo}
+                onChange={(e) => setNuovoDoppioRuolo(e.target.checked)}
+              />
+              {tab === "isolamento"
+                ? "Fa anche da confezionamento"
+                : "Fa anche da isolamento"}
+            </label>
+          ) : null}
           <button
             type="button"
             disabled={saving || !nuovoNome.trim()}
@@ -538,6 +562,8 @@ export function ImballaggiSpedizioniBoard() {
                 <th className="px-3 py-2">L×P×H mm</th>
                 <th className="px-3 py-2">lt</th>
                 <th className="px-3 py-2">Note</th>
+                <th className="px-3 py-2">Doppio</th>
+                <th className="px-3 py-2">Prodotti</th>
                 <th className="px-3 py-2">Ord.</th>
                 <th className="px-3 py-2 text-right">Azioni</th>
               </tr>
@@ -545,7 +571,7 @@ export function ImballaggiSpedizioniBoard() {
             <tbody>
               {filteredVoci.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-6 text-[var(--muted)]">
+                  <td colSpan={9} className="px-3 py-6 text-[var(--muted)]">
                     Nessuna voce in questo stadio.
                   </td>
                 </tr>
@@ -660,6 +686,36 @@ export function ImballaggiSpedizioniBoard() {
                         )}
                       </td>
                       <td className="px-3 py-2">
+                        {tab === "movimentazione" ? (
+                          <span className="text-[var(--muted)]">—</span>
+                        ) : editing ? (
+                          <label className="flex items-center gap-1 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={editVoce.doppioRuolo}
+                              onChange={(e) =>
+                                setEditVoce({
+                                  ...editVoce,
+                                  doppioRuolo: e.target.checked,
+                                })
+                              }
+                            />
+                            {tab === "isolamento"
+                              ? "Anche confezione"
+                              : "Anche isolamento"}
+                          </label>
+                        ) : v.doppioRuolo ? (
+                          <span className="text-xs font-medium text-emerald-800">
+                            Sì
+                          </span>
+                        ) : (
+                          <span className="text-[var(--muted)]">No</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-[var(--muted)]">
+                        {voceCollegaProdotti(v) ? v.prodotti.length : "—"}
+                      </td>
+                      <td className="px-3 py-2">
                         {editing ? (
                           <ClearableNumberInput
                             min={0}
@@ -707,6 +763,15 @@ export function ImballaggiSpedizioniBoard() {
                               <FaPen size={12} />
                             </button>
                           )}
+                          {voceCollegaProdotti(v) ? (
+                            <button
+                              type="button"
+                              className="rounded px-1.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              onClick={() => setLinkVoce(v)}
+                            >
+                              Collega a prodotti
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className="rounded p-1.5 text-red-600 hover:bg-red-50"
@@ -736,6 +801,19 @@ export function ImballaggiSpedizioniBoard() {
           </table>
         </div>
       )}
+
+      {linkVoce ? (
+        <ImballaggioVoceProdottiModal
+          voce={linkVoce}
+          onClose={() => setLinkVoce(null)}
+          onSaved={(item) => {
+            setVoci((prev) =>
+              prev.map((x) => (x.id === item.id ? item : x))
+            );
+            setLinkVoce(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

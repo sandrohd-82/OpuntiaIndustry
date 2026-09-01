@@ -22,8 +22,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260901130000` | `campionature_mezzo_nota.sql` | Mezzo richiesta + link nota/mail |
 | `20260901140000` | `campionature_data_richiesta_spedizione.sql` | Data richiesta + spedizione altro posto |
 | `20260901150000` | `preventivi_iso9001.sql` | Tabelle `preventivi` + `preventivi_righe`; link ordine |
+| `20260901160000` | `imballaggi_voci_prodotti_doppio_ruolo.sql` | Isolamento/confezione ↔ prodotti + doppio ruolo + max kg |
 
-**Prossimo timestamp libero: `20260901160000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260901170000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 

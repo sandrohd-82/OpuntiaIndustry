@@ -31,6 +31,11 @@ export const IMBALLAGGIO_STADI: {
   },
 ];
 
+export type ImballaggioVoceProdottoLink = {
+  prodottoId: string;
+  maxKg: number;
+};
+
 export type ImballaggioVoce = {
   id: string;
   stadio: ImballaggioStadio;
@@ -42,6 +47,8 @@ export type ImballaggioVoce = {
   capacitaLt: number | null;
   note: string;
   sortOrder: number;
+  doppioRuolo: boolean;
+  prodotti: ImballaggioVoceProdottoLink[];
 };
 
 export type ImballaggioVoceInput = {
@@ -54,6 +61,7 @@ export type ImballaggioVoceInput = {
   capacitaLt?: number | null;
   note?: string;
   sortOrder?: number;
+  doppioRuolo?: boolean;
 };
 
 export type Corriere = {
@@ -67,16 +75,37 @@ export type CorriereInput = {
   note?: string;
 };
 
-export const imballaggioVoceInputSchema = z.object({
-  stadio: z.enum(["movimentazione", "confezione", "isolamento"]),
-  codice: z.string().trim().min(1, "Codice obbligatorio").max(64),
-  nome: z.string().trim().min(1, "Nome obbligatorio").max(200),
-  largoMm: z.number().positive().nullable().optional(),
-  profonditaMm: z.number().positive().nullable().optional(),
-  altezzaMm: z.number().positive().nullable().optional(),
-  capacitaLt: z.number().positive().nullable().optional(),
-  note: z.string().optional(),
-  sortOrder: z.number().int().optional(),
+export const imballaggioVoceInputSchema = z
+  .object({
+    stadio: z.enum(["movimentazione", "confezione", "isolamento"]),
+    codice: z.string().trim().min(1, "Codice obbligatorio").max(64),
+    nome: z.string().trim().min(1, "Nome obbligatorio").max(200),
+    largoMm: z.number().positive().nullable().optional(),
+    profonditaMm: z.number().positive().nullable().optional(),
+    altezzaMm: z.number().positive().nullable().optional(),
+    capacitaLt: z.number().positive().nullable().optional(),
+    note: z.string().optional(),
+    sortOrder: z.number().int().optional(),
+    doppioRuolo: z.boolean().optional().default(false),
+  })
+  .superRefine((v, ctx) => {
+    if (v.doppioRuolo && v.stadio === "movimentazione") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Il doppio ruolo vale solo per confezione o isolamento.",
+        path: ["doppioRuolo"],
+      });
+    }
+  });
+
+export const syncImballaggioVoceProdottiSchema = z.object({
+  voceId: z.string().uuid(),
+  links: z.array(
+    z.object({
+      prodottoId: z.string().uuid(),
+      maxKg: z.number().positive("Max kg deve essere maggiore di zero"),
+    })
+  ),
 });
 
 export const corriereInputSchema = z.object({
@@ -84,7 +113,10 @@ export const corriereInputSchema = z.object({
   note: z.string().optional(),
 });
 
-export function mapImballaggioVoceRow(row: ImballaggioVoceRow): ImballaggioVoce {
+export function mapImballaggioVoceRow(
+  row: ImballaggioVoceRow,
+  prodotti: ImballaggioVoceProdottoLink[] = []
+): ImballaggioVoce {
   return {
     id: row.id,
     stadio: row.stadio,
@@ -96,7 +128,46 @@ export function mapImballaggioVoceRow(row: ImballaggioVoceRow): ImballaggioVoce 
     capacitaLt: row.capacita_lt == null ? null : Number(row.capacita_lt),
     note: row.note ?? "",
     sortOrder: row.sort_order ?? 0,
+    doppioRuolo: Boolean(row.doppio_ruolo),
+    prodotti,
   };
+}
+
+export function labelImballaggioVoce(v: ImballaggioVoce): string {
+  return v.doppioRuolo ? `${v.nome} (confezione + isolamento)` : v.nome;
+}
+
+export function voceCollegaProdotti(v: Pick<ImballaggioVoce, "stadio" | "doppioRuolo">) {
+  return v.stadio === "isolamento" || (v.stadio === "confezione" && v.doppioRuolo);
+}
+
+export function filterVociForWizardStadio(
+  voci: ImballaggioVoce[],
+  stadio: ImballaggioStadio,
+  prodottoId: string | null
+): ImballaggioVoce[] {
+  if (stadio === "movimentazione") {
+    return voci.filter((v) => v.stadio === "movimentazione");
+  }
+  const linked = (v: ImballaggioVoce) =>
+    Boolean(
+      prodottoId && v.prodotti.some((p) => p.prodottoId === prodottoId)
+    );
+  if (stadio === "confezione") {
+    return voci.filter((v) => {
+      if (v.stadio === "confezione" && !v.doppioRuolo) return true;
+      if (
+        v.doppioRuolo &&
+        (v.stadio === "confezione" || v.stadio === "isolamento")
+      ) {
+        return linked(v);
+      }
+      return false;
+    });
+  }
+  return voci.filter(
+    (v) => v.stadio === "isolamento" && !v.doppioRuolo && linked(v)
+  );
 }
 
 export function mapCorriereRow(row: CorriereRow): Corriere {
@@ -228,13 +299,17 @@ export function normalizeConfezionamentoDraft(
 
 export function childStadioFor(
   parent: OrdineConfezionamentoNodoStadio | null,
-  modo: OrdineConfezionamentoModo
+  modo: OrdineConfezionamentoModo,
+  parentVoce?: ImballaggioVoce | null
 ): OrdineConfezionamentoNodoStadio | null {
   if (!parent) {
     return modo === "su_pallet" ? "movimentazione" : "confezione";
   }
   if (parent === "movimentazione") return "confezione";
-  if (parent === "confezione") return "isolamento";
+  if (parent === "confezione") {
+    if (parentVoce?.doppioRuolo) return "prodotto_kg";
+    return "isolamento";
+  }
   if (parent === "isolamento") return "prodotto_kg";
   return null;
 }

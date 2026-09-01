@@ -41,6 +41,8 @@ import {
   childStadioFor,
   emptyConfezionamentoDraft,
   emptyNodo,
+  filterVociForWizardStadio,
+  labelImballaggioVoce,
   normalizeConfezionamentoDraft,
   totaleKgConfezionati,
   type ConfezionamentoDraft,
@@ -537,11 +539,20 @@ export function OrdineNuovoWizardModal({
   }
 
   function renderNodo(nodo: ConfezionamentoNodoDraft, depth: number) {
-    const nextStadio = childStadioFor(nodo.stadio, conf.movimentazioneModo);
+    const parentVoce = catalogo.find((v) => v.id === nodo.catalogoId) ?? null;
+    const nextStadio = childStadioFor(
+      nodo.stadio,
+      conf.movimentazioneModo,
+      parentVoce
+    );
     const options =
       nodo.stadio === "prodotto_kg"
         ? []
-        : vociByStadio[nodo.stadio] ?? [];
+        : filterVociForWizardStadio(
+            catalogo,
+            nodo.stadio,
+            prodotto?.id ?? null
+          );
     return (
       <div
         key={nodo.localId}
@@ -565,7 +576,7 @@ export function OrdineNuovoWizardModal({
               <option value="">Seleziona da catalogo…</option>
               {options.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.nome}
+                  {labelImballaggioVoce(v)}
                 </option>
               ))}
             </select>
@@ -1338,8 +1349,10 @@ export function OrdineNuovoWizardModal({
               <div className="space-y-2">
                 {conf.nodi.length === 0 ? (
                   <p className="text-sm text-[var(--muted)]">
-                    Nessun blocco. Aggiungi pallet/confezione e scendi ai livelli
-                    cartone → sacco → kg.
+                    Nessun blocco. Aggiungi pallet/confezione e scendi ai
+                    livelli. Isolamento solo se collegato al prodotto; le voci a
+                    doppio ruolo (es. bidone gel) appaiono in un’unica
+                    selezione.
                   </p>
                 ) : (
                   conf.nodi.map((n) => renderNodo(n, 0))
