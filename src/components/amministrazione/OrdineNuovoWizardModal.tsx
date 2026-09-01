@@ -12,10 +12,14 @@ import {
   listImballaggiVociAction,
 } from "@/app/actions/imballaggi-spedizioni";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
+import { listPreventiviAccettatiAction } from "@/app/actions/preventivi";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
+import { linkEntityReferenteAction } from "@/app/actions/rubrica";
+import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
+import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import {
   ClearableNumberInput,
   numberOrZero,
@@ -25,7 +29,9 @@ import {
   attivitaToOrdineDraft,
   type AttivitaOrdineDraft,
 } from "@/lib/amministrazione/attivita";
-import type { Ordine } from "@/lib/amministrazione/ordini";
+import type { Ordine, OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
+import type { Preventivo } from "@/lib/amministrazione/preventivi";
+import type { RubricaContatto } from "@/lib/rubrica/types";
 import {
   imponibileRiga,
   ivaRiga,
@@ -140,6 +146,19 @@ export function OrdineNuovoWizardModal({
 
   const [quantita, setQuantita] = useState<number | "">(100);
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
+  const [preventivoId, setPreventivoId] = useState("");
+  const [preventiviAccettati, setPreventiviAccettati] = useState<Preventivo[]>(
+    []
+  );
+  const [mailAccettazione, setMailAccettazione] = useState<{
+    id: string;
+    subject: string;
+  } | null>(null);
+  const [referenteAccettazione, setReferenteAccettazione] =
+    useState<RubricaContatto | null>(null);
+  const [timelineMailOpen, setTimelineMailOpen] = useState(false);
+  const [tipoPagamento, setTipoPagamento] =
+    useState<OrdineTipoPagamento>("alla_consegna");
 
   const [consegnaTipo, setConsegnaTipo] = useState<"asap" | "data">("asap");
   const [dataRichiesta, setDataRichiesta] = useState("");
@@ -335,6 +354,28 @@ export function OrdineNuovoWizardModal({
   ]);
 
   useEffect(() => {
+    setPreventivoId("");
+    setMailAccettazione(null);
+    setReferenteAccettazione(null);
+    setTipoPagamento("alla_consegna");
+  }, [clienteId]);
+
+  useEffect(() => {
+    if (variant === "campionatura" || !clienteId || step !== 3) return;
+    let cancelled = false;
+    void listPreventiviAccettatiAction({
+      clienteId,
+      prodottoId: prodotto?.id,
+    }).then((res) => {
+      if (cancelled) return;
+      setPreventiviAccettati(res.success ? res.items : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [variant, clienteId, prodotto?.id, step]);
+
+  useEffect(() => {
     if (!prodotto?.id) {
       setAttivitaDrafts([]);
       return;
@@ -362,8 +403,17 @@ export function OrdineNuovoWizardModal({
   function canNext(): boolean {
     if (step === 1) return Boolean(clienteId && clienteNome && clienteTarga);
     if (step === 2) return Boolean(prodotto);
-    if (step === 3)
-      return quantitaKg > 0 && numberOrZero(prezzoUnitario) >= 0;
+    if (step === 3) {
+      if (!(quantitaKg > 0 && numberOrZero(prezzoUnitario) >= 0)) return false;
+      if (
+        variant !== "campionatura" &&
+        preventivoId &&
+        (!mailAccettazione || !referenteAccettazione)
+      ) {
+        return false;
+      }
+      return true;
+    }
     if (step === 4) {
       if (!calcolo || calcolo.giorniLavorativiNecessari <= 0) {
         return Boolean(calcolo?.dataConsegnaStimata);
@@ -381,6 +431,33 @@ export function OrdineNuovoWizardModal({
       return true;
     }
     return true;
+  }
+
+  function applyPreventivo(id: string) {
+    setPreventivoId(id);
+    if (!id) return;
+    const item = preventiviAccettati.find((p) => p.id === id);
+    if (!item) return;
+    const riga =
+      item.righe.find((r) => r.prodottoId === prodotto?.id) ?? item.righe[0];
+    if (riga) {
+      setQuantita(riga.quantita);
+      setPrezzoUnitario(riga.prezzoUnitario);
+      setOverridesSeeded(false);
+    }
+    setTipoPagamento(item.tipoPagamento);
+  }
+
+  async function onReferenteAccettazioneChange(next: RubricaContatto[]) {
+    const last = next[next.length - 1] ?? null;
+    setReferenteAccettazione(last);
+    if (!last || !clienteId) return;
+    await linkEntityReferenteAction({
+      tipo: "cliente",
+      entityId: clienteId,
+      entityLabel: clienteNome,
+      contattoId: last.id,
+    });
   }
 
   async function submit() {
@@ -428,7 +505,10 @@ export function OrdineNuovoWizardModal({
       attivitaSnapshot,
       dataConsegnaCalendario,
       confezionamento: confNorm,
-      tipoPagamento: "alla_consegna",
+      tipoPagamento,
+      preventivoId: preventivoId || null,
+      webmailAccettazioneId: mailAccettazione?.id ?? null,
+      referenteAccettazioneId: referenteAccettazione?.id ?? null,
     });
     setSaving(false);
     if (!result.success) {
@@ -759,6 +839,77 @@ export function OrdineNuovoWizardModal({
                   </div>
                 </dl>
               </div>
+
+              {variant !== "campionatura" ? (
+                <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
+                  <p className="text-sm font-medium">Preventivo accettato</p>
+                  <p className="text-xs text-[var(--muted)]">
+                    Collegabile solo se stato Accettato. Un prodotto o più
+                    righe («di tanti»). Se lo colleghi, servono anche mail e
+                    referente di accettazione.
+                  </p>
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">Preventivo</span>
+                    <select
+                      value={preventivoId}
+                      onChange={(e) => applyPreventivo(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="">Nessuno</option>
+                      {preventiviAccettati.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.numeroInterno} · {p.righe.length}{" "}
+                          {p.righe.length === 1 ? "prodotto" : "prodotti"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {preventivoId ? (
+                    <p className="text-xs text-[var(--muted)]">
+                      {preventiviAccettati
+                        .find((p) => p.id === preventivoId)
+                        ?.righe.map(
+                          (r) =>
+                            `${r.prodottoCodice} ${r.quantita} ${r.unitaMisura} @ ${r.prezzoUnitario} €`
+                        )
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="text-sm">
+                      <span className="mb-1 block font-medium">
+                        Mail di accettazione
+                      </span>
+                      <button
+                        type="button"
+                        disabled={!clienteId}
+                        onClick={() => setTimelineMailOpen(true)}
+                        className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {mailAccettazione
+                          ? mailAccettazione.subject || "Mail collegata"
+                          : "Collega mail"}
+                      </button>
+                    </div>
+                    <div className="text-sm">
+                      <span className="mb-1 block font-medium">
+                        Referente che ha inviato
+                      </span>
+                      <ReferentiPickerField
+                        value={
+                          referenteAccettazione ? [referenteAccettazione] : []
+                        }
+                        onChange={(next) =>
+                          void onReferenteAccettazioneChange(next)
+                        }
+                        defaultAziendaTipo="cliente"
+                        defaultAziendaLabel={clienteNome}
+                        defaultAziendaId={clienteId}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -1311,6 +1462,23 @@ export function OrdineNuovoWizardModal({
           }}
         />
       )}
+
+      {timelineMailOpen && clienteId ? (
+        <AziendaTimelineModal
+          elevated
+          aziendaTipo="cliente"
+          aziendaId={clienteId}
+          aziendaLabel={clienteNome}
+          onClose={() => setTimelineMailOpen(false)}
+          pickMode={{
+            purpose: "ordine-accettazione-mail",
+            onPicked: (picked) => {
+              setMailAccettazione(picked);
+              setTimelineMailOpen(false);
+            },
+          }}
+        />
+      ) : null}
 
       {calendarioOpen && calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
         <ConsegnaCalendarioModal

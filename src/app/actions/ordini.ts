@@ -763,6 +763,31 @@ export async function createOrdineWizardAction(
 
   try {
     const supabase = await createClient();
+    if (input.preventivoId) {
+      const { data: pv, error: pvErr } = await supabase
+        .from("preventivi")
+        .select("id, stato, cliente_id, deleted_at")
+        .eq("id", input.preventivoId)
+        .maybeSingle();
+      if (pvErr || !pv || pv.deleted_at) {
+        return {
+          success: false,
+          error: pvErr?.message ?? "Preventivo non trovato.",
+        };
+      }
+      if (pv.stato !== "accettato") {
+        return {
+          success: false,
+          error: "Puoi collegare solo un preventivo accettato.",
+        };
+      }
+      if (pv.cliente_id && pv.cliente_id !== input.clienteId) {
+        return {
+          success: false,
+          error: "Il preventivo appartiene a un altro cliente.",
+        };
+      }
+    }
     const seq = await nextSeqForCliente(
       input.clienteId,
       input.codiceTargaCliente
@@ -818,6 +843,9 @@ export async function createOrdineWizardAction(
         input.spedizioneACarico === "diviso"
           ? (input.spedizionePctAgrinsicilia ?? null)
           : null,
+      preventivo_id: input.preventivoId ?? null,
+      webmail_accettazione_id: input.webmailAccettazioneId ?? null,
+      referente_accettazione_id: input.referenteAccettazioneId ?? null,
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -977,13 +1005,16 @@ export async function createOrdineWizardAction(
       entity_id: row.id,
       action: "create",
       actor_id: auth.userId,
-      summary: `Creato ordine wizard ${numeroInterno} (consegna ${dataConsegna})`,
+      summary: input.preventivoId
+        ? `Creato ordine wizard ${numeroInterno} da preventivo accettato`
+        : `Creato ordine wizard ${numeroInterno} (consegna ${dataConsegna})`,
       payload: {
         wizard: true,
         is_test: true,
         consegna_tipo: input.consegnaTipo,
         capacita: calcRes.calcolo.snapshot,
         spedizione_a_carico: input.spedizioneACarico,
+        preventivo_id: input.preventivoId ?? null,
       },
     });
 

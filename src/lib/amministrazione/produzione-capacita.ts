@@ -164,6 +164,9 @@ export const ordineWizardInputSchema = z
       .optional(),
     confezionamento: confezionamentoDraftSchema.optional(),
     note: z.string().optional(),
+    preventivoId: z.string().uuid().nullable().optional(),
+    webmailAccettazioneId: z.string().uuid().nullable().optional(),
+    referenteAccettazioneId: z.string().uuid().nullable().optional(),
     tipoPagamento: z
       .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])
       .default("alla_consegna"),
@@ -192,6 +195,20 @@ export const ordineWizardInputSchema = z
         code: z.ZodIssueCode.custom,
         message: "Indica la % a carico Agrinsicilia.",
         path: ["spedizionePctAgrinsicilia"],
+      });
+    }
+    if (val.preventivoId && !val.webmailAccettazioneId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Collega la mail di accettazione del preventivo.",
+        path: ["webmailAccettazioneId"],
+      });
+    }
+    if (val.preventivoId && !val.referenteAccettazioneId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica il referente che ha inviato l’accettazione.",
+        path: ["referenteAccettazioneId"],
       });
     }
     const conf = val.confezionamento;

@@ -76,7 +76,7 @@ export type TimelinePickMode =
       onPicked: (nota: { id: string; titolo: string }) => void;
     }
   | {
-      purpose: "campionatura-mail";
+      purpose: "campionatura-mail" | "ordine-accettazione-mail";
       onPicked: (mail: { id: string; subject: string }) => void;
     };
 
@@ -197,7 +197,8 @@ export function AziendaTimelineModal({
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [panel, setPanel] = useState<"none" | "nota" | "mail">(
-    pickMode?.purpose === "campionatura-mail"
+    pickMode?.purpose === "campionatura-mail" ||
+    pickMode?.purpose === "ordine-accettazione-mail"
       ? "mail"
       : pickMode?.purpose === "campionatura-nota" && pickMode.openCreate
         ? "nota"
@@ -476,7 +477,10 @@ export function AziendaTimelineModal({
       setInfo("Mail collegata alla timeline.");
       await reload();
       await runMailSearch(mailQuery);
-      if (pickMode?.purpose === "campionatura-mail") {
+      if (
+        pickMode?.purpose === "campionatura-mail" ||
+        pickMode?.purpose === "ordine-accettazione-mail"
+      ) {
         pickMode.onPicked({ id: hit.id, subject: hit.subject });
       }
     });
@@ -516,6 +520,8 @@ export function AziendaTimelineModal({
             <p className="mt-1 text-xs text-[var(--muted)] sm:text-sm">
               {pickMode?.purpose === "campionatura-nota"
                 ? "Seleziona la nota da collegare alla richiesta di campionatura, oppure creane una."
+                : pickMode?.purpose === "ordine-accettazione-mail"
+                  ? "Collega la mail WebMail di accettazione del preventivo."
                 : pickMode?.purpose === "campionatura-mail"
                   ? "Collega la mail WebMail della richiesta di campionatura."
                   : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note o collegare mail WebMail."}

@@ -20,6 +20,7 @@ type Props = {
   /** Prefill azienda (es. da form possibile cliente) */
   defaultAziendaTipo?: RubricaAziendaTipo;
   defaultAziendaLabel?: string;
+  defaultAziendaId?: string;
   elevated?: boolean;
 };
 
@@ -28,6 +29,7 @@ export function RubricaContattoFormModal({
   onCreated,
   defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
+  defaultAziendaId = "",
   elevated = false,
 }: Props) {
   const [pending, startTransition] = useTransition();
@@ -39,7 +41,7 @@ export function RubricaContattoFormModal({
   const [rapporto, setRapporto] = useState<RubricaRapporto>("referente");
   const [aziendaTipo, setAziendaTipo] =
     useState<RubricaAziendaTipo>(defaultAziendaTipo);
-  const [aziendaId, setAziendaId] = useState<string>("");
+  const [aziendaId, setAziendaId] = useState<string>(defaultAziendaId);
   const [aziendaLabel, setAziendaLabel] = useState(
     defaultAziendaTipo === "agrinsicilia"
       ? "Agrinsicilia"

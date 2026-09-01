@@ -16,6 +16,7 @@ type Props = {
   /** Prefill quando si crea un nuovo contatto da qui */
   defaultAziendaTipo?: RubricaAziendaTipo;
   defaultAziendaLabel?: string;
+  defaultAziendaId?: string;
 };
 
 export function ReferentiPickerField({
@@ -23,6 +24,7 @@ export function ReferentiPickerField({
   onChange,
   defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
+  defaultAziendaId = "",
 }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [showPick, setShowPick] = useState(false);
@@ -148,6 +150,7 @@ export function ReferentiPickerField({
           elevated
           defaultAziendaTipo={defaultAziendaTipo}
           defaultAziendaLabel={defaultAziendaLabel}
+          defaultAziendaId={defaultAziendaId}
           onClose={() => setShowCreate(false)}
           onCreated={(item) => {
             onChange(

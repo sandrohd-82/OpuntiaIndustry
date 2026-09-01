@@ -127,6 +127,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/amministrazione/ordini/crea-nuovo",
       },
       {
+        slug: "preventivi",
+        label: "Preventivi",
+        description:
+          "Preventivi creati, inviati, accettati o respinti",
+        path: "/app/amministrazione/ordini/preventivi",
+      },
+      {
         slug: "processati",
         label: "Processati",
         description:

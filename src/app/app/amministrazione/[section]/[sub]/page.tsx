@@ -18,6 +18,7 @@ import {
 } from "@/components/amministrazione/PortaleLeadBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
+import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
@@ -125,6 +126,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrdiniRicevutiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "preventivi") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PreventiviBoard />
         </div>
       </>
     );

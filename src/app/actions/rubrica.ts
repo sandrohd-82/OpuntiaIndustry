@@ -439,3 +439,42 @@ export async function syncEntityReferentiAction(input: {
   });
   return { success: true };
 }
+
+/** Aggiunge un referente all’anagrafica senza sostituire gli altri. */
+export async function linkEntityReferenteAction(input: {
+  tipo: EntityReferentiTipo;
+  entityId: string;
+  entityLabel: string;
+  contattoId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guard();
+  const j = junctionFor(input.tipo);
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from(j.table)
+    .select("contatto_id")
+    .eq(j.fk, input.entityId)
+    .eq("contatto_id", input.contattoId)
+    .maybeSingle();
+  if (!existing) {
+    const { error } = await supabase.from(j.table).insert({
+      [j.fk]: input.entityId,
+      contatto_id: input.contattoId,
+      created_by: auth.userId,
+    });
+    if (error && !/duplicate|unique/i.test(error.message)) {
+      return { success: false, error: error.message };
+    }
+  }
+  await supabase
+    .from("rubrica_contatti")
+    .update({
+      azienda_tipo: j.aziendaTipo,
+      azienda_id: input.entityId,
+      azienda_label: input.entityLabel,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.contattoId)
+    .is("deleted_at", null);
+  return { success: true };
+}

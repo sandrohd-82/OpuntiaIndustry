@@ -812,6 +812,9 @@ export interface OrdineRow {
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia: number | null;
   giorni_produzione: string[];
+  preventivo_id?: string | null;
+  webmail_accettazione_id?: string | null;
+  referente_accettazione_id?: string | null;
   canale?: OrdineCanale;
   listino_id?: string | null;
   external_ref?: string;
@@ -866,6 +869,9 @@ export interface OrdineInsert {
   spedizione_a_carico?: "cliente" | "agrinsicilia" | "diviso" | null;
   spedizione_pct_agrinsicilia?: number | null;
   giorni_produzione?: string[];
+  preventivo_id?: string | null;
+  webmail_accettazione_id?: string | null;
+  referente_accettazione_id?: string | null;
   created_by?: string | null;
   updated_by?: string | null;
 }
@@ -1157,6 +1163,64 @@ export interface CampionaturaRigaRow {
   unita_misura: "g" | "kg" | "pz" | "ml";
   lotto_codice: string;
   note: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+}
+
+export type PreventivoStatoDb =
+  | "creato"
+  | "inviato"
+  | "accettato"
+  | "respinto";
+
+export interface PreventivoRow {
+  id: string;
+  numero_interno: string;
+  cliente_id: string | null;
+  cliente_ragione_sociale: string;
+  cliente_codice_targa: string;
+  data_preventivo: string;
+  stato: PreventivoStatoDb;
+  documento_stato: "bozza" | "approvato" | "chiuso";
+  versione: number;
+  consegna_metodo: "ritiro" | "corriere_nostro" | "corriere_cliente";
+  spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso";
+  spedizione_importo: number;
+  tipo_pagamento: OrdineTipoPagamento;
+  tempi_pagamento_giorni: number | null;
+  tempi_pagamento_note: string;
+  note: string;
+  webmail_accettazione_id: string | null;
+  referente_accettazione_id: string | null;
+  sent_at: string | null;
+  sent_by: string | null;
+  accepted_at: string | null;
+  accepted_by: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface PreventivoRigaRow {
+  id: string;
+  preventivo_id: string;
+  prodotto_id: string | null;
+  prodotto_codice: string;
+  prodotto_nome: string;
+  quantita: number;
+  unita_misura: string;
+  prezzo_unitario: number;
+  iva_percentuale: number;
+  listino_id: string | null;
+  prezzo_da_listino: boolean;
+  confezionamento: string;
+  imballaggio_voce_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -2409,6 +2473,23 @@ export interface Database {
         Row: CampionaturaRigaRow;
         Insert: Partial<CampionaturaRigaRow> & { campionatura_id: string };
         Update: Partial<CampionaturaRigaRow>;
+        Relationships: [];
+      };
+      preventivi: {
+        Row: PreventivoRow;
+        Insert: Partial<PreventivoRow> & {
+          numero_interno: string;
+          cliente_ragione_sociale: string;
+          cliente_codice_targa: string;
+          data_preventivo: string;
+        };
+        Update: Partial<PreventivoRow>;
+        Relationships: [];
+      };
+      preventivi_righe: {
+        Row: PreventivoRigaRow;
+        Insert: Partial<PreventivoRigaRow> & { preventivo_id: string };
+        Update: Partial<PreventivoRigaRow>;
         Relationships: [];
       };
       imballaggi_voci: {
