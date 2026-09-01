@@ -17,6 +17,10 @@ export const createListinoSchema = z.object({
   note: z.string().trim().max(4000).optional().default(""),
 });
 
+export const updateListinoSchema = createListinoSchema.extend({
+  id: z.string().uuid(),
+});
+
 export const upsertListinoRigaSchema = z.object({
   listinoId: z.string().uuid(),
   prodottoId: z.string().uuid(),

@@ -8,6 +8,7 @@ import {
   mapListino,
   mapListinoRiga,
   mapListinoRigaCondizione,
+  updateListinoSchema,
   upsertListinoRigaCondizioneSchema,
   upsertListinoRigaSchema,
   type Listino,
@@ -86,6 +87,78 @@ export async function createListinoAction(input: unknown): Promise<
     action: "create",
     actor_id: auth.userId,
     summary: `Creato listino B2B ${row.codice} (bozza v1)`,
+  });
+  return { success: true, item: mapListino(row) };
+}
+
+async function requireListinoBozza(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data, error } = await supabase
+    .from("listini")
+    .select("id, stato")
+    .eq("id", listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { ok: false, error: error?.message ?? "Listino non trovato" };
+  }
+  if ((data as { stato: string }).stato !== "bozza") {
+    return {
+      ok: false,
+      error:
+        "Solo una bozza è modificabile. Riporta il listino in Bozza oppure creane uno nuovo.",
+    };
+  }
+  return { ok: true };
+}
+
+export async function updateListinoAction(input: unknown): Promise<
+  { success: true; item: Listino } | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  const parsed = updateListinoSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const supabase = await createClient();
+  const gate = await requireListinoBozza(supabase, parsed.data.id);
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const { data, error } = await supabase
+    .from("listini")
+    .update({
+      codice: parsed.data.codice,
+      nome: parsed.data.nome,
+      valido_dal: parsed.data.validoDal,
+      valido_al: parsed.data.validoAl || null,
+      note: parsed.data.note,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const row = data as ListinoRow;
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: row.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornata testata listino ${row.codice} (bozza)`,
+    payload: {
+      codice: row.codice,
+      nome: row.nome,
+      valido_dal: row.valido_dal,
+      valido_al: row.valido_al,
+    },
   });
   return { success: true, item: mapListino(row) };
 }
@@ -232,6 +305,9 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
   }
 
   const supabase = await createClient();
+  const gate = await requireListinoBozza(supabase, parsed.data.listinoId);
+  if (!gate.ok) return { success: false, error: gate.error };
+
   const { data: existing } = await supabase
     .from("listini_righe")
     .select("id")
@@ -302,6 +378,18 @@ export async function softDeleteListinoRigaAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
   const supabase = await createClient();
+  const { data: riga } = await supabase
+    .from("listini_righe")
+    .select("listino_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!riga) return { success: false, error: "Riga non trovata" };
+  const gate = await requireListinoBozza(
+    supabase,
+    (riga as { listino_id: string }).listino_id
+  );
+  if (!gate.ok) return { success: false, error: gate.error };
+
   const now = new Date().toISOString();
   const { error: condErr } = await supabase
     .from("listini_righe_condizioni")
@@ -350,13 +438,18 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
   const supabase = await createClient();
   const { data: riga, error: rigaErr } = await supabase
     .from("listini_righe")
-    .select("id")
+    .select("id, listino_id")
     .eq("id", parsed.data.listinoRigaId)
     .is("deleted_at", null)
     .maybeSingle();
   if (rigaErr || !riga) {
     return { success: false, error: rigaErr?.message ?? "Riga listino non trovata" };
   }
+  const gate = await requireListinoBozza(
+    supabase,
+    (riga as { listino_id: string }).listino_id
+  );
+  if (!gate.ok) return { success: false, error: gate.error };
 
   const { data: existingRows } = await supabase
     .from("listini_righe_condizioni")
@@ -459,6 +552,24 @@ export async function softDeleteListinoRigaCondizioneAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
   const supabase = await createClient();
+  const { data: cond } = await supabase
+    .from("listini_righe_condizioni")
+    .select("listino_riga_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (!cond) return { success: false, error: "Condizione non trovata" };
+  const { data: riga } = await supabase
+    .from("listini_righe")
+    .select("listino_id")
+    .eq("id", (cond as { listino_riga_id: string }).listino_riga_id)
+    .maybeSingle();
+  if (!riga) return { success: false, error: "Riga listino non trovata" };
+  const gate = await requireListinoBozza(
+    supabase,
+    (riga as { listino_id: string }).listino_id
+  );
+  if (!gate.ok) return { success: false, error: gate.error };
+
   const { error } = await supabase
     .from("listini_righe_condizioni")
     .update({

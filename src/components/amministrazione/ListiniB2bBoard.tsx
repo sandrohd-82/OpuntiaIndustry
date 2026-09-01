@@ -10,10 +10,12 @@ import {
   setListinoStatoAction,
   softDeleteListinoRigaAction,
   softDeleteListinoRigaCondizioneAction,
+  updateListinoAction,
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
 } from "@/app/actions/listini";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
+import { InfoHint } from "@/components/ui/InfoHint";
 import {
   imballaggiPerCondizioneListino,
   type ImballaggioVoce,
@@ -32,6 +34,17 @@ const STATO_LABEL: Record<ListinoStato, string> = {
   approvato: "Approvato",
   pubblicato: "Pubblicato",
   chiuso: "Chiuso",
+};
+
+const STATO_HELP: Record<ListinoStato, string> = {
+  bozza:
+    "Documento di lavoro. Puoi cambiare ogni campo (testata, prezzi, sconti). Non è visibile a OpuntiaItalia né usabile come listino ufficiale.",
+  approvato:
+    "Un responsabile ha firmato il contenuto. I prezzi non si modificano più. Non è ancora il listino che legge il sito B2B: serve Pubblicato.",
+  pubblicato:
+    "Listino ufficiale in vigore (se le date di validità lo coprono). OpuntiaItalia e i preventivi prendono i prezzi da qui. Per cambiare i prezzi crea una nuova bozza.",
+  chiuso:
+    "Archiviato. Non è più vigente. Resta in storico con versione e audit; non si modifica e non si ripubblica.",
 };
 
 type DeleteTarget =
@@ -72,6 +85,11 @@ export function ListiniB2bBoard() {
   const [unitaMisura, setUnitaMisura] = useState<ListinoRigaUm>("kg");
   const [drafts, setDrafts] = useState<Record<string, CondDraft>>({});
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const [editCodice, setEditCodice] = useState("");
+  const [editNome, setEditNome] = useState("");
+  const [editDal, setEditDal] = useState("");
+  const [editAl, setEditAl] = useState("");
+  const [editNote, setEditNote] = useState("");
 
   const confezioni = useMemo(
     () => imballaggiPerCondizioneListino(imballaggi),
@@ -125,7 +143,24 @@ export function ListiniB2bBoard() {
   }, [selectedId]);
 
   const selected = items.find((i) => i.id === selectedId) ?? null;
+  const isBozza = selected?.stato === "bozza";
   const prodottiInListino = new Set(righe.map((r) => r.prodottoId));
+
+  useEffect(() => {
+    if (!selected) return;
+    setEditCodice(selected.codice);
+    setEditNome(selected.nome);
+    setEditDal(selected.validoDal);
+    setEditAl(selected.validoAl ?? "");
+    setEditNote(selected.note);
+  }, [
+    selected?.id,
+    selected?.codice,
+    selected?.nome,
+    selected?.validoDal,
+    selected?.validoAl,
+    selected?.note,
+  ]);
 
   function condDraft(rigaId: string): CondDraft {
     return drafts[rigaId] ?? emptyCond;
@@ -232,35 +267,130 @@ export function ListiniB2bBoard() {
             </p>
           ) : (
             <>
-              <h2 className="text-sm font-semibold">{selected.nome}</h2>
+              <h2 className="text-sm font-semibold">
+                {isBozza ? "Modifica bozza" : selected.nome}
+              </h2>
               <p className="text-xs text-[var(--muted)]">
-                {selected.codice} · {STATO_LABEL[selected.stato]} · v
-                {selected.versione}
+                {STATO_LABEL[selected.stato]} · v{selected.versione}
+                {isBozza
+                  ? " · ogni campo è modificabile, poi Salva testata"
+                  : " · bloccato: i prezzi ufficiali non si cambiano qui"}
               </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {(["approvato", "pubblicato", "chiuso"] as ListinoStato[]).map(
-                  (stato) => (
-                    <button
-                      key={stato}
-                      type="button"
-                      disabled={pending}
-                      className="rounded-md border border-[var(--border)] px-2 py-1 text-xs"
-                      onClick={() =>
-                        startTransition(async () => {
-                          const res = await setListinoStatoAction({
-                            id: selected.id,
-                            stato,
-                          });
-                          if (!res.success) setError(res.error);
-                          else reloadListini();
-                        })
-                      }
-                    >
-                      → {STATO_LABEL[stato]}
-                    </button>
-                  )
-                )}
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="text-xs text-[var(--muted)]">
+                  Codice
+                  <input
+                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+                    value={editCodice}
+                    disabled={!isBozza || pending}
+                    onChange={(e) => setEditCodice(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-[var(--muted)]">
+                  Nome
+                  <input
+                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={editNome}
+                    disabled={!isBozza || pending}
+                    onChange={(e) => setEditNome(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-[var(--muted)]">
+                  Valido dal
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={editDal}
+                    disabled={!isBozza || pending}
+                    onChange={(e) => setEditDal(e.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-[var(--muted)]">
+                  Valido al (vuoto = senza scadenza)
+                  <input
+                    type="date"
+                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={editAl}
+                    disabled={!isBozza || pending}
+                    onChange={(e) => setEditAl(e.target.value)}
+                  />
+                </label>
+                <label className="sm:col-span-2 text-xs text-[var(--muted)]">
+                  Note
+                  <input
+                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
+                    value={editNote}
+                    disabled={!isBozza || pending}
+                    onChange={(e) => setEditNote(e.target.value)}
+                  />
+                </label>
               </div>
+              {isBozza ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  className="mt-3 rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                  onClick={() =>
+                    startTransition(async () => {
+                      const res = await updateListinoAction({
+                        id: selected.id,
+                        codice: editCodice,
+                        nome: editNome,
+                        validoDal: editDal,
+                        validoAl: editAl || null,
+                        note: editNote,
+                      });
+                      if (!res.success) {
+                        setError(res.error);
+                        return;
+                      }
+                      setItems((prev) =>
+                        prev.map((x) => (x.id === res.item.id ? res.item : x))
+                      );
+                    })
+                  }
+                >
+                  Salva testata
+                </button>
+              ) : null}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {(
+                  [
+                    "bozza",
+                    "approvato",
+                    "pubblicato",
+                    "chiuso",
+                  ] as ListinoStato[]
+                )
+                  .filter((stato) => stato !== selected.stato)
+                  .map((stato) => (
+                    <span key={stato} className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-md border border-[var(--border)] px-2 py-1 text-xs"
+                        onClick={() =>
+                          startTransition(async () => {
+                            const res = await setListinoStatoAction({
+                              id: selected.id,
+                              stato,
+                            });
+                            if (!res.success) setError(res.error);
+                            else reloadListini();
+                          })
+                        }
+                      >
+                        → {STATO_LABEL[stato]}
+                      </button>
+                      <InfoHint title={STATO_LABEL[stato]}>
+                        {STATO_HELP[stato]}
+                      </InfoHint>
+                    </span>
+                  ))}
+              </div>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                {STATO_HELP[selected.stato]}
+              </p>
             </>
           )}
         </div>
@@ -287,6 +417,7 @@ export function ListiniB2bBoard() {
                   <RigaBlock
                     key={r.id}
                     riga={r}
+                    editable={Boolean(isBozza)}
                     pending={pending}
                     confezioni={confezioni}
                     draft={condDraft(r.id)}
@@ -304,6 +435,7 @@ export function ListiniB2bBoard() {
                     startTransition={startTransition}
                   />
                 ))}
+                {isBozza ? (
                 <tr className="border-t border-[var(--border)] bg-slate-50/80">
                   <td className="px-3 py-2">
                     <select
@@ -377,6 +509,7 @@ export function ListiniB2bBoard() {
                     </button>
                   </td>
                 </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -421,6 +554,7 @@ export function ListiniB2bBoard() {
 
 function RigaBlock({
   riga,
+  editable,
   pending,
   confezioni,
   draft,
@@ -432,6 +566,7 @@ function RigaBlock({
   startTransition,
 }: {
   riga: ListinoRiga;
+  editable: boolean;
   pending: boolean;
   confezioni: ImballaggioVoce[];
   draft: CondDraft;
@@ -463,6 +598,7 @@ function RigaBlock({
             min={0}
             step="0.01"
             value={prezzo}
+            disabled={!editable || pending}
             onChange={(e) => setPrezzo(e.target.value)}
           />
         </td>
@@ -470,6 +606,7 @@ function RigaBlock({
           <select
             className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm"
             value={um}
+            disabled={!editable || pending}
             onChange={(e) => setUm(e.target.value as ListinoRigaUm)}
           >
             {LISTINO_RIGA_UM.map((u) => (
@@ -483,6 +620,7 @@ function RigaBlock({
           Prezzo base. Le righe sotto sono sconti per scaglione e confezione.
         </td>
         <td className="px-3 py-2">
+          {editable ? (
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -514,32 +652,23 @@ function RigaBlock({
               Rimuovi
             </button>
           </div>
+          ) : null}
         </td>
       </tr>
       {riga.condizioni.map((c) => (
-        <tr key={c.id} className="border-t border-dashed border-slate-200 bg-slate-50/50">
-          <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
-            condizione
-          </td>
-          <td className="px-3 py-1.5" />
-          <td className="px-3 py-1.5" />
-          <td className="px-3 py-1.5 tabular-nums">{c.qtyDa}</td>
-          <td className="px-3 py-1.5 tabular-nums">{c.qtyA ?? "∞"}</td>
-          <td className="px-3 py-1.5 text-xs">
-            {c.imballaggioCodice} {c.imballaggioNome}
-          </td>
-          <td className="px-3 py-1.5 tabular-nums">{c.scontoPct}</td>
-          <td className="px-3 py-1.5">
-            <button
-              type="button"
-              className="text-xs text-red-700 underline"
-              onClick={() => onDeleteCond(c)}
-            >
-              Rimuovi
-            </button>
-          </td>
-        </tr>
+        <CondizioneRow
+          key={c.id}
+          condizione={c}
+          editable={editable}
+          pending={pending}
+          confezioni={confezioni}
+          onSaved={onSaved}
+          onError={onError}
+          onDelete={() => onDeleteCond(c)}
+          startTransition={startTransition}
+        />
       ))}
+      {editable ? (
       <tr className="border-t border-dashed border-slate-200 bg-slate-50/30">
         <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
           + sconto
@@ -622,6 +751,167 @@ function RigaBlock({
           </button>
         </td>
       </tr>
+      ) : null}
     </>
+  );
+}
+
+function CondizioneRow({
+  condizione,
+  editable,
+  pending,
+  confezioni,
+  onSaved,
+  onError,
+  onDelete,
+  startTransition,
+}: {
+  condizione: ListinoRigaCondizione;
+  editable: boolean;
+  pending: boolean;
+  confezioni: ImballaggioVoce[];
+  onSaved: () => void;
+  onError: (msg: string) => void;
+  onDelete: () => void;
+  startTransition: (fn: () => Promise<void>) => void;
+}) {
+  const [qtyDa, setQtyDa] = useState(String(condizione.qtyDa));
+  const [qtyA, setQtyA] = useState(
+    condizione.qtyA == null ? "" : String(condizione.qtyA)
+  );
+  const [imballaggioVoceId, setImballaggioVoceId] = useState(
+    condizione.imballaggioVoceId
+  );
+  const [scontoPct, setScontoPct] = useState(String(condizione.scontoPct));
+
+  useEffect(() => {
+    setQtyDa(String(condizione.qtyDa));
+    setQtyA(condizione.qtyA == null ? "" : String(condizione.qtyA));
+    setImballaggioVoceId(condizione.imballaggioVoceId);
+    setScontoPct(String(condizione.scontoPct));
+  }, [
+    condizione.id,
+    condizione.qtyDa,
+    condizione.qtyA,
+    condizione.imballaggioVoceId,
+    condizione.scontoPct,
+  ]);
+
+  return (
+    <tr className="border-t border-dashed border-slate-200 bg-slate-50/50">
+      <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
+        condizione
+      </td>
+      <td className="px-3 py-1.5" />
+      <td className="px-3 py-1.5" />
+      <td className="px-3 py-1.5">
+        {editable ? (
+          <input
+            className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            type="number"
+            min={0}
+            value={qtyDa}
+            disabled={pending}
+            onChange={(e) => setQtyDa(e.target.value)}
+          />
+        ) : (
+          <span className="tabular-nums">{condizione.qtyDa}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5">
+        {editable ? (
+          <input
+            className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            type="number"
+            min={0}
+            placeholder="∞"
+            value={qtyA}
+            disabled={pending}
+            onChange={(e) => setQtyA(e.target.value)}
+          />
+        ) : (
+          <span className="tabular-nums">{condizione.qtyA ?? "∞"}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5 text-xs">
+        {editable ? (
+          <select
+            className="w-full min-w-[180px] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            value={imballaggioVoceId}
+            disabled={pending}
+            onChange={(e) => setImballaggioVoceId(e.target.value)}
+          >
+            {confezioni.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.codice} — {v.nome}
+              </option>
+            ))}
+            {!confezioni.some((v) => v.id === condizione.imballaggioVoceId) ? (
+              <option value={condizione.imballaggioVoceId}>
+                {condizione.imballaggioCodice} {condizione.imballaggioNome}
+              </option>
+            ) : null}
+          </select>
+        ) : (
+          <span>
+            {condizione.imballaggioCodice} {condizione.imballaggioNome}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-1.5">
+        {editable ? (
+          <input
+            className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            type="number"
+            min={0}
+            max={100}
+            step="0.1"
+            value={scontoPct}
+            disabled={pending}
+            onChange={(e) => setScontoPct(e.target.value)}
+          />
+        ) : (
+          <span className="tabular-nums">{condizione.scontoPct}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5">
+        {editable ? (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={pending}
+              className="text-xs font-medium text-emerald-800 underline"
+              onClick={() =>
+                startTransition(async () => {
+                  const nextQtyA = qtyA.trim() === "" ? null : Number(qtyA);
+                  const res = await upsertListinoRigaCondizioneAction({
+                    id: condizione.id,
+                    listinoRigaId: condizione.listinoRigaId,
+                    qtyDa: Number(qtyDa),
+                    qtyA: nextQtyA,
+                    imballaggioVoceId,
+                    scontoPct: Number(scontoPct),
+                  });
+                  if (!res.success) {
+                    onError(res.error);
+                    return;
+                  }
+                  onSaved();
+                })
+              }
+            >
+              Salva
+            </button>
+            <button
+              type="button"
+              className="text-xs text-red-700 underline"
+              onClick={onDelete}
+            >
+              Rimuovi
+            </button>
+          </div>
+        ) : null}
+      </td>
+    </tr>
   );
 }
