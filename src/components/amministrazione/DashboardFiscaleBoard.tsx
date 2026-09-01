@@ -13,6 +13,7 @@ import {
   type AdempimentoFiscale,
   type DashboardFiscaleSummary,
 } from "@/app/actions/dashboard-fiscale";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { fatturaDetailPath } from "@/lib/amministrazione/fatture-storico";
 import {
   formatEuro,
@@ -43,6 +44,7 @@ export function DashboardFiscaleBoard() {
   const [info, setInfo] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [newAdTitle, setNewAdTitle] = useState("");
+  const [deletingAd, setDeletingAd] = useState<AdempimentoFiscale | null>(null);
 
   async function reload() {
     setReady(false);
@@ -340,12 +342,7 @@ export function DashboardFiscaleBoard() {
               </div>
               <button
                 type="button"
-                onClick={async () => {
-                  const res = await softDeleteAdempimentoFiscaleAction(a.id);
-                  if (res.success) {
-                    setAdempimenti((prev) => prev.filter((x) => x.id !== a.id));
-                  } else setError(res.error);
-                }}
+                onClick={() => setDeletingAd(a)}
                 className="text-xs text-red-700 hover:underline"
               >
                 Archivia
@@ -373,6 +370,24 @@ export function DashboardFiscaleBoard() {
           </ul>
         )}
       </section>
+
+      {deletingAd ? (
+        <ConfirmDeleteModal
+          title="Archivia adempimento"
+          message={`Archiviare «${deletingAd.titolo}»? Soft delete ISO: resta in archivio.`}
+          confirmLabel="Archivia"
+          onClose={() => setDeletingAd(null)}
+          onConfirm={async () => {
+            const res = await softDeleteAdempimentoFiscaleAction(deletingAd.id);
+            if (res.success) {
+              setAdempimenti((prev) =>
+                prev.filter((x) => x.id !== deletingAd.id)
+              );
+              setDeletingAd(null);
+            } else setError(res.error);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

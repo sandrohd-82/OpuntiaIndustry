@@ -10,6 +10,7 @@ import {
   softDeleteListinoRigaAction,
   upsertListinoRigaAction,
 } from "@/app/actions/listini";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import type { Listino, ListinoRiga } from "@/lib/ecosystem/listini";
 import type { ListinoStato } from "@/types/database";
 
@@ -36,6 +37,7 @@ export function ListiniB2bBoard() {
   );
   const [prodottoId, setProdottoId] = useState("");
   const [prezzo, setPrezzo] = useState("0");
+  const [deletingRiga, setDeletingRiga] = useState<ListinoRiga | null>(null);
 
   function reload() {
     startTransition(async () => {
@@ -273,18 +275,7 @@ export function ListiniB2bBoard() {
                         <button
                           type="button"
                           className="text-xs text-red-700 underline"
-                          onClick={() =>
-                            startTransition(async () => {
-                              const res = await softDeleteListinoRigaAction(r.id);
-                              if (!res.success) setError(res.error);
-                              else {
-                                const next = await listListinoRigheAction(
-                                  selected.id
-                                );
-                                if (next.success) setRighe(next.items);
-                              }
-                            })
-                          }
+                          onClick={() => setDeletingRiga(r)}
                         >
                           Rimuovi
                         </button>
@@ -297,6 +288,29 @@ export function ListiniB2bBoard() {
           </>
         )}
       </div>
+
+      {deletingRiga ? (
+        <ConfirmDeleteModal
+          title="Rimuovi riga listino"
+          message={`Rimuovere ${deletingRiga.prodottoCodice} ${deletingRiga.prodottoNome} da questo listino? Soft delete: resta in archivio.`}
+          confirmLabel="Rimuovi"
+          onClose={() => setDeletingRiga(null)}
+          onConfirm={() =>
+            startTransition(async () => {
+              const res = await softDeleteListinoRigaAction(deletingRiga.id);
+              if (!res.success) {
+                setError(res.error);
+                return;
+              }
+              if (selectedId) {
+                const next = await listListinoRigheAction(selectedId);
+                if (next.success) setRighe(next.items);
+              }
+              setDeletingRiga(null);
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }

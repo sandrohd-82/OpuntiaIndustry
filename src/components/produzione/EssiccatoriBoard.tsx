@@ -23,6 +23,7 @@ import {
   type EssiccatorePower,
   type MescolataCompletata,
 } from "@/lib/produzione/essiccatori";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { AssociaFoglioModal } from "@/components/produzione/AssociaFoglioModal";
 import { MescolataOverlay } from "@/components/produzione/MescolataOverlay";
 import { PartenzaForzataModal } from "@/components/produzione/PartenzaForzataModal";
@@ -412,6 +413,7 @@ function ProcedureSettingsModal({
   const [newLabel, setNewLabel] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingLabel, setEditingLabel] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   useModalChrome(onClose);
 
   function submitCreate(e: FormEvent) {
@@ -507,7 +509,7 @@ function ProcedureSettingsModal({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onDelete(proc.id)}
+                        onClick={() => setDeletingId(proc.id)}
                         className="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                       >
                         Elimina
@@ -538,6 +540,20 @@ function ProcedureSettingsModal({
           </form>
         </div>
       </div>
+
+      {deletingId ? (
+        <ConfirmDeleteModal
+          title="Elimina procedura"
+          message={`Eliminare la procedura «${
+            procedures.find((p) => p.id === deletingId)?.label ?? ""
+          }»?`}
+          onClose={() => setDeletingId(null)}
+          onConfirm={() => {
+            onDelete(deletingId);
+            setDeletingId(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

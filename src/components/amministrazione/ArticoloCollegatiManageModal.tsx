@@ -11,6 +11,7 @@ import {
   type ArticoloCollegamento,
   type ArticoloRef,
 } from "@/app/actions/catalogo-collegamenti";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import type { CatalogoLifecycleKind } from "@/lib/amministrazione/catalogo-lifecycle";
 
 type Props = {
@@ -41,6 +42,7 @@ export function ArticoloCollegatiManageModal({
   const [candidates, setCandidates] = useState<ArticoloRef[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [unlinking, setUnlinking] = useState<ArticoloCollegamento | null>(null);
 
   async function reload() {
     const res = await listArticoloCollegamentiAction({ kind, id });
@@ -134,18 +136,7 @@ export function ArticoloCollegatiManageModal({
                 <button
                   type="button"
                   disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      const res = await softDeleteArticoloCollegamentoAction(
-                        i.id
-                      );
-                      if (!res.success) {
-                        setError(res.error);
-                        return;
-                      }
-                      await reload();
-                    });
-                  }}
+                  onClick={() => setUnlinking(i)}
                   className="shrink-0 rounded border border-red-200 px-2 py-1 text-[10px] font-medium text-red-800 hover:bg-red-50"
                 >
                   Scollega
@@ -215,6 +206,28 @@ export function ArticoloCollegatiManageModal({
           </button>
         </div>
       </div>
+
+      {unlinking ? (
+        <ConfirmDeleteModal
+          title="Scollega articolo"
+          message={`Scollegare ${unlinking.linked.codice} — ${unlinking.linked.nome}?`}
+          confirmLabel="Scollega"
+          onClose={() => setUnlinking(null)}
+          onConfirm={() =>
+            startTransition(async () => {
+              const res = await softDeleteArticoloCollegamentoAction(
+                unlinking.id
+              );
+              if (!res.success) {
+                setError(res.error);
+                return;
+              }
+              setUnlinking(null);
+              await reload();
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 

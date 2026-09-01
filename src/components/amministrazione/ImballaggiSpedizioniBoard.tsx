@@ -7,8 +7,8 @@ import {
   createImballaggioVoceAction,
   listCorrieriAction,
   listImballaggiVociAction,
-  softDeleteCorriereAction,
-  softDeleteImballaggioVoceAction,
+  softDeleteCorrieriBulkAction,
+  softDeleteImballaggiVociBulkAction,
   updateCorriereAction,
   updateImballaggioVoceAction,
 } from "@/app/actions/imballaggi-spedizioni";
@@ -17,6 +17,7 @@ import {
   numberOrZero,
 } from "@/components/ui/ClearableNumberInput";
 import { ImballaggioVoceProdottiModal } from "@/components/amministrazione/ImballaggioVoceProdottiModal";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
   formatMisureImballaggio,
   IMBALLAGGIO_STADI,
@@ -73,6 +74,13 @@ export function ImballaggiSpedizioniBoard() {
 
   const [editVoce, setEditVoce] = useState<EditVoce | null>(null);
   const [editCorriere, setEditCorriere] = useState<EditCorriere | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<{
+    kind: "voce" | "corriere";
+    ids: string[];
+    confirmCode: string;
+    entityLabel: string;
+  } | null>(null);
 
   async function refresh() {
     setError(null);
@@ -108,6 +116,8 @@ export function ImballaggiSpedizioniBoard() {
     setNuovoLt("");
     setNuovoDoppioRuolo(false);
     setLinkVoce(null);
+    setSelectedIds(new Set());
+    setPendingDelete(null);
     setEditVoce(null);
     setEditCorriere(null);
     void refresh();
@@ -133,6 +143,75 @@ export function ImballaggiSpedizioniBoard() {
         c.nome.toLowerCase().includes(q) || c.note.toLowerCase().includes(q)
     );
   }, [corrieri, query]);
+
+  const visibleIds =
+    tab === "corrieri"
+      ? filteredCorrieri.map((c) => c.id)
+      : filteredVoci.map((v) => v.id);
+  const allVisibleSelected =
+    visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      if (allVisibleSelected) {
+        const next = new Set(prev);
+        for (const id of visibleIds) next.delete(id);
+        return next;
+      }
+      const next = new Set(prev);
+      for (const id of visibleIds) next.add(id);
+      return next;
+    });
+  }
+
+  function askDeleteVoci(ids: string[]) {
+    if (!ids.length) return;
+    if (ids.length === 1) {
+      const v = voci.find((x) => x.id === ids[0]);
+      setPendingDelete({
+        kind: "voce",
+        ids,
+        confirmCode: v?.codice ?? "1 voce",
+        entityLabel: "voce imballaggio",
+      });
+      return;
+    }
+    setPendingDelete({
+      kind: "voce",
+      ids,
+      confirmCode: `${ids.length} voci`,
+      entityLabel: "voci selezionate",
+    });
+  }
+
+  function askDeleteCorrieri(ids: string[]) {
+    if (!ids.length) return;
+    if (ids.length === 1) {
+      const c = corrieri.find((x) => x.id === ids[0]);
+      setPendingDelete({
+        kind: "corriere",
+        ids,
+        confirmCode: c?.nome ?? "1 corriere",
+        entityLabel: "corriere",
+      });
+      return;
+    }
+    setPendingDelete({
+      kind: "corriere",
+      ids,
+      confirmCode: `${ids.length} corrieri`,
+      entityLabel: "corrieri selezionati",
+    });
+  }
 
   function startEditVoce(v: ImballaggioVoce) {
     setEditCorriere(null);
@@ -322,6 +401,20 @@ export function ImballaggiSpedizioniBoard() {
             placeholder="Nome o codice…"
           />
         </label>
+        {selectedIds.size > 0 ? (
+          <button
+            type="button"
+            onClick={() =>
+              tab === "corrieri"
+                ? askDeleteCorrieri([...selectedIds])
+                : askDeleteVoci([...selectedIds])
+            }
+            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+          >
+            <FaTrash size={12} />
+            Elimina selezionati ({selectedIds.size})
+          </button>
+        ) : null}
       </div>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -442,6 +535,14 @@ export function ImballaggiSpedizioniBoard() {
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
+                <th className="w-10 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Seleziona tutti i corrieri visibili"
+                  />
+                </th>
                 <th className="px-3 py-2">Nome</th>
                 <th className="px-3 py-2">Note</th>
                 <th className="px-3 py-2 text-right">Azioni</th>
@@ -450,7 +551,7 @@ export function ImballaggiSpedizioniBoard() {
             <tbody>
               {filteredCorrieri.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="px-3 py-6 text-[var(--muted)]">
+                  <td colSpan={4} className="px-3 py-6 text-[var(--muted)]">
                     Nessun corriere. Aggiungine uno qui sopra.
                   </td>
                 </tr>
@@ -459,6 +560,14 @@ export function ImballaggiSpedizioniBoard() {
                   const editing = editCorriere?.id === c.id;
                   return (
                     <tr key={c.id} className="border-t border-[var(--border)]">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => toggleSelected(c.id)}
+                          aria-label={`Seleziona ${c.nome}`}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         {editing ? (
                           <input
@@ -529,17 +638,7 @@ export function ImballaggiSpedizioniBoard() {
                             type="button"
                             className="rounded p-1.5 text-red-600 hover:bg-red-50"
                             aria-label="Elimina"
-                            onClick={async () => {
-                              const res = await softDeleteCorriereAction(c.id);
-                              if (!res.success) setError(res.error);
-                              else {
-                                setCorrieri((prev) =>
-                                  prev.filter((x) => x.id !== c.id)
-                                );
-                                if (editCorriere?.id === c.id)
-                                  setEditCorriere(null);
-                              }
-                            }}
+                            onClick={() => askDeleteCorrieri([c.id])}
                           >
                             <FaTrash size={12} />
                           </button>
@@ -557,6 +656,14 @@ export function ImballaggiSpedizioniBoard() {
           <table className="w-full min-w-[920px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
+                <th className="w-10 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    aria-label="Seleziona tutte le voci visibili"
+                  />
+                </th>
                 <th className="px-3 py-2">Codice</th>
                 <th className="px-3 py-2">Nome</th>
                 <th className="px-3 py-2">L×P×H mm</th>
@@ -571,7 +678,7 @@ export function ImballaggiSpedizioniBoard() {
             <tbody>
               {filteredVoci.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-[var(--muted)]">
+                  <td colSpan={10} className="px-3 py-6 text-[var(--muted)]">
                     Nessuna voce in questo stadio.
                   </td>
                 </tr>
@@ -580,6 +687,14 @@ export function ImballaggiSpedizioniBoard() {
                   const editing = editVoce?.id === v.id;
                   return (
                     <tr key={v.id} className="border-t border-[var(--border)]">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(v.id)}
+                          onChange={() => toggleSelected(v.id)}
+                          aria-label={`Seleziona ${v.codice}`}
+                        />
+                      </td>
                       <td className="px-3 py-2">
                         {editing ? (
                           <input
@@ -776,18 +891,7 @@ export function ImballaggiSpedizioniBoard() {
                             type="button"
                             className="rounded p-1.5 text-red-600 hover:bg-red-50"
                             aria-label="Elimina"
-                            onClick={async () => {
-                              const res = await softDeleteImballaggioVoceAction(
-                                v.id
-                              );
-                              if (!res.success) setError(res.error);
-                              else {
-                                setVoci((prev) =>
-                                  prev.filter((x) => x.id !== v.id)
-                                );
-                                if (editVoce?.id === v.id) setEditVoce(null);
-                              }
-                            }}
+                            onClick={() => askDeleteVoci([v.id])}
                           >
                             <FaTrash size={12} />
                           </button>
@@ -811,6 +915,45 @@ export function ImballaggiSpedizioniBoard() {
               prev.map((x) => (x.id === item.id ? item : x))
             );
             setLinkVoce(null);
+          }}
+        />
+      ) : null}
+
+      {pendingDelete ? (
+        <SoftDeleteConfirmModal
+          entityLabel={pendingDelete.entityLabel}
+          confirmCode={pendingDelete.confirmCode}
+          onClose={() => setPendingDelete(null)}
+          onConfirm={async (confermaTestuale) => {
+            const res =
+              pendingDelete.kind === "corriere"
+                ? await softDeleteCorrieriBulkAction({
+                    ids: pendingDelete.ids,
+                    confermaTestuale,
+                    confirmCode: pendingDelete.confirmCode,
+                  })
+                : await softDeleteImballaggiVociBulkAction({
+                    ids: pendingDelete.ids,
+                    confermaTestuale,
+                    confirmCode: pendingDelete.confirmCode,
+                  });
+            if (!res.success) throw new Error(res.error);
+            const gone = new Set(pendingDelete.ids);
+            if (pendingDelete.kind === "corriere") {
+              setCorrieri((prev) => prev.filter((x) => !gone.has(x.id)));
+              if (editCorriere && gone.has(editCorriere.id)) {
+                setEditCorriere(null);
+              }
+            } else {
+              setVoci((prev) => prev.filter((x) => !gone.has(x.id)));
+              if (editVoce && gone.has(editVoce.id)) setEditVoce(null);
+            }
+            setSelectedIds((prev) => {
+              const next = new Set(prev);
+              for (const id of gone) next.delete(id);
+              return next;
+            });
+            setPendingDelete(null);
           }}
         />
       ) : null}

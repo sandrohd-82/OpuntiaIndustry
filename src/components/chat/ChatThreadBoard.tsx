@@ -21,6 +21,7 @@ import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
 import { ChatAttachmentPreview } from "@/components/chat/ChatAttachmentPreview";
 import { ChatMessageText } from "@/components/chat/ChatMessageText";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import {
   attachChatLifecycleRefresh,
   subscribeConversationMessages,
@@ -312,6 +313,9 @@ export function ChatThreadBoard({
   const [blocked, setBlocked] = useState(false);
   const [pending, setPending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(
+    null
+  );
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -646,14 +650,7 @@ export function ChatThreadBoard({
                     setError(null);
                     void kickoffTranscript(m.id);
                   }}
-                  onDelete={() => {
-                    const supabase = createClient();
-                    void deleteChatMessage(supabase, m.id).then(() => {
-                      setMessages((prev) =>
-                        prev.filter((x) => x.id !== m.id)
-                      );
-                    });
-                  }}
+                  onDelete={() => setDeletingMessageId(m.id)}
                 />
               </div>
             </div>
@@ -736,6 +733,22 @@ export function ChatThreadBoard({
         }}
         onError={setError}
       />
+
+      {deletingMessageId ? (
+        <ConfirmDeleteModal
+          title="Elimina messaggio"
+          message="Eliminare questo messaggio? Serve una conferma per evitare click accidentali."
+          onClose={() => setDeletingMessageId(null)}
+          onConfirm={() => {
+            const supabase = createClient();
+            const id = deletingMessageId;
+            void deleteChatMessage(supabase, id).then(() => {
+              setMessages((prev) => prev.filter((x) => x.id !== id));
+              setDeletingMessageId(null);
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { ChatDayDivider } from "@/components/chat/ChatDayDivider";
 import { ChatPollBubble } from "@/components/chat/ChatPollBubble";
 import { ChatSchedaBubble } from "@/components/chat/ChatSchedaBubble";
 import { ChatShareSheet } from "@/components/chat/ChatShareSheet";
+import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { ChatAttachmentPreview } from "@/components/chat/ChatAttachmentPreview";
 import { ChatMessageText } from "@/components/chat/ChatMessageText";
 import { ChatTopicInfoModal } from "@/components/chat/ChatTopicInfoModal";
@@ -70,6 +71,9 @@ export function ChatTopicThreadBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(
+    null
+  );
   const [addMembersOpen, setAddMembersOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -507,18 +511,7 @@ export function ChatTopicThreadBoard({
                       <button
                         type="button"
                         className="ml-1 opacity-70"
-                        onClick={() => {
-                          const supabase = createClient();
-                          void supabase
-                            .rpc("delete_chat_topic_message", {
-                              p_message_id: m.id,
-                            })
-                            .then(() =>
-                              setMessages((prev) =>
-                                prev.filter((x) => x.id !== m.id)
-                              )
-                            );
-                        }}
+                        onClick={() => setDeletingMessageId(m.id)}
                       >
                         <FaTrash size={9} />
                       </button>
@@ -617,6 +610,26 @@ export function ChatTopicThreadBoard({
         topicId={topicId}
         onError={setError}
       />
+
+      {deletingMessageId ? (
+        <ConfirmDeleteModal
+          title="Elimina messaggio"
+          message="Eliminare questo messaggio? Serve una conferma per evitare click accidentali."
+          onClose={() => setDeletingMessageId(null)}
+          onConfirm={() => {
+            const supabase = createClient();
+            const id = deletingMessageId;
+            void supabase
+              .rpc("delete_chat_topic_message", {
+                p_message_id: id,
+              })
+              .then(() => {
+                setMessages((prev) => prev.filter((x) => x.id !== id));
+                setDeletingMessageId(null);
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

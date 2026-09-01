@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import {
   corriereInputSchema,
   imballaggioVoceInputSchema,
@@ -294,10 +295,41 @@ export async function syncImballaggioVoceProdottiAction(raw: unknown): Promise<
   };
 }
 
-export async function softDeleteImballaggioVoceAction(
-  id: string
-): Promise<{ success: true } | { success: false; error: string }> {
+function checkConferma(
+  confermaTestuale: string,
+  codice: string
+): string | null {
+  const expected = fraseConfermaSoftDelete(codice);
+  if (confermaTestuale.trim() !== expected) {
+    return `Digita esattamente: ${expected}`;
+  }
+  return null;
+}
+
+export async function softDeleteImballaggioVoceAction(input: {
+  id: string;
+  confermaTestuale: string;
+  confirmCode: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const mismatch = checkConferma(input.confermaTestuale, input.confirmCode);
+  if (mismatch) return { success: false, error: mismatch };
+  return softDeleteImballaggiVociBulkAction({
+    ids: [input.id],
+    confermaTestuale: input.confermaTestuale,
+    confirmCode: input.confirmCode,
+  });
+}
+
+export async function softDeleteImballaggiVociBulkAction(input: {
+  ids: string[];
+  confermaTestuale: string;
+  confirmCode: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
+  const mismatch = checkConferma(input.confermaTestuale, input.confirmCode);
+  if (mismatch) return { success: false, error: mismatch };
+  const ids = [...new Set(input.ids.filter(Boolean))];
+  if (!ids.length) return { success: false, error: "Nessun record selezionato." };
   const supabase = await createClient();
   const now = new Date().toISOString();
   const { error } = await supabase
@@ -307,16 +339,16 @@ export async function softDeleteImballaggioVoceAction(
       deleted_by: auth.userId,
       updated_by: auth.userId,
     })
-    .eq("id", id)
+    .in("id", ids)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
   await writeAuditLog({
     entity_type: "imballaggi_voci",
-    entity_id: id,
+    entity_id: ids[0],
     action: "soft_delete",
     actor_id: auth.userId,
-    summary: `Eliminata (soft) voce imballaggio`,
-    payload: {},
+    summary: `Eliminate (soft) ${ids.length} voci imballaggio`,
+    payload: { ids, count: ids.length },
   });
   return { success: true };
 }
@@ -412,10 +444,28 @@ export async function updateCorriereAction(
   return { success: true, item: mapCorriereRow(row) };
 }
 
-export async function softDeleteCorriereAction(
-  id: string
-): Promise<{ success: true } | { success: false; error: string }> {
+export async function softDeleteCorriereAction(input: {
+  id: string;
+  confermaTestuale: string;
+  confirmCode: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  return softDeleteCorrieriBulkAction({
+    ids: [input.id],
+    confermaTestuale: input.confermaTestuale,
+    confirmCode: input.confirmCode,
+  });
+}
+
+export async function softDeleteCorrieriBulkAction(input: {
+  ids: string[];
+  confermaTestuale: string;
+  confirmCode: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
+  const mismatch = checkConferma(input.confermaTestuale, input.confirmCode);
+  if (mismatch) return { success: false, error: mismatch };
+  const ids = [...new Set(input.ids.filter(Boolean))];
+  if (!ids.length) return { success: false, error: "Nessun record selezionato." };
   const supabase = await createClient();
   const now = new Date().toISOString();
   const { error } = await supabase
@@ -425,16 +475,16 @@ export async function softDeleteCorriereAction(
       deleted_by: auth.userId,
       updated_by: auth.userId,
     })
-    .eq("id", id)
+    .in("id", ids)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
   await writeAuditLog({
     entity_type: "corrieri",
-    entity_id: id,
+    entity_id: ids[0],
     action: "soft_delete",
     actor_id: auth.userId,
-    summary: "Eliminato (soft) corriere",
-    payload: {},
+    summary: `Eliminati (soft) ${ids.length} corrieri`,
+    payload: { ids, count: ids.length },
   });
   return { success: true };
 }
