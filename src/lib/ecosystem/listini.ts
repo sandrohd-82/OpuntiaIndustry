@@ -415,7 +415,7 @@ export function previewScontoListino(input: {
   locale?: string;
 }): string | null {
   if (!Number.isFinite(input.prezzo) || input.prezzo <= 0) return null;
-  if (!Number.isFinite(input.scontoPct) || input.scontoPct <= 0) return null;
+  if (!Number.isFinite(input.scontoPct) || input.scontoPct < 0) return null;
   const pct = Math.min(100, input.scontoPct);
   const unitario =
     Math.round(input.prezzo * (1 - pct / 100) * 100) / 100;

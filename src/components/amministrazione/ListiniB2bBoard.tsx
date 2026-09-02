@@ -1086,13 +1086,16 @@ function RigaBlock({
       {editable ? (
       <>
       <tr className="border-t border-dashed border-slate-200 bg-slate-50/30">
-        <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
-          + sconto
+        <td
+          colSpan={inRevisione ? 5 : 4}
+          className="px-3 py-1.5 pl-8 align-top"
+        >
+          <p className="text-[11px] text-[var(--muted)]">+ sconto</p>
+          <p className="text-xs font-medium text-emerald-900">
+            {draftPreviewSconto ??
+              "Imposta il prezzo del prodotto per vedere lo sconto al kg e la fascia in euro."}
+          </p>
         </td>
-        <td className="px-3 py-1.5" />
-        <td className="px-3 py-1.5" />
-        <td className="px-3 py-1.5" />
-        {inRevisione ? <td className="px-3 py-1.5" /> : null}
         <td className="px-3 py-1.5">
           <input
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
@@ -1204,16 +1207,6 @@ function RigaBlock({
           </td>
         </tr>
       ) : null}
-      {draftPreviewSconto ? (
-        <tr className="bg-emerald-50/70">
-          <td
-            colSpan={inRevisione ? 12 : 11}
-            className="px-3 py-1.5 pl-8 text-xs text-emerald-900"
-          >
-            {draftPreviewSconto}
-          </td>
-        </tr>
-      ) : null}
       </>
       ) : null}
       {draftKgWarn ? (
@@ -1320,14 +1313,16 @@ function CondizioneRow({
   return (
     <>
     <tr className="border-t border-dashed border-slate-200 bg-slate-50/50">
-      <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
-        condizione
+      <td
+        colSpan={extraLeadCells + 3}
+        className="px-3 py-1.5 pl-8 align-top"
+      >
+        <p className="text-[11px] text-[var(--muted)]">sconto</p>
+        <p className="text-xs font-medium text-emerald-900">
+          {previewSconto ??
+            "Imposta il prezzo del prodotto per vedere lo sconto al kg e la fascia in euro."}
+        </p>
       </td>
-      <td className="px-3 py-1.5" />
-      <td className="px-3 py-1.5" />
-      {Array.from({ length: extraLeadCells }).map((_, i) => (
-        <td key={i} className="px-3 py-1.5" />
-      ))}
       <td className="px-3 py-1.5">
         {canEdit ? (
           <input
@@ -1486,16 +1481,6 @@ function CondizioneRow({
           className="px-3 py-1.5 pl-8 text-xs text-amber-900"
         >
           {qtyAvviso}
-        </td>
-      </tr>
-    ) : null}
-    {previewSconto ? (
-      <tr className="bg-emerald-50/70">
-        <td
-          colSpan={extraLeadCells + 10}
-          className="px-3 py-1.5 pl-8 text-xs text-emerald-900"
-        >
-          {previewSconto}
         </td>
       </tr>
     ) : null}
