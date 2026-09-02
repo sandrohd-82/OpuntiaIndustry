@@ -65,6 +65,14 @@ function fmtNum(n: number, digits = 2): string {
   });
 }
 
+function umLabel(um: string): string {
+  return um === "lt" ? "Lt" : "Kg";
+}
+
+function fmtQty(n: number, um: string): string {
+  return `${fmtNum(n, n % 1 === 0 ? 0 : 2)} ${umLabel(um)}`;
+}
+
 export function listinoExportFilename(
   meta: ListinoExportMeta,
   ext: "pdf" | "xlsx"
@@ -103,7 +111,10 @@ export function buildListinoExport(
 
   const rows: ListinoExportRow[] = [];
   for (const r of righe) {
-    if (rows.length) rows.push({ kind: "spacer" });
+    if (rows.length) {
+      rows.push({ kind: "spacer" });
+      rows.push({ kind: "spacer" });
+    }
     rows.push({ kind: "product_head" });
     rows.push({
       kind: "product",
@@ -111,6 +122,7 @@ export function buildListinoExport(
       descrizione: r.prodottoNome ?? "",
       prezzo: `${fmtNum(r.prezzo)} €/${r.unitaMisura}`,
     });
+    if (!r.condizioni.length) continue;
     rows.push({ kind: "discount_head" });
     for (const c of r.condizioni) {
       const tipo = [c.imballaggioCodice, c.imballaggioNome]
@@ -119,13 +131,10 @@ export function buildListinoExport(
       rows.push({
         kind: "discount",
         targa: c.targa || "—",
-        qtyDa: fmtNum(c.qtyDa, c.qtyDa % 1 === 0 ? 0 : 2),
-        qtyA:
-          c.qtyA == null ? "" : fmtNum(c.qtyA, c.qtyA % 1 === 0 ? 0 : 2),
+        qtyDa: fmtQty(c.qtyDa, r.unitaMisura),
+        qtyA: c.qtyA == null ? "" : fmtQty(c.qtyA, r.unitaMisura),
         tipoConf: tipo,
-        confDa: c.kgConfezione
-          ? fmtNum(c.kgConfezione, c.kgConfezione % 1 === 0 ? 0 : 2)
-          : "",
+        confDa: c.kgConfezione ? fmtQty(c.kgConfezione, r.unitaMisura) : "",
         scontoPct: fmtNum(c.scontoPct, 1),
       });
     }

@@ -16,7 +16,6 @@ export async function buildListinoXlsxBuffer(
   wb.title = `Listino ${meta.codice}`;
 
   const ws = wb.addWorksheet("Listino", {
-    views: [{ state: "frozen", ySplit: 5 }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -28,36 +27,11 @@ export async function buildListinoXlsxBuffer(
   ws.columns = [
     { width: 28 },
     { width: 42 },
-    { width: 18 },
+    { width: 20 },
     { width: 36 },
-    { width: 12 },
+    { width: 14 },
     { width: 12 },
   ];
-
-  const headLines = [
-    [`Listino ${meta.codice}`, meta.nome, "", "", "", ""],
-    [
-      `Stato: ${meta.statoLabel}`,
-      `Versione: V${meta.versione}`,
-      `Lingua: ${meta.locale.toUpperCase()}`,
-      "",
-      "",
-      "",
-    ],
-    [
-      `Esportato il ${meta.exportedAt}`,
-      `Operatore: ${meta.actor}`,
-      meta.scope === "selezione" ? "Ambito: selezione" : "Ambito: listino completo",
-      `${meta.prodottiCount} prodotti`,
-      `${meta.scontiCount} sconti`,
-      "",
-    ],
-    ["", "", "", "", "", ""],
-  ];
-  for (const line of headLines) {
-    const r = ws.addRow(line);
-    r.font = { bold: true, name: "Calibri", size: 11 };
-  }
 
   for (const row of rows) {
     const excelRow = ws.addRow(listinoExportRowCells(row));
