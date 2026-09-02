@@ -873,6 +873,9 @@ function RigaBlock({
   );
   const [um, setUm] = useState<ListinoRigaUm>(riga.unitaMisura);
   const [disp, setDisp] = useState<ListinoDisponibilita>(riga.disponibilita);
+  const [prodottoLocked, setProdottoLocked] = useState(() =>
+    rigaListinoCompleta(riga)
+  );
 
   useEffect(() => {
     setPrezzo(
@@ -882,6 +885,7 @@ function RigaBlock({
     );
     setUm(riga.unitaMisura);
     setDisp(riga.disponibilita);
+    setProdottoLocked(rigaListinoCompleta(riga));
   }, [riga.id, riga.prezzo, riga.unitaMisura, riga.disponibilita]);
 
   const [localConds, setLocalConds] = useState<LocalCond[]>(() =>
@@ -1004,6 +1008,7 @@ function RigaBlock({
     onDraftChange(emptyCond);
     setScontiOpen(true);
     setCopyFromId("");
+    setProdottoLocked(false);
   }
 
   return (
@@ -1023,7 +1028,7 @@ function RigaBlock({
             min={0}
             step="0.01"
             value={prezzo}
-            disabled={!editable || pending}
+            disabled={!editable || prodottoLocked || pending}
             onChange={(e) => setPrezzo(e.target.value)}
           />
         </td>
@@ -1031,7 +1036,7 @@ function RigaBlock({
           <select
             className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm"
             value={um}
-            disabled={!editable || pending}
+            disabled={!editable || prodottoLocked || pending}
             onChange={(e) => setUm(e.target.value as ListinoRigaUm)}
           >
             {LISTINO_RIGA_UM.map((u) => (
@@ -1045,7 +1050,7 @@ function RigaBlock({
           <select
             className="min-w-[11rem] rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm"
             value={disp}
-            disabled={!editable || pending}
+            disabled={!editable || prodottoLocked || pending}
             onChange={(e) =>
               setDisp(e.target.value as ListinoDisponibilita)
             }
@@ -1089,7 +1094,7 @@ function RigaBlock({
               Sconti ({localConds.length}){" "}
               {scontiOpen ? "▲ chiudi" : "▼ espandi"}
             </button>
-            {editable && altriRighe.length ? (
+            {editable && !prodottoLocked && altriRighe.length ? (
               <>
                 <select
                   className="max-w-[14rem] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
@@ -1123,65 +1128,71 @@ function RigaBlock({
         </td>
         <td className="px-3 py-2">
           {editable ? (
-            <button
-              type="button"
-              disabled={pending}
-              className="text-xs font-medium text-emerald-800 underline"
-              onClick={() =>
-                startTransition(async () => {
-                  const unlocked = localConds.filter((c) => !c.locked);
-                  if (unlocked.length) {
-                    onError(
-                      "Blocca ogni riga sconto con Salva prima di salvare il prodotto."
-                    );
-                    return;
-                  }
-                  const condizioni = [];
-                  for (const c of localConds) {
-                    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
-                      id: c.id,
-                      qtyDa: Number(c.qtyDa),
-                      qtyA: c.qtyA.trim() === "" ? null : Number(c.qtyA),
-                      imballaggioVoceId: c.imballaggioVoceId,
-                      scontoPct: Number(c.scontoPct),
-                      kgConfezione: Number(c.kg),
-                      kgForzato: c.kgForzato,
-                      targa: c.targa,
-                    });
-                    if (!parsed.success) {
+            prodottoLocked ? (
+              <button
+                type="button"
+                disabled={pending}
+                className="text-xs font-medium text-slate-800 underline"
+                onClick={() => setProdottoLocked(false)}
+              >
+                Modifica
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={pending}
+                className="text-xs font-medium text-emerald-800 underline"
+                onClick={() =>
+                  startTransition(async () => {
+                    const unlocked = localConds.filter((c) => !c.locked);
+                    if (unlocked.length) {
                       onError(
-                        parsed.error.issues[0]?.message ??
-                          "Controlla le righe sconto prima di Salva prodotto."
+                        "Blocca ogni riga sconto con Salva prima di salvare il prodotto."
                       );
                       return;
                     }
-                    condizioni.push(parsed.data);
-                  }
-                  const res = await upsertListinoRigaAction({
-                    listinoId: riga.listinoId,
-                    prodottoId: riga.prodottoId,
-                    prezzo: Number(prezzo),
-                    unitaMisura: um,
-                    disponibilita: disp,
-                    syncCondizioni: true,
-                    condizioni,
-                  });
-                  if (!res.success) {
-                    onError(res.error);
-                    return;
-                  }
-                  onSaved();
-                })
-              }
-            >
-              Salva
-            </button>
-          ) : null}
-          {editable ? (
-            <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
-              Salva qui il prodotto e gli sconti in bozza. Salva/Modifica sullo
-              sconto blocca solo la riga.
-            </p>
+                    const condizioni = [];
+                    for (const c of localConds) {
+                      const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
+                        id: c.id,
+                        qtyDa: Number(c.qtyDa),
+                        qtyA: c.qtyA.trim() === "" ? null : Number(c.qtyA),
+                        imballaggioVoceId: c.imballaggioVoceId,
+                        scontoPct: Number(c.scontoPct),
+                        kgConfezione: Number(c.kg),
+                        kgForzato: c.kgForzato,
+                        targa: c.targa,
+                      });
+                      if (!parsed.success) {
+                        onError(
+                          parsed.error.issues[0]?.message ??
+                            "Controlla le righe sconto prima di Salva prodotto."
+                        );
+                        return;
+                      }
+                      condizioni.push(parsed.data);
+                    }
+                    const res = await upsertListinoRigaAction({
+                      listinoId: riga.listinoId,
+                      prodottoId: riga.prodottoId,
+                      prezzo: Number(prezzo),
+                      unitaMisura: um,
+                      disponibilita: disp,
+                      syncCondizioni: true,
+                      condizioni,
+                    });
+                    if (!res.success) {
+                      onError(res.error);
+                      return;
+                    }
+                    setProdottoLocked(true);
+                    onSaved();
+                  })
+                }
+              >
+                Salva
+              </button>
+            )
           ) : null}
         </td>
       </tr>
@@ -1194,7 +1205,7 @@ function RigaBlock({
           prezzoBase={Number(prezzo) || riga.prezzo}
           unitaMisura={um}
           locale={locale}
-          editable={editable}
+          editable={editable && !prodottoLocked}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
           confezioni={confezioni}
@@ -1225,7 +1236,7 @@ function RigaBlock({
         />
       ))
         : null}
-      {scontiOpen && editable ? (
+      {scontiOpen && editable && !prodottoLocked ? (
       <>
       <tr className="border-t border-dashed border-slate-200 bg-slate-50/30">
         <td
