@@ -561,6 +561,9 @@ export interface ListinoRigaCondizioneRow {
   qty_a: number | null;
   imballaggio_voce_id: string;
   sconto_pct: number;
+  kg_confezione: number;
+  kg_standard: number | null;
+  kg_forzato: boolean;
   created_at: string;
   updated_at: string;
   created_by: string | null;

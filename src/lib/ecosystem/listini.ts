@@ -107,6 +107,8 @@ export const upsertListinoRigaCondizioneSchema = z
     qtyA: z.number().finite().positive().nullable().optional(),
     imballaggioVoceId: z.string().uuid(),
     scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
+    kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
+    kgForzato: z.boolean().optional().default(false),
   })
   .superRefine((v, ctx) => {
     if (v.qtyA != null && v.qtyA <= v.qtyDa) {
@@ -144,6 +146,9 @@ export type ListinoRigaCondizione = {
   imballaggioCodice?: string;
   imballaggioNome?: string;
   scontoPct: number;
+  kgConfezione: number;
+  kgStandard: number | null;
+  kgForzato: boolean;
 };
 
 export type ListinoRiga = {
@@ -221,6 +226,9 @@ export function mapListinoRigaCondizione(
     imballaggioCodice: imballaggio?.codice,
     imballaggioNome: imballaggio?.nome,
     scontoPct: Number(row.sconto_pct),
+    kgConfezione: Number(row.kg_confezione ?? 0),
+    kgStandard: row.kg_standard == null ? null : Number(row.kg_standard),
+    kgForzato: Boolean(row.kg_forzato),
   };
 }
 

@@ -159,6 +159,16 @@ export function otherDualStadio(
   return null;
 }
 
+export function standardConfezioneProdotto(
+  voce: ImballaggioVoce | undefined,
+  prodottoId: string
+): { max: number; um: ImballaggioProdottoUm } | null {
+  if (!voce || !prodottoId) return null;
+  const link = voce.prodotti.find((p) => p.prodottoId === prodottoId);
+  if (!link || !Number.isFinite(link.maxKg) || link.maxKg <= 0) return null;
+  return { max: link.maxKg, um: link.unitaMisura };
+}
+
 export function imballaggiPerCondizioneListino(
   voci: ImballaggioVoce[]
 ): ImballaggioVoce[] {

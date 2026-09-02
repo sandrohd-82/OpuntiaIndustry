@@ -20,6 +20,7 @@ import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
 import {
   imballaggiPerCondizioneListino,
+  standardConfezioneProdotto,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import {
@@ -66,6 +67,7 @@ type CondDraft = {
   qtyDa: string;
   qtyA: string;
   imballaggioVoceId: string;
+  kg: string;
   scontoPct: string;
 };
 
@@ -73,6 +75,7 @@ const emptyCond: CondDraft = {
   qtyDa: "0",
   qtyA: "",
   imballaggioVoceId: "",
+  kg: "",
   scontoPct: "0",
 };
 
@@ -505,6 +508,7 @@ export function ListiniB2bBoard() {
                   <th className="px-3 py-2">Qty da</th>
                   <th className="px-3 py-2">Qty a</th>
                   <th className="px-3 py-2">Confezionamento</th>
+                  <th className="px-3 py-2">Kg</th>
                   <th className="px-3 py-2">Sconto %</th>
                   <th className="px-3 py-2" />
                 </tr>
@@ -723,10 +727,37 @@ function RigaBlock({
     setDisp(riga.disponibilita);
   }, [riga.id, riga.prezzo, riga.unitaMisura, riga.disponibilita]);
 
+  const [draftKgWarn, setDraftKgWarn] = useState<{
+    kg: number;
+    standard: number;
+    um: string;
+  } | null>(null);
+
   const completa = rigaListinoCompleta({
     prezzo: Number(prezzo),
     disponibilita: disp,
   });
+
+  function saveDraftCond(forza: boolean, kgOverride?: number) {
+    startTransition(async () => {
+      const qtyA = draft.qtyA.trim() === "" ? null : Number(draft.qtyA);
+      const res = await upsertListinoRigaCondizioneAction({
+        listinoRigaId: riga.id,
+        qtyDa: Number(draft.qtyDa),
+        qtyA,
+        imballaggioVoceId: draft.imballaggioVoceId,
+        scontoPct: Number(draft.scontoPct),
+        kgConfezione: kgOverride ?? Number(draft.kg),
+        kgForzato: forza,
+      });
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      onDraftChange(emptyCond);
+      onSaved();
+    });
+  }
 
   return (
     <>
@@ -801,7 +832,7 @@ function RigaBlock({
             />
           </td>
         ) : null}
-        <td colSpan={4} className="px-3 py-2 text-xs text-[var(--muted)]">
+        <td colSpan={5} className="px-3 py-2 text-xs text-[var(--muted)]">
           Prezzo base. Sconti facoltativi sotto. Prezzo 0 solo con
           dichiarazione.
         </td>
@@ -837,6 +868,7 @@ function RigaBlock({
         <CondizioneRow
           key={c.id}
           condizione={c}
+          prodottoId={riga.prodottoId}
           editable={editable}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
@@ -879,17 +911,41 @@ function RigaBlock({
           <select
             className="w-full min-w-[180px] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             value={draft.imballaggioVoceId}
-            onChange={(e) =>
-              onDraftChange({ ...draft, imballaggioVoceId: e.target.value })
-            }
+            onChange={(e) => {
+              const id = e.target.value;
+              const std = standardConfezioneProdotto(
+                confezioni.find((v) => v.id === id),
+                riga.prodottoId
+              );
+              onDraftChange({
+                ...draft,
+                imballaggioVoceId: id,
+                kg: std ? String(std.max) : "",
+              });
+            }}
           >
             <option value="">Confezione / C&I…</option>
-            {confezioni.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.codice} — {v.nome}
-              </option>
-            ))}
+            {confezioni.map((v) => {
+              const std = standardConfezioneProdotto(v, riga.prodottoId);
+              return (
+                <option key={v.id} value={v.id}>
+                  {v.codice} — {v.nome}
+                  {std ? ` (${std.max} ${std.um})` : ""}
+                </option>
+              );
+            })}
           </select>
+        </td>
+        <td className="px-3 py-1.5">
+          <input
+            className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="kg"
+            value={draft.kg}
+            onChange={(e) => onDraftChange({ ...draft, kg: e.target.value })}
+          />
         </td>
         <td className="px-3 py-1.5">
           <input
@@ -907,31 +963,43 @@ function RigaBlock({
         <td className="px-3 py-1.5">
           <button
             type="button"
-            disabled={pending || !draft.imballaggioVoceId}
+            disabled={pending || !draft.imballaggioVoceId || !draft.kg}
             className="text-xs font-medium text-emerald-800 underline disabled:opacity-40"
-            onClick={() =>
-              startTransition(async () => {
-                const qtyA = draft.qtyA.trim() === "" ? null : Number(draft.qtyA);
-                const res = await upsertListinoRigaCondizioneAction({
-                  listinoRigaId: riga.id,
-                  qtyDa: Number(draft.qtyDa),
-                  qtyA,
-                  imballaggioVoceId: draft.imballaggioVoceId,
-                  scontoPct: Number(draft.scontoPct),
-                });
-                if (!res.success) {
-                  onError(res.error);
-                  return;
-                }
-                onDraftChange(emptyCond);
-                onSaved();
-              })
-            }
+            onClick={() => {
+              const std = standardConfezioneProdotto(
+                confezioni.find((v) => v.id === draft.imballaggioVoceId),
+                riga.prodottoId
+              );
+              const kg = Number(draft.kg);
+              if (std && kg > std.max) {
+                setDraftKgWarn({ kg, standard: std.max, um: std.um });
+                return;
+              }
+              void saveDraftCond(false);
+            }}
           >
             Aggiungi
           </button>
         </td>
       </tr>
+      ) : null}
+      {draftKgWarn ? (
+        <KgForzaModal
+          kg={draftKgWarn.kg}
+          standard={draftKgWarn.standard}
+          um={draftKgWarn.um}
+          pending={pending}
+          onAdegua={() => {
+            onDraftChange({ ...draft, kg: String(draftKgWarn.standard) });
+            setDraftKgWarn(null);
+            void saveDraftCond(false, draftKgWarn.standard);
+          }}
+          onForza={() => {
+            setDraftKgWarn(null);
+            void saveDraftCond(true);
+          }}
+          onClose={() => setDraftKgWarn(null)}
+        />
       ) : null}
     </>
   );
@@ -939,6 +1007,7 @@ function RigaBlock({
 
 function CondizioneRow({
   condizione,
+  prodottoId,
   editable,
   pending,
   extraLeadCells,
@@ -949,6 +1018,7 @@ function CondizioneRow({
   startTransition,
 }: {
   condizione: ListinoRigaCondizione;
+  prodottoId: string;
   editable: boolean;
   pending: boolean;
   extraLeadCells: number;
@@ -965,22 +1035,54 @@ function CondizioneRow({
   const [imballaggioVoceId, setImballaggioVoceId] = useState(
     condizione.imballaggioVoceId
   );
+  const [kg, setKg] = useState(
+    condizione.kgConfezione ? String(condizione.kgConfezione) : ""
+  );
   const [scontoPct, setScontoPct] = useState(String(condizione.scontoPct));
+  const [kgWarn, setKgWarn] = useState<{
+    kg: number;
+    standard: number;
+    um: string;
+  } | null>(null);
 
   useEffect(() => {
     setQtyDa(String(condizione.qtyDa));
     setQtyA(condizione.qtyA == null ? "" : String(condizione.qtyA));
     setImballaggioVoceId(condizione.imballaggioVoceId);
+    setKg(condizione.kgConfezione ? String(condizione.kgConfezione) : "");
     setScontoPct(String(condizione.scontoPct));
   }, [
     condizione.id,
     condizione.qtyDa,
     condizione.qtyA,
     condizione.imballaggioVoceId,
+    condizione.kgConfezione,
     condizione.scontoPct,
   ]);
 
+  function saveCond(forza: boolean, kgOverride?: number) {
+    startTransition(async () => {
+      const nextQtyA = qtyA.trim() === "" ? null : Number(qtyA);
+      const res = await upsertListinoRigaCondizioneAction({
+        id: condizione.id,
+        listinoRigaId: condizione.listinoRigaId,
+        qtyDa: Number(qtyDa),
+        qtyA: nextQtyA,
+        imballaggioVoceId,
+        scontoPct: Number(scontoPct),
+        kgConfezione: kgOverride ?? Number(kg),
+        kgForzato: forza,
+      });
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      onSaved();
+    });
+  }
+
   return (
+    <>
     <tr className="border-t border-dashed border-slate-200 bg-slate-50/50">
       <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
         condizione
@@ -1025,13 +1127,25 @@ function CondizioneRow({
             className="w-full min-w-[180px] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             value={imballaggioVoceId}
             disabled={pending}
-            onChange={(e) => setImballaggioVoceId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setImballaggioVoceId(id);
+              const std = standardConfezioneProdotto(
+                confezioni.find((v) => v.id === id),
+                prodottoId
+              );
+              if (std) setKg(String(std.max));
+            }}
           >
-            {confezioni.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.codice} — {v.nome}
-              </option>
-            ))}
+            {confezioni.map((v) => {
+              const std = standardConfezioneProdotto(v, prodottoId);
+              return (
+                <option key={v.id} value={v.id}>
+                  {v.codice} — {v.nome}
+                  {std ? ` (${std.max} ${std.um})` : ""}
+                </option>
+              );
+            })}
             {!confezioni.some((v) => v.id === condizione.imballaggioVoceId) ? (
               <option value={condizione.imballaggioVoceId}>
                 {condizione.imballaggioCodice} {condizione.imballaggioNome}
@@ -1041,6 +1155,24 @@ function CondizioneRow({
         ) : (
           <span>
             {condizione.imballaggioCodice} {condizione.imballaggioNome}
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-1.5">
+        {editable ? (
+          <input
+            className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+            type="number"
+            min={0}
+            step="0.01"
+            value={kg}
+            disabled={pending}
+            onChange={(e) => setKg(e.target.value)}
+          />
+        ) : (
+          <span className="tabular-nums">
+            {condizione.kgConfezione}
+            {condizione.kgForzato ? " *" : ""}
           </span>
         )}
       </td>
@@ -1067,24 +1199,18 @@ function CondizioneRow({
               type="button"
               disabled={pending}
               className="text-xs font-medium text-emerald-800 underline"
-              onClick={() =>
-                startTransition(async () => {
-                  const nextQtyA = qtyA.trim() === "" ? null : Number(qtyA);
-                  const res = await upsertListinoRigaCondizioneAction({
-                    id: condizione.id,
-                    listinoRigaId: condizione.listinoRigaId,
-                    qtyDa: Number(qtyDa),
-                    qtyA: nextQtyA,
-                    imballaggioVoceId,
-                    scontoPct: Number(scontoPct),
-                  });
-                  if (!res.success) {
-                    onError(res.error);
-                    return;
-                  }
-                  onSaved();
-                })
-              }
+              onClick={() => {
+                const std = standardConfezioneProdotto(
+                  confezioni.find((v) => v.id === imballaggioVoceId),
+                  prodottoId
+                );
+                const nextKg = Number(kg);
+                if (std && nextKg > std.max) {
+                  setKgWarn({ kg: nextKg, standard: std.max, um: std.um });
+                  return;
+                }
+                saveCond(false);
+              }}
             >
               Salva
             </button>
@@ -1099,5 +1225,80 @@ function CondizioneRow({
         ) : null}
       </td>
     </tr>
+    {kgWarn ? (
+      <KgForzaModal
+        kg={kgWarn.kg}
+        standard={kgWarn.standard}
+        um={kgWarn.um}
+        pending={pending}
+        onAdegua={() => {
+          setKg(String(kgWarn.standard));
+          setKgWarn(null);
+          saveCond(false, kgWarn.standard);
+        }}
+        onForza={() => {
+          setKgWarn(null);
+          saveCond(true);
+        }}
+        onClose={() => setKgWarn(null)}
+      />
+    ) : null}
+    </>
+  );
+}
+
+function KgForzaModal({
+  kg,
+  standard,
+  um,
+  pending,
+  onAdegua,
+  onForza,
+  onClose,
+}: {
+  kg: number;
+  standard: number;
+  um: string;
+  pending: boolean;
+  onAdegua: () => void;
+  onForza: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
+        <h3 className="text-sm font-semibold">Kg sopra lo standard</h3>
+        <p className="mt-2 text-sm text-slate-700">
+          Hai indicato <strong>{kg} {um}</strong>, superiore allo standard della
+          confezione (<strong>{standard} {um}</strong>). Puoi adeguare allo
+          standard oppure forzare la scelta proposta (resta tracciata).
+        </p>
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            className="rounded-md border px-3 py-1.5 text-sm"
+            onClick={onClose}
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm text-emerald-900"
+            onClick={onAdegua}
+          >
+            Adegua allo standard
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            className="rounded-md bg-amber-700 px-3 py-1.5 text-sm text-white"
+            onClick={onForza}
+          >
+            Forza la scelta
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

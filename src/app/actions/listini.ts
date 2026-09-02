@@ -207,7 +207,9 @@ async function seedListinoProdotti(
 
   const { data: conds, error: cErr } = await supabase
     .from("listini_righe_condizioni")
-    .select("listino_riga_id, qty_da, qty_a, imballaggio_voce_id, sconto_pct")
+    .select(
+      "listino_riga_id, qty_da, qty_a, imballaggio_voce_id, sconto_pct, kg_confezione, kg_standard, kg_forzato"
+    )
     .in("listino_riga_id", sourceRigaIds)
     .is("deleted_at", null);
   if (cErr) return cErr.message;
@@ -229,6 +231,9 @@ async function seedListinoProdotti(
       qty_a: number | null;
       imballaggio_voce_id: string;
       sconto_pct: number;
+      kg_confezione: number;
+      kg_standard: number | null;
+      kg_forzato: boolean;
     }>
   )
     .map((c) => {
@@ -241,6 +246,9 @@ async function seedListinoProdotti(
         qty_a: c.qty_a,
         imballaggio_voce_id: c.imballaggio_voce_id,
         sconto_pct: c.sconto_pct,
+        kg_confezione: c.kg_confezione,
+        kg_standard: c.kg_standard,
+        kg_forzato: c.kg_forzato,
         created_by: userId,
         updated_by: userId,
       };
@@ -845,7 +853,7 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
   const supabase = await createClient();
   const { data: riga, error: rigaErr } = await supabase
     .from("listini_righe")
-    .select("id, listino_id")
+    .select("id, listino_id, prodotto_id")
     .eq("id", parsed.data.listinoRigaId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -857,6 +865,28 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
     (riga as { listino_id: string }).listino_id
   );
   if (!gate.ok) return { success: false, error: gate.error };
+
+  const { data: stdLink } = await supabase
+    .from("imballaggi_voci_prodotti")
+    .select("max_kg")
+    .eq("voce_id", parsed.data.imballaggioVoceId)
+    .eq("prodotto_id", (riga as { prodotto_id: string }).prodotto_id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const kgStandard =
+    stdLink && Number.isFinite(Number((stdLink as { max_kg: number }).max_kg))
+      ? Number((stdLink as { max_kg: number }).max_kg)
+      : null;
+  if (
+    kgStandard != null &&
+    parsed.data.kgConfezione > kgStandard &&
+    !parsed.data.kgForzato
+  ) {
+    return {
+      success: false,
+      error: `I ${parsed.data.kgConfezione} superano lo standard (${kgStandard}). Adegua allo standard oppure forza la scelta.`,
+    };
+  }
 
   const { data: existingRows } = await supabase
     .from("listini_righe_condizioni")
@@ -894,6 +924,9 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
         qty_a: parsed.data.qtyA ?? null,
         imballaggio_voce_id: parsed.data.imballaggioVoceId,
         sconto_pct: parsed.data.scontoPct,
+        kg_confezione: parsed.data.kgConfezione,
+        kg_standard: kgStandard,
+        kg_forzato: Boolean(parsed.data.kgForzato),
         updated_by: auth.userId,
       })
       .eq("id", parsed.data.id)
@@ -913,6 +946,9 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
         qty_a: parsed.data.qtyA ?? null,
         imballaggio_voce_id: parsed.data.imballaggioVoceId,
         sconto_pct: parsed.data.scontoPct,
+        kg_confezione: parsed.data.kgConfezione,
+        kg_standard: kgStandard,
+        kg_forzato: Boolean(parsed.data.kgForzato),
         created_by: auth.userId,
         updated_by: auth.userId,
       })
@@ -935,6 +971,9 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
       qty_a: parsed.data.qtyA ?? null,
       imballaggio_voce_id: parsed.data.imballaggioVoceId,
       sconto_pct: parsed.data.scontoPct,
+      kg_confezione: parsed.data.kgConfezione,
+      kg_standard: kgStandard,
+      kg_forzato: Boolean(parsed.data.kgForzato),
     },
   });
 
