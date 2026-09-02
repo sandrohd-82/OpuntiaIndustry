@@ -14,6 +14,40 @@ export const LISTINO_RIGA_UM = ["kg", "lt"] as const;
 export type ListinoRigaUm = (typeof LISTINO_RIGA_UM)[number];
 
 export const LISTINO_CODICE_PREFIX = "B2B-";
+export const LISTINO_SCONTO_TARGA_PREFIX = "Sc";
+export const LISTINO_SCONTO_TARGA_DIGITS = 5;
+
+export function normalizeTargaSconto(raw: string): string {
+  let s = raw.trim().replace(/\s+/g, "");
+  if (/^sc/i.test(s)) s = s.slice(2);
+  const digits = s.replace(/\D/g, "").slice(0, LISTINO_SCONTO_TARGA_DIGITS);
+  return `${LISTINO_SCONTO_TARGA_PREFIX}${digits.padStart(LISTINO_SCONTO_TARGA_DIGITS, "0")}`;
+}
+
+export function targaScontoDigits(raw: string): string {
+  return normalizeTargaSconto(raw).slice(LISTINO_SCONTO_TARGA_PREFIX.length);
+}
+
+export function isValidTargaSconto(code: string): boolean {
+  const n = normalizeTargaSconto(code);
+  return (
+    new RegExp(
+      `^${LISTINO_SCONTO_TARGA_PREFIX}\\d{${LISTINO_SCONTO_TARGA_DIGITS}}$`
+    ).test(n) && n !== `${LISTINO_SCONTO_TARGA_PREFIX}00000`
+  );
+}
+
+export function nextTargaSconto(used: Iterable<string>): string {
+  const taken = new Set(
+    [...used].map((c) => normalizeTargaSconto(c)).filter(Boolean)
+  );
+  const max = 10 ** LISTINO_SCONTO_TARGA_DIGITS - 1;
+  for (let i = 1; i <= max; i++) {
+    const candidate = `${LISTINO_SCONTO_TARGA_PREFIX}${String(i).padStart(LISTINO_SCONTO_TARGA_DIGITS, "0")}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  throw new Error("Nessuna targa sconto Sc disponibile (Sc00001–Sc99999).");
+}
 
 export function listinoCodiceSlug(raw: string): string {
   let s = raw.trim();
@@ -168,10 +202,11 @@ function refineQtyConfezione(
   v: { qtyDa: number; qtyA?: number | null; kgConfezione: number },
   ctx: z.RefinementCtx
 ) {
-  if (v.qtyA != null && v.qtyA <= v.qtyDa) {
+  if (v.qtyA != null && v.qtyA < v.qtyDa) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Quantità a deve essere maggiore di quantità da.",
+      message:
+        "Quantità a deve essere maggiore o uguale a quantità da. Uguali = sconto solo per quella quantità (es. un bigbag da 500 kg).",
       path: ["qtyA"],
     });
   }
@@ -198,8 +233,18 @@ export const listinoRigaCondizioneSyncItemSchema = z
     scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
     kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
     kgForzato: z.boolean().optional().default(false),
+    targa: z.string().trim().optional().default(""),
   })
-  .superRefine(refineQtyConfezione);
+  .superRefine(refineQtyConfezione)
+  .superRefine((v, ctx) => {
+    if (v.targa && !isValidTargaSconto(v.targa)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Targa sconto: Sc + 5 cifre (es. Sc00001). Non usare Sc00000.",
+        path: ["targa"],
+      });
+    }
+  });
 
 export const upsertListinoRigaSchema = z
   .object({
@@ -246,8 +291,18 @@ export const upsertListinoRigaCondizioneSchema = z
     scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
     kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
     kgForzato: z.boolean().optional().default(false),
+    targa: z.string().trim().optional().default(""),
   })
-  .superRefine(refineQtyConfezione);
+  .superRefine(refineQtyConfezione)
+  .superRefine((v, ctx) => {
+    if (v.targa && !isValidTargaSconto(v.targa)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Targa sconto: Sc + 5 cifre (es. Sc00001). Non usare Sc00000.",
+        path: ["targa"],
+      });
+    }
+  });
 
 export type Listino = {
   id: string;
@@ -281,6 +336,7 @@ export type ListinoRigaCondizione = {
   kgConfezione: number;
   kgStandard: number | null;
   kgForzato: boolean;
+  targa: string;
 };
 
 export type ListinoRiga = {
@@ -367,6 +423,7 @@ export function mapListinoRigaCondizione(
     kgConfezione: Number(row.kg_confezione ?? 0),
     kgStandard: row.kg_standard == null ? null : Number(row.kg_standard),
     kgForzato: Boolean(row.kg_forzato),
+    targa: row.targa || "",
   };
 }
 
@@ -432,6 +489,10 @@ export function previewScontoListino(input: {
     return `${alKg} — ${labels.da.replace("{da}", euro(importoDa))}`;
   }
   const importoA = Math.round(input.qtyA * unitario * 100) / 100;
+  if (input.qtyA === input.qtyDa) {
+    const q = input.qtyDa.toLocaleString("it-IT", { maximumFractionDigits: 3 });
+    return `${alKg} — sconto solo per quantità ${q} ${input.unitaMisura} (ordine da ${euro(importoDa)} €)`;
+  }
   return `${alKg} — ${labels.daA
     .replace("{da}", euro(importoDa))
     .replace("{a}", euro(importoA))}`;
@@ -445,6 +506,6 @@ export function listinoCondizioniSovrapposte(
   return esistenti.some((e) => {
     if (candidate.id && e.id === candidate.id) return false;
     const eEnd = e.qtyA ?? Number.POSITIVE_INFINITY;
-    return candidate.qtyDa < eEnd && e.qtyDa < cEnd;
+    return candidate.qtyDa <= eEnd && e.qtyDa <= cEnd;
   });
 }

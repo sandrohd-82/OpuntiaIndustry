@@ -9,6 +9,7 @@ import {
   inviaListinoInRevisioneAction,
   listGeoCatalogAction,
   listListiniAction,
+  nextTargaScontoListinoAction,
   listListinoRigheAction,
   riportaListinoInBozzaAction,
   setListinoRigaRevisioneAction,
@@ -35,10 +36,13 @@ import {
   LISTINO_RIGA_UM,
   listinoCodiceSlug,
   avvisoQtyConfezione,
+  isValidTargaSconto,
   listinoRigaCondizioneSyncItemSchema,
+  normalizeTargaSconto,
   parseListinoCodice,
   previewScontoListino,
   rigaListinoCompleta,
+  targaScontoDigits,
   type Listino,
   type ListinoDisponibilita,
   type ListinoRiga,
@@ -86,6 +90,7 @@ type LocalCond = {
   scontoPct: string;
   kgForzato: boolean;
   locked: boolean;
+  targa: string;
 };
 
 function condFromRiga(c: ListinoRigaCondizione): LocalCond {
@@ -101,6 +106,7 @@ function condFromRiga(c: ListinoRigaCondizione): LocalCond {
     scontoPct: String(c.scontoPct),
     kgForzato: c.kgForzato,
     locked: true,
+    targa: c.targa || "",
   };
 }
 
@@ -110,6 +116,7 @@ type CondDraft = {
   imballaggioVoceId: string;
   kg: string;
   scontoPct: string;
+  targa: string;
 };
 
 const emptyCond: CondDraft = {
@@ -118,7 +125,38 @@ const emptyCond: CondDraft = {
   imballaggioVoceId: "",
   kg: "",
   scontoPct: "0",
+  targa: "",
 };
+
+function TargaScontoField({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (targa: string) => void;
+}) {
+  return (
+    <div className="flex min-w-[5.5rem] items-stretch overflow-hidden rounded border border-[var(--border)] bg-[var(--background)]">
+      <span className="shrink-0 bg-slate-100 px-1.5 py-1 text-[11px] font-semibold text-slate-600">
+        Sc
+      </span>
+      <input
+        className="w-14 bg-transparent px-1 py-1 font-mono text-xs outline-none disabled:text-slate-500"
+        inputMode="numeric"
+        maxLength={5}
+        placeholder="00001"
+        disabled={disabled}
+        value={targaScontoDigits(value)}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "").slice(0, 5);
+          onChange(digits ? normalizeTargaSconto(digits) : "");
+        }}
+      />
+    </div>
+  );
+}
 
 function CodiceListinoField({
   slug,
@@ -629,6 +667,7 @@ export function ListiniB2bBoard() {
                   </th>
                   <th className="px-3 py-2">Confezionamento</th>
                   <th className="px-3 py-2">Kg</th>
+                  <th className="px-3 py-2">Targa</th>
                   <th className="px-3 py-2">Sconto %</th>
                   <th className="px-3 py-2" />
                 </tr>
@@ -873,7 +912,7 @@ function RigaBlock({
   const draftKgStep =
     Number(draft.kg) > 0 ? String(Number(draft.kg)) : undefined;
 
-  function lockDraftCond(forza: boolean, kgOverride?: number) {
+  async function lockDraftCond(forza: boolean, kgOverride?: number) {
     const payload = {
       qtyDa: Number(draft.qtyDa),
       qtyA: draft.qtyA.trim() === "" ? null : Number(draft.qtyA),
@@ -881,11 +920,28 @@ function RigaBlock({
       scontoPct: Number(draft.scontoPct),
       kgConfezione: kgOverride ?? Number(draft.kg),
       kgForzato: forza,
+      targa: draft.targa,
     };
-    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse(payload);
+    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
+      ...payload,
+      targa: draft.targa || undefined,
+    });
     if (!parsed.success) {
       onError(parsed.error.issues[0]?.message ?? "Sconto non valido");
       return;
+    }
+    let targa = draft.targa.trim()
+      ? normalizeTargaSconto(draft.targa)
+      : "";
+    if (!isValidTargaSconto(targa)) {
+      const res = await nextTargaScontoListinoAction(
+        localConds.map((c) => c.targa)
+      );
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      targa = res.targa;
     }
     const next: LocalCond = {
       key: `tmp-${crypto.randomUUID()}`,
@@ -900,6 +956,7 @@ function RigaBlock({
       scontoPct: draft.scontoPct,
       kgForzato: forza,
       locked: true,
+      targa,
     };
     setLocalConds((prev) => [...prev, next]);
     onDraftChange(emptyCond);
@@ -1007,6 +1064,7 @@ function RigaBlock({
                       scontoPct: Number(c.scontoPct),
                       kgConfezione: Number(c.kg),
                       kgForzato: c.kgForzato,
+                      targa: c.targa,
                     });
                     if (!parsed.success) {
                       onError(
@@ -1158,6 +1216,12 @@ function RigaBlock({
           />
         </td>
         <td className="px-3 py-1.5">
+          <TargaScontoField
+            value={draft.targa}
+            onChange={(targa) => onDraftChange({ ...draft, targa })}
+          />
+        </td>
+        <td className="px-3 py-1.5">
           <input
             className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
@@ -1200,7 +1264,7 @@ function RigaBlock({
       {draftQtyAvviso ? (
         <tr className="bg-amber-50">
           <td
-            colSpan={inRevisione ? 12 : 11}
+            colSpan={inRevisione ? 13 : 12}
             className="px-3 py-1.5 pl-8 text-xs text-amber-900"
           >
             {draftQtyAvviso}
@@ -1284,8 +1348,17 @@ function CondizioneRow({
   });
   const kgStep = Number(cond.kg) > 0 ? String(Number(cond.kg)) : undefined;
 
-  function tryLock(forza: boolean, kgOverride?: number) {
+  async function tryLock(forza: boolean, kgOverride?: number) {
     const kgVal = kgOverride ?? Number(cond.kg);
+    let targa = cond.targa.trim() ? normalizeTargaSconto(cond.targa) : "";
+    if (!isValidTargaSconto(targa)) {
+      const res = await nextTargaScontoListinoAction([]);
+      if (!res.success) {
+        onError(res.error);
+        return;
+      }
+      targa = res.targa;
+    }
     const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
       id: cond.id,
       qtyDa: Number(cond.qtyDa),
@@ -1294,20 +1367,27 @@ function CondizioneRow({
       scontoPct: Number(cond.scontoPct),
       kgConfezione: kgVal,
       kgForzato: forza || cond.kgForzato,
+      targa,
     });
     if (!parsed.success) {
       onError(parsed.error.issues[0]?.message ?? "Sconto non valido");
       return;
     }
     if (kgOverride != null) {
-      onChange({ ...cond, kg: String(kgOverride), kgForzato: forza, locked: true });
+      onChange({
+        ...cond,
+        kg: String(kgOverride),
+        kgForzato: forza,
+        targa,
+        locked: true,
+      });
       return;
     }
     if (forza) {
-      onChange({ ...cond, kgForzato: true, locked: true });
+      onChange({ ...cond, kgForzato: true, targa, locked: true });
       return;
     }
-    onLock();
+    onChange({ ...cond, targa, locked: true });
   }
 
   return (
@@ -1416,6 +1496,16 @@ function CondizioneRow({
       </td>
       <td className="px-3 py-1.5">
         {canEdit ? (
+          <TargaScontoField
+            value={cond.targa}
+            onChange={(targa) => onChange({ ...cond, targa })}
+          />
+        ) : (
+          <span className="font-mono text-xs">{cond.targa || "—"}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5">
+        {canEdit ? (
           <input
             className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
@@ -1477,7 +1567,7 @@ function CondizioneRow({
     {qtyAvviso ? (
       <tr className="bg-amber-50">
         <td
-          colSpan={extraLeadCells + 10}
+          colSpan={extraLeadCells + 11}
           className="px-3 py-1.5 pl-8 text-xs text-amber-900"
         >
           {qtyAvviso}

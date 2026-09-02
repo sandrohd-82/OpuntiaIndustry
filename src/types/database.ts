@@ -605,6 +605,7 @@ export interface ListinoRigaCondizioneRow {
   kg_confezione: number;
   kg_standard: number | null;
   kg_forzato: boolean;
+  targa: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;

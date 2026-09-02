@@ -15,9 +15,12 @@ import {
   buildListinoCodice,
   buildListinoCodiceLocale,
   createListinoSchema,
+  isValidTargaSconto,
   listinoCodiceSlug,
   listinoCondizioniSovrapposte,
   mapListino,
+  nextTargaSconto,
+  normalizeTargaSconto,
   mapListinoRiga,
   mapListinoRigaCondizione,
   parseListinoCodice,
@@ -47,6 +50,59 @@ import type {
 
 async function guardAmm() {
   return requireAreaAccess("amministrazione");
+}
+
+async function loadTargheScontoUsate(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("listini_righe_condizioni")
+    .select("targa");
+  return ((data ?? []) as { targa: string | null }[])
+    .map((r) => String(r.targa ?? "").trim())
+    .filter(Boolean);
+}
+
+export async function nextTargaScontoListinoAction(
+  reserved: string[] = []
+): Promise<
+  { success: true; targa: string } | { success: false; error: string }
+> {
+  await guardAmm();
+  const supabase = await createClient();
+  try {
+    const used = await loadTargheScontoUsate(supabase);
+    return { success: true, targa: nextTargaSconto([...used, ...reserved]) };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Generazione targa sconto fallita",
+    };
+  }
+}
+
+function resolveTargaSconto(
+  raw: string | undefined,
+  used: string[]
+): { targa: string } | { error: string } {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) {
+    try {
+      return { targa: nextTargaSconto(used) };
+    } catch (e) {
+      return {
+        error: e instanceof Error ? e.message : "Generazione targa sconto fallita",
+      };
+    }
+  }
+  const targa = normalizeTargaSconto(trimmed);
+  if (!isValidTargaSconto(targa)) {
+    return { error: "Targa sconto: Sc + 5 cifre (es. Sc00001)." };
+  }
+  if (used.map((u) => normalizeTargaSconto(u)).includes(targa)) {
+    return { error: `Targa ${targa} già usata. Scegline un’altra o lascia generare.` };
+  }
+  return { targa };
 }
 
 function mapGeoNazione(row: GeoNazioneRow): GeoNazione {
@@ -438,9 +494,16 @@ async function seedListinoProdotti(
     })
     .filter((x): x is NonNullable<typeof x> => x != null);
   if (!condInsert.length) return null;
+  const usedTarghe = await loadTargheScontoUsate(supabase);
+  const pool = [...usedTarghe];
+  const withTarga = condInsert.map((row) => {
+    const targa = nextTargaSconto(pool);
+    pool.push(targa);
+    return { ...row, targa };
+  });
   const { error: iErr } = await supabase
     .from("listini_righe_condizioni")
-    .insert(condInsert);
+    .insert(withTarga);
   return iErr?.message ?? null;
 }
 
@@ -1161,6 +1224,7 @@ async function syncListinoRigaCondizioni(
     scontoPct: number;
     kgConfezione: number;
     kgForzato?: boolean;
+    targa?: string;
   }>,
   userId: string
 ): Promise<string | null> {
@@ -1207,6 +1271,25 @@ async function syncListinoRigaCondizioni(
     }
   }
 
+  const usedGlobal = await loadTargheScontoUsate(supabase);
+  const { data: keepRows } = keepIds.size
+    ? await supabase
+        .from("listini_righe_condizioni")
+        .select("id, targa")
+        .in("id", [...keepIds])
+    : { data: [] as { id: string; targa: string }[] };
+  const keepTargaById = new Map(
+    ((keepRows ?? []) as { id: string; targa: string }[]).map((r) => [
+      r.id,
+      normalizeTargaSconto(r.targa),
+    ])
+  );
+  const usedForAlloc = usedGlobal.filter((t) => {
+    const n = normalizeTargaSconto(t);
+    return ![...keepTargaById.values()].includes(n);
+  });
+  const batchTarghe: string[] = [];
+
   for (const c of condizioni) {
     const { data: stdLink } = await supabase
       .from("imballaggi_voci_prodotti")
@@ -1227,6 +1310,10 @@ async function syncListinoRigaCondizioni(
       return `I ${c.kgConfezione} superano lo standard (${kgStandard}). Adegua o forza la scelta, poi Salva sul prodotto.`;
     }
 
+    const resolved = resolveTargaSconto(c.targa, [...usedForAlloc, ...batchTarghe]);
+    if ("error" in resolved) return resolved.error;
+    batchTarghe.push(resolved.targa);
+
     const payload = {
       qty_da: c.qtyDa,
       qty_a: c.qtyA ?? null,
@@ -1235,6 +1322,7 @@ async function syncListinoRigaCondizioni(
       kg_confezione: c.kgConfezione,
       kg_standard: kgStandard,
       kg_forzato: Boolean(c.kgForzato),
+      targa: resolved.targa,
       updated_by: userId,
     };
     if (c.id) {
@@ -1345,6 +1433,26 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
     };
   }
 
+  const usedTarghe = await loadTargheScontoUsate(supabase);
+  let excludeTarga = "";
+  if (parsed.data.id) {
+    const { data: cur } = await supabase
+      .from("listini_righe_condizioni")
+      .select("targa")
+      .eq("id", parsed.data.id)
+      .maybeSingle();
+    excludeTarga = normalizeTargaSconto(
+      String((cur as { targa?: string } | null)?.targa ?? "")
+    );
+  }
+  const usedExceptSelf = usedTarghe.filter(
+    (t) => normalizeTargaSconto(t) !== excludeTarga
+  );
+  const targaResolved = resolveTargaSconto(parsed.data.targa, usedExceptSelf);
+  if ("error" in targaResolved) {
+    return { success: false, error: targaResolved.error };
+  }
+
   let row: ListinoRigaCondizioneRow | null = null;
   if (parsed.data.id) {
     const { data, error } = await supabase
@@ -1357,6 +1465,7 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
         kg_confezione: parsed.data.kgConfezione,
         kg_standard: kgStandard,
         kg_forzato: Boolean(parsed.data.kgForzato),
+        targa: targaResolved.targa,
         updated_by: auth.userId,
       })
       .eq("id", parsed.data.id)
@@ -1379,6 +1488,7 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
         kg_confezione: parsed.data.kgConfezione,
         kg_standard: kgStandard,
         kg_forzato: Boolean(parsed.data.kgForzato),
+        targa: targaResolved.targa,
         created_by: auth.userId,
         updated_by: auth.userId,
       })
@@ -1404,6 +1514,7 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
       kg_confezione: parsed.data.kgConfezione,
       kg_standard: kgStandard,
       kg_forzato: Boolean(parsed.data.kgForzato),
+      targa: targaResolved.targa,
     },
   });
 
