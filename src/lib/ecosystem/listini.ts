@@ -332,6 +332,7 @@ export type ListinoRigaCondizione = {
   imballaggioVoceId: string;
   imballaggioCodice?: string;
   imballaggioNome?: string;
+  imballaggioNomeCommerciale?: string;
   scontoPct: number;
   kgConfezione: number;
   kgStandard: number | null;
@@ -409,7 +410,7 @@ export function mapListinoRiga(
 
 export function mapListinoRigaCondizione(
   row: ListinoRigaCondizioneRow,
-  imballaggio?: { codice: string; nome: string }
+  imballaggio?: { codice: string; nome: string; nomeCommerciale?: string }
 ): ListinoRigaCondizione {
   return {
     id: row.id,
@@ -419,6 +420,7 @@ export function mapListinoRigaCondizione(
     imballaggioVoceId: row.imballaggio_voce_id,
     imballaggioCodice: imballaggio?.codice,
     imballaggioNome: imballaggio?.nome,
+    imballaggioNomeCommerciale: imballaggio?.nomeCommerciale,
     scontoPct: Number(row.sconto_pct),
     kgConfezione: Number(row.kg_confezione ?? 0),
     kgStandard: row.kg_standard == null ? null : Number(row.kg_standard),

@@ -53,11 +53,18 @@ export type ImballaggioVoceProdottoLink = {
   unitaMisura: ImballaggioProdottoUm;
 };
 
+export function labelNomeCommercialeStadio(stadio: ImballaggioStadio): string {
+  if (stadio === "movimentazione") return "Tipo di Movimentazione";
+  if (stadio === "confezione") return "Tipo di Confezione";
+  return "Tipo di Isolamento";
+}
+
 export type ImballaggioVoce = {
   id: string;
   stadio: ImballaggioStadio;
   codice: string;
   nome: string;
+  nomeCommerciale: string;
   largoMm: number | null;
   profonditaMm: number | null;
   altezzaMm: number | null;
@@ -73,6 +80,7 @@ export type ImballaggioVoceInput = {
   stadio: ImballaggioStadio;
   codice: string;
   nome: string;
+  nomeCommerciale?: string;
   largoMm?: number | null;
   profonditaMm?: number | null;
   altezzaMm?: number | null;
@@ -111,6 +119,7 @@ export const imballaggioVoceInputSchema = z
     stadio: z.enum(["movimentazione", "confezione", "isolamento"]),
     codice: z.string().trim().min(1, "Codice obbligatorio").max(64),
     nome: z.string().trim().min(1, "Nome obbligatorio").max(200),
+    nomeCommerciale: z.string().trim().max(200).optional().default(""),
     largoMm: optionalPositiveQty,
     profonditaMm: optionalPositiveQty,
     altezzaMm: optionalPositiveQty,
@@ -196,6 +205,7 @@ export function mapImballaggioVoceRow(
     stadio: row.stadio,
     codice: row.codice,
     nome: row.nome,
+    nomeCommerciale: row.nome_commerciale ?? "",
     largoMm: row.largo_mm == null ? null : Number(row.largo_mm),
     profonditaMm: row.profondita_mm == null ? null : Number(row.profondita_mm),
     altezzaMm: row.altezza_mm == null ? null : Number(row.altezza_mm),

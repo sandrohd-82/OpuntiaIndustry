@@ -71,6 +71,7 @@ async function attachProdottiLinks(
 function voceSharedFields(
   v: {
     nome: string;
+    nomeCommerciale?: string;
     largoMm?: number | null;
     profonditaMm?: number | null;
     altezzaMm?: number | null;
@@ -85,6 +86,7 @@ function voceSharedFields(
   return {
     codice,
     nome: v.nome.trim(),
+    nome_commerciale: (v.nomeCommerciale ?? "").trim(),
     largo_mm: v.largoMm ?? null,
     profondita_mm: v.profonditaMm ?? null,
     altezza_mm: v.altezzaMm ?? null,
@@ -109,6 +111,7 @@ async function createVoceGemella(
       stadio: other,
       codice: source.codice,
       nome: source.nome,
+      nome_commerciale: source.nome_commerciale ?? "",
       largo_mm: source.largo_mm,
       profondita_mm: source.profondita_mm,
       altezza_mm: source.altezza_mm,

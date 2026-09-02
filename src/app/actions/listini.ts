@@ -1133,15 +1133,27 @@ async function loadCondizioniByRiga(
     .order("qty_da", { ascending: true });
   const rows = (data ?? []) as ListinoRigaCondizioneRow[];
   const imbIds = [...new Set(rows.map((r) => r.imballaggio_voce_id))];
-  const imballaggi = new Map<string, { codice: string; nome: string }>();
+  const imballaggi = new Map<
+    string,
+    { codice: string; nome: string; nomeCommerciale: string }
+  >();
   if (imbIds.length) {
     const { data: vs } = await supabase
       .from("imballaggi_voci")
-      .select("id, codice, nome")
+      .select("id, codice, nome, nome_commerciale")
       .in("id", imbIds);
     for (const v of vs ?? []) {
-      const row = v as { id: string; codice: string; nome: string };
-      imballaggi.set(row.id, { codice: row.codice, nome: row.nome });
+      const row = v as {
+        id: string;
+        codice: string;
+        nome: string;
+        nome_commerciale?: string;
+      };
+      imballaggi.set(row.id, {
+        codice: row.codice,
+        nome: row.nome,
+        nomeCommerciale: row.nome_commerciale ?? "",
+      });
     }
   }
   for (const r of rows) {
@@ -1579,7 +1591,7 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
 
   const { data: imb } = await supabase
     .from("imballaggi_voci")
-    .select("codice, nome")
+    .select("codice, nome, nome_commerciale")
     .eq("id", row.imballaggio_voce_id)
     .maybeSingle();
   return {
@@ -1587,7 +1599,12 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
     item: mapListinoRigaCondizione(
       row,
       imb
-        ? { codice: (imb as { codice: string; nome: string }).codice, nome: (imb as { codice: string; nome: string }).nome }
+        ? {
+            codice: (imb as { codice: string; nome: string }).codice,
+            nome: (imb as { codice: string; nome: string }).nome,
+            nomeCommerciale:
+              (imb as { nome_commerciale?: string }).nome_commerciale ?? "",
+          }
         : undefined
     ),
   };

@@ -1031,6 +1031,7 @@ export interface ImballaggioVoceRow {
   stadio: ImballaggioStadio;
   codice: string;
   nome: string;
+  nome_commerciale: string;
   largo_mm: number | null;
   profondita_mm: number | null;
   altezza_mm: number | null;
@@ -1066,6 +1067,7 @@ export type ImballaggioVoceInsert = {
   stadio: ImballaggioStadio;
   codice: string;
   nome: string;
+  nome_commerciale?: string;
   largo_mm?: number | null;
   profondita_mm?: number | null;
   altezza_mm?: number | null;

@@ -125,9 +125,10 @@ export function buildListinoExport(
     if (!r.condizioni.length) continue;
     rows.push({ kind: "discount_head" });
     for (const c of r.condizioni) {
-      const tipo = [c.imballaggioCodice, c.imballaggioNome]
-        .filter(Boolean)
-        .join(" — ");
+      const commercial = c.imballaggioNomeCommerciale?.trim();
+      const tipo = commercial
+        ? commercial
+        : [c.imballaggioCodice, c.imballaggioNome].filter(Boolean).join(" — ");
       rows.push({
         kind: "discount",
         targa: c.targa || "—",

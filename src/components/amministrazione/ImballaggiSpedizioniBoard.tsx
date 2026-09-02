@@ -22,6 +22,7 @@ import { InfoHint, LabelWithInfo } from "@/components/ui/InfoHint";
 import {
   formatMisureImballaggio,
   IMBALLAGGIO_STADI,
+  labelNomeCommercialeStadio,
   normalizeCiCodice,
   otherDualStadio,
   voceCollegaProdotti,
@@ -36,6 +37,7 @@ type EditVoce = {
   id: string;
   codice: string;
   nome: string;
+  nomeCommerciale: string;
   note: string;
   largoMm: number | "";
   profonditaMm: number | "";
@@ -52,17 +54,19 @@ type EditCorriere = {
 };
 
 const INFO = {
-  cerca: "Filtra l’elenco per nome, codice o note della voce visibile in questo stadio.",
+  cerca: "Filtra l’elenco per nome, nome commerciale, codice o note della voce visibile in questo stadio.",
   codice:
     "Identificativo univoco nello stadio. Con doppio ruolo il codice diventa C&I-… (Confezione e isolamento) e la voce è duplicata nell’altro stadio.",
   nome: "Nome visibile in elenco e nel wizard ordini quando scegli l’imballaggio.",
+  nomeCommerciale:
+    "Nome da usare su documenti ed export (listini PDF/Excel). Se vuoto, in export si usa codice e nome interno.",
   largo: "Larghezza esterna in millimetri.",
   prof: "Profondità esterna in millimetri.",
   alt: "Altezza esterna in millimetri (lascia vuoto se non serve).",
   capLt: "Capacità in litri (bidoni, taniche). Lascia vuoto se usi solo le misure mm.",
   note: "Annotazioni interne per l’operatore. Non finiscono sul documento cliente.",
   doppio:
-    "Se attivo, la voce è duplicata nell’altro stadio con lo stesso codice C&I- (Confezione e isolamento). Nome, misure e prodotti restano allineati. Nel wizard una sola selezione.",
+    "Se attivo, la voce è duplicata nell’altro stadio con lo stesso codice C&I- (Confezione e isolamento). Nome, nome commerciale, misure e prodotti restano allineati. Nel wizard una sola selezione.",
   prodotti:
     "Quanti prodotti Agrinsicilia sono collegati a questa voce, ciascuno con quantità max e unità (kg, lt, g, ml, pz).",
   ordine:
@@ -88,6 +92,7 @@ export function ImballaggiSpedizioniBoard() {
   const [query, setQuery] = useState("");
 
   const [nuovoNome, setNuovoNome] = useState("");
+  const [nuovoNomeCommerciale, setNuovoNomeCommerciale] = useState("");
   const [nuovoCodice, setNuovoCodice] = useState("");
   const [nuovoNote, setNuovoNote] = useState("");
   const [nuovoLargo, setNuovoLargo] = useState<number | "">("");
@@ -145,6 +150,7 @@ export function ImballaggiSpedizioniBoard() {
     setReady(false);
     setQuery("");
     setNuovoNome("");
+    setNuovoNomeCommerciale("");
     setNuovoCodice("");
     setNuovoNote("");
     setNuovoLargo("");
@@ -167,6 +173,7 @@ export function ImballaggiSpedizioniBoard() {
     return voci.filter(
       (v) =>
         v.nome.toLowerCase().includes(q) ||
+        v.nomeCommerciale.toLowerCase().includes(q) ||
         v.codice.toLowerCase().includes(q) ||
         v.note.toLowerCase().includes(q)
     );
@@ -256,6 +263,7 @@ export function ImballaggiSpedizioniBoard() {
       id: v.id,
       codice: v.codice,
       nome: v.nome,
+      nomeCommerciale: v.nomeCommerciale,
       note: v.note,
       largoMm: v.largoMm ?? "",
       profonditaMm: v.profonditaMm ?? "",
@@ -282,6 +290,7 @@ export function ImballaggiSpedizioniBoard() {
       stadio: tab,
       codice: nuovoCodice.trim(),
       nome: nuovoNome.trim(),
+      nomeCommerciale: nuovoNomeCommerciale.trim(),
       note: nuovoNote.trim(),
       largoMm: numOrNull(nuovoLargo),
       profonditaMm: numOrNull(nuovoProf),
@@ -297,6 +306,7 @@ export function ImballaggiSpedizioniBoard() {
     }
     setVoci((prev) => [...prev, res.item]);
     setNuovoNome("");
+    setNuovoNomeCommerciale("");
     setNuovoCodice("");
     setNuovoNote("");
     setNuovoLargo("");
@@ -319,6 +329,7 @@ export function ImballaggiSpedizioniBoard() {
       stadio: tab,
       codice: draft.codice.trim(),
       nome: draft.nome.trim(),
+      nomeCommerciale: draft.nomeCommerciale.trim(),
       note: draft.note.trim(),
       largoMm: numOrNull(draft.largoMm),
       profonditaMm: numOrNull(draft.profonditaMm),
@@ -548,6 +559,23 @@ export function ImballaggiSpedizioniBoard() {
               placeholder={tab === "corrieri" ? "Nome corriere" : "Descrizione"}
             />
           </label>
+          {tab !== "corrieri" ? (
+            <label className="block text-sm">
+              <span className="mb-1 block text-xs text-[var(--muted)]">
+                <LabelWithInfo
+                  label={labelNomeCommercialeStadio(tab)}
+                  info={INFO.nomeCommerciale}
+                />
+              </span>
+              <input
+                value={nuovoNomeCommerciale}
+                onChange={(e) => setNuovoNomeCommerciale(e.target.value)}
+                className="w-56 rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                placeholder="Per documenti ed export"
+                maxLength={200}
+              />
+            </label>
+          ) : null}
           <label className="block text-sm">
             <span className="mb-1 block text-xs text-[var(--muted)]">
               <LabelWithInfo
@@ -734,7 +762,7 @@ export function ImballaggiSpedizioniBoard() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
-          <table className="w-full min-w-[920px] text-left text-sm">
+          <table className="w-full min-w-[1080px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="w-10 px-3 py-2">
@@ -753,6 +781,12 @@ export function ImballaggiSpedizioniBoard() {
                 </th>
                 <th className="px-3 py-2">
                   <LabelWithInfo label="Nome" info={INFO.nome} />
+                </th>
+                <th className="px-3 py-2">
+                  <LabelWithInfo
+                    label={labelNomeCommercialeStadio(tab)}
+                    info={INFO.nomeCommerciale}
+                  />
                 </th>
                 <th className="px-3 py-2">
                   <LabelWithInfo label="L×P×H mm" info={INFO.misure} />
@@ -784,7 +818,7 @@ export function ImballaggiSpedizioniBoard() {
             <tbody>
               {filteredVoci.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-6 text-[var(--muted)]">
+                  <td colSpan={11} className="px-3 py-6 text-[var(--muted)]">
                     Nessuna voce in questo stadio.
                   </td>
                 </tr>
@@ -832,6 +866,25 @@ export function ImballaggiSpedizioniBoard() {
                           />
                         ) : (
                           <span className="font-medium">{v.nome}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {editing ? (
+                          <input
+                            value={editVoce.nomeCommerciale}
+                            onChange={(e) =>
+                              patchEditVoce({
+                                nomeCommerciale: e.target.value,
+                              })
+                            }
+                            className={inputCls}
+                            maxLength={200}
+                            placeholder={labelNomeCommercialeStadio(tab)}
+                          />
+                        ) : (
+                          <span className="text-[var(--muted)]">
+                            {v.nomeCommerciale || "—"}
+                          </span>
                         )}
                       </td>
                       <td className="px-3 py-2">
