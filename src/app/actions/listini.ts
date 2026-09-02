@@ -68,11 +68,29 @@ export async function nextTargaScontoListinoAction(
 ): Promise<
   { success: true; targa: string } | { success: false; error: string }
 > {
+  const batch = await allocateTargheScontoListinoAction(1, reserved);
+  if (!batch.success) return batch;
+  return { success: true, targa: batch.targhe[0] };
+}
+
+export async function allocateTargheScontoListinoAction(
+  count: number,
+  reserved: string[] = []
+): Promise<
+  { success: true; targhe: string[] } | { success: false; error: string }
+> {
   await guardAmm();
+  const n = Math.max(0, Math.floor(count));
+  if (!n) return { success: true, targhe: [] };
   const supabase = await createClient();
   try {
-    const used = await loadTargheScontoUsate(supabase);
-    return { success: true, targa: nextTargaSconto([...used, ...reserved]) };
+    const used = [...(await loadTargheScontoUsate(supabase)), ...reserved];
+    const targhe: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const t = nextTargaSconto([...used, ...targhe]);
+      targhe.push(t);
+    }
+    return { success: true, targhe };
   } catch (e) {
     return {
       success: false,

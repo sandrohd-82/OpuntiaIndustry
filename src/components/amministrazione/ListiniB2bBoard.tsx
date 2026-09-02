@@ -9,6 +9,7 @@ import {
   inviaListinoInRevisioneAction,
   listGeoCatalogAction,
   listListiniAction,
+  allocateTargheScontoListinoAction,
   nextTargaScontoListinoAction,
   listListinoRigheAction,
   riportaListinoInBozzaAction,
@@ -317,6 +318,7 @@ export function ListiniB2bBoard() {
                 nazioni={catalogNazioni}
                 selectedIds={createNazioneIds}
                 disabled={pending}
+                defaultOpen
                 onChange={setCreateNazioneIds}
               />
             </div>
@@ -530,6 +532,7 @@ export function ListiniB2bBoard() {
                       nazioni={catalogNazioni}
                       selectedIds={editNazioneIds}
                       disabled={!isBozza || pending}
+                      defaultOpen={false}
                       onChange={setEditNazioneIds}
                     />
                   )}
@@ -692,6 +695,7 @@ export function ListiniB2bBoard() {
                     }}
                     onError={setError}
                     onAskDelete={setDeleting}
+                    altriRighe={righe.filter((x) => x.id !== r.id)}
                     startTransition={startTransition}
                   />
                 ))}
@@ -844,6 +848,7 @@ function RigaBlock({
   onSaved,
   onError,
   onAskDelete,
+  altriRighe,
   startTransition,
 }: {
   riga: ListinoRiga;
@@ -858,6 +863,7 @@ function RigaBlock({
   onSaved: () => void;
   onError: (msg: string) => void;
   onAskDelete: (target: DeleteTarget) => void;
+  altriRighe: ListinoRiga[];
   startTransition: (fn: () => Promise<void>) => void;
 }) {
   const [prezzo, setPrezzo] = useState(
@@ -890,6 +896,8 @@ function RigaBlock({
     standard: number;
     um: string;
   } | null>(null);
+  const [scontiOpen, setScontiOpen] = useState(false);
+  const [copyFromId, setCopyFromId] = useState("");
 
   const completa = rigaListinoCompleta({
     prezzo: Number(prezzo),
@@ -960,6 +968,42 @@ function RigaBlock({
     };
     setLocalConds((prev) => [...prev, next]);
     onDraftChange(emptyCond);
+    setScontiOpen(true);
+  }
+
+  async function copiaDaProdotto(sourceId: string) {
+    const src = altriRighe.find((x) => x.id === sourceId);
+    if (!src) {
+      onError("Seleziona un prodotto da cui copiare.");
+      return;
+    }
+    const alloc = await allocateTargheScontoListinoAction(
+      src.condizioni.length,
+      localConds.map((c) => c.targa)
+    );
+    if (!alloc.success) {
+      onError(alloc.error);
+      return;
+    }
+    setPrezzo(
+      src.prezzo === 0 && src.disponibilita === "in_produzione"
+        ? ""
+        : String(src.prezzo)
+    );
+    setUm(src.unitaMisura);
+    setDisp(src.disponibilita);
+    setLocalConds(
+      src.condizioni.map((c, i) => ({
+        ...condFromRiga(c),
+        key: `tmp-${crypto.randomUUID()}`,
+        id: undefined,
+        targa: alloc.targhe[i] ?? "",
+        locked: true,
+      }))
+    );
+    onDraftChange(emptyCond);
+    setScontiOpen(true);
+    setCopyFromId("");
   }
 
   return (
@@ -1035,9 +1079,47 @@ function RigaBlock({
             />
           </td>
         ) : null}
-        <td colSpan={5} className="px-3 py-2 text-xs text-[var(--muted)]">
-          Prezzo base. Sconti facoltativi sotto. Prezzo 0 solo con
-          dichiarazione.
+        <td colSpan={6} className="px-3 py-2 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-[var(--border)] bg-slate-50 px-2 py-1 text-xs font-medium"
+              onClick={() => setScontiOpen((v) => !v)}
+            >
+              Sconti ({localConds.length}){" "}
+              {scontiOpen ? "▲ chiudi" : "▼ espandi"}
+            </button>
+            {editable && altriRighe.length ? (
+              <>
+                <select
+                  className="max-w-[14rem] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
+                  value={copyFromId}
+                  disabled={pending}
+                  onChange={(e) => setCopyFromId(e.target.value)}
+                >
+                  <option value="">Copia da altro prodotto…</option>
+                  {altriRighe.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.prodottoCodice} {p.prodottoNome}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={pending || !copyFromId}
+                  className="text-xs font-medium text-sky-800 underline disabled:opacity-40"
+                  onClick={() => void copiaDaProdotto(copyFromId)}
+                >
+                  Copia come bozza
+                </button>
+              </>
+            ) : null}
+          </div>
+          <p className="mt-1 text-[11px] text-[var(--muted)]">
+            Prezzo 0 solo con dichiarazione. La copia prende prezzo, quantità e
+            imballaggi; le targhe sono nuove. Poi controlla e Salva sul
+            prodotto.
+          </p>
         </td>
         <td className="px-3 py-2">
           {editable ? (
@@ -1103,7 +1185,8 @@ function RigaBlock({
           ) : null}
         </td>
       </tr>
-      {localConds.map((c) => (
+      {scontiOpen
+        ? localConds.map((c) => (
         <CondizioneRow
           key={c.key}
           cond={c}
@@ -1140,8 +1223,9 @@ function RigaBlock({
             })
           }
         />
-      ))}
-      {editable ? (
+      ))
+        : null}
+      {scontiOpen && editable ? (
       <>
       <tr className="border-t border-dashed border-slate-200 bg-slate-50/30">
         <td
