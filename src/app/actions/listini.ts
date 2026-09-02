@@ -57,7 +57,8 @@ async function loadTargheScontoUsate(
 ): Promise<string[]> {
   const { data } = await supabase
     .from("listini_righe_condizioni")
-    .select("targa");
+    .select("targa")
+    .is("deleted_at", null);
   return ((data ?? []) as { targa: string | null }[])
     .map((r) => String(r.targa ?? "").trim())
     .filter(Boolean);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { listImballaggiVociAction } from "@/app/actions/imballaggi-spedizioni";
 import {
   approvaListinoInUsoAction,
@@ -17,6 +17,7 @@ import {
   updateListinoAction,
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
+  softDeleteListinoRigaCondizioneAction,
 } from "@/app/actions/listini";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
@@ -77,8 +78,15 @@ const STATO_HELP: Record<ListinoStato, string> = {
 type DeleteTarget = {
   scontoPct: number;
   imballaggioCodice?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 };
+
+function asCondizioneId(id?: string): string | undefined {
+  return id &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ? id
+    : undefined;
+}
 
 type LocalCond = {
   key: string;
@@ -137,6 +145,26 @@ function clearRigaDraft(rigaId: string) {
   }
 }
 
+function draftHasPendingWork(
+  draft: RigaDraftStore,
+  fromServer: LocalCond[]
+): boolean {
+  if (draft.localConds.length !== fromServer.length) return true;
+  const serverIds = new Set(
+    fromServer.map((c) => c.id).filter((id): id is string => Boolean(id))
+  );
+  const draftIds = new Set(
+    draft.localConds.map((c) => c.id).filter((id): id is string => Boolean(id))
+  );
+  for (const id of serverIds) {
+    if (!draftIds.has(id)) return true;
+  }
+  for (const id of draftIds) {
+    if (!serverIds.has(id)) return true;
+  }
+  return draft.localConds.some((c) => !c.locked);
+}
+
 function bootstrapRiga(riga: ListinoRiga): RigaDraftStore & {
   locked: boolean;
   openSconti: boolean;
@@ -147,11 +175,7 @@ function bootstrapRiga(riga: ListinoRiga): RigaDraftStore & {
       ? ""
       : String(riga.prezzo);
   const draft = readRigaDraft(riga.id);
-  if (
-    draft &&
-    draft.localConds.length > fromServer.length &&
-    draft.localConds.some((c) => c.locked)
-  ) {
+  if (draft && draftHasPendingWork(draft, fromServer)) {
     return { ...draft, locked: false, openSconti: true };
   }
   return {
@@ -276,6 +300,7 @@ export function ListiniB2bBoard() {
   const [modelloId, setModelloId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, CondDraft>>({});
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
   const [editCodice, setEditCodice] = useState("");
   const [editNome, setEditNome] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -892,12 +917,22 @@ export function ListiniB2bBoard() {
       {deleting ? (
         <ConfirmDeleteModal
           title="Rimuovi condizione sconto"
-          message={`Togliere lo sconto ${deleting.scontoPct}% su ${deleting.imballaggioCodice ?? "confezione"} da questa riga? Si scrive in bozza solo quando premi Salva sul prodotto.`}
+          message={`Togliere lo sconto ${deleting.scontoPct}% su ${deleting.imballaggioCodice ?? "confezione"} da questa riga? La rimozione si registra subito in bozza (soft delete, tracciata).`}
           confirmLabel="Rimuovi dalla riga"
-          onClose={() => setDeleting(null)}
-          onConfirm={() => {
-            deleting.onConfirm();
-            setDeleting(null);
+          busy={deletingBusy}
+          onClose={() => {
+            if (!deletingBusy) setDeleting(null);
+          }}
+          onConfirm={async () => {
+            setDeletingBusy(true);
+            try {
+              await deleting.onConfirm();
+              setDeleting(null);
+            } catch {
+              /* errore già mostrato */
+            } finally {
+              setDeletingBusy(false);
+            }
           }}
         />
       ) : null}
@@ -947,6 +982,8 @@ function RigaBlock({
   const [localConds, setLocalConds] = useState<LocalCond[]>(
     () => bootstrapRiga(riga).localConds
   );
+  const localCondsRef = useRef(localConds);
+  localCondsRef.current = localConds;
   const [draftKgWarn, setDraftKgWarn] = useState<{
     kg: number;
     standard: number;
@@ -1222,7 +1259,8 @@ function RigaBlock({
                 className="text-xs font-medium text-emerald-800 underline"
                 onClick={() =>
                   startTransition(async () => {
-                    const unlocked = localConds.filter((c) => !c.locked);
+                    const current = localCondsRef.current;
+                    const unlocked = current.filter((c) => !c.locked);
                     if (unlocked.length) {
                       onError(
                         "Blocca ogni riga sconto con Salva prima di salvare il prodotto."
@@ -1230,9 +1268,9 @@ function RigaBlock({
                       return;
                     }
                     const condizioni = [];
-                    for (const c of localConds) {
+                    for (const c of current) {
                       const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
-                        id: c.id,
+                        id: asCondizioneId(c.id),
                         qtyDa: Number(c.qtyDa),
                         qtyA: c.qtyA.trim() === "" ? null : Number(c.qtyA),
                         imballaggioVoceId: c.imballaggioVoceId,
@@ -1292,6 +1330,7 @@ function RigaBlock({
             .filter((x) => x.key !== c.key)
             .map((x) => x.targa)}
           editable={editable && !prodottoLocked}
+          canRemove={editable}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
           confezioni={confezioni}
@@ -1306,14 +1345,26 @@ function RigaBlock({
             )
           }
           onError={onError}
-          onDelete={() =>
+          onDelete={() => {
+            const condId = asCondizioneId(c.id);
+            const condKey = c.key;
             onAskDelete({
               scontoPct: Number(c.scontoPct) || 0,
               imballaggioCodice: c.imballaggioCodice,
-              onConfirm: () =>
-                setLocalConds((prev) => prev.filter((x) => x.key !== c.key)),
-            })
-          }
+              onConfirm: async () => {
+                if (condId) {
+                  const res = await softDeleteListinoRigaCondizioneAction(condId);
+                  if (!res.success) {
+                    onError(res.error);
+                    throw new Error(res.error);
+                  }
+                }
+                setLocalConds((prev) =>
+                  prev.filter((x) => x.key !== condKey && x.id !== condId)
+                );
+              },
+            });
+          }}
         />
       ))
         : null}
@@ -1486,6 +1537,7 @@ function CondizioneRow({
   unitaMisura,
   locale,
   editable,
+  canRemove,
   pending,
   extraLeadCells,
   confezioni,
@@ -1502,6 +1554,7 @@ function CondizioneRow({
   unitaMisura: ListinoRigaUm;
   locale: string;
   editable: boolean;
+  canRemove: boolean;
   pending: boolean;
   extraLeadCells: number;
   confezioni: ImballaggioVoce[];
@@ -1710,45 +1763,50 @@ function CondizioneRow({
         )}
       </td>
       <td className="px-3 py-1.5">
-        {editable ? (
+        {editable || canRemove ? (
           <div className="flex flex-wrap gap-2">
-            {cond.locked ? (
+            {editable ? (
+              cond.locked ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  className="text-xs font-medium text-slate-800 underline"
+                  onClick={onUnlock}
+                >
+                  Modifica
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={pending || Boolean(qtyAvviso)}
+                  className="text-xs font-medium text-emerald-800 underline disabled:opacity-40"
+                  onClick={() => {
+                    const std = standardConfezioneProdotto(
+                      confezioni.find((v) => v.id === cond.imballaggioVoceId),
+                      prodottoId
+                    );
+                    const nextKg = Number(cond.kg);
+                    if (std && nextKg > std.max) {
+                      setKgWarn({ kg: nextKg, standard: std.max, um: std.um });
+                      return;
+                    }
+                    tryLock(false);
+                  }}
+                >
+                  Salva
+                </button>
+              )
+            ) : null}
+            {canRemove ? (
               <button
                 type="button"
                 disabled={pending}
-                className="text-xs font-medium text-slate-800 underline"
-                onClick={onUnlock}
+                className="text-xs text-red-700 underline disabled:opacity-40"
+                onClick={onDelete}
               >
-                Modifica
+                Rimuovi
               </button>
-            ) : (
-              <button
-                type="button"
-                disabled={pending || Boolean(qtyAvviso)}
-                className="text-xs font-medium text-emerald-800 underline disabled:opacity-40"
-                onClick={() => {
-                  const std = standardConfezioneProdotto(
-                    confezioni.find((v) => v.id === cond.imballaggioVoceId),
-                    prodottoId
-                  );
-                  const nextKg = Number(cond.kg);
-                  if (std && nextKg > std.max) {
-                    setKgWarn({ kg: nextKg, standard: std.max, um: std.um });
-                    return;
-                  }
-                  tryLock(false);
-                }}
-              >
-                Salva
-              </button>
-            )}
-            <button
-              type="button"
-              className="text-xs text-red-700 underline"
-              onClick={onDelete}
-            >
-              Rimuovi
-            </button>
+            ) : null}
           </div>
         ) : null}
       </td>
