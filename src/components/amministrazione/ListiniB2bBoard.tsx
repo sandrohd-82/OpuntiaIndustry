@@ -22,6 +22,12 @@ import {
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
+import { SortableTh } from "@/components/ui/SortableTh";
+import {
+  compareSortValues,
+  nextSortState,
+  type SortState,
+} from "@/lib/ui/list-sort";
 import {
   labelLingua,
   lingueDaNazioni,
@@ -74,6 +80,66 @@ const STATO_HELP: Record<ListinoStato, string> = {
   bozza_traduzione:
     "Copia in lingua madre generata a «Listino completo». Stessi prezzi; nomi prodotto restano in italiano fino alla compilazione traduzioni. Etichette fisse (Al kg, sconto…) nella lingua della versione.",
 };
+
+type ListinoElencoSortKey =
+  | "codice"
+  | "stato"
+  | "nazioni"
+  | "inUsoDal"
+  | "versione";
+
+type ListinoRigaSortKey =
+  | "prodotto"
+  | "prezzo"
+  | "um"
+  | "disponibilita"
+  | "check"
+  | "qtyDa"
+  | "qtyA"
+  | "confezionamento"
+  | "kg"
+  | "targa"
+  | "scontoPct";
+
+function listinoElencoSortValue(
+  item: Listino,
+  key: ListinoElencoSortKey
+): string | number | null {
+  if (key === "codice") return item.codice;
+  if (key === "stato") return STATO_LABEL[item.stato];
+  if (key === "versione") return item.versione;
+  if (key === "inUsoDal") {
+    return item.stato === "in_uso" && item.publishedAt
+      ? item.publishedAt.slice(0, 10)
+      : null;
+  }
+  if (item.listinoOrigineId) return `Versione ${labelLingua(item.locale)}`;
+  if (!item.nazioni.length) return null;
+  return item.nazioni.map((n) => n.iso2).join(",");
+}
+
+function rigaSortValue(
+  r: ListinoRiga,
+  key: ListinoRigaSortKey
+): string | number | null {
+  const c = r.condizioni[0];
+  if (key === "prodotto") {
+    return `${r.prodottoCodice ?? ""} ${r.prodottoNome ?? ""}`.trim();
+  }
+  if (key === "prezzo") return r.prezzo;
+  if (key === "um") return r.unitaMisura;
+  if (key === "disponibilita") return LISTINO_DISPONIBILITA_LABEL[r.disponibilita];
+  if (key === "check") return r.revisioneApprovata ? 1 : 0;
+  if (!c) return null;
+  if (key === "qtyDa") return c.qtyDa;
+  if (key === "qtyA") return c.qtyA ?? Number.POSITIVE_INFINITY;
+  if (key === "confezionamento") {
+    return `${c.imballaggioCodice ?? ""} ${c.imballaggioNome ?? ""}`.trim();
+  }
+  if (key === "kg") return c.kgConfezione;
+  if (key === "targa") return c.targa || null;
+  return c.scontoPct;
+}
 
 type DeleteTarget = {
   scontoPct: number;
@@ -301,6 +367,10 @@ export function ListiniB2bBoard() {
   const [drafts, setDrafts] = useState<Record<string, CondDraft>>({});
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  const [elencoSort, setElencoSort] =
+    useState<SortState<ListinoElencoSortKey> | null>(null);
+  const [rigaSort, setRigaSort] =
+    useState<SortState<ListinoRigaSortKey> | null>(null);
   const [editCodice, setEditCodice] = useState("");
   const [editNome, setEditNome] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -349,8 +419,10 @@ export function ListiniB2bBoard() {
   useEffect(() => {
     if (!selectedId) {
       setRighe([]);
+      setRigaSort(null);
       return;
     }
+    setRigaSort(null);
     startTransition(async () => {
       await reloadRighe(selectedId);
     });
@@ -359,6 +431,26 @@ export function ListiniB2bBoard() {
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const isBozza = selected?.stato === "bozza";
   const incompleteCount = righe.filter((r) => !rigaListinoCompleta(r)).length;
+  const itemsSorted = useMemo(() => {
+    if (!elencoSort) return items;
+    return [...items].sort((a, b) =>
+      compareSortValues(
+        listinoElencoSortValue(a, elencoSort.key),
+        listinoElencoSortValue(b, elencoSort.key),
+        elencoSort.dir
+      )
+    );
+  }, [items, elencoSort]);
+  const righeSorted = useMemo(() => {
+    if (!rigaSort) return righe;
+    return [...righe].sort((a, b) =>
+      compareSortValues(
+        rigaSortValue(a, rigaSort.key),
+        rigaSortValue(b, rigaSort.key),
+        rigaSort.dir
+      )
+    );
+  }, [righe, rigaSort]);
 
   useEffect(() => {
     if (!selected) return;
@@ -509,15 +601,45 @@ export function ListiniB2bBoard() {
             <table className="min-w-full text-left text-sm">
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-3 py-2">Codice</th>
-                  <th className="px-3 py-2">Stato</th>
-                  <th className="px-3 py-2">Nazioni / lingua</th>
-                  <th className="px-3 py-2">In Uso dal</th>
-                  <th className="px-3 py-2">v</th>
+                  <SortableTh
+                    label="Codice"
+                    sortKey="codice"
+                    sort={elencoSort}
+                    onSort={(k) => setElencoSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Stato"
+                    sortKey="stato"
+                    sort={elencoSort}
+                    onSort={(k) => setElencoSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Nazioni / lingua"
+                    sortKey="nazioni"
+                    sort={elencoSort}
+                    onSort={(k) => setElencoSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="In Uso dal"
+                    sortKey="inUsoDal"
+                    sort={elencoSort}
+                    onSort={(k) => setElencoSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="v"
+                    sortKey="versione"
+                    sort={elencoSort}
+                    onSort={(k) => setElencoSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {itemsSorted.map((item) => (
                   <tr
                     key={item.id}
                     className={`cursor-pointer border-t border-[var(--border)] ${
@@ -744,34 +866,92 @@ export function ListiniB2bBoard() {
             <table className="min-w-[960px] w-full text-left text-sm">
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
                 <tr>
-                  <th className="px-3 py-2">Prodotto</th>
-                  <th className="px-3 py-2">Prezzo</th>
-                  <th className="px-3 py-2">UM</th>
-                  <th className="px-3 py-2">Disponibilità</th>
+                  <SortableTh
+                    label="Prodotto"
+                    sortKey="prodotto"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Prezzo"
+                    sortKey="prezzo"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="UM"
+                    sortKey="um"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Disponibilità"
+                    sortKey="disponibilita"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
                   {selected.stato === "in_revisione" ? (
-                    <th className="px-3 py-2">Check</th>
+                    <SortableTh
+                      label="Check"
+                      sortKey="check"
+                      sort={rigaSort}
+                      onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                      className="px-3 py-2"
+                    />
                   ) : null}
-                  <th
+                  <SortableTh
+                    label="Qty da"
+                    sortKey="qtyDa"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
                     className="px-3 py-2"
-                    title="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
-                  >
-                    Qty da
-                  </th>
-                  <th
+                    hint="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
+                  />
+                  <SortableTh
+                    label="Qty a"
+                    sortKey="qtyA"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
                     className="px-3 py-2"
-                    title="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
-                  >
-                    Qty a
-                  </th>
-                  <th className="px-3 py-2">Confezionamento</th>
-                  <th className="px-3 py-2">Kg</th>
-                  <th className="px-3 py-2">Targa</th>
-                  <th className="px-3 py-2">Sconto %</th>
+                    hint="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
+                  />
+                  <SortableTh
+                    label="Confezionamento"
+                    sortKey="confezionamento"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Kg"
+                    sortKey="kg"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Targa"
+                    sortKey="targa"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
+                  <SortableTh
+                    label="Sconto %"
+                    sortKey="scontoPct"
+                    sort={rigaSort}
+                    onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
+                    className="px-3 py-2"
+                  />
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {righe.map((r) => (
+                {righeSorted.map((r) => (
                   <RigaBlock
                     key={r.id}
                     riga={r}
