@@ -9,17 +9,48 @@ import type {
 export const LISTINO_RIGA_UM = ["kg", "lt"] as const;
 export type ListinoRigaUm = (typeof LISTINO_RIGA_UM)[number];
 
+export const LISTINO_CODICE_PREFIX = "B2B-";
+
+export function listinoCodiceSlug(raw: string): string {
+  let s = raw.trim();
+  if (/^B2B-/i.test(s)) s = s.slice(4);
+  s = s.replace(/-V\d+\s*$/i, "");
+  return s.replace(/[^A-Za-z0-9]+/g, "").slice(0, 28);
+}
+
+export function parseListinoCodice(codice: string): {
+  slug: string;
+  versione: number;
+} {
+  const m = codice.trim().match(/^B2B-(.+)-V(\d+)$/i);
+  if (m) {
+    return {
+      slug: listinoCodiceSlug(m[1]),
+      versione: Number(m[2]) || 1,
+    };
+  }
+  return { slug: listinoCodiceSlug(codice), versione: 1 };
+}
+
+export function buildListinoCodice(slug: string, versione: number): string {
+  const s = listinoCodiceSlug(slug);
+  const v =
+    Number.isFinite(versione) && versione >= 1 ? Math.floor(versione) : 1;
+  return `${LISTINO_CODICE_PREFIX}${s}-V${v}`;
+}
+
 export const createListinoSchema = z.object({
-  codice: z.string().trim().min(2, "Codice obbligatorio").max(40),
+  codice: z.string().trim().min(1, "Inserisci il testo del codice"),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
   note: z.string().trim().max(4000).optional().default(""),
   modelloId: z.string().uuid().optional().nullable(),
   sostituisceId: z.string().uuid().optional().nullable(),
+  versioneCodice: z.number().int().positive().optional(),
 });
 
 export const updateListinoSchema = z.object({
   id: z.string().uuid(),
-  codice: z.string().trim().min(2, "Codice obbligatorio").max(40),
+  codice: z.string().trim().min(1, "Inserisci il testo del codice"),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
   note: z.string().trim().max(4000).optional().default(""),
 });

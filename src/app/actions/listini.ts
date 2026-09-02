@@ -4,11 +4,14 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
+  buildListinoCodice,
   createListinoSchema,
+  listinoCodiceSlug,
   listinoCondizioniSovrapposte,
   mapListino,
   mapListinoRiga,
   mapListinoRigaCondizione,
+  parseListinoCodice,
   rigaListinoCompleta,
   updateListinoSchema,
   upsertListinoRigaCondizioneSchema,
@@ -66,12 +69,18 @@ export async function createListinoAction(input: unknown): Promise<
     };
   }
 
+  const slug = listinoCodiceSlug(parsed.data.codice);
+  if (!slug) {
+    return { success: false, error: "Inserisci il testo del codice dopo B2B-." };
+  }
+  const codice = buildListinoCodice(slug, parsed.data.versioneCodice ?? 1);
+
   const supabase = await createClient();
   const copyFromId = parsed.data.modelloId || parsed.data.sostituisceId || null;
   const { data, error } = await supabase
     .from("listini")
     .insert({
-      codice: parsed.data.codice,
+      codice,
       nome: parsed.data.nome,
       canale: "b2b",
       valido_dal: new Date().toISOString().slice(0, 10),
@@ -282,10 +291,24 @@ export async function updateListinoAction(input: unknown): Promise<
   const gate = await requireListinoBozza(supabase, parsed.data.id);
   if (!gate.ok) return { success: false, error: gate.error };
 
+  const { data: current } = await supabase
+    .from("listini")
+    .select("codice")
+    .eq("id", parsed.data.id)
+    .maybeSingle();
+  const slug = listinoCodiceSlug(parsed.data.codice);
+  if (!slug) {
+    return { success: false, error: "Inserisci il testo del codice dopo B2B-." };
+  }
+  const versioneCodice = parseListinoCodice(
+    (current as { codice?: string } | null)?.codice ?? ""
+  ).versione;
+  const codice = buildListinoCodice(slug, versioneCodice);
+
   const { data, error } = await supabase
     .from("listini")
     .update({
-      codice: parsed.data.codice,
+      codice,
       nome: parsed.data.nome,
       note: parsed.data.note,
       updated_by: auth.userId,
@@ -617,12 +640,14 @@ export async function dichiaraListinoObsoletoAction(input: {
 
   if (!input.creaSostituzione) return { success: true };
 
+  const parsedCodice = parseListinoCodice(row.codice);
   const created = await createListinoAction({
-    codice: `${row.codice}-S`,
+    codice: parsedCodice.slug || row.codice,
     nome: `${row.nome} (sostituzione)`,
     note: `Sostituisce ${row.codice}`,
     modelloId: row.id,
     sostituisceId: row.id,
+    versioneCodice: parsedCodice.versione + 1,
   });
   if (!created.success) return created;
   return { success: true, bozzaId: created.item.id };

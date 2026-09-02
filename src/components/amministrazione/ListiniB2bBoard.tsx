@@ -23,9 +23,12 @@ import {
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import {
+  LISTINO_CODICE_PREFIX,
   LISTINO_DISPONIBILITA,
   LISTINO_DISPONIBILITA_LABEL,
   LISTINO_RIGA_UM,
+  listinoCodiceSlug,
+  parseListinoCodice,
   rigaListinoCompleta,
   type Listino,
   type ListinoDisponibilita,
@@ -73,6 +76,36 @@ const emptyCond: CondDraft = {
   scontoPct: "0",
 };
 
+function CodiceListinoField({
+  slug,
+  versione,
+  disabled,
+  onSlugChange,
+}: {
+  slug: string;
+  versione: number;
+  disabled?: boolean;
+  onSlugChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-stretch overflow-hidden rounded-md border border-[var(--border)] bg-[var(--background)]">
+      <span className="shrink-0 bg-slate-100 px-2 py-2 text-sm font-medium text-slate-600">
+        {LISTINO_CODICE_PREFIX}
+      </span>
+      <input
+        className="min-w-0 flex-1 bg-transparent px-2 py-2 text-sm outline-none disabled:text-slate-500"
+        placeholder="InserisciTesto"
+        value={slug}
+        disabled={disabled}
+        onChange={(e) => onSlugChange(listinoCodiceSlug(e.target.value))}
+      />
+      <span className="shrink-0 bg-slate-100 px-2 py-2 text-sm font-medium text-slate-600">
+        -V{versione}
+      </span>
+    </div>
+  );
+}
+
 export function ListiniB2bBoard() {
   const [items, setItems] = useState<Listino[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -84,7 +117,7 @@ export function ListiniB2bBoard() {
   const [imballaggi, setImballaggi] = useState<ImballaggioVoce[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [codice, setCodice] = useState("B2B-");
+  const [codiceSlug, setCodiceSlug] = useState("");
   const [nome, setNome] = useState("");
   const [modelloOpen, setModelloOpen] = useState(false);
   const [modelloId, setModelloId] = useState("");
@@ -145,7 +178,7 @@ export function ListiniB2bBoard() {
 
   useEffect(() => {
     if (!selected) return;
-    setEditCodice(selected.codice);
+    setEditCodice(parseListinoCodice(selected.codice).slug);
     setEditNome(selected.nome);
     setEditNote(selected.note);
   }, [selected?.id, selected?.codice, selected?.nome, selected?.note]);
@@ -167,16 +200,17 @@ export function ListiniB2bBoard() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-semibold">Nuovo listino B2B</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Al salvataggio compaiono tutte le voci prodotto, vuote e senza
-              sconti. La validità inizia solo quando il listino va In Uso. Prezzo
-              0 solo con dichiarazione «fuori produzione» o «non disponibile».
+              Codice: B2B- + testo + -V1 (la versione non è modificabile). Al
+              salvataggio compaiono tutte le voci prodotto, vuote e senza sconti.
+              Prezzo 0 solo con dichiarazione «fuori produzione» o «non
+              disponibile».
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <input
-                className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
-                placeholder="Codice"
-                value={codice}
-                onChange={(e) => setCodice(e.target.value)}
+              <CodiceListinoField
+                slug={codiceSlug}
+                versione={1}
+                onSlugChange={setCodiceSlug}
+                disabled={pending}
               />
               <input
                 className="rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm"
@@ -188,15 +222,19 @@ export function ListiniB2bBoard() {
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={pending}
+                disabled={pending || !codiceSlug}
                 className="rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                 onClick={() =>
                   startTransition(async () => {
-                    const res = await createListinoAction({ codice, nome });
+                    const res = await createListinoAction({
+                      codice: codiceSlug,
+                      nome,
+                    });
                     if (!res.success) {
                       setError(res.error);
                       return;
                     }
+                    setCodiceSlug("");
                     setNome("");
                     setModelloOpen(false);
                     reloadListini();
@@ -239,12 +277,12 @@ export function ListiniB2bBoard() {
                 </label>
                 <button
                   type="button"
-                  disabled={pending || !modelloId}
+                  disabled={pending || !modelloId || !codiceSlug}
                   className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                   onClick={() =>
                     startTransition(async () => {
                       const res = await createListinoAction({
-                        codice,
+                        codice: codiceSlug,
                         nome,
                         modelloId,
                       });
@@ -252,6 +290,7 @@ export function ListiniB2bBoard() {
                         setError(res.error);
                         return;
                       }
+                      setCodiceSlug("");
                       setNome("");
                       setModelloOpen(false);
                       reloadListini();
@@ -318,12 +357,14 @@ export function ListiniB2bBoard() {
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-[var(--muted)]">
                   Codice
-                  <input
-                    className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
-                    value={editCodice}
-                    disabled={!isBozza || pending}
-                    onChange={(e) => setEditCodice(e.target.value)}
-                  />
+                  <div className="mt-1">
+                    <CodiceListinoField
+                      slug={editCodice}
+                      versione={parseListinoCodice(selected.codice).versione}
+                      onSlugChange={setEditCodice}
+                      disabled={!isBozza || pending}
+                    />
+                  </div>
                 </label>
                 <label className="text-xs text-[var(--muted)]">
                   Nome
