@@ -29,6 +29,7 @@ import {
   updateListinoSchema,
   upsertListinoRigaCondizioneSchema,
   upsertListinoRigaSchema,
+  LISTINO_DISPONIBILITA,
   type Listino,
   type ListinoDisponibilita,
   type ListinoRiga,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/ecosystem/listini";
 import {
   buildListinoExport,
+  filterListinoRigheExport,
   LISTINO_STATO_EXPORT_LABEL,
 } from "@/lib/ecosystem/listino-export";
 import { buildListinoXlsxBuffer } from "@/lib/ecosystem/listino-export-xlsx";
@@ -1770,11 +1772,28 @@ export async function updateProdottoCanaleAction(input: {
 
 export type { ListinoVoceVigente };
 
+const exportDisponibilitaSchema = z
+  .array(z.enum(LISTINO_DISPONIBILITA))
+  .min(1, "Seleziona almeno uno stato prodotto da esportare.");
+
+function parseExportDisponibilita(
+  raw: unknown
+): ListinoDisponibilita[] | { error: string } {
+  const parsed = exportDisponibilitaSchema.safeParse(raw ?? [...LISTINO_DISPONIBILITA]);
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Stati prodotto non validi",
+    };
+  }
+  return parsed.data;
+}
+
 export async function logListinoExportAction(input: {
   listinoId: string;
   formato: "pdf" | "xlsx";
   prodottoIds: string[];
   tutti: boolean;
+  disponibilita?: ListinoDisponibilita[];
 }): Promise<
   { success: true; actor: string } | { success: false; error: string }
 > {
@@ -1785,6 +1804,8 @@ export async function logListinoExportAction(input: {
   if (input.formato !== "pdf" && input.formato !== "xlsx") {
     return { success: false, error: "Formato export non valido" };
   }
+  const disp = parseExportDisponibilita(input.disponibilita);
+  if ("error" in disp) return { success: false, error: disp.error };
   const ids = input.prodottoIds.filter((id) => z.string().uuid().safeParse(id).success);
   if (!input.tutti && ids.length === 0) {
     return { success: false, error: "Seleziona almeno un prodotto." };
@@ -1810,12 +1831,13 @@ export async function logListinoExportAction(input: {
     entity_id: input.listinoId,
     action: "export",
     actor_id: auth.userId,
-    summary: `Export listino ${(listino as { codice: string }).codice} ${input.formato.toUpperCase()} (${input.tutti ? "completo" : `${ids.length} prodotti`})`,
+    summary: `Export listino ${(listino as { codice: string }).codice} ${input.formato.toUpperCase()} (${input.tutti ? "completo" : `${ids.length} prodotti`}; ${disp.join(",")})`,
     payload: {
       formato: input.formato,
       tutti: input.tutti,
       prodotto_ids: input.tutti ? [] : ids,
       prodotti: input.tutti ? null : ids.length,
+      disponibilita: disp,
     },
   });
 
@@ -1826,6 +1848,7 @@ export async function exportListinoXlsxAction(input: {
   listinoId: string;
   prodottoIds: string[];
   tutti: boolean;
+  disponibilita?: ListinoDisponibilita[];
 }): Promise<
   | { success: true; actor: string; filename: string; base64: string }
   | { success: false; error: string }
@@ -1853,12 +1876,17 @@ export async function exportListinoXlsxAction(input: {
     nazioniMap.get(input.listinoId) ?? []
   );
 
+  const disp = parseExportDisponibilita(input.disponibilita);
+  if ("error" in disp) return { success: false, error: disp.error };
   const idSet = new Set(input.prodottoIds);
-  const chosen = input.tutti
-    ? listed.items
-    : listed.items.filter((r) => idSet.has(r.prodottoId));
+  const chosen = filterListinoRigheExport(
+    input.tutti
+      ? listed.items
+      : listed.items.filter((r) => idSet.has(r.prodottoId)),
+    disp
+  );
   if (!chosen.length) {
-    return { success: false, error: "Nessun prodotto da esportare." };
+    return { success: false, error: "Nessun prodotto da esportare per gli stati selezionati." };
   }
 
   const { meta, rows } = buildListinoExport(listino, chosen, {

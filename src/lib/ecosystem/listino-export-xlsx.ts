@@ -13,9 +13,10 @@ export async function buildListinoXlsxBuffer(
   const wb = new ExcelJS.Workbook();
   wb.creator = "OpuntiaIndustry";
   wb.created = new Date();
-  wb.title = `Listino ${meta.codice}`;
+  wb.title = meta.nome || `Listino ${meta.codice}`;
 
   const ws = wb.addWorksheet("Listino", {
+    views: [{ state: "normal", showGridLines: false }],
     pageSetup: {
       orientation: "landscape",
       fitToPage: true,
@@ -33,7 +34,23 @@ export async function buildListinoXlsxBuffer(
     { width: 12 },
   ];
 
+  const titleRow = ws.addRow([meta.nome]);
+  ws.mergeCells(1, 1, 1, 6);
+  titleRow.height = 26;
+  const titleCell = titleRow.getCell(1);
+  titleCell.font = { name: "Calibri", size: 16, bold: true };
+  titleCell.alignment = {
+    horizontal: "center",
+    vertical: "middle",
+    wrapText: true,
+  };
+
   for (const row of rows) {
+    if (row.kind === "spacer") {
+      const spacer = ws.addRow([]);
+      spacer.height = 12;
+      continue;
+    }
     const excelRow = ws.addRow(listinoExportRowCells(row));
     excelRow.font = { name: "Calibri", size: 10 };
     if (row.kind === "product_head") {
@@ -73,8 +90,6 @@ export async function buildListinoXlsxBuffer(
           fgColor: { argb: "FFECFDF5" },
         };
       });
-    } else if (row.kind === "spacer") {
-      excelRow.height = 10;
     }
   }
 

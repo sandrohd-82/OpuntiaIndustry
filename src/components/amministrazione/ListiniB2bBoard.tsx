@@ -22,7 +22,10 @@ import {
   exportListinoXlsxAction,
 } from "@/app/actions/listini";
 import { downloadListinoPdf } from "@/lib/ecosystem/listino-export-pdf";
-import { buildListinoExport } from "@/lib/ecosystem/listino-export";
+import {
+  buildListinoExport,
+  filterListinoRigheExport,
+} from "@/lib/ecosystem/listino-export";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -376,6 +379,12 @@ export function ListiniB2bBoard() {
   const [rigaSort, setRigaSort] =
     useState<SortState<ListinoRigaSortKey> | null>(null);
   const [exportIds, setExportIds] = useState<Set<string>>(new Set());
+  const [exportFormato, setExportFormato] = useState<"pdf" | "xlsx" | null>(
+    null
+  );
+  const [exportDisp, setExportDisp] = useState<Set<ListinoDisponibilita>>(
+    () => new Set(LISTINO_DISPONIBILITA)
+  );
   const [editCodice, setEditCodice] = useState("");
   const [editNome, setEditNome] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -488,16 +497,26 @@ export function ListiniB2bBoard() {
     );
   }
 
-  function exportListino(formato: "pdf" | "xlsx") {
+  function requestExport(formato: "pdf" | "xlsx") {
+    setExportDisp(new Set(LISTINO_DISPONIBILITA));
+    setExportFormato(formato);
+  }
+
+  function exportListino(
+    formato: "pdf" | "xlsx",
+    disponibilita: ListinoDisponibilita[]
+  ) {
     if (!selected) return;
-    const chosen =
+    const pool =
       exportIds.size === 0
         ? righeSorted
         : righeSorted.filter((r) => exportIds.has(r.id));
+    const chosen = filterListinoRigheExport(pool, disponibilita);
     if (!chosen.length) {
-      setError("Nessun prodotto da esportare.");
+      setError("Nessun prodotto da esportare per gli stati selezionati.");
       return;
     }
+    setExportFormato(null);
     startTransition(async () => {
       const prodottoIds = chosen.map((r) => r.prodottoId);
       const tutti = exportIds.size === 0;
@@ -506,6 +525,7 @@ export function ListiniB2bBoard() {
           listinoId: selected.id,
           prodottoIds,
           tutti,
+          disponibilita,
         });
         if (!res.success) {
           setError(res.error);
@@ -531,6 +551,7 @@ export function ListiniB2bBoard() {
         formato,
         prodottoIds,
         tutti,
+        disponibilita,
       });
       if (!res.success) {
         setError(res.error);
@@ -959,7 +980,7 @@ export function ListiniB2bBoard() {
                 type="button"
                 disabled={pending}
                 className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 disabled:opacity-50"
-                onClick={() => exportListino("pdf")}
+                onClick={() => requestExport("pdf")}
               >
                 Esporta PDF
                 {exportIds.size ? ` (${exportIds.size})` : " (tutto)"}
@@ -968,14 +989,15 @@ export function ListiniB2bBoard() {
                 type="button"
                 disabled={pending}
                 className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 disabled:opacity-50"
-                onClick={() => exportListino("xlsx")}
+                onClick={() => requestExport("xlsx")}
               >
                 Esporta Excel
                 {exportIds.size ? ` (${exportIds.size})` : " (tutto)"}
               </button>
               <p className="text-[11px] text-[var(--muted)]">
                 Nessuna spunta = listino completo. Spunta i prodotti per
-                esportare solo quelli.
+                esportare solo quelli. All’export scegli In produzione / Fuori
+                produzione / Al momento non disponibile.
               </p>
             </div>
           ) : null}
@@ -1095,6 +1117,72 @@ export function ListiniB2bBoard() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : null}
+
+      {exportFormato && selected ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold">
+              Esporta {exportFormato === "pdf" ? "PDF" : "Excel"}
+            </h3>
+            <p className="mt-2 text-sm text-slate-700">
+              Quali prodotti vuoi includere nel documento?
+            </p>
+            <div className="mt-3 space-y-2">
+              {LISTINO_DISPONIBILITA.map((id) => {
+                const pool =
+                  exportIds.size === 0
+                    ? righeSorted
+                    : righeSorted.filter((r) => exportIds.has(r.id));
+                const count = pool.filter((r) => r.disponibilita === id).length;
+                return (
+                  <label
+                    key={id}
+                    className="flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={exportDisp.has(id)}
+                      onChange={() => {
+                        setExportDisp((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(id)) next.delete(id);
+                          else next.add(id);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="font-medium">
+                      {LISTINO_DISPONIBILITA_LABEL[id]}
+                    </span>
+                    <span className="text-xs text-[var(--muted)]">
+                      ({count})
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border px-3 py-1.5 text-sm"
+                onClick={() => setExportFormato(null)}
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending || exportDisp.size === 0}
+                className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                onClick={() =>
+                  exportListino(exportFormato, [...exportDisp])
+                }
+              >
+                Esporta
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

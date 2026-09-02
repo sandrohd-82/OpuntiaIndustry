@@ -1,5 +1,20 @@
-import type { Listino, ListinoRiga } from "@/lib/ecosystem/listini";
+import type {
+  Listino,
+  ListinoDisponibilita,
+  ListinoRiga,
+} from "@/lib/ecosystem/listini";
+import { LISTINO_DISPONIBILITA } from "@/lib/ecosystem/listini";
 import type { ListinoStato } from "@/types/database";
+
+export function filterListinoRigheExport(
+  righe: ListinoRiga[],
+  disponibilita: readonly ListinoDisponibilita[]
+): ListinoRiga[] {
+  const allowed = new Set(
+    disponibilita.length ? disponibilita : LISTINO_DISPONIBILITA
+  );
+  return righe.filter((r) => allowed.has(r.disponibilita));
+}
 
 export const LISTINO_STATO_EXPORT_LABEL: Record<ListinoStato, string> = {
   bozza: "Bozza",

@@ -7,6 +7,23 @@ import {
   type ListinoExportRow,
 } from "@/lib/ecosystem/listino-export";
 
+function splitProductBlocks(rows: ListinoExportRow[]): ListinoExportRow[][] {
+  const blocks: ListinoExportRow[][] = [];
+  let current: ListinoExportRow[] = [];
+  for (const row of rows) {
+    if (row.kind === "spacer") {
+      if (current.length) {
+        blocks.push(current);
+        current = [];
+      }
+      continue;
+    }
+    current.push(row);
+  }
+  if (current.length) blocks.push(current);
+  return blocks;
+}
+
 export function downloadListinoPdf(
   meta: ListinoExportMeta,
   rows: ListinoExportRow[]
@@ -17,15 +34,18 @@ export function downloadListinoPdf(
   let y = 12;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.text(`Listino ${meta.codice}`, marginX, y);
-  y += 6;
+  doc.setFontSize(16);
+  doc.text(meta.nome || `Listino ${meta.codice}`, pageWidth / 2, y, {
+    align: "center",
+    maxWidth: pageWidth - marginX * 2,
+  });
+  y += 8;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(60);
   const info = [
-    `${meta.nome} · stato ${meta.statoLabel} · versione V${meta.versione} · lingua ${meta.locale.toUpperCase()}`,
+    `${meta.codice} · stato ${meta.statoLabel} · versione V${meta.versione} · lingua ${meta.locale.toUpperCase()}`,
     `Esportato il ${meta.exportedAt} da ${meta.actor}`,
     `Ambito: ${meta.scope === "selezione" ? "prodotti selezionati" : "listino completo"} · ${meta.prodottiCount} prodotti · ${meta.scontiCount} sconti`,
   ];
@@ -35,16 +55,13 @@ export function downloadListinoPdf(
   }
   y += 2;
 
-  autoTable(doc, {
-    startY: y,
-    head: [],
-    body: rows.map(listinoExportRowCells),
+  const tableOpts = {
     styles: {
       font: "helvetica",
       fontSize: 8,
       cellPadding: 1.6,
-      overflow: "linebreak",
-      valign: "middle",
+      overflow: "linebreak" as const,
+      valign: "middle" as const,
     },
     columnStyles: {
       0: { cellWidth: 42 },
@@ -55,24 +72,34 @@ export function downloadListinoPdf(
       5: { cellWidth: 24 },
     },
     margin: { left: marginX, right: marginX },
-    theme: "plain",
-    didParseCell: (data) => {
-      const row = rows[data.row.index];
-      if (!row) return;
-      if (row.kind === "product_head" || row.kind === "discount_head") {
-        data.cell.styles.fontStyle = "bold";
-        data.cell.styles.fillColor =
-          row.kind === "product_head" ? [15, 118, 110] : [51, 65, 85];
-        data.cell.styles.textColor = 255;
-      } else if (row.kind === "product") {
-        data.cell.styles.fillColor = [236, 253, 245];
-        data.cell.styles.fontStyle = "bold";
-      } else if (row.kind === "spacer") {
-        data.cell.styles.minCellHeight = 3;
-        data.cell.styles.fillColor = [255, 255, 255];
-      }
-    },
-  });
+    theme: "plain" as const,
+  };
+
+  for (const block of splitProductBlocks(rows)) {
+    autoTable(doc, {
+      ...tableOpts,
+      startY: y,
+      head: [],
+      body: block.map(listinoExportRowCells),
+      didParseCell: (data) => {
+        const row = block[data.row.index];
+        if (!row) return;
+        if (row.kind === "product_head" || row.kind === "discount_head") {
+          data.cell.styles.fontStyle = "bold";
+          data.cell.styles.fillColor =
+            row.kind === "product_head" ? [15, 118, 110] : [51, 65, 85];
+          data.cell.styles.textColor = 255;
+        } else if (row.kind === "product") {
+          data.cell.styles.fillColor = [236, 253, 245];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
+    });
+    const lastY = (
+      doc as jsPDF & { lastAutoTable?: { finalY: number } }
+    ).lastAutoTable?.finalY;
+    y = (lastY ?? y) + 10;
+  }
 
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
