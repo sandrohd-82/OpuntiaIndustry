@@ -16,6 +16,7 @@ import {
   setListinoRigaRevisioneAction,
   updateListinoAction,
   upsertListinoRigaAction,
+  upsertListinoRigaCondizioneAction,
 } from "@/app/actions/listini";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
@@ -93,6 +94,75 @@ type LocalCond = {
   locked: boolean;
   targa: string;
 };
+
+function rigaDraftKey(rigaId: string) {
+  return `oi.listino.riga.draft.v1:${rigaId}`;
+}
+
+type RigaDraftStore = {
+  prezzo: string;
+  um: ListinoRigaUm;
+  disp: ListinoDisponibilita;
+  localConds: LocalCond[];
+};
+
+function readRigaDraft(rigaId: string): RigaDraftStore | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(rigaDraftKey(rigaId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as RigaDraftStore;
+    if (!Array.isArray(parsed.localConds)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeRigaDraft(rigaId: string, draft: RigaDraftStore) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(rigaDraftKey(rigaId), JSON.stringify(draft));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function clearRigaDraft(rigaId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(rigaDraftKey(rigaId));
+  } catch {
+    /* ignore */
+  }
+}
+
+function bootstrapRiga(riga: ListinoRiga): RigaDraftStore & {
+  locked: boolean;
+  openSconti: boolean;
+} {
+  const fromServer = riga.condizioni.map(condFromRiga);
+  const prezzoDefault =
+    riga.prezzo === 0 && riga.disponibilita === "in_produzione"
+      ? ""
+      : String(riga.prezzo);
+  const draft = readRigaDraft(riga.id);
+  if (
+    draft &&
+    draft.localConds.length > fromServer.length &&
+    draft.localConds.some((c) => c.locked)
+  ) {
+    return { ...draft, locked: false, openSconti: true };
+  }
+  return {
+    prezzo: prezzoDefault,
+    um: riga.unitaMisura,
+    disp: riga.disponibilita,
+    localConds: fromServer,
+    locked: rigaListinoCompleta(riga),
+    openSconti: false,
+  };
+}
 
 function condFromRiga(c: ListinoRigaCondizione): LocalCond {
   return {
@@ -866,42 +936,42 @@ function RigaBlock({
   altriRighe: ListinoRiga[];
   startTransition: (fn: () => Promise<void>) => void;
 }) {
-  const [prezzo, setPrezzo] = useState(
-    riga.prezzo === 0 && riga.disponibilita === "in_produzione"
-      ? ""
-      : String(riga.prezzo)
+  const [prezzo, setPrezzo] = useState(() => bootstrapRiga(riga).prezzo);
+  const [um, setUm] = useState<ListinoRigaUm>(() => bootstrapRiga(riga).um);
+  const [disp, setDisp] = useState<ListinoDisponibilita>(
+    () => bootstrapRiga(riga).disp
   );
-  const [um, setUm] = useState<ListinoRigaUm>(riga.unitaMisura);
-  const [disp, setDisp] = useState<ListinoDisponibilita>(riga.disponibilita);
-  const [prodottoLocked, setProdottoLocked] = useState(() =>
-    rigaListinoCompleta(riga)
+  const [prodottoLocked, setProdottoLocked] = useState(
+    () => bootstrapRiga(riga).locked
   );
-
-  useEffect(() => {
-    setPrezzo(
-      riga.prezzo === 0 && riga.disponibilita === "in_produzione"
-        ? ""
-        : String(riga.prezzo)
-    );
-    setUm(riga.unitaMisura);
-    setDisp(riga.disponibilita);
-    setProdottoLocked(rigaListinoCompleta(riga));
-  }, [riga.id, riga.prezzo, riga.unitaMisura, riga.disponibilita]);
-
-  const [localConds, setLocalConds] = useState<LocalCond[]>(() =>
-    riga.condizioni.map(condFromRiga)
+  const [localConds, setLocalConds] = useState<LocalCond[]>(
+    () => bootstrapRiga(riga).localConds
   );
-  useEffect(() => {
-    setLocalConds(riga.condizioni.map(condFromRiga));
-  }, [riga.id, riga.condizioni]);
-
   const [draftKgWarn, setDraftKgWarn] = useState<{
     kg: number;
     standard: number;
     um: string;
   } | null>(null);
-  const [scontiOpen, setScontiOpen] = useState(false);
+  const [scontiOpen, setScontiOpen] = useState(
+    () => bootstrapRiga(riga).openSconti
+  );
   const [copyFromId, setCopyFromId] = useState("");
+
+  useEffect(() => {
+    const boot = bootstrapRiga(riga);
+    setPrezzo(boot.prezzo);
+    setUm(boot.um);
+    setDisp(boot.disp);
+    setLocalConds(boot.localConds);
+    setProdottoLocked(boot.locked);
+    setScontiOpen(boot.openSconti);
+    // Solo al cambio riga: un reload del padre non deve cancellare la bozza locale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- riga.id
+  }, [riga.id]);
+
+  useEffect(() => {
+    writeRigaDraft(riga.id, { prezzo, um, disp, localConds });
+  }, [riga.id, prezzo, um, disp, localConds]);
 
   const completa = rigaListinoCompleta({
     prezzo: Number(prezzo),
@@ -955,20 +1025,24 @@ function RigaBlock({
       }
       targa = res.targa;
     }
-    const next: LocalCond = {
-      key: `tmp-${crypto.randomUUID()}`,
-      qtyDa: draft.qtyDa,
-      qtyA: draft.qtyA,
-      imballaggioVoceId: draft.imballaggioVoceId,
-      imballaggioCodice: confezioni.find((v) => v.id === draft.imballaggioVoceId)
-        ?.codice,
-      imballaggioNome: confezioni.find((v) => v.id === draft.imballaggioVoceId)
-        ?.nome,
-      kg: String(payload.kgConfezione),
-      scontoPct: draft.scontoPct,
+    const saved = await upsertListinoRigaCondizioneAction({
+      listinoRigaId: riga.id,
+      qtyDa: payload.qtyDa,
+      qtyA: payload.qtyA,
+      imballaggioVoceId: payload.imballaggioVoceId,
+      scontoPct: payload.scontoPct,
+      kgConfezione: payload.kgConfezione,
       kgForzato: forza,
-      locked: true,
       targa,
+    });
+    if (!saved.success) {
+      onError(saved.error);
+      return;
+    }
+    const next: LocalCond = {
+      ...condFromRiga(saved.item),
+      key: saved.item.id,
+      locked: true,
     };
     setLocalConds((prev) => [...prev, next]);
     onDraftChange(emptyCond);
@@ -1085,15 +1159,10 @@ function RigaBlock({
           </td>
         ) : null}
         <td colSpan={6} className="px-3 py-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className="rounded border border-[var(--border)] bg-slate-50 px-2 py-1 text-xs font-medium"
-              onClick={() => setScontiOpen((v) => !v)}
-            >
-              Sconti ({localConds.length}){" "}
-              {scontiOpen ? "▲ chiudi" : "▼ espandi"}
-            </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--muted)]">
+              Sconti presenti {localConds.length}
+            </span>
             {editable && !prodottoLocked && altriRighe.length ? (
               <>
                 <select
@@ -1119,6 +1188,15 @@ function RigaBlock({
                 </button>
               </>
             ) : null}
+            <button
+              type="button"
+              className="ml-auto px-1 text-sm leading-none text-slate-700"
+              aria-expanded={scontiOpen}
+              aria-label={scontiOpen ? "Chiudi sconti" : "Apri sconti"}
+              onClick={() => setScontiOpen((v) => !v)}
+            >
+              {scontiOpen ? "▲" : "▼"}
+            </button>
           </div>
           <p className="mt-1 text-[11px] text-[var(--muted)]">
             Prezzo 0 solo con dichiarazione. La copia prende prezzo, quantità e
@@ -1185,7 +1263,11 @@ function RigaBlock({
                       onError(res.error);
                       return;
                     }
+                    setLocalConds(
+                      (res.item.condizioni ?? []).map(condFromRiga)
+                    );
                     setProdottoLocked(true);
+                    clearRigaDraft(riga.id);
                     onSaved();
                   })
                 }
@@ -1205,6 +1287,10 @@ function RigaBlock({
           prezzoBase={Number(prezzo) || riga.prezzo}
           unitaMisura={um}
           locale={locale}
+          listinoRigaId={riga.id}
+          reservedTarghe={localConds
+            .filter((x) => x.key !== c.key)
+            .map((x) => x.targa)}
           editable={editable && !prodottoLocked}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
@@ -1212,11 +1298,6 @@ function RigaBlock({
           onChange={(next) =>
             setLocalConds((prev) =>
               prev.map((x) => (x.key === c.key ? next : x))
-            )
-          }
-          onLock={() =>
-            setLocalConds((prev) =>
-              prev.map((x) => (x.key === c.key ? { ...x, locked: true } : x))
             )
           }
           onUnlock={() =>
@@ -1349,7 +1430,9 @@ function RigaBlock({
                 setDraftKgWarn({ kg, standard: std.max, um: std.um });
                 return;
               }
-              lockDraftCond(false);
+              startTransition(async () => {
+                await lockDraftCond(false);
+              });
             }}
           >
             Salva
@@ -1377,11 +1460,15 @@ function RigaBlock({
           onAdegua={() => {
             onDraftChange({ ...draft, kg: String(draftKgWarn.standard) });
             setDraftKgWarn(null);
-            lockDraftCond(false, draftKgWarn.standard);
+            startTransition(async () => {
+              await lockDraftCond(false, draftKgWarn.standard);
+            });
           }}
           onForza={() => {
             setDraftKgWarn(null);
-            lockDraftCond(true);
+            startTransition(async () => {
+              await lockDraftCond(true);
+            });
           }}
           onClose={() => setDraftKgWarn(null)}
         />
@@ -1392,6 +1479,8 @@ function RigaBlock({
 
 function CondizioneRow({
   cond,
+  listinoRigaId,
+  reservedTarghe,
   prodottoId,
   prezzoBase,
   unitaMisura,
@@ -1401,12 +1490,13 @@ function CondizioneRow({
   extraLeadCells,
   confezioni,
   onChange,
-  onLock,
   onUnlock,
   onError,
   onDelete,
 }: {
   cond: LocalCond;
+  listinoRigaId: string;
+  reservedTarghe: string[];
   prodottoId: string;
   prezzoBase: number;
   unitaMisura: ListinoRigaUm;
@@ -1416,7 +1506,6 @@ function CondizioneRow({
   extraLeadCells: number;
   confezioni: ImballaggioVoce[];
   onChange: (next: LocalCond) => void;
-  onLock: () => void;
   onUnlock: () => void;
   onError: (msg: string) => void;
   onDelete: () => void;
@@ -1447,7 +1536,7 @@ function CondizioneRow({
     const kgVal = kgOverride ?? Number(cond.kg);
     let targa = cond.targa.trim() ? normalizeTargaSconto(cond.targa) : "";
     if (!isValidTargaSconto(targa)) {
-      const res = await nextTargaScontoListinoAction([]);
+      const res = await nextTargaScontoListinoAction(reservedTarghe);
       if (!res.success) {
         onError(res.error);
         return;
@@ -1468,21 +1557,26 @@ function CondizioneRow({
       onError(parsed.error.issues[0]?.message ?? "Sconto non valido");
       return;
     }
-    if (kgOverride != null) {
-      onChange({
-        ...cond,
-        kg: String(kgOverride),
-        kgForzato: forza,
-        targa,
-        locked: true,
-      });
+    const saved = await upsertListinoRigaCondizioneAction({
+      id: cond.id,
+      listinoRigaId,
+      qtyDa: parsed.data.qtyDa,
+      qtyA: parsed.data.qtyA,
+      imballaggioVoceId: parsed.data.imballaggioVoceId,
+      scontoPct: parsed.data.scontoPct,
+      kgConfezione: parsed.data.kgConfezione,
+      kgForzato: parsed.data.kgForzato,
+      targa: parsed.data.targa,
+    });
+    if (!saved.success) {
+      onError(saved.error);
       return;
     }
-    if (forza) {
-      onChange({ ...cond, kgForzato: true, targa, locked: true });
-      return;
-    }
-    onChange({ ...cond, targa, locked: true });
+    onChange({
+      ...condFromRiga(saved.item),
+      key: cond.key,
+      locked: true,
+    });
   }
 
   return (

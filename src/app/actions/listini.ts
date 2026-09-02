@@ -99,6 +99,20 @@ export async function allocateTargheScontoListinoAction(
   }
 }
 
+function mapCondizioneWriteError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("listini_righe_condizioni_qty_a_check")) {
+    return "Quantità a deve essere maggiore o uguale a quantità da. Uguali = sconto per un solo formato (es. 500 kg).";
+  }
+  if (m.includes("listini_righe_condizioni_targa_active_uidx")) {
+    return "Targa sconto già usata. Lascia generare oppure scegline un’altra.";
+  }
+  if (m.includes("listini_righe_condizioni_attivo_uidx")) {
+    return "Esiste già uno sconto attivo per la stessa confezione e Qty da.";
+  }
+  return message;
+}
+
 function resolveTargaSconto(
   raw: string | undefined,
   used: string[]
@@ -1255,20 +1269,6 @@ async function syncListinoRigaCondizioni(
     .eq("listino_riga_id", listinoRigaId)
     .is("deleted_at", null);
   if (eErr) return eErr.message;
-  const now = new Date().toISOString();
-  for (const r of (existingRows ?? []) as { id: string }[]) {
-    if (keepIds.has(r.id)) continue;
-    const { error } = await supabase
-      .from("listini_righe_condizioni")
-      .update({
-        deleted_at: now,
-        deleted_by: userId,
-        updated_by: userId,
-      })
-      .eq("id", r.id)
-      .is("deleted_at", null);
-    if (error) return error.message;
-  }
 
   const overlapInput = condizioni.map((c, i) => ({
     id: c.id ?? `tmp-${i}`,
@@ -1307,6 +1307,7 @@ async function syncListinoRigaCondizioni(
     return ![...keepTargaById.values()].includes(n);
   });
   const batchTarghe: string[] = [];
+  const persistedIds = new Set<string>();
 
   for (const c of condizioni) {
     const { data: stdLink } = await supabase
@@ -1349,15 +1350,40 @@ async function syncListinoRigaCondizioni(
         .update(payload)
         .eq("id", c.id)
         .is("deleted_at", null);
-      if (error) return error.message;
+      if (error) return mapCondizioneWriteError(error.message);
+      persistedIds.add(c.id);
     } else {
-      const { error } = await supabase.from("listini_righe_condizioni").insert({
-        ...payload,
-        listino_riga_id: listinoRigaId,
-        created_by: userId,
-      });
-      if (error) return error.message;
+      const { data: inserted, error } = await supabase
+        .from("listini_righe_condizioni")
+        .insert({
+          ...payload,
+          listino_riga_id: listinoRigaId,
+          created_by: userId,
+        })
+        .select("id")
+        .single();
+      if (error || !inserted) {
+        return mapCondizioneWriteError(
+          error?.message ?? "Inserimento sconto fallito"
+        );
+      }
+      persistedIds.add((inserted as { id: string }).id);
     }
+  }
+
+  const now = new Date().toISOString();
+  for (const r of (existingRows ?? []) as { id: string }[]) {
+    if (persistedIds.has(r.id)) continue;
+    const { error } = await supabase
+      .from("listini_righe_condizioni")
+      .update({
+        deleted_at: now,
+        deleted_by: userId,
+        updated_by: userId,
+      })
+      .eq("id", r.id)
+      .is("deleted_at", null);
+    if (error) return mapCondizioneWriteError(error.message);
   }
   return null;
 }
@@ -1491,7 +1517,12 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
       .select("*")
       .single();
     if (error || !data) {
-      return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+      return {
+        success: false,
+        error: mapCondizioneWriteError(
+          error?.message ?? "Aggiornamento fallito"
+        ),
+      };
     }
     row = data as ListinoRigaCondizioneRow;
   } else {
@@ -1513,7 +1544,10 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
       .select("*")
       .single();
     if (error || !data) {
-      return { success: false, error: error?.message ?? "Inserimento fallito" };
+      return {
+        success: false,
+        error: mapCondizioneWriteError(error?.message ?? "Inserimento fallito"),
+      };
     }
     row = data as ListinoRigaCondizioneRow;
   }
