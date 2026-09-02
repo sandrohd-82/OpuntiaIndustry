@@ -111,15 +111,95 @@ export const LISTINO_DISPONIBILITA_LABEL: Record<ListinoDisponibilita, string> =
     non_disponibile: "Al momento non disponibile",
   };
 
-export const listinoRigaCondizioneSyncItemSchema = z.object({
-  id: z.string().uuid().optional(),
-  qtyDa: z.number().finite().min(0, "Quantità da non valida"),
-  qtyA: z.number().finite().positive().nullable().optional(),
-  imballaggioVoceId: z.string().uuid(),
-  scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
-  kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
-  kgForzato: z.boolean().optional().default(false),
-});
+export function isQtyMultiploConfezione(
+  qty: number,
+  kgConfezione: number
+): boolean {
+  if (!Number.isFinite(qty) || qty < 0) return false;
+  if (!Number.isFinite(kgConfezione) || kgConfezione <= 0) return false;
+  const q = Math.round(qty * 1000);
+  const step = Math.round(kgConfezione * 1000);
+  if (step <= 0) return false;
+  return q % step === 0;
+}
+
+export function multipliConfezioneVicini(
+  qty: number,
+  kgConfezione: number
+): { down: number; up: number } {
+  const step = kgConfezione;
+  const down = Math.round(Math.floor((qty + 1e-9) / step) * step * 1000) / 1000;
+  const up = Math.round(Math.ceil((qty - 1e-9) / step) * step * 1000) / 1000;
+  return { down: Math.max(0, down), up };
+}
+
+export function avvisoQtyConfezione(input: {
+  qtyDa: number;
+  qtyA: number | null;
+  kgConfezione: number;
+}): string | null {
+  if (!Number.isFinite(input.kgConfezione) || input.kgConfezione <= 0) {
+    return null;
+  }
+  const fmt = (n: number) =>
+    n.toLocaleString("it-IT", { maximumFractionDigits: 3 });
+  const pack = fmt(input.kgConfezione);
+  const parts: string[] = [];
+  if (Number.isFinite(input.qtyDa) && !isQtyMultiploConfezione(input.qtyDa, input.kgConfezione)) {
+    const { down, up } = multipliConfezioneVicini(input.qtyDa, input.kgConfezione);
+    parts.push(
+      `Qty da deve essere multiplo della confezione da ${pack} kg (es. ${fmt(down)} o ${fmt(up)})`
+    );
+  }
+  if (
+    input.qtyA != null &&
+    Number.isFinite(input.qtyA) &&
+    !isQtyMultiploConfezione(input.qtyA, input.kgConfezione)
+  ) {
+    const { down, up } = multipliConfezioneVicini(input.qtyA, input.kgConfezione);
+    parts.push(
+      `Qty a deve essere multiplo della confezione da ${pack} kg (es. ${fmt(down)} o ${fmt(up)})`
+    );
+  }
+  return parts.length ? parts.join(". ") + "." : null;
+}
+
+function refineQtyConfezione(
+  v: { qtyDa: number; qtyA?: number | null; kgConfezione: number },
+  ctx: z.RefinementCtx
+) {
+  if (v.qtyA != null && v.qtyA <= v.qtyDa) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Quantità a deve essere maggiore di quantità da.",
+      path: ["qtyA"],
+    });
+  }
+  const msg = avvisoQtyConfezione({
+    qtyDa: v.qtyDa,
+    qtyA: v.qtyA ?? null,
+    kgConfezione: v.kgConfezione,
+  });
+  if (msg) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: msg,
+      path: ["qtyDa"],
+    });
+  }
+}
+
+export const listinoRigaCondizioneSyncItemSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    qtyDa: z.number().finite().min(0, "Quantità da non valida"),
+    qtyA: z.number().finite().positive().nullable().optional(),
+    imballaggioVoceId: z.string().uuid(),
+    scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
+    kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
+    kgForzato: z.boolean().optional().default(false),
+  })
+  .superRefine(refineQtyConfezione);
 
 export const upsertListinoRigaSchema = z
   .object({
@@ -167,15 +247,7 @@ export const upsertListinoRigaCondizioneSchema = z
     kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
     kgForzato: z.boolean().optional().default(false),
   })
-  .superRefine((v, ctx) => {
-    if (v.qtyA != null && v.qtyA <= v.qtyDa) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Quantità a deve essere maggiore di quantità da.",
-        path: ["qtyA"],
-      });
-    }
-  });
+  .superRefine(refineQtyConfezione);
 
 export type Listino = {
   id: string;

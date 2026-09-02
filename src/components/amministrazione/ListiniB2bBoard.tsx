@@ -34,6 +34,7 @@ import {
   LISTINO_DISPONIBILITA_LABEL,
   LISTINO_RIGA_UM,
   listinoCodiceSlug,
+  avvisoQtyConfezione,
   listinoRigaCondizioneSyncItemSchema,
   parseListinoCodice,
   previewScontoListino,
@@ -614,8 +615,18 @@ export function ListiniB2bBoard() {
                   {selected.stato === "in_revisione" ? (
                     <th className="px-3 py-2">Check</th>
                   ) : null}
-                  <th className="px-3 py-2">Qty da</th>
-                  <th className="px-3 py-2">Qty a</th>
+                  <th
+                    className="px-3 py-2"
+                    title="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
+                  >
+                    Qty da
+                  </th>
+                  <th
+                    className="px-3 py-2"
+                    title="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
+                  >
+                    Qty a
+                  </th>
                   <th className="px-3 py-2">Confezionamento</th>
                   <th className="px-3 py-2">Kg</th>
                   <th className="px-3 py-2">Sconto %</th>
@@ -854,6 +865,13 @@ function RigaBlock({
     unitaMisura: um,
     locale,
   });
+  const draftQtyAvviso = avvisoQtyConfezione({
+    qtyDa: Number(draft.qtyDa),
+    qtyA: draft.qtyA.trim() === "" ? null : Number(draft.qtyA),
+    kgConfezione: Number(draft.kg),
+  });
+  const draftKgStep =
+    Number(draft.kg) > 0 ? String(Number(draft.kg)) : undefined;
 
   function lockDraftCond(forza: boolean, kgOverride?: number) {
     const payload = {
@@ -1080,6 +1098,7 @@ function RigaBlock({
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
+            step={draftKgStep}
             value={draft.qtyDa}
             onChange={(e) => onDraftChange({ ...draft, qtyDa: e.target.value })}
           />
@@ -1089,6 +1108,7 @@ function RigaBlock({
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
+            step={draftKgStep}
             placeholder="∞"
             value={draft.qtyA}
             onChange={(e) => onDraftChange({ ...draft, qtyA: e.target.value })}
@@ -1150,7 +1170,12 @@ function RigaBlock({
         <td className="px-3 py-1.5">
           <button
             type="button"
-            disabled={pending || !draft.imballaggioVoceId || !draft.kg}
+            disabled={
+              pending ||
+              !draft.imballaggioVoceId ||
+              !draft.kg ||
+              Boolean(draftQtyAvviso)
+            }
             className="text-xs font-medium text-emerald-800 underline disabled:opacity-40"
             onClick={() => {
               const std = standardConfezioneProdotto(
@@ -1169,6 +1194,16 @@ function RigaBlock({
           </button>
         </td>
       </tr>
+      {draftQtyAvviso ? (
+        <tr className="bg-amber-50">
+          <td
+            colSpan={inRevisione ? 12 : 11}
+            className="px-3 py-1.5 pl-8 text-xs text-amber-900"
+          >
+            {draftQtyAvviso}
+          </td>
+        </tr>
+      ) : null}
       {draftPreviewSconto ? (
         <tr className="bg-emerald-50/70">
           <td
@@ -1249,6 +1284,12 @@ function CondizioneRow({
     unitaMisura,
     locale,
   });
+  const qtyAvviso = avvisoQtyConfezione({
+    qtyDa: Number(cond.qtyDa),
+    qtyA: cond.qtyA.trim() === "" ? null : Number(cond.qtyA),
+    kgConfezione: Number(cond.kg),
+  });
+  const kgStep = Number(cond.kg) > 0 ? String(Number(cond.kg)) : undefined;
 
   function tryLock(forza: boolean, kgOverride?: number) {
     const kgVal = kgOverride ?? Number(cond.kg);
@@ -1293,6 +1334,7 @@ function CondizioneRow({
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
+            step={kgStep}
             value={cond.qtyDa}
             disabled={pending}
             onChange={(e) => onChange({ ...cond, qtyDa: e.target.value })}
@@ -1307,6 +1349,7 @@ function CondizioneRow({
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
+            step={kgStep}
             placeholder="∞"
             value={cond.qtyA}
             disabled={pending}
@@ -1407,8 +1450,8 @@ function CondizioneRow({
             ) : (
               <button
                 type="button"
-                disabled={pending}
-                className="text-xs font-medium text-emerald-800 underline"
+                disabled={pending || Boolean(qtyAvviso)}
+                className="text-xs font-medium text-emerald-800 underline disabled:opacity-40"
                 onClick={() => {
                   const std = standardConfezioneProdotto(
                     confezioni.find((v) => v.id === cond.imballaggioVoceId),
@@ -1436,6 +1479,16 @@ function CondizioneRow({
         ) : null}
       </td>
     </tr>
+    {qtyAvviso ? (
+      <tr className="bg-amber-50">
+        <td
+          colSpan={extraLeadCells + 10}
+          className="px-3 py-1.5 pl-8 text-xs text-amber-900"
+        >
+          {qtyAvviso}
+        </td>
+      </tr>
+    ) : null}
     {previewSconto ? (
       <tr className="bg-emerald-50/70">
         <td
