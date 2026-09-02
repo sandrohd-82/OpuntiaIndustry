@@ -209,3 +209,36 @@ export async function disableTotp(): Promise<TotpActionResult> {
     return { success: false, error: "Errore durante la disattivazione." };
   }
 }
+
+/** Verifica il codice Authenticator dell’utente corrente (azioni critiche). */
+export async function verifyCurrentUserTotp(
+  userId: string,
+  code: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = String(code ?? "").trim();
+  if (!/^\d{6}$/.test(token)) {
+    return { ok: false, error: "Inserisci il codice OTP a 6 cifre." };
+  }
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("user_second_factor")
+    .select("method, totp_secret_encrypted, verified_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error || !data?.totp_secret_encrypted || data.method !== "app") {
+    return {
+      ok: false,
+      error:
+        "Google Authenticator non è attivo sul tuo utente. Configuralo in Impostazioni prima di approvare un listino.",
+    };
+  }
+  try {
+    const secret = decryptTotpSecret(data.totp_secret_encrypted);
+    if (!verifyTotpCode(secret, token)) {
+      return { ok: false, error: "Codice OTP non corretto." };
+    }
+  } catch {
+    return { ok: false, error: "Impossibile verificare l’OTP." };
+  }
+  return { ok: true };
+}

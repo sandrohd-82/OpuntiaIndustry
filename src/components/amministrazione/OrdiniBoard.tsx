@@ -107,6 +107,14 @@ function OrdineTableRow({
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-semibold tabular-nums">
           {ordine.numeroInterno}
+          {ordine.stato === "sospeso" ? (
+            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
+              Sospeso
+              {ordine.dataDisponibilitaPresunta
+                ? ` · presunta ${formatDate(ordine.dataDisponibilitaPresunta)}`
+                : ""}
+            </span>
+          ) : null}
         </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {ordine.numeroCliente || "—"}
@@ -197,7 +205,9 @@ function OrdineTableRow({
 }
 
 type Props = {
-  stato: Extract<OrdineStato, "storico" | "ricevuto">;
+  stato:
+    | Extract<OrdineStato, "storico" | "ricevuto" | "sospeso">
+    | Array<Extract<OrdineStato, "storico" | "ricevuto" | "sospeso">>;
   description: string;
   createLabel: string;
   emptyTitle: string;
@@ -224,6 +234,7 @@ export function OrdiniBoard({
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
     useOrdini(stato);
+  const statoForm: OrdineStato = Array.isArray(stato) ? "ricevuto" : stato;
   const [creating, setCreating] = useState<"ordine" | "campionatura" | false>(
     false
   );
@@ -502,7 +513,7 @@ export function OrdiniBoard({
       {creating === "ordine" && !useWizardCreate && (
         <OrdineFormModal
           mode="create"
-          stato={stato}
+          stato={statoForm}
           onClose={() => setCreating(false)}
           onSaved={(ordine) => {
             upsertLocal(ordine);
@@ -529,7 +540,7 @@ export function OrdiniBoard({
       {editing && (
         <OrdineFormModal
           mode="edit"
-          stato={stato}
+          stato={editing.stato}
           initial={editing}
           onClose={() => setEditing(null)}
           onSaved={(ordine) => {

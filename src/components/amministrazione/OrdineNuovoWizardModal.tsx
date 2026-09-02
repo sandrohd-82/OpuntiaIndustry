@@ -6,6 +6,12 @@ import {
   createOrdineWizardAction,
   previewNumeroInternoOrdineAction,
 } from "@/app/actions/ordini";
+import { getListinoVoceVigenteAction } from "@/app/actions/listini";
+import {
+  LISTINO_CONTRATTO_MSG,
+  valutaListinoPerContratto,
+  type ListinoVoceVigente,
+} from "@/lib/ecosystem/listino-vigente";
 import {
   createCorriereAction,
   listCorrieriAction,
@@ -144,6 +150,12 @@ export function OrdineNuovoWizardModal({
   const [numeroInterno, setNumeroInterno] = useState("");
 
   const [prodotto, setProdotto] = useState<ProdottoProprio | null>(null);
+  const [voceListino, setVoceListino] = useState<ListinoVoceVigente | null>(
+    null
+  );
+  const [voceListinoLoading, setVoceListinoLoading] = useState(false);
+  const [dataDisponibilitaPresunta, setDataDisponibilitaPresunta] =
+    useState("");
   const [creatingProdotto, setCreatingProdotto] = useState(false);
 
   const [quantita, setQuantita] = useState<number | "">(100);
@@ -250,6 +262,39 @@ export function OrdineNuovoWizardModal({
     })();
   }, []);
 
+  const regolaListino = useMemo(
+    () => valutaListinoPerContratto(voceListino),
+    [voceListino]
+  );
+  const ordineSospeso = regolaListino.esito === "sospeso";
+
+  useEffect(() => {
+    if (!prodotto?.id) {
+      setVoceListino(null);
+      setDataDisponibilitaPresunta("");
+      return;
+    }
+    let cancelled = false;
+    setVoceListinoLoading(true);
+    void (async () => {
+      const res = await getListinoVoceVigenteAction(prodotto.id);
+      if (cancelled) return;
+      setVoceListinoLoading(false);
+      if (!res.success) {
+        setFormError(res.error);
+        setVoceListino(null);
+        return;
+      }
+      setVoceListino(res.voce);
+      if (res.voce && res.voce.prezzo > 0) {
+        setPrezzoUnitario(res.voce.prezzo);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [prodotto?.id]);
+
   const sortedProdotti = useMemo(
     () =>
       [...prodotti].sort((a, b) =>
@@ -339,7 +384,7 @@ export function OrdineNuovoWizardModal({
   }
 
   useEffect(() => {
-    if (step !== 4 || !prodotto) return;
+    if (step !== 4 || !prodotto || ordineSospeso) return;
     void runCalcolo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -404,9 +449,15 @@ export function OrdineNuovoWizardModal({
 
   function canNext(): boolean {
     if (step === 1) return Boolean(clienteId && clienteNome && clienteTarga);
-    if (step === 2) return Boolean(prodotto);
+    if (step === 2) {
+      if (!prodotto || voceListinoLoading) return false;
+      return (
+        regolaListino.esito === "ordinabile" || regolaListino.esito === "sospeso"
+      );
+    }
     if (step === 3) {
-      if (!(quantitaKg > 0 && numberOrZero(prezzoUnitario) >= 0)) return false;
+      if (!(quantitaKg > 0 && numberOrZero(prezzoUnitario) > 0)) return false;
+      if (ordineSospeso && !dataDisponibilitaPresunta) return false;
       if (
         variant !== "campionatura" &&
         preventivoId &&
@@ -417,6 +468,7 @@ export function OrdineNuovoWizardModal({
       return true;
     }
     if (step === 4) {
+      if (ordineSospeso) return Boolean(dataDisponibilitaPresunta);
       if (!calcolo || calcolo.giorniLavorativiNecessari <= 0) {
         return Boolean(calcolo?.dataConsegnaStimata);
       }
@@ -511,6 +563,9 @@ export function OrdineNuovoWizardModal({
       preventivoId: preventivoId || null,
       webmailAccettazioneId: mailAccettazione?.id ?? null,
       referenteAccettazioneId: referenteAccettazione?.id ?? null,
+      dataDisponibilitaPresunta: ordineSospeso
+        ? dataDisponibilitaPresunta || null
+        : null,
     });
     setSaving(false);
     if (!result.success) {
@@ -785,6 +840,26 @@ export function OrdineNuovoWizardModal({
                   Nuovo
                 </button>
               </div>
+              {voceListinoLoading ? (
+                <p className="mt-3 text-sm text-[var(--muted)]">
+                  Verifica listino In Uso…
+                </p>
+              ) : null}
+              {prodotto && !voceListinoLoading && regolaListino.esito === "fuori_produzione" ? (
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {LISTINO_CONTRATTO_MSG.fuori_produzione}
+                </p>
+              ) : null}
+              {prodotto && !voceListinoLoading && regolaListino.esito === "senza_prezzo" ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {LISTINO_CONTRATTO_MSG.senza_prezzo}
+                </p>
+              ) : null}
+              {prodotto && !voceListinoLoading && ordineSospeso ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {LISTINO_CONTRATTO_MSG.sospeso}
+                </p>
+              ) : null}
             </>
           )}
 
@@ -811,10 +886,37 @@ export function OrdineNuovoWizardModal({
                     min={0}
                     value={prezzoUnitario}
                     onValueChange={setPrezzoUnitario}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    disabled={Boolean(voceListino && voceListino.prezzo > 0)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)] disabled:bg-slate-50"
                   />
+                  {voceListino && voceListino.prezzo > 0 ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Prezzo da listino In Uso (€/{voceListino.unitaMisura})
+                    </p>
+                  ) : null}
                 </label>
               </div>
+              {ordineSospeso ? (
+                <label className="block text-sm">
+                  <span className="mb-1 block font-medium">
+                    Data presunta di disponibilità
+                  </span>
+                  <input
+                    type="date"
+                    required
+                    min={dataOrdine}
+                    value={dataDisponibilitaPresunta}
+                    onChange={(e) =>
+                      setDataDisponibilitaPresunta(e.target.value)
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                  />
+                  <p className="mt-1 text-xs text-amber-800">
+                    L’ordine resterà sospeso e non entrerà in produzione fino
+                    alla disponibilità.
+                  </p>
+                </label>
+              ) : null}
 
               <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3 text-sm">
                 <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -924,7 +1026,26 @@ export function OrdineNuovoWizardModal({
             </div>
           )}
 
-          {step === 4 && (
+          {step === 4 && ordineSospeso ? (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <p className="font-medium">Ordine sospeso — non in produzione</p>
+              <p>{LISTINO_CONTRATTO_MSG.sospeso}</p>
+              <label className="block">
+                <span className="mb-1 block font-medium">
+                  Data presunta di disponibilità
+                </span>
+                <input
+                  type="date"
+                  min={dataOrdine}
+                  value={dataDisponibilitaPresunta}
+                  onChange={(e) => setDataDisponibilitaPresunta(e.target.value)}
+                  className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          {step === 4 && !ordineSospeso && (
             <div className="space-y-4">
               <fieldset className="space-y-2">
                 <legend className="text-sm font-medium">Modalità consegna</legend>

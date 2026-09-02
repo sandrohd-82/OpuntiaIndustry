@@ -11,6 +11,12 @@ import {
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
+import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
+import {
+  LISTINO_CONTRATTO_MSG,
+  valutaListinoPerContratto,
+} from "@/lib/ecosystem/listino-vigente";
+import type { ListinoDisponibilita } from "@/lib/ecosystem/listini";
 import type { PreventivoRigaRow, PreventivoRow } from "@/types/database";
 
 async function requirePreventiviAccess() {
@@ -173,26 +179,29 @@ export async function getListinoPrezzoVigenteAction(
       prezzo: number | null;
       iva: number;
       listinoId: string | null;
+      disponibilita: ListinoDisponibilita | null;
     }
   | { success: false; error: string }
 > {
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("v_listino_b2b_vigente")
-    .select("listino_id, prezzo, iva_percentuale")
-    .eq("prodotto_id", prodottoId)
-    .maybeSingle();
-  if (error) return { success: false, error: error.message };
-  if (!data) {
-    return { success: true, prezzo: null, iva: 22, listinoId: null };
+  const res = await queryListinoVoceVigente(prodottoId);
+  if (res.error) return { success: false, error: res.error };
+  if (!res.voce) {
+    return {
+      success: true,
+      prezzo: null,
+      iva: 22,
+      listinoId: null,
+      disponibilita: null,
+    };
   }
   return {
     success: true,
-    prezzo: Number(data.prezzo),
-    iva: Number(data.iva_percentuale ?? 22),
-    listinoId: String(data.listino_id),
+    prezzo: res.voce.prezzo,
+    iva: res.voce.iva,
+    listinoId: res.voce.listinoId,
+    disponibilita: res.voce.disponibilita,
   };
 }
 
@@ -211,6 +220,23 @@ export async function createPreventivoAction(
     };
   }
   const input = parsed.data;
+  for (const r of input.righe) {
+    const q = await queryListinoVoceVigente(r.prodottoId);
+    if (q.error) return { success: false, error: q.error };
+    const regola = valutaListinoPerContratto(q.voce);
+    if (regola.esito === "fuori_produzione") {
+      return {
+        success: false,
+        error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.fuori_produzione}`,
+      };
+    }
+    if (regola.esito === "senza_prezzo") {
+      return {
+        success: false,
+        error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.senza_prezzo}`,
+      };
+    }
+  }
   const seq = await nextSeq(input.codiceTargaCliente);
   const numero = formatNumeroPreventivo(
     input.dataPreventivo,

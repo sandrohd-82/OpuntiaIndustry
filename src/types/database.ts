@@ -421,7 +421,15 @@ export type StatoPubblicazioneCanale =
   | "ritirato";
 
 export type ListinoCanale = "b2b" | "b2c";
-export type ListinoStato = "bozza" | "approvato" | "pubblicato" | "chiuso";
+export type ListinoStato =
+  | "bozza"
+  | "in_revisione"
+  | "in_uso"
+  | "obsoleto";
+export type ListinoRigaDisponibilita =
+  | "in_produzione"
+  | "fuori_produzione"
+  | "non_disponibile";
 export type OrdineCanale = "gestionale" | "b2b" | "b2c";
 export type PortaleRichiestaStato = "nuova" | "presa_in_carico" | "chiusa";
 export type WikiResearchStatus = "draft" | "published" | "archived";
@@ -516,6 +524,7 @@ export interface ListinoRow {
   published_at: string | null;
   published_by: string | null;
   note: string;
+  sostituisce_id: string | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -530,6 +539,10 @@ export interface ListinoRigaRow {
   prodotto_id: string;
   prezzo: number;
   unita_misura: "kg" | "lt";
+  disponibilita: ListinoRigaDisponibilita;
+  revisione_approvata: boolean;
+  revisione_approvata_at: string | null;
+  revisione_approvata_by: string | null;
   iva_percentuale: number;
   min_qty: number;
   sconto_max_pct: number;
@@ -771,7 +784,7 @@ export interface ProdottoProprioAttivitaRow {
   deleted_by: string | null;
 }
 
-export type OrdineStato = "ricevuto" | "evaso" | "storico";
+export type OrdineStato = "ricevuto" | "sospeso" | "evaso" | "storico";
 export type OrdineOrigineStorico = "manuale" | "chiusura";
 export type OrdineDocumentoStato =
   | "bozza"
@@ -820,6 +833,7 @@ export interface OrdineRow {
   usa_magazzino: boolean;
   usa_sabato: boolean;
   data_consegna_stimata: string | null;
+  data_disponibilita_presunta: string | null;
   capacita_snapshot: Record<string, unknown>;
   is_test: boolean;
   spedizione_mezzo: "corriere";
@@ -877,6 +891,7 @@ export interface OrdineInsert {
   usa_magazzino?: boolean;
   usa_sabato?: boolean;
   data_consegna_stimata?: string | null;
+  data_disponibilita_presunta?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
   spedizione_mezzo?: "corriere";
@@ -924,6 +939,7 @@ export interface OrdineUpdate {
   usa_magazzino?: boolean;
   usa_sabato?: boolean;
   data_consegna_stimata?: string | null;
+  data_disponibilita_presunta?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
   spedizione_mezzo?: "corriere";
@@ -2853,6 +2869,7 @@ export interface Database {
           nome: string;
           prezzo: number;
           unita_misura: string;
+          disponibilita: string;
           iva_percentuale: number;
           min_qty: number;
           sconto_max_pct: number;

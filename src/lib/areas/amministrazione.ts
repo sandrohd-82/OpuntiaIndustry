@@ -105,7 +105,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         slug: "listini-b2b",
         label: "Listini B2B",
         description:
-          "Listini versionati per OpuntiaItalia (bozza / approvato / pubblicato)",
+          "Listini versionati per OpuntiaItalia (bozza / in revisione / in uso / obsoleto)",
         path: "/app/amministrazione/schede/listini-b2b",
       },
     ],

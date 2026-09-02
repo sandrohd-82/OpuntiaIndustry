@@ -15,21 +15,56 @@ export const createListinoSchema = z.object({
   validoDal: z.string().trim().min(8, "Data inizio obbligatoria"),
   validoAl: z.string().trim().optional().nullable(),
   note: z.string().trim().max(4000).optional().default(""),
+  sostituisceId: z.string().uuid().optional().nullable(),
 });
 
 export const updateListinoSchema = createListinoSchema.extend({
   id: z.string().uuid(),
 });
 
-export const upsertListinoRigaSchema = z.object({
-  listinoId: z.string().uuid(),
-  prodottoId: z.string().uuid(),
-  prezzo: z.number().finite().positive("Il prezzo deve essere maggiore di zero"),
-  unitaMisura: z.enum(LISTINO_RIGA_UM).default("kg"),
-  ivaPercentuale: z.number().finite().min(0).max(100).optional().default(22),
-  minQty: z.number().finite().min(0).optional().default(0),
-  scontoMaxPct: z.number().finite().min(0).max(100).optional().default(0),
-});
+export const LISTINO_DISPONIBILITA = [
+  "in_produzione",
+  "fuori_produzione",
+  "non_disponibile",
+] as const;
+export type ListinoDisponibilita = (typeof LISTINO_DISPONIBILITA)[number];
+
+export const LISTINO_DISPONIBILITA_LABEL: Record<ListinoDisponibilita, string> =
+  {
+    in_produzione: "In produzione",
+    fuori_produzione: "Fuori produzione",
+    non_disponibile: "Al momento non disponibile",
+  };
+
+export const upsertListinoRigaSchema = z
+  .object({
+    listinoId: z.string().uuid(),
+    prodottoId: z.string().uuid(),
+    prezzo: z.number().finite().min(0, "Prezzo non valido"),
+    unitaMisura: z.enum(LISTINO_RIGA_UM).default("kg"),
+    disponibilita: z.enum(LISTINO_DISPONIBILITA).default("in_produzione"),
+    ivaPercentuale: z.number().finite().min(0).max(100).optional().default(22),
+    minQty: z.number().finite().min(0).optional().default(0),
+    scontoMaxPct: z.number().finite().min(0).max(100).optional().default(0),
+  })
+  .superRefine((v, ctx) => {
+    if (v.disponibilita === "in_produzione" && v.prezzo <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Prezzo 0 solo se dichiari «fuori produzione» o «al momento non disponibile».",
+        path: ["prezzo"],
+      });
+    }
+  });
+
+export function rigaListinoCompleta(r: {
+  prezzo: number;
+  disponibilita: ListinoDisponibilita;
+}): boolean {
+  if (r.disponibilita === "in_produzione") return r.prezzo > 0;
+  return r.prezzo >= 0;
+}
 
 export const upsertListinoRigaCondizioneSchema = z
   .object({
@@ -61,6 +96,7 @@ export type Listino = {
   versione: number;
   stato: ListinoStato;
   note: string;
+  sostituisceId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,6 +120,8 @@ export type ListinoRiga = {
   prodottoNome?: string;
   prezzo: number;
   unitaMisura: ListinoRigaUm;
+  disponibilita: ListinoDisponibilita;
+  revisioneApprovata: boolean;
   ivaPercentuale: number;
   minQty: number;
   scontoMaxPct: number;
@@ -102,6 +140,7 @@ export function mapListino(row: ListinoRow): Listino {
     versione: row.versione,
     stato: row.stato,
     note: row.note ?? "",
+    sostituisceId: row.sostituisce_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -121,6 +160,12 @@ export function mapListinoRiga(
     prodottoNome: prodotto?.nome,
     prezzo: Number(row.prezzo),
     unitaMisura: um,
+    disponibilita:
+      row.disponibilita === "fuori_produzione" ||
+      row.disponibilita === "non_disponibile"
+        ? row.disponibilita
+        : "in_produzione",
+    revisioneApprovata: Boolean(row.revisione_approvata),
     ivaPercentuale: Number(row.iva_percentuale),
     minQty: Number(row.min_qty),
     scontoMaxPct: Number(row.sconto_max_pct),

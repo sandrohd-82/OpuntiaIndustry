@@ -66,6 +66,7 @@ export type Ordine = {
   clienteCodiceTarga: string;
   dataOrdine: string;
   dataConsegna: string | null;
+  dataDisponibilitaPresunta: string | null;
   stato: OrdineStato;
   origineStorico: OrdineOrigineStorico | null;
   sourceOrdineId: string | null;
@@ -195,7 +196,7 @@ export const ordineInputSchema = z
       .optional(),
     numeroInterno: z.string().trim().min(3).optional(),
     numeroCliente: z.string().optional(),
-    stato: z.enum(["ricevuto", "evaso", "storico"]),
+    stato: z.enum(["ricevuto", "sospeso", "evaso", "storico"]),
     origineStorico: z.enum(["manuale", "chiusura"]).nullable().optional(),
     note: z.string().optional(),
     tipoPagamento: z.enum([
@@ -266,6 +267,7 @@ export function mapOrdineRow(
     clienteCodiceTarga: row.cliente_codice_targa,
     dataOrdine: row.data_ordine,
     dataConsegna: row.data_consegna,
+    dataDisponibilitaPresunta: row.data_disponibilita_presunta ?? null,
     stato: row.stato,
     origineStorico: row.origine_storico,
     sourceOrdineId: row.source_ordine_id,

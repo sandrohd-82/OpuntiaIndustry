@@ -2,13 +2,15 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { listImballaggiVociAction } from "@/app/actions/imballaggi-spedizioni";
-import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import {
+  approvaListinoInUsoAction,
   createListinoAction,
+  dichiaraListinoObsoletoAction,
+  inviaListinoInRevisioneAction,
   listListiniAction,
   listListinoRigheAction,
-  setListinoStatoAction,
-  softDeleteListinoRigaAction,
+  riportaListinoInBozzaAction,
+  setListinoRigaRevisioneAction,
   softDeleteListinoRigaCondizioneAction,
   updateListinoAction,
   upsertListinoRigaAction,
@@ -21,8 +23,12 @@ import {
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import {
+  LISTINO_DISPONIBILITA,
+  LISTINO_DISPONIBILITA_LABEL,
   LISTINO_RIGA_UM,
+  rigaListinoCompleta,
   type Listino,
+  type ListinoDisponibilita,
   type ListinoRiga,
   type ListinoRigaCondizione,
   type ListinoRigaUm,
@@ -31,25 +37,27 @@ import type { ListinoStato } from "@/types/database";
 
 const STATO_LABEL: Record<ListinoStato, string> = {
   bozza: "Bozza",
-  approvato: "Approvato",
-  pubblicato: "Pubblicato",
-  chiuso: "Chiuso",
+  in_revisione: "In Revisione",
+  in_uso: "In Uso",
+  obsoleto: "Obsoleto",
 };
 
 const STATO_HELP: Record<ListinoStato, string> = {
   bozza:
-    "Documento di lavoro. Puoi cambiare ogni campo (testata, prezzi, sconti). Non è visibile a OpuntiaItalia né usabile come listino ufficiale.",
-  approvato:
-    "Un responsabile ha firmato il contenuto. I prezzi non si modificano più. Non è ancora il listino che legge il sito B2B: serve Pubblicato.",
-  pubblicato:
-    "Listino ufficiale in vigore (se le date di validità lo coprono). OpuntiaItalia e i preventivi prendono i prezzi da qui. Per cambiare i prezzi crea una nuova bozza.",
-  chiuso:
-    "Archiviato. Non è più vigente. Resta in storico con versione e audit; non si modifica e non si ripubblica.",
+    "L’operatore completa tutte le voci (prezzo oppure dichiarazione). Gli sconti sono facoltativi. Poi «Listino completo».",
+  in_revisione:
+    "L’admin spunta ogni voce. Poi «Approva e metti in uso» con conferma e OTP.",
+  in_uso:
+    "Listino ufficiale. Resta in vigore anche dopo «Dichiara obsoleto», finché un nuovo listino non va In Uso.",
+  obsoleto:
+    "Sostituito. Resta in storico. Non è più il listino vigente.",
 };
 
-type DeleteTarget =
-  | { kind: "riga"; riga: ListinoRiga }
-  | { kind: "condizione"; riga: ListinoRiga; condizione: ListinoRigaCondizione };
+type DeleteTarget = {
+  kind: "condizione";
+  riga: ListinoRiga;
+  condizione: ListinoRigaCondizione;
+};
 
 type CondDraft = {
   qtyDa: string;
@@ -67,11 +75,12 @@ const emptyCond: CondDraft = {
 
 export function ListiniB2bBoard() {
   const [items, setItems] = useState<Listino[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [otp, setOtp] = useState("");
+  const [obsoletoOpen, setObsoletoOpen] = useState(false);
   const [righe, setRighe] = useState<ListinoRiga[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [prodotti, setProdotti] = useState<
-    Array<{ id: string; codice: string; nome: string }>
-  >([]);
   const [imballaggi, setImballaggi] = useState<ImballaggioVoce[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -80,9 +89,6 @@ export function ListiniB2bBoard() {
   const [validoDal, setValidoDal] = useState(
     new Date().toISOString().slice(0, 10)
   );
-  const [prodottoId, setProdottoId] = useState("");
-  const [prezzo, setPrezzo] = useState("");
-  const [unitaMisura, setUnitaMisura] = useState<ListinoRigaUm>("kg");
   const [drafts, setDrafts] = useState<Record<string, CondDraft>>({});
   const [deleting, setDeleting] = useState<DeleteTarget | null>(null);
   const [editCodice, setEditCodice] = useState("");
@@ -105,6 +111,7 @@ export function ListiniB2bBoard() {
       }
       setError(null);
       setItems(res.items);
+      setIsAdmin(res.isAdmin);
     });
   }
 
@@ -119,13 +126,6 @@ export function ListiniB2bBoard() {
 
   useEffect(() => {
     reloadListini();
-    void listProdottiPropriAction().then((r) => {
-      if (r.success) {
-        setProdotti(
-          r.prodotti.map((p) => ({ id: p.id, codice: p.codice, nome: p.nome }))
-        );
-      }
-    });
     void listImballaggiVociAction().then((r) => {
       if (r.success) setImballaggi(r.items);
     });
@@ -144,7 +144,7 @@ export function ListiniB2bBoard() {
 
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const isBozza = selected?.stato === "bozza";
-  const prodottiInListino = new Set(righe.map((r) => r.prodottoId));
+  const incompleteCount = righe.filter((r) => !rigaListinoCompleta(r)).length;
 
   useEffect(() => {
     if (!selected) return;
@@ -179,8 +179,9 @@ export function ListiniB2bBoard() {
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-semibold">Nuovo listino B2B</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Bozza v1. Poi aggiungi le righe: prodotto, prezzo €/kg o €/lt,
-              condizioni di sconto per quantità e confezione.
+              Alla creazione vengono caricate tutte le voci prodotto. Prezzo 0
+              solo con dichiarazione «fuori produzione» o «non disponibile».
+              Gli sconti sono facoltativi.
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <input
@@ -354,39 +355,68 @@ export function ListiniB2bBoard() {
                 </button>
               ) : null}
               <div className="mt-4 flex flex-wrap items-center gap-2">
-                {(
-                  [
-                    "bozza",
-                    "approvato",
-                    "pubblicato",
-                    "chiuso",
-                  ] as ListinoStato[]
-                )
-                  .filter((stato) => stato !== selected.stato)
-                  .map((stato) => (
-                    <span key={stato} className="inline-flex items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={pending}
-                        className="rounded-md border border-[var(--border)] px-2 py-1 text-xs"
-                        onClick={() =>
-                          startTransition(async () => {
-                            const res = await setListinoStatoAction({
-                              id: selected.id,
-                              stato,
-                            });
-                            if (!res.success) setError(res.error);
-                            else reloadListini();
-                          })
-                        }
-                      >
-                        → {STATO_LABEL[stato]}
-                      </button>
-                      <InfoHint title={STATO_LABEL[stato]}>
-                        {STATO_HELP[stato]}
-                      </InfoHint>
-                    </span>
-                  ))}
+                {isBozza ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    onClick={() =>
+                      startTransition(async () => {
+                        const res = await inviaListinoInRevisioneAction(
+                          selected.id
+                        );
+                        if (!res.success) setError(res.error);
+                        else reloadListini();
+                      })
+                    }
+                  >
+                    Listino completo → In Revisione
+                  </button>
+                ) : null}
+                {selected.stato === "in_revisione" && isAdmin ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                      onClick={() => {
+                        setOtp("");
+                        setOtpOpen(true);
+                      }}
+                    >
+                      Approva e metti in uso
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs"
+                      onClick={() =>
+                        startTransition(async () => {
+                          const res = await riportaListinoInBozzaAction(
+                            selected.id
+                          );
+                          if (!res.success) setError(res.error);
+                          else reloadListini();
+                        })
+                      }
+                    >
+                      Riporta in bozza
+                    </button>
+                  </>
+                ) : null}
+                {selected.stato === "in_uso" && isAdmin ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900"
+                    onClick={() => setObsoletoOpen(true)}
+                  >
+                    Dichiara obsoleto
+                  </button>
+                ) : null}
+                <InfoHint title={STATO_LABEL[selected.stato]}>
+                  {STATO_HELP[selected.stato]}
+                </InfoHint>
               </div>
               <p className="mt-2 text-xs text-[var(--muted)]">
                 {STATO_HELP[selected.stato]}
@@ -398,6 +428,12 @@ export function ListiniB2bBoard() {
 
       {selected ? (
         <div className="space-y-3">
+          {isBozza && incompleteCount > 0 ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {incompleteCount} voci senza prezzo: imposta € oppure dichiara
+              «fuori produzione» / «al momento non disponibile».
+            </p>
+          ) : null}
           <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
             <table className="min-w-[960px] w-full text-left text-sm">
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
@@ -405,6 +441,10 @@ export function ListiniB2bBoard() {
                   <th className="px-3 py-2">Prodotto</th>
                   <th className="px-3 py-2">Prezzo</th>
                   <th className="px-3 py-2">UM</th>
+                  <th className="px-3 py-2">Disponibilità</th>
+                  {selected.stato === "in_revisione" ? (
+                    <th className="px-3 py-2">Check</th>
+                  ) : null}
                   <th className="px-3 py-2">Qty da</th>
                   <th className="px-3 py-2">Qty a</th>
                   <th className="px-3 py-2">Confezionamento</th>
@@ -418,6 +458,8 @@ export function ListiniB2bBoard() {
                     key={r.id}
                     riga={r}
                     editable={Boolean(isBozza)}
+                    inRevisione={selected.stato === "in_revisione"}
+                    isAdmin={isAdmin}
                     pending={pending}
                     confezioni={confezioni}
                     draft={condDraft(r.id)}
@@ -428,116 +470,143 @@ export function ListiniB2bBoard() {
                       if (selectedId) void reloadRighe(selectedId);
                     }}
                     onError={setError}
-                    onDeleteRiga={() => setDeleting({ kind: "riga", riga: r })}
                     onDeleteCond={(c) =>
                       setDeleting({ kind: "condizione", riga: r, condizione: c })
                     }
                     startTransition={startTransition}
                   />
                 ))}
-                {isBozza ? (
-                <tr className="border-t border-[var(--border)] bg-slate-50/80">
-                  <td className="px-3 py-2">
-                    <select
-                      className="w-full min-w-[220px] rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-                      value={prodottoId}
-                      onChange={(e) => setProdottoId(e.target.value)}
-                    >
-                      <option value="">Prodotto da prezzare…</option>
-                      {prodotti
-                        .filter((p) => !prodottiInListino.has(p.id))
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.codice} — {p.nome}
-                          </option>
-                        ))}
-                    </select>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      className="w-24 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      placeholder="0.00"
-                      value={prezzo}
-                      onChange={(e) => setPrezzo(e.target.value)}
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <select
-                      className="rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1.5 text-sm"
-                      value={unitaMisura}
-                      onChange={(e) =>
-                        setUnitaMisura(e.target.value as ListinoRigaUm)
-                      }
-                    >
-                      {LISTINO_RIGA_UM.map((u) => (
-                        <option key={u} value={u}>
-                          €/{u}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td colSpan={4} className="px-3 py-2 text-xs text-[var(--muted)]">
-                    Dopo il salvataggio aggiungi gli sconti (quantità + confezione).
-                  </td>
-                  <td className="px-3 py-2">
-                    <button
-                      type="button"
-                      disabled={pending || !prodottoId || !Number(prezzo)}
-                      className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                      onClick={() =>
-                        startTransition(async () => {
-                          const res = await upsertListinoRigaAction({
-                            listinoId: selected.id,
-                            prodottoId,
-                            prezzo: Number(prezzo),
-                            unitaMisura,
-                          });
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          setProdottoId("");
-                          setPrezzo("");
-                          await reloadRighe(selected.id);
-                        })
-                      }
-                    >
-                      Aggiungi riga
-                    </button>
-                  </td>
-                </tr>
-                ) : null}
               </tbody>
             </table>
           </div>
         </div>
       ) : null}
 
+      {otpOpen && selected ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold">Approva e metti in uso</h3>
+            <p className="mt-2 text-sm text-slate-700">
+              Confermi che tutte le voci sono state controllate? Inserisci il
+              codice OTP di Google Authenticator. Il listino diventerà In Uso;
+              eventuali listini In Uso precedenti passeranno a Obsoleto.
+            </p>
+            <input
+              className="mt-3 w-full rounded-md border border-[var(--border)] px-3 py-2 font-mono text-sm tracking-widest"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="000000"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border px-3 py-1.5 text-sm"
+                onClick={() => setOtpOpen(false)}
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending || otp.length !== 6}
+                className="rounded-md bg-emerald-700 px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await approvaListinoInUsoAction({
+                      id: selected.id,
+                      otp,
+                    });
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    setOtpOpen(false);
+                    reloadListini();
+                  })
+                }
+              >
+                Conferma con OTP
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {obsoletoOpen && selected ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
+            <h3 className="text-sm font-semibold">Dichiara obsoleto</h3>
+            <p className="mt-2 text-sm text-slate-700">
+              Questo listino <strong>resta In Uso</strong> fino a quando tutte le
+              voci non saranno aggiornate in una nuova bozza e quella bozza non
+              verrà approvata (OTP). Gli sconti non sono obbligatori. Ogni voce
+              deve avere un prezzo oppure la dichiarazione «fuori produzione» /
+              «al momento non disponibile».
+            </p>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border px-3 py-1.5 text-sm"
+                onClick={() => setObsoletoOpen(false)}
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-md border px-3 py-1.5 text-sm"
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await dichiaraListinoObsoletoAction({
+                      id: selected.id,
+                      creaSostituzione: false,
+                    });
+                    if (!res.success) setError(res.error);
+                    setObsoletoOpen(false);
+                  })
+                }
+              >
+                Ho capito
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-md bg-amber-700 px-3 py-1.5 text-sm text-white"
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await dichiaraListinoObsoletoAction({
+                      id: selected.id,
+                      creaSostituzione: true,
+                    });
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    setObsoletoOpen(false);
+                    reloadListini();
+                    if (res.bozzaId) setSelectedId(res.bozzaId);
+                  })
+                }
+              >
+                Crea bozza di sostituzione
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {deleting ? (
         <ConfirmDeleteModal
-          title={
-            deleting.kind === "riga"
-              ? "Rimuovi riga listino"
-              : "Rimuovi condizione sconto"
-          }
-          message={
-            deleting.kind === "riga"
-              ? `Rimuovere ${deleting.riga.prodottoCodice} ${deleting.riga.prodottoNome} e le sue condizioni? Soft delete: resta in archivio.`
-              : `Rimuovere lo sconto ${deleting.condizione.scontoPct}% su ${deleting.condizione.imballaggioCodice}? Soft delete: resta in archivio.`
-          }
+          title="Rimuovi condizione sconto"
+          message={`Rimuovere lo sconto ${deleting.condizione.scontoPct}% su ${deleting.condizione.imballaggioCodice}? Soft delete: resta in archivio.`}
           confirmLabel="Rimuovi"
           onClose={() => setDeleting(null)}
           onConfirm={() =>
             startTransition(async () => {
-              const res =
-                deleting.kind === "riga"
-                  ? await softDeleteListinoRigaAction(deleting.riga.id)
-                  : await softDeleteListinoRigaCondizioneAction(
-                      deleting.condizione.id
-                    );
+              const res = await softDeleteListinoRigaCondizioneAction(
+                deleting.condizione.id
+              );
               if (!res.success) {
                 setError(res.error);
                 return;
@@ -555,39 +624,52 @@ export function ListiniB2bBoard() {
 function RigaBlock({
   riga,
   editable,
+  inRevisione,
+  isAdmin,
   pending,
   confezioni,
   draft,
   onDraftChange,
   onSaved,
   onError,
-  onDeleteRiga,
   onDeleteCond,
   startTransition,
 }: {
   riga: ListinoRiga;
   editable: boolean;
+  inRevisione: boolean;
+  isAdmin: boolean;
   pending: boolean;
   confezioni: ImballaggioVoce[];
   draft: CondDraft;
   onDraftChange: (d: CondDraft) => void;
   onSaved: () => void;
   onError: (msg: string) => void;
-  onDeleteRiga: () => void;
   onDeleteCond: (c: ListinoRigaCondizione) => void;
   startTransition: (fn: () => Promise<void>) => void;
 }) {
   const [prezzo, setPrezzo] = useState(String(riga.prezzo));
   const [um, setUm] = useState<ListinoRigaUm>(riga.unitaMisura);
+  const [disp, setDisp] = useState<ListinoDisponibilita>(riga.disponibilita);
 
   useEffect(() => {
     setPrezzo(String(riga.prezzo));
     setUm(riga.unitaMisura);
-  }, [riga.id, riga.prezzo, riga.unitaMisura]);
+    setDisp(riga.disponibilita);
+  }, [riga.id, riga.prezzo, riga.unitaMisura, riga.disponibilita]);
+
+  const completa = rigaListinoCompleta({
+    prezzo: Number(prezzo),
+    disponibilita: disp,
+  });
 
   return (
     <>
-      <tr className="border-t border-[var(--border)] bg-white">
+      <tr
+        className={`border-t border-[var(--border)] ${
+          completa ? "bg-white" : "bg-amber-50/70"
+        }`}
+      >
         <td className="px-3 py-2 font-medium">
           {riga.prodottoCodice} {riga.prodottoNome}
         </td>
@@ -616,12 +698,50 @@ function RigaBlock({
             ))}
           </select>
         </td>
+        <td className="px-3 py-2">
+          <select
+            className="min-w-[11rem] rounded-md border border-[var(--border)] bg-[var(--background)] px-2 py-1 text-sm"
+            value={disp}
+            disabled={!editable || pending}
+            onChange={(e) =>
+              setDisp(e.target.value as ListinoDisponibilita)
+            }
+          >
+            {LISTINO_DISPONIBILITA.map((d) => (
+              <option key={d} value={d}>
+                {LISTINO_DISPONIBILITA_LABEL[d]}
+              </option>
+            ))}
+          </select>
+        </td>
+        {inRevisione ? (
+          <td className="px-3 py-2">
+            <input
+              type="checkbox"
+              disabled={!isAdmin || pending}
+              checked={riga.revisioneApprovata}
+              onChange={(e) =>
+                startTransition(async () => {
+                  const res = await setListinoRigaRevisioneAction({
+                    rigaId: riga.id,
+                    approvata: e.target.checked,
+                  });
+                  if (!res.success) {
+                    onError(res.error);
+                    return;
+                  }
+                  onSaved();
+                })
+              }
+            />
+          </td>
+        ) : null}
         <td colSpan={4} className="px-3 py-2 text-xs text-[var(--muted)]">
-          Prezzo base. Le righe sotto sono sconti per scaglione e confezione.
+          Prezzo base. Sconti facoltativi sotto. Prezzo 0 solo con
+          dichiarazione.
         </td>
         <td className="px-3 py-2">
           {editable ? (
-          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               disabled={pending}
@@ -633,6 +753,7 @@ function RigaBlock({
                     prodottoId: riga.prodottoId,
                     prezzo: Number(prezzo),
                     unitaMisura: um,
+                    disponibilita: disp,
                   });
                   if (!res.success) {
                     onError(res.error);
@@ -644,14 +765,6 @@ function RigaBlock({
             >
               Salva
             </button>
-            <button
-              type="button"
-              className="text-xs text-red-700 underline"
-              onClick={onDeleteRiga}
-            >
-              Rimuovi
-            </button>
-          </div>
           ) : null}
         </td>
       </tr>
@@ -661,6 +774,7 @@ function RigaBlock({
           condizione={c}
           editable={editable}
           pending={pending}
+          extraLeadCells={inRevisione ? 2 : 1}
           confezioni={confezioni}
           onSaved={onSaved}
           onError={onError}
@@ -675,6 +789,8 @@ function RigaBlock({
         </td>
         <td className="px-3 py-1.5" />
         <td className="px-3 py-1.5" />
+        <td className="px-3 py-1.5" />
+        {inRevisione ? <td className="px-3 py-1.5" /> : null}
         <td className="px-3 py-1.5">
           <input
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
@@ -760,6 +876,7 @@ function CondizioneRow({
   condizione,
   editable,
   pending,
+  extraLeadCells,
   confezioni,
   onSaved,
   onError,
@@ -769,6 +886,7 @@ function CondizioneRow({
   condizione: ListinoRigaCondizione;
   editable: boolean;
   pending: boolean;
+  extraLeadCells: number;
   confezioni: ImballaggioVoce[];
   onSaved: () => void;
   onError: (msg: string) => void;
@@ -804,6 +922,9 @@ function CondizioneRow({
       </td>
       <td className="px-3 py-1.5" />
       <td className="px-3 py-1.5" />
+      {Array.from({ length: extraLeadCells }).map((_, i) => (
+        <td key={i} className="px-3 py-1.5" />
+      ))}
       <td className="px-3 py-1.5">
         {editable ? (
           <input

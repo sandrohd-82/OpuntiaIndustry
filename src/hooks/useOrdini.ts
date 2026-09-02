@@ -8,7 +8,7 @@ import {
 import type { Ordine } from "@/lib/amministrazione/ordini";
 import type { OrdineStato } from "@/types/database";
 
-export function useOrdini(stato: OrdineStato) {
+export function useOrdini(stato: OrdineStato | OrdineStato[]) {
   const [ordini, setOrdini] = useState<Ordine[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +21,7 @@ export function useOrdini(stato: OrdineStato) {
     } else {
       setError(result.error);
     }
-  }, [stato]);
+  }, [JSON.stringify(stato)]);
 
   useEffect(() => {
     void refresh().finally(() => setReady(true));

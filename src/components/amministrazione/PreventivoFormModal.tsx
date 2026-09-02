@@ -20,6 +20,7 @@ import {
   type Preventivo,
   type PreventivoConsegna,
 } from "@/lib/amministrazione/preventivi";
+import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 
 type DraftRiga = {
   prodottoId: string;
@@ -28,6 +29,12 @@ type DraftRiga = {
   listinoId: string | null;
   prezzoDaListino: boolean;
   confezionamento: string;
+  disponibilita:
+    | "in_produzione"
+    | "fuori_produzione"
+    | "non_disponibile"
+    | null;
+  blocco: "fuori_produzione" | "senza_prezzo" | null;
 };
 
 type Props = {
@@ -47,6 +54,8 @@ function emptyRiga(): DraftRiga {
     listinoId: null,
     prezzoDaListino: false,
     confezionamento: "",
+    disponibilita: null,
+    blocco: null,
   };
 }
 
@@ -89,16 +98,26 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     );
     if (!prodottoId) return;
     const res = await getListinoPrezzoVigenteAction(prodottoId);
-    if (!res.success || res.prezzo == null) return;
+    if (!res.success) {
+      setFormError(res.error);
+      return;
+    }
+    const disp = res.disponibilita;
+    let blocco: DraftRiga["blocco"] = null;
+    if (disp === "fuori_produzione") blocco = "fuori_produzione";
+    else if (res.prezzo == null || res.prezzo <= 0) blocco = "senza_prezzo";
     setRighe((prev) =>
       prev.map((r, i) =>
         i === index
           ? {
               ...r,
               prodottoId,
-              prezzoUnitario: res.prezzo ?? "",
+              prezzoUnitario:
+                blocco || res.prezzo == null ? "" : res.prezzo,
               listinoId: res.listinoId,
-              prezzoDaListino: true,
+              prezzoDaListino: Boolean(res.prezzo && res.prezzo > 0),
+              disponibilita: disp,
+              blocco,
             }
           : r
       )
@@ -109,6 +128,15 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     e.preventDefault();
     if (!cliente) {
       setFormError("Seleziona un’azienda.");
+      return;
+    }
+    const bloccata = righe.find((r) => r.blocco);
+    if (bloccata?.blocco === "fuori_produzione") {
+      setFormError(LISTINO_CONTRATTO_MSG.fuori_produzione);
+      return;
+    }
+    if (bloccata?.blocco === "senza_prezzo") {
+      setFormError(LISTINO_CONTRATTO_MSG.senza_prezzo);
       return;
     }
     const mapped = righe.map((r) => {
@@ -174,8 +202,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           Nuovo preventivo
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Stato iniziale: Creato (non inviato). Prezzo da listino B2B vigente se
-          presente; altrimenti inseriscilo a mano (listino dedicato in arrivo).
+          Stato iniziale: Creato (non inviato). Il prezzo arriva dal listino In
+          Uso. Fuori produzione: non preventivabile. Non disponibile: si può
+          preventivare; l’ordine successivo resterà sospeso.
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
@@ -252,6 +281,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                       min={0}
                       placeholder="€/kg"
                       value={riga.prezzoUnitario}
+                      disabled={riga.prezzoDaListino || Boolean(riga.blocco)}
                       onValueChange={(v) =>
                         setRighe((prev) =>
                           prev.map((r, i) =>
@@ -261,10 +291,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                           )
                         )
                       }
-                      className="rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                      className="rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
                     />
                     <p className="mt-0.5 text-[10px] text-[var(--muted)]">
-                      {riga.prezzoDaListino ? "Da listino vigente" : "Manuale"}
+                      {riga.blocco === "fuori_produzione"
+                        ? "Fuori produzione"
+                        : riga.blocco === "senza_prezzo"
+                          ? "Imposta il prezzo in listino"
+                          : riga.disponibilita === "non_disponibile"
+                            ? "Al momento non disponibile"
+                            : riga.prezzoDaListino
+                              ? "Da listino In Uso"
+                              : "Manuale"}
                     </p>
                   </div>
                   <input

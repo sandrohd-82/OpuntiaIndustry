@@ -2,20 +2,26 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
   createListinoSchema,
   listinoCondizioniSovrapposte,
   mapListino,
   mapListinoRiga,
   mapListinoRigaCondizione,
+  rigaListinoCompleta,
   updateListinoSchema,
   upsertListinoRigaCondizioneSchema,
   upsertListinoRigaSchema,
   type Listino,
+  type ListinoDisponibilita,
   type ListinoRiga,
   type ListinoRigaCondizione,
 } from "@/lib/ecosystem/listini";
+import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
+import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
 import { createClient } from "@/lib/supabase/server";
+import { verifyCurrentUserTotp } from "@/app/actions/totp";
 import type {
   ListinoRigaCondizioneRow,
   ListinoRigaRow,
@@ -30,9 +36,10 @@ async function guardAmm() {
 }
 
 export async function listListiniAction(): Promise<
-  { success: true; items: Listino[] } | { success: false; error: string }
+  | { success: true; items: Listino[]; isAdmin: boolean }
+  | { success: false; error: string }
 > {
-  await guardAmm();
+  const { auth } = await guardAmm();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("listini")
@@ -43,6 +50,7 @@ export async function listListiniAction(): Promise<
   return {
     success: true,
     items: ((data ?? []) as ListinoRow[]).map(mapListino),
+    isAdmin: isAdminLikeProfile(auth.profile),
   };
 }
 
@@ -70,6 +78,7 @@ export async function createListinoAction(input: unknown): Promise<
       note: parsed.data.note,
       stato: "bozza",
       versione: 1,
+      sostituisce_id: parsed.data.sostituisceId || null,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -81,14 +90,88 @@ export async function createListinoAction(input: unknown): Promise<
   }
 
   const row = data as ListinoRow;
+  const seedErr = await seedListinoProdotti(
+    supabase,
+    row.id,
+    auth.userId,
+    parsed.data.sostituisceId || null
+  );
+  if (seedErr) return { success: false, error: seedErr };
+
   await writeAuditLog({
     entity_type: "listini",
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato listino B2B ${row.codice} (bozza v1)`,
+    summary: `Creato listino B2B ${row.codice} (bozza v1, tutte le voci prodotto)`,
+    payload: { sostituisce_id: parsed.data.sostituisceId || null },
   });
   return { success: true, item: mapListino(row) };
+}
+
+async function seedListinoProdotti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string,
+  userId: string,
+  copyFromId: string | null
+): Promise<string | null> {
+  const { data: prodotti, error: pErr } = await supabase
+    .from("prodotti_propri")
+    .select("id")
+    .is("deleted_at", null);
+  if (pErr) return pErr.message;
+  const ids = ((prodotti ?? []) as { id: string }[]).map((p) => p.id);
+  if (!ids.length) return "Nessun prodotto Agrinsicilia da caricare.";
+
+  const copied = new Map<
+    string,
+    { prezzo: number; unita: string; disp: string }
+  >();
+  if (copyFromId) {
+    const { data: prev } = await supabase
+      .from("listini_righe")
+      .select("prodotto_id, prezzo, unita_misura, disponibilita")
+      .eq("listino_id", copyFromId)
+      .is("deleted_at", null);
+    for (const r of (prev ?? []) as {
+      prodotto_id: string;
+      prezzo: number;
+      unita_misura: string;
+      disponibilita: string;
+    }[]) {
+      copied.set(r.prodotto_id, {
+        prezzo: Number(r.prezzo),
+        unita: r.unita_misura === "lt" ? "lt" : "kg",
+        disp: r.disponibilita,
+      });
+    }
+  }
+
+  const { data: existing } = await supabase
+    .from("listini_righe")
+    .select("prodotto_id")
+    .eq("listino_id", listinoId)
+    .is("deleted_at", null);
+  const have = new Set(
+    ((existing ?? []) as { prodotto_id: string }[]).map((r) => r.prodotto_id)
+  );
+  const toInsert = ids
+    .filter((id) => !have.has(id))
+    .map((prodotto_id) => {
+      const c = copied.get(prodotto_id);
+      return {
+        listino_id: listinoId,
+        prodotto_id,
+        prezzo: c?.prezzo ?? 0,
+        unita_misura: c?.unita ?? "kg",
+        disponibilita: c?.disp ?? "in_produzione",
+        created_by: userId,
+        updated_by: userId,
+      };
+    });
+  if (!toInsert.length) return null;
+  const { error } = await supabase.from("listini_righe").insert(toInsert);
+  return error?.message ?? null;
 }
 
 async function requireListinoBozza(
@@ -167,50 +250,315 @@ export async function setListinoStatoAction(input: {
   id: string;
   stato: ListinoStato;
 }): Promise<{ success: true } | { success: false; error: string }> {
+  if (input.stato === "bozza") return riportaListinoInBozzaAction(input.id);
+  if (input.stato === "in_revisione") return inviaListinoInRevisioneAction(input.id);
+  return {
+    success: false,
+    error: "Usa le azioni di workflow (Listino completo / Approva / Obsoleto).",
+  };
+}
+
+export async function inviaListinoInRevisioneAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
-  if (!["bozza", "approvato", "pubblicato", "chiuso"].includes(input.stato)) {
-    return { success: false, error: "Stato non valido" };
+  const supabase = await createClient();
+  const gate = await requireListinoBozza(supabase, id);
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const seedErr = await seedListinoProdotti(supabase, id, auth.userId, null);
+  if (seedErr) return { success: false, error: seedErr };
+
+  const { data: rows, error: rErr } = await supabase
+    .from("listini_righe")
+    .select("prezzo, disponibilita, prodotto_id")
+    .eq("listino_id", id)
+    .is("deleted_at", null);
+  if (rErr) return { success: false, error: rErr.message };
+  const righe = (rows ?? []) as {
+    prezzo: number;
+    disponibilita: ListinoDisponibilita;
+    prodotto_id: string;
+  }[];
+  const incomplete = righe.filter(
+    (r) =>
+      !rigaListinoCompleta({
+        prezzo: Number(r.prezzo),
+        disponibilita: r.disponibilita,
+      })
+  );
+  if (incomplete.length) {
+    return {
+      success: false,
+      error: `${incomplete.length} voci senza prezzo valido. Imposta il prezzo o dichiara fuori produzione / non disponibile.`,
+    };
   }
 
-  const supabase = await createClient();
-  const { data: current, error: readError } = await supabase
+  const { data: current } = await supabase
     .from("listini")
-    .select("id, stato, versione, codice")
+    .select("codice, versione")
+    .eq("id", id)
+    .maybeSingle();
+
+  const { error } = await supabase
+    .from("listini")
+    .update({
+      stato: "in_revisione",
+      versione: Number((current as { versione?: number } | null)?.versione ?? 1) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", id);
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Listino ${(current as { codice?: string } | null)?.codice ?? id}: bozza → in_revisione`,
+    payload: { from: "bozza", to: "in_revisione" },
+  });
+  return { success: true };
+}
+
+export async function riportaListinoInBozzaAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardAmm();
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo un admin può riportare il listino in bozza." };
+  }
+  const supabase = await createClient();
+  const { data: current } = await supabase
+    .from("listini")
+    .select("stato, codice, versione")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!current) return { success: false, error: "Listino non trovato" };
+  if ((current as { stato: string }).stato !== "in_revisione") {
+    return { success: false, error: "Si può riportare in bozza solo un listino In Revisione." };
+  }
+  await supabase
+    .from("listini_righe")
+    .update({
+      revisione_approvata: false,
+      revisione_approvata_at: null,
+      revisione_approvata_by: null,
+      updated_by: auth.userId,
+    })
+    .eq("listino_id", id)
+    .is("deleted_at", null);
+  const { error } = await supabase
+    .from("listini")
+    .update({
+      stato: "bozza",
+      versione: Number((current as { versione: number }).versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", id);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Listino ${(current as { codice: string }).codice}: in_revisione → bozza`,
+    payload: { from: "in_revisione", to: "bozza" },
+  });
+  return { success: true };
+}
+
+export async function setListinoRigaRevisioneAction(input: {
+  rigaId: string;
+  approvata: boolean;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardAmm();
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo un admin può spuntare le voci in revisione." };
+  }
+  const supabase = await createClient();
+  const { data: riga } = await supabase
+    .from("listini_righe")
+    .select("id, listino_id")
+    .eq("id", input.rigaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!riga) return { success: false, error: "Voce non trovata" };
+  const { data: listino } = await supabase
+    .from("listini")
+    .select("stato")
+    .eq("id", (riga as { listino_id: string }).listino_id)
+    .maybeSingle();
+  if ((listino as { stato?: string } | null)?.stato !== "in_revisione") {
+    return { success: false, error: "Il check per voce vale solo In Revisione." };
+  }
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("listini_righe")
+    .update({
+      revisione_approvata: input.approvata,
+      revisione_approvata_at: input.approvata ? now : null,
+      revisione_approvata_by: input.approvata ? auth.userId : null,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.rigaId);
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function approvaListinoInUsoAction(input: {
+  id: string;
+  otp: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardAmm();
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo un admin può approvare e mettere In Uso." };
+  }
+  const otp = await verifyCurrentUserTotp(auth.userId, input.otp);
+  if (!otp.ok) return { success: false, error: otp.error };
+
+  const supabase = await createClient();
+  const { data: current } = await supabase
+    .from("listini")
+    .select("id, stato, codice, versione, sostituisce_id")
     .eq("id", input.id)
     .is("deleted_at", null)
     .maybeSingle();
-  if (readError || !current) {
-    return { success: false, error: readError?.message ?? "Listino non trovato" };
+  if (!current) return { success: false, error: "Listino non trovato" };
+  if ((current as { stato: string }).stato !== "in_revisione") {
+    return { success: false, error: "Puoi mettere In Uso solo un listino In Revisione." };
   }
 
-  const patch: Record<string, unknown> = {
-    stato: input.stato,
-    updated_by: auth.userId,
-    versione: Number(current.versione ?? 1) + 1,
-  };
-  if (input.stato === "approvato") {
-    patch.approved_at = new Date().toISOString();
-    patch.approved_by = auth.userId;
+  const seedErr = await seedListinoProdotti(supabase, input.id, auth.userId, null);
+  if (seedErr) return { success: false, error: seedErr };
+
+  const { data: rows } = await supabase
+    .from("listini_righe")
+    .select("prezzo, disponibilita, revisione_approvata")
+    .eq("listino_id", input.id)
+    .is("deleted_at", null);
+  const righe = (rows ?? []) as {
+    prezzo: number;
+    disponibilita: ListinoDisponibilita;
+    revisione_approvata: boolean;
+  }[];
+  if (!righe.length) return { success: false, error: "Nessuna voce nel listino." };
+  if (
+    righe.some(
+      (r) =>
+        !rigaListinoCompleta({
+          prezzo: Number(r.prezzo),
+          disponibilita: r.disponibilita,
+        })
+    )
+  ) {
+    return { success: false, error: "Tutte le voci devono avere prezzo o dichiarazione." };
   }
-  if (input.stato === "pubblicato") {
-    patch.published_at = new Date().toISOString();
-    patch.published_by = auth.userId;
-    patch.approved_at = new Date().toISOString();
-    patch.approved_by = auth.userId;
+  const missingCheck = righe.filter((r) => !r.revisione_approvata).length;
+  if (missingCheck) {
+    return {
+      success: false,
+      error: `Mancano ${missingCheck} check admin sulle voci. Spunta tutte le voci prima di approvare.`,
+    };
   }
 
-  const { error } = await supabase.from("listini").update(patch).eq("id", input.id);
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("listini")
+    .update({
+      stato: "in_uso",
+      published_at: now,
+      published_by: auth.userId,
+      approved_at: now,
+      approved_by: auth.userId,
+      versione: Number((current as { versione: number }).versione) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id);
   if (error) return { success: false, error: error.message };
+
+  const { data: others } = await supabase
+    .from("listini")
+    .select("id, codice")
+    .eq("stato", "in_uso")
+    .eq("canale", "b2b")
+    .neq("id", input.id)
+    .is("deleted_at", null);
+  for (const o of (others ?? []) as { id: string; codice: string }[]) {
+    await supabase
+      .from("listini")
+      .update({
+        stato: "obsoleto",
+        updated_by: auth.userId,
+      })
+      .eq("id", o.id);
+    await writeAuditLog({
+      entity_type: "listini",
+      entity_id: o.id,
+      action: "status_change",
+      actor_id: auth.userId,
+      summary: `Listino ${o.codice}: in_uso → obsoleto (sostituito)`,
+      payload: { from: "in_uso", to: "obsoleto", sostituito_da: input.id },
+    });
+  }
 
   await writeAuditLog({
     entity_type: "listini",
     entity_id: input.id,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Listino ${current.codice}: ${current.stato} → ${input.stato}`,
-    payload: { from: current.stato, to: input.stato },
+    summary: `Listino ${(current as { codice: string }).codice}: in_revisione → in_uso (OTP)`,
+    payload: { from: "in_revisione", to: "in_uso", otp: true },
   });
   return { success: true };
+}
+
+export async function dichiaraListinoObsoletoAction(input: {
+  id: string;
+  creaSostituzione: boolean;
+}): Promise<
+  | { success: true; bozzaId?: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo un admin può dichiarare obsoleto un listino." };
+  }
+  const supabase = await createClient();
+  const { data: current } = await supabase
+    .from("listini")
+    .select("*")
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!current) return { success: false, error: "Listino non trovato" };
+  const row = current as ListinoRow;
+  if (row.stato !== "in_uso") {
+    return { success: false, error: "Puoi dichiarare obsoleto solo un listino In Uso." };
+  }
+
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: row.id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Richiesta sostituzione listino ${row.codice}: resta In Uso fino al nuovo In Uso`,
+    payload: { crea_sostituzione: input.creaSostituzione },
+  });
+
+  if (!input.creaSostituzione) return { success: true };
+
+  const oggi = new Date().toISOString().slice(0, 10);
+  const created = await createListinoAction({
+    codice: `${row.codice}-S`,
+    nome: `${row.nome} (sostituzione)`,
+    validoDal: oggi,
+    note: `Sostituisce ${row.codice}`,
+    sostituisceId: row.id,
+  });
+  if (!created.success) return created;
+  return { success: true, bozzaId: created.item.id };
 }
 
 export async function listListinoRigheAction(
@@ -323,6 +671,10 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
       .update({
         prezzo: parsed.data.prezzo,
         unita_misura: parsed.data.unitaMisura,
+        disponibilita: parsed.data.disponibilita,
+        revisione_approvata: false,
+        revisione_approvata_at: null,
+        revisione_approvata_by: null,
         iva_percentuale: parsed.data.ivaPercentuale,
         min_qty: parsed.data.minQty,
         sconto_max_pct: parsed.data.scontoMaxPct,
@@ -343,6 +695,7 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
         prodotto_id: parsed.data.prodottoId,
         prezzo: parsed.data.prezzo,
         unita_misura: parsed.data.unitaMisura,
+        disponibilita: parsed.data.disponibilita,
         iva_percentuale: parsed.data.ivaPercentuale,
         min_qty: parsed.data.minQty,
         sconto_max_pct: parsed.data.scontoMaxPct,
@@ -374,52 +727,14 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
 }
 
 export async function softDeleteListinoRigaAction(
-  id: string
+  _id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
-  const supabase = await createClient();
-  const { data: riga } = await supabase
-    .from("listini_righe")
-    .select("listino_id")
-    .eq("id", id)
-    .maybeSingle();
-  if (!riga) return { success: false, error: "Riga non trovata" };
-  const gate = await requireListinoBozza(
-    supabase,
-    (riga as { listino_id: string }).listino_id
-  );
-  if (!gate.ok) return { success: false, error: gate.error };
-
-  const now = new Date().toISOString();
-  const { error: condErr } = await supabase
-    .from("listini_righe_condizioni")
-    .update({
-      deleted_at: now,
-      deleted_by: auth.userId,
-      updated_by: auth.userId,
-    })
-    .eq("listino_riga_id", id)
-    .is("deleted_at", null);
-  if (condErr) return { success: false, error: condErr.message };
-
-  const { error } = await supabase
-    .from("listini_righe")
-    .update({
-      deleted_at: now,
-      deleted_by: auth.userId,
-      updated_by: auth.userId,
-    })
-    .eq("id", id);
-  if (error) return { success: false, error: error.message };
-
-  await writeAuditLog({
-    entity_type: "listini_righe",
-    entity_id: id,
-    action: "soft_delete",
-    actor_id: auth.userId,
-    summary: "Rimossa riga listino (soft delete)",
-  });
-  return { success: true };
+  void _id;
+  return {
+    success: false,
+    error:
+      "Le voci prodotto non si eliminano. Dichiara «fuori produzione» o «al momento non disponibile».",
+  };
 }
 
 export async function upsertListinoRigaCondizioneAction(input: unknown): Promise<
@@ -703,4 +1018,18 @@ export async function updateProdottoCanaleAction(input: {
     },
   });
   return { success: true };
+}
+
+export type { ListinoVoceVigente };
+
+export async function getListinoVoceVigenteAction(
+  prodottoId: string
+): Promise<
+  | { success: true; voce: ListinoVoceVigente | null }
+  | { success: false; error: string }
+> {
+  await guardAmm();
+  const res = await queryListinoVoceVigente(prodottoId);
+  if (res.error) return { success: false, error: res.error };
+  return { success: true, voce: res.voce };
 }

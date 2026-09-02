@@ -21,6 +21,11 @@ import {
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
 import { ordineWizardInputSchema } from "@/lib/amministrazione/produzione-capacita";
+import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
+import {
+  LISTINO_CONTRATTO_MSG,
+  valutaListinoPerContratto,
+} from "@/lib/ecosystem/listino-vigente";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import type {
   AuditLogInsert,
@@ -172,20 +177,21 @@ async function replaceRighe(
 }
 
 export async function listOrdiniAction(
-  stato: OrdineStato
+  stato: OrdineStato | OrdineStato[]
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const stati = Array.isArray(stato) ? stato : [stato];
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("ordini")
     .select("*")
-    .eq("stato", stato)
-    .is("deleted_at", null)
-    .order(
-      stato === "storico" ? "data_consegna" : "data_ordine",
-      { ascending: false }
-    );
+    .is("deleted_at", null);
+  q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
+  const { data, error } = await q.order(
+    stati.includes("storico") ? "data_consegna" : "data_ordine",
+    { ascending: false }
+  );
 
   if (error) return { success: false, error: error.message };
 
@@ -277,6 +283,26 @@ export async function createOrdineAction(
     };
   }
   const input = parsed.data;
+
+  if (input.stato !== "storico") {
+    for (const r of input.righe) {
+      const voceRes = await queryListinoVoceVigente(r.prodottoId);
+      if (voceRes.error) return { success: false, error: voceRes.error };
+      const regola = valutaListinoPerContratto(voceRes.voce);
+      if (regola.esito === "fuori_produzione") {
+        return {
+          success: false,
+          error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.fuori_produzione}`,
+        };
+      }
+      if (regola.esito === "senza_prezzo") {
+        return {
+          success: false,
+          error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.senza_prezzo}`,
+        };
+      }
+    }
+  }
 
   if (input.stato === "storico" && !input.dataConsegna) {
     return { success: false, error: "Data consegna obbligatoria nello storico." };
@@ -710,7 +736,27 @@ export async function createOrdineWizardAction(
   }
   const input = parsed.data;
 
-  const calcRes = await calcolaConsegnaOrdineAction({
+  const voceRes = await queryListinoVoceVigente(input.prodottoId);
+  if (voceRes.error) return { success: false, error: voceRes.error };
+  const regola = valutaListinoPerContratto(voceRes.voce);
+  if (regola.esito === "fuori_produzione") {
+    return { success: false, error: LISTINO_CONTRATTO_MSG.fuori_produzione };
+  }
+  if (regola.esito === "senza_prezzo") {
+    return { success: false, error: LISTINO_CONTRATTO_MSG.senza_prezzo };
+  }
+  const ordineSospeso = regola.esito === "sospeso";
+  if (ordineSospeso && !input.dataDisponibilitaPresunta) {
+    return {
+      success: false,
+      error:
+        "Prodotto al momento non disponibile: indica la data presunta di disponibilità.",
+    };
+  }
+
+  const calcRes = ordineSospeso
+    ? null
+    : await calcolaConsegnaOrdineAction({
     prodottoId: input.prodottoId,
     prodottoCodice: input.prodottoCodice,
     quantitaKg: input.quantita,
@@ -723,29 +769,32 @@ export async function createOrdineWizardAction(
     capacitaIngressoKgPerEssiccatoreOverride:
       input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
   });
-  if (!calcRes.success) {
+  if (calcRes && !calcRes.success) {
     return { success: false, error: calcRes.error };
   }
 
-  const dataConsegna =
-    input.dataConsegnaCalendario ??
-    calcRes.calcolo.dataConsegnaStimata ??
-    input.dataRichiesta ??
-    null;
+  const dataConsegna = ordineSospeso
+    ? (input.dataDisponibilitaPresunta ?? input.dataRichiesta ?? null)
+    : (input.dataConsegnaCalendario ??
+      calcRes?.calcolo.dataConsegnaStimata ??
+      input.dataRichiesta ??
+      null);
   if (!dataConsegna) {
     return {
       success: false,
-      error: "Impossibile determinare la data di consegna.",
+      error: ordineSospeso
+        ? "Indica la data presunta di disponibilità."
+        : "Impossibile determinare la data di consegna.",
     };
   }
-  const giorniProduzione = input.giorniProduzione ?? [];
-  const giorniAttivita =
-    input.giorniAttivita ?? input.giorniPreparazione ?? [];
-  const attivitaSnapshot = input.attivitaSnapshot ?? [];
-  const giorniCalendarioImpegno = [
-    ...giorniProduzione,
-    ...giorniAttivita,
-  ];
+  const giorniProduzione = ordineSospeso ? [] : (input.giorniProduzione ?? []);
+  const giorniAttivita = ordineSospeso
+    ? []
+    : (input.giorniAttivita ?? input.giorniPreparazione ?? []);
+  const attivitaSnapshot = ordineSospeso ? [] : (input.attivitaSnapshot ?? []);
+  const giorniCalendarioImpegno = ordineSospeso
+    ? []
+    : [...giorniProduzione, ...giorniAttivita];
 
   const trasporto = emptyTrasporto();
   const righeCalc = [
@@ -806,7 +855,10 @@ export async function createOrdineWizardAction(
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_ordine: input.dataOrdine,
       data_consegna: dataConsegna,
-      stato: "ricevuto",
+      stato: ordineSospeso ? "sospeso" : "ricevuto",
+      data_disponibilita_presunta: ordineSospeso
+        ? (input.dataDisponibilitaPresunta ?? null)
+        : null,
       origine_storico: null,
       trasporto_azienda: "",
       trasporto_imponibile: 0,
@@ -824,13 +876,19 @@ export async function createOrdineWizardAction(
       usa_magazzino: input.usaMagazzino,
       usa_sabato: input.usaSabato,
       data_consegna_stimata: dataConsegna,
-      capacita_snapshot: {
-        ...calcRes.calcolo.snapshot,
-        giorni_produzione: giorniProduzione,
-        giorni_attivita: giorniAttivita,
-        attivita: attivitaSnapshot,
-        data_consegna_calendario: dataConsegna,
-      },
+      capacita_snapshot: ordineSospeso
+        ? {
+            sospeso: true,
+            motivo: "non_disponibile",
+            data_disponibilita_presunta: input.dataDisponibilitaPresunta,
+          }
+        : {
+            ...calcRes!.calcolo.snapshot,
+            giorni_produzione: giorniProduzione,
+            giorni_attivita: giorniAttivita,
+            attivita: attivitaSnapshot,
+            data_consegna_calendario: dataConsegna,
+          },
       giorni_produzione: giorniProduzione,
       is_test: true,
       spedizione_mezzo: "corriere",
@@ -874,7 +932,7 @@ export async function createOrdineWizardAction(
     if (giorniCalendarioImpegno.length > 0) {
       const etichettaProd = `${numeroInterno} · ${input.prodottoCodice}`;
       const linea =
-        typeof calcRes.calcolo.snapshot.linea === "string"
+        typeof calcRes?.calcolo.snapshot.linea === "string"
           ? calcRes.calcolo.snapshot.linea
           : null;
       const nowIso = new Date().toISOString();
@@ -1012,7 +1070,7 @@ export async function createOrdineWizardAction(
         wizard: true,
         is_test: true,
         consegna_tipo: input.consegnaTipo,
-        capacita: calcRes.calcolo.snapshot,
+        capacita: calcRes?.calcolo.snapshot ?? { sospeso: ordineSospeso },
         spedizione_a_carico: input.spedizioneACarico,
         preventivo_id: input.preventivoId ?? null,
       },

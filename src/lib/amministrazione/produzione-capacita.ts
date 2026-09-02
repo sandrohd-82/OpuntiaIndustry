@@ -164,6 +164,11 @@ export const ordineWizardInputSchema = z
       .optional(),
     confezionamento: confezionamentoDraftSchema.optional(),
     note: z.string().optional(),
+    dataDisponibilitaPresunta: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
     preventivoId: z.string().uuid().nullable().optional(),
     webmailAccettazioneId: z.string().uuid().nullable().optional(),
     referenteAccettazioneId: z.string().uuid().nullable().optional(),
