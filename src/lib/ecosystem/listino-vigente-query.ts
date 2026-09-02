@@ -8,14 +8,12 @@ export async function queryListinoVoceVigente(
   prodottoId: string
 ): Promise<{ voce: ListinoVoceVigente | null; error?: string }> {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
   const { data: listini, error: lErr } = await supabase
     .from("listini")
     .select("id")
     .eq("stato", "in_uso")
     .eq("canale", "b2b")
-    .is("deleted_at", null)
-    .lte("valido_dal", today);
+    .is("deleted_at", null);
   if (lErr) return { voce: null, error: lErr.message };
   const ids = ((listini ?? []) as { id: string }[]).map((l) => l.id);
   if (!ids.length) return { voce: null };

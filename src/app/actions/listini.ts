@@ -67,14 +67,15 @@ export async function createListinoAction(input: unknown): Promise<
   }
 
   const supabase = await createClient();
+  const copyFromId = parsed.data.modelloId || parsed.data.sostituisceId || null;
   const { data, error } = await supabase
     .from("listini")
     .insert({
       codice: parsed.data.codice,
       nome: parsed.data.nome,
       canale: "b2b",
-      valido_dal: parsed.data.validoDal,
-      valido_al: parsed.data.validoAl || null,
+      valido_dal: new Date().toISOString().slice(0, 10),
+      valido_al: null,
       note: parsed.data.note,
       stato: "bozza",
       versione: 1,
@@ -94,7 +95,7 @@ export async function createListinoAction(input: unknown): Promise<
     supabase,
     row.id,
     auth.userId,
-    parsed.data.sostituisceId || null
+    copyFromId
   );
   if (seedErr) return { success: false, error: seedErr };
 
@@ -103,8 +104,13 @@ export async function createListinoAction(input: unknown): Promise<
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato listino B2B ${row.codice} (bozza v1, tutte le voci prodotto)`,
-    payload: { sostituisce_id: parsed.data.sostituisceId || null },
+    summary: copyFromId
+      ? `Creato listino B2B ${row.codice} (bozza da modello)`
+      : `Creato listino B2B ${row.codice} (bozza v1, voci vuote)`,
+    payload: {
+      sostituisce_id: parsed.data.sostituisceId || null,
+      modello_id: copyFromId,
+    },
   });
   return { success: true, item: mapListino(row) };
 }
@@ -125,15 +131,16 @@ async function seedListinoProdotti(
 
   const copied = new Map<
     string,
-    { prezzo: number; unita: string; disp: string }
+    { prezzo: number; unita: string; disp: string; rigaId: string }
   >();
   if (copyFromId) {
     const { data: prev } = await supabase
       .from("listini_righe")
-      .select("prodotto_id, prezzo, unita_misura, disponibilita")
+      .select("id, prodotto_id, prezzo, unita_misura, disponibilita")
       .eq("listino_id", copyFromId)
       .is("deleted_at", null);
     for (const r of (prev ?? []) as {
+      id: string;
       prodotto_id: string;
       prezzo: number;
       unita_misura: string;
@@ -143,6 +150,7 @@ async function seedListinoProdotti(
         prezzo: Number(r.prezzo),
         unita: r.unita_misura === "lt" ? "lt" : "kg",
         disp: r.disponibilita,
+        rigaId: r.id,
       });
     }
   }
@@ -155,23 +163,85 @@ async function seedListinoProdotti(
   const have = new Set(
     ((existing ?? []) as { prodotto_id: string }[]).map((r) => r.prodotto_id)
   );
-  const toInsert = ids
-    .filter((id) => !have.has(id))
-    .map((prodotto_id) => {
-      const c = copied.get(prodotto_id);
+  const missing = ids.filter((id) => !have.has(id));
+  const toInsert = missing.map((prodotto_id) => {
+    const c = copied.get(prodotto_id);
+    return {
+      listino_id: listinoId,
+      prodotto_id,
+      prezzo: c?.prezzo ?? 0,
+      unita_misura: c?.unita ?? "kg",
+      disponibilita: c?.disp ?? "in_produzione",
+      created_by: userId,
+      updated_by: userId,
+    };
+  });
+  if (toInsert.length) {
+    const { error } = await supabase.from("listini_righe").insert(toInsert);
+    if (error) return error.message;
+  }
+
+  if (!copyFromId || !missing.length) return null;
+
+  const { data: newRows, error: nErr } = await supabase
+    .from("listini_righe")
+    .select("id, prodotto_id")
+    .eq("listino_id", listinoId)
+    .in("prodotto_id", missing)
+    .is("deleted_at", null);
+  if (nErr) return nErr.message;
+
+  const sourceRigaIds = missing
+    .map((id) => copied.get(id)?.rigaId)
+    .filter((id): id is string => Boolean(id));
+  if (!sourceRigaIds.length) return null;
+
+  const { data: conds, error: cErr } = await supabase
+    .from("listini_righe_condizioni")
+    .select("listino_riga_id, qty_da, qty_a, imballaggio_voce_id, sconto_pct")
+    .in("listino_riga_id", sourceRigaIds)
+    .is("deleted_at", null);
+  if (cErr) return cErr.message;
+  if (!conds?.length) return null;
+
+  const newByProdotto = new Map(
+    ((newRows ?? []) as { id: string; prodotto_id: string }[]).map((r) => [
+      r.prodotto_id,
+      r.id,
+    ])
+  );
+  const sourceProdotto = new Map(
+    [...copied.entries()].map(([prodottoId, v]) => [v.rigaId, prodottoId])
+  );
+  const condInsert = (
+    conds as Array<{
+      listino_riga_id: string;
+      qty_da: number;
+      qty_a: number | null;
+      imballaggio_voce_id: string;
+      sconto_pct: number;
+    }>
+  )
+    .map((c) => {
+      const prodottoId = sourceProdotto.get(c.listino_riga_id);
+      const newRigaId = prodottoId ? newByProdotto.get(prodottoId) : null;
+      if (!newRigaId) return null;
       return {
-        listino_id: listinoId,
-        prodotto_id,
-        prezzo: c?.prezzo ?? 0,
-        unita_misura: c?.unita ?? "kg",
-        disponibilita: c?.disp ?? "in_produzione",
+        listino_riga_id: newRigaId,
+        qty_da: c.qty_da,
+        qty_a: c.qty_a,
+        imballaggio_voce_id: c.imballaggio_voce_id,
+        sconto_pct: c.sconto_pct,
         created_by: userId,
         updated_by: userId,
       };
-    });
-  if (!toInsert.length) return null;
-  const { error } = await supabase.from("listini_righe").insert(toInsert);
-  return error?.message ?? null;
+    })
+    .filter((x): x is NonNullable<typeof x> => x != null);
+  if (!condInsert.length) return null;
+  const { error: iErr } = await supabase
+    .from("listini_righe_condizioni")
+    .insert(condInsert);
+  return iErr?.message ?? null;
 }
 
 async function requireListinoBozza(
@@ -217,8 +287,6 @@ export async function updateListinoAction(input: unknown): Promise<
     .update({
       codice: parsed.data.codice,
       nome: parsed.data.nome,
-      valido_dal: parsed.data.validoDal,
-      valido_al: parsed.data.validoAl || null,
       note: parsed.data.note,
       updated_by: auth.userId,
     })
@@ -239,8 +307,6 @@ export async function updateListinoAction(input: unknown): Promise<
     payload: {
       codice: row.codice,
       nome: row.nome,
-      valido_dal: row.valido_dal,
-      valido_al: row.valido_al,
     },
   });
   return { success: true, item: mapListino(row) };
@@ -468,6 +534,8 @@ export async function approvaListinoInUsoAction(input: {
     .from("listini")
     .update({
       stato: "in_uso",
+      valido_dal: now.slice(0, 10),
+      valido_al: null,
       published_at: now,
       published_by: auth.userId,
       approved_at: now,
@@ -549,12 +617,11 @@ export async function dichiaraListinoObsoletoAction(input: {
 
   if (!input.creaSostituzione) return { success: true };
 
-  const oggi = new Date().toISOString().slice(0, 10);
   const created = await createListinoAction({
     codice: `${row.codice}-S`,
     nome: `${row.nome} (sostituzione)`,
-    validoDal: oggi,
     note: `Sostituisce ${row.codice}`,
+    modelloId: row.id,
     sostituisceId: row.id,
   });
   if (!created.success) return created;

@@ -12,14 +12,16 @@ export type ListinoRigaUm = (typeof LISTINO_RIGA_UM)[number];
 export const createListinoSchema = z.object({
   codice: z.string().trim().min(2, "Codice obbligatorio").max(40),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
-  validoDal: z.string().trim().min(8, "Data inizio obbligatoria"),
-  validoAl: z.string().trim().optional().nullable(),
   note: z.string().trim().max(4000).optional().default(""),
+  modelloId: z.string().uuid().optional().nullable(),
   sostituisceId: z.string().uuid().optional().nullable(),
 });
 
-export const updateListinoSchema = createListinoSchema.extend({
+export const updateListinoSchema = z.object({
   id: z.string().uuid(),
+  codice: z.string().trim().min(2, "Codice obbligatorio").max(40),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
+  note: z.string().trim().max(4000).optional().default(""),
 });
 
 export const LISTINO_DISPONIBILITA = [
@@ -97,6 +99,7 @@ export type Listino = {
   stato: ListinoStato;
   note: string;
   sostituisceId: string | null;
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -141,6 +144,7 @@ export function mapListino(row: ListinoRow): Listino {
     stato: row.stato,
     note: row.note ?? "",
     sostituisceId: row.sostituisce_id ?? null,
+    publishedAt: row.published_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
