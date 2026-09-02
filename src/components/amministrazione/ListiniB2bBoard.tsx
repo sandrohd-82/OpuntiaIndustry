@@ -18,7 +18,11 @@ import {
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
   softDeleteListinoRigaCondizioneAction,
+  logListinoExportAction,
+  exportListinoXlsxAction,
 } from "@/app/actions/listini";
+import { downloadListinoPdf } from "@/lib/ecosystem/listino-export-pdf";
+import { buildListinoExport } from "@/lib/ecosystem/listino-export";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -371,6 +375,7 @@ export function ListiniB2bBoard() {
     useState<SortState<ListinoElencoSortKey> | null>(null);
   const [rigaSort, setRigaSort] =
     useState<SortState<ListinoRigaSortKey> | null>(null);
+  const [exportIds, setExportIds] = useState<Set<string>>(new Set());
   const [editCodice, setEditCodice] = useState("");
   const [editNome, setEditNome] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -420,9 +425,11 @@ export function ListiniB2bBoard() {
     if (!selectedId) {
       setRighe([]);
       setRigaSort(null);
+      setExportIds(new Set());
       return;
     }
     setRigaSort(null);
+    setExportIds(new Set());
     startTransition(async () => {
       await reloadRighe(selectedId);
     });
@@ -462,6 +469,80 @@ export function ListiniB2bBoard() {
 
   function condDraft(rigaId: string): CondDraft {
     return drafts[rigaId] ?? emptyCond;
+  }
+
+  function toggleExportId(id: string) {
+    setExportIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleExportAll() {
+    setExportIds((prev) =>
+      prev.size === righe.length && righe.length > 0
+        ? new Set()
+        : new Set(righe.map((r) => r.id))
+    );
+  }
+
+  function exportListino(formato: "pdf" | "xlsx") {
+    if (!selected) return;
+    const chosen =
+      exportIds.size === 0
+        ? righeSorted
+        : righeSorted.filter((r) => exportIds.has(r.id));
+    if (!chosen.length) {
+      setError("Nessun prodotto da esportare.");
+      return;
+    }
+    startTransition(async () => {
+      const prodottoIds = chosen.map((r) => r.prodottoId);
+      const tutti = exportIds.size === 0;
+      if (formato === "xlsx") {
+        const res = await exportListinoXlsxAction({
+          listinoId: selected.id,
+          prodottoIds,
+          tutti,
+        });
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        const bin = atob(res.base64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const url = URL.createObjectURL(
+          new Blob([bytes], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          })
+        );
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = res.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+      const res = await logListinoExportAction({
+        listinoId: selected.id,
+        formato,
+        prodottoIds,
+        tutti,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      const { meta, rows } = buildListinoExport(selected, chosen, {
+        statoLabel: STATO_LABEL[selected.stato],
+        actor: res.actor,
+        scope: tutti ? "tutti" : "selezione",
+      });
+      downloadListinoPdf(meta, rows);
+    });
   }
 
   return (
@@ -862,6 +943,42 @@ export function ListiniB2bBoard() {
               «fuori produzione» / «al momento non disponibile».
             </p>
           ) : null}
+          {righe.length ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium"
+                onClick={toggleExportAll}
+              >
+                {exportIds.size === righe.length && righe.length > 0
+                  ? "Deseleziona tutti"
+                  : "Seleziona tutti"}
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-800 disabled:opacity-50"
+                onClick={() => exportListino("pdf")}
+              >
+                Esporta PDF
+                {exportIds.size ? ` (${exportIds.size})` : " (tutto)"}
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-900 disabled:opacity-50"
+                onClick={() => exportListino("xlsx")}
+              >
+                Esporta Excel
+                {exportIds.size ? ` (${exportIds.size})` : " (tutto)"}
+              </button>
+              <p className="text-[11px] text-[var(--muted)]">
+                Nessuna spunta = listino completo. Spunta i prodotti per
+                esportare solo quelli.
+              </p>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
             <table className="min-w-[960px] w-full text-left text-sm">
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
@@ -972,6 +1089,8 @@ export function ListiniB2bBoard() {
                     onAskDelete={setDeleting}
                     altriRighe={righe.filter((x) => x.id !== r.id)}
                     startTransition={startTransition}
+                    selectedForExport={exportIds.has(r.id)}
+                    onToggleExport={() => toggleExportId(r.id)}
                   />
                 ))}
               </tbody>
@@ -1135,6 +1254,8 @@ function RigaBlock({
   onAskDelete,
   altriRighe,
   startTransition,
+  selectedForExport,
+  onToggleExport,
 }: {
   riga: ListinoRiga;
   editable: boolean;
@@ -1150,6 +1271,8 @@ function RigaBlock({
   onAskDelete: (target: DeleteTarget) => void;
   altriRighe: ListinoRiga[];
   startTransition: (fn: () => Promise<void>) => void;
+  selectedForExport: boolean;
+  onToggleExport: () => void;
 }) {
   const [prezzo, setPrezzo] = useState(() => bootstrapRiga(riga).prezzo);
   const [um, setUm] = useState<ListinoRigaUm>(() => bootstrapRiga(riga).um);
@@ -1310,7 +1433,17 @@ function RigaBlock({
         }`}
       >
         <td className="px-3 py-2 font-medium">
-          {riga.prodottoCodice} {riga.prodottoNome}
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={selectedForExport}
+              onChange={onToggleExport}
+            />
+            <span>
+              {riga.prodottoCodice} {riga.prodottoNome}
+            </span>
+          </label>
         </td>
         <td className="px-3 py-2">
           <input

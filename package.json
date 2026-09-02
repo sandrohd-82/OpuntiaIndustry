@@ -15,6 +15,7 @@
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.8",
     "bwip-js": "^4.11.4",
+    "exceljs": "^4.4.0",
     "html5-qrcode": "^2.3.8",
     "imapflow": "^1.7.1",
     "italian-cap-comuni-province": "^1.1.0",

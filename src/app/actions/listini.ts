@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
@@ -33,6 +34,11 @@ import {
   type ListinoRiga,
   type ListinoRigaCondizione,
 } from "@/lib/ecosystem/listini";
+import {
+  buildListinoExport,
+  LISTINO_STATO_EXPORT_LABEL,
+} from "@/lib/ecosystem/listino-export";
+import { buildListinoXlsxBuffer } from "@/lib/ecosystem/listino-export-xlsx";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
 import { createClient } from "@/lib/supabase/server";
@@ -1746,6 +1752,111 @@ export async function updateProdottoCanaleAction(input: {
 }
 
 export type { ListinoVoceVigente };
+
+export async function logListinoExportAction(input: {
+  listinoId: string;
+  formato: "pdf" | "xlsx";
+  prodottoIds: string[];
+  tutti: boolean;
+}): Promise<
+  { success: true; actor: string } | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  if (!z.string().uuid().safeParse(input.listinoId).success) {
+    return { success: false, error: "Listino non valido" };
+  }
+  if (input.formato !== "pdf" && input.formato !== "xlsx") {
+    return { success: false, error: "Formato export non valido" };
+  }
+  const ids = input.prodottoIds.filter((id) => z.string().uuid().safeParse(id).success);
+  if (!input.tutti && ids.length === 0) {
+    return { success: false, error: "Seleziona almeno un prodotto." };
+  }
+
+  const supabase = await createClient();
+  const { data: listino, error } = await supabase
+    .from("listini")
+    .select("id, codice")
+    .eq("id", input.listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !listino) {
+    return { success: false, error: error?.message ?? "Listino non trovato" };
+  }
+
+  const actor =
+    [auth.profile.full_name, auth.email].filter(Boolean).join(" · ") ||
+    auth.email;
+
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: input.listinoId,
+    action: "export",
+    actor_id: auth.userId,
+    summary: `Export listino ${(listino as { codice: string }).codice} ${input.formato.toUpperCase()} (${input.tutti ? "completo" : `${ids.length} prodotti`})`,
+    payload: {
+      formato: input.formato,
+      tutti: input.tutti,
+      prodotto_ids: input.tutti ? [] : ids,
+      prodotti: input.tutti ? null : ids.length,
+    },
+  });
+
+  return { success: true, actor };
+}
+
+export async function exportListinoXlsxAction(input: {
+  listinoId: string;
+  prodottoIds: string[];
+  tutti: boolean;
+}): Promise<
+  | { success: true; actor: string; filename: string; base64: string }
+  | { success: false; error: string }
+> {
+  const logged = await logListinoExportAction({
+    ...input,
+    formato: "xlsx",
+  });
+  if (!logged.success) return logged;
+
+  const listed = await listListinoRigheAction(input.listinoId);
+  if (!listed.success) return listed;
+
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("listini")
+    .select("*")
+    .eq("id", input.listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!row) return { success: false, error: "Listino non trovato" };
+  const nazioniMap = await loadNazioniByListinoIds(supabase, [input.listinoId]);
+  const listino = mapListino(
+    row as ListinoRow,
+    nazioniMap.get(input.listinoId) ?? []
+  );
+
+  const idSet = new Set(input.prodottoIds);
+  const chosen = input.tutti
+    ? listed.items
+    : listed.items.filter((r) => idSet.has(r.prodottoId));
+  if (!chosen.length) {
+    return { success: false, error: "Nessun prodotto da esportare." };
+  }
+
+  const { meta, rows } = buildListinoExport(listino, chosen, {
+    statoLabel: LISTINO_STATO_EXPORT_LABEL[listino.stato],
+    actor: logged.actor,
+    scope: input.tutti ? "tutti" : "selezione",
+  });
+  const { filename, buffer } = await buildListinoXlsxBuffer(meta, rows);
+  return {
+    success: true,
+    actor: logged.actor,
+    filename,
+    base64: buffer.toString("base64"),
+  };
+}
 
 export async function getListinoVoceVigenteAction(
   prodottoId: string
