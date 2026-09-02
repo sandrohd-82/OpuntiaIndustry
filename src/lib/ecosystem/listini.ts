@@ -232,6 +232,33 @@ export function mapListinoRigaCondizione(
   };
 }
 
+export function previewScontoListino(input: {
+  prezzo: number;
+  scontoPct: number;
+  qtyDa: number;
+  qtyA: number | null;
+  unitaMisura: ListinoRigaUm;
+}): string | null {
+  if (!Number.isFinite(input.prezzo) || input.prezzo <= 0) return null;
+  if (!Number.isFinite(input.scontoPct) || input.scontoPct <= 0) return null;
+  const pct = Math.min(100, input.scontoPct);
+  const unitario =
+    Math.round(input.prezzo * (1 - pct / 100) * 100) / 100;
+  const qtyDa = Number.isFinite(input.qtyDa) ? input.qtyDa : 0;
+  const importoDa = Math.round(qtyDa * unitario * 100) / 100;
+  const euro = (n: number) =>
+    n.toLocaleString("it-IT", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  const alKg = `Al ${input.unitaMisura} ${euro(unitario)} €`;
+  if (input.qtyA == null || !Number.isFinite(input.qtyA)) {
+    return `${alKg} — sconto applicato per ordini da ${euro(importoDa)} €`;
+  }
+  const importoA = Math.round(input.qtyA * unitario * 100) / 100;
+  return `${alKg} — sconto applicato per ordini da ${euro(importoDa)} a ${euro(importoA)} €`;
+}
+
 export function listinoCondizioniSovrapposte(
   esistenti: Array<{ id?: string; qtyDa: number; qtyA: number | null }>,
   candidate: { id?: string; qtyDa: number; qtyA: number | null }

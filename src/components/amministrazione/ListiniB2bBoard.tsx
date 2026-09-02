@@ -30,6 +30,7 @@ import {
   LISTINO_RIGA_UM,
   listinoCodiceSlug,
   parseListinoCodice,
+  previewScontoListino,
   rigaListinoCompleta,
   type Listino,
   type ListinoDisponibilita,
@@ -738,6 +739,14 @@ function RigaBlock({
     disponibilita: disp,
   });
 
+  const draftPreviewSconto = previewScontoListino({
+    prezzo: Number(prezzo) || riga.prezzo,
+    scontoPct: Number(draft.scontoPct),
+    qtyDa: Number(draft.qtyDa),
+    qtyA: draft.qtyA.trim() === "" ? null : Number(draft.qtyA),
+    unitaMisura: um,
+  });
+
   function saveDraftCond(forza: boolean, kgOverride?: number) {
     startTransition(async () => {
       const qtyA = draft.qtyA.trim() === "" ? null : Number(draft.qtyA);
@@ -869,6 +878,8 @@ function RigaBlock({
           key={c.id}
           condizione={c}
           prodottoId={riga.prodottoId}
+          prezzoBase={Number(prezzo) || riga.prezzo}
+          unitaMisura={um}
           editable={editable}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
@@ -880,6 +891,7 @@ function RigaBlock({
         />
       ))}
       {editable ? (
+      <>
       <tr className="border-t border-dashed border-slate-200 bg-slate-50/30">
         <td className="px-3 py-1.5 pl-8 text-xs text-[var(--muted)]">
           + sconto
@@ -982,6 +994,17 @@ function RigaBlock({
           </button>
         </td>
       </tr>
+      {draftPreviewSconto ? (
+        <tr className="bg-emerald-50/70">
+          <td
+            colSpan={inRevisione ? 12 : 11}
+            className="px-3 py-1.5 pl-8 text-xs text-emerald-900"
+          >
+            {draftPreviewSconto}
+          </td>
+        </tr>
+      ) : null}
+      </>
       ) : null}
       {draftKgWarn ? (
         <KgForzaModal
@@ -1008,6 +1031,8 @@ function RigaBlock({
 function CondizioneRow({
   condizione,
   prodottoId,
+  prezzoBase,
+  unitaMisura,
   editable,
   pending,
   extraLeadCells,
@@ -1019,6 +1044,8 @@ function CondizioneRow({
 }: {
   condizione: ListinoRigaCondizione;
   prodottoId: string;
+  prezzoBase: number;
+  unitaMisura: ListinoRigaUm;
   editable: boolean;
   pending: boolean;
   extraLeadCells: number;
@@ -1059,6 +1086,14 @@ function CondizioneRow({
     condizione.kgConfezione,
     condizione.scontoPct,
   ]);
+
+  const previewSconto = previewScontoListino({
+    prezzo: prezzoBase,
+    scontoPct: Number(scontoPct),
+    qtyDa: Number(qtyDa),
+    qtyA: qtyA.trim() === "" ? null : Number(qtyA),
+    unitaMisura,
+  });
 
   function saveCond(forza: boolean, kgOverride?: number) {
     startTransition(async () => {
@@ -1225,6 +1260,16 @@ function CondizioneRow({
         ) : null}
       </td>
     </tr>
+    {previewSconto ? (
+      <tr className="bg-emerald-50/70">
+        <td
+          colSpan={extraLeadCells + 10}
+          className="px-3 py-1.5 pl-8 text-xs text-emerald-900"
+        >
+          {previewSconto}
+        </td>
+      </tr>
+    ) : null}
     {kgWarn ? (
       <KgForzaModal
         kg={kgWarn.kg}
