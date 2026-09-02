@@ -13,6 +13,7 @@ export async function queryListinoVoceVigente(
     .select("id")
     .eq("stato", "in_uso")
     .eq("canale", "b2b")
+    .is("listino_origine_id", null)
     .is("deleted_at", null);
   if (lErr) return { voce: null, error: lErr.message };
   const ids = ((listini ?? []) as { id: string }[]).map((l) => l.id);

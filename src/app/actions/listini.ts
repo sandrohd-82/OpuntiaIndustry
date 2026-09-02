@@ -4,7 +4,16 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
+  GEO_CONTINENTE_LABEL,
+  GEO_CONTINENTI,
+  labelLingua,
+  lingueDaNazioni,
+  type GeoContinenteCodice,
+  type GeoNazione,
+} from "@/lib/ecosystem/geo-nazioni";
+import {
   buildListinoCodice,
+  buildListinoCodiceLocale,
   createListinoSchema,
   listinoCodiceSlug,
   listinoCondizioniSovrapposte,
@@ -26,6 +35,8 @@ import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
 import { createClient } from "@/lib/supabase/server";
 import { verifyCurrentUserTotp } from "@/app/actions/totp";
 import type {
+  GeoNazioneRow,
+  ListinoNazioneRow,
   ListinoRigaCondizioneRow,
   ListinoRigaRow,
   ListinoRow,
@@ -36,6 +47,151 @@ import type {
 
 async function guardAmm() {
   return requireAreaAccess("amministrazione");
+}
+
+function mapGeoNazione(row: GeoNazioneRow): GeoNazione {
+  const c = GEO_CONTINENTI.includes(
+    row.continente_codice as GeoContinenteCodice
+  )
+    ? (row.continente_codice as GeoContinenteCodice)
+    : "europa";
+  return {
+    id: row.id,
+    iso2: row.iso2,
+    continenteCodice: c,
+    nome: row.nome,
+    lingueIso: Array.isArray(row.lingue_iso) ? row.lingue_iso : [],
+  };
+}
+
+export async function listGeoCatalogAction(): Promise<
+  | {
+      success: true;
+      continenti: Array<{ codice: GeoContinenteCodice; nome: string }>;
+      nazioni: GeoNazione[];
+    }
+  | { success: false; error: string }
+> {
+  await guardAmm();
+  const supabase = await createClient();
+  const { data: nazioni, error } = await supabase
+    .from("geo_nazioni")
+    .select("*")
+    .is("deleted_at", null)
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    continenti: GEO_CONTINENTI.map((codice) => ({
+      codice,
+      nome: GEO_CONTINENTE_LABEL[codice],
+    })),
+    nazioni: ((nazioni ?? []) as GeoNazioneRow[]).map(mapGeoNazione),
+  };
+}
+
+async function loadNazioniByListinoIds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoIds: string[]
+): Promise<Map<string, GeoNazione[]>> {
+  const map = new Map<string, GeoNazione[]>();
+  if (!listinoIds.length) return map;
+  const { data: links } = await supabase
+    .from("listini_nazioni")
+    .select("*")
+    .in("listino_id", listinoIds)
+    .is("deleted_at", null);
+  const rows = (links ?? []) as ListinoNazioneRow[];
+  const nazioneIds = [...new Set(rows.map((r) => r.nazione_id))];
+  if (!nazioneIds.length) return map;
+  const { data: nazioni } = await supabase
+    .from("geo_nazioni")
+    .select("*")
+    .in("id", nazioneIds)
+    .is("deleted_at", null);
+  const byId = new Map(
+    ((nazioni ?? []) as GeoNazioneRow[]).map((n) => [n.id, mapGeoNazione(n)])
+  );
+  for (const r of rows) {
+    const n = byId.get(r.nazione_id);
+    if (!n) continue;
+    const list = map.get(r.listino_id) ?? [];
+    list.push(n);
+    map.set(r.listino_id, list);
+  }
+  return map;
+}
+
+async function replaceListinoNazioni(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoId: string,
+  nazioneIds: string[],
+  userId: string
+): Promise<string | null> {
+  const unique = [...new Set(nazioneIds)];
+  if (!unique.length) return "Seleziona almeno una nazione.";
+  const { data: found, error: fErr } = await supabase
+    .from("geo_nazioni")
+    .select("id")
+    .in("id", unique)
+    .is("deleted_at", null);
+  if (fErr) return fErr.message;
+  if ((found ?? []).length !== unique.length) {
+    return "Una o più nazioni non sono valide.";
+  }
+
+  const { data: existing, error: eErr } = await supabase
+    .from("listini_nazioni")
+    .select("id, nazione_id, deleted_at")
+    .eq("listino_id", listinoId);
+  if (eErr) return eErr.message;
+  const rows = (existing ?? []) as Array<{
+    id: string;
+    nazione_id: string;
+    deleted_at: string | null;
+  }>;
+  const now = new Date().toISOString();
+  const wanted = new Set(unique);
+
+  for (const r of rows) {
+    if (!wanted.has(r.nazione_id) && r.deleted_at == null) {
+      const { error } = await supabase
+        .from("listini_nazioni")
+        .update({
+          deleted_at: now,
+          deleted_by: userId,
+          updated_by: userId,
+        })
+        .eq("id", r.id);
+      if (error) return error.message;
+    }
+    if (wanted.has(r.nazione_id) && r.deleted_at != null) {
+      const { error } = await supabase
+        .from("listini_nazioni")
+        .update({
+          deleted_at: null,
+          deleted_by: null,
+          updated_by: userId,
+        })
+        .eq("id", r.id);
+      if (error) return error.message;
+    }
+  }
+
+  const have = new Set(rows.map((r) => r.nazione_id));
+  const toInsert = unique.filter((id) => !have.has(id));
+  if (toInsert.length) {
+    const { error } = await supabase.from("listini_nazioni").insert(
+      toInsert.map((nazione_id) => ({
+        listino_id: listinoId,
+        nazione_id,
+        created_by: userId,
+        updated_by: userId,
+      }))
+    );
+    if (error) return error.message;
+  }
+  return null;
 }
 
 export async function listListiniAction(): Promise<
@@ -50,9 +206,19 @@ export async function listListiniAction(): Promise<
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as ListinoRow[];
+  const nazioniMap = await loadNazioniByListinoIds(
+    supabase,
+    rows.map((r) => r.id)
+  );
   return {
     success: true,
-    items: ((data ?? []) as ListinoRow[]).map(mapListino),
+    items: rows.map((r) =>
+      mapListino(
+        r,
+        nazioniMap.get(r.listino_origine_id || r.id) ?? nazioniMap.get(r.id) ?? []
+      )
+    ),
     isAdmin: isAdminLikeProfile(auth.profile),
   };
 }
@@ -88,6 +254,8 @@ export async function createListinoAction(input: unknown): Promise<
       note: parsed.data.note,
       stato: "bozza",
       versione: 1,
+      locale: "it",
+      listino_origine_id: null,
       sostituisce_id: parsed.data.sostituisceId || null,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -108,6 +276,20 @@ export async function createListinoAction(input: unknown): Promise<
   );
   if (seedErr) return { success: false, error: seedErr };
 
+  let nazioneIds = parsed.data.nazioneIds ?? [];
+  if (!nazioneIds.length && copyFromId) {
+    const fromMap = await loadNazioniByListinoIds(supabase, [copyFromId]);
+    nazioneIds = (fromMap.get(copyFromId) ?? []).map((n) => n.id);
+  }
+  const nazErr = await replaceListinoNazioni(
+    supabase,
+    row.id,
+    nazioneIds,
+    auth.userId
+  );
+  if (nazErr) return { success: false, error: nazErr };
+
+  const nazioniMap = await loadNazioniByListinoIds(supabase, [row.id]);
   await writeAuditLog({
     entity_type: "listini",
     entity_id: row.id,
@@ -119,9 +301,10 @@ export async function createListinoAction(input: unknown): Promise<
     payload: {
       sostituisce_id: parsed.data.sostituisceId || null,
       modello_id: copyFromId,
+      nazione_ids: nazioneIds,
     },
   });
-  return { success: true, item: mapListino(row) };
+  return { success: true, item: mapListino(row, nazioniMap.get(row.id) ?? []) };
 }
 
 async function seedListinoProdotti(
@@ -261,6 +444,85 @@ async function seedListinoProdotti(
   return iErr?.message ?? null;
 }
 
+async function generaVersioniLingua(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  master: ListinoRow,
+  nazioni: GeoNazione[],
+  userId: string
+): Promise<string | null> {
+  const lingue = lingueDaNazioni(nazioni).filter((l) => l && l !== "it");
+  if (!lingue.length) return null;
+
+  const parsed = parseListinoCodice(master.codice);
+  const { data: existing } = await supabase
+    .from("listini")
+    .select("id, locale, codice")
+    .eq("listino_origine_id", master.id)
+    .is("deleted_at", null);
+  const byLocale = new Map(
+    ((existing ?? []) as Array<{ id: string; locale: string; codice: string }>).map(
+      (r) => [r.locale, r]
+    )
+  );
+
+  for (const locale of lingue) {
+    let childId = byLocale.get(locale)?.id;
+    if (!childId) {
+      const codice = buildListinoCodiceLocale(
+        parsed.slug || master.codice,
+        locale,
+        parsed.versione
+      );
+      const { data, error } = await supabase
+        .from("listini")
+        .insert({
+          codice,
+          nome: `${master.nome} (${labelLingua(locale)})`,
+          canale: "b2b",
+          valido_dal: new Date().toISOString().slice(0, 10),
+          note: `Versione ${labelLingua(locale)} di ${master.codice}. Nomi prodotto restano in italiano fino alla compilazione traduzioni.`,
+          stato: "bozza_traduzione",
+          versione: 1,
+          locale,
+          listino_origine_id: master.id,
+          created_by: userId,
+          updated_by: userId,
+        })
+        .select("id")
+        .single();
+      if (error || !data) return error?.message ?? "Creazione versione lingua fallita";
+      childId = (data as { id: string }).id;
+      await writeAuditLog({
+        entity_type: "listini",
+        entity_id: childId,
+        action: "create",
+        actor_id: userId,
+        summary: `Versione ${labelLingua(locale)} da ${master.codice}`,
+        payload: { listino_origine_id: master.id, locale },
+      });
+    }
+
+    await supabase
+      .from("listini_righe")
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: userId,
+        updated_by: userId,
+      })
+      .eq("listino_id", childId)
+      .is("deleted_at", null);
+
+    const seedErr = await seedListinoProdotti(
+      supabase,
+      childId,
+      userId,
+      master.id
+    );
+    if (seedErr) return seedErr;
+  }
+  return null;
+}
+
 async function requireListinoBozza(
   supabase: Awaited<ReturnType<typeof createClient>>,
   listinoId: string
@@ -313,6 +575,16 @@ export async function updateListinoAction(input: unknown): Promise<
   ).versione;
   const codice = buildListinoCodice(slug, versioneCodice);
 
+  if (parsed.data.nazioneIds) {
+    const nazErr = await replaceListinoNazioni(
+      supabase,
+      parsed.data.id,
+      parsed.data.nazioneIds,
+      auth.userId
+    );
+    if (nazErr) return { success: false, error: nazErr };
+  }
+
   const { data, error } = await supabase
     .from("listini")
     .update({
@@ -338,9 +610,11 @@ export async function updateListinoAction(input: unknown): Promise<
     payload: {
       codice: row.codice,
       nome: row.nome,
+      nazione_ids: parsed.data.nazioneIds ?? null,
     },
   });
-  return { success: true, item: mapListino(row) };
+  const nazioniMap = await loadNazioniByListinoIds(supabase, [row.id]);
+  return { success: true, item: mapListino(row, nazioniMap.get(row.id) ?? []) };
 }
 
 export async function setListinoStatoAction(input: {
@@ -360,6 +634,19 @@ export async function inviaListinoInRevisioneAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
   const supabase = await createClient();
+  const { data: head } = await supabase
+    .from("listini")
+    .select("id, stato, listino_origine_id, codice, nome, locale")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!head) return { success: false, error: "Listino non trovato" };
+  if ((head as { listino_origine_id: string | null }).listino_origine_id) {
+    return {
+      success: false,
+      error: "Le versioni in lingua non vanno In Revisione. Si lavora sul listino madre.",
+    };
+  }
   const gate = await requireListinoBozza(supabase, id);
   if (!gate.ok) return { success: false, error: gate.error };
 
@@ -393,15 +680,33 @@ export async function inviaListinoInRevisioneAction(
 
   const { data: current } = await supabase
     .from("listini")
-    .select("codice, versione")
+    .select("*")
     .eq("id", id)
     .maybeSingle();
+  const master = current as ListinoRow | null;
+  if (!master) return { success: false, error: "Listino non trovato" };
+
+  const nazioniMap = await loadNazioniByListinoIds(supabase, [id]);
+  const nazioni = nazioniMap.get(id) ?? [];
+  if (!nazioni.length) {
+    return {
+      success: false,
+      error: "Seleziona almeno una nazione coperta prima di completare il listino.",
+    };
+  }
+  const lingErr = await generaVersioniLingua(
+    supabase,
+    master,
+    nazioni,
+    auth.userId
+  );
+  if (lingErr) return { success: false, error: lingErr };
 
   const { error } = await supabase
     .from("listini")
     .update({
       stato: "in_revisione",
-      versione: Number((current as { versione?: number } | null)?.versione ?? 1) + 1,
+      versione: Number(master.versione ?? 1) + 1,
       updated_by: auth.userId,
     })
     .eq("id", id);
@@ -412,8 +717,12 @@ export async function inviaListinoInRevisioneAction(
     entity_id: id,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Listino ${(current as { codice?: string } | null)?.codice ?? id}: bozza → in_revisione`,
-    payload: { from: "bozza", to: "in_revisione" },
+    summary: `Listino ${master.codice}: bozza → in_revisione`,
+    payload: {
+      from: "bozza",
+      to: "in_revisione",
+      lingue: lingueDaNazioni(nazioni),
+    },
   });
   return { success: true };
 }
@@ -582,6 +891,7 @@ export async function approvaListinoInUsoAction(input: {
     .select("id, codice")
     .eq("stato", "in_uso")
     .eq("canale", "b2b")
+    .is("listino_origine_id", null)
     .neq("id", input.id)
     .is("deleted_at", null);
   for (const o of (others ?? []) as { id: string; codice: string }[]) {
@@ -810,6 +1120,17 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
     row = data as ListinoRigaRow;
   }
 
+  if (parsed.data.syncCondizioni) {
+    const syncErr = await syncListinoRigaCondizioni(
+      supabase,
+      row.id,
+      (row as { prodotto_id: string }).prodotto_id,
+      parsed.data.condizioni ?? [],
+      auth.userId
+    );
+    if (syncErr) return { success: false, error: syncErr };
+  }
+
   await writeAuditLog({
     entity_type: "listini_righe",
     entity_id: row.id,
@@ -819,11 +1140,120 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
     payload: {
       prezzo: parsed.data.prezzo,
       unita_misura: parsed.data.unitaMisura,
+      sync_condizioni: Boolean(parsed.data.syncCondizioni),
+      condizioni: (parsed.data.condizioni ?? []).length,
     },
   });
 
   const condizioni = (await loadCondizioniByRiga(supabase, [row.id])).get(row.id);
   return { success: true, item: mapListinoRiga(row, undefined, condizioni) };
+}
+
+async function syncListinoRigaCondizioni(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listinoRigaId: string,
+  prodottoId: string,
+  condizioni: Array<{
+    id?: string;
+    qtyDa: number;
+    qtyA?: number | null;
+    imballaggioVoceId: string;
+    scontoPct: number;
+    kgConfezione: number;
+    kgForzato?: boolean;
+  }>,
+  userId: string
+): Promise<string | null> {
+  const keepIds = new Set(
+    condizioni.map((c) => c.id).filter((id): id is string => Boolean(id))
+  );
+  const { data: existingRows, error: eErr } = await supabase
+    .from("listini_righe_condizioni")
+    .select("id")
+    .eq("listino_riga_id", listinoRigaId)
+    .is("deleted_at", null);
+  if (eErr) return eErr.message;
+  const now = new Date().toISOString();
+  for (const r of (existingRows ?? []) as { id: string }[]) {
+    if (keepIds.has(r.id)) continue;
+    const { error } = await supabase
+      .from("listini_righe_condizioni")
+      .update({
+        deleted_at: now,
+        deleted_by: userId,
+        updated_by: userId,
+      })
+      .eq("id", r.id)
+      .is("deleted_at", null);
+    if (error) return error.message;
+  }
+
+  const overlapInput = condizioni.map((c, i) => ({
+    id: c.id ?? `tmp-${i}`,
+    qtyDa: c.qtyDa,
+    qtyA: c.qtyA ?? null,
+    imb: c.imballaggioVoceId,
+  }));
+  for (let i = 0; i < overlapInput.length; i++) {
+    const a = overlapInput[i];
+    const sameImb = overlapInput.filter((x) => x.imb === a.imb);
+    if (
+      listinoCondizioniSovrapposte(
+        sameImb.map((x) => ({ id: x.id, qtyDa: x.qtyDa, qtyA: x.qtyA })),
+        { id: a.id, qtyDa: a.qtyDa, qtyA: a.qtyA }
+      )
+    ) {
+      return "Due scaglioni si sovrappongono sulla stessa confezione.";
+    }
+  }
+
+  for (const c of condizioni) {
+    const { data: stdLink } = await supabase
+      .from("imballaggi_voci_prodotti")
+      .select("max_kg")
+      .eq("voce_id", c.imballaggioVoceId)
+      .eq("prodotto_id", prodottoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const kgStandard =
+      stdLink && Number.isFinite(Number((stdLink as { max_kg: number }).max_kg))
+        ? Number((stdLink as { max_kg: number }).max_kg)
+        : null;
+    if (
+      kgStandard != null &&
+      c.kgConfezione > kgStandard &&
+      !c.kgForzato
+    ) {
+      return `I ${c.kgConfezione} superano lo standard (${kgStandard}). Adegua o forza la scelta, poi Salva sul prodotto.`;
+    }
+
+    const payload = {
+      qty_da: c.qtyDa,
+      qty_a: c.qtyA ?? null,
+      imballaggio_voce_id: c.imballaggioVoceId,
+      sconto_pct: c.scontoPct,
+      kg_confezione: c.kgConfezione,
+      kg_standard: kgStandard,
+      kg_forzato: Boolean(c.kgForzato),
+      updated_by: userId,
+    };
+    if (c.id) {
+      const { error } = await supabase
+        .from("listini_righe_condizioni")
+        .update(payload)
+        .eq("id", c.id)
+        .is("deleted_at", null);
+      if (error) return error.message;
+    } else {
+      const { error } = await supabase.from("listini_righe_condizioni").insert({
+        ...payload,
+        listino_riga_id: listinoRigaId,
+        created_by: userId,
+      });
+      if (error) return error.message;
+    }
+  }
+  return null;
 }
 
 export async function softDeleteListinoRigaAction(

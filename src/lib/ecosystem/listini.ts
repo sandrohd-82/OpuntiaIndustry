@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  isListinoLingua,
+  type GeoNazione,
+} from "@/lib/ecosystem/geo-nazioni";
 import type {
   ListinoRow,
   ListinoRigaCondizioneRow,
@@ -21,15 +25,25 @@ export function listinoCodiceSlug(raw: string): string {
 export function parseListinoCodice(codice: string): {
   slug: string;
   versione: number;
+  locale: string | null;
 } {
+  const loc = codice.trim().match(/^B2B-(.+)-([A-Za-z]{2})-V(\d+)$/i);
+  if (loc && isListinoLingua(loc[2].toLowerCase())) {
+    return {
+      slug: listinoCodiceSlug(loc[1]),
+      versione: Number(loc[3]) || 1,
+      locale: loc[2].toLowerCase(),
+    };
+  }
   const m = codice.trim().match(/^B2B-(.+)-V(\d+)$/i);
   if (m) {
     return {
       slug: listinoCodiceSlug(m[1]),
       versione: Number(m[2]) || 1,
+      locale: null,
     };
   }
-  return { slug: listinoCodiceSlug(codice), versione: 1 };
+  return { slug: listinoCodiceSlug(codice), versione: 1, locale: null };
 }
 
 export function buildListinoCodice(slug: string, versione: number): string {
@@ -39,20 +53,48 @@ export function buildListinoCodice(slug: string, versione: number): string {
   return `${LISTINO_CODICE_PREFIX}${s}-V${v}`;
 }
 
-export const createListinoSchema = z.object({
-  codice: z.string().trim().min(1, "Inserisci il testo del codice"),
-  nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
-  note: z.string().trim().max(4000).optional().default(""),
-  modelloId: z.string().uuid().optional().nullable(),
-  sostituisceId: z.string().uuid().optional().nullable(),
-  versioneCodice: z.number().int().positive().optional(),
-});
+export function buildListinoCodiceLocale(
+  slug: string,
+  locale: string,
+  versione: number
+): string {
+  const s = listinoCodiceSlug(slug);
+  const loc = locale.trim().toUpperCase().slice(0, 2);
+  const v =
+    Number.isFinite(versione) && versione >= 1 ? Math.floor(versione) : 1;
+  return `${LISTINO_CODICE_PREFIX}${s}-${loc}-V${v}`;
+}
+
+export const createListinoSchema = z
+  .object({
+    codice: z.string().trim().min(1, "Inserisci il testo del codice"),
+    nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
+    note: z.string().trim().max(4000).optional().default(""),
+    modelloId: z.string().uuid().optional().nullable(),
+    sostituisceId: z.string().uuid().optional().nullable(),
+    versioneCodice: z.number().int().positive().optional(),
+    nazioneIds: z.array(z.string().uuid()).optional().default([]),
+  })
+  .superRefine((v, ctx) => {
+    const fromCopy = Boolean(v.modelloId || v.sostituisceId);
+    if (!fromCopy && (!v.nazioneIds || v.nazioneIds.length < 1)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona almeno una nazione coperta dal listino.",
+        path: ["nazioneIds"],
+      });
+    }
+  });
 
 export const updateListinoSchema = z.object({
   id: z.string().uuid(),
   codice: z.string().trim().min(1, "Inserisci il testo del codice"),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(160),
   note: z.string().trim().max(4000).optional().default(""),
+  nazioneIds: z
+    .array(z.string().uuid())
+    .min(1, "Seleziona almeno una nazione")
+    .optional(),
 });
 
 export const LISTINO_DISPONIBILITA = [
@@ -69,6 +111,16 @@ export const LISTINO_DISPONIBILITA_LABEL: Record<ListinoDisponibilita, string> =
     non_disponibile: "Al momento non disponibile",
   };
 
+export const listinoRigaCondizioneSyncItemSchema = z.object({
+  id: z.string().uuid().optional(),
+  qtyDa: z.number().finite().min(0, "Quantità da non valida"),
+  qtyA: z.number().finite().positive().nullable().optional(),
+  imballaggioVoceId: z.string().uuid(),
+  scontoPct: z.number().finite().min(0).max(100, "Sconto 0–100"),
+  kgConfezione: z.number().finite().positive("Indica i kg della confezione"),
+  kgForzato: z.boolean().optional().default(false),
+});
+
 export const upsertListinoRigaSchema = z
   .object({
     listinoId: z.string().uuid(),
@@ -79,6 +131,11 @@ export const upsertListinoRigaSchema = z
     ivaPercentuale: z.number().finite().min(0).max(100).optional().default(22),
     minQty: z.number().finite().min(0).optional().default(0),
     scontoMaxPct: z.number().finite().min(0).max(100).optional().default(0),
+    syncCondizioni: z.boolean().optional().default(false),
+    condizioni: z
+      .array(listinoRigaCondizioneSyncItemSchema)
+      .optional()
+      .default([]),
   })
   .superRefine((v, ctx) => {
     if (v.disponibilita === "in_produzione" && v.prezzo <= 0) {
@@ -130,6 +187,9 @@ export type Listino = {
   validoAl: string | null;
   versione: number;
   stato: ListinoStato;
+  locale: string;
+  listinoOrigineId: string | null;
+  nazioni: GeoNazione[];
   note: string;
   sostituisceId: string | null;
   publishedAt: string | null;
@@ -167,7 +227,10 @@ export type ListinoRiga = {
   condizioni: ListinoRigaCondizione[];
 };
 
-export function mapListino(row: ListinoRow): Listino {
+export function mapListino(
+  row: ListinoRow,
+  nazioni: GeoNazione[] = []
+): Listino {
   return {
     id: row.id,
     codice: row.codice,
@@ -178,6 +241,9 @@ export function mapListino(row: ListinoRow): Listino {
     validoAl: row.valido_al,
     versione: row.versione,
     stato: row.stato,
+    locale: row.locale || "it",
+    listinoOrigineId: row.listino_origine_id ?? null,
+    nazioni,
     note: row.note ?? "",
     sostituisceId: row.sostituisce_id ?? null,
     publishedAt: row.published_at ?? null,
@@ -232,12 +298,49 @@ export function mapListinoRigaCondizione(
   };
 }
 
+const SCONTO_PREVIEW: Record<
+  string,
+  { al: (um: string, euro: string) => string; da: string; daA: string }
+> = {
+  it: {
+    al: (um, euro) => `Al ${um} ${euro} €`,
+    da: "sconto applicato per ordini da {da} €",
+    daA: "sconto applicato per ordini da {da} a {a} €",
+  },
+  en: {
+    al: (um, euro) => `Per ${um} ${euro} €`,
+    da: "discount applied for orders from {da} €",
+    daA: "discount applied for orders from {da} to {a} €",
+  },
+  de: {
+    al: (um, euro) => `Pro ${um} ${euro} €`,
+    da: "Rabatt für Bestellungen ab {da} €",
+    daA: "Rabatt für Bestellungen von {da} bis {a} €",
+  },
+  fr: {
+    al: (um, euro) => `Au ${um} ${euro} €`,
+    da: "remise appliquée pour commandes à partir de {da} €",
+    daA: "remise appliquée pour commandes de {da} à {a} €",
+  },
+  es: {
+    al: (um, euro) => `Al ${um} ${euro} €`,
+    da: "descuento aplicado para pedidos desde {da} €",
+    daA: "descuento aplicado para pedidos de {da} a {a} €",
+  },
+  pt: {
+    al: (um, euro) => `Ao ${um} ${euro} €`,
+    da: "desconto aplicado para encomendas a partir de {da} €",
+    daA: "desconto aplicado para encomendas de {da} a {a} €",
+  },
+};
+
 export function previewScontoListino(input: {
   prezzo: number;
   scontoPct: number;
   qtyDa: number;
   qtyA: number | null;
   unitaMisura: ListinoRigaUm;
+  locale?: string;
 }): string | null {
   if (!Number.isFinite(input.prezzo) || input.prezzo <= 0) return null;
   if (!Number.isFinite(input.scontoPct) || input.scontoPct <= 0) return null;
@@ -251,12 +354,15 @@ export function previewScontoListino(input: {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-  const alKg = `Al ${input.unitaMisura} ${euro(unitario)} €`;
+  const labels = SCONTO_PREVIEW[input.locale ?? "it"] ?? SCONTO_PREVIEW.it;
+  const alKg = labels.al(input.unitaMisura, euro(unitario));
   if (input.qtyA == null || !Number.isFinite(input.qtyA)) {
-    return `${alKg} — sconto applicato per ordini da ${euro(importoDa)} €`;
+    return `${alKg} — ${labels.da.replace("{da}", euro(importoDa))}`;
   }
   const importoA = Math.round(input.qtyA * unitario * 100) / 100;
-  return `${alKg} — sconto applicato per ordini da ${euro(importoDa)} a ${euro(importoA)} €`;
+  return `${alKg} — ${labels.daA
+    .replace("{da}", euro(importoDa))
+    .replace("{a}", euro(importoA))}`;
 }
 
 export function listinoCondizioniSovrapposte(

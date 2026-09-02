@@ -7,17 +7,22 @@ import {
   createListinoAction,
   dichiaraListinoObsoletoAction,
   inviaListinoInRevisioneAction,
+  listGeoCatalogAction,
   listListiniAction,
   listListinoRigheAction,
   riportaListinoInBozzaAction,
   setListinoRigaRevisioneAction,
-  softDeleteListinoRigaCondizioneAction,
   updateListinoAction,
   upsertListinoRigaAction,
-  upsertListinoRigaCondizioneAction,
 } from "@/app/actions/listini";
+import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
+import {
+  labelLingua,
+  lingueDaNazioni,
+  type GeoNazione,
+} from "@/lib/ecosystem/geo-nazioni";
 import {
   imballaggiPerCondizioneListino,
   standardConfezioneProdotto,
@@ -29,6 +34,7 @@ import {
   LISTINO_DISPONIBILITA_LABEL,
   LISTINO_RIGA_UM,
   listinoCodiceSlug,
+  listinoRigaCondizioneSyncItemSchema,
   parseListinoCodice,
   previewScontoListino,
   rigaListinoCompleta,
@@ -45,6 +51,7 @@ const STATO_LABEL: Record<ListinoStato, string> = {
   in_revisione: "In Revisione",
   in_uso: "In Uso",
   obsoleto: "Obsoleto",
+  bozza_traduzione: "Bozza traduzione",
 };
 
 const STATO_HELP: Record<ListinoStato, string> = {
@@ -56,13 +63,45 @@ const STATO_HELP: Record<ListinoStato, string> = {
     "Listino ufficiale. Resta in vigore anche dopo «Dichiara obsoleto», finché un nuovo listino non va In Uso.",
   obsoleto:
     "Sostituito. Resta in storico. Non è più il listino vigente.",
+  bozza_traduzione:
+    "Copia in lingua madre generata a «Listino completo». Stessi prezzi; nomi prodotto restano in italiano fino alla compilazione traduzioni. Etichette fisse (Al kg, sconto…) nella lingua della versione.",
 };
 
 type DeleteTarget = {
-  kind: "condizione";
-  riga: ListinoRiga;
-  condizione: ListinoRigaCondizione;
+  scontoPct: number;
+  imballaggioCodice?: string;
+  onConfirm: () => void;
 };
+
+type LocalCond = {
+  key: string;
+  id?: string;
+  qtyDa: string;
+  qtyA: string;
+  imballaggioVoceId: string;
+  imballaggioCodice?: string;
+  imballaggioNome?: string;
+  kg: string;
+  scontoPct: string;
+  kgForzato: boolean;
+  locked: boolean;
+};
+
+function condFromRiga(c: ListinoRigaCondizione): LocalCond {
+  return {
+    key: c.id,
+    id: c.id,
+    qtyDa: String(c.qtyDa),
+    qtyA: c.qtyA == null ? "" : String(c.qtyA),
+    imballaggioVoceId: c.imballaggioVoceId,
+    imballaggioCodice: c.imballaggioCodice,
+    imballaggioNome: c.imballaggioNome,
+    kg: c.kgConfezione ? String(c.kgConfezione) : "",
+    scontoPct: String(c.scontoPct),
+    kgForzato: c.kgForzato,
+    locked: true,
+  };
+}
 
 type CondDraft = {
   qtyDa: string;
@@ -130,6 +169,9 @@ export function ListiniB2bBoard() {
   const [editCodice, setEditCodice] = useState("");
   const [editNome, setEditNome] = useState("");
   const [editNote, setEditNote] = useState("");
+  const [catalogNazioni, setCatalogNazioni] = useState<GeoNazione[]>([]);
+  const [createNazioneIds, setCreateNazioneIds] = useState<string[]>([]);
+  const [editNazioneIds, setEditNazioneIds] = useState<string[]>([]);
 
   const confezioni = useMemo(
     () => imballaggiPerCondizioneListino(imballaggi),
@@ -163,6 +205,9 @@ export function ListiniB2bBoard() {
     void listImballaggiVociAction().then((r) => {
       if (r.success) setImballaggi(r.items);
     });
+    void listGeoCatalogAction().then((r) => {
+      if (r.success) setCatalogNazioni(r.nazioni);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -185,7 +230,8 @@ export function ListiniB2bBoard() {
     setEditCodice(parseListinoCodice(selected.codice).slug);
     setEditNome(selected.nome);
     setEditNote(selected.note);
-  }, [selected?.id, selected?.codice, selected?.nome, selected?.note]);
+    setEditNazioneIds(selected.nazioni.map((n) => n.id));
+  }, [selected?.id, selected?.codice, selected?.nome, selected?.note, selected?.nazioni]);
 
   function condDraft(rigaId: string): CondDraft {
     return drafts[rigaId] ?? emptyCond;
@@ -207,7 +253,8 @@ export function ListiniB2bBoard() {
               Codice: B2B- + testo + -V1 (la versione non è modificabile). Al
               salvataggio compaiono tutte le voci prodotto, vuote e senza sconti.
               Prezzo 0 solo con dichiarazione «fuori produzione» o «non
-              disponibile».
+              disponibile». Indica le nazioni coperte: a «Listino completo»
+              nasce una versione per ogni lingua madre distinta.
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <CodiceListinoField
@@ -223,16 +270,28 @@ export function ListiniB2bBoard() {
                 onChange={(e) => setNome(e.target.value)}
               />
             </div>
+            <div className="mt-3">
+              <p className="mb-1 text-xs font-medium text-[var(--muted)]">
+                Nazioni coperte
+              </p>
+              <ListinoNazioniPicker
+                nazioni={catalogNazioni}
+                selectedIds={createNazioneIds}
+                disabled={pending}
+                onChange={setCreateNazioneIds}
+              />
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={pending || !codiceSlug}
+                disabled={pending || !codiceSlug || createNazioneIds.length < 1}
                 className="rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                 onClick={() =>
                   startTransition(async () => {
                     const res = await createListinoAction({
                       codice: codiceSlug,
                       nome,
+                      nazioneIds: createNazioneIds,
                     });
                     if (!res.success) {
                       setError(res.error);
@@ -240,6 +299,7 @@ export function ListiniB2bBoard() {
                     }
                     setCodiceSlug("");
                     setNome("");
+                    setCreateNazioneIds([]);
                     setModelloOpen(false);
                     reloadListini();
                     setSelectedId(res.item.id);
@@ -289,6 +349,7 @@ export function ListiniB2bBoard() {
                         codice: codiceSlug,
                         nome,
                         modelloId,
+                        nazioneIds: createNazioneIds,
                       });
                       if (!res.success) {
                         setError(res.error);
@@ -296,6 +357,7 @@ export function ListiniB2bBoard() {
                       }
                       setCodiceSlug("");
                       setNome("");
+                      setCreateNazioneIds([]);
                       setModelloOpen(false);
                       reloadListini();
                       setSelectedId(res.item.id);
@@ -313,6 +375,7 @@ export function ListiniB2bBoard() {
                 <tr>
                   <th className="px-3 py-2">Codice</th>
                   <th className="px-3 py-2">Stato</th>
+                  <th className="px-3 py-2">Nazioni / lingua</th>
                   <th className="px-3 py-2">In Uso dal</th>
                   <th className="px-3 py-2">v</th>
                 </tr>
@@ -328,6 +391,18 @@ export function ListiniB2bBoard() {
                   >
                     <td className="px-3 py-2 font-medium">{item.codice}</td>
                     <td className="px-3 py-2">{STATO_LABEL[item.stato]}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {item.listinoOrigineId
+                        ? `Versione ${labelLingua(item.locale)}`
+                        : item.nazioni.length
+                          ? `${item.nazioni
+                              .slice(0, 3)
+                              .map((n) => n.iso2)
+                              .join(", ")}${item.nazioni.length > 3 ? "…" : ""} · ${lingueDaNazioni(item.nazioni)
+                              .map(labelLingua)
+                              .join(", ")}`
+                          : "—"}
+                    </td>
                     <td className="px-3 py-2 text-xs">
                       {item.stato === "in_uso" && item.publishedAt
                         ? item.publishedAt.slice(0, 10)
@@ -354,10 +429,20 @@ export function ListiniB2bBoard() {
               </h2>
               <p className="text-xs text-[var(--muted)]">
                 {STATO_LABEL[selected.stato]} · v{selected.versione}
+                {selected.listinoOrigineId
+                  ? ` · versione ${labelLingua(selected.locale)}`
+                  : ""}
                 {isBozza
                   ? " · ogni campo è modificabile, poi Salva testata"
                   : " · bloccato: i prezzi ufficiali non si cambiano qui"}
               </p>
+              {selected.stato === "bozza_traduzione" ? (
+                <p className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
+                  Versione in {labelLingua(selected.locale)}: etichette fisse
+                  (Al kg, sconto…) in lingua. I nomi prodotto restano in
+                  italiano fino alla compilazione delle traduzioni.
+                </p>
+              ) : null}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <label className="text-xs text-[var(--muted)]">
                   Codice
@@ -388,11 +473,33 @@ export function ListiniB2bBoard() {
                     onChange={(e) => setEditNote(e.target.value)}
                   />
                 </label>
+                <div className="sm:col-span-2">
+                  <p className="mb-1 text-xs text-[var(--muted)]">
+                    Nazioni coperte
+                    {selected.listinoOrigineId
+                      ? " (eredita dal listino madre)"
+                      : ""}
+                  </p>
+                  {selected.listinoOrigineId ? (
+                    <p className="text-xs">
+                      {selected.nazioni.map((n) => n.nome).join(", ") || "—"}
+                      {" · "}
+                      Versione {labelLingua(selected.locale)}
+                    </p>
+                  ) : (
+                    <ListinoNazioniPicker
+                      nazioni={catalogNazioni}
+                      selectedIds={editNazioneIds}
+                      disabled={!isBozza || pending}
+                      onChange={setEditNazioneIds}
+                    />
+                  )}
+                </div>
               </div>
               {isBozza ? (
                 <button
                   type="button"
-                  disabled={pending}
+                  disabled={pending || editNazioneIds.length < 1}
                   className="mt-3 rounded-md bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   onClick={() =>
                     startTransition(async () => {
@@ -401,6 +508,7 @@ export function ListiniB2bBoard() {
                         codice: editCodice,
                         nome: editNome,
                         note: editNote,
+                        nazioneIds: editNazioneIds,
                       });
                       if (!res.success) {
                         setError(res.error);
@@ -528,13 +636,12 @@ export function ListiniB2bBoard() {
                     onDraftChange={(next) =>
                       setDrafts((prev) => ({ ...prev, [r.id]: next }))
                     }
+                    locale={selected.locale}
                     onSaved={() => {
                       if (selectedId) void reloadRighe(selectedId);
                     }}
                     onError={setError}
-                    onDeleteCond={(c) =>
-                      setDeleting({ kind: "condizione", riga: r, condizione: c })
-                    }
+                    onAskDelete={setDeleting}
                     startTransition={startTransition}
                   />
                 ))}
@@ -661,22 +768,13 @@ export function ListiniB2bBoard() {
       {deleting ? (
         <ConfirmDeleteModal
           title="Rimuovi condizione sconto"
-          message={`Rimuovere lo sconto ${deleting.condizione.scontoPct}% su ${deleting.condizione.imballaggioCodice}? Soft delete: resta in archivio.`}
-          confirmLabel="Rimuovi"
+          message={`Togliere lo sconto ${deleting.scontoPct}% su ${deleting.imballaggioCodice ?? "confezione"} da questa riga? Si scrive in bozza solo quando premi Salva sul prodotto.`}
+          confirmLabel="Rimuovi dalla riga"
           onClose={() => setDeleting(null)}
-          onConfirm={() =>
-            startTransition(async () => {
-              const res = await softDeleteListinoRigaCondizioneAction(
-                deleting.condizione.id
-              );
-              if (!res.success) {
-                setError(res.error);
-                return;
-              }
-              if (selectedId) await reloadRighe(selectedId);
-              setDeleting(null);
-            })
-          }
+          onConfirm={() => {
+            deleting.onConfirm();
+            setDeleting(null);
+          }}
         />
       ) : null}
     </div>
@@ -692,9 +790,10 @@ function RigaBlock({
   confezioni,
   draft,
   onDraftChange,
+  locale,
   onSaved,
   onError,
-  onDeleteCond,
+  onAskDelete,
   startTransition,
 }: {
   riga: ListinoRiga;
@@ -705,9 +804,10 @@ function RigaBlock({
   confezioni: ImballaggioVoce[];
   draft: CondDraft;
   onDraftChange: (d: CondDraft) => void;
+  locale: string;
   onSaved: () => void;
   onError: (msg: string) => void;
-  onDeleteCond: (c: ListinoRigaCondizione) => void;
+  onAskDelete: (target: DeleteTarget) => void;
   startTransition: (fn: () => Promise<void>) => void;
 }) {
   const [prezzo, setPrezzo] = useState(
@@ -728,6 +828,13 @@ function RigaBlock({
     setDisp(riga.disponibilita);
   }, [riga.id, riga.prezzo, riga.unitaMisura, riga.disponibilita]);
 
+  const [localConds, setLocalConds] = useState<LocalCond[]>(() =>
+    riga.condizioni.map(condFromRiga)
+  );
+  useEffect(() => {
+    setLocalConds(riga.condizioni.map(condFromRiga));
+  }, [riga.id, riga.condizioni]);
+
   const [draftKgWarn, setDraftKgWarn] = useState<{
     kg: number;
     standard: number;
@@ -745,27 +852,39 @@ function RigaBlock({
     qtyDa: Number(draft.qtyDa),
     qtyA: draft.qtyA.trim() === "" ? null : Number(draft.qtyA),
     unitaMisura: um,
+    locale,
   });
 
-  function saveDraftCond(forza: boolean, kgOverride?: number) {
-    startTransition(async () => {
-      const qtyA = draft.qtyA.trim() === "" ? null : Number(draft.qtyA);
-      const res = await upsertListinoRigaCondizioneAction({
-        listinoRigaId: riga.id,
-        qtyDa: Number(draft.qtyDa),
-        qtyA,
-        imballaggioVoceId: draft.imballaggioVoceId,
-        scontoPct: Number(draft.scontoPct),
-        kgConfezione: kgOverride ?? Number(draft.kg),
-        kgForzato: forza,
-      });
-      if (!res.success) {
-        onError(res.error);
-        return;
-      }
-      onDraftChange(emptyCond);
-      onSaved();
-    });
+  function lockDraftCond(forza: boolean, kgOverride?: number) {
+    const payload = {
+      qtyDa: Number(draft.qtyDa),
+      qtyA: draft.qtyA.trim() === "" ? null : Number(draft.qtyA),
+      imballaggioVoceId: draft.imballaggioVoceId,
+      scontoPct: Number(draft.scontoPct),
+      kgConfezione: kgOverride ?? Number(draft.kg),
+      kgForzato: forza,
+    };
+    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse(payload);
+    if (!parsed.success) {
+      onError(parsed.error.issues[0]?.message ?? "Sconto non valido");
+      return;
+    }
+    const next: LocalCond = {
+      key: `tmp-${crypto.randomUUID()}`,
+      qtyDa: draft.qtyDa,
+      qtyA: draft.qtyA,
+      imballaggioVoceId: draft.imballaggioVoceId,
+      imballaggioCodice: confezioni.find((v) => v.id === draft.imballaggioVoceId)
+        ?.codice,
+      imballaggioNome: confezioni.find((v) => v.id === draft.imballaggioVoceId)
+        ?.nome,
+      kg: String(payload.kgConfezione),
+      scontoPct: draft.scontoPct,
+      kgForzato: forza,
+      locked: true,
+    };
+    setLocalConds((prev) => [...prev, next]);
+    onDraftChange(emptyCond);
   }
 
   return (
@@ -853,12 +972,41 @@ function RigaBlock({
               className="text-xs font-medium text-emerald-800 underline"
               onClick={() =>
                 startTransition(async () => {
+                  const unlocked = localConds.filter((c) => !c.locked);
+                  if (unlocked.length) {
+                    onError(
+                      "Blocca ogni riga sconto con Salva prima di salvare il prodotto."
+                    );
+                    return;
+                  }
+                  const condizioni = [];
+                  for (const c of localConds) {
+                    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
+                      id: c.id,
+                      qtyDa: Number(c.qtyDa),
+                      qtyA: c.qtyA.trim() === "" ? null : Number(c.qtyA),
+                      imballaggioVoceId: c.imballaggioVoceId,
+                      scontoPct: Number(c.scontoPct),
+                      kgConfezione: Number(c.kg),
+                      kgForzato: c.kgForzato,
+                    });
+                    if (!parsed.success) {
+                      onError(
+                        parsed.error.issues[0]?.message ??
+                          "Controlla le righe sconto prima di Salva prodotto."
+                      );
+                      return;
+                    }
+                    condizioni.push(parsed.data);
+                  }
                   const res = await upsertListinoRigaAction({
                     listinoId: riga.listinoId,
                     prodottoId: riga.prodottoId,
                     prezzo: Number(prezzo),
                     unitaMisura: um,
                     disponibilita: disp,
+                    syncCondizioni: true,
+                    condizioni,
                   });
                   if (!res.success) {
                     onError(res.error);
@@ -871,23 +1019,50 @@ function RigaBlock({
               Salva
             </button>
           ) : null}
+          {editable ? (
+            <p className="mt-1 text-[10px] leading-snug text-[var(--muted)]">
+              Salva qui il prodotto e gli sconti in bozza. Salva/Modifica sullo
+              sconto blocca solo la riga.
+            </p>
+          ) : null}
         </td>
       </tr>
-      {riga.condizioni.map((c) => (
+      {localConds.map((c) => (
         <CondizioneRow
-          key={c.id}
-          condizione={c}
+          key={c.key}
+          cond={c}
           prodottoId={riga.prodottoId}
           prezzoBase={Number(prezzo) || riga.prezzo}
           unitaMisura={um}
+          locale={locale}
           editable={editable}
           pending={pending}
           extraLeadCells={inRevisione ? 2 : 1}
           confezioni={confezioni}
-          onSaved={onSaved}
+          onChange={(next) =>
+            setLocalConds((prev) =>
+              prev.map((x) => (x.key === c.key ? next : x))
+            )
+          }
+          onLock={() =>
+            setLocalConds((prev) =>
+              prev.map((x) => (x.key === c.key ? { ...x, locked: true } : x))
+            )
+          }
+          onUnlock={() =>
+            setLocalConds((prev) =>
+              prev.map((x) => (x.key === c.key ? { ...x, locked: false } : x))
+            )
+          }
           onError={onError}
-          onDelete={() => onDeleteCond(c)}
-          startTransition={startTransition}
+          onDelete={() =>
+            onAskDelete({
+              scontoPct: Number(c.scontoPct) || 0,
+              imballaggioCodice: c.imballaggioCodice,
+              onConfirm: () =>
+                setLocalConds((prev) => prev.filter((x) => x.key !== c.key)),
+            })
+          }
         />
       ))}
       {editable ? (
@@ -987,10 +1162,10 @@ function RigaBlock({
                 setDraftKgWarn({ kg, standard: std.max, um: std.um });
                 return;
               }
-              void saveDraftCond(false);
+              lockDraftCond(false);
             }}
           >
-            Aggiungi
+            Salva
           </button>
         </td>
       </tr>
@@ -1015,11 +1190,11 @@ function RigaBlock({
           onAdegua={() => {
             onDraftChange({ ...draft, kg: String(draftKgWarn.standard) });
             setDraftKgWarn(null);
-            void saveDraftCond(false, draftKgWarn.standard);
+            lockDraftCond(false, draftKgWarn.standard);
           }}
           onForza={() => {
             setDraftKgWarn(null);
-            void saveDraftCond(true);
+            lockDraftCond(true);
           }}
           onClose={() => setDraftKgWarn(null)}
         />
@@ -1029,91 +1204,76 @@ function RigaBlock({
 }
 
 function CondizioneRow({
-  condizione,
+  cond,
   prodottoId,
   prezzoBase,
   unitaMisura,
+  locale,
   editable,
   pending,
   extraLeadCells,
   confezioni,
-  onSaved,
+  onChange,
+  onLock,
+  onUnlock,
   onError,
   onDelete,
-  startTransition,
 }: {
-  condizione: ListinoRigaCondizione;
+  cond: LocalCond;
   prodottoId: string;
   prezzoBase: number;
   unitaMisura: ListinoRigaUm;
+  locale: string;
   editable: boolean;
   pending: boolean;
   extraLeadCells: number;
   confezioni: ImballaggioVoce[];
-  onSaved: () => void;
+  onChange: (next: LocalCond) => void;
+  onLock: () => void;
+  onUnlock: () => void;
   onError: (msg: string) => void;
   onDelete: () => void;
-  startTransition: (fn: () => Promise<void>) => void;
 }) {
-  const [qtyDa, setQtyDa] = useState(String(condizione.qtyDa));
-  const [qtyA, setQtyA] = useState(
-    condizione.qtyA == null ? "" : String(condizione.qtyA)
-  );
-  const [imballaggioVoceId, setImballaggioVoceId] = useState(
-    condizione.imballaggioVoceId
-  );
-  const [kg, setKg] = useState(
-    condizione.kgConfezione ? String(condizione.kgConfezione) : ""
-  );
-  const [scontoPct, setScontoPct] = useState(String(condizione.scontoPct));
   const [kgWarn, setKgWarn] = useState<{
     kg: number;
     standard: number;
     um: string;
   } | null>(null);
 
-  useEffect(() => {
-    setQtyDa(String(condizione.qtyDa));
-    setQtyA(condizione.qtyA == null ? "" : String(condizione.qtyA));
-    setImballaggioVoceId(condizione.imballaggioVoceId);
-    setKg(condizione.kgConfezione ? String(condizione.kgConfezione) : "");
-    setScontoPct(String(condizione.scontoPct));
-  }, [
-    condizione.id,
-    condizione.qtyDa,
-    condizione.qtyA,
-    condizione.imballaggioVoceId,
-    condizione.kgConfezione,
-    condizione.scontoPct,
-  ]);
-
+  const canEdit = editable && !cond.locked;
   const previewSconto = previewScontoListino({
     prezzo: prezzoBase,
-    scontoPct: Number(scontoPct),
-    qtyDa: Number(qtyDa),
-    qtyA: qtyA.trim() === "" ? null : Number(qtyA),
+    scontoPct: Number(cond.scontoPct),
+    qtyDa: Number(cond.qtyDa),
+    qtyA: cond.qtyA.trim() === "" ? null : Number(cond.qtyA),
     unitaMisura,
+    locale,
   });
 
-  function saveCond(forza: boolean, kgOverride?: number) {
-    startTransition(async () => {
-      const nextQtyA = qtyA.trim() === "" ? null : Number(qtyA);
-      const res = await upsertListinoRigaCondizioneAction({
-        id: condizione.id,
-        listinoRigaId: condizione.listinoRigaId,
-        qtyDa: Number(qtyDa),
-        qtyA: nextQtyA,
-        imballaggioVoceId,
-        scontoPct: Number(scontoPct),
-        kgConfezione: kgOverride ?? Number(kg),
-        kgForzato: forza,
-      });
-      if (!res.success) {
-        onError(res.error);
-        return;
-      }
-      onSaved();
+  function tryLock(forza: boolean, kgOverride?: number) {
+    const kgVal = kgOverride ?? Number(cond.kg);
+    const parsed = listinoRigaCondizioneSyncItemSchema.safeParse({
+      id: cond.id,
+      qtyDa: Number(cond.qtyDa),
+      qtyA: cond.qtyA.trim() === "" ? null : Number(cond.qtyA),
+      imballaggioVoceId: cond.imballaggioVoceId,
+      scontoPct: Number(cond.scontoPct),
+      kgConfezione: kgVal,
+      kgForzato: forza || cond.kgForzato,
     });
+    if (!parsed.success) {
+      onError(parsed.error.issues[0]?.message ?? "Sconto non valido");
+      return;
+    }
+    if (kgOverride != null) {
+      onChange({ ...cond, kg: String(kgOverride), kgForzato: forza, locked: true });
+      return;
+    }
+    if (forza) {
+      onChange({ ...cond, kgForzato: true, locked: true });
+      return;
+    }
+    onLock();
   }
 
   return (
@@ -1128,48 +1288,53 @@ function CondizioneRow({
         <td key={i} className="px-3 py-1.5" />
       ))}
       <td className="px-3 py-1.5">
-        {editable ? (
+        {canEdit ? (
           <input
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
-            value={qtyDa}
+            value={cond.qtyDa}
             disabled={pending}
-            onChange={(e) => setQtyDa(e.target.value)}
+            onChange={(e) => onChange({ ...cond, qtyDa: e.target.value })}
           />
         ) : (
-          <span className="tabular-nums">{condizione.qtyDa}</span>
+          <span className="tabular-nums">{cond.qtyDa}</span>
         )}
       </td>
       <td className="px-3 py-1.5">
-        {editable ? (
+        {canEdit ? (
           <input
             className="w-20 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
             placeholder="∞"
-            value={qtyA}
+            value={cond.qtyA}
             disabled={pending}
-            onChange={(e) => setQtyA(e.target.value)}
+            onChange={(e) => onChange({ ...cond, qtyA: e.target.value })}
           />
         ) : (
-          <span className="tabular-nums">{condizione.qtyA ?? "∞"}</span>
+          <span className="tabular-nums">{cond.qtyA || "∞"}</span>
         )}
       </td>
       <td className="px-3 py-1.5 text-xs">
-        {editable ? (
+        {canEdit ? (
           <select
             className="w-full min-w-[180px] rounded border border-[var(--border)] px-1.5 py-1 text-xs"
-            value={imballaggioVoceId}
+            value={cond.imballaggioVoceId}
             disabled={pending}
             onChange={(e) => {
               const id = e.target.value;
-              setImballaggioVoceId(id);
               const std = standardConfezioneProdotto(
                 confezioni.find((v) => v.id === id),
                 prodottoId
               );
-              if (std) setKg(String(std.max));
+              onChange({
+                ...cond,
+                imballaggioVoceId: id,
+                imballaggioCodice: confezioni.find((v) => v.id === id)?.codice,
+                imballaggioNome: confezioni.find((v) => v.id === id)?.nome,
+                kg: std ? String(std.max) : cond.kg,
+              });
             }}
           >
             {confezioni.map((v) => {
@@ -1181,74 +1346,85 @@ function CondizioneRow({
                 </option>
               );
             })}
-            {!confezioni.some((v) => v.id === condizione.imballaggioVoceId) ? (
-              <option value={condizione.imballaggioVoceId}>
-                {condizione.imballaggioCodice} {condizione.imballaggioNome}
+            {!confezioni.some((v) => v.id === cond.imballaggioVoceId) ? (
+              <option value={cond.imballaggioVoceId}>
+                {cond.imballaggioCodice} {cond.imballaggioNome}
               </option>
             ) : null}
           </select>
         ) : (
           <span>
-            {condizione.imballaggioCodice} {condizione.imballaggioNome}
+            {cond.imballaggioCodice} {cond.imballaggioNome}
           </span>
         )}
       </td>
       <td className="px-3 py-1.5">
-        {editable ? (
+        {canEdit ? (
           <input
             className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
             step="0.01"
-            value={kg}
+            value={cond.kg}
             disabled={pending}
-            onChange={(e) => setKg(e.target.value)}
+            onChange={(e) => onChange({ ...cond, kg: e.target.value })}
           />
         ) : (
           <span className="tabular-nums">
-            {condizione.kgConfezione}
-            {condizione.kgForzato ? " *" : ""}
+            {cond.kg}
+            {cond.kgForzato ? " *" : ""}
           </span>
         )}
       </td>
       <td className="px-3 py-1.5">
-        {editable ? (
+        {canEdit ? (
           <input
             className="w-16 rounded border border-[var(--border)] px-1.5 py-1 text-xs"
             type="number"
             min={0}
             max={100}
             step="0.1"
-            value={scontoPct}
+            value={cond.scontoPct}
             disabled={pending}
-            onChange={(e) => setScontoPct(e.target.value)}
+            onChange={(e) => onChange({ ...cond, scontoPct: e.target.value })}
           />
         ) : (
-          <span className="tabular-nums">{condizione.scontoPct}</span>
+          <span className="tabular-nums">{cond.scontoPct}</span>
         )}
       </td>
       <td className="px-3 py-1.5">
         {editable ? (
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={pending}
-              className="text-xs font-medium text-emerald-800 underline"
-              onClick={() => {
-                const std = standardConfezioneProdotto(
-                  confezioni.find((v) => v.id === imballaggioVoceId),
-                  prodottoId
-                );
-                const nextKg = Number(kg);
-                if (std && nextKg > std.max) {
-                  setKgWarn({ kg: nextKg, standard: std.max, um: std.um });
-                  return;
-                }
-                saveCond(false);
-              }}
-            >
-              Salva
-            </button>
+            {cond.locked ? (
+              <button
+                type="button"
+                disabled={pending}
+                className="text-xs font-medium text-slate-800 underline"
+                onClick={onUnlock}
+              >
+                Modifica
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={pending}
+                className="text-xs font-medium text-emerald-800 underline"
+                onClick={() => {
+                  const std = standardConfezioneProdotto(
+                    confezioni.find((v) => v.id === cond.imballaggioVoceId),
+                    prodottoId
+                  );
+                  const nextKg = Number(cond.kg);
+                  if (std && nextKg > std.max) {
+                    setKgWarn({ kg: nextKg, standard: std.max, um: std.um });
+                    return;
+                  }
+                  tryLock(false);
+                }}
+              >
+                Salva
+              </button>
+            )}
             <button
               type="button"
               className="text-xs text-red-700 underline"
@@ -1277,13 +1453,12 @@ function CondizioneRow({
         um={kgWarn.um}
         pending={pending}
         onAdegua={() => {
-          setKg(String(kgWarn.standard));
           setKgWarn(null);
-          saveCond(false, kgWarn.standard);
+          tryLock(false, kgWarn.standard);
         }}
         onForza={() => {
           setKgWarn(null);
-          saveCond(true);
+          tryLock(true);
         }}
         onClose={() => setKgWarn(null)}
       />

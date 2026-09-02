@@ -425,7 +425,8 @@ export type ListinoStato =
   | "bozza"
   | "in_revisione"
   | "in_uso"
-  | "obsoleto";
+  | "obsoleto"
+  | "bozza_traduzione";
 export type ListinoRigaDisponibilita =
   | "in_produzione"
   | "fuori_produzione"
@@ -519,12 +520,52 @@ export interface ListinoRow {
   valido_al: string | null;
   versione: number;
   stato: ListinoStato;
+  locale: string;
+  listino_origine_id: string | null;
   approved_at: string | null;
   approved_by: string | null;
   published_at: string | null;
   published_by: string | null;
   note: string;
   sostituisce_id: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface GeoContinenteRow {
+  codice: string;
+  nome: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface GeoNazioneRow {
+  id: string;
+  iso2: string;
+  continente_codice: string;
+  nome: string;
+  lingue_iso: string[];
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface ListinoNazioneRow {
+  id: string;
+  listino_id: string;
+  nazione_id: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -2431,6 +2472,31 @@ export interface Database {
         Row: ListinoRow;
         Insert: Partial<ListinoRow> & { codice: string; nome: string };
         Update: Partial<ListinoRow>;
+        Relationships: [];
+      };
+      geo_continenti: {
+        Row: GeoContinenteRow;
+        Insert: Partial<GeoContinenteRow> & { codice: string; nome: string };
+        Update: Partial<GeoContinenteRow>;
+        Relationships: [];
+      };
+      geo_nazioni: {
+        Row: GeoNazioneRow;
+        Insert: Partial<GeoNazioneRow> & {
+          iso2: string;
+          continente_codice: string;
+          nome: string;
+        };
+        Update: Partial<GeoNazioneRow>;
+        Relationships: [];
+      };
+      listini_nazioni: {
+        Row: ListinoNazioneRow;
+        Insert: Partial<ListinoNazioneRow> & {
+          listino_id: string;
+          nazione_id: string;
+        };
+        Update: Partial<ListinoNazioneRow>;
         Relationships: [];
       };
       listini_righe: {
