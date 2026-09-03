@@ -18,14 +18,12 @@ import {
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
   softDeleteListinoRigaCondizioneAction,
-  logListinoExportAction,
+  exportListinoBuildAction,
   exportListinoXlsxAction,
 } from "@/app/actions/listini";
 import { downloadListinoPdf } from "@/lib/ecosystem/listino-export-pdf";
-import {
-  buildListinoExport,
-  filterListinoRigheExport,
-} from "@/lib/ecosystem/listino-export";
+import { filterListinoRigheExport } from "@/lib/ecosystem/listino-export";
+import { listinoExportI18n } from "@/lib/ecosystem/listino-export-i18n";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -85,7 +83,7 @@ const STATO_HELP: Record<ListinoStato, string> = {
   obsoleto:
     "Sostituito. Resta in storico. Non è più il listino vigente.",
   bozza_traduzione:
-    "Copia in lingua madre generata a «Listino completo». Stessi prezzi; nomi prodotto restano in italiano fino alla compilazione traduzioni. Etichette fisse (Al kg, sconto…) nella lingua della versione.",
+    "Copia in lingua madre generata a «Listino completo». Stessi prezzi; intestazioni, nome file, descrizioni e Tipo Conf. tradotti nella lingua della versione.",
 };
 
 type ListinoElencoSortKey =
@@ -546,9 +544,8 @@ export function ListiniB2bBoard() {
         URL.revokeObjectURL(url);
         return;
       }
-      const res = await logListinoExportAction({
+      const res = await exportListinoBuildAction({
         listinoId: selected.id,
-        formato,
         prodottoIds,
         tutti,
         disponibilita,
@@ -557,12 +554,7 @@ export function ListiniB2bBoard() {
         setError(res.error);
         return;
       }
-      const { meta, rows } = buildListinoExport(selected, chosen, {
-        statoLabel: STATO_LABEL[selected.stato],
-        actor: res.actor,
-        scope: tutti ? "tutti" : "selezione",
-      });
-      downloadListinoPdf(meta, rows);
+      downloadListinoPdf(res.meta, res.rows);
     });
   }
 
@@ -796,11 +788,12 @@ export function ListiniB2bBoard() {
                   ? " · ogni campo è modificabile, poi Salva testata"
                   : " · bloccato: i prezzi ufficiali non si cambiano qui"}
               </p>
-              {selected.stato === "bozza_traduzione" ? (
+              {selected.stato === "bozza_traduzione" ||
+              selected.listinoOrigineId ? (
                 <p className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
-                  Versione in {labelLingua(selected.locale)}: etichette fisse
-                  (Al kg, sconto…) in lingua. I nomi prodotto restano in
-                  italiano fino alla compilazione delle traduzioni.
+                  Versione in {labelLingua(selected.locale)}: intestazioni,
+                  nome file, descrizioni e Tipo Conf. sono tradotti. I prezzi
+                  restano quelli del listino italiano.
                 </p>
               ) : null}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -1006,14 +999,14 @@ export function ListiniB2bBoard() {
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
                 <tr>
                   <SortableTh
-                    label="Prodotto"
+                    label={listinoExportI18n(selected.locale).productHead[0]}
                     sortKey="prodotto"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
                     className="px-3 py-2"
                   />
                   <SortableTh
-                    label="Prezzo"
+                    label={listinoExportI18n(selected.locale).productHead[2]}
                     sortKey="prezzo"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
@@ -1043,7 +1036,7 @@ export function ListiniB2bBoard() {
                     />
                   ) : null}
                   <SortableTh
-                    label="Qty da"
+                    label={listinoExportI18n(selected.locale).discountHead[1]}
                     sortKey="qtyDa"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
@@ -1051,7 +1044,7 @@ export function ListiniB2bBoard() {
                     hint="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
                   />
                   <SortableTh
-                    label="Qty a"
+                    label={listinoExportI18n(selected.locale).discountHead[2]}
                     sortKey="qtyA"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
@@ -1059,7 +1052,7 @@ export function ListiniB2bBoard() {
                     hint="Deve essere un multiplo dei kg confezione (es. 25 → 25, 50, 475, 500)"
                   />
                   <SortableTh
-                    label="Confezionamento"
+                    label={listinoExportI18n(selected.locale).discountHead[3]}
                     sortKey="confezionamento"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
@@ -1080,7 +1073,7 @@ export function ListiniB2bBoard() {
                     className="px-3 py-2"
                   />
                   <SortableTh
-                    label="Sconto %"
+                    label={listinoExportI18n(selected.locale).discountHead[5]}
                     sortKey="scontoPct"
                     sort={rigaSort}
                     onSort={(k) => setRigaSort((s) => nextSortState(s, k))}

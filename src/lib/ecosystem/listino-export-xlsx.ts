@@ -5,6 +5,7 @@ import {
   type ListinoExportMeta,
   type ListinoExportRow,
 } from "@/lib/ecosystem/listino-export";
+import { listinoExportI18n } from "@/lib/ecosystem/listino-export-i18n";
 
 export async function buildListinoXlsxBuffer(
   meta: ListinoExportMeta,
@@ -15,7 +16,7 @@ export async function buildListinoXlsxBuffer(
   wb.created = new Date();
   wb.title = meta.nome || `Listino ${meta.codice}`;
 
-  const ws = wb.addWorksheet("Listino", {
+  const ws = wb.addWorksheet(listinoExportI18n(meta.locale).filePrefix.slice(0, 31) || "Listino", {
     views: [{ state: "normal", showGridLines: false }],
     pageSetup: {
       orientation: "landscape",

@@ -6,6 +6,7 @@ import {
   type ListinoExportMeta,
   type ListinoExportRow,
 } from "@/lib/ecosystem/listino-export";
+import { listinoExportInfoLines } from "@/lib/ecosystem/listino-export-i18n";
 
 function splitProductBlocks(rows: ListinoExportRow[]): ListinoExportRow[][] {
   const blocks: ListinoExportRow[][] = [];
@@ -44,11 +45,17 @@ export function downloadListinoPdf(
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
   doc.setTextColor(60);
-  const info = [
-    `${meta.codice} · stato ${meta.statoLabel} · versione V${meta.versione} · lingua ${meta.locale.toUpperCase()}`,
-    `Esportato il ${meta.exportedAt} da ${meta.actor}`,
-    `Ambito: ${meta.scope === "selezione" ? "prodotti selezionati" : "listino completo"} · ${meta.prodottiCount} prodotti · ${meta.scontiCount} sconti`,
-  ];
+  const info = listinoExportInfoLines({
+    locale: meta.locale,
+    codice: meta.codice,
+    statoLabel: meta.statoLabel,
+    versione: meta.versione,
+    exportedAt: meta.exportedAt,
+    actor: meta.actor,
+    scope: meta.scope,
+    prodottiCount: meta.prodottiCount,
+    scontiCount: meta.scontiCount,
+  });
   for (const line of info) {
     doc.text(line, marginX, y);
     y += 4.5;

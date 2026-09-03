@@ -38,9 +38,17 @@ import {
 import {
   buildListinoExport,
   filterListinoRigheExport,
+  listinoExportFilename,
   LISTINO_STATO_EXPORT_LABEL,
 } from "@/lib/ecosystem/listino-export";
+import { listinoExportI18n } from "@/lib/ecosystem/listino-export-i18n";
 import { buildListinoXlsxBuffer } from "@/lib/ecosystem/listino-export-xlsx";
+import {
+  applyTraduzioniToRighe,
+  emptyTraduzioneMaps,
+  ensureListinoTraduzioni,
+  type ListinoTraduzioneMaps,
+} from "@/lib/ecosystem/listino-translate";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import type { ListinoVoceVigente } from "@/lib/ecosystem/listino-vigente";
 import { createClient } from "@/lib/supabase/server";
@@ -584,7 +592,7 @@ async function generaVersioniLingua(
           nome: `${master.nome} (${labelLingua(locale)})`,
           canale: "b2b",
           valido_dal: new Date().toISOString().slice(0, 10),
-          note: `Versione ${labelLingua(locale)} di ${master.codice}. Nomi prodotto restano in italiano fino alla compilazione traduzioni.`,
+          note: `Versione ${labelLingua(locale)} di ${master.codice}. Intestazioni e testi commerciali sono tradotti in ${labelLingua(locale)}.`,
           stato: "bozza_traduzione",
           versione: 1,
           locale,
@@ -623,6 +631,18 @@ async function generaVersioniLingua(
       master.id
     );
     if (seedErr) return seedErr;
+    const listed = await loadListinoRigheMapped(supabase, childId);
+    if ("error" in listed) return listed.error;
+    await traduciVersioneLingua(
+      supabase,
+      {
+        id: childId,
+        locale,
+        nome: `${master.nome} (${labelLingua(locale)})`,
+      },
+      listed.items,
+      userId
+    );
   }
   return null;
 }
@@ -1075,20 +1095,17 @@ export async function dichiaraListinoObsoletoAction(input: {
   return { success: true, bozzaId: created.item.id };
 }
 
-export async function listListinoRigheAction(
+async function loadListinoRigheMapped(
+  supabase: Awaited<ReturnType<typeof createClient>>,
   listinoId: string
-): Promise<
-  { success: true; items: ListinoRiga[] } | { success: false; error: string }
-> {
-  await guardAmm();
-  const supabase = await createClient();
+): Promise<{ items: ListinoRiga[] } | { error: string }> {
   const { data, error } = await supabase
     .from("listini_righe")
     .select("*")
     .eq("listino_id", listinoId)
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
-  if (error) return { success: false, error: error.message };
+  if (error) return { error: error.message };
 
   const rows = (data ?? []) as ListinoRigaRow[];
   const prodottoIds = [...new Set(rows.map((r) => r.prodotto_id))];
@@ -1110,7 +1127,6 @@ export async function listListinoRigheAction(
   );
 
   return {
-    success: true,
     items: rows.map((r) =>
       mapListinoRiga(
         r,
@@ -1119,6 +1135,70 @@ export async function listListinoRigheAction(
       )
     ),
   };
+}
+
+async function traduciVersioneLingua(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  listino: { id: string; locale: string; nome: string },
+  items: ListinoRiga[],
+  userId: string
+): Promise<{ maps: ListinoTraduzioneMaps; items: ListinoRiga[]; nome: string }> {
+  const locale = (listino.locale || "it").toLowerCase().slice(0, 2);
+  if (locale === "it") {
+    return { maps: emptyTraduzioneMaps(), items, nome: listino.nome };
+  }
+  const imb = new Map<string, string>();
+  for (const r of items) {
+    for (const c of r.condizioni) {
+      const label = (c.imballaggioNomeCommerciale || c.imballaggioNome || "").trim();
+      if (c.imballaggioVoceId && label) imb.set(c.imballaggioVoceId, label);
+    }
+  }
+  const maps = await ensureListinoTraduzioni({
+    supabase,
+    listinoId: listino.id,
+    locale,
+    listinoNome: listino.nome,
+    prodotti: items
+      .filter((r) => r.prodottoNome)
+      .map((r) => ({ id: r.prodottoId, nome: r.prodottoNome as string })),
+    imballaggi: [...imb.entries()].map(([id, nome]) => ({ id, nome })),
+    userId,
+  });
+  return {
+    maps,
+    items: applyTraduzioniToRighe(items, maps),
+    nome: maps.listinoNome?.trim() || listino.nome,
+  };
+}
+
+export async function listListinoRigheAction(
+  listinoId: string
+): Promise<
+  { success: true; items: ListinoRiga[] } | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  const supabase = await createClient();
+  const loaded = await loadListinoRigheMapped(supabase, listinoId);
+  if ("error" in loaded) return { success: false, error: loaded.error };
+
+  const { data: head } = await supabase
+    .from("listini")
+    .select("id, locale, nome")
+    .eq("id", listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const locale = ((head as { locale?: string } | null)?.locale || "it").toLowerCase();
+  if (locale === "it" || !head) {
+    return { success: true, items: loaded.items };
+  }
+  const translated = await traduciVersioneLingua(
+    supabase,
+    head as { id: string; locale: string; nome: string },
+    loaded.items,
+    auth.userId
+  );
+  return { success: true, items: translated.items };
 }
 
 async function loadCondizioniByRiga(
@@ -1844,21 +1924,16 @@ export async function logListinoExportAction(input: {
   return { success: true, actor };
 }
 
-export async function exportListinoXlsxAction(input: {
+async function prepareListinoExportData(input: {
   listinoId: string;
   prodottoIds: string[];
   tutti: boolean;
   disponibilita?: ListinoDisponibilita[];
+  actor: string;
 }): Promise<
-  | { success: true; actor: string; filename: string; base64: string }
+  | { success: true; listino: Listino; chosen: ListinoRiga[]; meta: ReturnType<typeof buildListinoExport>["meta"]; rows: ReturnType<typeof buildListinoExport>["rows"] }
   | { success: false; error: string }
 > {
-  const logged = await logListinoExportAction({
-    ...input,
-    formato: "xlsx",
-  });
-  if (!logged.success) return logged;
-
   const listed = await listListinoRigheAction(input.listinoId);
   if (!listed.success) return listed;
 
@@ -1886,15 +1961,79 @@ export async function exportListinoXlsxAction(input: {
     disp
   );
   if (!chosen.length) {
-    return { success: false, error: "Nessun prodotto da esportare per gli stati selezionati." };
+    return {
+      success: false,
+      error: "Nessun prodotto da esportare per gli stati selezionati.",
+    };
   }
 
-  const { meta, rows } = buildListinoExport(listino, chosen, {
-    statoLabel: LISTINO_STATO_EXPORT_LABEL[listino.stato],
-    actor: logged.actor,
+  const i18n = listinoExportI18n(listino.locale);
+  const built = buildListinoExport(listino, chosen, {
+    statoLabel: i18n.stato[listino.stato] ?? LISTINO_STATO_EXPORT_LABEL[listino.stato],
+    actor: input.actor,
     scope: input.tutti ? "tutti" : "selezione",
   });
-  const { filename, buffer } = await buildListinoXlsxBuffer(meta, rows);
+  return { success: true, listino, chosen, ...built };
+}
+
+export async function exportListinoBuildAction(input: {
+  listinoId: string;
+  prodottoIds: string[];
+  tutti: boolean;
+  disponibilita?: ListinoDisponibilita[];
+}): Promise<
+  | {
+      success: true;
+      actor: string;
+      filename: string;
+      meta: ReturnType<typeof buildListinoExport>["meta"];
+      rows: ReturnType<typeof buildListinoExport>["rows"];
+    }
+  | { success: false; error: string }
+> {
+  const logged = await logListinoExportAction({
+    ...input,
+    formato: "pdf",
+  });
+  if (!logged.success) return logged;
+  const prepared = await prepareListinoExportData({
+    ...input,
+    actor: logged.actor,
+  });
+  if (!prepared.success) return prepared;
+  return {
+    success: true,
+    actor: logged.actor,
+    filename: listinoExportFilename(prepared.meta, "pdf"),
+    meta: prepared.meta,
+    rows: prepared.rows,
+  };
+}
+
+export async function exportListinoXlsxAction(input: {
+  listinoId: string;
+  prodottoIds: string[];
+  tutti: boolean;
+  disponibilita?: ListinoDisponibilita[];
+}): Promise<
+  | { success: true; actor: string; filename: string; base64: string }
+  | { success: false; error: string }
+> {
+  const logged = await logListinoExportAction({
+    ...input,
+    formato: "xlsx",
+  });
+  if (!logged.success) return logged;
+
+  const prepared = await prepareListinoExportData({
+    ...input,
+    actor: logged.actor,
+  });
+  if (!prepared.success) return prepared;
+  const { filename, buffer } = await buildListinoXlsxBuffer(
+    prepared.meta,
+    prepared.rows
+  );
   return {
     success: true,
     actor: logged.actor,

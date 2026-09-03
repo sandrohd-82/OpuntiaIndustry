@@ -4,7 +4,12 @@ import type {
   ListinoRiga,
 } from "@/lib/ecosystem/listini";
 import { LISTINO_DISPONIBILITA } from "@/lib/ecosystem/listini";
+import {
+  listinoExportI18n,
+  type ListinoExportI18n,
+} from "@/lib/ecosystem/listino-export-i18n";
 import type { ListinoStato } from "@/types/database";
+import type { ListinoTraduzioneMaps } from "@/lib/ecosystem/listino-translate";
 
 export function filterListinoRigheExport(
   righe: ListinoRiga[],
@@ -16,28 +21,11 @@ export function filterListinoRigheExport(
   return righe.filter((r) => allowed.has(r.disponibilita));
 }
 
-export const LISTINO_STATO_EXPORT_LABEL: Record<ListinoStato, string> = {
-  bozza: "Bozza",
-  in_revisione: "In Revisione",
-  in_uso: "In Uso",
-  obsoleto: "Obsoleto",
-  bozza_traduzione: "Bozza traduzione",
-};
+export const LISTINO_STATO_EXPORT_LABEL: Record<ListinoStato, string> =
+  listinoExportI18n("it").stato;
 
-export const LISTINO_EXPORT_PRODUCT_HEAD = [
-  "Codice prodotto (Targa)",
-  "Descrizione prodotto",
-  "Prezzo",
-] as const;
-
-export const LISTINO_EXPORT_DISCOUNT_HEAD = [
-  "Codice Sconto (Targa)",
-  "Qty da",
-  "Qty a",
-  "Tipo Conf.",
-  "Conf. da",
-  "% Sconto",
-] as const;
+export const LISTINO_EXPORT_PRODUCT_HEAD = listinoExportI18n("it").productHead;
+export const LISTINO_EXPORT_DISCOUNT_HEAD = listinoExportI18n("it").discountHead;
 
 export type ListinoExportMeta = {
   listinoId: string;
@@ -54,14 +42,14 @@ export type ListinoExportMeta = {
 };
 
 export type ListinoExportRow =
-  | { kind: "product_head" }
+  | { kind: "product_head"; labels: [string, string, string] }
   | {
       kind: "product";
       codice: string;
       descrizione: string;
       prezzo: string;
     }
-  | { kind: "discount_head" }
+  | { kind: "discount_head"; labels: [string, string, string, string, string, string] }
   | {
       kind: "discount";
       targa: string;
@@ -73,45 +61,63 @@ export type ListinoExportRow =
     }
   | { kind: "spacer" };
 
-function fmtNum(n: number, digits = 2): string {
-  return n.toLocaleString("it-IT", {
+function fmtNum(n: number, digits: number, bcp47: string): string {
+  return n.toLocaleString(bcp47, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   });
 }
 
-function umLabel(um: string): string {
-  return um === "lt" ? "Lt" : "Kg";
+function umLabel(um: string, i18n: ListinoExportI18n): string {
+  return um === "lt" ? i18n.umLt : i18n.umKg;
 }
 
-function fmtQty(n: number, um: string): string {
-  return `${fmtNum(n, n % 1 === 0 ? 0 : 2)} ${umLabel(um)}`;
+function fmtQty(n: number, um: string, i18n: ListinoExportI18n): string {
+  return `${fmtNum(n, n % 1 === 0 ? 0 : 2, i18n.bcp47)} ${umLabel(um, i18n)}`;
+}
+
+function fileSlug(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, 48);
 }
 
 export function listinoExportFilename(
   meta: ListinoExportMeta,
   ext: "pdf" | "xlsx"
 ): string {
+  const i18n = listinoExportI18n(meta.locale);
   const stamp = new Date().toISOString().slice(0, 10);
-  const code = meta.codice.replace(/[^\w\-]+/g, "_").slice(0, 40);
-  const scope = meta.scope === "selezione" ? "selezione" : "completo";
-  return `listino_${code}_${scope}_${stamp}.${ext}`;
+  const code = fileSlug(meta.codice) || "listino";
+  const scope = meta.scope === "selezione" ? i18n.scopeSel : i18n.scopeAll;
+  return `${i18n.filePrefix}_${code}_${scope}_${stamp}.${ext}`;
 }
 
 export function buildListinoExport(
   listino: Listino,
   righe: ListinoRiga[],
-  opts: { statoLabel: string; actor: string; scope: "tutti" | "selezione" }
+  opts: {
+    statoLabel: string;
+    actor: string;
+    scope: "tutti" | "selezione";
+    traduzioni?: ListinoTraduzioneMaps;
+  }
 ): { meta: ListinoExportMeta; rows: ListinoExportRow[] } {
+  const i18n = listinoExportI18n(listino.locale);
+  const trad = opts.traduzioni;
   const scontiCount = righe.reduce((n, r) => n + r.condizioni.length, 0);
   const meta: ListinoExportMeta = {
     listinoId: listino.id,
     codice: listino.codice,
-    nome: listino.nome,
-    statoLabel: opts.statoLabel,
+    nome: trad?.listinoNome?.trim() || listino.nome,
+    statoLabel: i18n.stato[listino.stato] ?? opts.statoLabel,
     versione: listino.versione,
     locale: listino.locale,
-    exportedAt: new Date().toLocaleString("it-IT", {
+    exportedAt: new Date().toLocaleString(i18n.bcp47, {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -130,28 +136,39 @@ export function buildListinoExport(
       rows.push({ kind: "spacer" });
       rows.push({ kind: "spacer" });
     }
-    rows.push({ kind: "product_head" });
+    rows.push({ kind: "product_head", labels: i18n.productHead });
+    const descrizione =
+      (r.prodottoId && trad?.prodotti.get(r.prodottoId)) ||
+      r.prodottoNome ||
+      "";
     rows.push({
       kind: "product",
       codice: r.prodottoCodice ?? "",
-      descrizione: r.prodottoNome ?? "",
-      prezzo: `${fmtNum(r.prezzo)} €/${r.unitaMisura}`,
+      descrizione,
+      prezzo: `${fmtNum(r.prezzo, 2, i18n.bcp47)} €/${r.unitaMisura}`,
     });
     if (!r.condizioni.length) continue;
-    rows.push({ kind: "discount_head" });
+    rows.push({ kind: "discount_head", labels: i18n.discountHead });
     for (const c of r.condizioni) {
-      const commercial = c.imballaggioNomeCommerciale?.trim();
+      const translatedPack = c.imballaggioVoceId
+        ? trad?.imballaggi.get(c.imballaggioVoceId)
+        : undefined;
+      const commercial = (
+        translatedPack ||
+        c.imballaggioNomeCommerciale ||
+        ""
+      ).trim();
       const tipo = commercial
         ? commercial
         : [c.imballaggioCodice, c.imballaggioNome].filter(Boolean).join(" — ");
       rows.push({
         kind: "discount",
         targa: c.targa || "—",
-        qtyDa: fmtQty(c.qtyDa, r.unitaMisura),
-        qtyA: c.qtyA == null ? "" : fmtQty(c.qtyA, r.unitaMisura),
+        qtyDa: fmtQty(c.qtyDa, r.unitaMisura, i18n),
+        qtyA: c.qtyA == null ? "" : fmtQty(c.qtyA, r.unitaMisura, i18n),
         tipoConf: tipo,
-        confDa: c.kgConfezione ? fmtQty(c.kgConfezione, r.unitaMisura) : "",
-        scontoPct: fmtNum(c.scontoPct, 1),
+        confDa: c.kgConfezione ? fmtQty(c.kgConfezione, r.unitaMisura, i18n) : "",
+        scontoPct: fmtNum(c.scontoPct, 1, i18n.bcp47),
       });
     }
   }
@@ -161,13 +178,13 @@ export function buildListinoExport(
 
 export function listinoExportRowCells(row: ListinoExportRow): string[] {
   if (row.kind === "product_head") {
-    return [...LISTINO_EXPORT_PRODUCT_HEAD, "", "", ""];
+    return [...row.labels, "", "", ""];
   }
   if (row.kind === "product") {
     return [row.codice, row.descrizione, row.prezzo, "", "", ""];
   }
   if (row.kind === "discount_head") {
-    return [...LISTINO_EXPORT_DISCOUNT_HEAD];
+    return [...row.labels];
   }
   if (row.kind === "discount") {
     return [

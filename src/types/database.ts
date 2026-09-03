@@ -562,6 +562,24 @@ export interface GeoNazioneRow {
   deleted_by: string | null;
 }
 
+export type ListinoTraduzioneKind = "listino_nome" | "prodotto" | "imballaggio";
+
+export interface ListinoTraduzioneRow {
+  id: string;
+  listino_id: string;
+  kind: ListinoTraduzioneKind;
+  source_id: string | null;
+  testo_origine: string;
+  testo_tradotto: string;
+  locale: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
 export interface ListinoNazioneRow {
   id: string;
   listino_id: string;
@@ -2491,6 +2509,16 @@ export interface Database {
           nome: string;
         };
         Update: Partial<GeoNazioneRow>;
+        Relationships: [];
+      };
+      listini_traduzioni: {
+        Row: ListinoTraduzioneRow;
+        Insert: Partial<ListinoTraduzioneRow> & {
+          listino_id: string;
+          kind: ListinoTraduzioneKind;
+          locale: string;
+        };
+        Update: Partial<ListinoTraduzioneRow>;
         Relationships: [];
       };
       listini_nazioni: {
