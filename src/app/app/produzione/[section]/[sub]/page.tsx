@@ -2,12 +2,14 @@ import { notFound } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { EssiccatoriBoard } from "@/components/produzione/EssiccatoriBoard";
+import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { resolveProduzionePage } from "@/lib/areas/produzione";
 import { ESSICCATORI } from "@/lib/produzione/essiccatori";
+import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
@@ -17,7 +19,7 @@ export default async function ProduzioneSubPage({ params }: Props) {
   await requireAreaAccess("produzione");
 
   const { section, sub } = await params;
-  const page = resolveProduzionePage([section, sub]);
+  const page = await resolveProduzioneDynamic([section, sub]);
   if (!page) notFound();
 
   if (section === "fogli-lavorazione" && sub === "nuovo") {
@@ -75,12 +77,45 @@ export default async function ProduzioneSubPage({ params }: Props) {
     );
   }
 
+  if (section === "fogli-lavorazione" && sub === "in-esecuzione") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FogliInEsecuzioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fogli-lavorazione" && sub === "storico") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FogliLavorazioneBoard initialFilter="chiusi" />
+        </div>
+      </>
+    );
+  }
+
   if (section === "gestione-aree" && sub === "essiccatori") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <EssiccatoriBoard items={ESSICCATORI} />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "gestione-aree") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <GestioneAreaBoard areaCodice={sub} />
         </div>
       </>
     );

@@ -19,7 +19,12 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
-import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
+import {
+  mergeProduzioneNavWithAree,
+  PRODUZIONE_AREE_NAV_EVENT,
+  PRODUZIONE_SECTIONS,
+} from "@/lib/areas/produzione";
+import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
@@ -48,10 +53,13 @@ function sortAreasForSidebar(areas: UserArea[]) {
     });
 }
 
-function sectionsForArea(slug: AreaSlug): readonly NavItem[] | null {
+function sectionsForArea(
+  slug: AreaSlug,
+  produzioneSections: readonly NavItem[] = PRODUZIONE_SECTIONS
+): readonly NavItem[] | null {
   switch (slug) {
     case "produzione":
-      return PRODUZIONE_SECTIONS;
+      return produzioneSections;
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
     case "wikiopuntia":
@@ -230,6 +238,8 @@ export function AppSidebar({
   isSuperadmin = false,
 }: Props) {
   const pathname = usePathname();
+  const [produzioneNav, setProduzioneNav] =
+    useState<readonly NavItem[]>(PRODUZIONE_SECTIONS);
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -246,6 +256,28 @@ export function AppSidebar({
   );
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
 
+  const hasProduzione = areas.some((a) => a.slug === "produzione");
+  useEffect(() => {
+    if (!hasProduzione) return;
+    let cancelled = false;
+    function loadNav() {
+      void listProduzioneAreeAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setProduzioneNav(mergeProduzioneNavWithAree(res.items));
+        })
+        .catch(() => {
+          /* menu statico di fallback */
+        });
+    }
+    loadNav();
+    window.addEventListener(PRODUZIONE_AREE_NAV_EVENT, loadNav);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(PRODUZIONE_AREE_NAV_EVENT, loadNav);
+    };
+  }, [hasProduzione]);
+
   useEffect(() => {
     setOpenKeys((prev) => {
       const next = new Set(prev);
@@ -260,7 +292,7 @@ export function AppSidebar({
       }
       if (areaSlug) {
         next.add(areaSlug);
-        const sections = sectionsForArea(areaSlug);
+        const sections = sectionsForArea(areaSlug, produzioneNav);
         if (sections) {
           for (const key of openKeysFromPathname(sections, pathname, [
             areaSlug,
@@ -271,7 +303,7 @@ export function AppSidebar({
       }
       return next;
     });
-  }, [pathname, webSections]);
+  }, [pathname, webSections, produzioneNav]);
 
   function toggle(key: string) {
     setOpenKeys((prev) => {
@@ -348,7 +380,7 @@ export function AppSidebar({
               area.slug === "amministrazione"
                 ? pathMatches(pathname, href) && !isWebHubPath(pathname)
                 : pathMatches(pathname, href);
-            const treeSections = sectionsForArea(area.slug);
+            const treeSections = sectionsForArea(area.slug, produzioneNav);
 
             if (treeSections) {
               const open = openKeys.has(area.slug);

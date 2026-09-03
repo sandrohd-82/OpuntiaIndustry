@@ -4,9 +4,13 @@ import {
   resolveNavPage,
   type NavItem,
 } from "@/lib/areas/nav-tree";
+import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 
 export type { NavBranch, NavLeaf, NavItem as ProduzioneNavItem } from "@/lib/areas/nav-tree";
 export { isNavBranch };
+
+/** Sidebar: ricarica il menu aree/posti dopo CRUD catalogo. */
+export const PRODUZIONE_AREE_NAV_EVENT = "opuntia-aree-updated";
 
 /** Menu Produzione — struttura target */
 export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
@@ -76,34 +80,16 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     description: "Stato aree produttive e videosorveglianza",
     path: "/app/produzione/gestione-aree",
     children: [
-      {
-        slug: "lavaggio",
-        label: "Lavaggio",
-        description: "Stato area lavaggio e videosorveglianza",
-        path: "/app/produzione/gestione-aree/lavaggio",
-        badge: { kind: "status", active: false },
-      },
-      {
-        slug: "taglio",
-        label: "Taglio",
-        description: "Stato area taglio e videosorveglianza",
-        path: "/app/produzione/gestione-aree/taglio",
-        badge: { kind: "status", active: false },
-      },
-      {
-        slug: "essiccatori",
-        label: "Essiccatori",
-        description: "Stato area essiccazione e videosorveglianza",
-        path: "/app/produzione/gestione-aree/essiccatori",
-        badge: { kind: "status", active: false },
-      },
-      {
-        slug: "triturazione",
-        label: "Triturazione",
-        description: "Stato area triturazione e videosorveglianza",
-        path: "/app/produzione/gestione-aree/triturazione",
-        badge: { kind: "status", active: false },
-      },
+      areaNavBranch("lavaggio", "Lavaggio", "Versamento e bilancio di massa verso essiccazione.", [
+        { slug: "linea-principale", label: "Linea principale", description: "Versamento e controllo quantità." },
+      ]),
+      areaNavBranch("taglio", "Taglio", "Più posti lavoro, stesso obiettivo di lotto.", [
+        { slug: "spaccapale", label: "Spaccapale", description: "Spacco pale / cladodi." },
+        { slug: "cubettatrice", label: "Cubettatrice", description: "Cubettatura." },
+        { slug: "coltelli", label: "Coltelli", description: "Taglio a coltello." },
+      ]),
+      areaNavBranch("essiccatori", "Essiccatori", "Essiccazione del prodotto pesato.", []),
+      areaNavBranch("triturazione", "Triturazione", "Triturazione e riduzione volumetrica.", []),
     ],
   },
   {
@@ -146,10 +132,69 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
   },
 ] as const;
 
+function areaNavBranch(
+  slug: string,
+  label: string,
+  description: string,
+  posti: Array<{ slug: string; label: string; description: string }>
+): NavItem {
+  const base = `/app/produzione/gestione-aree/${slug}`;
+  return {
+    slug,
+    label,
+    description,
+    path: base,
+    badge: { kind: "status", active: false },
+    children: [
+      {
+        slug: "panoramica",
+        label: "Panoramica area",
+        description,
+        path: base,
+      },
+      ...posti.map((p) => ({
+        slug: p.slug,
+        label: p.label,
+        description: p.description,
+        path: `${base}/${p.slug}`,
+      })),
+    ],
+  };
+}
+
+export function mergeProduzioneNavWithAree(
+  aree: ProduzioneArea[]
+): readonly NavItem[] {
+  if (!aree.length) return PRODUZIONE_SECTIONS;
+  return PRODUZIONE_SECTIONS.map((section) => {
+    if (section.slug !== "gestione-aree" || !isNavBranch(section)) return section;
+    return {
+      ...section,
+      children: aree.map((a) =>
+        areaNavBranch(
+          a.codice,
+          a.nome,
+          a.descrizione,
+          a.posti
+            .filter((p) => p.attivo)
+            .map((p) => ({
+              slug: p.codice,
+              label: p.nome,
+              description: p.descrizione,
+            }))
+        )
+      ),
+    };
+  });
+}
+
 export function getFirstProduzionePath(): string {
   return firstNavLeafPath(PRODUZIONE_SECTIONS);
 }
 
-export function resolveProduzionePage(segments: string[]) {
-  return resolveNavPage(PRODUZIONE_SECTIONS, segments);
+export function resolveProduzionePage(
+  segments: string[],
+  sections: readonly NavItem[] = PRODUZIONE_SECTIONS
+) {
+  return resolveNavPage(sections, segments);
 }

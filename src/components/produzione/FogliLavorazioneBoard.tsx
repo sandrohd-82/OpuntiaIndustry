@@ -9,12 +9,20 @@ import { formatFoglioRange } from "@/lib/produzione/fogli-lavorazione";
 type Props = {
   /** Apre subito la modale di creazione (es. da query ?nuovo=1) */
   startCreate?: boolean;
+  initialFilter?: "tutti" | "aperti" | "chiusi";
 };
 
-export function FogliLavorazioneBoard({ startCreate = false }: Props) {
+export function FogliLavorazioneBoard({
+  startCreate = false,
+  initialFilter = "aperti",
+}: Props) {
   const { fogli, createFoglio, closeFoglio, ready } = useFogliLavorazione();
   const [creating, setCreating] = useState(startCreate);
-  const [filter, setFilter] = useState<"tutti" | "aperti" | "chiusi">("aperti");
+  const [filter, setFilter] = useState<"tutti" | "aperti" | "chiusi">(
+    initialFilter
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [closingId, setClosingId] = useState<string | null>(null);
 
   const list = useMemo(() => {
     if (filter === "aperti") return fogli.filter((f) => f.stato === "aperto");
@@ -46,6 +54,12 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
           Crea nuovo foglio di lavoro
         </button>
       </div>
+
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error}
+        </p>
+      ) : null}
 
       <div className="flex gap-2">
         {(
@@ -136,10 +150,20 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
               {foglio.stato === "aperto" && (
                 <button
                   type="button"
-                  onClick={() => closeFoglio(foglio.id)}
-                  className="mt-4 rounded-lg border border-[var(--border)] py-2 text-sm font-medium hover:bg-slate-50"
+                  disabled={closingId === foglio.id}
+                  onClick={() => {
+                    setClosingId(foglio.id);
+                    setError(null);
+                    void closeFoglio(foglio.id).then((r) => {
+                      setClosingId(null);
+                      if (!r.ok) setError(r.error);
+                    });
+                  }}
+                  className="mt-4 rounded-lg border border-[var(--border)] py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
                 >
-                  Chiudi foglio
+                  {closingId === foglio.id
+                    ? "Verifica chiusura…"
+                    : "Chiudi foglio"}
                 </button>
               )}
               {foglio.stato === "chiuso" && foglio.closedAt && (
@@ -159,8 +183,9 @@ export function FogliLavorazioneBoard({ startCreate = false }: Props) {
       {creating && (
         <NuovoFoglioModal
           onClose={() => setCreating(false)}
-          onCreate={(values) => {
-            createFoglio(values);
+          onCreate={async (values) => {
+            setError(null);
+            await createFoglio(values);
             setCreating(false);
             setFilter("aperti");
           }}

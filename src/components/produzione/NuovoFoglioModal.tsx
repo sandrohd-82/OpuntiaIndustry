@@ -23,7 +23,7 @@ export type NuovoFoglioFormValues = {
 
 type Props = {
   onClose: () => void;
-  onCreate: (values: NuovoFoglioFormValues) => void;
+  onCreate: (values: NuovoFoglioFormValues) => void | Promise<void>;
 };
 
 export function NuovoFoglioModal({ onClose, onCreate }: Props) {
@@ -35,6 +35,8 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
   const [ordineId, setOrdineId] = useState("");
   const [lottoId, setLottoId] = useState("");
   const [prodottoUscitaId, setProdottoUscitaId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -68,28 +70,38 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
     Boolean(prodottoUscita) &&
     (motivo === "magazzino" || Boolean(ordine));
 
-  function submit(e: FormEvent) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!lotto || !prodottoUscita) return;
+    if (!lotto || !prodottoUscita || saving) return;
     if (motivo === "ordine" && !ordine) return;
 
     const startedAt = new Date(startedLocal);
     if (Number.isNaN(startedAt.getTime())) return;
 
-    onCreate({
-      startedAt: startedAt.toISOString(),
-      motivo,
-      ordineId: motivo === "ordine" ? ordine!.id : null,
-      ordineLabel:
-        motivo === "ordine"
-          ? `${ordine!.label} · ${ordine!.cliente}`
-          : null,
-      lottoId: lotto.id,
-      lottoLabel: `${lotto.label} (${lotto.quantitaKg.toLocaleString("it-IT")} kg)`,
-      lottoProdotto: lotto.prodotto,
-      codiceProdottoUscitaId: prodottoUscita.id,
-      codiceProdottoUscita: `${prodottoUscita.codice} — ${prodottoUscita.nome}`,
-    });
+    setSaving(true);
+    setFormError(null);
+    try {
+      await onCreate({
+        startedAt: startedAt.toISOString(),
+        motivo,
+        ordineId: motivo === "ordine" ? ordine!.id : null,
+        ordineLabel:
+          motivo === "ordine"
+            ? `${ordine!.label} · ${ordine!.cliente}`
+            : null,
+        lottoId: lotto.id,
+        lottoLabel: `${lotto.label} (${lotto.quantitaKg.toLocaleString("it-IT")} kg)`,
+        lottoProdotto: lotto.prodotto,
+        codiceProdottoUscitaId: prodottoUscita.id,
+        codiceProdottoUscita: `${prodottoUscita.codice} — ${prodottoUscita.nome}`,
+      });
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Creazione foglio fallita."
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -224,20 +236,27 @@ export function NuovoFoglioModal({ onClose, onCreate }: Props) {
             </span>
           </label>
 
+          {formError ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              {formError}
+            </p>
+          ) : null}
+
           <div className="flex gap-2 pt-1">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50"
+              disabled={saving}
+              className="flex-1 rounded-lg border border-[var(--border)] py-2.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-40"
             >
               Annulla
             </button>
             <button
               type="submit"
-              disabled={!canSubmit}
+              disabled={!canSubmit || saving}
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-40"
             >
-              Crea foglio
+              {saving ? "Salvataggio…" : "Crea foglio"}
             </button>
           </div>
         </form>
