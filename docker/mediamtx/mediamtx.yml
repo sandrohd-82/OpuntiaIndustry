@@ -1,6 +1,5 @@
-# ieGeek ZS-GX4S → WebRTC on-demand.
-# Lo stream RTSP si apre solo alla prima richiesta WHEP e si chiude
-# 10 secondi dopo l’ultimo viewer (chiusura modale / cambio pagina).
+# ieGeek → HLS (remoto via Cloudflare Tunnel) + WebRTC (solo LAN).
+# RTSP on-demand: si apre alla prima lettura HLS/WHEP e si chiude a idle.
 
 logLevel: info
 
@@ -9,6 +8,14 @@ apiAddress: :9997
 
 rtsp: yes
 rtspAddress: :8554
+
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
 
 webrtc: yes
 webrtcAddress: :8889
@@ -21,6 +28,4 @@ pathDefaults:
   sourceOnDemand: yes
   sourceOnDemandCloseAfter: 10s
 
-# I path reali (area_taglio, posto_taglio_spaccapale, …) li crea
-# l’app via API quando un operatore apre “Guarda Live”.
 paths: {}

@@ -12,6 +12,7 @@ type Props = {
   areaCodice: string;
   postoCodice?: string | null;
   compact?: boolean;
+  className?: string;
 };
 
 export function WorkcenterCameraBar({
@@ -19,6 +20,7 @@ export function WorkcenterCameraBar({
   areaCodice,
   postoCodice,
   compact = false,
+  className = "",
 }: Props) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [camera, setCamera] = useState<CameraPublic | null>(null);
@@ -31,6 +33,7 @@ export function WorkcenterCameraBar({
       (res) => {
         if (!res.success) {
           setError(res.error);
+          setIsAdmin(Boolean(res.isAdmin));
           return;
         }
         setError(null);
@@ -45,27 +48,21 @@ export function WorkcenterCameraBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKind, areaCodice, postoCodice]);
 
-  if (error && !isAdmin && !camera?.hasCamera) {
+  if (!isAdmin) {
     return null;
   }
 
   if (!camera) {
-    return (
-      <p className="text-xs text-[var(--muted)]">
-        {error ?? "Caricamento telecamera…"}
-      </p>
-    );
-  }
-
-  if (!camera.hasCamera && !isAdmin) {
-    return null;
+    return error ? (
+      <p className="px-6 pt-2 text-xs text-red-700">{error}</p>
+    ) : null;
   }
 
   return (
     <div
       className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)] ${
         compact ? "px-3 py-2" : "px-4 py-3"
-      }`}
+      } ${className}`}
     >
       <div>
         <p className="text-sm font-medium">
@@ -91,17 +88,15 @@ export function WorkcenterCameraBar({
             Guarda Live Postazione
           </button>
         ) : null}
-        {isAdmin ? (
-          <button
-            type="button"
-            title="Aggiungi o modifica telecamera (solo admin)"
-            onClick={() => setWizard(true)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--primary)] hover:bg-slate-50"
-          >
-            <FaPlus size={14} />
-            <span className="sr-only">Aggiungi telecamera</span>
-          </button>
-        ) : null}
+        <button
+          type="button"
+          title="Aggiungi o modifica telecamera (solo admin)"
+          onClick={() => setWizard(true)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--primary)] hover:bg-slate-50"
+        >
+          <FaPlus size={14} />
+          <span className="sr-only">Aggiungi telecamera</span>
+        </button>
       </div>
 
       {wizard ? (

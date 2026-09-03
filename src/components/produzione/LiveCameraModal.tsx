@@ -19,6 +19,7 @@ export function LiveCameraModal({
   onClose,
 }: Props) {
   const titleId = useId();
+  const [hlsUrl, setHlsUrl] = useState<string | null>(null);
   const [whepUrl, setWhepUrl] = useState<string | null>(null);
   const [label, setLabel] = useState("Postazione");
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export function LiveCameraModal({
           setError(res.error);
           return;
         }
+        setHlsUrl(res.hlsUrl);
         setWhepUrl(res.whepUrl);
         setLabel(res.label);
         setWarning(res.warning ?? null);
@@ -85,7 +87,8 @@ export function LiveCameraModal({
           </button>
         </div>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Alla chiusura lo stream si interrompe (MediaMTX on-demand).
+          HLS via Cloudflare Tunnel (4G/estero). Alla chiusura lo stream
+          on-demand si interrompe.
         </p>
         {loading ? (
           <p className="mt-6 text-sm text-[var(--muted)]">Collegamento al gateway…</p>
@@ -100,9 +103,13 @@ export function LiveCameraModal({
             {warning}
           </p>
         ) : null}
-        {whepUrl ? (
+        {hlsUrl ? (
           <div className="mt-4">
-            <CameraStreamPlayer whepUrl={whepUrl} label={label} />
+            <CameraStreamPlayer
+              hlsUrl={hlsUrl}
+              whepUrl={whepUrl}
+              label={label}
+            />
           </div>
         ) : null}
       </div>

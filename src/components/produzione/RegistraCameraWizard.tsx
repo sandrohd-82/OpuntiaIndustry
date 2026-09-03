@@ -305,34 +305,40 @@ export function RegistraCameraWizard({
           {step === 7 ? (
             <>
               <p>
-                Sul PC/NAS in officina, nella cartella del progetto:
+                Sul PC officina (stessa LAN delle ieGeek), con Docker acceso:
               </p>
               <p className="rounded-md bg-slate-100 px-3 py-2 font-mono text-xs">
                 cd docker/mediamtx
+                <br />
+                copia .env.example → .env e incolla TUNNEL_TOKEN
                 <br />
                 docker compose up -d
               </p>
               <ol className="list-decimal space-y-2 pl-5">
                 <li>
-                  Nel file <code>.env</code> del PC officina imposta{" "}
-                  <code>MEDIAMTX_LAN_IP</code> all’IP di quel PC (es.{" "}
-                  192.168.1.10), così WebRTC annuncia l’indirizzo giusto.
+                  Crea un Cloudflare Tunnel (Zero Trust → Networks → Tunnels).
+                  Hostname pubblico (es.{" "}
+                  <code>cameras.tuodominio.it</code>) verso{" "}
+                  <code>http://mediamtx:8888</code> (solo HLS). Non esporre
+                  554, 8889, 9997.
                 </li>
                 <li>
-                  Su Vercel / .env.local dell’app:{" "}
-                  <code>MEDIAMTX_WHEP_BASE_URL=http://192.168.1.10:8889</code>{" "}
-                  (stesso IP). Opzionale:{" "}
-                  <code>MEDIAMTX_API_URL=http://192.168.1.10:9997</code> se
-                  Next.js gira in LAN e può creare i path da solo.
+                  Incolla il token connector in{" "}
+                  <code>docker/mediamtx/.env</code> come{" "}
+                  <code>TUNNEL_TOKEN=…</code> (una tantum). Poi{" "}
+                  <code>docker compose up -d</code>.
                 </li>
                 <li>
-                  Apri dal browser del PC{" "}
-                  <code>http://127.0.0.1:8889</code>: se MediaMTX risponde, il
-                  gateway è acceso.
+                  Su Vercel:{" "}
+                  <code>MEDIAMTX_HLS_BASE_URL=https://cameras.tuodominio.it</code>
+                  . Opzionale (stesso Tunnel, secondo hostname + Access):{" "}
+                  <code>MEDIAMTX_API_URL=https://mtx-api.tuodominio.it</code>{" "}
+                  così il live da remoto crea il path on-demand.
                 </li>
                 <li>
-                  Non pubblicare le porte 554/8889/9997 su Internet. Solo LAN o
-                  VPN.
+                  Prova dal PC: <code>http://127.0.0.1:8888</code>. Da
+                  smartphone 4G: apri il gestionale e «Guarda Live» (solo
+                  admin).
                 </li>
               </ol>
             </>

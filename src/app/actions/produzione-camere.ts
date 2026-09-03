@@ -16,6 +16,7 @@ import {
 } from "@/lib/produzione/camera-crypto";
 import {
   ensureMediamtxOnDemandPath,
+  hlsPlaybackUrl,
   whepPlaybackUrl,
 } from "@/lib/produzione/mediamtx";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -146,12 +147,12 @@ export async function getCameraPanelAction(input: {
   postoCodice?: string | null;
 }): Promise<
   | { success: true; isAdmin: boolean; camera: CameraPublic }
-  | { success: false; error: string }
+  | { success: false; error: string; isAdmin?: boolean }
 > {
-  const ctx = await requireCameraViewer();
-  if (!ctx.success) return ctx;
+  const ctx = await requireCameraAdmin();
+  if (!ctx.success) return { ...ctx, isAdmin: false };
   const target = await resolveTarget(input);
-  if (!target.success) return target;
+  if (!target.success) return { ...target, isAdmin: true };
   const hasPassword = await hasSecret(input.targetKind, target.row.id);
   return {
     success: true,
@@ -264,10 +265,16 @@ export async function startCameraLiveAction(input: {
   areaCodice: string;
   postoCodice?: string | null;
 }): Promise<
-  | { success: true; whepUrl: string; label: string; warning?: string }
+  | {
+      success: true;
+      hlsUrl: string;
+      whepUrl: string | null;
+      label: string;
+      warning?: string;
+    }
   | { success: false; error: string }
 > {
-  const ctx = await requireCameraViewer();
+  const ctx = await requireCameraAdmin();
   if (!ctx.success) return ctx;
   const target = await resolveTarget(input);
   if (!target.success) return target;
@@ -302,12 +309,13 @@ export async function startCameraLiveAction(input: {
     areaCodice: target.areaCodice,
     postoCodice: target.postoCodice,
   });
+  const hlsUrl = hlsPlaybackUrl(pathName);
   const whepUrl = whepPlaybackUrl(pathName);
-  if (!whepUrl) {
+  if (!hlsUrl) {
     return {
       success: false,
       error:
-        "Manca MEDIAMTX_WHEP_BASE_URL. Avvia MediaMTX in officina e indica l’URL WHEP (es. http://192.168.1.10:8889).",
+        "Manca MEDIAMTX_HLS_BASE_URL. Imposta su Vercel l’URL HTTPS del Tunnel Cloudflare (es. https://cameras.tuodominio.it).",
     };
   }
 
@@ -330,10 +338,11 @@ export async function startCameraLiveAction(input: {
   if (!synced.ok) {
     return {
       success: true,
+      hlsUrl,
       whepUrl,
       label: target.row.nome,
       warning: synced.error,
     };
   }
-  return { success: true, whepUrl, label: target.row.nome };
+  return { success: true, hlsUrl, whepUrl, label: target.row.nome };
 }

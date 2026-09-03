@@ -9,9 +9,11 @@ export default async function MagazzinoLayout({
   await requireAreaAccess("magazzino");
   return (
     <>
-      <div className="border-b border-[var(--border)] bg-[var(--card)] px-6 py-3">
-        <WorkcenterCameraBar targetKind="area" areaCodice="magazzino" />
-      </div>
+      <WorkcenterCameraBar
+        className="mx-6 mt-3"
+        targetKind="area"
+        areaCodice="magazzino"
+      />
       {children}
     </>
   );

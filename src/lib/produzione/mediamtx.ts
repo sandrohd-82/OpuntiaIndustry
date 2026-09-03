@@ -14,10 +14,30 @@ export function whepBaseUrl(): string | null {
   return null;
 }
 
+/** HLS pubblico (Cloudflare Tunnel → :8888) o LAN. */
+export function hlsBaseUrl(): string | null {
+  const raw = process.env.MEDIAMTX_HLS_BASE_URL?.trim();
+  if (raw) return raw.replace(/\/$/, "");
+  const whep = process.env.MEDIAMTX_WHEP_BASE_URL?.trim();
+  if (whep) {
+    const cleaned = whep.replace(/\/$/, "");
+    if (cleaned.startsWith("https://")) return cleaned;
+    return cleaned.replace(/:8889$/, ":8888");
+  }
+  if (process.env.NODE_ENV !== "production") return "http://127.0.0.1:8888";
+  return null;
+}
+
 export function whepPlaybackUrl(pathName: string): string | null {
   const base = whepBaseUrl();
-  if (!base) return null;
+  if (!base || base.startsWith("https://")) return null;
   return `${base}/${pathName}/whep`;
+}
+
+export function hlsPlaybackUrl(pathName: string): string | null {
+  const base = hlsBaseUrl();
+  if (!base) return null;
+  return `${base}/${pathName}/index.m3u8`;
 }
 
 /** Crea/aggiorna il path on-demand su MediaMTX (solo se API raggiungibile). */

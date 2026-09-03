@@ -1,6 +1,6 @@
-# MediaMTX in LAN di stabilimento (stessa rete delle ieGeek).
-# Avvio: dalla cartella docker/mediamtx → docker compose up -d
-# Il browser degli operatori deve raggiungere WEBRTC sulla porta 8889.
+# MediaMTX in LAN + Cloudflare Tunnel (HLS :8888) per live da 4G/estero.
+# Non esporre 8554/9997/8889 sul Tunnel: solo HLS.
+# Token: file .env in questa cartella (non committare). Vedi istruzioni in chat.
 
 services:
   mediamtx:
@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     ports:
       - "8554:8554"
+      - "8888:8888"
       - "8889:8889"
       - "8189:8189/udp"
       - "8189:8189/tcp"
@@ -17,3 +18,13 @@ services:
       - ./mediamtx.yml:/mediamtx.yml:ro
     environment:
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIAMTX_LAN_IP:-127.0.0.1}
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: opuntia-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
