@@ -47,6 +47,7 @@ import {
   applyTraduzioniToRighe,
   emptyTraduzioneMaps,
   ensureListinoTraduzioni,
+  forceTranslateRecognizableText,
   type ListinoTraduzioneMaps,
 } from "@/lib/ecosystem/listino-translate";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
@@ -1147,6 +1148,23 @@ async function traduciVersioneLingua(
   if (locale === "it") {
     return { maps: emptyTraduzioneMaps(), items, nome: listino.nome };
   }
+  let nomeSorgente = listino.nome;
+  const { data: child } = await supabase
+    .from("listini")
+    .select("listino_origine_id")
+    .eq("id", listino.id)
+    .maybeSingle();
+  const origineId = (child as { listino_origine_id?: string | null } | null)
+    ?.listino_origine_id;
+  if (origineId) {
+    const { data: master } = await supabase
+      .from("listini")
+      .select("nome")
+      .eq("id", origineId)
+      .maybeSingle();
+    const masterNome = (master as { nome?: string } | null)?.nome?.trim();
+    if (masterNome) nomeSorgente = masterNome;
+  }
   const imb = new Map<string, string>();
   for (const r of items) {
     for (const c of r.condizioni) {
@@ -1158,7 +1176,7 @@ async function traduciVersioneLingua(
     supabase,
     listinoId: listino.id,
     locale,
-    listinoNome: listino.nome,
+    listinoNome: nomeSorgente,
     prodotti: items
       .filter((r) => r.prodottoNome)
       .map((r) => ({ id: r.prodottoId, nome: r.prodottoNome as string })),
@@ -1167,7 +1185,7 @@ async function traduciVersioneLingua(
   });
   return {
     maps,
-    items: applyTraduzioniToRighe(items, maps),
+    items: applyTraduzioniToRighe(items, maps, locale),
     nome: maps.listinoNome?.trim() || listino.nome,
   };
 }
@@ -1950,6 +1968,7 @@ async function prepareListinoExportData(input: {
     row as ListinoRow,
     nazioniMap.get(input.listinoId) ?? []
   );
+  listino.nome = forceTranslateRecognizableText(listino.nome, listino.locale);
 
   const disp = parseExportDisponibilita(input.disponibilita);
   if ("error" in disp) return { success: false, error: disp.error };

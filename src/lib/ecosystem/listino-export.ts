@@ -9,7 +9,10 @@ import {
   type ListinoExportI18n,
 } from "@/lib/ecosystem/listino-export-i18n";
 import type { ListinoStato } from "@/types/database";
-import type { ListinoTraduzioneMaps } from "@/lib/ecosystem/listino-translate";
+import {
+  forceTranslateRecognizableText,
+  type ListinoTraduzioneMaps,
+} from "@/lib/ecosystem/listino-translate";
 
 export function filterListinoRigheExport(
   righe: ListinoRiga[],
@@ -113,7 +116,10 @@ export function buildListinoExport(
   const meta: ListinoExportMeta = {
     listinoId: listino.id,
     codice: listino.codice,
-    nome: trad?.listinoNome?.trim() || listino.nome,
+    nome: forceTranslateRecognizableText(
+      trad?.listinoNome?.trim() || listino.nome,
+      listino.locale
+    ),
     statoLabel: i18n.stato[listino.stato] ?? opts.statoLabel,
     versione: listino.versione,
     locale: listino.locale,
@@ -137,10 +143,12 @@ export function buildListinoExport(
       rows.push({ kind: "spacer" });
     }
     rows.push({ kind: "product_head", labels: i18n.productHead });
-    const descrizione =
+    const descrizione = forceTranslateRecognizableText(
       (r.prodottoId && trad?.prodotti.get(r.prodottoId)) ||
-      r.prodottoNome ||
-      "";
+        r.prodottoNome ||
+        "",
+      listino.locale
+    );
     rows.push({
       kind: "product",
       codice: r.prodottoCodice ?? "",
@@ -153,14 +161,16 @@ export function buildListinoExport(
       const translatedPack = c.imballaggioVoceId
         ? trad?.imballaggi.get(c.imballaggioVoceId)
         : undefined;
-      const commercial = (
-        translatedPack ||
-        c.imballaggioNomeCommerciale ||
-        ""
-      ).trim();
+      const commercial = forceTranslateRecognizableText(
+        (translatedPack || c.imballaggioNomeCommerciale || "").trim(),
+        listino.locale
+      );
       const tipo = commercial
         ? commercial
-        : [c.imballaggioCodice, c.imballaggioNome].filter(Boolean).join(" — ");
+        : forceTranslateRecognizableText(
+            [c.imballaggioCodice, c.imballaggioNome].filter(Boolean).join(" — "),
+            listino.locale
+          );
       rows.push({
         kind: "discount",
         targa: c.targa || "—",

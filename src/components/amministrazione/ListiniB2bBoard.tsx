@@ -24,6 +24,7 @@ import {
 import { downloadListinoPdf } from "@/lib/ecosystem/listino-export-pdf";
 import { filterListinoRigheExport } from "@/lib/ecosystem/listino-export";
 import { listinoExportI18n } from "@/lib/ecosystem/listino-export-i18n";
+import { forceTranslateRecognizableText } from "@/lib/ecosystem/listino-translate";
 import { ListinoNazioniPicker } from "@/components/amministrazione/ListinoNazioniPicker";
 import { ConfirmDeleteModal } from "@/components/ui/ConfirmDeleteModal";
 import { InfoHint } from "@/components/ui/InfoHint";
@@ -469,7 +470,11 @@ export function ListiniB2bBoard() {
   useEffect(() => {
     if (!selected) return;
     setEditCodice(parseListinoCodice(selected.codice).slug);
-    setEditNome(selected.nome);
+    setEditNome(
+      selected.locale !== "it"
+        ? forceTranslateRecognizableText(selected.nome, selected.locale)
+        : selected.nome
+    );
     setEditNote(selected.note);
     setEditNazioneIds(selected.nazioni.map((n) => n.id));
   }, [selected?.id, selected?.codice, selected?.nome, selected?.note, selected?.nazioni]);
@@ -777,7 +782,14 @@ export function ListiniB2bBoard() {
           ) : (
             <>
               <h2 className="text-sm font-semibold">
-                {isBozza ? "Modifica bozza" : selected.nome}
+                {isBozza
+                  ? "Modifica bozza"
+                  : selected.locale !== "it"
+                    ? forceTranslateRecognizableText(
+                        selected.nome,
+                        selected.locale
+                      )
+                    : selected.nome}
               </h2>
               <p className="text-xs text-[var(--muted)]">
                 {STATO_LABEL[selected.stato]} · v{selected.versione}
