@@ -1,0 +1,26 @@
+# ieGeek ZS-GX4S → WebRTC on-demand.
+# Lo stream RTSP si apre solo alla prima richiesta WHEP e si chiude
+# 10 secondi dopo l’ultimo viewer (chiusura modale / cambio pagina).
+
+logLevel: info
+
+api: yes
+apiAddress: :9997
+
+rtsp: yes
+rtspAddress: :8554
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigins: ["*"]
+webrtcIPsFromInterfaces: yes
+webrtcAdditionalHosts:
+  - 127.0.0.1
+
+pathDefaults:
+  sourceOnDemand: yes
+  sourceOnDemandCloseAfter: 10s
+
+# I path reali (area_taglio, posto_taglio_spaccapale, …) li crea
+# l’app via API quando un operatore apre “Guarda Live”.
+paths: {}

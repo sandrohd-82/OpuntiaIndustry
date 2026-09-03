@@ -17,6 +17,9 @@ export type ProduzionePostoLavoro = {
   attivo: boolean;
   sortOrder: number;
   note: string;
+  hasCamera: boolean;
+  cameraIp: string | null;
+  cameraRtspPath: string;
 };
 
 export type ProduzioneArea = {
@@ -30,6 +33,10 @@ export type ProduzioneArea = {
   versione: number;
   documentoStato: DocumentoStato;
   note: string;
+  mostraInMenu: boolean;
+  hasCamera: boolean;
+  cameraIp: string | null;
+  cameraRtspPath: string;
   posti: ProduzionePostoLavoro[];
 };
 

@@ -170,7 +170,9 @@ export function mergeProduzioneNavWithAree(
     if (section.slug !== "gestione-aree" || !isNavBranch(section)) return section;
     return {
       ...section,
-      children: aree.map((a) =>
+      children: aree
+        .filter((a) => a.mostraInMenu !== false)
+        .map((a) =>
         areaNavBranch(
           a.codice,
           a.nome,

@@ -24,6 +24,10 @@ type AreaRow = {
   versione: number;
   documento_stato: ProduzioneArea["documentoStato"];
   note: string;
+  mostra_in_menu?: boolean;
+  has_camera?: boolean;
+  camera_ip?: string | null;
+  camera_rtsp_path?: string | null;
 };
 
 type PostoRow = {
@@ -35,6 +39,9 @@ type PostoRow = {
   attivo: boolean;
   sort_order: number;
   note: string;
+  has_camera?: boolean;
+  camera_ip?: string | null;
+  camera_rtsp_path?: string | null;
 };
 
 function mapPosto(row: PostoRow): ProduzionePostoLavoro {
@@ -47,6 +54,9 @@ function mapPosto(row: PostoRow): ProduzionePostoLavoro {
     attivo: Boolean(row.attivo),
     sortOrder: row.sort_order ?? 0,
     note: row.note ?? "",
+    hasCamera: Boolean(row.has_camera),
+    cameraIp: row.camera_ip ?? null,
+    cameraRtspPath: row.camera_rtsp_path || "/live/ch0",
   };
 }
 
@@ -62,6 +72,10 @@ function mapArea(row: AreaRow, posti: ProduzionePostoLavoro[]): ProduzioneArea {
     versione: row.versione ?? 1,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
+    mostraInMenu: row.mostra_in_menu !== false,
+    hasCamera: Boolean(row.has_camera),
+    cameraIp: row.camera_ip ?? null,
+    cameraRtspPath: row.camera_rtsp_path || "/live/ch0",
     posti,
   };
 }
@@ -74,7 +88,7 @@ export async function listProduzioneAreeAction(): Promise<
   const { data: aree, error } = await supabase
     .from("produzione_aree")
     .select(
-      "id, codice, nome, descrizione, richiede_bilancio_massa, attivo, sort_order, versione, documento_stato, note"
+      "id, codice, nome, descrizione, richiede_bilancio_massa, attivo, sort_order, versione, documento_stato, note, mostra_in_menu, has_camera, camera_ip, camera_rtsp_path"
     )
     .is("deleted_at", null)
     .eq("attivo", true)
@@ -86,7 +100,7 @@ export async function listProduzioneAreeAction(): Promise<
   if (ids.length) {
     const { data: posti, error: pErr } = await supabase
       .from("produzione_posti_lavoro")
-      .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note")
+      .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, has_camera, camera_ip, camera_rtsp_path")
       .is("deleted_at", null)
       .in("area_id", ids)
       .order("sort_order", { ascending: true });

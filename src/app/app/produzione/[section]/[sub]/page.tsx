@@ -5,6 +5,7 @@ import { EssiccatoriBoard } from "@/components/produzione/EssiccatoriBoard";
 import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
+import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
@@ -103,7 +104,8 @@ export default async function ProduzioneSubPage({ params }: Props) {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
+        <div className="space-y-4 p-6">
+          <WorkcenterCameraBar targetKind="area" areaCodice="essiccatori" />
           <EssiccatoriBoard items={ESSICCATORI} />
         </div>
       </>

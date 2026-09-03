@@ -8,6 +8,7 @@ import {
   softDeletePostoLavoroAction,
 } from "@/app/actions/produzione-aree";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
+import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
@@ -88,6 +89,8 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           {error}
         </p>
       ) : null}
+      <WorkcenterCameraBar targetKind="area" areaCodice={area.codice} />
+
       <p className="text-sm text-[var(--muted)]">
         {area.descrizione} I posti lavoro sono postazioni con operatore e
         operazione dedicata; l’obiettivo del lotto è comune a tutta l’area.
@@ -196,6 +199,14 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
                 >
                   Rimuovi
                 </button>
+              </div>
+              <div className="mt-3">
+                <WorkcenterCameraBar
+                  compact
+                  targetKind="posto"
+                  areaCodice={area.codice}
+                  postoCodice={p.codice}
+                />
               </div>
               <Link
                 href={`/app/produzione/gestione-aree/${area.codice}/${p.codice}`}

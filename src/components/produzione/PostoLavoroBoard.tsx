@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import type { ProduzioneArea, ProduzionePostoLavoro } from "@/lib/produzione/aree-posti";
 
 type Props = {
@@ -42,6 +43,11 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
 
   return (
     <div className="space-y-4">
+      <WorkcenterCameraBar
+        targetKind="posto"
+        areaCodice={area.codice}
+        postoCodice={posto.codice}
+      />
       <p className="text-sm text-[var(--muted)]">
         Postazione in area <strong>{area.nome}</strong>. L’operatore esegue{" "}
         <strong>{posto.nome}</strong>
