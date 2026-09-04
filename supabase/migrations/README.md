@@ -24,8 +24,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260901150000` | `preventivi_iso9001.sql` | Tabelle `preventivi` + `preventivi_righe`; link ordine |
 | `20260901160000` | `imballaggi_voci_prodotti_doppio_ruolo.sql` | Isolamento/confezione ↔ prodotti + doppio ruolo + max kg |
 | `20260901170000` | `imballaggi_voci_prodotti_unita_misura.sql` | UM (kg/g/lt/ml/pz) sul collegamento prodotto |
+| `20260904190000` | `iot_devices_telemetry_commands.sql` | IoT REST + Realtime (devices, telemetry, commands) |
 
-**Prossimo timestamp libero: `20260901180000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260904200000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 

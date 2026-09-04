@@ -3,10 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { listIotDevicesForAreaAction } from "@/app/actions/produzione-iot";
 import {
   getEventoLineaApertoAction,
   setMacchinarioParentAction,
 } from "@/app/actions/produzione-macchinari";
+import { IoTControlPanel } from "@/components/produzione/IoTControlPanel";
+import type { IotDevice } from "@/lib/produzione/iot";
 import { EventiLineaCatalogoList } from "@/components/produzione/EventiLineaCatalogoList";
 import { EventoLineaModal } from "@/components/produzione/EventoLineaModal";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
@@ -37,6 +40,7 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   const [eventoOpen, setEventoOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [organizza, setOrganizza] = useState(false);
+  const [iotDevices, setIotDevices] = useState<IotDevice[]>([]);
   const { fogliAperti, ready } = useFogliLavorazione();
 
   function patchMacchina(item: ProduzioneMacchinario) {
@@ -60,6 +64,8 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
       const found = res.items.find((a) => a.codice === areaCodice) ?? null;
       setArea(found);
       if (found) {
+        const iot = await listIotDevicesForAreaAction(found.id);
+        if (iot.success) setIotDevices(iot.items);
         const ev = await getEventoLineaApertoAction(found.id);
         if (ev.success && ev.evento) {
           setEvento(ev.evento);
@@ -207,6 +213,15 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           </button>
         </div>
       )}
+
+      {iotDevices.length ? (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold">Dispositivi IoT dell’area</h3>
+          {iotDevices.map((d) => (
+            <IoTControlPanel key={d.id} device={d} />
+          ))}
+        </div>
+      ) : null}
 
       <EventiLineaCatalogoList
         areaId={area.id}

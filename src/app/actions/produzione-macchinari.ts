@@ -32,6 +32,7 @@ import {
   type MacchinarioRicambio,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
+import { enqueueIotPowerCommand } from "@/app/actions/produzione-iot";
 import { createClient } from "@/lib/supabase/server";
 
 type MacchinaRow = {
@@ -846,6 +847,10 @@ export async function setMacchinaPowerAction(input: {
     now,
     on: input.on,
   });
+
+  if (prev.iotCollegato) {
+    await enqueueIotPowerCommand(item.id, input.on, auth.userId);
+  }
 
   await writeAuditLog({
     entity_type: "produzione_macchinari",

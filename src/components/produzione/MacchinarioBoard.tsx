@@ -5,6 +5,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
+  disableIotDeviceAction,
+  getIotDeviceByMacchinarioAction,
+  upsertIotDeviceAction,
+} from "@/app/actions/produzione-iot";
+import {
   listMacchinaAttivitaAction,
   listRicambiAction,
   softDeleteRicambioAction,
@@ -12,8 +17,10 @@ import {
   updateMacchinarioStatoAction,
   upsertRicambioAction,
 } from "@/app/actions/produzione-macchinari";
+import { IoTControlPanel } from "@/components/produzione/IoTControlPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
+import type { IotDevice } from "@/lib/produzione/iot";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
@@ -57,6 +64,11 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
   const [scaffale, setScaffale] = useState("");
   const [quantita, setQuantita] = useState("0");
   const [soglia, setSoglia] = useState("0");
+  const [iotDevice, setIotDevice] = useState<IotDevice | null>(null);
+  const [deviceCode, setDeviceCode] = useState("");
+  const [pollSeconds, setPollSeconds] = useState("5");
+  const [plaintextToken, setPlaintextToken] = useState<string | null>(null);
+  const [savingIot, setSavingIot] = useState(false);
 
   function load() {
     start(async () => {
@@ -84,14 +96,20 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         setIot(m.iotCollegato);
         setArresto(m.statoIot === "arresto");
         setStatoNote(m.statoNote);
-        const [r, a] = await Promise.all([
+        const [r, a, d] = await Promise.all([
           listRicambiAction(m.id),
           listMacchinaAttivitaAction(m.id),
+          getIotDeviceByMacchinarioAction(m.id),
         ]);
         if (!r.success) setError(r.error);
         else setRicambi(r.items);
         if (!a.success) setError(a.error);
         else setAttivita(a.items);
+        if (d.success) {
+          setIotDevice(d.device);
+          setDeviceCode(d.device?.deviceCode ?? m.codice.toUpperCase());
+          setPollSeconds(String(d.device?.pollSeconds ?? 5));
+        }
       }
     });
   }
@@ -313,59 +331,216 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
           </ul>
         ) : null}
         {isInsieme(macchina) ? null : (
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={iot}
-              onChange={(e) => setIot(e.target.checked)}
-            />
-            Collegato tramite IoT
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={arresto}
-              onChange={(e) => setArresto(e.target.checked)}
-            />
-            Arresto per problema
-          </label>
-          <label className="min-w-64 flex-1 text-xs text-[var(--muted)]">
-            Note / causa (obbligatoria in arresto)
-            <input
-              value={statoNote}
-              onChange={(e) => setStatoNote(e.target.value)}
-              className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() =>
-              start(async () => {
-                const res = await updateMacchinarioStatoAction(macchina.id, {
-                  iotCollegato: iot,
-                  statoIot: arresto
-                    ? "arresto"
-                    : macchina.statoIot === "acceso"
-                      ? "acceso"
-                      : "spento",
-                  statoNote,
-                });
-                if (!res.success) setError(res.error);
-                else {
-                  window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
-                  load();
-                }
-              })
-            }
-            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Aggiorna IoT / arresto
-          </button>
+        <div className="mt-3 space-y-3">
+          <fieldset className="space-y-1">
+            <legend className="text-xs font-medium text-slate-700">
+              Modalità di gestione
+            </legend>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="modo-iot"
+                checked={!iot}
+                disabled={!isAdmin}
+                onChange={() => setIot(false)}
+              />
+              Manuale (dichiarazione operatore)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="modo-iot"
+                checked={iot}
+                disabled={!isAdmin}
+                onChange={() => setIot(true)}
+              />
+              Tramite IoT (REST + Realtime, senza MQTT)
+            </label>
+          </fieldset>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={arresto}
+                onChange={(e) => setArresto(e.target.checked)}
+              />
+              Arresto per problema
+            </label>
+            <label className="min-w-64 flex-1 text-xs text-[var(--muted)]">
+              Note / causa (obbligatoria in arresto)
+              <input
+                value={statoNote}
+                onChange={(e) => setStatoNote(e.target.value)}
+                className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const res = await updateMacchinarioStatoAction(macchina.id, {
+                    iotCollegato: iot,
+                    statoIot: arresto
+                      ? "arresto"
+                      : macchina.statoIot === "acceso"
+                        ? "acceso"
+                        : "spento",
+                    statoNote,
+                  });
+                  if (!res.success) setError(res.error);
+                  else {
+                    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                    load();
+                  }
+                })
+              }
+              className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Aggiorna stato
+            </button>
+          </div>
         </div>
         )}
       </div>
+
+      {!isInsieme(macchina) && iot ? (
+        <div className="space-y-3">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <h3 className="text-sm font-semibold">Collegamento IoT</h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Il microcontrollore (ESP32/Arduino) chiama le API REST del
+              gestionale. Non serve un broker MQTT.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <label className="text-xs text-[var(--muted)]">
+                Device code
+                <input
+                  value={deviceCode}
+                  disabled={!isAdmin}
+                  onChange={(e) => setDeviceCode(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 font-mono text-sm disabled:bg-slate-100"
+                />
+              </label>
+              <label className="text-xs text-[var(--muted)]">
+                Poll comandi (secondi)
+                <input
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={pollSeconds}
+                  disabled={!isAdmin}
+                  onChange={(e) => setPollSeconds(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+                />
+              </label>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Endpoint telemetria: <span className="font-mono">/api/iot/telemetry</span>
+              {" · "}
+              Endpoint comandi: <span className="font-mono">/api/iot/commands</span>
+              {iotDevice?.hasToken
+                ? ` · token già emesso (…${iotDevice.apiTokenHint})`
+                : " · nessun token ancora"}
+            </p>
+            {plaintextToken ? (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 font-mono text-xs text-amber-950">
+                Token (copialo ora, non verrà più mostrato): {plaintextToken}
+              </p>
+            ) : null}
+            {isAdmin ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={savingIot || !deviceCode.trim()}
+                  onClick={() =>
+                    void (async () => {
+                      setSavingIot(true);
+                      setError(null);
+                      try {
+                        const res = await upsertIotDeviceAction({
+                          macchinarioId: macchina.id,
+                          deviceCode,
+                          pollSeconds: Number(pollSeconds) || 5,
+                          regenerateToken: !iotDevice?.hasToken,
+                        });
+                        if (!res.success) {
+                          setError(res.error);
+                          return;
+                        }
+                        setIotDevice(res.device);
+                        setDeviceCode(res.device.deviceCode);
+                        if (res.plaintextToken) setPlaintextToken(res.plaintextToken);
+                        setIot(true);
+                        window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                        load();
+                      } catch (e) {
+                        setError(e instanceof Error ? e.message : "Salvataggio IoT fallito.");
+                      } finally {
+                        setSavingIot(false);
+                      }
+                    })()
+                  }
+                  className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {savingIot ? "Salvataggio…" : "Salva collegamento IoT"}
+                </button>
+                {iotDevice?.hasToken ? (
+                  <button
+                    type="button"
+                    disabled={savingIot}
+                    onClick={() =>
+                      void (async () => {
+                        setSavingIot(true);
+                        setError(null);
+                        const res = await upsertIotDeviceAction({
+                          macchinarioId: macchina.id,
+                          deviceCode,
+                          pollSeconds: Number(pollSeconds) || 5,
+                          regenerateToken: true,
+                        });
+                        setSavingIot(false);
+                        if (!res.success) {
+                          setError(res.error);
+                          return;
+                        }
+                        setIotDevice(res.device);
+                        if (res.plaintextToken) setPlaintextToken(res.plaintextToken);
+                      })()
+                    }
+                    className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                  >
+                    Rigenera token
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={savingIot}
+                  onClick={() =>
+                    void (async () => {
+                      setSavingIot(true);
+                      const res = await disableIotDeviceAction(macchina.id);
+                      setSavingIot(false);
+                      if (!res.success) {
+                        setError(res.error);
+                        return;
+                      }
+                      setIot(false);
+                      setPlaintextToken(null);
+                      window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                      load();
+                    })()
+                  }
+                  className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+                >
+                  Torna a manuale
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {iotDevice ? <IoTControlPanel device={iotDevice} canCommand /> : null}
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">Registro attività On/Off</h3>
