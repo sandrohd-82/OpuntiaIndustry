@@ -97,6 +97,7 @@ export function openKeysFromPathname(
   for (const item of sections) {
     if (!pathname.startsWith(item.path)) continue;
     keys.push(item.slug);
+    keys.push(item.path);
     if (isNavBranch(item)) {
       keys.push(...openKeysFromPathname(item.children, pathname));
     }

@@ -66,7 +66,7 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
           {area.posti.map((p) => (
             <li key={p.id}>
               <Link
-                href={`/app/produzione/gestione-aree/${area.codice}/${p.codice}`}
+                href={`/app/produzione/gestione-aree/${area.codice}/postazioni/${p.codice}`}
                 className={`rounded-full px-2.5 py-0.5 text-xs ${
                   p.id === posto.id
                     ? "bg-[var(--primary)] text-white"
@@ -80,7 +80,7 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
         </ul>
       </div>
       <Link
-        href={`/app/produzione/gestione-aree/${area.codice}`}
+        href={`/app/produzione/gestione-aree/${area.codice}/postazioni`}
         className="text-sm font-medium text-[var(--primary)] hover:underline"
       >
         Torna alla panoramica {area.nome}

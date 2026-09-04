@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { MacchinariBoard } from "@/components/produzione/MacchinariBoard";
+import { PostazioniBoard } from "@/components/produzione/PostazioniBoard";
 import { PostoLavoroBoard } from "@/components/produzione/PostoLavoroBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { resolveProduzioneDynamic } from "../../../_resolve";
@@ -15,20 +17,52 @@ export default async function ProduzioneLeafPage({ params }: Props) {
   if (section === "gestione-aree" && leaf === "panoramica") {
     redirect(`/app/produzione/gestione-aree/${sub}`);
   }
+  if (section === "gestione-aree" && leaf === "elenco") {
+    redirect(`/app/produzione/gestione-aree/${sub}`);
+  }
 
-  const page = await resolveProduzioneDynamic([section, sub, leaf]);
-  if (!page) notFound();
-
-  if (section === "gestione-aree") {
+  if (section === "gestione-aree" && leaf === "macchinari") {
+    const page = await resolveProduzioneDynamic([section, sub, leaf]);
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <AppHeader
+          title={page?.label ?? "Macchinari"}
+          subtitle={page?.description ?? "Impianti e stato IoT"}
+        />
         <div className="p-6">
-          <PostoLavoroBoard areaCodice={sub} postoCodice={leaf} />
+          <MacchinariBoard areaCodice={sub} />
         </div>
       </>
     );
   }
 
-  notFound();
+  if (section === "gestione-aree" && leaf === "postazioni") {
+    const page = await resolveProduzioneDynamic([section, sub, leaf]);
+    return (
+      <>
+        <AppHeader
+          title={page?.label ?? "Postazioni"}
+          subtitle={page?.description ?? "Posti lavoro"}
+        />
+        <div className="p-6">
+          <PostazioniBoard areaCodice={sub} />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "gestione-aree") {
+    redirect(`/app/produzione/gestione-aree/${sub}/postazioni/${leaf}`);
+  }
+
+  const page = await resolveProduzioneDynamic([section, sub, leaf]);
+  if (!page) notFound();
+  return (
+    <>
+      <AppHeader title={page.label} subtitle={page.description} />
+      <div className="p-6">
+        <PostoLavoroBoard areaCodice={sub} postoCodice={leaf} />
+      </div>
+    </>
+  );
 }

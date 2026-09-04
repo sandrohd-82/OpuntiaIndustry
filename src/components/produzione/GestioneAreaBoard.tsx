@@ -2,22 +2,12 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  createPostoLavoroAction,
-  listProduzioneAreeAction,
-  softDeletePostoLavoroAction,
-} from "@/app/actions/produzione-aree";
+import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
+import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
-import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
-import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
-
-function notifyAreeNav() {
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
-  }
-}
+import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 
 type Props = {
   areaCodice: string;
@@ -27,12 +17,9 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   const [pending, start] = useTransition();
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [nome, setNome] = useState("");
-  const [codice, setCodice] = useState("");
-  const [descrizione, setDescrizione] = useState("");
   const { fogliAperti, ready } = useFogliLavorazione();
 
-  function load() {
+  useEffect(() => {
     start(async () => {
       const res = await listProduzioneAreeAction();
       if (!res.success) {
@@ -42,36 +29,9 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
       setError(null);
       setArea(res.items.find((a) => a.codice === areaCodice) ?? null);
     });
-  }
-
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [areaCodice]);
 
-  function addPosto() {
-    if (!area || !nome.trim()) return;
-    start(async () => {
-      const res = await createPostoLavoroAction({
-        areaId: area.id,
-        codice: codice.trim() || slugPosto(nome),
-        nome: nome.trim(),
-        descrizione: descrizione.trim(),
-        sortOrder: (area.posti.at(-1)?.sortOrder ?? 0) + 10,
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setNome("");
-      setCodice("");
-      setDescrizione("");
-      notifyAreeNav();
-      load();
-    });
-  }
-
-  if (!area && !error) {
+  if (pending && !area && !error) {
     return <p className="text-sm text-[var(--muted)]">Caricamento area…</p>;
   }
   if (!area) {
@@ -82,6 +42,9 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
     );
   }
 
+  const allarmi = (area.macchinari ?? []).filter((m) => m.statoIot === "arresto");
+  const base = `/app/produzione/gestione-aree/${area.codice}`;
+
   return (
     <div className="space-y-5">
       {error ? (
@@ -89,15 +52,69 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           {error}
         </p>
       ) : null}
+
       <WorkcenterCameraBar targetKind="area" areaCodice={area.codice} />
 
       <p className="text-sm text-[var(--muted)]">
-        {area.descrizione} I posti lavoro sono postazioni con operatore e
-        operazione dedicata; l’obiettivo del lotto è comune a tutta l’area.
+        {area.descrizione} Questa panoramica riassume stato impianti, postazioni
+        e videosorveglianza.
         {area.richiedeBilancioMassa
           ? " Quest’area richiede il bilancio di massa sul foglio giornaliero."
           : ""}
       </p>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Link
+          href={`${base}/macchinari`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 hover:bg-slate-50"
+        >
+          <p className="text-xs uppercase text-[var(--muted)]">Macchinari</p>
+          <p className="mt-1 text-2xl font-semibold">
+            {(area.macchinari ?? []).length}
+          </p>
+          {allarmi.length ? (
+            <p className="mt-1 text-xs text-red-700">
+              {allarmi.length} in arresto
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-[var(--muted)]">Nessun allarme IoT</p>
+          )}
+        </Link>
+        <Link
+          href={`${base}/postazioni`}
+          className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 hover:bg-slate-50"
+        >
+          <p className="text-xs uppercase text-[var(--muted)]">Postazioni</p>
+          <p className="mt-1 text-2xl font-semibold">{area.posti.length}</p>
+          <p className="mt-1 text-xs text-[var(--muted)]">Posti lavoro attivi</p>
+        </Link>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <p className="text-xs uppercase text-[var(--muted)]">Fogli aperti</p>
+          <p className="mt-1 text-2xl font-semibold">
+            {ready ? fogliAperti.length : "—"}
+          </p>
+          <p className="mt-1 text-xs text-[var(--muted)]">Lavorazione in corso</p>
+        </div>
+      </div>
+
+      {(area.macchinari ?? []).length > 0 ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="text-sm font-semibold">Stato impianti</h3>
+          <ul className="mt-3 divide-y divide-[var(--border)]">
+            {(area.macchinari ?? []).map((m) => (
+              <li key={m.id} className="flex items-center justify-between gap-2 py-2">
+                <Link
+                  href={`${base}/macchinari/${m.codice}`}
+                  className="text-sm font-medium text-[var(--primary)] hover:underline"
+                >
+                  {m.nome}
+                </Link>
+                <IotStatusDot stato={m.statoIot} size="sm" />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {area.richiedeBilancioMassa && ready ? (
         fogliAperti.length === 0 ? (
@@ -119,105 +136,6 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           </div>
         )
       ) : null}
-
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h3 className="text-sm font-semibold">Nuovo posto lavoro</h3>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="text-xs text-[var(--muted)]">
-            Nome
-            <input
-              value={nome}
-              onChange={(e) => {
-                setNome(e.target.value);
-                if (!codice) setCodice(slugPosto(e.target.value));
-              }}
-              className="mt-1 block w-48 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="text-xs text-[var(--muted)]">
-            Codice
-            <input
-              value={codice}
-              onChange={(e) => setCodice(slugPosto(e.target.value))}
-              className="mt-1 block w-40 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
-            />
-          </label>
-          <label className="text-xs text-[var(--muted)]">
-            Operazione
-            <input
-              value={descrizione}
-              onChange={(e) => setDescrizione(e.target.value)}
-              className="mt-1 block w-64 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={pending || !nome.trim()}
-            onClick={addPosto}
-            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Aggiungi
-          </button>
-        </div>
-      </div>
-
-      <ul className="grid gap-3 md:grid-cols-2">
-        {area.posti.length === 0 ? (
-          <li className="text-sm text-[var(--muted)]">
-            Nessun posto lavoro. Aggiungine uno per far comparire il
-            sottomenu.
-          </li>
-        ) : (
-          area.posti.map((p) => (
-            <li
-              key={p.id}
-              className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{p.nome}</p>
-                  <p className="font-mono text-xs text-[var(--muted)]">
-                    {p.codice}
-                  </p>
-                  <p className="mt-1 text-sm text-[var(--muted)]">
-                    {p.descrizione || "Operazione dedicata in quest’area."}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="text-xs text-red-700 hover:underline"
-                  onClick={() =>
-                    start(async () => {
-                      const res = await softDeletePostoLavoroAction(p.id);
-                      if (!res.success) setError(res.error);
-                      else {
-                        notifyAreeNav();
-                        load();
-                      }
-                    })
-                  }
-                >
-                  Rimuovi
-                </button>
-              </div>
-              <div className="mt-3">
-                <WorkcenterCameraBar
-                  compact
-                  targetKind="posto"
-                  areaCodice={area.codice}
-                  postoCodice={p.codice}
-                />
-              </div>
-              <Link
-                href={`/app/produzione/gestione-aree/${area.codice}/${p.codice}`}
-                className="mt-3 inline-block text-sm font-medium text-[var(--primary)] hover:underline"
-              >
-                Apri posto lavoro
-              </Link>
-            </li>
-          ))
-        )}
-      </ul>
     </div>
   );
 }

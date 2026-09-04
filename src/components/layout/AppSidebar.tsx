@@ -190,7 +190,7 @@ function NavTree({
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
       {sections.map((item) => {
         if (isNavBranch(item)) {
-          const open = openKeys.has(item.slug);
+          const open = openKeys.has(item.path) || openKeys.has(item.slug);
           const active = pathMatches(pathname, item.path);
           return (
             <li key={item.path}>
@@ -200,7 +200,7 @@ function NavTree({
                 active={active}
                 nested
                 badge={item.badge}
-                onToggle={() => toggle(item.slug)}
+                onToggle={() => toggle(item.path)}
               />
               {open && (
                 <NavTree

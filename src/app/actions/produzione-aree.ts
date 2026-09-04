@@ -11,6 +11,8 @@ import {
   type ProduzioneArea,
   type ProduzionePostoLavoro,
 } from "@/lib/produzione/aree-posti";
+import { listMacchinariByAreaIdsAction } from "@/app/actions/produzione-macchinari";
+import type { ProduzioneMacchinario } from "@/lib/produzione/macchinari";
 import { createClient } from "@/lib/supabase/server";
 
 type AreaRow = {
@@ -60,7 +62,11 @@ function mapPosto(row: PostoRow): ProduzionePostoLavoro {
   };
 }
 
-function mapArea(row: AreaRow, posti: ProduzionePostoLavoro[]): ProduzioneArea {
+function mapArea(
+  row: AreaRow,
+  posti: ProduzionePostoLavoro[],
+  macchinari: ProduzioneMacchinario[]
+): ProduzioneArea {
   return {
     id: row.id,
     codice: row.codice,
@@ -77,6 +83,7 @@ function mapArea(row: AreaRow, posti: ProduzionePostoLavoro[]): ProduzioneArea {
     cameraIp: row.camera_ip ?? null,
     cameraRtspPath: row.camera_rtsp_path || "/live/ch0",
     posti,
+    macchinari,
   };
 }
 
@@ -112,10 +119,19 @@ export async function listProduzioneAreeAction(): Promise<
     }
   }
 
+  const macRes = await listMacchinariByAreaIdsAction(ids);
+  if (!macRes.success) return macRes;
+  const macByArea = new Map<string, ProduzioneMacchinario[]>();
+  for (const m of macRes.items) {
+    const list = macByArea.get(m.areaId) ?? [];
+    list.push(m);
+    macByArea.set(m.areaId, list);
+  }
+
   return {
     success: true,
     items: ((aree ?? []) as AreaRow[]).map((a) =>
-      mapArea(a, postiByArea.get(a.id) ?? [])
+      mapArea(a, postiByArea.get(a.id) ?? [], macByArea.get(a.id) ?? [])
     ),
   };
 }

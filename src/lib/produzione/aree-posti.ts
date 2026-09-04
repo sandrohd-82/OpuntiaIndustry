@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProduzioneMacchinario } from "@/lib/produzione/macchinari";
 
 export const DOCUMENTO_STATI = ["bozza", "approvato", "chiuso"] as const;
 export type DocumentoStato = (typeof DOCUMENTO_STATI)[number];
@@ -38,6 +39,7 @@ export type ProduzioneArea = {
   cameraIp: string | null;
   cameraRtspPath: string;
   posti: ProduzionePostoLavoro[];
+  macchinari: ProduzioneMacchinario[];
 };
 
 export type FoglioConteggio = {

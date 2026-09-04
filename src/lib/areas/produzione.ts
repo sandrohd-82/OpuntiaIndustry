@@ -80,9 +80,23 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     description: "Stato aree produttive e videosorveglianza",
     path: "/app/produzione/gestione-aree",
     children: [
-      areaNavBranch("lavaggio", "Lavaggio", "Versamento e bilancio di massa verso essiccazione.", [
-        { slug: "linea-principale", label: "Linea principale", description: "Versamento e controllo quantità." },
-      ]),
+      areaNavBranch(
+        "lavaggio",
+        "Lavaggio",
+        "Versamento e bilancio di massa verso essiccazione.",
+        [
+          { slug: "linea-principale", label: "Linea principale", description: "Versamento e controllo quantità." },
+        ],
+        [
+          { slug: "vasca-lavaggio", label: "Vasca lavaggio", description: "Vasca di lavaggio." },
+          { slug: "sterilizzatore-uv", label: "Sterilizzatore UV", description: "Sterilizzazione UV." },
+          { slug: "macchina-anolyte", label: "Macchina Anolyte", description: "Dosaggio anolyte." },
+          { slug: "pompa-in-disinfettante", label: "Pompa In. Disinfettante", description: "Pompa disinfettante." },
+          { slug: "soffiante", label: "Soffiante", description: "Soffiatura." },
+          { slug: "nastro-risalita", label: "Nastro Risalita", description: "Nastro di risalita." },
+          { slug: "spruzzini", label: "Spruzzini", description: "Ugelli di lavaggio." },
+        ]
+      ),
       areaNavBranch("taglio", "Taglio", "Più posti lavoro, stesso obiettivo di lotto.", [
         { slug: "spaccapale", label: "Spaccapale", description: "Spacco pale / cladodi." },
         { slug: "cubettatrice", label: "Cubettatrice", description: "Cubettatura." },
@@ -136,7 +150,8 @@ function areaNavBranch(
   slug: string,
   label: string,
   description: string,
-  posti: Array<{ slug: string; label: string; description: string }>
+  posti: Array<{ slug: string; label: string; description: string }>,
+  macchine: Array<{ slug: string; label: string; description: string }> = []
 ): NavItem {
   const base = `/app/produzione/gestione-aree/${slug}`;
   return {
@@ -149,15 +164,49 @@ function areaNavBranch(
       {
         slug: "panoramica",
         label: "Panoramica area",
-        description,
+        description: "Stato area e videosorveglianza.",
         path: base,
       },
-      ...posti.map((p) => ({
-        slug: p.slug,
-        label: p.label,
-        description: p.description,
-        path: `${base}/${p.slug}`,
-      })),
+      {
+        slug: "macchinari",
+        label: "Macchinari",
+        description: "Impianti e stato IoT.",
+        path: `${base}/macchinari`,
+        children: [
+          {
+            slug: "elenco",
+            label: "Elenco macchinari",
+            description: "Elenco macchine dell’area.",
+            path: `${base}/macchinari`,
+          },
+          ...macchine.map((m) => ({
+            slug: m.slug,
+            label: m.label,
+            description: m.description,
+            path: `${base}/macchinari/${m.slug}`,
+          })),
+        ],
+      },
+      {
+        slug: "postazioni",
+        label: "Postazioni",
+        description: "Posti lavoro con operatore.",
+        path: `${base}/postazioni`,
+        children: [
+          {
+            slug: "elenco",
+            label: "Elenco postazioni",
+            description: "Posti lavoro dell’area.",
+            path: `${base}/postazioni`,
+          },
+          ...posti.map((p) => ({
+            slug: p.slug,
+            label: p.label,
+            description: p.description,
+            path: `${base}/postazioni/${p.slug}`,
+          })),
+        ],
+      },
     ],
   };
 }
@@ -183,6 +232,13 @@ export function mergeProduzioneNavWithAree(
               slug: p.codice,
               label: p.nome,
               description: p.descrizione,
+            })),
+          (a.macchinari ?? [])
+            .filter((m) => m.attivo)
+            .map((m) => ({
+              slug: m.codice,
+              label: m.nome,
+              description: m.descrizione,
             }))
         )
       ),
