@@ -3,11 +3,20 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import { getEventoLineaApertoAction } from "@/app/actions/produzione-macchinari";
+import { EventoLineaModal } from "@/components/produzione/EventoLineaModal";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
+import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
+import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
+import {
+  eventoLineaLabel,
+  type EventoLinea,
+  type ProduzioneMacchinario,
+} from "@/lib/produzione/macchinari";
 
 type Props = {
   areaCodice: string;
@@ -17,7 +26,23 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   const [pending, start] = useTransition();
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [evento, setEvento] = useState<EventoLinea | null>(null);
+  const [eventoOpen, setEventoOpen] = useState(false);
   const { fogliAperti, ready } = useFogliLavorazione();
+
+  function patchMacchina(item: ProduzioneMacchinario) {
+    setArea((prev) =>
+      prev
+        ? {
+            ...prev,
+            macchinari: (prev.macchinari ?? []).map((m) =>
+              m.id === item.id ? item : m
+            ),
+          }
+        : prev
+    );
+    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+  }
 
   useEffect(() => {
     start(async () => {
@@ -27,7 +52,17 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         return;
       }
       setError(null);
-      setArea(res.items.find((a) => a.codice === areaCodice) ?? null);
+      const found = res.items.find((a) => a.codice === areaCodice) ?? null;
+      setArea(found);
+      if (found) {
+        const ev = await getEventoLineaApertoAction(found.id);
+        if (ev.success && ev.evento) {
+          setEvento(ev.evento);
+          setEventoOpen(true);
+        } else {
+          setEvento(null);
+        }
+      }
     });
   }, [areaCodice]);
 
@@ -99,21 +134,72 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
 
       {(area.macchinari ?? []).length > 0 ? (
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-          <h3 className="text-sm font-semibold">Stato impianti</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">Stato impianti</h3>
+            <button
+              type="button"
+              onClick={() => setEventoOpen(true)}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              {evento ? "Riprendi evento di linea" : "Avvia evento di linea"}
+            </button>
+          </div>
+          {evento ? (
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+              Evento in corso: {eventoLineaLabel(evento.tipo)}. Spegnere le
+              macchine richieste per chiuderlo.
+            </p>
+          ) : null}
           <ul className="mt-3 divide-y divide-[var(--border)]">
             {(area.macchinari ?? []).map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-2 py-2">
-                <Link
-                  href={`${base}/macchinari/${m.codice}`}
-                  className="text-sm font-medium text-[var(--primary)] hover:underline"
-                >
-                  {m.nome}
-                </Link>
-                <IotStatusDot stato={m.statoIot} size="sm" />
+              <li key={m.id} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <Link
+                    href={`${base}/macchinari/${m.codice}`}
+                    className="text-sm font-medium text-[var(--primary)] hover:underline"
+                  >
+                    {m.nome}
+                  </Link>
+                  <div className="mt-0.5">
+                    <IotStatusDot stato={m.statoIot} size="sm" />
+                  </div>
+                </div>
+                <MachinePowerToggle
+                  macchina={m}
+                  origine="panoramica"
+                  size="sm"
+                  onError={setError}
+                  onChanged={patchMacchina}
+                />
               </li>
             ))}
           </ul>
         </div>
+      ) : (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <button
+            type="button"
+            onClick={() => setEventoOpen(true)}
+            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+          >
+            Avvia evento di linea
+          </button>
+        </div>
+      )}
+
+      {eventoOpen ? (
+        <EventoLineaModal
+          areaId={area.id}
+          areaNome={area.nome}
+          onMacchinaChanged={patchMacchina}
+          onClose={() => {
+            setEventoOpen(false);
+            start(async () => {
+              const ev = await getEventoLineaApertoAction(area.id);
+              setEvento(ev.success ? ev.evento : null);
+            });
+          }}
+        />
       ) : null}
 
       {area.richiedeBilancioMassa && ready ? (

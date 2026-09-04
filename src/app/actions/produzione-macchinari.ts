@@ -4,10 +4,16 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { slugPosto } from "@/lib/produzione/aree-posti";
 import {
+  eventoLineaLabel,
   macchinarioInputSchema,
   macchinarioStatoSchema,
   normalizeIotStato,
   ricambioInputSchema,
+  type AttivitaOrigine,
+  type EventoLinea,
+  type EventoLineaMacchina,
+  type EventoLineaTipo,
+  type MacchinarioAttivita,
   type MacchinarioRicambio,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
@@ -306,4 +312,408 @@ export async function softDeleteRicambioAction(
     summary: "Soft delete ricambio",
   });
   return { success: true };
+}
+
+function actorNome(auth: { profile: { full_name?: string | null; email?: string } }): string {
+  return auth.profile.full_name?.trim() || auth.profile.email || "Operatore";
+}
+
+async function confirmEventoOffAndMaybeClose(input: {
+  areaId: string;
+  macchinarioId: string;
+  eventoLineaId?: string | null;
+  viaIot: boolean;
+  actorId: string;
+  now: string;
+}) {
+  const supabase = await createClient();
+  let eventoId = input.eventoLineaId ?? null;
+  if (!eventoId) {
+    const aperto = await getEventoLineaApertoAction(input.areaId);
+    if (aperto.success && aperto.evento) eventoId = aperto.evento.id;
+  }
+  if (!eventoId) return;
+  await supabase
+    .from("produzione_evento_linea_macchine")
+    .update({
+      confermato_at: input.now,
+      confermato_by: input.actorId,
+      via_iot: input.viaIot,
+    })
+    .eq("evento_id", eventoId)
+    .eq("macchinario_id", input.macchinarioId)
+    .is("confermato_at", null);
+  const loaded = await loadEventoLinea(eventoId);
+  if (
+    loaded.success &&
+    loaded.evento.documentoStato === "in_corso" &&
+    loaded.evento.macchine.every((m) => !m.richiesto || m.confermatoAt)
+  ) {
+    await closeEventoLineaAction(eventoId);
+  }
+}
+
+async function insertAttivita(input: {
+  macchinarioId: string;
+  areaId: string;
+  azione: "on" | "off";
+  origine: AttivitaOrigine;
+  eventoLineaId?: string | null;
+  actorId: string;
+  actorNome: string;
+  note: string;
+}) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("produzione_macchinario_attivita").insert({
+    macchinario_id: input.macchinarioId,
+    area_id: input.areaId,
+    azione: input.azione,
+    origine: input.origine,
+    evento_linea_id: input.eventoLineaId ?? null,
+    actor_nome: input.actorNome,
+    note: input.note,
+    created_by: input.actorId,
+  });
+  return error;
+}
+
+export async function setMacchinaPowerAction(input: {
+  macchinarioId: string;
+  on: boolean;
+  origine: AttivitaOrigine;
+  eventoLineaId?: string | null;
+}): Promise<
+  { success: true; item: ProduzioneMacchinario } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data: current, error: cErr } = await supabase
+    .from("produzione_macchinari")
+    .select(MACCHINA_COLS)
+    .eq("id", input.macchinarioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (cErr || !current) {
+    return { success: false, error: cErr?.message ?? "Macchina non trovata." };
+  }
+  const prev = mapMacchina(current as MacchinaRow);
+  const nextStato = input.on ? "acceso" : "spento";
+  const now = new Date().toISOString();
+  if (prev.statoIot === nextStato) {
+    if (!input.on) {
+      await confirmEventoOffAndMaybeClose({
+        areaId: prev.areaId,
+        macchinarioId: prev.id,
+        eventoLineaId: input.eventoLineaId,
+        viaIot: prev.iotCollegato,
+        actorId: auth.userId,
+        now,
+      });
+    }
+    return { success: true, item: prev };
+  }
+
+  const note = prev.iotCollegato
+    ? input.on
+      ? "Comando On (IoT: invio previsto)."
+      : "Comando Off (IoT: invio previsto)."
+    : input.on
+      ? "Dichiarato On dall’operatore."
+      : "Dichiarato Off dall’operatore.";
+
+  const { data, error } = await supabase
+    .from("produzione_macchinari")
+    .update({
+      stato_iot: nextStato,
+      stato_note: input.on ? "" : prev.statoNote,
+      stato_at: now,
+      stato_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.macchinarioId)
+    .is("deleted_at", null)
+    .select(MACCHINA_COLS)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento On/Off fallito." };
+  }
+  const item = mapMacchina(data as MacchinaRow);
+
+  const aErr = await insertAttivita({
+    macchinarioId: item.id,
+    areaId: item.areaId,
+    azione: input.on ? "on" : "off",
+    origine: input.origine,
+    eventoLineaId: input.eventoLineaId,
+    actorId: auth.userId,
+    actorNome: actorNome(auth),
+    note,
+  });
+  if (aErr) console.error("[attivita]", aErr.message);
+
+  if (!input.on) {
+    await confirmEventoOffAndMaybeClose({
+      areaId: item.areaId,
+      macchinarioId: item.id,
+      eventoLineaId: input.eventoLineaId,
+      viaIot: prev.iotCollegato,
+      actorId: auth.userId,
+      now,
+    });
+  }
+
+  await writeAuditLog({
+    entity_type: "produzione_macchinari",
+    entity_id: item.id,
+    action: input.on ? "power_on" : "power_off",
+    actor_id: auth.userId,
+    summary: `${input.on ? "On" : "Off"} ${item.nome} (${actorNome(auth)})`,
+    payload: { origine: input.origine, iot: prev.iotCollegato },
+  });
+  return { success: true, item };
+}
+
+export async function listMacchinaAttivitaAction(
+  macchinarioId: string
+): Promise<
+  { success: true; items: MacchinarioAttivita[] } | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_macchinario_attivita")
+    .select("id, macchinario_id, azione, origine, actor_nome, note, created_at")
+    .eq("macchinario_id", macchinarioId)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      macchinario_id: string;
+      azione: MacchinarioAttivita["azione"];
+      origine: MacchinarioAttivita["origine"];
+      actor_nome: string;
+      note: string;
+      created_at: string;
+    }>).map((r) => ({
+      id: r.id,
+      macchinarioId: r.macchinario_id,
+      azione: r.azione,
+      origine: r.origine,
+      actorNome: r.actor_nome,
+      note: r.note,
+      createdAt: r.created_at,
+    })),
+  };
+}
+
+export async function getEventoLineaApertoAction(
+  areaId: string
+): Promise<
+  { success: true; evento: EventoLinea | null } | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_eventi_linea")
+    .select("id")
+    .eq("area_id", areaId)
+    .eq("documento_stato", "in_corso")
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: true, evento: null };
+  return loadEventoLinea((data as { id: string }).id);
+}
+
+async function loadEventoLinea(
+  eventoId: string
+): Promise<
+  { success: true; evento: EventoLinea } | { success: false; error: string }
+> {
+  const supabase = await createClient();
+  const { data: ev, error } = await supabase
+    .from("produzione_eventi_linea")
+    .select(
+      "id, area_id, tipo, documento_stato, note, started_at, started_by, closed_at"
+    )
+    .eq("id", eventoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !ev) {
+    return { success: false, error: error?.message ?? "Evento non trovato." };
+  }
+  const row = ev as {
+    id: string;
+    area_id: string;
+    tipo: EventoLineaTipo;
+    documento_stato: EventoLinea["documentoStato"];
+    note: string;
+    started_at: string;
+    started_by: string | null;
+    closed_at: string | null;
+  };
+  let startedByNome = "";
+  if (row.started_by) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", row.started_by)
+      .maybeSingle();
+    const p = profile as { full_name?: string | null; email?: string } | null;
+    startedByNome = p?.full_name?.trim() || p?.email || "";
+  }
+  const { data: righe, error: rErr } = await supabase
+    .from("produzione_evento_linea_macchine")
+    .select("id, macchinario_id, richiesto, confermato_at, via_iot")
+    .eq("evento_id", eventoId);
+  if (rErr) return { success: false, error: rErr.message };
+  const ids = ((righe ?? []) as Array<{ macchinario_id: string }>).map(
+    (r) => r.macchinario_id
+  );
+  const macchineById = new Map<string, ProduzioneMacchinario>();
+  if (ids.length) {
+    const { data: macs } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .in("id", ids);
+    for (const m of ((macs ?? []) as MacchinaRow[]).map(mapMacchina)) {
+      macchineById.set(m.id, m);
+    }
+  }
+  const macchine: EventoLineaMacchina[] = (
+    (righe ?? []) as Array<{
+      id: string;
+      macchinario_id: string;
+      richiesto: boolean;
+      confermato_at: string | null;
+      via_iot: boolean;
+    }>
+  ).map((r) => {
+    const m = macchineById.get(r.macchinario_id);
+    return {
+      id: r.id,
+      macchinarioId: r.macchinario_id,
+      nome: m?.nome ?? "Macchina",
+      codice: m?.codice ?? "",
+      iotCollegato: m?.iotCollegato ?? false,
+      statoIot: m?.statoIot ?? "spento",
+      richiesto: r.richiesto,
+      confermatoAt: r.confermato_at,
+      viaIot: r.via_iot,
+    };
+  });
+  return {
+    success: true,
+    evento: {
+      id: row.id,
+      areaId: row.area_id,
+      tipo: row.tipo,
+      documentoStato: row.documento_stato,
+      note: row.note,
+      startedAt: row.started_at,
+      startedByNome,
+      closedAt: row.closed_at,
+      macchine,
+    },
+  };
+}
+
+export async function startEventoLineaAction(input: {
+  areaId: string;
+  tipo: EventoLineaTipo;
+}): Promise<
+  { success: true; evento: EventoLinea } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const aperto = await getEventoLineaApertoAction(input.areaId);
+  if (!aperto.success) return aperto;
+  if (aperto.evento) {
+    return { success: false, error: "C’è già un evento di linea in corso in quest’area." };
+  }
+  const supabase = await createClient();
+  const { data: ev, error } = await supabase
+    .from("produzione_eventi_linea")
+    .insert({
+      area_id: input.areaId,
+      tipo: input.tipo,
+      documento_stato: "in_corso",
+      started_by: auth.userId,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (error || !ev) {
+    return { success: false, error: error?.message ?? "Creazione evento fallita." };
+  }
+  const eventoId = (ev as { id: string }).id;
+  const { data: accese } = await supabase
+    .from("produzione_macchinari")
+    .select("id")
+    .eq("area_id", input.areaId)
+    .eq("stato_iot", "acceso")
+    .is("deleted_at", null);
+  const rows = ((accese ?? []) as Array<{ id: string }>).map((m) => ({
+    evento_id: eventoId,
+    macchinario_id: m.id,
+    richiesto: true,
+    created_by: auth.userId,
+  }));
+  if (rows.length) {
+    const { error: iErr } = await supabase
+      .from("produzione_evento_linea_macchine")
+      .insert(rows);
+    if (iErr) return { success: false, error: iErr.message };
+  }
+  await writeAuditLog({
+    entity_type: "produzione_eventi_linea",
+    entity_id: eventoId,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Aperto evento di linea: ${eventoLineaLabel(input.tipo)}`,
+    payload: { macchine: rows.length },
+  });
+  return loadEventoLinea(eventoId);
+}
+
+export async function closeEventoLineaAction(
+  eventoId: string
+): Promise<
+  { success: true; evento: EventoLinea } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const loaded = await loadEventoLinea(eventoId);
+  if (!loaded.success) return loaded;
+  if (loaded.evento.documentoStato === "chiuso") return loaded;
+  const pending = loaded.evento.macchine.filter((m) => m.richiesto && !m.confermatoAt);
+  if (pending.length) {
+    return {
+      success: false,
+      error: `Ancora ${pending.length} macchine da spegnere prima di chiudere l’evento.`,
+    };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("produzione_eventi_linea")
+    .update({
+      documento_stato: "chiuso",
+      closed_at: new Date().toISOString(),
+      closed_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", eventoId);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "produzione_eventi_linea",
+    entity_id: eventoId,
+    action: "close",
+    actor_id: auth.userId,
+    summary: `Chiuso evento di linea: ${eventoLineaLabel(loaded.evento.tipo)}`,
+  });
+  return loadEventoLinea(eventoId);
 }

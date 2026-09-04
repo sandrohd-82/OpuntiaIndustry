@@ -4,17 +4,20 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
+  listMacchinaAttivitaAction,
   listRicambiAction,
   softDeleteRicambioAction,
   updateMacchinarioStatoAction,
   upsertRicambioAction,
 } from "@/app/actions/produzione-macchinari";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
+import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
+  attivitaOrigineLabel,
   ricambioSottoSoglia,
-  type IotStato,
+  type MacchinarioAttivita,
   type MacchinarioRicambio,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
@@ -31,8 +34,9 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
   const [ricambi, setRicambi] = useState<MacchinarioRicambio[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [iot, setIot] = useState(false);
-  const [stato, setStato] = useState<IotStato>("no_iot");
+  const [arresto, setArresto] = useState(false);
   const [statoNote, setStatoNote] = useState("");
+  const [attivita, setAttivita] = useState<MacchinarioAttivita[]>([]);
   const [articolo, setArticolo] = useState("");
   const [dettaglio, setDettaglio] = useState("");
   const [azienda, setAzienda] = useState("");
@@ -54,11 +58,16 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
       setMacchina(m ?? null);
       if (m) {
         setIot(m.iotCollegato);
-        setStato(m.statoIot);
+        setArresto(m.statoIot === "arresto");
         setStatoNote(m.statoNote);
-        const r = await listRicambiAction(m.id);
+        const [r, a] = await Promise.all([
+          listRicambiAction(m.id),
+          listMacchinaAttivitaAction(m.id),
+        ]);
         if (!r.success) setError(r.error);
         else setRicambi(r.items);
+        if (!a.success) setError(a.error);
+        else setAttivita(a.items);
       }
     });
   }
@@ -90,36 +99,49 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
       </p>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">Stato di funzionamento</h3>
-          <IotStatusDot stato={macchina.statoIot} />
+          <div className="flex items-center gap-3">
+            <IotStatusDot stato={macchina.statoIot} />
+            <MachinePowerToggle
+              macchina={macchina}
+              origine="scheda"
+              onError={setError}
+              onChanged={(item) => {
+                setMacchina(item);
+                setArresto(item.statoIot === "arresto");
+                setStatoNote(item.statoNote);
+                window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                start(async () => {
+                  const a = await listMacchinaAttivitaAction(item.id);
+                  if (a.success) setAttivita(a.items);
+                });
+              }}
+            />
+          </div>
         </div>
+        <p className="mt-2 text-xs text-[var(--muted)]">
+          {macchina.iotCollegato
+            ? "IoT collegato: On/Off registra il comando da inviare al dispositivo."
+            : "Senza IoT: On/Off è la dichiarazione dell’operatore."}
+        </p>
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={iot}
-              onChange={(e) => {
-                setIot(e.target.checked);
-                setStato(e.target.checked ? "spento" : "no_iot");
-              }}
+              onChange={(e) => setIot(e.target.checked)}
             />
             Collegato tramite IoT
           </label>
-          {iot ? (
-            <label className="text-xs text-[var(--muted)]">
-              Stato
-              <select
-                value={stato}
-                onChange={(e) => setStato(e.target.value as IotStato)}
-                className="mt-1 block rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-              >
-                <option value="acceso">Acceso</option>
-                <option value="spento">Spento</option>
-                <option value="arresto">Arresto per problema</option>
-              </select>
-            </label>
-          ) : null}
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={arresto}
+              onChange={(e) => setArresto(e.target.checked)}
+            />
+            Arresto per problema
+          </label>
           <label className="min-w-64 flex-1 text-xs text-[var(--muted)]">
             Note / causa (obbligatoria in arresto)
             <input
@@ -135,7 +157,11 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
               start(async () => {
                 const res = await updateMacchinarioStatoAction(macchina.id, {
                   iotCollegato: iot,
-                  statoIot: iot ? stato : "no_iot",
+                  statoIot: arresto
+                    ? "arresto"
+                    : macchina.statoIot === "acceso"
+                      ? "acceso"
+                      : "spento",
                   statoNote,
                 });
                 if (!res.success) setError(res.error);
@@ -147,9 +173,48 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
             }
             className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            Aggiorna stato
+            Aggiorna IoT / arresto
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <h3 className="text-sm font-semibold">Registro attività On/Off</h3>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Registro immutabile: chi ha dichiarato On o Off, quando e da dove.
+        </p>
+        <ul className="mt-3 divide-y divide-[var(--border)]">
+          {attivita.length === 0 ? (
+            <li className="py-2 text-sm text-[var(--muted)]">
+              Nessuna attività registrata.
+            </li>
+          ) : (
+            attivita.map((row) => (
+              <li key={row.id} className="py-2 text-sm">
+                <span
+                  className={
+                    row.azione === "on"
+                      ? "font-semibold text-emerald-700"
+                      : "font-semibold text-slate-600"
+                  }
+                >
+                  {row.azione === "on" ? "On" : "Off"}
+                </span>
+                {" · "}
+                {row.actorNome || "Operatore"}
+                {" · "}
+                {attivitaOrigineLabel(row.origine)}
+                {" · "}
+                {new Date(row.createdAt).toLocaleString("it-IT")}
+                {row.note ? (
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    {row.note}
+                  </span>
+                ) : null}
+              </li>
+            ))
+          )}
+        </ul>
       </div>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">

@@ -81,11 +81,81 @@ export function iotStatoLabel(stato: IotStato): string {
 }
 
 export function normalizeIotStato(iotCollegato: boolean, stato: IotStato): IotStato {
-  if (!iotCollegato) return "no_iot";
-  if (stato === "no_iot") return "spento";
+  if (iotCollegato && stato === "no_iot") return "spento";
   return stato;
 }
 
 export function ricambioSottoSoglia(r: MacchinarioRicambio): boolean {
   return r.presente && r.sogliaMinima > 0 && r.quantita < r.sogliaMinima;
 }
+
+export function macchinaIsOn(stato: IotStato): boolean {
+  return stato === "acceso";
+}
+
+export const ATTIVITA_AZIONI = ["on", "off"] as const;
+export type AttivitaAzione = (typeof ATTIVITA_AZIONI)[number];
+
+export const ATTIVITA_ORIGINI = [
+  "panoramica",
+  "scheda",
+  "evento_linea",
+  "iot",
+] as const;
+export type AttivitaOrigine = (typeof ATTIVITA_ORIGINI)[number];
+
+export function attivitaOrigineLabel(origine: AttivitaOrigine): string {
+  if (origine === "panoramica") return "Panoramica";
+  if (origine === "scheda") return "Scheda macchina";
+  if (origine === "evento_linea") return "Evento di linea";
+  return "IoT";
+}
+
+export type MacchinarioAttivita = {
+  id: string;
+  macchinarioId: string;
+  azione: AttivitaAzione;
+  origine: AttivitaOrigine;
+  actorNome: string;
+  note: string;
+  createdAt: string;
+};
+
+export const EVENTO_LINEA_TIPI = [
+  "pausa_caffe",
+  "pausa_pranzo",
+  "fine_turno",
+  "ripresa",
+] as const;
+export type EventoLineaTipo = (typeof EVENTO_LINEA_TIPI)[number];
+
+export function eventoLineaLabel(tipo: EventoLineaTipo): string {
+  if (tipo === "pausa_caffe") return "Pausa caffè";
+  if (tipo === "pausa_pranzo") return "Pausa pranzo";
+  if (tipo === "fine_turno") return "Fine turno";
+  return "Ripresa";
+}
+
+export type EventoLineaMacchina = {
+  id: string;
+  macchinarioId: string;
+  nome: string;
+  codice: string;
+  iotCollegato: boolean;
+  statoIot: IotStato;
+  richiesto: boolean;
+  confermatoAt: string | null;
+  viaIot: boolean;
+};
+
+export type EventoLinea = {
+  id: string;
+  areaId: string;
+  tipo: EventoLineaTipo;
+  documentoStato: "bozza" | "in_corso" | "chiuso";
+  note: string;
+  startedAt: string;
+  startedByNome: string;
+  closedAt: string | null;
+  macchine: EventoLineaMacchina[];
+};

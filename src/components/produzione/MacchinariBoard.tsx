@@ -5,8 +5,10 @@ import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { createMacchinarioAction } from "@/app/actions/produzione-macchinari";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
+import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
+import type { ProduzioneMacchinario } from "@/lib/produzione/macchinari";
 
 type Props = {
   areaCodice: string;
@@ -20,6 +22,18 @@ export function MacchinariBoard({ areaCodice }: Props) {
   const [codice, setCodice] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [iot, setIot] = useState(false);
+
+  function patchMacchina(item: ProduzioneMacchinario) {
+    setArea((prev) =>
+      prev
+        ? {
+            ...prev,
+            macchinari: prev.macchinari.map((m) => (m.id === item.id ? item : m)),
+          }
+        : prev
+    );
+    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+  }
 
   function load() {
     start(async () => {
@@ -79,8 +93,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
         </p>
       ) : null}
       <p className="text-sm text-[var(--muted)]">
-        Impianti di {area.nome}. Pallino: verde acceso, rosso arresto, grigio
-        spento, nero senza IoT.
+        Impianti di {area.nome}. On/Off è dichiarato dall’operatore; se la
+        macchina è collegata IoT, lo stesso pulsante prepara il comando.
       </p>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -143,7 +157,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
               key={m.id}
               className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">{m.nome}</p>
                   <p className="font-mono text-xs text-[var(--muted)]">{m.codice}</p>
@@ -151,7 +165,16 @@ export function MacchinariBoard({ areaCodice }: Props) {
                     {m.descrizione || "Impianto di area."}
                   </p>
                 </div>
-                <IotStatusDot stato={m.statoIot} />
+                <div className="flex flex-col items-end gap-2">
+                  <MachinePowerToggle
+                    macchina={m}
+                    origine="scheda"
+                    size="sm"
+                    onError={setError}
+                    onChanged={patchMacchina}
+                  />
+                  <IotStatusDot stato={m.statoIot} size="sm" />
+                </div>
               </div>
               {m.statoIot === "arresto" && m.statoNote ? (
                 <p className="mt-2 text-xs text-red-700">{m.statoNote}</p>
