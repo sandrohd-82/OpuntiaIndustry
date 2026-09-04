@@ -483,6 +483,8 @@ function EventoCatalogoSettings({
   const [stati, setStati] = useState<Record<string, EventoMacchinaStato>>(() =>
     Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
   );
+  const [editing, setEditing] = useState(false);
+  const [askEdit, setAskEdit] = useState(false);
   const albero = nestMacchinari(macchinari);
   const foglie = foglieMacchinari(macchinari);
   const foglieIds = new Set(foglie.map((m) => m.id));
@@ -519,7 +521,24 @@ function EventoCatalogoSettings({
     setStati(
       Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
     );
+    setEditing(false);
+    setAskEdit(false);
   }, [item.id, item.nome, item.sintesi, item.durataMinuti, item.macchine, item.macchineIds]);
+
+  function resetDraft() {
+    setNome(item.nome);
+    setSintesi(item.sintesi);
+    setHaDurata(item.durataMinuti > 0);
+    setDurata(item.durataMinuti > 0 ? String(item.durataMinuti) : "15");
+    setIds(new Set(item.macchineIds));
+    setStati(
+      Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
+    );
+    setEditing(false);
+    setAskEdit(false);
+  }
+
+  const locked = !isAdmin || !editing;
 
   function toggle(id: string) {
     if (!isAdmin) return;
@@ -574,65 +593,89 @@ function EventoCatalogoSettings({
 
   return (
     <div className="space-y-3 border-t border-[var(--border)] bg-slate-50 px-3 py-3">
-      <p className="text-xs font-medium text-slate-700">Testata evento</p>
-      <label className="block text-xs text-[var(--muted)]">
-        Nome
-        <input
-          value={nome}
-          disabled={!isAdmin}
-          onChange={(e) => setNome(e.target.value)}
-          className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
-        />
-      </label>
-      <label className="block text-xs text-[var(--muted)]">
-        Riga riassuntiva
-        <input
-          value={sintesi}
-          disabled={!isAdmin}
-          onChange={(e) => setSintesi(e.target.value)}
-          className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
-        />
-      </label>
-      <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-        <input
-          type="checkbox"
-          checked={haDurata}
-          disabled={!isAdmin}
-          onChange={(e) => {
-            const on = e.target.checked;
-            setHaDurata(on);
-            if (on && (!durata || Number(durata) <= 0)) setDurata("15");
-          }}
-        />
-        Ha una durata
-      </label>
-      {haDurata ? (
-        <label className="block text-xs text-[var(--muted)]">
-          Durata (minuti)
-          <input
-            type="number"
-            min={1}
-            value={durata}
-            disabled={!isAdmin}
-            onChange={(e) => setDurata(e.target.value)}
-            className="mt-1 w-full max-w-xs rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
-          />
-        </label>
+      {locked ? (
+        <div className="space-y-2 text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Procedura ufficiale · sola lettura
+          </p>
+          <p>
+            <span className="text-xs text-[var(--muted)]">Nome · </span>
+            {item.nome}
+          </p>
+          <p>
+            <span className="text-xs text-[var(--muted)]">Sintesi · </span>
+            {item.sintesi}
+          </p>
+          <p>
+            <span className="text-xs text-[var(--muted)]">Durata · </span>
+            {item.durataMinuti > 0
+              ? `${item.durataMinuti} min`
+              : "Processo senza durata"}
+          </p>
+        </div>
       ) : (
-        <p className="text-xs text-[var(--muted)]">
-          Processo senza durata: resta aperto fino alla chiusura.
-        </p>
+        <>
+          <p className="text-xs font-medium text-amber-800">
+            Modifica sbloccata · procedura ufficiale, usa solo se necessario
+          </p>
+          <label className="block text-xs text-[var(--muted)]">
+            Nome
+            <input
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="block text-xs text-[var(--muted)]">
+            Riga riassuntiva
+            <input
+              value={sintesi}
+              onChange={(e) => setSintesi(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={haDurata}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setHaDurata(on);
+                if (on && (!durata || Number(durata) <= 0)) setDurata("15");
+              }}
+            />
+            Ha una durata
+          </label>
+          {haDurata ? (
+            <label className="block text-xs text-[var(--muted)]">
+              Durata (minuti)
+              <input
+                type="number"
+                min={1}
+                value={durata}
+                onChange={(e) => setDurata(e.target.value)}
+                className="mt-1 w-full max-w-xs rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+              />
+            </label>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">
+              Processo senza durata: resta aperto fino alla chiusura.
+            </p>
+          )}
+        </>
       )}
 
       <div>
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium text-slate-700">
             Macchine coinvolte
-            <span className="ml-1 font-normal text-[var(--muted)]">
-              (check = partecipa; pulsante = stato richiesto)
-            </span>
+            {!locked ? (
+              <span className="ml-1 font-normal text-[var(--muted)]">
+                (check = partecipa; pulsante = stato richiesto)
+              </span>
+            ) : null}
           </p>
-          {isAdmin && foglie.length > 0 ? (
+          {!locked && foglie.length > 0 ? (
             <button
               type="button"
               className="text-xs text-[var(--primary)] hover:underline"
@@ -662,7 +705,7 @@ function EventoCatalogoSettings({
                 macchina={m}
                 ids={ids}
                 stati={stati}
-                isAdmin={isAdmin}
+                isAdmin={!locked}
                 onToggle={toggle}
                 onToggleMany={toggleMany}
                 onStato={setStatoMacchina}
@@ -676,10 +719,50 @@ function EventoCatalogoSettings({
       <p className="text-xs text-[var(--muted)]">
         Versione {item.versione} · {item.documentoStato}
         {!isAdmin
-          ? " · Solo l’amministratore può modificare queste impostazioni."
+          ? " · Solo l’amministratore può sbloccare modifica ed eliminazione."
           : ""}
       </p>
-      {isAdmin ? (
+
+      {isAdmin && askEdit && !editing ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          <p>
+            Questa è una procedura ufficiale. Modifica ed eliminazione sono
+            operazioni rare e restano tracciate (ISO 9001). Confermi di
+            sbloccare?
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setAskEdit(false)}
+              className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              Annulla
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAskEdit(false);
+                setEditing(true);
+              }}
+              className="rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-800"
+            >
+              Sì, sblocca modifica
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isAdmin && !editing && !askEdit ? (
+        <button
+          type="button"
+          onClick={() => setAskEdit(true)}
+          className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+        >
+          Modifica procedura
+        </button>
+      ) : null}
+
+      {isAdmin && editing ? (
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -716,6 +799,14 @@ function EventoCatalogoSettings({
             }`}
           >
             {pending ? "Salvataggio…" : "Salva impostazioni"}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={resetDraft}
+            className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+          >
+            Annulla
           </button>
           <button
             type="button"
