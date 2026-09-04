@@ -18,6 +18,8 @@ import {
   type EventoLinea,
   type EventoLineaCatalogo,
   type EventoLineaMacchina,
+  type EventoLineaMacchinaConfig,
+  type EventoMacchinaStato,
   type EventoStatoObiettivo,
   type EventoLineaTipo,
   type MacchinarioAttivita,
@@ -363,9 +365,12 @@ async function confirmEventoOffAndMaybeClose(input: {
   if (!eventoId) return;
   const current = await loadEventoLinea(eventoId);
   if (!current.success) return;
+  const riga = current.evento.macchine.find(
+    (m) => m.macchinarioId === input.macchinarioId
+  );
+  const target = riga?.statoObiettivo ?? current.evento.statoObiettivo;
   const matches =
-    (current.evento.statoObiettivo === "off" && !input.on) ||
-    (current.evento.statoObiettivo === "on" && input.on);
+    (target === "off" && !input.on) || (target === "on" && input.on);
   if (!matches) return;
   await supabase
     .from("produzione_evento_linea_macchine")
@@ -665,7 +670,7 @@ async function loadEventoLinea(
   }
   const { data: righe, error: rErr } = await supabase
     .from("produzione_evento_linea_macchine")
-    .select("id, macchinario_id, richiesto, confermato_at, via_iot")
+    .select("id, macchinario_id, richiesto, confermato_at, via_iot, stato_obiettivo")
     .eq("evento_id", eventoId);
   if (rErr) return { success: false, error: rErr.message };
   const ids = ((righe ?? []) as Array<{ macchinario_id: string }>).map(
@@ -688,6 +693,7 @@ async function loadEventoLinea(
       richiesto: boolean;
       confermato_at: string | null;
       via_iot: boolean;
+      stato_obiettivo: EventoMacchinaStato | null;
     }>
   ).map((r) => {
     const m = macchineById.get(r.macchinario_id);
@@ -701,6 +707,7 @@ async function loadEventoLinea(
       richiesto: r.richiesto,
       confermatoAt: r.confermato_at,
       viaIot: r.via_iot,
+      statoObiettivo: r.stato_obiettivo === "on" ? "on" : "off",
     };
   });
   return {
@@ -784,40 +791,49 @@ export async function startEventoLineaAction(input: {
     evento_id: string;
     macchinario_id: string;
     richiesto: boolean;
+    stato_obiettivo: EventoMacchinaStato;
     confermato_at: string | null;
     confermato_by: string | null;
     created_by: string;
   }> = [];
-  if (catalogo.stato_obiettivo !== "nessuno") {
-    const { data: selected } = await supabase
-      .from("produzione_eventi_linea_catalogo_macchine")
-      .select("macchinario_id")
-      .eq("catalogo_id", catalogo.id)
-      .eq("area_id", input.areaId)
+  const { data: selected } = await supabase
+    .from("produzione_eventi_linea_catalogo_macchine")
+    .select("macchinario_id, stato_obiettivo")
+    .eq("catalogo_id", catalogo.id)
+    .eq("area_id", input.areaId)
+    .is("deleted_at", null);
+  const selectedRows = (selected ?? []) as Array<{
+    macchinario_id: string;
+    stato_obiettivo: EventoMacchinaStato | null;
+  }>;
+  const machineIds = selectedRows.map((r) => r.macchinario_id);
+  const targetById = new Map(
+    selectedRows.map((r) => [
+      r.macchinario_id,
+      r.stato_obiettivo === "on" ? "on" : "off",
+    ] as const)
+  );
+  if (machineIds.length) {
+    const { data: macs } = await supabase
+      .from("produzione_macchinari")
+      .select("id, stato_iot")
+      .in("id", machineIds)
       .is("deleted_at", null);
-    const machineIds = ((selected ?? []) as Array<{ macchinario_id: string }>).map(
-      (r) => r.macchinario_id
-    );
-    if (machineIds.length) {
-      const { data: macs } = await supabase
-        .from("produzione_macchinari")
-        .select("id, stato_iot")
-        .in("id", machineIds)
-        .is("deleted_at", null);
-      const now = new Date().toISOString();
-      for (const m of (macs ?? []) as Array<{ id: string; stato_iot: string }>) {
-        const already =
-          (catalogo.stato_obiettivo === "off" && m.stato_iot !== "acceso") ||
-          (catalogo.stato_obiettivo === "on" && m.stato_iot === "acceso");
-        rows.push({
-          evento_id: eventoId,
-          macchinario_id: m.id,
-          richiesto: true,
-          confermato_at: already ? now : null,
-          confermato_by: already ? auth.userId : null,
-          created_by: auth.userId,
-        });
-      }
+    const now = new Date().toISOString();
+    for (const m of (macs ?? []) as Array<{ id: string; stato_iot: string }>) {
+      const target = targetById.get(m.id) ?? "off";
+      const already =
+        (target === "off" && m.stato_iot !== "acceso") ||
+        (target === "on" && m.stato_iot === "acceso");
+      rows.push({
+        evento_id: eventoId,
+        macchinario_id: m.id,
+        richiesto: true,
+        stato_obiettivo: target,
+        confermato_at: already ? now : null,
+        confermato_by: already ? auth.userId : null,
+        created_by: auth.userId,
+      });
     }
     if (rows.length) {
       const { error: iErr } = await supabase
@@ -897,7 +913,7 @@ function mapCatalogo(
     versione: number;
     attivo: boolean;
   },
-  macchineIds: string[] = []
+  macchine: EventoLineaMacchinaConfig[] = []
 ): EventoLineaCatalogo {
   return {
     id: row.id,
@@ -908,7 +924,8 @@ function mapCatalogo(
     richiedeSpegnimento: Boolean(row.richiede_spegnimento),
     durataMinuti: row.durata_minuti ?? 0,
     statoObiettivo: row.stato_obiettivo ?? "off",
-    macchineIds,
+    macchineIds: macchine.map((m) => m.macchinarioId),
+    macchine,
     sortOrder: row.sort_order ?? 100,
     documentoStato: row.documento_stato,
     versione: row.versione ?? 1,
@@ -937,11 +954,11 @@ export async function listEventiLineaCatalogoAction(
   const { data, error } = await query;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as Parameters<typeof mapCatalogo>[0][];
-  const macchineByCatalogo = new Map<string, string[]>();
+  const macchineByCatalogo = new Map<string, EventoLineaMacchinaConfig[]>();
   if (areaId && rows.length) {
     const { data: links } = await supabase
       .from("produzione_eventi_linea_catalogo_macchine")
-      .select("catalogo_id, macchinario_id")
+      .select("catalogo_id, macchinario_id, stato_obiettivo")
       .eq("area_id", areaId)
       .is("deleted_at", null)
       .in(
@@ -951,9 +968,13 @@ export async function listEventiLineaCatalogoAction(
     for (const link of (links ?? []) as Array<{
       catalogo_id: string;
       macchinario_id: string;
+      stato_obiettivo: EventoMacchinaStato | null;
     }>) {
       const list = macchineByCatalogo.get(link.catalogo_id) ?? [];
-      list.push(link.macchinario_id);
+      list.push({
+        macchinarioId: link.macchinario_id,
+        statoObiettivo: link.stato_obiettivo === "on" ? "on" : "off",
+      });
       macchineByCatalogo.set(link.catalogo_id, list);
     }
   }
@@ -1046,15 +1067,19 @@ export async function updateEventoLineaCatalogoSettingsAction(
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
   }
   const supabase = await createClient();
-  if (parsed.data.macchinarioIds.length) {
+  const macchinarioIds = parsed.data.macchine.map((m) => m.macchinarioId);
+  const statoById = new Map(
+    parsed.data.macchine.map((m) => [m.macchinarioId, m.statoObiettivo])
+  );
+  if (macchinarioIds.length) {
     const { data: macs, error: mErr } = await supabase
       .from("produzione_macchinari")
       .select("id")
       .eq("area_id", parsed.data.areaId)
       .is("deleted_at", null)
-      .in("id", parsed.data.macchinarioIds);
+      .in("id", macchinarioIds);
     if (mErr) return { success: false, error: mErr.message };
-    if (((macs ?? []) as Array<{ id: string }>).length !== parsed.data.macchinarioIds.length) {
+    if (((macs ?? []) as Array<{ id: string }>).length !== macchinarioIds.length) {
       return { success: false, error: "Una o più macchine non appartengono a quest’area." };
     }
   }
@@ -1090,23 +1115,22 @@ export async function updateEventoLineaCatalogoSettingsAction(
     .select("id, macchinario_id, deleted_at")
     .eq("catalogo_id", parsed.data.catalogoId)
     .eq("area_id", parsed.data.areaId);
-  const wanted = new Set(parsed.data.macchinarioIds);
+  const wanted = new Set(macchinarioIds);
   for (const link of (links ?? []) as Array<{
     id: string;
     macchinario_id: string;
     deleted_at: string | null;
   }>) {
     if (wanted.has(link.macchinario_id)) {
-      if (link.deleted_at) {
-        await supabase
-          .from("produzione_eventi_linea_catalogo_macchine")
-          .update({
-            deleted_at: null,
-            deleted_by: null,
-            updated_by: auth.userId,
-          })
-          .eq("id", link.id);
-      }
+      await supabase
+        .from("produzione_eventi_linea_catalogo_macchine")
+        .update({
+          deleted_at: null,
+          deleted_by: null,
+          stato_obiettivo: statoById.get(link.macchinario_id) ?? "off",
+          updated_by: auth.userId,
+        })
+        .eq("id", link.id);
       wanted.delete(link.macchinario_id);
     } else if (!link.deleted_at) {
       await supabase
@@ -1127,6 +1151,7 @@ export async function updateEventoLineaCatalogoSettingsAction(
           catalogo_id: parsed.data.catalogoId,
           area_id: parsed.data.areaId,
           macchinario_id: macchinarioId,
+          stato_obiettivo: statoById.get(macchinarioId) ?? "off",
           created_by: auth.userId,
           updated_by: auth.userId,
         }))
@@ -1136,7 +1161,7 @@ export async function updateEventoLineaCatalogoSettingsAction(
 
   const item = mapCatalogo(
     data as Parameters<typeof mapCatalogo>[0],
-    parsed.data.macchinarioIds
+    parsed.data.macchine
   );
   await writeAuditLog({
     entity_type: "produzione_eventi_linea_catalogo",
@@ -1147,8 +1172,7 @@ export async function updateEventoLineaCatalogoSettingsAction(
     payload: {
       area_id: parsed.data.areaId,
       durata_minuti: item.durataMinuti,
-      stato_obiettivo: item.statoObiettivo,
-      macchine: parsed.data.macchinarioIds.length,
+      macchine: parsed.data.macchine,
     },
   });
   return { success: true, item };

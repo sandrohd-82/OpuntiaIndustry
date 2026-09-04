@@ -210,6 +210,13 @@ export function eventoStatoObiettivoLabel(stato: EventoStatoObiettivo): string {
   return "Nessuna variazione";
 }
 
+export type EventoMacchinaStato = "off" | "on";
+
+export type EventoLineaMacchinaConfig = {
+  macchinarioId: string;
+  statoObiettivo: EventoMacchinaStato;
+};
+
 export type EventoLineaCatalogo = {
   id: string;
   codice: string;
@@ -220,6 +227,7 @@ export type EventoLineaCatalogo = {
   durataMinuti: number;
   statoObiettivo: EventoStatoObiettivo;
   macchineIds: string[];
+  macchine: EventoLineaMacchinaConfig[];
   sortOrder: number;
   documentoStato: "bozza" | "approvato";
   versione: number;
@@ -238,7 +246,12 @@ export const eventoLineaCatalogoSettingsSchema = z.object({
   areaId: z.string().uuid(),
   durataMinuti: z.number().int().min(0).max(24 * 60),
   statoObiettivo: z.enum(EVENTO_STATI_OBIETTIVO),
-  macchinarioIds: z.array(z.string().uuid()),
+  macchine: z.array(
+    z.object({
+      macchinarioId: z.string().uuid(),
+      statoObiettivo: z.enum(["off", "on"]),
+    })
+  ),
 });
 
 export type EventoLineaMacchina = {
@@ -251,6 +264,7 @@ export type EventoLineaMacchina = {
   richiesto: boolean;
   confermatoAt: string | null;
   viaIot: boolean;
+  statoObiettivo: EventoMacchinaStato;
 };
 
 export type EventoLinea = {

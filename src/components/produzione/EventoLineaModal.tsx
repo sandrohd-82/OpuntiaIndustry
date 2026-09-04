@@ -179,7 +179,7 @@ export function EventoLineaModal({
               <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
                 {evento.macchine.map((m) => {
                   const atTarget =
-                    evento.statoObiettivo === "on"
+                    m.statoObiettivo === "on"
                       ? macchinaIsOn(m.statoIot)
                       : !macchinaIsOn(m.statoIot);
                   const done = Boolean(m.confermatoAt) || atTarget;
@@ -195,8 +195,8 @@ export function EventoLineaModal({
                             ? "IoT collegato — comando da inviare"
                             : "Dichiarazione operatore"}
                           {done
-                            ? ` · ${eventoStatoObiettivoLabel(evento.statoObiettivo)} confermato`
-                            : ` · richiesto ${eventoStatoObiettivoLabel(evento.statoObiettivo)}`}
+                            ? ` · ${eventoStatoObiettivoLabel(m.statoObiettivo)} confermato`
+                            : ` · richiesto ${eventoStatoObiettivoLabel(m.statoObiettivo)}`}
                         </p>
                       </div>
                       <MachinePowerToggle
@@ -218,8 +218,8 @@ export function EventoLineaModal({
                         }}
                         origine="evento_linea"
                         eventoLineaId={evento.id}
-                        forceOff={evento.statoObiettivo === "off"}
-                        forceOn={evento.statoObiettivo === "on"}
+                        forceOff={m.statoObiettivo === "off"}
+                        forceOn={m.statoObiettivo === "on"}
                         size="sm"
                         onError={setError}
                         onChanged={(item) => {
