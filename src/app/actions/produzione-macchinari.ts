@@ -1022,64 +1022,79 @@ export async function createEventoLineaCatalogoAction(
 ): Promise<
   { success: true; item: EventoLineaCatalogo } | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("produzione");
-  if (!isAdminLikeProfile(auth.profile)) {
-    return { success: false, error: "Solo l’amministratore può aggiungere eventi di linea." };
-  }
-  const parsed = eventoLineaCatalogoInputSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
-  }
-  const codice = slugPosto(parsed.data.nome);
-  if (!codice) {
-    return { success: false, error: "Nome non valido per generare il codice." };
-  }
-  const supabase = await createClient();
-  const { data: last } = await supabase
-    .from("produzione_eventi_linea_catalogo")
-    .select("sort_order")
-    .is("deleted_at", null)
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const sortOrder = ((last as { sort_order?: number } | null)?.sort_order ?? 0) + 10;
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("produzione_eventi_linea_catalogo")
-    .insert({
-      codice,
-      nome: parsed.data.nome,
-      sintesi: parsed.data.sintesi,
-      dettagli: "",
-      durata_minuti: parsed.data.durataMinuti,
-      stato_obiettivo: parsed.data.statoObiettivo,
-      richiede_spegnimento: parsed.data.statoObiettivo === "off",
-      sort_order: sortOrder,
-      versione: 1,
-      documento_stato: "approvato",
-      approved_at: now,
-      approved_by: auth.userId,
-      created_by: auth.userId,
-      updated_by: auth.userId,
-    })
-    .select(CATALOGO_COLS)
-    .single();
-  if (error || !data) {
-    if (error?.code === "23505") {
-      return { success: false, error: "Esiste già un evento di linea con questo nome." };
+  try {
+    const { auth } = await requireAreaAccess("produzione");
+    if (!isAdminLikeProfile(auth.profile)) {
+      return { success: false, error: "Solo l’amministratore può aggiungere eventi di linea." };
     }
-    return { success: false, error: error?.message ?? "Salvataggio fallito." };
+    const parsed = eventoLineaCatalogoInputSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    }
+    const codice = slugPosto(parsed.data.nome);
+    if (!codice) {
+      return { success: false, error: "Nome non valido per generare il codice." };
+    }
+    const supabase = await createClient();
+    const { data: last, error: lastErr } = await supabase
+      .from("produzione_eventi_linea_catalogo")
+      .select("sort_order")
+      .is("deleted_at", null)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastErr) {
+      return { success: false, error: lastErr.message };
+    }
+    const sortOrder = ((last as { sort_order?: number } | null)?.sort_order ?? 0) + 10;
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("produzione_eventi_linea_catalogo")
+      .insert({
+        codice,
+        nome: parsed.data.nome,
+        sintesi: parsed.data.sintesi,
+        dettagli: "",
+        durata_minuti: parsed.data.durataMinuti,
+        stato_obiettivo: parsed.data.statoObiettivo ?? "off",
+        richiede_spegnimento: false,
+        sort_order: sortOrder,
+        versione: 1,
+        documento_stato: "approvato",
+        approved_at: now,
+        approved_by: auth.userId,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select(CATALOGO_COLS)
+      .single();
+    if (error || !data) {
+      if (error?.code === "23505") {
+        return { success: false, error: "Esiste già un evento di linea con questo nome." };
+      }
+      return { success: false, error: error?.message ?? "Salvataggio fallito." };
+    }
+    const item = mapCatalogo(data as Parameters<typeof mapCatalogo>[0]);
+    await writeAuditLog({
+      entity_type: "produzione_eventi_linea_catalogo",
+      entity_id: item.id,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Aggiunto evento di linea in catalogo: ${item.nome}`,
+      payload: { codice: item.codice },
+    });
+    return { success: true, item };
+  } catch (e) {
+    const digest =
+      typeof e === "object" && e && "digest" in e
+        ? String((e as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw e;
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Salvataggio fallito.",
+    };
   }
-  const item = mapCatalogo(data as Parameters<typeof mapCatalogo>[0]);
-  await writeAuditLog({
-    entity_type: "produzione_eventi_linea_catalogo",
-    entity_id: item.id,
-    action: "create",
-    actor_id: auth.userId,
-    summary: `Aggiunto evento di linea in catalogo: ${item.nome}`,
-    payload: { codice: item.codice },
-  });
-  return { success: true, item };
 }
 
 export async function updateEventoLineaCatalogoSettingsAction(

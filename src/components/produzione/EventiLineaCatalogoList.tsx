@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, useTransition } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   createEventoLineaCatalogoAction,
   listEventiLineaCatalogoAction,
@@ -27,35 +27,121 @@ type Props = {
 
 export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
   const infoId = useId();
-  const [pending, start] = useTransition();
   const [items, setItems] = useState<EventoLineaCatalogo[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [nome, setNome] = useState("");
   const [sintesi, setSintesi] = useState("");
   const [haDurata, setHaDurata] = useState(false);
   const [durata, setDurata] = useState("15");
 
-  function load() {
-    start(async () => {
-      const res = await listEventiLineaCatalogoAction(areaId);
+  async function load() {
+    const res = await listEventiLineaCatalogoAction(areaId);
+    if (!res.success) {
+      setError(res.error);
+      return false;
+    }
+    setError(null);
+    setItems(res.items);
+    setIsAdmin(res.isAdmin);
+    return true;
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listEventiLineaCatalogoAction(areaId)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setError(null);
+        setItems(res.items);
+        setIsAdmin(res.isAdmin);
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : "Caricamento catalogo fallito.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [areaId]);
+
+  async function handleCreate() {
+    if (creating) return;
+    const minuti = haDurata ? Math.round(Number(durata)) : 0;
+    if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
+      setError("Indica una durata in minuti maggiore di zero.");
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const res = await createEventoLineaCatalogoAction({
+        nome: nome.trim(),
+        sintesi: sintesi.trim(),
+        durataMinuti: minuti,
+        statoObiettivo: "off",
+      });
       if (!res.success) {
         setError(res.error);
         return;
       }
-      setError(null);
-      setItems(res.items);
-      setIsAdmin(res.isAdmin);
-    });
+      setNome("");
+      setSintesi("");
+      setHaDurata(false);
+      setDurata("15");
+      setFormOpen(false);
+      setOpenId(res.item.id);
+      setItems((prev) => {
+        if (prev.some((x) => x.id === res.item.id)) return prev;
+        return [...prev, res.item].sort(
+          (a, b) => a.sortOrder - b.sortOrder || a.nome.localeCompare(b.nome)
+        );
+      });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Salvataggio non riuscito.");
+    } finally {
+      setCreating(false);
+    }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [areaId]);
+  async function handleSaveSettings(payload: {
+    catalogoId: string;
+    areaId: string;
+    durataMinuti: number;
+    statoObiettivo: EventoStatoObiettivo;
+    macchine: EventoLineaMacchinaConfig[];
+  }) {
+    if (savingSettings) return;
+    setSavingSettings(true);
+    setError(null);
+    try {
+      const res = await updateEventoLineaCatalogoSettingsAction(payload);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Salvataggio impostazioni non riuscito.");
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   useEffect(() => {
     if (!infoOpen) return;
@@ -170,39 +256,19 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
           <button
             type="button"
             disabled={
-              pending ||
+              creating ||
               !nome.trim() ||
               !sintesi.trim() ||
               (haDurata && !(Number(durata) > 0))
             }
-            onClick={() =>
-              start(async () => {
-                const minuti = haDurata ? Math.round(Number(durata)) : 0;
-                if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
-                  setError("Indica una durata in minuti maggiore di zero.");
-                  return;
-                }
-                const res = await createEventoLineaCatalogoAction({
-                  nome: nome.trim(),
-                  sintesi: sintesi.trim(),
-                  durataMinuti: minuti,
-                });
-                if (!res.success) {
-                  setError(res.error);
-                  return;
-                }
-                setNome("");
-                setSintesi("");
-                setHaDurata(false);
-                setDurata("15");
-                setFormOpen(false);
-                setOpenId(res.item.id);
-                load();
-              })
-            }
-            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            onClick={() => void handleCreate()}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              creating
+                ? "cursor-wait bg-slate-300 text-slate-600"
+                : "bg-[var(--primary)] text-white disabled:opacity-50"
+            }`}
           >
-            Salva evento
+            {creating ? "Salvataggio…" : "Salva evento"}
           </button>
         </div>
       ) : null}
@@ -210,7 +276,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
       <ul className="mt-3 divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
         {items.length === 0 ? (
           <li className="px-3 py-3 text-sm text-[var(--muted)]">
-            {pending ? "Caricamento catalogo…" : "Nessun evento di linea in catalogo."}
+            {loading ? "Caricamento catalogo…" : "Nessun evento di linea in catalogo."}
           </li>
         ) : (
           items.map((item) => {
@@ -247,19 +313,9 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
                     areaId={areaId}
                     macchinari={macchinari}
                     isAdmin={isAdmin}
-                    pending={pending}
+                    pending={savingSettings}
                     onError={setError}
-                    onSave={(payload) =>
-                      start(async () => {
-                        const res =
-                          await updateEventoLineaCatalogoSettingsAction(payload);
-                        if (!res.success) {
-                          setError(res.error);
-                          return;
-                        }
-                        load();
-                      })
-                    }
+                    onSave={(payload) => void handleSaveSettings(payload)}
                   />
                 ) : null}
               </li>
