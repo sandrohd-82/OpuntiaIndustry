@@ -271,6 +271,10 @@ export const eventoLineaCatalogoSettingsSchema = z.object({
   ),
 });
 
+export const eventoLineaCatalogoReorderSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});
+
 export type EventoLineaMacchina = {
   id: string;
   macchinarioId: string;

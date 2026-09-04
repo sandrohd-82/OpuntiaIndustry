@@ -4,6 +4,7 @@ import { useEffect, useId, useState } from "react";
 import {
   createEventoLineaCatalogoAction,
   listEventiLineaCatalogoAction,
+  reorderEventiLineaCatalogoAction,
   updateEventoLineaCatalogoSettingsAction,
 } from "@/app/actions/produzione-macchinari";
 import {
@@ -40,6 +41,9 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
   const [sintesi, setSintesi] = useState("");
   const [haDurata, setHaDurata] = useState(false);
   const [durata, setDurata] = useState("15");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [reordering, setReordering] = useState(false);
 
   async function load() {
     const res = await listEventiLineaCatalogoAction(areaId);
@@ -140,6 +144,37 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
       setError(e instanceof Error ? e.message : "Salvataggio impostazioni non riuscito.");
     } finally {
       setSavingSettings(false);
+    }
+  }
+
+  function moveItem(fromId: string, toId: string): EventoLineaCatalogo[] {
+    if (fromId === toId) return items;
+    const next = [...items];
+    const from = next.findIndex((i) => i.id === fromId);
+    const to = next.findIndex((i) => i.id === toId);
+    if (from < 0 || to < 0) return items;
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    return next.map((item, i) => ({ ...item, sortOrder: (i + 1) * 10 }));
+  }
+
+  async function persistOrder(next: EventoLineaCatalogo[]) {
+    const prev = items;
+    setItems(next);
+    setReordering(true);
+    try {
+      const res = await reorderEventiLineaCatalogoAction({
+        ids: next.map((i) => i.id),
+      });
+      if (!res.success) {
+        setError(res.error);
+        setItems(prev);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Riordino non riuscito.");
+      setItems(prev);
+    } finally {
+      setReordering(false);
     }
   }
 
@@ -273,6 +308,11 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
         </div>
       ) : null}
 
+      {isAdmin && items.length > 1 ? (
+        <p className="mt-3 text-xs text-[var(--muted)]">
+          Trascina l’icona a sinistra per cambiare l’ordine. L’ordine vale anche in avvio evento.
+        </p>
+      ) : null}
       <ul className="mt-3 divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
         {items.length === 0 ? (
           <li className="px-3 py-3 text-sm text-[var(--muted)]">
@@ -282,31 +322,87 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
           items.map((item) => {
             const open = openId === item.id;
             return (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() => setOpenId(open ? null : item.id)}
-                  className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-50"
-                >
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium">{item.nome}</span>
-                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      {item.sintesi}
-                      {" · "}
-                      {item.durataMinuti > 0
-                        ? `${item.durataMinuti} min`
-                        : "Senza durata"}
-                      {" · "}
-                      {item.macchineIds.length
-                        ? `${item.macchineIds.length} macchine coinvolte`
-                        : "Nessuna macchina coinvolta"}
+              <li
+                key={item.id}
+                onDragOver={
+                  isAdmin
+                    ? (e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        if (overId !== item.id) setOverId(item.id);
+                      }
+                    : undefined
+                }
+                onDrop={
+                  isAdmin
+                    ? (e) => {
+                        e.preventDefault();
+                        const fromId =
+                          dragId ?? e.dataTransfer.getData("text/plain");
+                        setDragId(null);
+                        setOverId(null);
+                        if (!fromId || fromId === item.id) return;
+                        const next = moveItem(fromId, item.id);
+                        if (next === items) return;
+                        void persistOrder(next);
+                      }
+                    : undefined
+                }
+                className={`${dragId === item.id ? "opacity-50" : ""} ${
+                  overId === item.id && dragId && overId !== dragId
+                    ? "bg-slate-100"
+                    : ""
+                }`}
+              >
+                <div className="flex items-start">
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      draggable={!reordering}
+                      title="Trascina per riordinare"
+                      aria-label={`Trascina ${item.nome} per cambiare ordine`}
+                      onClick={(e) => e.stopPropagation()}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", item.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragId(item.id);
+                      }}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setOverId(null);
+                      }}
+                      className="mt-2 shrink-0 cursor-grab px-2 py-1 text-slate-400 hover:text-slate-600 active:cursor-grabbing"
+                    >
+                      <span aria-hidden className="block leading-none">
+                        ⋮⋮
+                      </span>
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => setOpenId(open ? null : item.id)}
+                    className="flex min-w-0 flex-1 items-start justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{item.nome}</span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        {item.sintesi}
+                        {" · "}
+                        {item.durataMinuti > 0
+                          ? `${item.durataMinuti} min`
+                          : "Senza durata"}
+                        {" · "}
+                        {item.macchineIds.length
+                          ? `${item.macchineIds.length} macchine coinvolte`
+                          : "Nessuna macchina coinvolta"}
+                      </span>
                     </span>
-                  </span>
-                  <span className="mt-0.5 shrink-0 text-xs text-[var(--muted)]">
-                    {open ? "▲" : "▼"}
-                  </span>
-                </button>
+                    <span className="mt-0.5 shrink-0 text-xs text-[var(--muted)]">
+                      {open ? "▲" : "▼"}
+                    </span>
+                  </button>
+                </div>
                 {open ? (
                   <EventoCatalogoSettings
                     item={item}

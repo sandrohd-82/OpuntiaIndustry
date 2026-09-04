@@ -6,6 +6,7 @@ import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { slugPosto } from "@/lib/produzione/aree-posti";
 import {
   eventoLineaCatalogoInputSchema,
+  eventoLineaCatalogoReorderSchema,
   eventoLineaCatalogoSettingsSchema,
   eventoLineaLabel,
   insiemeDerivedStato,
@@ -1223,4 +1224,66 @@ export async function updateEventoLineaCatalogoSettingsAction(
     },
   });
   return { success: true, item };
+}
+
+export async function reorderEventiLineaCatalogoAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { auth } = await requireAreaAccess("produzione");
+    if (!isAdminLikeProfile(auth.profile)) {
+      return {
+        success: false,
+        error: "Solo l’amministratore può riordinare gli eventi di linea.",
+      };
+    }
+    const parsed = eventoLineaCatalogoReorderSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Ordine non valido." };
+    }
+    const ids = parsed.data.ids;
+    if (new Set(ids).size !== ids.length) {
+      return { success: false, error: "Elenco ordine non valido." };
+    }
+    const supabase = await createClient();
+    const { data: rows, error } = await supabase
+      .from("produzione_eventi_linea_catalogo")
+      .select("id")
+      .is("deleted_at", null)
+      .in("id", ids);
+    if (error) return { success: false, error: error.message };
+    if (((rows ?? []) as Array<{ id: string }>).length !== ids.length) {
+      return { success: false, error: "Uno o più eventi non sono più disponibili." };
+    }
+    for (let i = 0; i < ids.length; i++) {
+      const { error: uErr } = await supabase
+        .from("produzione_eventi_linea_catalogo")
+        .update({
+          sort_order: (i + 1) * 10,
+          updated_by: auth.userId,
+        })
+        .eq("id", ids[i])
+        .is("deleted_at", null);
+      if (uErr) return { success: false, error: uErr.message };
+    }
+    await writeAuditLog({
+      entity_type: "produzione_eventi_linea_catalogo",
+      entity_id: ids[0],
+      action: "reorder",
+      actor_id: auth.userId,
+      summary: `Riordinati ${ids.length} eventi di linea`,
+      payload: { ids },
+    });
+    return { success: true };
+  } catch (e) {
+    const digest =
+      typeof e === "object" && e && "digest" in e
+        ? String((e as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw e;
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Riordino non riuscito.",
+    };
+  }
 }
