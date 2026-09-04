@@ -10,6 +10,7 @@ import {
   eventoLineaLabel,
   insiemeDerivedStato,
   isInsieme,
+  VASCA_FIGLI_CODICI,
   macchinarioInputSchema,
   macchinarioStatoSchema,
   normalizeIotStato,
@@ -116,17 +117,24 @@ export async function listMacchinariByAreaIdsAction(
     .order("sort_order", { ascending: true });
   if (error) return { success: false, error: error.message };
   const items = ((data ?? []) as MacchinaRow[]).map(mapMacchina);
+  const vasca = items.find((m) => m.codice === "vasca-lavaggio");
   const figliByParent = new Map<string, ProduzioneMacchinario[]>();
   for (const m of items) {
-    if (!m.parentId) continue;
-    const list = figliByParent.get(m.parentId) ?? [];
+    const parentId =
+      m.parentId ??
+      (vasca &&
+      VASCA_FIGLI_CODICI.includes(m.codice as (typeof VASCA_FIGLI_CODICI)[number])
+        ? vasca.id
+        : null);
+    if (!parentId) continue;
+    const list = figliByParent.get(parentId) ?? [];
     list.push(m);
-    figliByParent.set(m.parentId, list);
+    figliByParent.set(parentId, list);
   }
   return {
     success: true,
     items: items.map((m) =>
-      m.tipo === "insieme"
+      isInsieme(m)
         ? { ...m, statoIot: insiemeDerivedStato(figliByParent.get(m.id) ?? []) }
         : m
     ),
@@ -437,12 +445,35 @@ export async function setMacchinaPowerAction(input: {
   }
   const prev = mapMacchina(current as MacchinaRow);
   if (isInsieme(prev)) {
-    const { data: kids, error: kErr } = await supabase
+    let { data: kids, error: kErr } = await supabase
       .from("produzione_macchinari")
       .select(MACCHINA_COLS)
       .eq("parent_id", prev.id)
       .is("deleted_at", null);
     if (kErr) return { success: false, error: kErr.message };
+    if (!(kids ?? []).length && prev.codice === "vasca-lavaggio") {
+      const fallback = await supabase
+        .from("produzione_macchinari")
+        .select(MACCHINA_COLS)
+        .eq("area_id", prev.areaId)
+        .in("codice", [...VASCA_FIGLI_CODICI])
+        .is("deleted_at", null);
+      if (fallback.error) return { success: false, error: fallback.error.message };
+      kids = fallback.data;
+      for (const row of (kids ?? []) as MacchinaRow[]) {
+        await supabase
+          .from("produzione_macchinari")
+          .update({ parent_id: prev.id, updated_by: auth.userId })
+          .eq("id", row.id)
+          .is("deleted_at", null);
+      }
+    }
+    if (prev.tipo !== "insieme") {
+      await supabase
+        .from("produzione_macchinari")
+        .update({ tipo: "insieme", updated_by: auth.userId })
+        .eq("id", prev.id);
+    }
     const figli: ProduzioneMacchinario[] = [];
     for (const row of (kids ?? []) as MacchinaRow[]) {
       const child = mapMacchina(row);

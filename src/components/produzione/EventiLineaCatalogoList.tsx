@@ -340,6 +340,20 @@ function EventoCatalogoSettings({
     setStati((s) => ({ ...s, [id]: stato }));
   }
 
+  function setStatoMany(machineIds: string[], stato: EventoMacchinaStato) {
+    if (!isAdmin) return;
+    setIds((prev) => {
+      const next = new Set(prev);
+      for (const id of machineIds) next.add(id);
+      return next;
+    });
+    setStati((s) => {
+      const next = { ...s };
+      for (const id of machineIds) next[id] = stato;
+      return next;
+    });
+  }
+
   return (
     <div className="space-y-3 border-t border-[var(--border)] bg-slate-50 px-3 py-3">
       <label className="block text-xs text-[var(--muted)]">
@@ -396,6 +410,7 @@ function EventoCatalogoSettings({
                 onToggle={toggle}
                 onToggleMany={toggleMany}
                 onStato={setStatoMacchina}
+                onStatoMany={setStatoMany}
               />
             ))}
           </ul>
@@ -448,6 +463,7 @@ function MacchinaCheckNodo({
   onToggle,
   onToggleMany,
   onStato,
+  onStatoMany,
   nested = false,
 }: {
   macchina: ProduzioneMacchinario;
@@ -457,6 +473,7 @@ function MacchinaCheckNodo({
   onToggle: (id: string) => void;
   onToggleMany: (ids: string[], selected: boolean) => void;
   onStato: (id: string, stato: EventoMacchinaStato) => void;
+  onStatoMany: (ids: string[], stato: EventoMacchinaStato) => void;
   nested?: boolean;
 }) {
   const figli = macchina.figli ?? [];
@@ -465,8 +482,14 @@ function MacchinaCheckNodo({
     : [macchina];
   const allOn = foglie.length > 0 && foglie.every((f) => ids.has(f.id));
   const someOn = foglie.some((f) => ids.has(f.id));
-  const coinvolta = !isInsieme(macchina) && ids.has(macchina.id);
-  const richiesto = stati[macchina.id] ?? "off";
+  const coinvolta = isInsieme(macchina)
+    ? foglie.length > 0 && foglie.every((f) => ids.has(f.id))
+    : ids.has(macchina.id);
+  const richiesto = isInsieme(macchina)
+    ? foglie.length > 0 && foglie.every((f) => (stati[f.id] ?? "off") === "on")
+      ? "on"
+      : "off"
+    : (stati[macchina.id] ?? "off");
 
   return (
     <li className={nested ? "ml-4" : ""}>
@@ -493,12 +516,16 @@ function MacchinaCheckNodo({
             ) : null}
           </span>
         </label>
-        {coinvolta ? (
+        {isInsieme(macchina) || coinvolta ? (
           <button
             type="button"
             disabled={!isAdmin}
             title="Stato in cui la macchina deve trovarsi per questo evento"
-            onClick={() => onStato(macchina.id, richiesto === "on" ? "off" : "on")}
+            onClick={() => {
+              const next = richiesto === "on" ? "off" : "on";
+              if (isInsieme(macchina)) onStatoMany(foglie.map((f) => f.id), next);
+              else onStato(macchina.id, next);
+            }}
             className={`inline-flex h-6 min-w-10 items-center justify-center rounded-full px-2 text-[10px] font-semibold uppercase disabled:opacity-70 ${
               richiesto === "on"
                 ? "bg-emerald-500 text-white"
@@ -521,6 +548,7 @@ function MacchinaCheckNodo({
               onToggle={onToggle}
               onToggleMany={onToggleMany}
               onStato={onStato}
+              onStatoMany={onStatoMany}
               nested
             />
           ))}

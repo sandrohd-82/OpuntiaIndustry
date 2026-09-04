@@ -100,8 +100,15 @@ export function macchinaIsOn(stato: IotStato): boolean {
 }
 
 export function isInsieme(m: ProduzioneMacchinario): boolean {
-  return m.tipo === "insieme";
+  return m.tipo === "insieme" || m.codice === "vasca-lavaggio";
 }
+
+export const VASCA_FIGLI_CODICI = [
+  "pompa-in-disinfettante",
+  "soffiante",
+  "nastro-risalita",
+  "spruzzini",
+] as const;
 
 export function insiemeDerivedStato(figli: ProduzioneMacchinario[]): IotStato {
   if (!figli.length) return "spento";
@@ -114,10 +121,20 @@ export function nestMacchinari(
   items: ProduzioneMacchinario[]
 ): ProduzioneMacchinario[] {
   const byId = new Map(items.map((m) => [m.id, { ...m, figli: [] as ProduzioneMacchinario[] }]));
+  const vasca = [...byId.values()].find((m) => m.codice === "vasca-lavaggio");
   const roots: ProduzioneMacchinario[] = [];
   for (const m of byId.values()) {
-    if (m.parentId && byId.has(m.parentId)) {
-      byId.get(m.parentId)!.figli!.push(m);
+    const parentId =
+      m.parentId && byId.has(m.parentId)
+        ? m.parentId
+        : vasca &&
+            VASCA_FIGLI_CODICI.includes(
+              m.codice as (typeof VASCA_FIGLI_CODICI)[number]
+            )
+          ? vasca.id
+          : null;
+    if (parentId && parentId !== m.id && byId.has(parentId)) {
+      byId.get(parentId)!.figli!.push(m);
     } else {
       roots.push(m);
     }
