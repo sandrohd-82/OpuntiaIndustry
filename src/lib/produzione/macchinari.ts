@@ -3,6 +3,9 @@ import { z } from "zod";
 export const IOT_STATI = ["no_iot", "acceso", "arresto", "spento"] as const;
 export type IotStato = (typeof IOT_STATI)[number];
 
+export const MACCHINARIO_TIPI = ["macchina", "insieme"] as const;
+export type MacchinarioTipo = (typeof MACCHINARIO_TIPI)[number];
+
 export type ProduzioneMacchinario = {
   id: string;
   areaId: string;
@@ -16,6 +19,9 @@ export type ProduzioneMacchinario = {
   attivo: boolean;
   sortOrder: number;
   note: string;
+  parentId: string | null;
+  tipo: MacchinarioTipo;
+  figli?: ProduzioneMacchinario[];
 };
 
 export type MacchinarioRicambio = {
@@ -93,6 +99,62 @@ export function macchinaIsOn(stato: IotStato): boolean {
   return stato === "acceso";
 }
 
+export function isInsieme(m: ProduzioneMacchinario): boolean {
+  return m.tipo === "insieme";
+}
+
+export function insiemeDerivedStato(figli: ProduzioneMacchinario[]): IotStato {
+  if (!figli.length) return "spento";
+  if (figli.some((f) => f.statoIot === "arresto")) return "arresto";
+  if (figli.every((f) => f.statoIot === "acceso")) return "acceso";
+  return "spento";
+}
+
+export function nestMacchinari(
+  items: ProduzioneMacchinario[]
+): ProduzioneMacchinario[] {
+  const byId = new Map(items.map((m) => [m.id, { ...m, figli: [] as ProduzioneMacchinario[] }]));
+  const roots: ProduzioneMacchinario[] = [];
+  for (const m of byId.values()) {
+    if (m.parentId && byId.has(m.parentId)) {
+      byId.get(m.parentId)!.figli!.push(m);
+    } else {
+      roots.push(m);
+    }
+  }
+  for (const m of byId.values()) {
+    m.figli?.sort((a, b) => a.sortOrder - b.sortOrder || a.nome.localeCompare(b.nome));
+    if (m.tipo === "insieme") {
+      m.statoIot = insiemeDerivedStato(m.figli ?? []);
+    }
+  }
+  roots.sort((a, b) => a.sortOrder - b.sortOrder || a.nome.localeCompare(b.nome));
+  return roots;
+}
+
+export function foglieMacchinari(
+  items: ProduzioneMacchinario[]
+): ProduzioneMacchinario[] {
+  return items.filter((m) => m.tipo !== "insieme");
+}
+
+export function applyMacchinaPatch(
+  items: ProduzioneMacchinario[],
+  item: ProduzioneMacchinario
+): ProduzioneMacchinario[] {
+  const byId = new Map(items.map((m) => [m.id, m]));
+  byId.set(item.id, { ...byId.get(item.id), ...item });
+  for (const f of item.figli ?? []) {
+    byId.set(f.id, { ...byId.get(f.id), ...f });
+  }
+  const next = [...byId.values()];
+  return next.map((m) => {
+    if (m.tipo !== "insieme") return m;
+    const figli = next.filter((x) => x.parentId === m.id);
+    return { ...m, statoIot: insiemeDerivedStato(figli) };
+  });
+}
+
 export const ATTIVITA_AZIONI = ["on", "off"] as const;
 export type AttivitaAzione = (typeof ATTIVITA_AZIONI)[number];
 
@@ -101,6 +163,7 @@ export const ATTIVITA_ORIGINI = [
   "scheda",
   "evento_linea",
   "iot",
+  "insieme",
 ] as const;
 export type AttivitaOrigine = (typeof ATTIVITA_ORIGINI)[number];
 
@@ -108,6 +171,7 @@ export function attivitaOrigineLabel(origine: AttivitaOrigine): string {
   if (origine === "panoramica") return "Panoramica";
   if (origine === "scheda") return "Scheda macchina";
   if (origine === "evento_linea") return "Evento di linea";
+  if (origine === "insieme") return "Insieme";
   return "IoT";
 }
 

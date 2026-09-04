@@ -5,6 +5,7 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
+import { nestMacchinari, type ProduzioneMacchinario } from "@/lib/produzione/macchinari";
 
 export type { NavBranch, NavLeaf, NavItem as ProduzioneNavItem } from "@/lib/areas/nav-tree";
 export { isNavBranch };
@@ -88,13 +89,19 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
           { slug: "linea-principale", label: "Linea principale", description: "Versamento e controllo quantità." },
         ],
         [
-          { slug: "vasca-lavaggio", label: "Vasca lavaggio", description: "Vasca di lavaggio." },
+          {
+            slug: "vasca-lavaggio",
+            label: "Vasca lavaggio",
+            description: "Insieme macchine in vasca.",
+            children: [
+              { slug: "pompa-in-disinfettante", label: "Pompa In. Disinfettante", description: "Pompa disinfettante." },
+              { slug: "soffiante", label: "Soffiante", description: "Soffiatura." },
+              { slug: "nastro-risalita", label: "Nastro Risalita", description: "Nastro di risalita." },
+              { slug: "spruzzini", label: "Spruzzini", description: "Ugelli di lavaggio." },
+            ],
+          },
           { slug: "sterilizzatore-uv", label: "Sterilizzatore UV", description: "Sterilizzazione UV." },
           { slug: "macchina-anolyte", label: "Macchina Anolyte", description: "Dosaggio anolyte." },
-          { slug: "pompa-in-disinfettante", label: "Pompa In. Disinfettante", description: "Pompa disinfettante." },
-          { slug: "soffiante", label: "Soffiante", description: "Soffiatura." },
-          { slug: "nastro-risalita", label: "Nastro Risalita", description: "Nastro di risalita." },
-          { slug: "spruzzini", label: "Spruzzini", description: "Ugelli di lavaggio." },
         ]
       ),
       areaNavBranch("taglio", "Taglio", "Più posti lavoro, stesso obiettivo di lotto.", [
@@ -151,7 +158,12 @@ function areaNavBranch(
   label: string,
   description: string,
   posti: Array<{ slug: string; label: string; description: string }>,
-  macchine: Array<{ slug: string; label: string; description: string }> = []
+  macchine: Array<{
+    slug: string;
+    label: string;
+    description: string;
+    children?: Array<{ slug: string; label: string; description: string }>;
+  }> = []
 ): NavItem {
   const base = `/app/produzione/gestione-aree/${slug}`;
   return {
@@ -179,12 +191,37 @@ function areaNavBranch(
             description: "Elenco macchine dell’area.",
             path: `${base}/macchinari`,
           },
-          ...macchine.map((m) => ({
-            slug: m.slug,
-            label: m.label,
-            description: m.description,
-            path: `${base}/macchinari/${m.slug}`,
-          })),
+          ...macchine.map((m) => {
+            const path = `${base}/macchinari/${m.slug}`;
+            if (m.children?.length) {
+              return {
+                slug: m.slug,
+                label: m.label,
+                description: m.description,
+                path,
+                children: [
+                  {
+                    slug: m.slug,
+                    label: m.label,
+                    description: m.description,
+                    path,
+                  },
+                  ...m.children.map((c) => ({
+                    slug: c.slug,
+                    label: c.label,
+                    description: c.description,
+                    path: `${base}/macchinari/${c.slug}`,
+                  })),
+                ],
+              };
+            }
+            return {
+              slug: m.slug,
+              label: m.label,
+              description: m.description,
+              path,
+            };
+          }),
         ],
       },
       {
@@ -233,13 +270,18 @@ export function mergeProduzioneNavWithAree(
               label: p.nome,
               description: p.descrizione,
             })),
-          (a.macchinari ?? [])
-            .filter((m) => m.attivo)
-            .map((m) => ({
+          nestMacchinari((a.macchinari ?? []).filter((m) => m.attivo)).map(
+            (m: ProduzioneMacchinario) => ({
               slug: m.codice,
               label: m.nome,
               description: m.descrizione,
-            }))
+              children: (m.figli ?? []).map((c) => ({
+                slug: c.codice,
+                label: c.nome,
+                description: c.descrizione,
+              })),
+            })
+          )
         )
       ),
     };

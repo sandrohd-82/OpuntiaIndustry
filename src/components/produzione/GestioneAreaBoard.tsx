@@ -14,7 +14,10 @@ import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
+  applyMacchinaPatch,
   eventoLineaLabel,
+  isInsieme,
+  nestMacchinari,
   type EventoLinea,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
@@ -34,12 +37,7 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   function patchMacchina(item: ProduzioneMacchinario) {
     setArea((prev) =>
       prev
-        ? {
-            ...prev,
-            macchinari: (prev.macchinari ?? []).map((m) =>
-              m.id === item.id ? item : m
-            ),
-          }
+        ? { ...prev, macchinari: applyMacchinaPatch(prev.macchinari ?? [], item) }
         : prev
     );
     window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
@@ -152,27 +150,14 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
             </p>
           ) : null}
           <ul className="mt-3 divide-y divide-[var(--border)]">
-            {(area.macchinari ?? []).map((m) => (
-              <li key={m.id} className="flex items-center justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <Link
-                    href={`${base}/macchinari/${m.codice}`}
-                    className="text-sm font-medium text-[var(--primary)] hover:underline"
-                  >
-                    {m.nome}
-                  </Link>
-                  <div className="mt-0.5">
-                    <IotStatusDot stato={m.statoIot} size="sm" />
-                  </div>
-                </div>
-                <MachinePowerToggle
-                  macchina={m}
-                  origine="panoramica"
-                  size="sm"
-                  onError={setError}
-                  onChanged={patchMacchina}
-                />
-              </li>
+            {nestMacchinari(area.macchinari ?? []).map((m) => (
+              <MacchinaStatoNodo
+                key={m.id}
+                macchina={m}
+                base={base}
+                onError={setError}
+                onChanged={patchMacchina}
+              />
             ))}
           </ul>
         </div>
@@ -229,5 +214,64 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         )
       ) : null}
     </div>
+  );
+}
+
+function MacchinaStatoNodo({
+  macchina,
+  base,
+  nested = false,
+  onError,
+  onChanged,
+}: {
+  macchina: ProduzioneMacchinario;
+  base: string;
+  nested?: boolean;
+  onError: (message: string) => void;
+  onChanged: (item: ProduzioneMacchinario) => void;
+}) {
+  const figli = macchina.figli ?? [];
+  return (
+    <li className={nested ? "border-l border-[var(--border)] pl-3" : ""}>
+      <div className="flex items-center justify-between gap-3 py-2">
+        <div className="min-w-0">
+          <Link
+            href={`${base}/macchinari/${macchina.codice}`}
+            className="text-sm font-medium text-[var(--primary)] hover:underline"
+          >
+            {macchina.nome}
+          </Link>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <IotStatusDot stato={macchina.statoIot} size="sm" />
+            {isInsieme(macchina) ? (
+              <span className="text-[10px] uppercase text-[var(--muted)]">
+                Insieme
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <MachinePowerToggle
+          macchina={macchina}
+          origine={isInsieme(macchina) ? "insieme" : "panoramica"}
+          size="sm"
+          onError={onError}
+          onChanged={onChanged}
+        />
+      </div>
+      {figli.length ? (
+        <ul className="mb-1 ml-2 divide-y divide-[var(--border)]">
+          {figli.map((f) => (
+            <MacchinaStatoNodo
+              key={f.id}
+              macchina={f}
+              base={base}
+              nested
+              onError={onError}
+              onChanged={onChanged}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }

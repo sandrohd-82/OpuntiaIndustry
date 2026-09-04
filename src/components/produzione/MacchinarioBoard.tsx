@@ -15,7 +15,10 @@ import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
+  applyMacchinaPatch,
   attivitaOrigineLabel,
+  isInsieme,
+  nestMacchinari,
   ricambioSottoSoglia,
   type MacchinarioAttivita,
   type MacchinarioRicambio,
@@ -53,7 +56,12 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         return;
       }
       const a = res.items.find((x) => x.codice === areaCodice) ?? null;
-      const m = a?.macchinari.find((x) => x.codice === macchinaCodice) ?? null;
+      const raw = a?.macchinari.find((x) => x.codice === macchinaCodice) ?? null;
+      const tree = nestMacchinari(a?.macchinari ?? []);
+      const m =
+        tree.find((x) => x.codice === macchinaCodice) ??
+        tree.flatMap((x) => x.figli ?? []).find((x) => x.codice === macchinaCodice) ??
+        raw;
       setArea(a);
       setMacchina(m ?? null);
       if (m) {
@@ -105,15 +113,23 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
             <IotStatusDot stato={macchina.statoIot} />
             <MachinePowerToggle
               macchina={macchina}
-              origine="scheda"
+              origine={isInsieme(macchina) ? "insieme" : "scheda"}
               onError={setError}
               onChanged={(item) => {
-                setMacchina(item);
+                setMacchina((prev) => {
+                  if (!prev) return item;
+                  if (item.id === prev.id) return { ...prev, ...item };
+                  const patched = applyMacchinaPatch(
+                    [prev, ...(prev.figli ?? [])],
+                    item
+                  );
+                  return nestMacchinari(patched)[0] ?? { ...prev, ...item };
+                });
                 setArresto(item.statoIot === "arresto");
                 setStatoNote(item.statoNote);
                 window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
                 start(async () => {
-                  const a = await listMacchinaAttivitaAction(item.id);
+                  const a = await listMacchinaAttivitaAction(macchina.id);
                   if (a.success) setAttivita(a.items);
                 });
               }}
@@ -121,10 +137,51 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
           </div>
         </div>
         <p className="mt-2 text-xs text-[var(--muted)]">
-          {macchina.iotCollegato
-            ? "IoT collegato: On/Off registra il comando da inviare al dispositivo."
-            : "Senza IoT: On/Off è la dichiarazione dell’operatore."}
+          {isInsieme(macchina)
+            ? "La vasca è un insieme: On/Off si ripercuote sulle macchine interne. Non ha uno stato proprio."
+            : macchina.iotCollegato
+              ? "IoT collegato: On/Off registra il comando da inviare al dispositivo."
+              : "Senza IoT: On/Off è la dichiarazione dell’operatore."}
         </p>
+        {isInsieme(macchina) && (macchina.figli ?? []).length ? (
+          <ul className="mt-3 divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
+            {(macchina.figli ?? []).map((f) => (
+              <li
+                key={f.id}
+                className="flex items-center justify-between gap-3 px-3 py-2"
+              >
+                <div>
+                  <Link
+                    href={`${base}/macchinari/${f.codice}`}
+                    className="text-sm font-medium text-[var(--primary)] hover:underline"
+                  >
+                    {f.nome}
+                  </Link>
+                  <div className="mt-0.5">
+                    <IotStatusDot stato={f.statoIot} size="sm" />
+                  </div>
+                </div>
+                <MachinePowerToggle
+                  macchina={f}
+                  origine="scheda"
+                  size="sm"
+                  onError={setError}
+                  onChanged={(item) => {
+                    setMacchina((prev) => {
+                      if (!prev) return prev;
+                      const flat = [prev, ...(prev.figli ?? [])];
+                      return (
+                        nestMacchinari(applyMacchinaPatch(flat, item))[0] ?? prev
+                      );
+                    });
+                    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                  }}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {isInsieme(macchina) ? null : (
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -176,6 +233,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
             Aggiorna IoT / arresto
           </button>
         </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">

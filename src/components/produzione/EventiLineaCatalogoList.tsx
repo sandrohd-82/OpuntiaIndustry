@@ -9,6 +9,9 @@ import {
 import {
   EVENTO_STATI_OBIETTIVO,
   eventoStatoObiettivoLabel,
+  foglieMacchinari,
+  isInsieme,
+  nestMacchinari,
   type EventoLineaCatalogo,
   type EventoStatoObiettivo,
   type ProduzioneMacchinario,
@@ -281,6 +284,8 @@ function EventoCatalogoSettings({
   const [durata, setDurata] = useState(String(item.durataMinuti));
   const [stato, setStato] = useState<EventoStatoObiettivo>(item.statoObiettivo);
   const [ids, setIds] = useState<Set<string>>(() => new Set(item.macchineIds));
+  const albero = nestMacchinari(macchinari);
+  const foglie = foglieMacchinari(macchinari);
 
   useEffect(() => {
     setDurata(String(item.durataMinuti));
@@ -294,6 +299,18 @@ function EventoCatalogoSettings({
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleMany(machineIds: string[], selected: boolean) {
+    if (!isAdmin) return;
+    setIds((prev) => {
+      const next = new Set(prev);
+      for (const id of machineIds) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   }
@@ -332,39 +349,36 @@ function EventoCatalogoSettings({
       <div>
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium text-slate-700">Macchine coinvolte</p>
-          {isAdmin && macchinari.length > 0 ? (
+          {isAdmin && foglie.length > 0 ? (
             <button
               type="button"
               className="text-xs text-[var(--primary)] hover:underline"
               onClick={() => {
-                const all = macchinari.every((m) => ids.has(m.id));
-                setIds(all ? new Set() : new Set(macchinari.map((m) => m.id)));
+                const all = foglie.every((m) => ids.has(m.id));
+                setIds(all ? new Set() : new Set(foglie.map((m) => m.id)));
               }}
             >
-              {macchinari.every((m) => ids.has(m.id))
+              {foglie.every((m) => ids.has(m.id))
                 ? "Deseleziona tutte"
                 : "Seleziona tutte"}
             </button>
           ) : null}
         </div>
-        {macchinari.length === 0 ? (
+        {albero.length === 0 ? (
           <p className="mt-1 text-xs text-[var(--muted)]">
             Nessun macchinario in quest’area.
           </p>
         ) : (
           <ul className="mt-2 space-y-1">
-            {macchinari.map((m) => (
-              <li key={m.id}>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={ids.has(m.id)}
-                    disabled={!isAdmin}
-                    onChange={() => toggle(m.id)}
-                  />
-                  <span>{m.nome}</span>
-                </label>
-              </li>
+            {albero.map((m) => (
+              <MacchinaCheckNodo
+                key={m.id}
+                macchina={m}
+                ids={ids}
+                isAdmin={isAdmin}
+                onToggle={toggle}
+                onToggleMany={toggleMany}
+              />
             ))}
           </ul>
         )}
@@ -391,7 +405,9 @@ function EventoCatalogoSettings({
               areaId,
               durataMinuti: Math.round(minuti),
               statoObiettivo: stato,
-              macchinarioIds: [...ids],
+              macchinarioIds: [...ids].filter((id) =>
+                foglie.some((m) => m.id === id)
+              ),
             });
           }}
           className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
@@ -400,5 +416,70 @@ function EventoCatalogoSettings({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function MacchinaCheckNodo({
+  macchina,
+  ids,
+  isAdmin,
+  onToggle,
+  onToggleMany,
+  nested = false,
+}: {
+  macchina: ProduzioneMacchinario;
+  ids: Set<string>;
+  isAdmin: boolean;
+  onToggle: (id: string) => void;
+  onToggleMany: (ids: string[], selected: boolean) => void;
+  nested?: boolean;
+}) {
+  const figli = macchina.figli ?? [];
+  const foglie = isInsieme(macchina)
+    ? foglieMacchinari(figli)
+    : [macchina];
+  const allOn = foglie.length > 0 && foglie.every((f) => ids.has(f.id));
+  const someOn = foglie.some((f) => ids.has(f.id));
+
+  return (
+    <li className={nested ? "ml-4" : ""}>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={allOn}
+          ref={(el) => {
+            if (el) el.indeterminate = !allOn && someOn;
+          }}
+          disabled={!isAdmin}
+          onChange={() => {
+            if (isInsieme(macchina)) onToggleMany(foglie.map((f) => f.id), !allOn);
+            else onToggle(macchina.id);
+          }}
+        />
+        <span>
+          {macchina.nome}
+          {isInsieme(macchina) ? (
+            <span className="ml-1 text-[10px] uppercase text-[var(--muted)]">
+              insieme
+            </span>
+          ) : null}
+        </span>
+      </label>
+      {figli.length ? (
+        <ul className="mt-1 space-y-1">
+          {figli.map((f) => (
+            <MacchinaCheckNodo
+              key={f.id}
+              macchina={f}
+              ids={ids}
+              isAdmin={isAdmin}
+              onToggle={onToggle}
+              onToggleMany={onToggleMany}
+              nested
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }

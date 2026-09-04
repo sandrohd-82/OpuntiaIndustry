@@ -8,6 +8,8 @@ import {
   eventoLineaCatalogoInputSchema,
   eventoLineaCatalogoSettingsSchema,
   eventoLineaLabel,
+  insiemeDerivedStato,
+  isInsieme,
   macchinarioInputSchema,
   macchinarioStatoSchema,
   normalizeIotStato,
@@ -37,6 +39,8 @@ type MacchinaRow = {
   attivo: boolean;
   sort_order: number;
   note: string;
+  parent_id: string | null;
+  tipo: ProduzioneMacchinario["tipo"];
 };
 
 type RicambioRow = {
@@ -67,6 +71,8 @@ function mapMacchina(row: MacchinaRow): ProduzioneMacchinario {
     attivo: Boolean(row.attivo),
     sortOrder: row.sort_order ?? 0,
     note: row.note ?? "",
+    parentId: row.parent_id ?? null,
+    tipo: row.tipo ?? "macchina",
   };
 }
 
@@ -87,7 +93,7 @@ function mapRicambio(row: RicambioRow): MacchinarioRicambio {
 }
 
 const MACCHINA_COLS =
-  "id, area_id, codice, nome, descrizione, iot_collegato, stato_iot, stato_note, stato_at, attivo, sort_order, note";
+  "id, area_id, codice, nome, descrizione, iot_collegato, stato_iot, stato_note, stato_at, attivo, sort_order, note, parent_id, tipo";
 const RICAMBIO_COLS =
   "id, macchinario_id, articolo, nome_dettaglio, azienda_venditrice, presente, scaffale, quantita, unita, soglia_minima, note";
 
@@ -107,7 +113,22 @@ export async function listMacchinariByAreaIdsAction(
     .in("area_id", areaIds)
     .order("sort_order", { ascending: true });
   if (error) return { success: false, error: error.message };
-  return { success: true, items: ((data ?? []) as MacchinaRow[]).map(mapMacchina) };
+  const items = ((data ?? []) as MacchinaRow[]).map(mapMacchina);
+  const figliByParent = new Map<string, ProduzioneMacchinario[]>();
+  for (const m of items) {
+    if (!m.parentId) continue;
+    const list = figliByParent.get(m.parentId) ?? [];
+    list.push(m);
+    figliByParent.set(m.parentId, list);
+  }
+  return {
+    success: true,
+    items: items.map((m) =>
+      m.tipo === "insieme"
+        ? { ...m, statoIot: insiemeDerivedStato(figliByParent.get(m.id) ?? []) }
+        : m
+    ),
+  };
 }
 
 export async function createMacchinarioAction(
@@ -134,6 +155,7 @@ export async function createMacchinarioAction(
       descrizione: v.descrizione ?? "",
       iot_collegato: v.iotCollegato ?? false,
       stato_iot: v.iotCollegato ? "spento" : "no_iot",
+      tipo: "macchina",
       sort_order: v.sortOrder ?? 100,
       note: v.note ?? "",
       created_by: auth.userId,
@@ -409,6 +431,40 @@ export async function setMacchinaPowerAction(input: {
     return { success: false, error: cErr?.message ?? "Macchina non trovata." };
   }
   const prev = mapMacchina(current as MacchinaRow);
+  if (isInsieme(prev)) {
+    const { data: kids, error: kErr } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .eq("parent_id", prev.id)
+      .is("deleted_at", null);
+    if (kErr) return { success: false, error: kErr.message };
+    const figli: ProduzioneMacchinario[] = [];
+    for (const row of (kids ?? []) as MacchinaRow[]) {
+      const child = mapMacchina(row);
+      const res = await setMacchinaPowerAction({
+        macchinarioId: child.id,
+        on: input.on,
+        origine: "insieme",
+        eventoLineaId: input.eventoLineaId,
+      });
+      if (!res.success) return res;
+      figli.push(res.item);
+    }
+    const item: ProduzioneMacchinario = {
+      ...prev,
+      statoIot: insiemeDerivedStato(figli),
+      figli,
+    };
+    await writeAuditLog({
+      entity_type: "produzione_macchinari",
+      entity_id: item.id,
+      action: input.on ? "power_on" : "power_off",
+      actor_id: auth.userId,
+      summary: `${input.on ? "On" : "Off"} insieme ${item.nome} (${figli.length} macchine)`,
+      payload: { origine: input.origine, figlie: figli.map((f) => f.id) },
+    });
+    return { success: true, item };
+  }
   const nextStato = input.on ? "acceso" : "spento";
   const now = new Date().toISOString();
   if (prev.statoIot === nextStato) {

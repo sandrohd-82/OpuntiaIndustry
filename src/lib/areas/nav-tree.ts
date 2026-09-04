@@ -27,6 +27,26 @@ export function isNavBranch(item: NavItem): item is NavBranch {
   return "children" in item && Array.isArray(item.children);
 }
 
+function findNavChild(
+  items: readonly NavItem[],
+  slug: string
+): NavItem | undefined {
+  const direct = items.find((item) => item.slug === slug);
+  if (direct) return direct;
+  for (const item of items) {
+    if (!isNavBranch(item)) continue;
+    const nested = findNavChild(item.children, slug);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function navSubtreeMatches(item: NavItem, pathname: string): boolean {
+  if (pathname === item.path || pathname.startsWith(`${item.path}/`)) return true;
+  if (!isNavBranch(item)) return false;
+  return item.children.some((child) => navSubtreeMatches(child, pathname));
+}
+
 /** Prima foglia raggiungibile (discesa ricorsiva nei rami). */
 export function firstLeafPath(item: NavItem): string {
   if (!isNavBranch(item)) return item.path;
@@ -52,7 +72,7 @@ export function resolveNavPage(
 
   for (let i = 0; i < segments.length; i++) {
     const slug = segments[i];
-    current = items.find((item) => item.slug === slug);
+    current = findNavChild(items, slug);
     if (!current) return null;
 
     const isLast = i === segments.length - 1;
@@ -76,7 +96,7 @@ export function findNavItem(
   let items: readonly NavItem[] = sections;
   let current: NavItem | undefined;
   for (const slug of segments) {
-    current = items.find((item) => item.slug === slug);
+    current = findNavChild(items, slug);
     if (!current) return null;
     if (isNavBranch(current)) {
       items = current.children;
@@ -95,7 +115,7 @@ export function openKeysFromPathname(
 ): string[] {
   const keys: string[] = [...prefixKeys];
   for (const item of sections) {
-    if (!pathname.startsWith(item.path)) continue;
+    if (!navSubtreeMatches(item, pathname)) continue;
     keys.push(item.slug);
     keys.push(item.path);
     if (isNavBranch(item)) {

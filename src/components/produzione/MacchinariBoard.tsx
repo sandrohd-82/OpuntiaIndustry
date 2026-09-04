@@ -8,7 +8,12 @@ import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
-import type { ProduzioneMacchinario } from "@/lib/produzione/macchinari";
+import {
+  applyMacchinaPatch,
+  isInsieme,
+  nestMacchinari,
+  type ProduzioneMacchinario,
+} from "@/lib/produzione/macchinari";
 
 type Props = {
   areaCodice: string;
@@ -26,10 +31,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
   function patchMacchina(item: ProduzioneMacchinario) {
     setArea((prev) =>
       prev
-        ? {
-            ...prev,
-            macchinari: prev.macchinari.map((m) => (m.id === item.id ? item : m)),
-          }
+        ? { ...prev, macchinari: applyMacchinaPatch(prev.macchinari, item) }
         : prev
     );
     window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
@@ -152,7 +154,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
             Nessun macchinario. Aggiungine uno per il sottomenu.
           </li>
         ) : (
-          area.macchinari.map((m) => (
+          nestMacchinari(area.macchinari).map((m) => (
             <li
               key={m.id}
               className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
@@ -162,13 +164,15 @@ export function MacchinariBoard({ areaCodice }: Props) {
                   <p className="font-semibold">{m.nome}</p>
                   <p className="font-mono text-xs text-[var(--muted)]">{m.codice}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">
-                    {m.descrizione || "Impianto di area."}
+                    {isInsieme(m)
+                      ? "Insieme: lo stato è quello delle macchine interne."
+                      : m.descrizione || "Impianto di area."}
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <MachinePowerToggle
                     macchina={m}
-                    origine="scheda"
+                    origine={isInsieme(m) ? "insieme" : "scheda"}
                     size="sm"
                     onError={setError}
                     onChanged={patchMacchina}
@@ -179,11 +183,40 @@ export function MacchinariBoard({ areaCodice }: Props) {
               {m.statoIot === "arresto" && m.statoNote ? (
                 <p className="mt-2 text-xs text-red-700">{m.statoNote}</p>
               ) : null}
+              {(m.figli ?? []).length ? (
+                <ul className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+                  {(m.figli ?? []).map((f) => (
+                    <li
+                      key={f.id}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <div>
+                        <Link
+                          href={`${base}/${f.codice}`}
+                          className="text-sm font-medium text-[var(--primary)] hover:underline"
+                        >
+                          {f.nome}
+                        </Link>
+                        <div className="mt-0.5">
+                          <IotStatusDot stato={f.statoIot} size="sm" />
+                        </div>
+                      </div>
+                      <MachinePowerToggle
+                        macchina={f}
+                        origine="scheda"
+                        size="sm"
+                        onError={setError}
+                        onChanged={patchMacchina}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <Link
                 href={`${base}/${m.codice}`}
                 className="mt-3 inline-block text-sm font-medium text-[var(--primary)] hover:underline"
               >
-                Apri macchina e ricambi
+                {isInsieme(m) ? "Apri insieme e ricambi" : "Apri macchina e ricambi"}
               </Link>
             </li>
           ))

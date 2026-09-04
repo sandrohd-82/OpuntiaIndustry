@@ -213,6 +213,8 @@ export function EventoLineaModal({
                           attivo: true,
                           sortOrder: 0,
                           note: "",
+                          parentId: null,
+                          tipo: "macchina",
                         }}
                         origine="evento_linea"
                         eventoLineaId={evento.id}
