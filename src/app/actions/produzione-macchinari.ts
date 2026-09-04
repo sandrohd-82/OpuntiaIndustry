@@ -445,12 +445,13 @@ export async function setMacchinaPowerAction(input: {
   }
   const prev = mapMacchina(current as MacchinaRow);
   if (isInsieme(prev)) {
-    let { data: kids, error: kErr } = await supabase
+    const { data: kidsByParent, error: kErr } = await supabase
       .from("produzione_macchinari")
       .select(MACCHINA_COLS)
       .eq("parent_id", prev.id)
       .is("deleted_at", null);
     if (kErr) return { success: false, error: kErr.message };
+    let kids = kidsByParent;
     if (!(kids ?? []).length && prev.codice === "vasca-lavaggio") {
       const fallback = await supabase
         .from("produzione_macchinari")
