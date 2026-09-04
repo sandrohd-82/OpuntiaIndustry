@@ -1,15 +1,16 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { FaCircleInfo, FaXmark } from "react-icons/fa6";
 
 type Props = {
   title: string;
-  children: string;
+  children: ReactNode;
+  wide?: boolean;
 };
 
 /** Icona «i»: al click apre la spiegazione (niente tooltip al solo hover). */
-export function InfoHint({ title, children }: Props) {
+export function InfoHint({ title, children, wide }: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
 
@@ -35,7 +36,9 @@ export function InfoHint({ title, children }: Props) {
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-white p-4 text-left font-normal normal-case tracking-normal shadow-xl"
+            className={`w-full rounded-xl border border-[var(--border)] bg-white p-4 text-left font-normal normal-case tracking-normal shadow-xl ${
+              wide ? "max-w-lg" : "max-w-sm"
+            }`}
           >
             <span className="flex items-start justify-between gap-2">
               <span id={titleId} className="text-sm font-semibold text-slate-900">

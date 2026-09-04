@@ -20,6 +20,7 @@ import {
 import { IoTControlPanel } from "@/components/produzione/IoTControlPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
+import { InfoHint } from "@/components/ui/InfoHint";
 import type { IotDevice } from "@/lib/produzione/iot";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
@@ -257,7 +258,49 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Stato di funzionamento</h3>
+          <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold">
+            Stato di funzionamento
+            <InfoHint title="Come si collega un dispositivo" wide>
+              <span className="space-y-2">
+                <span className="block">
+                  Apri la scheda della macchina (admin).
+                </span>
+                <span className="block">
+                  In Modalità di gestione seleziona Tramite IoT.
+                </span>
+                <span className="block">
+                  Imposta device_code (es. PMP-INZ-DSF) e l’intervallo di
+                  polling.
+                </span>
+                <span className="block">
+                  Salva collegamento IoT: viene emesso un token mostrato una
+                  sola volta (in database resta solo l’hash).
+                </span>
+                <span className="block">
+                  Copia token e device_code nello sketch ESP32/Arduino.
+                </span>
+                <span className="block">
+                  Il firmware non parla con un broker MQTT e non usa la service
+                  role di Supabase. Chiama le API del gestionale:
+                </span>
+                <span className="block font-mono text-xs leading-relaxed">
+                  POST /api/iot/telemetry — invio dati (temperatura, pressione,
+                  on, …)
+                  <br />
+                  GET /api/iot/commands — comandi pendenti (POWER_ON /
+                  POWER_OFF)
+                  <br />
+                  POST /api/iot/commands — ack dopo l’esecuzione
+                </span>
+                <span className="block">
+                  Sketch di esempio:{" "}
+                  <span className="font-mono text-xs">
+                    scripts/iot/opuntia_iot_client.ino
+                  </span>
+                </span>
+              </span>
+            </InfoHint>
+          </h3>
           <div className="flex items-center gap-3">
             <IotStatusDot stato={macchina.statoIot} />
             <MachinePowerToggle
