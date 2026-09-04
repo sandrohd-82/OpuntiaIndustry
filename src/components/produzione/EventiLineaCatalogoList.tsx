@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
   createEventoLineaCatalogoAction,
+  deleteEventoLineaCatalogoAction,
   listEventiLineaCatalogoAction,
   reorderEventiLineaCatalogoAction,
   updateEventoLineaCatalogoSettingsAction,
@@ -44,6 +46,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [deleting, setDeleting] = useState<EventoLineaCatalogo | null>(null);
 
   async function load() {
     const res = await listEventiLineaCatalogoAction(areaId);
@@ -126,6 +129,8 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
   async function handleSaveSettings(payload: {
     catalogoId: string;
     areaId: string;
+    nome: string;
+    sintesi: string;
     durataMinuti: number;
     statoObiettivo: EventoStatoObiettivo;
     macchine: EventoLineaMacchinaConfig[];
@@ -412,6 +417,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
                     pending={savingSettings}
                     onError={setError}
                     onSave={(payload) => void handleSaveSettings(payload)}
+                    onDelete={() => setDeleting(item)}
                   />
                 ) : null}
               </li>
@@ -419,6 +425,23 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
           })
         )}
       </ul>
+      {deleting ? (
+        <SoftDeleteConfirmModal
+          entityLabel={`evento di linea ${deleting.nome}`}
+          confirmCode={deleting.codice}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const res = await deleteEventoLineaCatalogoAction({
+              catalogoId: deleting.id,
+              confermaTestuale,
+            });
+            if (!res.success) throw new Error(res.error);
+            if (openId === deleting.id) setOpenId(null);
+            setDeleting(null);
+            await load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -431,6 +454,7 @@ function EventoCatalogoSettings({
   pending,
   onError,
   onSave,
+  onDelete,
 }: {
   item: EventoLineaCatalogo;
   areaId: string;
@@ -441,11 +465,16 @@ function EventoCatalogoSettings({
   onSave: (payload: {
     catalogoId: string;
     areaId: string;
+    nome: string;
+    sintesi: string;
     durataMinuti: number;
     statoObiettivo: EventoStatoObiettivo;
     macchine: EventoLineaMacchinaConfig[];
   }) => void;
+  onDelete: () => void;
 }) {
+  const [nome, setNome] = useState(item.nome);
+  const [sintesi, setSintesi] = useState(item.sintesi);
   const [haDurata, setHaDurata] = useState(item.durataMinuti > 0);
   const [durata, setDurata] = useState(
     item.durataMinuti > 0 ? String(item.durataMinuti) : "15"
@@ -474,16 +503,23 @@ function EventoCatalogoSettings({
     .join("|");
   const dirty =
     durataValida &&
-    (Math.round(minutiCorrenti) !== item.durataMinuti || currentKey !== savedKey);
+    nome.trim().length > 0 &&
+    sintesi.trim().length > 0 &&
+    (nome.trim() !== item.nome ||
+      sintesi.trim() !== item.sintesi ||
+      Math.round(minutiCorrenti) !== item.durataMinuti ||
+      currentKey !== savedKey);
 
   useEffect(() => {
+    setNome(item.nome);
+    setSintesi(item.sintesi);
     setHaDurata(item.durataMinuti > 0);
     setDurata(item.durataMinuti > 0 ? String(item.durataMinuti) : "15");
     setIds(new Set(item.macchineIds));
     setStati(
       Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
     );
-  }, [item.id, item.durataMinuti, item.macchine, item.macchineIds]);
+  }, [item.id, item.nome, item.sintesi, item.durataMinuti, item.macchine, item.macchineIds]);
 
   function toggle(id: string) {
     if (!isAdmin) return;
@@ -538,6 +574,25 @@ function EventoCatalogoSettings({
 
   return (
     <div className="space-y-3 border-t border-[var(--border)] bg-slate-50 px-3 py-3">
+      <p className="text-xs font-medium text-slate-700">Testata evento</p>
+      <label className="block text-xs text-[var(--muted)]">
+        Nome
+        <input
+          value={nome}
+          disabled={!isAdmin}
+          onChange={(e) => setNome(e.target.value)}
+          className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+        />
+      </label>
+      <label className="block text-xs text-[var(--muted)]">
+        Riga riassuntiva
+        <input
+          value={sintesi}
+          disabled={!isAdmin}
+          onChange={(e) => setSintesi(e.target.value)}
+          className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+        />
+      </label>
       <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <input
           type="checkbox"
@@ -625,36 +680,52 @@ function EventoCatalogoSettings({
           : ""}
       </p>
       {isAdmin ? (
-        <button
-          type="button"
-          disabled={pending || !dirty}
-          onClick={() => {
-            const minuti = haDurata ? Math.round(Number(durata)) : 0;
-            if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
-              onError("Indica una durata in minuti maggiore di zero.");
-              return;
-            }
-            onSave({
-              catalogoId: item.id,
-              areaId,
-              durataMinuti: Math.round(minuti),
-              statoObiettivo: defaultStato,
-              macchine: [...ids]
-                .filter((id) => foglieIds.has(id))
-                .map((id) => ({
-                  macchinarioId: id,
-                  statoObiettivo: stati[id] ?? defaultStato,
-                })),
-            });
-          }}
-          className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-            dirty && !pending
-              ? "bg-[var(--primary)] text-white"
-              : "cursor-not-allowed bg-slate-300 text-slate-600"
-          }`}
-        >
-          {pending ? "Salvataggio…" : "Salva impostazioni"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={pending || !dirty}
+            onClick={() => {
+              const minuti = haDurata ? Math.round(Number(durata)) : 0;
+              if (!nome.trim() || !sintesi.trim()) {
+                onError("Nome e riga riassuntiva sono obbligatori.");
+                return;
+              }
+              if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
+                onError("Indica una durata in minuti maggiore di zero.");
+                return;
+              }
+              onSave({
+                catalogoId: item.id,
+                areaId,
+                nome: nome.trim(),
+                sintesi: sintesi.trim(),
+                durataMinuti: Math.round(minuti),
+                statoObiettivo: defaultStato,
+                macchine: [...ids]
+                  .filter((id) => foglieIds.has(id))
+                  .map((id) => ({
+                    macchinarioId: id,
+                    statoObiettivo: stati[id] ?? defaultStato,
+                  })),
+              });
+            }}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              dirty && !pending
+                ? "bg-[var(--primary)] text-white"
+                : "cursor-not-allowed bg-slate-300 text-slate-600"
+            }`}
+          >
+            {pending ? "Salvataggio…" : "Salva impostazioni"}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onDelete}
+            className="rounded-md border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+          >
+            Elimina evento
+          </button>
+        </div>
       ) : null}
     </div>
   );

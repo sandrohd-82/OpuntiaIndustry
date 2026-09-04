@@ -261,6 +261,8 @@ export const eventoLineaCatalogoInputSchema = z.object({
 export const eventoLineaCatalogoSettingsSchema = z.object({
   catalogoId: z.string().uuid(),
   areaId: z.string().uuid(),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
+  sintesi: z.string().trim().min(1, "Sintesi obbligatoria").max(240),
   durataMinuti: z.number().int().min(0).max(24 * 60),
   statoObiettivo: z.enum(EVENTO_STATI_OBIETTIVO),
   macchine: z.array(
@@ -269,6 +271,11 @@ export const eventoLineaCatalogoSettingsSchema = z.object({
       statoObiettivo: z.enum(["off", "on"]),
     })
   ),
+});
+
+export const eventoLineaCatalogoDeleteSchema = z.object({
+  catalogoId: z.string().uuid(),
+  confermaTestuale: z.string().trim().min(1),
 });
 
 export const eventoLineaCatalogoReorderSchema = z.object({

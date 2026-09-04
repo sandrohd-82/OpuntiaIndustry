@@ -1,10 +1,12 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { slugPosto } from "@/lib/produzione/aree-posti";
 import {
+  eventoLineaCatalogoDeleteSchema,
   eventoLineaCatalogoInputSchema,
   eventoLineaCatalogoReorderSchema,
   eventoLineaCatalogoSettingsSchema,
@@ -1144,6 +1146,8 @@ export async function updateEventoLineaCatalogoSettingsAction(
   const { data, error } = await supabase
     .from("produzione_eventi_linea_catalogo")
     .update({
+      nome: parsed.data.nome,
+      sintesi: parsed.data.sintesi,
       durata_minuti: parsed.data.durataMinuti,
       stato_obiettivo: parsed.data.statoObiettivo,
       richiede_spegnimento: parsed.data.statoObiettivo === "off",
@@ -1219,6 +1223,8 @@ export async function updateEventoLineaCatalogoSettingsAction(
     summary: `Aggiornate impostazioni evento di linea: ${item.nome}`,
     payload: {
       area_id: parsed.data.areaId,
+      nome: item.nome,
+      sintesi: item.sintesi,
       durata_minuti: item.durataMinuti,
       macchine: parsed.data.macchine,
     },
@@ -1284,6 +1290,98 @@ export async function reorderEventiLineaCatalogoAction(
     return {
       success: false,
       error: e instanceof Error ? e.message : "Riordino non riuscito.",
+    };
+  }
+}
+
+export async function deleteEventoLineaCatalogoAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  try {
+    const { auth } = await requireAreaAccess("produzione");
+    if (!isAdminLikeProfile(auth.profile)) {
+      return {
+        success: false,
+        error: "Solo l’amministratore può eliminare un evento di linea.",
+      };
+    }
+    const parsed = eventoLineaCatalogoDeleteSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    }
+    const supabase = await createClient();
+    const { data: row, error: loadErr } = await supabase
+      .from("produzione_eventi_linea_catalogo")
+      .select("id, codice, nome")
+      .eq("id", parsed.data.catalogoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (loadErr || !row) {
+      return { success: false, error: loadErr?.message ?? "Evento di catalogo non trovato." };
+    }
+    const codice = (row as { codice: string }).codice;
+    const expected = fraseConfermaSoftDelete(codice);
+    if (parsed.data.confermaTestuale.trim() !== expected) {
+      return {
+        success: false,
+        error: `Per confermare digita esattamente: ${expected}`,
+      };
+    }
+    const { data: aperti, error: aErr } = await supabase
+      .from("produzione_eventi_linea")
+      .select("id")
+      .eq("catalogo_id", parsed.data.catalogoId)
+      .eq("documento_stato", "in_corso")
+      .is("deleted_at", null)
+      .limit(1);
+    if (aErr) return { success: false, error: aErr.message };
+    if ((aperti ?? []).length) {
+      return {
+        success: false,
+        error: "Non puoi eliminare questo evento: è ancora in corso su una linea.",
+      };
+    }
+    const now = new Date().toISOString();
+    const { error } = await supabase
+      .from("produzione_eventi_linea_catalogo")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+        attivo: false,
+      })
+      .eq("id", parsed.data.catalogoId)
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+
+    await supabase
+      .from("produzione_eventi_linea_catalogo_macchine")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("catalogo_id", parsed.data.catalogoId)
+      .is("deleted_at", null);
+
+    await writeAuditLog({
+      entity_type: "produzione_eventi_linea_catalogo",
+      entity_id: parsed.data.catalogoId,
+      action: "soft_delete",
+      actor_id: auth.userId,
+      summary: `Eliminato evento di linea dal catalogo: ${(row as { nome: string }).nome}`,
+      payload: { codice, conferma: parsed.data.confermaTestuale },
+    });
+    return { success: true };
+  } catch (e) {
+    const digest =
+      typeof e === "object" && e && "digest" in e
+        ? String((e as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw e;
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Eliminazione non riuscita.",
     };
   }
 }
