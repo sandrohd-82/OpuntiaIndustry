@@ -113,9 +113,17 @@ export default async function ProduzioneSubPage({ params }: Props) {
   }
 
   if (section === "gestione-aree") {
+    const isLavaggio = sub === "lavaggio";
     return (
       <>
-        <AppHeader title={page.label} subtitle={page.description} />
+        <AppHeader
+          title={isLavaggio ? "Gestione Area" : page.label}
+          subtitle={
+            isLavaggio
+              ? "Gestione dell’area lavaggio: impianti, eventi e stato linea."
+              : page.description
+          }
+        />
         <div className="p-6">
           <GestioneAreaBoard areaCodice={sub} />
         </div>

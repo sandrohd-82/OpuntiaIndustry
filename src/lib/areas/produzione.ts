@@ -166,6 +166,52 @@ function areaNavBranch(
   }> = []
 ): NavItem {
   const base = `/app/produzione/gestione-aree/${slug}`;
+  const isLavaggio = slug === "lavaggio";
+  const vasca = isLavaggio
+    ? macchine.find((m) => m.slug === "vasca-lavaggio")
+    : undefined;
+  const altreMacchine = vasca
+    ? macchine.filter((m) => m.slug !== "vasca-lavaggio")
+    : macchine;
+  const vascaFigliNav: NavItem[] = (vasca?.children ?? []).map((c) => ({
+    slug: c.slug,
+    label: c.label,
+    description: c.description,
+    path: `${base}/macchinari/${c.slug}`,
+  }));
+
+  function macchinaNavItem(m: (typeof macchine)[number]): NavItem {
+    const path = `${base}/macchinari/${m.slug}`;
+    if (m.children?.length) {
+      return {
+        slug: m.slug,
+        label: m.label,
+        description: m.description,
+        path,
+        children: [
+          {
+            slug: m.slug,
+            label: m.label,
+            description: m.description,
+            path,
+          },
+          ...m.children.map((c) => ({
+            slug: c.slug,
+            label: c.label,
+            description: c.description,
+            path: `${base}/macchinari/${c.slug}`,
+          })),
+        ],
+      };
+    }
+    return {
+      slug: m.slug,
+      label: m.label,
+      description: m.description,
+      path,
+    };
+  }
+
   return {
     slug,
     label,
@@ -175,8 +221,10 @@ function areaNavBranch(
     children: [
       {
         slug: "panoramica",
-        label: "Panoramica area",
-        description: "Stato area e videosorveglianza.",
+        label: isLavaggio ? "Gestione Area" : "Panoramica area",
+        description: isLavaggio
+          ? "Gestione dell’area lavaggio: impianti, eventi e stato linea."
+          : "Stato area e videosorveglianza.",
         path: base,
       },
       {
@@ -191,37 +239,8 @@ function areaNavBranch(
             description: "Elenco macchine dell’area.",
             path: `${base}/macchinari`,
           },
-          ...macchine.map((m) => {
-            const path = `${base}/macchinari/${m.slug}`;
-            if (m.children?.length) {
-              return {
-                slug: m.slug,
-                label: m.label,
-                description: m.description,
-                path,
-                children: [
-                  {
-                    slug: m.slug,
-                    label: m.label,
-                    description: m.description,
-                    path,
-                  },
-                  ...m.children.map((c) => ({
-                    slug: c.slug,
-                    label: c.label,
-                    description: c.description,
-                    path: `${base}/macchinari/${c.slug}`,
-                  })),
-                ],
-              };
-            }
-            return {
-              slug: m.slug,
-              label: m.label,
-              description: m.description,
-              path,
-            };
-          }),
+          ...vascaFigliNav,
+          ...altreMacchine.map(macchinaNavItem),
         ],
       },
       {
