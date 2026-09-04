@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   listMacchinaAttivitaAction,
   listRicambiAction,
   softDeleteRicambioAction,
+  updateMacchinarioAnagraficaAction,
   updateMacchinarioStatoAction,
   upsertRicambioAction,
 } from "@/app/actions/produzione-macchinari";
@@ -31,7 +33,15 @@ type Props = {
 };
 
 export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
+  const router = useRouter();
   const [pending, start] = useTransition();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [editAnagrafica, setEditAnagrafica] = useState(false);
+  const [nome, setNome] = useState("");
+  const [codiceEdit, setCodiceEdit] = useState("");
+  const [descrizione, setDescrizione] = useState("");
+  const [noteAnag, setNoteAnag] = useState("");
+  const [savingAnag, setSavingAnag] = useState(false);
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [macchina, setMacchina] = useState<ProduzioneMacchinario | null>(null);
   const [ricambi, setRicambi] = useState<MacchinarioRicambio[]>([]);
@@ -55,6 +65,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         setError(res.error);
         return;
       }
+      setIsAdmin(res.isAdmin);
       const a = res.items.find((x) => x.codice === areaCodice) ?? null;
       const raw = a?.macchinari.find((x) => x.codice === macchinaCodice) ?? null;
       const tree = nestMacchinari(a?.macchinari ?? []);
@@ -65,6 +76,11 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
       setArea(a);
       setMacchina(m ?? null);
       if (m) {
+        setNome(m.nome);
+        setCodiceEdit(m.codice);
+        setDescrizione(m.descrizione);
+        setNoteAnag(m.note);
+        setEditAnagrafica(false);
         setIot(m.iotCollegato);
         setArresto(m.statoIot === "arresto");
         setStatoNote(m.statoNote);
@@ -105,6 +121,121 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
       <p className="text-sm text-[var(--muted)]">
         {macchina.descrizione || `Impianto in area ${area.nome}.`}
       </p>
+
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Anagrafica macchinario</h3>
+          {isAdmin && !editAnagrafica ? (
+            <button
+              type="button"
+              onClick={() => setEditAnagrafica(true)}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+            >
+              Modifica anagrafica
+            </button>
+          ) : null}
+        </div>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Nome e dati anagrafici si aggiornano in tutte le aree dove esiste
+          questo codice macchina.
+        </p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="text-xs text-[var(--muted)]">
+            Nome
+            <input
+              value={nome}
+              disabled={!editAnagrafica}
+              onChange={(e) => setNome(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Codice
+            <input
+              value={codiceEdit}
+              disabled={!editAnagrafica}
+              onChange={(e) => setCodiceEdit(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 font-mono text-sm disabled:bg-slate-100"
+            />
+          </label>
+          <label className="sm:col-span-2 text-xs text-[var(--muted)]">
+            Descrizione
+            <input
+              value={descrizione}
+              disabled={!editAnagrafica}
+              onChange={(e) => setDescrizione(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+            />
+          </label>
+          <label className="sm:col-span-2 text-xs text-[var(--muted)]">
+            Note
+            <input
+              value={noteAnag}
+              disabled={!editAnagrafica}
+              onChange={(e) => setNoteAnag(e.target.value)}
+              className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+            />
+          </label>
+        </div>
+        {editAnagrafica ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={savingAnag || !nome.trim()}
+              onClick={() =>
+                void (async () => {
+                  setSavingAnag(true);
+                  setError(null);
+                  try {
+                    const res = await updateMacchinarioAnagraficaAction({
+                      id: macchina.id,
+                      nome: nome.trim(),
+                      codice: codiceEdit,
+                      descrizione,
+                      note: noteAnag,
+                      iotCollegato: iot,
+                    });
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                    setEditAnagrafica(false);
+                    if (res.item.codice !== macchinaCodice) {
+                      router.push(`${base}/macchinari/${res.item.codice}`);
+                      return;
+                    }
+                    load();
+                  } catch (e) {
+                    setError(
+                      e instanceof Error ? e.message : "Salvataggio non riuscito."
+                    );
+                  } finally {
+                    setSavingAnag(false);
+                  }
+                })()
+              }
+              className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {savingAnag ? "Salvataggio…" : "Salva in tutte le aree"}
+            </button>
+            <button
+              type="button"
+              disabled={savingAnag}
+              onClick={() => {
+                setNome(macchina.nome);
+                setCodiceEdit(macchina.codice);
+                setDescrizione(macchina.descrizione);
+                setNoteAnag(macchina.note);
+                setEditAnagrafica(false);
+              }}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            >
+              Annulla
+            </button>
+          </div>
+        ) : null}
+      </div>
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

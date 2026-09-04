@@ -3,7 +3,10 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
-import { getEventoLineaApertoAction } from "@/app/actions/produzione-macchinari";
+import {
+  getEventoLineaApertoAction,
+  setMacchinarioParentAction,
+} from "@/app/actions/produzione-macchinari";
 import { EventiLineaCatalogoList } from "@/components/produzione/EventiLineaCatalogoList";
 import { EventoLineaModal } from "@/components/produzione/EventoLineaModal";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
@@ -32,6 +35,8 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [evento, setEvento] = useState<EventoLinea | null>(null);
   const [eventoOpen, setEventoOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [organizza, setOrganizza] = useState(false);
   const { fogliAperti, ready } = useFogliLavorazione();
 
   function patchMacchina(item: ProduzioneMacchinario) {
@@ -43,7 +48,7 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
     window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
   }
 
-  useEffect(() => {
+  function loadArea() {
     start(async () => {
       const res = await listProduzioneAreeAction();
       if (!res.success) {
@@ -51,6 +56,7 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         return;
       }
       setError(null);
+      setIsAdmin(res.isAdmin);
       const found = res.items.find((a) => a.codice === areaCodice) ?? null;
       setArea(found);
       if (found) {
@@ -63,6 +69,11 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         }
       }
     });
+  }
+
+  useEffect(() => {
+    loadArea();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [areaCodice]);
 
   if (pending && !area && !error) {
@@ -135,14 +146,32 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold">Stato impianti</h3>
-            <button
-              type="button"
-              onClick={() => setEventoOpen(true)}
-              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
-            >
-              {evento ? "Riprendi evento di linea" : "Avvia evento di linea"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => setOrganizza((v) => !v)}
+                  className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+                >
+                  {organizza ? "Chiudi organizzazione" : "Organizza impianti"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setEventoOpen(true)}
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
+              >
+                {evento ? "Riprendi evento di linea" : "Avvia evento di linea"}
+              </button>
+            </div>
           </div>
+          {organizza ? (
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Sposta un macchinario a primo livello oppure sotto un insieme
+              (come nella vasca di lavaggio). Lo spostamento vale solo in
+              quest’area.
+            </p>
+          ) : null}
           {evento ? (
             <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
               Evento in corso: {evento.tipoNome || eventoLineaLabel(evento.tipo)}.
@@ -155,8 +184,14 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
                 key={m.id}
                 macchina={m}
                 base={base}
+                roots={nestMacchinari(area.macchinari ?? [])}
+                organizza={organizza}
                 onError={setError}
                 onChanged={patchMacchina}
+                onMoved={() => {
+                  window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
+                  loadArea();
+                }}
               />
             ))}
           </ul>
@@ -220,17 +255,25 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
 function MacchinaStatoNodo({
   macchina,
   base,
+  roots,
+  organizza,
   nested = false,
   onError,
   onChanged,
+  onMoved,
 }: {
   macchina: ProduzioneMacchinario;
   base: string;
+  roots: ProduzioneMacchinario[];
+  organizza: boolean;
   nested?: boolean;
   onError: (message: string) => void;
   onChanged: (item: ProduzioneMacchinario) => void;
+  onMoved: () => void;
 }) {
   const figli = macchina.figli ?? [];
+  const bloccoSotto =
+    isInsieme(macchina) || figli.length > 0 || macchina.codice === "vasca-lavaggio";
   return (
     <li className={nested ? "border-l border-[var(--border)] pl-3" : ""}>
       <div className="flex items-center justify-between gap-3 py-2">
@@ -249,6 +292,37 @@ function MacchinaStatoNodo({
               </span>
             ) : null}
           </div>
+          {organizza ? (
+            <label className="mt-2 block text-[11px] text-[var(--muted)]">
+              Posizione
+              <select
+                value={macchina.parentId ?? ""}
+                disabled={bloccoSotto && !macchina.parentId}
+                onChange={async (e) => {
+                  const next = e.target.value || null;
+                  const res = await setMacchinarioParentAction({
+                    macchinarioId: macchina.id,
+                    parentId: next,
+                  });
+                  if (!res.success) {
+                    onError(res.error);
+                    return;
+                  }
+                  onMoved();
+                }}
+                className="mt-0.5 block w-56 rounded-md border border-[var(--border)] bg-white px-2 py-1 text-xs"
+              >
+                <option value="">Macchinario solo (primo livello)</option>
+                {roots
+                  .filter((r) => r.id !== macchina.id)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      Sotto {r.nome}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <MachinePowerToggle
           macchina={macchina}
@@ -265,9 +339,12 @@ function MacchinaStatoNodo({
               key={f.id}
               macchina={f}
               base={base}
+              roots={roots}
+              organizza={organizza}
               nested
               onError={onError}
               onChanged={onChanged}
+              onMoved={onMoved}
             />
           ))}
         </ul>

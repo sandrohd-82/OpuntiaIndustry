@@ -2,6 +2,7 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
   calcolaBilancioMassa,
   foglioConteggioInputSchema,
@@ -88,9 +89,10 @@ function mapArea(
 }
 
 export async function listProduzioneAreeAction(): Promise<
-  { success: true; items: ProduzioneArea[] } | { success: false; error: string }
+  | { success: true; items: ProduzioneArea[]; isAdmin: boolean }
+  | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
+  const { auth } = await requireAreaAccess("produzione");
   const supabase = await createClient();
   const { data: aree, error } = await supabase
     .from("produzione_aree")
@@ -130,6 +132,7 @@ export async function listProduzioneAreeAction(): Promise<
 
   return {
     success: true,
+    isAdmin: isAdminLikeProfile(auth.profile),
     items: ((aree ?? []) as AreaRow[]).map((a) =>
       mapArea(a, postiByArea.get(a.id) ?? [], macByArea.get(a.id) ?? [])
     ),

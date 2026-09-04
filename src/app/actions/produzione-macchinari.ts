@@ -14,7 +14,9 @@ import {
   insiemeDerivedStato,
   isInsieme,
   VASCA_FIGLI_CODICI,
+  macchinarioAnagraficaSchema,
   macchinarioInputSchema,
+  macchinarioParentSchema,
   macchinarioStatoSchema,
   normalizeIotStato,
   ricambioInputSchema,
@@ -150,6 +152,9 @@ export async function createMacchinarioAction(
   { success: true; item: ProduzioneMacchinario } | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("produzione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può aggiungere macchinari." };
+  }
   const parsed = macchinarioInputSchema.safeParse({
     ...(raw as object),
     codice: slugPosto(String((raw as { codice?: string })?.codice ?? "")),
@@ -159,6 +164,28 @@ export async function createMacchinarioAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
+  if (v.parentId) {
+    const { data: parent, error: pErr } = await supabase
+      .from("produzione_macchinari")
+      .select("id, area_id, parent_id")
+      .eq("id", v.parentId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (pErr || !parent) {
+      return { success: false, error: pErr?.message ?? "Macchinario padre non trovato." };
+    }
+    const p = parent as { id: string; area_id: string; parent_id: string | null };
+    if (p.area_id !== v.areaId) {
+      return { success: false, error: "Il padre deve appartenere alla stessa area." };
+    }
+    if (p.parent_id) {
+      return { success: false, error: "Puoi metterlo solo sotto un macchinario di primo livello." };
+    }
+    await supabase
+      .from("produzione_macchinari")
+      .update({ tipo: "insieme", updated_by: auth.userId })
+      .eq("id", p.id);
+  }
   const { data, error } = await supabase
     .from("produzione_macchinari")
     .insert({
@@ -169,6 +196,7 @@ export async function createMacchinarioAction(
       iot_collegato: v.iotCollegato ?? false,
       stato_iot: v.iotCollegato ? "spento" : "no_iot",
       tipo: "macchina",
+      parent_id: v.parentId ?? null,
       sort_order: v.sortOrder ?? 100,
       note: v.note ?? "",
       created_by: auth.userId,
@@ -186,9 +214,260 @@ export async function createMacchinarioAction(
     action: "create",
     actor_id: auth.userId,
     summary: `Creato macchinario ${item.codice}`,
-    payload: { area_id: item.areaId, nome: item.nome },
+    payload: { area_id: item.areaId, nome: item.nome, parent_id: item.parentId },
   });
   return { success: true, item };
+}
+
+export async function updateMacchinarioAnagraficaAction(
+  raw: unknown
+): Promise<
+  { success: true; item: ProduzioneMacchinario } | { success: false; error: string }
+> {
+  try {
+    const { auth } = await requireAreaAccess("produzione");
+    if (!isAdminLikeProfile(auth.profile)) {
+      return {
+        success: false,
+        error: "Solo l’amministratore può modificare l’anagrafica del macchinario.",
+      };
+    }
+    const parsed = macchinarioAnagraficaSchema.safeParse({
+      ...(raw as object),
+      codice: slugPosto(String((raw as { codice?: string })?.codice ?? "")),
+    });
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    }
+    const v = parsed.data;
+    const supabase = await createClient();
+    const { data: current, error: cErr } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .eq("id", v.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (cErr || !current) {
+      return { success: false, error: cErr?.message ?? "Macchinario non trovato." };
+    }
+    const prev = mapMacchina(current as MacchinaRow);
+    const oldCodice = prev.codice.toLowerCase();
+    const newCodice = v.codice.toLowerCase();
+    const { data: twins, error: tErr } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .ilike("codice", oldCodice)
+      .is("deleted_at", null);
+    if (tErr) return { success: false, error: tErr.message };
+    const same = ((twins ?? []) as MacchinaRow[]).filter(
+      (row) => row.codice.toLowerCase() === oldCodice
+    );
+    if (newCodice !== oldCodice) {
+      const areaIds = [...new Set(same.map((r) => r.area_id))];
+      const { data: clash, error: xErr } = await supabase
+        .from("produzione_macchinari")
+        .select("id, area_id, codice")
+        .in("area_id", areaIds)
+        .ilike("codice", newCodice)
+        .is("deleted_at", null);
+      if (xErr) return { success: false, error: xErr.message };
+      const twinIds = new Set(same.map((r) => r.id));
+      if (
+        ((clash ?? []) as Array<{ id: string; codice: string }>).some(
+          (r) => !twinIds.has(r.id) && r.codice.toLowerCase() === newCodice
+        )
+      ) {
+        return {
+          success: false,
+          error: "Il nuovo codice è già usato da un altro macchinario in un’area.",
+        };
+      }
+    }
+    const ids = same.map((r) => r.id);
+    const { error: uErr } = await supabase
+      .from("produzione_macchinari")
+      .update({
+        nome: v.nome,
+        codice: newCodice,
+        descrizione: v.descrizione ?? "",
+        note: v.note ?? "",
+        iot_collegato: v.iotCollegato,
+        updated_by: auth.userId,
+      })
+      .in("id", ids)
+      .is("deleted_at", null);
+    if (uErr) return { success: false, error: uErr.message };
+    if (v.iotCollegato) {
+      await supabase
+        .from("produzione_macchinari")
+        .update({ stato_iot: "spento", updated_by: auth.userId })
+        .in("id", ids)
+        .eq("stato_iot", "no_iot")
+        .is("deleted_at", null);
+    }
+    const { data: next, error: nErr } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .eq("id", v.id)
+      .maybeSingle();
+    if (nErr || !next) {
+      return { success: false, error: nErr?.message ?? "Aggiornamento fallito." };
+    }
+    const item = mapMacchina(next as MacchinaRow);
+    await writeAuditLog({
+      entity_type: "produzione_macchinari",
+      entity_id: item.id,
+      action: "update",
+      actor_id: auth.userId,
+      summary: `Aggiornata anagrafica ${item.nome} (${ids.length} aree)`,
+      payload: {
+        codice_da: oldCodice,
+        codice_a: newCodice,
+        ids,
+        nome: item.nome,
+      },
+    });
+    return { success: true, item };
+  } catch (e) {
+    const digest =
+      typeof e === "object" && e && "digest" in e
+        ? String((e as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw e;
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Aggiornamento anagrafica fallito.",
+    };
+  }
+}
+
+export async function setMacchinarioParentAction(
+  raw: unknown
+): Promise<
+  { success: true; item: ProduzioneMacchinario } | { success: false; error: string }
+> {
+  try {
+    const { auth } = await requireAreaAccess("produzione");
+    if (!isAdminLikeProfile(auth.profile)) {
+      return {
+        success: false,
+        error: "Solo l’amministratore può spostare i macchinari.",
+      };
+    }
+    const parsed = macchinarioParentSchema.safeParse(raw);
+    if (!parsed.success) {
+      return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+    }
+    const supabase = await createClient();
+    const { data: current, error: cErr } = await supabase
+      .from("produzione_macchinari")
+      .select(MACCHINA_COLS)
+      .eq("id", parsed.data.macchinarioId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (cErr || !current) {
+      return { success: false, error: cErr?.message ?? "Macchinario non trovato." };
+    }
+    const child = mapMacchina(current as MacchinaRow);
+    const parentId = parsed.data.parentId;
+    if (parentId === child.id) {
+      return { success: false, error: "Un macchinario non può stare sotto se stesso." };
+    }
+    const { data: kids } = await supabase
+      .from("produzione_macchinari")
+      .select("id")
+      .eq("parent_id", child.id)
+      .is("deleted_at", null);
+    const hasKids = ((kids ?? []) as Array<{ id: string }>).length > 0;
+    if (parentId && (hasKids || child.tipo === "insieme" || child.codice === "vasca-lavaggio")) {
+      return {
+        success: false,
+        error: "Un insieme con macchine interne resta al primo livello.",
+      };
+    }
+    if (parentId) {
+      const { data: parentRow, error: pErr } = await supabase
+        .from("produzione_macchinari")
+        .select(MACCHINA_COLS)
+        .eq("id", parentId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (pErr || !parentRow) {
+        return { success: false, error: pErr?.message ?? "Macchinario padre non trovato." };
+      }
+      const parent = mapMacchina(parentRow as MacchinaRow);
+      if (parent.areaId !== child.areaId) {
+        return { success: false, error: "Il padre deve appartenere alla stessa area." };
+      }
+      if (parent.parentId) {
+        return {
+          success: false,
+          error: "Puoi metterlo solo sotto un macchinario di primo livello.",
+        };
+      }
+      await supabase
+        .from("produzione_macchinari")
+        .update({ tipo: "insieme", updated_by: auth.userId })
+        .eq("id", parent.id);
+    }
+    const oldParentId = child.parentId;
+    const { data: updated, error: uErr } = await supabase
+      .from("produzione_macchinari")
+      .update({
+        parent_id: parentId,
+        updated_by: auth.userId,
+      })
+      .eq("id", child.id)
+      .is("deleted_at", null)
+      .select(MACCHINA_COLS)
+      .single();
+    if (uErr || !updated) {
+      return { success: false, error: uErr?.message ?? "Spostamento fallito." };
+    }
+    if (oldParentId && oldParentId !== parentId) {
+      const { data: rest } = await supabase
+        .from("produzione_macchinari")
+        .select("id")
+        .eq("parent_id", oldParentId)
+        .is("deleted_at", null);
+      if (!((rest ?? []) as Array<{ id: string }>).length) {
+        const { data: oldParent } = await supabase
+          .from("produzione_macchinari")
+          .select("id, codice")
+          .eq("id", oldParentId)
+          .maybeSingle();
+        const codice = (oldParent as { codice?: string } | null)?.codice;
+        if (codice && codice !== "vasca-lavaggio") {
+          await supabase
+            .from("produzione_macchinari")
+            .update({ tipo: "macchina", updated_by: auth.userId })
+            .eq("id", oldParentId);
+        }
+      }
+    }
+    const item = mapMacchina(updated as MacchinaRow);
+    await writeAuditLog({
+      entity_type: "produzione_macchinari",
+      entity_id: item.id,
+      action: "reparent",
+      actor_id: auth.userId,
+      summary: parentId
+        ? `Macchinario ${item.nome} spostato sotto un insieme`
+        : `Macchinario ${item.nome} portato a primo livello`,
+      payload: { parent_id: parentId, parent_id_da: oldParentId },
+    });
+    return { success: true, item };
+  } catch (e) {
+    const digest =
+      typeof e === "object" && e && "digest" in e
+        ? String((e as { digest?: unknown }).digest ?? "")
+        : "";
+    if (digest.startsWith("NEXT_")) throw e;
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Spostamento fallito.",
+    };
+  }
 }
 
 export async function updateMacchinarioStatoAction(

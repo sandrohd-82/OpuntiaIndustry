@@ -51,6 +51,26 @@ export const macchinarioInputSchema = z.object({
   iotCollegato: z.boolean().optional().default(false),
   sortOrder: z.number().int().optional(),
   note: z.string().trim().max(2000).optional().default(""),
+  parentId: z.string().uuid().nullable().optional(),
+});
+
+export const macchinarioAnagraficaSchema = z.object({
+  id: z.string().uuid(),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
+  codice: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i, "Usa lettere, numeri e trattini"),
+  descrizione: z.string().trim().max(500).optional().default(""),
+  note: z.string().trim().max(2000).optional().default(""),
+  iotCollegato: z.boolean(),
+});
+
+export const macchinarioParentSchema = z.object({
+  macchinarioId: z.string().uuid(),
+  parentId: z.string().uuid().nullable(),
 });
 
 export const macchinarioStatoSchema = z.object({

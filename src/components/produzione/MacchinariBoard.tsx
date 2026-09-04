@@ -27,6 +27,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
   const [codice, setCodice] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [iot, setIot] = useState(false);
+  const [parentId, setParentId] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   function patchMacchina(item: ProduzioneMacchinario) {
     setArea((prev) =>
@@ -45,6 +47,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
         return;
       }
       setError(null);
+      setIsAdmin(res.isAdmin);
       setArea(res.items.find((a) => a.codice === areaCodice) ?? null);
     });
   }
@@ -64,6 +67,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
         descrizione: descrizione.trim(),
         iotCollegato: iot,
         sortOrder: (area.macchinari.at(-1)?.sortOrder ?? 0) + 10,
+        parentId: parentId || null,
       });
       if (!res.success) {
         setError(res.error);
@@ -73,6 +77,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
       setCodice("");
       setDescrizione("");
       setIot(false);
+      setParentId("");
       window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
       load();
     });
@@ -99,54 +104,79 @@ export function MacchinariBoard({ areaCodice }: Props) {
         macchina è collegata IoT, lo stesso pulsante prepara il comando.
       </p>
 
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h3 className="text-sm font-semibold">Nuovo macchinario</h3>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="text-xs text-[var(--muted)]">
-            Nome
-            <input
-              value={nome}
-              onChange={(e) => {
-                setNome(e.target.value);
-                if (!codice) setCodice(slugPosto(e.target.value));
-              }}
-              className="mt-1 block w-52 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="text-xs text-[var(--muted)]">
-            Codice
-            <input
-              value={codice}
-              onChange={(e) => setCodice(slugPosto(e.target.value))}
-              className="mt-1 block w-40 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
-            />
-          </label>
-          <label className="text-xs text-[var(--muted)]">
-            Descrizione
-            <input
-              value={descrizione}
-              onChange={(e) => setDescrizione(e.target.value)}
-              className="mt-1 block w-64 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
-            />
-          </label>
-          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={iot}
-              onChange={(e) => setIot(e.target.checked)}
-            />
-            Collegato IoT
-          </label>
-          <button
-            type="button"
-            disabled={pending || !nome.trim()}
-            onClick={add}
-            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Aggiungi
-          </button>
+      {isAdmin ? (
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+          <h3 className="text-sm font-semibold">Aggiungi macchinario</h3>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Compare nel menu e in Gestione Area. Puoi metterlo da solo o sotto
+            un insieme (come le macchine della vasca).
+          </p>
+          <div className="mt-3 flex flex-wrap items-end gap-2">
+            <label className="text-xs text-[var(--muted)]">
+              Nome
+              <input
+                value={nome}
+                onChange={(e) => {
+                  setNome(e.target.value);
+                  if (!codice) setCodice(slugPosto(e.target.value));
+                }}
+                className="mt-1 block w-52 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Codice
+              <input
+                value={codice}
+                onChange={(e) => setCodice(slugPosto(e.target.value))}
+                className="mt-1 block w-40 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Descrizione
+              <input
+                value={descrizione}
+                onChange={(e) => setDescrizione(e.target.value)}
+                className="mt-1 block w-64 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Posizione
+              <select
+                value={parentId}
+                onChange={(e) => setParentId(e.target.value)}
+                className="mt-1 block w-56 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+              >
+                <option value="">Macchinario solo (primo livello)</option>
+                {nestMacchinari(area.macchinari).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    Sotto {m.nome}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={iot}
+                onChange={(e) => setIot(e.target.checked)}
+              />
+              Collegato IoT
+            </label>
+            <button
+              type="button"
+              disabled={pending || !nome.trim()}
+              onClick={add}
+              className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {pending ? "Salvataggio…" : "Aggiungi macchinario"}
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <p className="text-xs text-[var(--muted)]">
+          Solo l’amministratore può aggiungere macchinari.
+        </p>
+      )}
 
       <ul className="grid gap-3 md:grid-cols-2">
         {area.macchinari.length === 0 ? (
