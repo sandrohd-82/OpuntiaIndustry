@@ -4,15 +4,14 @@ import { useEffect, useId, useState, useTransition } from "react";
 import {
   closeEventoLineaAction,
   getEventoLineaApertoAction,
+  listEventiLineaCatalogoAction,
   startEventoLineaAction,
 } from "@/app/actions/produzione-macchinari";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import {
-  EVENTO_LINEA_TIPI,
-  eventoLineaLabel,
   macchinaIsOn,
   type EventoLinea,
-  type EventoLineaTipo,
+  type EventoLineaCatalogo,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
 
@@ -23,8 +22,6 @@ type Props = {
   onMacchinaChanged?: (item: ProduzioneMacchinario) => void;
 };
 
-const TIPI_AVVIO: EventoLineaTipo[] = EVENTO_LINEA_TIPI.filter((t) => t !== "ripresa");
-
 export function EventoLineaModal({
   areaId,
   areaNome,
@@ -34,7 +31,8 @@ export function EventoLineaModal({
   const titleId = useId();
   const [pending, start] = useTransition();
   const [evento, setEvento] = useState<EventoLinea | null>(null);
-  const [tipo, setTipo] = useState<EventoLineaTipo>("pausa_caffe");
+  const [catalogo, setCatalogo] = useState<EventoLineaCatalogo[]>([]);
+  const [catalogoId, setCatalogoId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -56,6 +54,13 @@ export function EventoLineaModal({
   }
 
   useEffect(() => {
+    start(async () => {
+      const res = await listEventiLineaCatalogoAction();
+      if (res.success) {
+        setCatalogo(res.items);
+        setCatalogoId((prev) => prev || res.items[0]?.id || "");
+      }
+    });
     refresh();
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -117,23 +122,26 @@ export function EventoLineaModal({
             <label className="block text-xs text-[var(--muted)]">
               Tipo evento
               <select
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value as EventoLineaTipo)}
+                value={catalogoId}
+                onChange={(e) => setCatalogoId(e.target.value)}
                 className="mt-1 block w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
               >
-                {TIPI_AVVIO.map((t) => (
-                  <option key={t} value={t}>
-                    {eventoLineaLabel(t)}
+                {catalogo.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nome}
                   </option>
                 ))}
               </select>
             </label>
             <button
               type="button"
-              disabled={pending}
+              disabled={pending || !catalogoId}
               onClick={() =>
                 start(async () => {
-                  const res = await startEventoLineaAction({ areaId, tipo });
+                  const res = await startEventoLineaAction({
+                    areaId,
+                    catalogoId,
+                  });
                   if (!res.success) {
                     setError(res.error);
                     return;
@@ -150,7 +158,7 @@ export function EventoLineaModal({
         ) : (
           <div className="mt-4 space-y-3">
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              In corso: <strong>{eventoLineaLabel(evento.tipo)}</strong>
+              In corso: <strong>{evento.tipoNome || evento.tipo}</strong>
               {evento.startedByNome ? ` · ${evento.startedByNome}` : ""}
               {" · "}
               {new Date(evento.startedAt).toLocaleString("it-IT")}

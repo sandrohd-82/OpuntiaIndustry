@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { getEventoLineaApertoAction } from "@/app/actions/produzione-macchinari";
+import { EventiLineaCatalogoList } from "@/components/produzione/EventiLineaCatalogoList";
 import { EventoLineaModal } from "@/components/produzione/EventoLineaModal";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
@@ -146,8 +147,8 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           </div>
           {evento ? (
             <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-              Evento in corso: {eventoLineaLabel(evento.tipo)}. Spegnere le
-              macchine richieste per chiuderlo.
+              Evento in corso: {evento.tipoNome || eventoLineaLabel(evento.tipo)}.
+              Spegnere le macchine richieste per chiuderlo.
             </p>
           ) : null}
           <ul className="mt-3 divide-y divide-[var(--border)]">
@@ -186,6 +187,8 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
           </button>
         </div>
       )}
+
+      <EventiLineaCatalogoList />
 
       {eventoOpen ? (
         <EventoLineaModal

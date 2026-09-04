@@ -127,14 +127,35 @@ export const EVENTO_LINEA_TIPI = [
   "fine_turno",
   "ripresa",
 ] as const;
-export type EventoLineaTipo = (typeof EVENTO_LINEA_TIPI)[number];
+export type EventoLineaTipo = string;
 
-export function eventoLineaLabel(tipo: EventoLineaTipo): string {
+export function eventoLineaLabel(tipo: string): string {
   if (tipo === "pausa_caffe") return "Pausa caffè";
   if (tipo === "pausa_pranzo") return "Pausa pranzo";
   if (tipo === "fine_turno") return "Fine turno";
-  return "Ripresa";
+  if (tipo === "ripresa") return "Ripresa";
+  return tipo;
 }
+
+export type EventoLineaCatalogo = {
+  id: string;
+  codice: string;
+  nome: string;
+  sintesi: string;
+  dettagli: string;
+  richiedeSpegnimento: boolean;
+  sortOrder: number;
+  documentoStato: "bozza" | "approvato";
+  versione: number;
+  attivo: boolean;
+};
+
+export const eventoLineaCatalogoInputSchema = z.object({
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
+  sintesi: z.string().trim().min(1, "Sintesi obbligatoria").max(240),
+  dettagli: z.string().trim().min(1, "Dettagli obbligatori").max(4000),
+  richiedeSpegnimento: z.boolean().optional().default(true),
+});
 
 export type EventoLineaMacchina = {
   id: string;
@@ -152,6 +173,9 @@ export type EventoLinea = {
   id: string;
   areaId: string;
   tipo: EventoLineaTipo;
+  tipoNome: string;
+  catalogoId: string | null;
+  richiedeSpegnimento: boolean;
   documentoStato: "bozza" | "in_corso" | "chiuso";
   note: string;
   startedAt: string;
