@@ -137,6 +137,15 @@ export function eventoLineaLabel(tipo: string): string {
   return tipo;
 }
 
+export const EVENTO_STATI_OBIETTIVO = ["off", "on", "nessuno"] as const;
+export type EventoStatoObiettivo = (typeof EVENTO_STATI_OBIETTIVO)[number];
+
+export function eventoStatoObiettivoLabel(stato: EventoStatoObiettivo): string {
+  if (stato === "off") return "Passaggio in Off";
+  if (stato === "on") return "Passaggio in On";
+  return "Nessuna variazione";
+}
+
 export type EventoLineaCatalogo = {
   id: string;
   codice: string;
@@ -144,6 +153,9 @@ export type EventoLineaCatalogo = {
   sintesi: string;
   dettagli: string;
   richiedeSpegnimento: boolean;
+  durataMinuti: number;
+  statoObiettivo: EventoStatoObiettivo;
+  macchineIds: string[];
   sortOrder: number;
   documentoStato: "bozza" | "approvato";
   versione: number;
@@ -153,8 +165,16 @@ export type EventoLineaCatalogo = {
 export const eventoLineaCatalogoInputSchema = z.object({
   nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
   sintesi: z.string().trim().min(1, "Sintesi obbligatoria").max(240),
-  dettagli: z.string().trim().min(1, "Dettagli obbligatori").max(4000),
-  richiedeSpegnimento: z.boolean().optional().default(true),
+  durataMinuti: z.number().int().min(0).max(24 * 60).optional().default(0),
+  statoObiettivo: z.enum(EVENTO_STATI_OBIETTIVO).optional().default("off"),
+});
+
+export const eventoLineaCatalogoSettingsSchema = z.object({
+  catalogoId: z.string().uuid(),
+  areaId: z.string().uuid(),
+  durataMinuti: z.number().int().min(0).max(24 * 60),
+  statoObiettivo: z.enum(EVENTO_STATI_OBIETTIVO),
+  macchinarioIds: z.array(z.string().uuid()),
 });
 
 export type EventoLineaMacchina = {
@@ -176,6 +196,8 @@ export type EventoLinea = {
   tipoNome: string;
   catalogoId: string | null;
   richiedeSpegnimento: boolean;
+  durataMinuti: number;
+  statoObiettivo: EventoStatoObiettivo;
   documentoStato: "bozza" | "in_corso" | "chiuso";
   note: string;
   startedAt: string;

@@ -13,6 +13,7 @@ type Props = {
   origine: AttivitaOrigine;
   eventoLineaId?: string | null;
   forceOff?: boolean;
+  forceOn?: boolean;
   size?: "sm" | "md";
   onChanged?: (item: ProduzioneMacchinario) => void;
   onError?: (message: string) => void;
@@ -23,6 +24,7 @@ export function MachinePowerToggle({
   origine,
   eventoLineaId,
   forceOff = false,
+  forceOn = false,
   size = "md",
   onChanged,
   onError,
@@ -34,10 +36,11 @@ export function MachinePowerToggle({
   function toggle() {
     if (pending) return;
     if (forceOff && !on) return;
+    if (forceOn && on) return;
     start(async () => {
       const res = await setMacchinaPowerAction({
         macchinarioId: macchina.id,
-        on: forceOff ? false : !on,
+        on: forceOn ? true : forceOff ? false : !on,
         origine,
         eventoLineaId,
       });
@@ -55,7 +58,7 @@ export function MachinePowerToggle({
       role="switch"
       aria-checked={on}
       aria-label={`${macchina.nome}: ${on ? "On" : "Off"}`}
-      disabled={pending || (forceOff && !on)}
+      disabled={pending || (forceOff && !on) || (forceOn && on)}
       onClick={toggle}
       className={`relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-70 ${
         compact ? "h-8 w-17" : "h-9 w-19"

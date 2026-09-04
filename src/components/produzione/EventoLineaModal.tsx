@@ -9,6 +9,7 @@ import {
 } from "@/app/actions/produzione-macchinari";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import {
+  eventoStatoObiettivoLabel,
   macchinaIsOn,
   type EventoLinea,
   type EventoLineaCatalogo,
@@ -55,7 +56,7 @@ export function EventoLineaModal({
 
   useEffect(() => {
     start(async () => {
-      const res = await listEventiLineaCatalogoAction();
+      const res = await listEventiLineaCatalogoAction(areaId);
       if (res.success) {
         setCatalogo(res.items);
         setCatalogoId((prev) => prev || res.items[0]?.id || "");
@@ -129,6 +130,8 @@ export function EventoLineaModal({
                 {catalogo.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.nome}
+                    {t.durataMinuti > 0 ? ` · ${t.durataMinuti} min` : ""}
+                    {` · ${eventoStatoObiettivoLabel(t.statoObiettivo)}`}
                   </option>
                 ))}
               </select>
@@ -162,15 +165,24 @@ export function EventoLineaModal({
               {evento.startedByNome ? ` · ${evento.startedByNome}` : ""}
               {" · "}
               {new Date(evento.startedAt).toLocaleString("it-IT")}
+              {evento.durataMinuti > 0 ? ` · ${evento.durataMinuti} min` : ""}
+              {" · "}
+              {eventoStatoObiettivoLabel(evento.statoObiettivo)}
             </p>
             {evento.macchine.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">
-                Nessuna macchina era accesa. Puoi chiudere l’evento.
+                {evento.statoObiettivo === "nessuno"
+                  ? "Nessuna variazione richiesta sulle macchine. Puoi chiudere l’evento."
+                  : "Nessuna macchina configurata per quest’area. Puoi chiudere l’evento."}
               </p>
             ) : (
               <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
                 {evento.macchine.map((m) => {
-                  const done = Boolean(m.confermatoAt) || !macchinaIsOn(m.statoIot);
+                  const atTarget =
+                    evento.statoObiettivo === "on"
+                      ? macchinaIsOn(m.statoIot)
+                      : !macchinaIsOn(m.statoIot);
+                  const done = Boolean(m.confermatoAt) || atTarget;
                   return (
                     <li
                       key={m.id}
@@ -180,9 +192,11 @@ export function EventoLineaModal({
                         <p className="text-sm font-medium">{m.nome}</p>
                         <p className="text-xs text-[var(--muted)]">
                           {m.iotCollegato
-                            ? "IoT collegato — Off invia comando"
+                            ? "IoT collegato — comando da inviare"
                             : "Dichiarazione operatore"}
-                          {done ? " · Off confermato" : " · da spegnere"}
+                          {done
+                            ? ` · ${eventoStatoObiettivoLabel(evento.statoObiettivo)} confermato`
+                            : ` · richiesto ${eventoStatoObiettivoLabel(evento.statoObiettivo)}`}
                         </p>
                       </div>
                       <MachinePowerToggle
@@ -202,7 +216,8 @@ export function EventoLineaModal({
                         }}
                         origine="evento_linea"
                         eventoLineaId={evento.id}
-                        forceOff
+                        forceOff={evento.statoObiettivo === "off"}
+                        forceOn={evento.statoObiettivo === "on"}
                         size="sm"
                         onError={setError}
                         onChanged={(item) => {

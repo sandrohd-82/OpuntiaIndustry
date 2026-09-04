@@ -188,7 +188,10 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
         </div>
       )}
 
-      <EventiLineaCatalogoList />
+      <EventiLineaCatalogoList
+        areaId={area.id}
+        macchinari={area.macchinari ?? []}
+      />
 
       {eventoOpen ? (
         <EventoLineaModal

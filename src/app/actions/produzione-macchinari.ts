@@ -6,6 +6,7 @@ import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { slugPosto } from "@/lib/produzione/aree-posti";
 import {
   eventoLineaCatalogoInputSchema,
+  eventoLineaCatalogoSettingsSchema,
   eventoLineaLabel,
   macchinarioInputSchema,
   macchinarioStatoSchema,
@@ -15,6 +16,7 @@ import {
   type EventoLinea,
   type EventoLineaCatalogo,
   type EventoLineaMacchina,
+  type EventoStatoObiettivo,
   type EventoLineaTipo,
   type MacchinarioAttivita,
   type MacchinarioRicambio,
@@ -328,6 +330,7 @@ async function confirmEventoOffAndMaybeClose(input: {
   viaIot: boolean;
   actorId: string;
   now: string;
+  on: boolean;
 }) {
   const supabase = await createClient();
   let eventoId = input.eventoLineaId ?? null;
@@ -336,6 +339,12 @@ async function confirmEventoOffAndMaybeClose(input: {
     if (aperto.success && aperto.evento) eventoId = aperto.evento.id;
   }
   if (!eventoId) return;
+  const current = await loadEventoLinea(eventoId);
+  if (!current.success) return;
+  const matches =
+    (current.evento.statoObiettivo === "off" && !input.on) ||
+    (current.evento.statoObiettivo === "on" && input.on);
+  if (!matches) return;
   await supabase
     .from("produzione_evento_linea_macchine")
     .update({
@@ -403,16 +412,15 @@ export async function setMacchinaPowerAction(input: {
   const nextStato = input.on ? "acceso" : "spento";
   const now = new Date().toISOString();
   if (prev.statoIot === nextStato) {
-    if (!input.on) {
-      await confirmEventoOffAndMaybeClose({
-        areaId: prev.areaId,
-        macchinarioId: prev.id,
-        eventoLineaId: input.eventoLineaId,
-        viaIot: prev.iotCollegato,
-        actorId: auth.userId,
-        now,
-      });
-    }
+    await confirmEventoOffAndMaybeClose({
+      areaId: prev.areaId,
+      macchinarioId: prev.id,
+      eventoLineaId: input.eventoLineaId,
+      viaIot: prev.iotCollegato,
+      actorId: auth.userId,
+      now,
+      on: input.on,
+    });
     return { success: true, item: prev };
   }
 
@@ -454,16 +462,15 @@ export async function setMacchinaPowerAction(input: {
   });
   if (aErr) console.error("[attivita]", aErr.message);
 
-  if (!input.on) {
-    await confirmEventoOffAndMaybeClose({
-      areaId: item.areaId,
-      macchinarioId: item.id,
-      eventoLineaId: input.eventoLineaId,
-      viaIot: prev.iotCollegato,
-      actorId: auth.userId,
-      now,
-    });
-  }
+  await confirmEventoOffAndMaybeClose({
+    areaId: item.areaId,
+    macchinarioId: item.id,
+    eventoLineaId: input.eventoLineaId,
+    viaIot: prev.iotCollegato,
+    actorId: auth.userId,
+    now,
+    on: input.on,
+  });
 
   await writeAuditLog({
     entity_type: "produzione_macchinari",
@@ -542,7 +549,7 @@ async function loadEventoLinea(
   const { data: ev, error } = await supabase
     .from("produzione_eventi_linea")
     .select(
-      "id, area_id, tipo, catalogo_id, documento_stato, note, started_at, started_by, closed_at"
+      "id, area_id, tipo, catalogo_id, documento_stato, note, started_at, started_by, closed_at, durata_minuti, stato_obiettivo"
     )
     .eq("id", eventoId)
     .is("deleted_at", null)
@@ -560,6 +567,8 @@ async function loadEventoLinea(
     started_at: string;
     started_by: string | null;
     closed_at: string | null;
+    durata_minuti: number | null;
+    stato_obiettivo: EventoStatoObiettivo | null;
   };
   let startedByNome = "";
   if (row.started_by) {
@@ -573,16 +582,29 @@ async function loadEventoLinea(
   }
   let tipoNome = eventoLineaLabel(row.tipo);
   let richiedeSpegnimento = true;
+  let durataMinuti = row.durata_minuti ?? 0;
+  let statoObiettivo: EventoStatoObiettivo = row.stato_obiettivo ?? "off";
   if (row.catalogo_id) {
     const { data: cat } = await supabase
       .from("produzione_eventi_linea_catalogo")
-      .select("nome, richiede_spegnimento")
+      .select("nome, richiede_spegnimento, durata_minuti, stato_obiettivo")
       .eq("id", row.catalogo_id)
       .maybeSingle();
-    const c = cat as { nome?: string; richiede_spegnimento?: boolean } | null;
+    const c = cat as {
+      nome?: string;
+      richiede_spegnimento?: boolean;
+      durata_minuti?: number;
+      stato_obiettivo?: EventoStatoObiettivo;
+    } | null;
     if (c?.nome) tipoNome = c.nome;
     if (typeof c?.richiede_spegnimento === "boolean") {
       richiedeSpegnimento = c.richiede_spegnimento;
+    }
+    if (row.durata_minuti == null && typeof c?.durata_minuti === "number") {
+      durataMinuti = c.durata_minuti;
+    }
+    if (!row.stato_obiettivo && c?.stato_obiettivo) {
+      statoObiettivo = c.stato_obiettivo;
     }
   }
   const { data: righe, error: rErr } = await supabase
@@ -634,6 +656,8 @@ async function loadEventoLinea(
       tipoNome,
       catalogoId: row.catalogo_id,
       richiedeSpegnimento,
+      durataMinuti,
+      statoObiettivo,
       documentoStato: row.documento_stato,
       note: row.note,
       startedAt: row.started_at,
@@ -659,7 +683,9 @@ export async function startEventoLineaAction(input: {
   const supabase = await createClient();
   const { data: cat, error: catErr } = await supabase
     .from("produzione_eventi_linea_catalogo")
-    .select("id, codice, nome, richiede_spegnimento, documento_stato, attivo")
+    .select(
+      "id, codice, nome, richiede_spegnimento, documento_stato, attivo, durata_minuti, stato_obiettivo"
+    )
     .eq("id", input.catalogoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -673,6 +699,8 @@ export async function startEventoLineaAction(input: {
     richiede_spegnimento: boolean;
     documento_stato: string;
     attivo: boolean;
+    durata_minuti: number;
+    stato_obiettivo: EventoStatoObiettivo;
   };
   if (!catalogo.attivo || catalogo.documento_stato !== "approvato") {
     return { success: false, error: "Questo evento di linea non è approvato." };
@@ -683,6 +711,8 @@ export async function startEventoLineaAction(input: {
       area_id: input.areaId,
       tipo: catalogo.codice,
       catalogo_id: catalogo.id,
+      durata_minuti: catalogo.durata_minuti,
+      stato_obiettivo: catalogo.stato_obiettivo,
       documento_stato: "in_corso",
       started_by: auth.userId,
       created_by: auth.userId,
@@ -698,22 +728,40 @@ export async function startEventoLineaAction(input: {
     evento_id: string;
     macchinario_id: string;
     richiesto: boolean;
+    confermato_at: string | null;
+    confermato_by: string | null;
     created_by: string;
   }> = [];
-  if (catalogo.richiede_spegnimento) {
-    const { data: accese } = await supabase
-      .from("produzione_macchinari")
-      .select("id")
+  if (catalogo.stato_obiettivo !== "nessuno") {
+    const { data: selected } = await supabase
+      .from("produzione_eventi_linea_catalogo_macchine")
+      .select("macchinario_id")
+      .eq("catalogo_id", catalogo.id)
       .eq("area_id", input.areaId)
-      .eq("stato_iot", "acceso")
       .is("deleted_at", null);
-    for (const m of (accese ?? []) as Array<{ id: string }>) {
-      rows.push({
-        evento_id: eventoId,
-        macchinario_id: m.id,
-        richiesto: true,
-        created_by: auth.userId,
-      });
+    const machineIds = ((selected ?? []) as Array<{ macchinario_id: string }>).map(
+      (r) => r.macchinario_id
+    );
+    if (machineIds.length) {
+      const { data: macs } = await supabase
+        .from("produzione_macchinari")
+        .select("id, stato_iot")
+        .in("id", machineIds)
+        .is("deleted_at", null);
+      const now = new Date().toISOString();
+      for (const m of (macs ?? []) as Array<{ id: string; stato_iot: string }>) {
+        const already =
+          (catalogo.stato_obiettivo === "off" && m.stato_iot !== "acceso") ||
+          (catalogo.stato_obiettivo === "on" && m.stato_iot === "acceso");
+        rows.push({
+          evento_id: eventoId,
+          macchinario_id: m.id,
+          richiesto: true,
+          confermato_at: already ? now : null,
+          confermato_by: already ? auth.userId : null,
+          created_by: auth.userId,
+        });
+      }
     }
     if (rows.length) {
       const { error: iErr } = await supabase
@@ -728,7 +776,12 @@ export async function startEventoLineaAction(input: {
     action: "create",
     actor_id: auth.userId,
     summary: `Aperto evento di linea: ${catalogo.nome}`,
-    payload: { catalogo_id: catalogo.id, macchine: rows.length },
+    payload: {
+      catalogo_id: catalogo.id,
+      macchine: rows.length,
+      stato_obiettivo: catalogo.stato_obiettivo,
+      durata_minuti: catalogo.durata_minuti,
+    },
   });
   return loadEventoLinea(eventoId);
 }
@@ -746,7 +799,7 @@ export async function closeEventoLineaAction(
   if (pending.length) {
     return {
       success: false,
-      error: `Ancora ${pending.length} macchine da spegnere prima di chiudere l’evento.`,
+      error: `Ancora ${pending.length} macchine da portare allo stato richiesto prima di chiudere l’evento.`,
     };
   }
   const supabase = await createClient();
@@ -771,20 +824,25 @@ export async function closeEventoLineaAction(
 }
 
 const CATALOGO_COLS =
-  "id, codice, nome, sintesi, dettagli, richiede_spegnimento, sort_order, documento_stato, versione, attivo";
+  "id, codice, nome, sintesi, dettagli, richiede_spegnimento, durata_minuti, stato_obiettivo, sort_order, documento_stato, versione, attivo";
 
-function mapCatalogo(row: {
-  id: string;
-  codice: string;
-  nome: string;
-  sintesi: string;
-  dettagli: string;
-  richiede_spegnimento: boolean;
-  sort_order: number;
-  documento_stato: EventoLineaCatalogo["documentoStato"];
-  versione: number;
-  attivo: boolean;
-}): EventoLineaCatalogo {
+function mapCatalogo(
+  row: {
+    id: string;
+    codice: string;
+    nome: string;
+    sintesi: string;
+    dettagli: string;
+    richiede_spegnimento: boolean;
+    durata_minuti: number;
+    stato_obiettivo: EventoStatoObiettivo;
+    sort_order: number;
+    documento_stato: EventoLineaCatalogo["documentoStato"];
+    versione: number;
+    attivo: boolean;
+  },
+  macchineIds: string[] = []
+): EventoLineaCatalogo {
   return {
     id: row.id,
     codice: row.codice,
@@ -792,6 +850,9 @@ function mapCatalogo(row: {
     sintesi: row.sintesi ?? "",
     dettagli: row.dettagli ?? "",
     richiedeSpegnimento: Boolean(row.richiede_spegnimento),
+    durataMinuti: row.durata_minuti ?? 0,
+    statoObiettivo: row.stato_obiettivo ?? "off",
+    macchineIds,
     sortOrder: row.sort_order ?? 100,
     documentoStato: row.documento_stato,
     versione: row.versione ?? 1,
@@ -799,7 +860,9 @@ function mapCatalogo(row: {
   };
 }
 
-export async function listEventiLineaCatalogoAction(): Promise<
+export async function listEventiLineaCatalogoAction(
+  areaId?: string
+): Promise<
   | { success: true; items: EventoLineaCatalogo[]; isAdmin: boolean }
   | { success: false; error: string }
 > {
@@ -817,10 +880,31 @@ export async function listEventiLineaCatalogoAction(): Promise<
   }
   const { data, error } = await query;
   if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as Parameters<typeof mapCatalogo>[0][];
+  const macchineByCatalogo = new Map<string, string[]>();
+  if (areaId && rows.length) {
+    const { data: links } = await supabase
+      .from("produzione_eventi_linea_catalogo_macchine")
+      .select("catalogo_id, macchinario_id")
+      .eq("area_id", areaId)
+      .is("deleted_at", null)
+      .in(
+        "catalogo_id",
+        rows.map((r) => r.id)
+      );
+    for (const link of (links ?? []) as Array<{
+      catalogo_id: string;
+      macchinario_id: string;
+    }>) {
+      const list = macchineByCatalogo.get(link.catalogo_id) ?? [];
+      list.push(link.macchinario_id);
+      macchineByCatalogo.set(link.catalogo_id, list);
+    }
+  }
   return {
     success: true,
     isAdmin,
-    items: ((data ?? []) as Parameters<typeof mapCatalogo>[0][]).map(mapCatalogo),
+    items: rows.map((r) => mapCatalogo(r, macchineByCatalogo.get(r.id) ?? [])),
   };
 }
 
@@ -857,8 +941,10 @@ export async function createEventoLineaCatalogoAction(
       codice,
       nome: parsed.data.nome,
       sintesi: parsed.data.sintesi,
-      dettagli: parsed.data.dettagli,
-      richiede_spegnimento: parsed.data.richiedeSpegnimento,
+      dettagli: "",
+      durata_minuti: parsed.data.durataMinuti,
+      stato_obiettivo: parsed.data.statoObiettivo,
+      richiede_spegnimento: parsed.data.statoObiettivo === "off",
       sort_order: sortOrder,
       versione: 1,
       documento_stato: "approvato",
@@ -883,6 +969,131 @@ export async function createEventoLineaCatalogoAction(
     actor_id: auth.userId,
     summary: `Aggiunto evento di linea in catalogo: ${item.nome}`,
     payload: { codice: item.codice },
+  });
+  return { success: true, item };
+}
+
+export async function updateEventoLineaCatalogoSettingsAction(
+  raw: unknown
+): Promise<
+  { success: true; item: EventoLineaCatalogo } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return {
+      success: false,
+      error: "Solo l’amministratore può modificare le impostazioni dell’evento.",
+    };
+  }
+  const parsed = eventoLineaCatalogoSettingsSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const supabase = await createClient();
+  if (parsed.data.macchinarioIds.length) {
+    const { data: macs, error: mErr } = await supabase
+      .from("produzione_macchinari")
+      .select("id")
+      .eq("area_id", parsed.data.areaId)
+      .is("deleted_at", null)
+      .in("id", parsed.data.macchinarioIds);
+    if (mErr) return { success: false, error: mErr.message };
+    if (((macs ?? []) as Array<{ id: string }>).length !== parsed.data.macchinarioIds.length) {
+      return { success: false, error: "Una o più macchine non appartengono a quest’area." };
+    }
+  }
+  const now = new Date().toISOString();
+  const { data: current, error: cErr } = await supabase
+    .from("produzione_eventi_linea_catalogo")
+    .select("versione")
+    .eq("id", parsed.data.catalogoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (cErr || !current) {
+    return { success: false, error: cErr?.message ?? "Evento di catalogo non trovato." };
+  }
+  const { data, error } = await supabase
+    .from("produzione_eventi_linea_catalogo")
+    .update({
+      durata_minuti: parsed.data.durataMinuti,
+      stato_obiettivo: parsed.data.statoObiettivo,
+      richiede_spegnimento: parsed.data.statoObiettivo === "off",
+      versione: ((current as { versione?: number }).versione ?? 1) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.catalogoId)
+    .is("deleted_at", null)
+    .select(CATALOGO_COLS)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+
+  const { data: links } = await supabase
+    .from("produzione_eventi_linea_catalogo_macchine")
+    .select("id, macchinario_id, deleted_at")
+    .eq("catalogo_id", parsed.data.catalogoId)
+    .eq("area_id", parsed.data.areaId);
+  const wanted = new Set(parsed.data.macchinarioIds);
+  for (const link of (links ?? []) as Array<{
+    id: string;
+    macchinario_id: string;
+    deleted_at: string | null;
+  }>) {
+    if (wanted.has(link.macchinario_id)) {
+      if (link.deleted_at) {
+        await supabase
+          .from("produzione_eventi_linea_catalogo_macchine")
+          .update({
+            deleted_at: null,
+            deleted_by: null,
+            updated_by: auth.userId,
+          })
+          .eq("id", link.id);
+      }
+      wanted.delete(link.macchinario_id);
+    } else if (!link.deleted_at) {
+      await supabase
+        .from("produzione_eventi_linea_catalogo_macchine")
+        .update({
+          deleted_at: now,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .eq("id", link.id);
+    }
+  }
+  if (wanted.size) {
+    const { error: iErr } = await supabase
+      .from("produzione_eventi_linea_catalogo_macchine")
+      .insert(
+        [...wanted].map((macchinarioId) => ({
+          catalogo_id: parsed.data.catalogoId,
+          area_id: parsed.data.areaId,
+          macchinario_id: macchinarioId,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        }))
+      );
+    if (iErr) return { success: false, error: iErr.message };
+  }
+
+  const item = mapCatalogo(
+    data as Parameters<typeof mapCatalogo>[0],
+    parsed.data.macchinarioIds
+  );
+  await writeAuditLog({
+    entity_type: "produzione_eventi_linea_catalogo",
+    entity_id: item.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornate impostazioni evento di linea: ${item.nome}`,
+    payload: {
+      area_id: parsed.data.areaId,
+      durata_minuti: item.durataMinuti,
+      stato_obiettivo: item.statoObiettivo,
+      macchine: parsed.data.macchinarioIds.length,
+    },
   });
   return { success: true, item };
 }
