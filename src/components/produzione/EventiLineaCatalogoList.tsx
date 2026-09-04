@@ -292,8 +292,25 @@ function EventoCatalogoSettings({
   );
   const albero = nestMacchinari(macchinari);
   const foglie = foglieMacchinari(macchinari);
+  const foglieIds = new Set(foglie.map((m) => m.id));
   const defaultStato: EventoMacchinaStato =
     item.statoObiettivo === "on" ? "on" : "off";
+  const minutiCorrenti = Number(durata);
+  const durataValida =
+    Number.isFinite(minutiCorrenti) && minutiCorrenti >= 0;
+  const currentKey = [...ids]
+    .filter((id) => foglieIds.has(id))
+    .sort()
+    .map((id) => `${id}:${stati[id] ?? defaultStato}`)
+    .join("|");
+  const savedKey = item.macchine
+    .filter((m) => foglieIds.has(m.macchinarioId))
+    .sort((a, b) => a.macchinarioId.localeCompare(b.macchinarioId))
+    .map((m) => `${m.macchinarioId}:${m.statoObiettivo}`)
+    .join("|");
+  const dirty =
+    durataValida &&
+    (Math.round(minutiCorrenti) !== item.durataMinuti || currentKey !== savedKey);
 
   useEffect(() => {
     setDurata(String(item.durataMinuti));
@@ -426,7 +443,7 @@ function EventoCatalogoSettings({
       {isAdmin ? (
         <button
           type="button"
-          disabled={pending}
+          disabled={pending || !dirty}
           onClick={() => {
             const minuti = Number(durata);
             if (!Number.isFinite(minuti) || minuti < 0) {
@@ -439,16 +456,20 @@ function EventoCatalogoSettings({
               durataMinuti: Math.round(minuti),
               statoObiettivo: defaultStato,
               macchine: [...ids]
-                .filter((id) => foglie.some((m) => m.id === id))
+                .filter((id) => foglieIds.has(id))
                 .map((id) => ({
                   macchinarioId: id,
                   statoObiettivo: stati[id] ?? defaultStato,
                 })),
             });
           }}
-          className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+            dirty && !pending
+              ? "bg-[var(--primary)] text-white"
+              : "cursor-not-allowed bg-slate-300 text-slate-600"
+          }`}
         >
-          Salva impostazioni
+          {pending ? "Salvataggio…" : "Salva impostazioni"}
         </button>
       ) : null}
     </div>
