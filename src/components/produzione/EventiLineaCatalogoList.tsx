@@ -7,8 +7,6 @@ import {
   updateEventoLineaCatalogoSettingsAction,
 } from "@/app/actions/produzione-macchinari";
 import {
-  EVENTO_STATI_OBIETTIVO,
-  eventoStatoObiettivoLabel,
   foglieMacchinari,
   isInsieme,
   nestMacchinari,
@@ -20,7 +18,7 @@ import {
 } from "@/lib/produzione/macchinari";
 
 const INFO_TESTO =
-  "Un evento di linea è una procedura ufficiale (pausa, fine turno, ripresa o altre definite dall’amministratore). L’admin imposta durata, macchine coinvolte in quest’area e lo stato richiesto (es. Passaggio in Off). Il responsabile lo avvia dalla panoramica: le macchine spuntate devono raggiungere quello stato. Ogni avvio resta tracciato per ISO 9001.";
+  "Un evento di linea è una procedura ufficiale (pausa, fine turno, ripresa o altre definite dall’amministratore). L’admin indica se l’evento ha una durata oppure è un processo senza tempo, poi sceglie le macchine coinvolte e lo stato On/Off di ciascuna. Il responsabile lo avvia dalla panoramica. Ogni avvio resta tracciato per ISO 9001.";
 
 type Props = {
   areaId: string;
@@ -38,8 +36,8 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
   const [formOpen, setFormOpen] = useState(false);
   const [nome, setNome] = useState("");
   const [sintesi, setSintesi] = useState("");
+  const [haDurata, setHaDurata] = useState(false);
   const [durata, setDurata] = useState("15");
-  const [stato, setStato] = useState<EventoStatoObiettivo>("off");
 
   function load() {
     start(async () => {
@@ -141,42 +139,53 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
             />
           </label>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={haDurata}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setHaDurata(on);
+                if (on && (!durata || Number(durata) <= 0)) setDurata("15");
+              }}
+            />
+            Ha una durata
+          </label>
+          {haDurata ? (
             <label className="block text-xs text-[var(--muted)]">
               Durata (minuti)
               <input
                 type="number"
-                min={0}
+                min={1}
                 value={durata}
                 onChange={(e) => setDurata(e.target.value)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                className="mt-1 w-full max-w-xs rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
               />
             </label>
-            <label className="block text-xs text-[var(--muted)]">
-              Stato richiesto
-              <select
-                value={stato}
-                onChange={(e) => setStato(e.target.value as EventoStatoObiettivo)}
-                className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
-              >
-                {EVENTO_STATI_OBIETTIVO.map((s) => (
-                  <option key={s} value={s}>
-                    {eventoStatoObiettivoLabel(s)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">
+              Processo senza durata: resta aperto fino alla chiusura.
+            </p>
+          )}
           <button
             type="button"
-            disabled={pending || !nome.trim() || !sintesi.trim()}
+            disabled={
+              pending ||
+              !nome.trim() ||
+              !sintesi.trim() ||
+              (haDurata && !(Number(durata) > 0))
+            }
             onClick={() =>
               start(async () => {
+                const minuti = haDurata ? Math.round(Number(durata)) : 0;
+                if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
+                  setError("Indica una durata in minuti maggiore di zero.");
+                  return;
+                }
                 const res = await createEventoLineaCatalogoAction({
                   nome: nome.trim(),
                   sintesi: sintesi.trim(),
-                  durataMinuti: Number(durata) || 0,
-                  statoObiettivo: stato,
+                  durataMinuti: minuti,
                 });
                 if (!res.success) {
                   setError(res.error);
@@ -184,8 +193,8 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
                 }
                 setNome("");
                 setSintesi("");
+                setHaDurata(false);
                 setDurata("15");
-                setStato("off");
                 setFormOpen(false);
                 setOpenId(res.item.id);
                 load();
@@ -221,7 +230,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
                       {" · "}
                       {item.durataMinuti > 0
                         ? `${item.durataMinuti} min`
-                        : "Durata non impostata"}
+                        : "Senza durata"}
                       {" · "}
                       {item.macchineIds.length
                         ? `${item.macchineIds.length} macchine coinvolte`
@@ -285,7 +294,10 @@ function EventoCatalogoSettings({
     macchine: EventoLineaMacchinaConfig[];
   }) => void;
 }) {
-  const [durata, setDurata] = useState(String(item.durataMinuti));
+  const [haDurata, setHaDurata] = useState(item.durataMinuti > 0);
+  const [durata, setDurata] = useState(
+    item.durataMinuti > 0 ? String(item.durataMinuti) : "15"
+  );
   const [ids, setIds] = useState<Set<string>>(() => new Set(item.macchineIds));
   const [stati, setStati] = useState<Record<string, EventoMacchinaStato>>(() =>
     Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
@@ -295,9 +307,9 @@ function EventoCatalogoSettings({
   const foglieIds = new Set(foglie.map((m) => m.id));
   const defaultStato: EventoMacchinaStato =
     item.statoObiettivo === "on" ? "on" : "off";
-  const minutiCorrenti = Number(durata);
+  const minutiCorrenti = haDurata ? Number(durata) : 0;
   const durataValida =
-    Number.isFinite(minutiCorrenti) && minutiCorrenti >= 0;
+    !haDurata || (Number.isFinite(minutiCorrenti) && minutiCorrenti >= 1);
   const currentKey = [...ids]
     .filter((id) => foglieIds.has(id))
     .sort()
@@ -313,7 +325,8 @@ function EventoCatalogoSettings({
     (Math.round(minutiCorrenti) !== item.durataMinuti || currentKey !== savedKey);
 
   useEffect(() => {
-    setDurata(String(item.durataMinuti));
+    setHaDurata(item.durataMinuti > 0);
+    setDurata(item.durataMinuti > 0 ? String(item.durataMinuti) : "15");
     setIds(new Set(item.macchineIds));
     setStati(
       Object.fromEntries(item.macchine.map((m) => [m.macchinarioId, m.statoObiettivo]))
@@ -373,17 +386,36 @@ function EventoCatalogoSettings({
 
   return (
     <div className="space-y-3 border-t border-[var(--border)] bg-slate-50 px-3 py-3">
-      <label className="block text-xs text-[var(--muted)]">
-        Durata (minuti)
+      <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <input
-          type="number"
-          min={0}
-          value={durata}
+          type="checkbox"
+          checked={haDurata}
           disabled={!isAdmin}
-          onChange={(e) => setDurata(e.target.value)}
-          className="mt-1 w-full max-w-xs rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+          onChange={(e) => {
+            const on = e.target.checked;
+            setHaDurata(on);
+            if (on && (!durata || Number(durata) <= 0)) setDurata("15");
+          }}
         />
+        Ha una durata
       </label>
+      {haDurata ? (
+        <label className="block text-xs text-[var(--muted)]">
+          Durata (minuti)
+          <input
+            type="number"
+            min={1}
+            value={durata}
+            disabled={!isAdmin}
+            onChange={(e) => setDurata(e.target.value)}
+            className="mt-1 w-full max-w-xs rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
+          />
+        </label>
+      ) : (
+        <p className="text-xs text-[var(--muted)]">
+          Processo senza durata: resta aperto fino alla chiusura.
+        </p>
+      )}
 
       <div>
         <div className="flex items-center justify-between gap-2">
@@ -445,9 +477,9 @@ function EventoCatalogoSettings({
           type="button"
           disabled={pending || !dirty}
           onClick={() => {
-            const minuti = Number(durata);
-            if (!Number.isFinite(minuti) || minuti < 0) {
-              onError("Durata non valida.");
+            const minuti = haDurata ? Math.round(Number(durata)) : 0;
+            if (haDurata && (!Number.isFinite(minuti) || minuti < 1)) {
+              onError("Indica una durata in minuti maggiore di zero.");
               return;
             }
             onSave({

@@ -130,8 +130,9 @@ export function EventoLineaModal({
                 {catalogo.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.nome}
-                    {t.durataMinuti > 0 ? ` · ${t.durataMinuti} min` : ""}
-                    {` · ${eventoStatoObiettivoLabel(t.statoObiettivo)}`}
+                    {t.durataMinuti > 0
+                      ? ` · ${t.durataMinuti} min`
+                      : " · senza durata"}
                   </option>
                 ))}
               </select>
@@ -165,9 +166,9 @@ export function EventoLineaModal({
               {evento.startedByNome ? ` · ${evento.startedByNome}` : ""}
               {" · "}
               {new Date(evento.startedAt).toLocaleString("it-IT")}
-              {evento.durataMinuti > 0 ? ` · ${evento.durataMinuti} min` : ""}
-              {" · "}
-              {eventoStatoObiettivoLabel(evento.statoObiettivo)}
+              {evento.durataMinuti > 0
+                ? ` · ${evento.durataMinuti} min`
+                : " · senza durata"}
             </p>
             {evento.macchine.length === 0 ? (
               <p className="text-sm text-[var(--muted)]">
