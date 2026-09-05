@@ -15,6 +15,7 @@ import {
   repartoInputSchema,
   repartoUpdateSchema,
   treeMoveSchema,
+  treeReorderSchema,
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
   permessoTipoLabel,
@@ -1169,6 +1170,61 @@ export async function movePersonaTreeAction(
     note: parsed.data.parentId
       ? "Spostata nell’albero organigramma"
       : "Riportata a primo livello",
+  });
+  return { success: true };
+}
+
+export async function reorderPersoneAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può riordinare l’albero." };
+  }
+  const parsed = treeReorderSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Ordine non valido." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_persone")
+    .select("id, parent_id")
+    .in("id", parsed.data.orderedIds)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as Array<{ id: string; parent_id: string | null }>;
+  if (rows.length !== parsed.data.orderedIds.length) {
+    return { success: false, error: "Alcuni operatori non sono più disponibili." };
+  }
+  const sameLevel = rows.every((r) => r.parent_id === parsed.data.parentId);
+  if (!sameLevel) {
+    return { success: false, error: "Si possono riordinare solo operatori allo stesso livello." };
+  }
+  for (let i = 0; i < parsed.data.orderedIds.length; i++) {
+    const { error: upErr } = await supabase
+      .from("organigramma_persone")
+      .update({
+        sort_order: (i + 1) * 10,
+        updated_by: auth.userId,
+      })
+      .eq("id", parsed.data.orderedIds[i])
+      .is("deleted_at", null);
+    if (upErr) return { success: false, error: upErr.message };
+  }
+  await writeAuditLog({
+    entity_type: "organigramma_persone",
+    entity_id: parsed.data.orderedIds[0] ?? "",
+    action: "reorder",
+    actor_id: auth.userId,
+    summary: "Riordinati operatori nello stesso livello dell’albero",
+    payload: { parent_id: parsed.data.parentId, ids: parsed.data.orderedIds },
+  });
+  await recordAttivita({
+    personaId: parsed.data.orderedIds[0] ?? "",
+    azione: "albero",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: "Riordinata la posizione nello stesso livello dell’albero",
   });
   return { success: true };
 }

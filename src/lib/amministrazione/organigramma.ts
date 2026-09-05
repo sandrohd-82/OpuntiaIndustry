@@ -309,6 +309,11 @@ export const treeMoveSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+export const treeReorderSchema = z.object({
+  parentId: z.string().uuid().nullable(),
+  orderedIds: z.array(z.string().uuid()).min(2).max(200),
+});
+
 export function personaLabel(p: { nome: string; cognome: string }): string {
   return `${p.cognome} ${p.nome}`.trim();
 }
