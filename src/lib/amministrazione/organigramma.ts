@@ -98,6 +98,7 @@ export type OrganigrammaDocumento = {
   periodo: string;
   note: string;
   fileName: string;
+  mime: string;
   createdAt: string;
   catalogoId: string | null;
   dataRilascio: string | null;

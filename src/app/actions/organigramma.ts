@@ -37,7 +37,7 @@ const PERSONA_COLS =
   "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note, reparto_id, in_forza, cessato_at";
 
 const DOC_COLS =
-  "id, persona_id, tipo, titolo, periodo, note, file_name, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
+  "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
 
 type PersonaRow = {
   id: string;
@@ -64,6 +64,7 @@ type DocumentoRow = {
   periodo: string;
   note: string;
   file_name: string;
+  mime: string;
   created_at: string;
   certificato_catalogo_id?: string | null;
   data_rilascio?: string | null;
@@ -123,6 +124,7 @@ function mapDocumento(row: DocumentoRow): OrganigrammaDocumento {
     periodo: row.periodo,
     note: row.note,
     fileName: row.file_name,
+    mime: row.mime ?? "",
     createdAt: row.created_at,
     catalogoId: row.certificato_catalogo_id ?? null,
     dataRilascio: row.data_rilascio ?? null,
@@ -1351,31 +1353,49 @@ export async function listPersonaDocumentiAction(
 }
 
 export async function getDocumentoUrlAction(
-  id: string
-): Promise<{ success: true; url: string } | { success: false; error: string }> {
+  id: string,
+  purpose: "preview" | "download" = "preview"
+): Promise<
+  | { success: true; url: string; fileName: string; mime: string }
+  | { success: false; error: string }
+> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("organigramma_documenti")
-    .select("storage_path, persona_id, tipo")
+    .select("storage_path, persona_id, tipo, file_name, mime")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Documento non trovato." };
   }
-  const row = data as { storage_path: string; persona_id: string; tipo: string };
+  const row = data as {
+    storage_path: string;
+    persona_id: string;
+    tipo: string;
+    file_name: string;
+    mime: string;
+  };
   await writeAuditLog({
     entity_type: "organigramma_documenti",
     entity_id: id,
-    action: "view",
+    action: purpose === "download" ? "download" : "view",
     actor_id: auth.userId,
-    summary: `Consultato documento ${row.tipo}`,
+    summary:
+      purpose === "download"
+        ? `Scaricato documento ${row.tipo}`
+        : `Anteprima documento ${row.tipo}`,
     payload: { persona_id: row.persona_id },
   });
   const url = await signedUrl(row.storage_path);
   if (!url) return { success: false, error: "URL documento non disponibile." };
-  return { success: true, url };
+  return {
+    success: true,
+    url,
+    fileName: row.file_name || "documento",
+    mime: row.mime ?? "",
+  };
 }
 
 export async function softDeleteDocumentoAction(

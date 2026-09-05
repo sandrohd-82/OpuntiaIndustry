@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   addAutorizzazionePostoAction,
   createPermessoAction,
-  getDocumentoUrlAction,
   getPersonaAction,
   listAutorizzazioniPersonaAction,
   listCertificatiCatalogoAction,
@@ -24,6 +23,7 @@ import {
   uploadPersonaDocumentoAction,
   uploadPersonaFotoAction,
 } from "@/app/actions/organigramma";
+import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   ORGANIGRAMMA_AZIONI,
@@ -32,7 +32,6 @@ import {
   attivitaPersonaLabel,
   calcolaScadenzaCertificato,
   certificatoAlertLabel,
-  certificatoAlertLivello,
   docTipoLabel,
   permessoTipoLabel,
   personaLabel,
@@ -451,15 +450,6 @@ function DocumentiCard({
     await load();
   }
 
-  async function openDoc(id: string) {
-    const res = await getDocumentoUrlAction(id);
-    if (!res.success) {
-      setError(res.error);
-      return;
-    }
-    window.open(res.url, "_blank", "noopener,noreferrer");
-  }
-
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h3 className="text-sm font-semibold">{title}</h3>
@@ -528,43 +518,21 @@ function DocumentiCard({
         </>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-      <ul className="mt-3 divide-y divide-[var(--border)]">
-        {items.length === 0 ? (
-          <li className="py-2 text-sm text-[var(--muted)]">Nessun allegato.</li>
-        ) : (
-          items.map((d) => (
-            <li key={d.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-              <span className="font-medium">{d.titolo || docTipoLabel(d.tipo)}</span>
-              <span className="text-xs text-[var(--muted)]">
-                {docTipoLabel(d.tipo)}
-                {d.periodo ? ` · ${d.periodo}` : ""}
-                {" · "}
-                {new Date(d.createdAt).toLocaleDateString("it-IT")}
-              </span>
-              <button
-                type="button"
-                onClick={() => void openDoc(d.id)}
-                className="text-[var(--primary)] hover:underline"
-              >
-                Apri
-              </button>
-              {isAdmin ? (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const res = await softDeleteDocumentoAction(d.id);
-                    if (!res.success) setError(res.error);
-                    else await load();
-                  }}
-                  className="text-red-700 hover:underline"
-                >
-                  Rimuovi
-                </button>
-              ) : null}
-            </li>
-          ))
-        )}
-      </ul>
+      <DocumentoElenco
+        items={items}
+        isAdmin={isAdmin}
+        variant="documenti"
+        onError={setError}
+        onRemove={
+          isAdmin
+            ? async (id) => {
+                const res = await softDeleteDocumentoAction(id);
+                if (!res.success) setError(res.error);
+                else await load();
+              }
+            : undefined
+        }
+      />
     </section>
   );
 }
@@ -659,15 +627,6 @@ function CertificatiCard({
     setDataRilascio("");
     setValiditaAnni("5");
     await load();
-  }
-
-  async function openDoc(id: string) {
-    const res = await getDocumentoUrlAction(id);
-    if (!res.success) {
-      setError(res.error);
-      return;
-    }
-    window.open(res.url, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -798,58 +757,22 @@ function CertificatiCard({
         </div>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-      <ul className="mt-3 divide-y divide-[var(--border)]">
-        {items.length === 0 ? (
-          <li className="py-2 text-sm text-[var(--muted)]">Nessun allegato.</li>
-        ) : (
-          items.map((d) => {
-            const livello =
-              inForza && d.dataScadenza
-                ? certificatoAlertLivello(d.dataScadenza)
-                : null;
-            return (
-              <li key={d.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                <span className="font-medium">{d.titolo || docTipoLabel(d.tipo)}</span>
-                <span className="text-xs text-[var(--muted)]">
-                  {docTipoLabel(d.tipo)}
-                  {d.dataRilascio
-                    ? ` · rilascio ${new Date(`${d.dataRilascio}T00:00:00`).toLocaleDateString("it-IT")}`
-                    : ""}
-                  {d.validitaAnni ? ` · validità ${d.validitaAnni} anni` : ""}
-                  {d.dataScadenza
-                    ? ` · scade ${new Date(`${d.dataScadenza}T00:00:00`).toLocaleDateString("it-IT")}`
-                    : ""}
-                </span>
-                {livello ? (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">
-                    {certificatoAlertLabel(livello)}
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void openDoc(d.id)}
-                  className="text-[var(--primary)] hover:underline"
-                >
-                  Apri
-                </button>
-                {isAdmin ? (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const res = await softDeleteDocumentoAction(d.id);
-                      if (!res.success) setError(res.error);
-                      else await load();
-                    }}
-                    className="text-red-700 hover:underline"
-                  >
-                    Rimuovi
-                  </button>
-                ) : null}
-              </li>
-            );
-          })
-        )}
-      </ul>
+      <DocumentoElenco
+        items={items}
+        isAdmin={isAdmin}
+        inForza={inForza}
+        variant="certificati"
+        onError={setError}
+        onRemove={
+          isAdmin
+            ? async (id) => {
+                const res = await softDeleteDocumentoAction(id);
+                if (!res.success) setError(res.error);
+                else await load();
+              }
+            : undefined
+        }
+      />
     </section>
   );
 }
