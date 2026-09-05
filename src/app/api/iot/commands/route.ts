@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { authenticateIotDevice, readDeviceAuth } from "@/lib/produzione/iot-device-auth";
+import { recordMacchinarioAttivita } from "@/lib/produzione/attivita-record";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -80,5 +81,14 @@ export async function POST(req: Request) {
       .eq("id", device.macchinarioId)
       .is("deleted_at", null);
   }
+  await recordMacchinarioAttivita({
+    supabase: admin,
+    macchinarioId: device.macchinarioId,
+    azione: "ack_iot",
+    origine: "iot",
+    actorId: null,
+    actorNome: `Dispositivo ${device.deviceCode}`,
+    note: `Eseguito ${cmd}.`,
+  });
   return NextResponse.json({ ok: true, command_id: commandId });
 }

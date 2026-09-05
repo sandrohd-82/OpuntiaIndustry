@@ -192,7 +192,14 @@ export function applyMacchinaPatch(
   });
 }
 
-export const ATTIVITA_AZIONI = ["on", "off"] as const;
+export const ATTIVITA_AZIONI = [
+  "on",
+  "off",
+  "arresto",
+  "comando_iot",
+  "ack_iot",
+  "config_iot",
+] as const;
 export type AttivitaAzione = (typeof ATTIVITA_AZIONI)[number];
 
 export const ATTIVITA_ORIGINI = [
@@ -212,6 +219,15 @@ export function attivitaOrigineLabel(origine: AttivitaOrigine): string {
   return "IoT";
 }
 
+export function attivitaAzioneLabel(azione: AttivitaAzione): string {
+  if (azione === "on") return "On";
+  if (azione === "off") return "Off";
+  if (azione === "arresto") return "Arresto";
+  if (azione === "comando_iot") return "Comando IoT";
+  if (azione === "ack_iot") return "Ack IoT";
+  return "Configurazione IoT";
+}
+
 export type MacchinarioAttivita = {
   id: string;
   macchinarioId: string;
@@ -220,7 +236,33 @@ export type MacchinarioAttivita = {
   actorNome: string;
   note: string;
   createdAt: string;
+  foglioId: string | null;
+  foglioLabel: string | null;
 };
+
+export type AttivitaFoglioOption = {
+  id: string;
+  label: string;
+  stato: "aperto" | "chiuso";
+  startedAt: string;
+};
+
+const emptyOr = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((v) => (v === "" || v === null || v === undefined ? undefined : v), schema.optional());
+
+export const attivitaFilterSchema = z.object({
+  macchinarioId: z.string().uuid(),
+  dateFrom: emptyOr(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida")),
+  dateTo: emptyOr(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida")),
+  timeFrom: emptyOr(z.string().regex(/^\d{2}:\d{2}$/, "Ora non valida")),
+  timeTo: emptyOr(z.string().regex(/^\d{2}:\d{2}$/, "Ora non valida")),
+  foglioId: emptyOr(z.string().uuid()),
+  azione: emptyOr(z.enum(ATTIVITA_AZIONI)),
+  origine: emptyOr(z.enum(ATTIVITA_ORIGINI)),
+  limit: z.number().int().min(1).max(500).optional().default(200),
+});
+
+export type AttivitaFilterInput = z.infer<typeof attivitaFilterSchema>;
 
 export const EVENTO_LINEA_TIPI = [
   "pausa_caffe",

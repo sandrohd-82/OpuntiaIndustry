@@ -20,6 +20,9 @@ import {
   macchinarioStatoSchema,
   normalizeIotStato,
   ricambioInputSchema,
+  attivitaFilterSchema,
+  type AttivitaAzione,
+  type AttivitaFoglioOption,
   type AttivitaOrigine,
   type EventoLinea,
   type EventoLineaCatalogo,
@@ -33,6 +36,11 @@ import {
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
 import { enqueueIotPowerCommand } from "@/app/actions/produzione-iot";
+import { recordMacchinarioAttivita } from "@/lib/produzione/attivita-record";
+import {
+  inRomeTimeWindow,
+  romeDateTimeToIso,
+} from "@/lib/produzione/attivita-time";
 import { createClient } from "@/lib/supabase/server";
 
 type MacchinaRow = {
@@ -487,6 +495,13 @@ export async function updateMacchinarioStatoAction(
     return { success: false, error: "In arresto per problema: indica la causa (non conformità)." };
   }
   const supabase = await createClient();
+  const { data: prevRow } = await supabase
+    .from("produzione_macchinari")
+    .select(MACCHINA_COLS)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const prev = prevRow ? mapMacchina(prevRow as MacchinaRow) : null;
   const { data, error } = await supabase
     .from("produzione_macchinari")
     .update({
@@ -505,6 +520,32 @@ export async function updateMacchinarioStatoAction(
     return { success: false, error: error?.message ?? "Aggiornamento stato fallito" };
   }
   const item = mapMacchina(data as MacchinaRow);
+  if (statoIot === "arresto" && prev?.statoIot !== "arresto") {
+    await recordMacchinarioAttivita({
+      supabase,
+      macchinarioId: item.id,
+      areaId: item.areaId,
+      azione: "arresto",
+      origine: "scheda",
+      actorId: auth.userId,
+      actorNome: actorNome(auth),
+      note: item.statoNote || "Arresto per problema.",
+    });
+  }
+  if (prev && prev.iotCollegato !== item.iotCollegato) {
+    await recordMacchinarioAttivita({
+      supabase,
+      macchinarioId: item.id,
+      areaId: item.areaId,
+      azione: "config_iot",
+      origine: "scheda",
+      actorId: auth.userId,
+      actorNome: actorNome(auth),
+      note: item.iotCollegato
+        ? "Modalità di gestione: IoT."
+        : "Modalità di gestione: manuale.",
+    });
+  }
   await writeAuditLog({
     entity_type: "produzione_macchinari",
     entity_id: item.id,
@@ -686,25 +727,15 @@ async function confirmEventoOffAndMaybeClose(input: {
 async function insertAttivita(input: {
   macchinarioId: string;
   areaId: string;
-  azione: "on" | "off";
+  azione: AttivitaAzione;
   origine: AttivitaOrigine;
   eventoLineaId?: string | null;
   actorId: string;
   actorNome: string;
   note: string;
 }) {
-  const supabase = await createClient();
-  const { error } = await supabase.from("produzione_macchinario_attivita").insert({
-    macchinario_id: input.macchinarioId,
-    area_id: input.areaId,
-    azione: input.azione,
-    origine: input.origine,
-    evento_linea_id: input.eventoLineaId ?? null,
-    actor_nome: input.actorNome,
-    note: input.note,
-    created_by: input.actorId,
-  });
-  return error;
+  const { error } = await recordMacchinarioAttivita(input);
+  return error ? { message: error } : null;
 }
 
 export async function setMacchinaPowerAction(input: {
@@ -863,31 +894,93 @@ export async function setMacchinaPowerAction(input: {
   return { success: true, item };
 }
 
+function blank(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  return t ? t : undefined;
+}
+
 export async function listMacchinaAttivitaAction(
-  macchinarioId: string
+  macchinarioIdOrFilter: string | unknown
 ): Promise<
   { success: true; items: MacchinarioAttivita[] } | { success: false; error: string }
 > {
   await requireAreaAccess("produzione");
+  const raw =
+    typeof macchinarioIdOrFilter === "string"
+      ? { macchinarioId: macchinarioIdOrFilter }
+      : macchinarioIdOrFilter;
+  const parsed = attivitaFilterSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Filtri non validi." };
+  }
+  const f = parsed.data;
+  const dateFrom = blank(f.dateFrom);
+  const dateTo = blank(f.dateTo);
+  const timeFrom = blank(f.timeFrom);
+  const timeTo = blank(f.timeTo);
+  const foglioId = blank(f.foglioId);
+  const azione = blank(f.azione) as AttivitaAzione | undefined;
+  const origine = blank(f.origine) as AttivitaOrigine | undefined;
+  const combineTimeWithDate = Boolean(dateFrom || dateTo);
+
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("produzione_macchinario_attivita")
-    .select("id, macchinario_id, azione, origine, actor_nome, note, created_at")
-    .eq("macchinario_id", macchinarioId)
+    .select(
+      "id, macchinario_id, azione, origine, actor_nome, note, created_at, foglio_id, foglio:produzione_fogli_lavorazione(codice)"
+    )
+    .eq("macchinario_id", f.macchinarioId)
     .order("created_at", { ascending: false })
-    .limit(40);
+    .limit(f.limit ?? 200);
+
+  if (foglioId) query = query.eq("foglio_id", foglioId);
+  if (azione) query = query.eq("azione", azione);
+  if (origine) query = query.eq("origine", origine);
+
+  if (combineTimeWithDate) {
+    if (dateFrom) {
+      query = query.gte(
+        "created_at",
+        romeDateTimeToIso(dateFrom, timeFrom ?? "00:00")
+      );
+    }
+    if (dateTo) {
+      query = query.lte(
+        "created_at",
+        romeDateTimeToIso(dateTo, timeTo ?? "23:59")
+      );
+    }
+  } else if (!timeFrom && !timeTo) {
+    query = query.gte(
+      "created_at",
+      new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
+    );
+  } else {
+    query = query.gte(
+      "created_at",
+      new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString()
+    );
+  }
+
+  const { data, error } = await query;
   if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: ((data ?? []) as Array<{
-      id: string;
-      macchinario_id: string;
-      azione: MacchinarioAttivita["azione"];
-      origine: MacchinarioAttivita["origine"];
-      actor_nome: string;
-      note: string;
-      created_at: string;
-    }>).map((r) => ({
+
+  type Row = {
+    id: string;
+    macchinario_id: string;
+    azione: MacchinarioAttivita["azione"];
+    origine: MacchinarioAttivita["origine"];
+    actor_nome: string;
+    note: string;
+    created_at: string;
+    foglio_id: string | null;
+    foglio: { codice: string } | { codice: string }[] | null;
+  };
+
+  let items = ((data ?? []) as Row[]).map((r) => {
+    const foglio = Array.isArray(r.foglio) ? r.foglio[0] : r.foglio;
+    return {
       id: r.id,
       macchinarioId: r.macchinario_id,
       azione: r.azione,
@@ -895,6 +988,45 @@ export async function listMacchinaAttivitaAction(
       actorNome: r.actor_nome,
       note: r.note,
       createdAt: r.created_at,
+      foglioId: r.foglio_id,
+      foglioLabel: foglio?.codice ?? null,
+    };
+  });
+
+  if (!combineTimeWithDate && (timeFrom || timeTo)) {
+    items = items.filter((row) =>
+      inRomeTimeWindow(row.createdAt, timeFrom, timeTo)
+    );
+  }
+
+  return { success: true, items };
+}
+
+export async function listFogliPerStoricoAction(): Promise<
+  | { success: true; items: AttivitaFoglioOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_fogli_lavorazione")
+    .select("id, codice, stato, started_at")
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(80);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      codice: string;
+      stato: "aperto" | "chiuso";
+      started_at: string;
+    }>).map((r) => ({
+      id: r.id,
+      label: r.codice,
+      stato: r.stato,
+      startedAt: r.started_at,
     })),
   };
 }

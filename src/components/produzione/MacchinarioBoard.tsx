@@ -10,7 +10,6 @@ import {
   upsertIotDeviceAction,
 } from "@/app/actions/produzione-iot";
 import {
-  listMacchinaAttivitaAction,
   listRicambiAction,
   softDeleteRicambioAction,
   updateMacchinarioAnagraficaAction,
@@ -20,17 +19,16 @@ import {
 import { IoTControlPanel } from "@/components/produzione/IoTControlPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
+import { StoricoAttivitaMacchina } from "@/components/produzione/StoricoAttivitaMacchina";
 import { InfoHint } from "@/components/ui/InfoHint";
 import type { IotDevice } from "@/lib/produzione/iot";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   applyMacchinaPatch,
-  attivitaOrigineLabel,
   isInsieme,
   nestMacchinari,
   ricambioSottoSoglia,
-  type MacchinarioAttivita,
   type MacchinarioRicambio,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
@@ -57,7 +55,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
   const [iot, setIot] = useState(false);
   const [arresto, setArresto] = useState(false);
   const [statoNote, setStatoNote] = useState("");
-  const [attivita, setAttivita] = useState<MacchinarioAttivita[]>([]);
+  const [storicoRefresh, setStoricoRefresh] = useState(0);
   const [articolo, setArticolo] = useState("");
   const [dettaglio, setDettaglio] = useState("");
   const [azienda, setAzienda] = useState("");
@@ -97,15 +95,13 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         setIot(m.iotCollegato);
         setArresto(m.statoIot === "arresto");
         setStatoNote(m.statoNote);
-        const [r, a, d] = await Promise.all([
+        const [r, d] = await Promise.all([
           listRicambiAction(m.id),
-          listMacchinaAttivitaAction(m.id),
           getIotDeviceByMacchinarioAction(m.id),
         ]);
         if (!r.success) setError(r.error);
         else setRicambi(r.items);
-        if (!a.success) setError(a.error);
-        else setAttivita(a.items);
+        setStoricoRefresh((n) => n + 1);
         if (d.success) {
           setIotDevice(d.device);
           setDeviceCode(d.device?.deviceCode ?? m.codice.toUpperCase());
@@ -320,10 +316,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                 setArresto(item.statoIot === "arresto");
                 setStatoNote(item.statoNote);
                 window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
-                start(async () => {
-                  const a = await listMacchinaAttivitaAction(macchina.id);
-                  if (a.success) setAttivita(a.items);
-                });
+                setStoricoRefresh((n) => n + 1);
               }}
             />
           </div>
@@ -585,44 +578,10 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h3 className="text-sm font-semibold">Registro attività On/Off</h3>
-        <p className="mt-1 text-xs text-[var(--muted)]">
-          Registro immutabile: chi ha dichiarato On o Off, quando e da dove.
-        </p>
-        <ul className="mt-3 divide-y divide-[var(--border)]">
-          {attivita.length === 0 ? (
-            <li className="py-2 text-sm text-[var(--muted)]">
-              Nessuna attività registrata.
-            </li>
-          ) : (
-            attivita.map((row) => (
-              <li key={row.id} className="py-2 text-sm">
-                <span
-                  className={
-                    row.azione === "on"
-                      ? "font-semibold text-emerald-700"
-                      : "font-semibold text-slate-600"
-                  }
-                >
-                  {row.azione === "on" ? "On" : "Off"}
-                </span>
-                {" · "}
-                {row.actorNome || "Operatore"}
-                {" · "}
-                {attivitaOrigineLabel(row.origine)}
-                {" · "}
-                {new Date(row.createdAt).toLocaleString("it-IT")}
-                {row.note ? (
-                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                    {row.note}
-                  </span>
-                ) : null}
-              </li>
-            ))
-          )}
-        </ul>
-      </div>
+      <StoricoAttivitaMacchina
+        macchinarioId={macchina.id}
+        refreshKey={storicoRefresh}
+      />
 
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">Inventario pezzi di ricambio</h3>

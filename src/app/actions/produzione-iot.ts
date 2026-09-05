@@ -11,7 +11,12 @@ import {
   type IotDevice,
   type IotTelemetry,
 } from "@/lib/produzione/iot";
+import { recordMacchinarioAttivita } from "@/lib/produzione/attivita-record";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+
+function actorNome(profile: { full_name?: string | null; email?: string }): string {
+  return profile.full_name?.trim() || profile.email || "Operatore";
+}
 
 const DEVICE_COLS =
   "id, macchinario_id, device_code, name, status, last_ping, api_token_hash, api_token_hint, poll_seconds";
@@ -176,6 +181,17 @@ export async function upsertIotDeviceAction(
     summary: `Configurato IoT ${device.deviceCode} per ${nome}`,
     payload: { macchinario_id: parsed.data.macchinarioId, token_ruotato: Boolean(plaintextToken) },
   });
+  await recordMacchinarioAttivita({
+    supabase,
+    macchinarioId: parsed.data.macchinarioId,
+    azione: "config_iot",
+    origine: "scheda",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: plaintextToken
+      ? `Collegamento IoT ${device.deviceCode} (token emesso).`
+      : `Aggiornato collegamento IoT ${device.deviceCode}.`,
+  });
   return { success: true, device, plaintextToken };
 }
 
@@ -202,6 +218,15 @@ export async function disableIotDeviceAction(
     action: "iot_disable",
     actor_id: auth.userId,
     summary: "Macchinario riportato a gestione manuale",
+  });
+  await recordMacchinarioAttivita({
+    supabase,
+    macchinarioId,
+    azione: "config_iot",
+    origine: "scheda",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: "Collegamento IoT disattivato: gestione manuale.",
   });
   return { success: true };
 }
@@ -238,6 +263,26 @@ export async function enqueueIotCommandAction(
     executed_at: string | null;
     created_at: string;
   };
+  const { data: deviceRow } = await supabase
+    .from("iot_devices")
+    .select("macchinario_id, device_code")
+    .eq("id", row.device_id)
+    .maybeSingle();
+  const macchinarioId = (deviceRow as { macchinario_id?: string } | null)
+    ?.macchinario_id;
+  if (macchinarioId) {
+    await recordMacchinarioAttivita({
+      supabase,
+      macchinarioId,
+      azione: "comando_iot",
+      origine: "iot",
+      actorId: auth.userId,
+      actorNome: actorNome(auth.profile),
+      note: `Comando ${row.command} verso ${
+        (deviceRow as { device_code?: string } | null)?.device_code ?? "dispositivo"
+      }.`,
+    });
+  }
   await writeAuditLog({
     entity_type: "iot_commands",
     entity_id: row.id,
