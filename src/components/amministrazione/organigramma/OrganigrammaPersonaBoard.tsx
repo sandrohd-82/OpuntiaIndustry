@@ -234,32 +234,28 @@ function AnagraficaCard({
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <div className="flex flex-wrap items-start gap-4">
         <div className="shrink-0">
-          {item.fotoUrl ? (
+          {isAdmin ? (
+            <FileDropZone
+              variant="photo"
+              accept="image/jpeg,image/png,image/webp"
+              file={pickedFoto}
+              coverUrl={item.fotoUrl}
+              busy={busy}
+              title="Trascina qui la foto"
+              hint="JPG, PNG, WebP"
+              onFile={setPickedFoto}
+              onInvalid={onError}
+            />
+          ) : item.fotoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={item.fotoUrl}
               alt={`Foto ${personaLabel(item)}`}
-              className="h-24 w-24 rounded-lg object-cover"
+              className="h-44 w-44 rounded-2xl object-cover"
             />
           ) : (
-            <div className="flex h-24 w-24 items-center justify-center rounded-lg bg-slate-100 text-xs text-[var(--muted)]">
-              Nessuna foto
-            </div>
+            <div className="h-44 w-44 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50" />
           )}
-          {isAdmin ? (
-            <div className="mt-2 w-40">
-              <FileDropZone
-                compact
-                accept="image/jpeg,image/png,image/webp"
-                file={pickedFoto}
-                busy={busy}
-                title="Trascina la foto"
-                hint="JPG, PNG, WebP"
-                onFile={setPickedFoto}
-                onInvalid={onError}
-              />
-            </div>
-          ) : null}
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold">{personaLabel(item)}</h2>

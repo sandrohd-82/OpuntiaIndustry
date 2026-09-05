@@ -21,6 +21,9 @@ type Props = {
   title?: string;
   hint?: string;
   readyCaption?: string;
+  /** Sfondo foto (es. operatore). Con variant="photo" le scritte appaiono solo in hover. */
+  coverUrl?: string | null;
+  variant?: "default" | "photo";
   onFile: (file: File) => void;
   onInvalid?: (message: string) => void;
 };
@@ -55,6 +58,8 @@ export function FileDropZone({
   title = "Trascina qui il file",
   hint = "PDF, JPG, PNG, WebP · max 15 MB",
   readyCaption = "in bozza, premi Salva",
+  coverUrl = null,
+  variant = "default",
   onFile,
   onInvalid,
 }: Props) {
@@ -76,13 +81,99 @@ export function FileDropZone({
     const next = files?.[0];
     if (!next || disabled || busy) return;
     if (!isAccepted(next, accept)) {
-      onInvalid?.("Formato ammesso: PDF, JPG, PNG, WebP.");
+      onInvalid?.(
+        accept.includes("application/pdf")
+          ? "Formato ammesso: PDF, JPG, PNG, WebP."
+          : "Formato ammesso: JPG, PNG, WebP."
+      );
       return;
     }
     onFile(next);
   }
 
   const locked = disabled || busy;
+  const photoSrc = previewUrl ?? coverUrl ?? null;
+  const isPhoto = variant === "photo";
+
+  if (isPhoto) {
+    return (
+      <label
+        htmlFor={inputId}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          if (!locked) setDragOver(true);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!locked) setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          take(e.dataTransfer.files);
+        }}
+        className={`group relative block h-44 w-44 shrink-0 cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed transition ${
+          locked
+            ? "cursor-wait"
+            : dragOver
+              ? "border-emerald-500 shadow-md shadow-emerald-100"
+              : file
+                ? "border-emerald-400"
+                : "border-slate-300 hover:border-[var(--primary)]"
+        } ${photoSrc ? "bg-slate-200" : "bg-gradient-to-b from-slate-50 to-white"}`}
+      >
+        {photoSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoSrc}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        ) : null}
+        <span
+          className={`absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center transition ${
+            dragOver || busy
+              ? "bg-slate-950/55 opacity-100"
+              : "bg-slate-950/50 opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {busy ? (
+            <span className="text-xs font-medium text-white">Salvataggio…</span>
+          ) : (
+            <>
+              <span className="text-sm font-semibold text-white">
+                {title === "Trascina qui il file" ? "Trascina qui la foto" : title}
+              </span>
+              <span className="text-xs text-white/90">
+                oppure{" "}
+                <span className="font-semibold underline decoration-2 underline-offset-2">
+                  scegli dal computer
+                </span>
+              </span>
+              <span className="mt-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white">
+                {hint}
+              </span>
+            </>
+          )}
+        </span>
+        <input
+          id={inputId}
+          type="file"
+          accept={accept}
+          disabled={locked}
+          className="sr-only"
+          onChange={(e) => {
+            take(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </label>
+    );
+  }
 
   return (
     <label
