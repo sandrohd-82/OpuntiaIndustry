@@ -26,8 +26,8 @@ export default async function ProduzioneLeafPage({ params }: Props) {
     return (
       <>
         <AppHeader
-          title={page?.label ?? "Macchinari"}
-          subtitle={page?.description ?? "Impianti e stato IoT"}
+          title="Elenco"
+          subtitle={page?.description ?? "Elenco macchine dell’area."}
         />
         <div className="p-6">
           <MacchinariBoard areaCodice={sub} />

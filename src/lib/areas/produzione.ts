@@ -84,31 +84,23 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
       areaNavBranch(
         "lavaggio",
         "Lavaggio",
-        "Versamento e bilancio di massa verso essiccazione.",
-        [],
-        [
-          {
-            slug: "vasca-lavaggio",
-            label: "Vasca lavaggio",
-            description: "Insieme macchine in vasca.",
-            children: [
-              { slug: "pompa-in-disinfettante", label: "Pompa In. Disinfettante", description: "Pompa disinfettante." },
-              { slug: "soffiante", label: "Soffiante", description: "Soffiatura." },
-              { slug: "nastro-risalita", label: "Nastro Risalita", description: "Nastro di risalita." },
-              { slug: "spruzzini", label: "Spruzzini", description: "Ugelli di lavaggio." },
-            ],
-          },
-          { slug: "sterilizzatore-uv", label: "Sterilizzatore UV", description: "Sterilizzazione UV." },
-          { slug: "macchina-anolyte", label: "Macchina Anolyte", description: "Dosaggio anolyte." },
-        ]
+        "Versamento e bilancio di massa verso essiccazione."
       ),
-      areaNavBranch("taglio", "Taglio", "Più posti lavoro, stesso obiettivo di lotto.", [
-        { slug: "spaccapale", label: "Spaccapale", description: "Spacco pale / cladodi." },
-        { slug: "cubettatrice", label: "Cubettatrice", description: "Cubettatura." },
-        { slug: "coltelli", label: "Coltelli", description: "Taglio a coltello." },
-      ]),
-      areaNavBranch("essiccatori", "Essiccatori", "Essiccazione del prodotto pesato.", []),
-      areaNavBranch("triturazione", "Triturazione", "Triturazione e riduzione volumetrica.", []),
+      areaNavBranch(
+        "taglio",
+        "Taglio",
+        "Più posti lavoro, stesso obiettivo di lotto."
+      ),
+      areaNavBranch(
+        "essiccatori",
+        "Essiccatori",
+        "Essiccazione del prodotto pesato."
+      ),
+      areaNavBranch(
+        "triturazione",
+        "Triturazione",
+        "Triturazione e riduzione volumetrica."
+      ),
     ],
   },
   {
@@ -155,7 +147,7 @@ function areaNavBranch(
   slug: string,
   label: string,
   description: string,
-  posti: Array<{ slug: string; label: string; description: string }>,
+  posti: Array<{ slug: string; label: string; description: string }> = [],
   macchine: Array<{
     slug: string;
     label: string;
@@ -164,10 +156,7 @@ function areaNavBranch(
   }> = []
 ): NavItem {
   const base = `/app/produzione/gestione-aree/${slug}`;
-  const isLavaggio = slug === "lavaggio";
-  const vasca = isLavaggio
-    ? macchine.find((m) => m.slug === "vasca-lavaggio")
-    : undefined;
+  const vasca = macchine.find((m) => m.slug === "vasca-lavaggio");
   const altreMacchine = vasca
     ? macchine.filter((m) => m.slug !== "vasca-lavaggio")
     : macchine;
@@ -219,10 +208,8 @@ function areaNavBranch(
     children: [
       {
         slug: "panoramica",
-        label: isLavaggio ? "Gestione Area" : "Panoramica area",
-        description: isLavaggio
-          ? "Gestione dell’area lavaggio: impianti, eventi e stato linea."
-          : "Stato area e videosorveglianza.",
+        label: "Gestione Area",
+        description: "Impianti, eventi di linea e stato dell’area.",
         path: base,
       },
       {
@@ -233,7 +220,7 @@ function areaNavBranch(
         children: [
           {
             slug: "elenco",
-            label: "Elenco macchinari",
+            label: "Elenco",
             description: "Elenco macchine dell’area.",
             path: `${base}/macchinari`,
           },

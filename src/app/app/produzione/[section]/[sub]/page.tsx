@@ -1,15 +1,12 @@
 import { notFound } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { EssiccatoriBoard } from "@/components/produzione/EssiccatoriBoard";
 import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
-import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { ESSICCATORI } from "@/lib/produzione/essiccatori";
 import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
@@ -100,29 +97,12 @@ export default async function ProduzioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "gestione-aree" && sub === "essiccatori") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="space-y-4 p-6">
-          <WorkcenterCameraBar targetKind="area" areaCodice="essiccatori" />
-          <EssiccatoriBoard items={ESSICCATORI} />
-        </div>
-      </>
-    );
-  }
-
   if (section === "gestione-aree") {
-    const isLavaggio = sub === "lavaggio";
     return (
       <>
         <AppHeader
-          title={isLavaggio ? "Gestione Area" : page.label}
-          subtitle={
-            isLavaggio
-              ? "Gestione dell’area lavaggio: impianti, eventi e stato linea."
-              : page.description
-          }
+          title="Gestione Area"
+          subtitle="Impianti, eventi di linea e stato dell’area."
         />
         <div className="p-6">
           <GestioneAreaBoard areaCodice={sub} />
