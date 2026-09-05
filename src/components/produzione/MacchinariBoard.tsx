@@ -7,11 +7,14 @@ import { createMacchinarioAction } from "@/app/actions/produzione-macchinari";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
-import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
+import { type ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   applyMacchinaPatch,
   isInsieme,
+  isMacchinarioCodiceNuovo,
+  MACCHINARIO_CODICE_HINT,
   nestMacchinari,
+  normalizeMacchinarioCodice,
   type ProduzioneMacchinario,
 } from "@/lib/produzione/macchinari";
 
@@ -24,7 +27,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nome, setNome] = useState("");
-  const [codice, setCodice] = useState("");
+  const [codice, setCodice] = useState("Mac-");
   const [descrizione, setDescrizione] = useState("");
   const [iot, setIot] = useState(false);
   const [parentId, setParentId] = useState("");
@@ -62,7 +65,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
     start(async () => {
       const res = await createMacchinarioAction({
         areaId: area.id,
-        codice: codice.trim() || slugPosto(nome),
+        codice: codice.trim(),
         nome: nome.trim(),
         descrizione: descrizione.trim(),
         iotCollegato: iot,
@@ -74,7 +77,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
         return;
       }
       setNome("");
-      setCodice("");
+      setCodice("Mac-");
       setDescrizione("");
       setIot(false);
       setParentId("");
@@ -109,17 +112,15 @@ export function MacchinariBoard({ areaCodice }: Props) {
           <h3 className="text-sm font-semibold">Aggiungi macchinario</h3>
           <p className="mt-1 text-xs text-[var(--muted)]">
             Compare nel menu e in Gestione Area. Puoi metterlo da solo o sotto
-            un insieme (come le macchine della vasca).
+            un insieme (come le macchine della vasca). Codice:{" "}
+            {MACCHINARIO_CODICE_HINT} (4 blocchi da 3 lettere, prefisso Mac-).
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="text-xs text-[var(--muted)]">
               Nome
               <input
                 value={nome}
-                onChange={(e) => {
-                  setNome(e.target.value);
-                  if (!codice) setCodice(slugPosto(e.target.value));
-                }}
+                onChange={(e) => setNome(e.target.value)}
                 className="mt-1 block w-52 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
               />
             </label>
@@ -127,8 +128,11 @@ export function MacchinariBoard({ areaCodice }: Props) {
               Codice
               <input
                 value={codice}
-                onChange={(e) => setCodice(slugPosto(e.target.value))}
-                className="mt-1 block w-40 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
+                onChange={(e) =>
+                  setCodice(normalizeMacchinarioCodice(e.target.value))
+                }
+                placeholder={MACCHINARIO_CODICE_HINT}
+                className="mt-1 block w-48 rounded-md border border-[var(--border)] px-2 py-1.5 font-mono text-sm"
               />
             </label>
             <label className="text-xs text-[var(--muted)]">
@@ -164,7 +168,11 @@ export function MacchinariBoard({ areaCodice }: Props) {
             </label>
             <button
               type="button"
-              disabled={pending || !nome.trim()}
+              disabled={
+                pending ||
+                !nome.trim() ||
+                !isMacchinarioCodiceNuovo(normalizeMacchinarioCodice(codice))
+              }
               onClick={add}
               className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
             >

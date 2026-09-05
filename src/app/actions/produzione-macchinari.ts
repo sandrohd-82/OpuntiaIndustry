@@ -164,10 +164,7 @@ export async function createMacchinarioAction(
   if (!isAdminLikeProfile(auth.profile)) {
     return { success: false, error: "Solo l’amministratore può aggiungere macchinari." };
   }
-  const parsed = macchinarioInputSchema.safeParse({
-    ...(raw as object),
-    codice: slugPosto(String((raw as { codice?: string })?.codice ?? "")),
-  });
+  const parsed = macchinarioInputSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi" };
   }
@@ -199,7 +196,7 @@ export async function createMacchinarioAction(
     .from("produzione_macchinari")
     .insert({
       area_id: v.areaId,
-      codice: v.codice.toLowerCase(),
+      codice: v.codice,
       nome: v.nome.trim(),
       descrizione: v.descrizione ?? "",
       iot_collegato: v.iotCollegato ?? false,
@@ -241,10 +238,7 @@ export async function updateMacchinarioAnagraficaAction(
         error: "Solo l’amministratore può modificare l’anagrafica del macchinario.",
       };
     }
-    const parsed = macchinarioAnagraficaSchema.safeParse({
-      ...(raw as object),
-      codice: slugPosto(String((raw as { codice?: string })?.codice ?? "")),
-    });
+    const parsed = macchinarioAnagraficaSchema.safeParse(raw);
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
     }
@@ -261,7 +255,7 @@ export async function updateMacchinarioAnagraficaAction(
     }
     const prev = mapMacchina(current as MacchinaRow);
     const oldCodice = prev.codice.toLowerCase();
-    const newCodice = v.codice.toLowerCase();
+    const newCodice = v.codice;
     const { data: twins, error: tErr } = await supabase
       .from("produzione_macchinari")
       .select(MACCHINA_COLS)
@@ -283,7 +277,7 @@ export async function updateMacchinarioAnagraficaAction(
       const twinIds = new Set(same.map((r) => r.id));
       if (
         ((clash ?? []) as Array<{ id: string; codice: string }>).some(
-          (r) => !twinIds.has(r.id) && r.codice.toLowerCase() === newCodice
+          (r) => !twinIds.has(r.id) && r.codice.toLowerCase() === newCodice.toLowerCase()
         )
       ) {
         return {

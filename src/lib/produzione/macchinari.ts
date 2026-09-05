@@ -38,14 +38,68 @@ export type MacchinarioRicambio = {
   note: string;
 };
 
+/** Mac-XXX-XXX-XXX: 4 blocchi da 3 lettere, prefisso fisso Mac-. */
+export const MACCHINARIO_CODICE_RE =
+  /^Mac-[A-Za-z]{3}-[A-Za-z]{3}-[A-Za-z]{3}$/;
+export const MACCHINARIO_CODICE_HINT = "Mac-XXX-XXX-XXX";
+
+export function normalizeMacchinarioCodice(raw: string): string {
+  const letters = raw.replace(/[^A-Za-z]/g, "");
+  const body = letters.toLowerCase().startsWith("mac")
+    ? letters.slice(3)
+    : letters;
+  const chunks = ["Mac"];
+  for (let i = 0; i < 3; i++) {
+    const part = body.slice(i * 3, i * 3 + 3).toUpperCase();
+    if (!part) break;
+    chunks.push(part);
+  }
+  return chunks.join("-");
+}
+
+export function isMacchinarioCodiceNuovo(codice: string): boolean {
+  return MACCHINARIO_CODICE_RE.test(codice);
+}
+
+const LEGACY_MAC_CODICE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i;
+
+function parseMacchinarioCodice(raw: string, allowLegacy: boolean): string {
+  const trimmed = raw.trim();
+  const normalized = normalizeMacchinarioCodice(trimmed);
+  if (isMacchinarioCodiceNuovo(normalized)) return normalized;
+  if (allowLegacy && LEGACY_MAC_CODICE_RE.test(trimmed)) return trimmed;
+  throw new Error(
+    `Il codice deve essere ${MACCHINARIO_CODICE_HINT} (4 blocchi da 3 lettere).`
+  );
+}
+
+const codiceMacchinaNuovo = z.string().trim().transform((v, ctx) => {
+  try {
+    return parseMacchinarioCodice(v, false);
+  } catch (e) {
+    ctx.addIssue({
+      code: "custom",
+      message: e instanceof Error ? e.message : MACCHINARIO_CODICE_HINT,
+    });
+    return z.NEVER;
+  }
+});
+
+const codiceMacchinaAnagrafica = z.string().trim().transform((v, ctx) => {
+  try {
+    return parseMacchinarioCodice(v, true);
+  } catch (e) {
+    ctx.addIssue({
+      code: "custom",
+      message: e instanceof Error ? e.message : MACCHINARIO_CODICE_HINT,
+    });
+    return z.NEVER;
+  }
+});
+
 export const macchinarioInputSchema = z.object({
   areaId: z.string().uuid(),
-  codice: z
-    .string()
-    .trim()
-    .min(1)
-    .max(40)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i, "Usa lettere, numeri e trattini"),
+  codice: codiceMacchinaNuovo,
   nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
   descrizione: z.string().trim().max(500).optional().default(""),
   iotCollegato: z.boolean().optional().default(false),
@@ -57,12 +111,7 @@ export const macchinarioInputSchema = z.object({
 export const macchinarioAnagraficaSchema = z.object({
   id: z.string().uuid(),
   nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
-  codice: z
-    .string()
-    .trim()
-    .min(1)
-    .max(40)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i, "Usa lettere, numeri e trattini"),
+  codice: codiceMacchinaAnagrafica,
   descrizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(2000).optional().default(""),
   iotCollegato: z.boolean(),

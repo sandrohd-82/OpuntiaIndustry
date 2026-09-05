@@ -27,7 +27,9 @@ import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   applyMacchinaPatch,
   isInsieme,
+  MACCHINARIO_CODICE_HINT,
   nestMacchinari,
+  normalizeMacchinarioCodice,
   ricambioSottoSoglia,
   type MacchinarioRicambio,
   type ProduzioneMacchinario,
@@ -169,7 +171,15 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
             <input
               value={codiceEdit}
               disabled={!editAnagrafica}
-              onChange={(e) => setCodiceEdit(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCodiceEdit(
+                  v.toLowerCase().startsWith("mac")
+                    ? normalizeMacchinarioCodice(v)
+                    : v
+                );
+              }}
+              placeholder={MACCHINARIO_CODICE_HINT}
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 font-mono text-sm disabled:bg-slate-100"
             />
           </label>
