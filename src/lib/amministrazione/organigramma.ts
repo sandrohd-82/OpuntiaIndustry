@@ -163,6 +163,8 @@ export type OrganigrammaAttivita = {
   actorNome: string;
   note: string;
   createdAt: string;
+  areaNome: string;
+  riferimento: string;
 };
 
 export type OrganigrammaPermesso = {
@@ -212,7 +214,25 @@ export const ORGANIGRAMMA_AZIONI = [
   "certificato",
 ] as const;
 
+/** Attività operative in azienda (non anagrafica/documenti). */
+export const OPERATIVE_AZIONI = [
+  "entrata_lavorazione",
+  "uscita_lavorazione",
+  "arresto",
+  "iot",
+  "evento_linea",
+  "foglio",
+  "assenza",
+] as const;
+
 export function attivitaPersonaLabel(azione: string): string {
+  if (azione === "entrata_lavorazione") return "Entrata in lavorazione";
+  if (azione === "uscita_lavorazione") return "Uscita da lavorazione";
+  if (azione === "arresto") return "Arresto";
+  if (azione === "iot") return "Comando IoT";
+  if (azione === "evento_linea") return "Evento di linea";
+  if (azione === "foglio") return "Foglio di lavorazione";
+  if (azione === "assenza") return "Assenza / permesso";
   if (azione === "create") return "Creazione";
   if (azione === "update") return "Aggiornamento";
   if (azione === "delete") return "Rimozione";

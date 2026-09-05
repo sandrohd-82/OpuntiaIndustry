@@ -30,7 +30,7 @@ import {
 } from "@/components/amministrazione/organigramma/FotoTesseraBox";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
-  ORGANIGRAMMA_AZIONI,
+  OPERATIVE_AZIONI,
   ORGANIGRAMMA_PERMESSO_STATI,
   ORGANIGRAMMA_PERMESSO_TIPI,
   attivitaPersonaLabel,
@@ -1039,6 +1039,7 @@ function StoricoPersonaCard({
   const [azione, setAzione] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkedLogin, setLinkedLogin] = useState(true);
 
   async function load() {
     setLoading(true);
@@ -1055,6 +1056,7 @@ function StoricoPersonaCard({
     }
     setError(null);
     setItems(res.items);
+    setLinkedLogin(res.linkedLogin);
   }
 
   useEffect(() => {
@@ -1068,8 +1070,8 @@ function StoricoPersonaCard({
         <div>
           <h3 className="text-sm font-semibold">Registro attività</h3>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Registro immutabile di anagrafica, documenti, permessi e
-            autorizzazioni.
+            Entrate e uscite di lavorazione, processi, aree, eventi di linea e
+            assenze. Non include foto, certificati o modifiche anagrafiche.
           </p>
         </div>
         <div className="flex rounded-full border border-[var(--border)] p-0.5 text-xs">
@@ -1126,7 +1128,7 @@ function StoricoPersonaCard({
             className={inputCls}
           >
             <option value="">Tutte</option>
-            {ORGANIGRAMMA_AZIONI.map((a) => (
+            {OPERATIVE_AZIONI.map((a) => (
               <option key={a} value={a}>
                 {attivitaPersonaLabel(a)}
               </option>
@@ -1148,7 +1150,10 @@ function StoricoPersonaCard({
               setDateTo("");
               setAzione("");
               void listPersonaAttivitaAction({ personaId }).then((r) => {
-                if (r.success) setItems(r.items);
+                if (r.success) {
+                  setItems(r.items);
+                  setLinkedLogin(r.linkedLogin);
+                }
               });
             }}
             className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
@@ -1158,17 +1163,23 @@ function StoricoPersonaCard({
         </div>
       </form>
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+      {!linkedLogin ? (
+        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Operatore senza login collegato: si vedono le assenze. Per lavorazioni,
+          aree ed eventi di linea collega un profilo di accesso.
+        </p>
+      ) : null}
       {items.length === 0 && !loading ? (
         <p className="mt-3 text-sm text-[var(--muted)]">
-          Nessuna attività per i filtri selezionati.
+          Nessuna attività operativa per i filtri selezionati.
         </p>
       ) : vista === "elenco" ? (
         <ul className="mt-3 divide-y divide-[var(--border)]">
           {items.map((row) => (
             <li key={row.id} className="py-2 text-sm">
               <span className="font-semibold">{attivitaPersonaLabel(row.azione)}</span>
-              {" · "}
-              {row.actorNome || "Operatore"}
+              {row.areaNome ? ` · ${row.areaNome}` : ""}
+              {row.riferimento ? ` · ${row.riferimento}` : ""}
               {" · "}
               {new Date(row.createdAt).toLocaleString("it-IT")}
               {row.note ? (
@@ -1190,7 +1201,10 @@ function StoricoPersonaCard({
               <p className="text-sm font-semibold">
                 {attivitaPersonaLabel(row.azione)}
               </p>
-              <p className="text-xs text-slate-700">{row.actorNome || "Operatore"}</p>
+              <p className="text-xs text-slate-700">
+                {[row.areaNome, row.riferimento].filter(Boolean).join(" · ") ||
+                  "—"}
+              </p>
               {row.note ? (
                 <p className="mt-0.5 text-xs text-[var(--muted)]">{row.note}</p>
               ) : null}

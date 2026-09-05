@@ -17,6 +17,7 @@ import {
   treeMoveSchema,
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
+  permessoTipoLabel,
   type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
   type OrganigrammaCertificatoCatalogo,
@@ -30,6 +31,7 @@ import {
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
 } from "@/lib/amministrazione/organigramma";
+import { eventoLineaLabel } from "@/lib/produzione/macchinari";
 import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
@@ -1434,52 +1436,229 @@ export async function softDeleteDocumentoAction(
   return { success: true };
 }
 
+function relField(
+  raw: { nome?: string; codice?: string } | { nome?: string; codice?: string }[] | null | undefined,
+  key: "nome" | "codice"
+): string {
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  return row?.[key] ?? "";
+}
+
+function inDateRange(iso: string, from?: string, to?: string): boolean {
+  const day = iso.slice(0, 10);
+  if (from && day < from) return false;
+  if (to && day > to) return false;
+  return true;
+}
+
 export async function listPersonaAttivitaAction(
   raw: unknown
 ): Promise<
-  { success: true; items: OrganigrammaAttivita[] } | { success: false; error: string }
+  | { success: true; items: OrganigrammaAttivita[]; linkedLogin: boolean }
+  | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
   const parsed = attivitaPersonaFilterSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Filtri non validi." };
   }
+  const personaId = parsed.data.personaId;
+  const dateFrom = parsed.data.dateFrom;
+  const dateTo = parsed.data.dateTo;
+  const filtroAzione = parsed.data.azione;
   const supabase = await createClient();
-  let q = supabase
-    .from("organigramma_attivita")
-    .select("id, persona_id, azione, origine, actor_nome, note, created_at")
-    .eq("persona_id", parsed.data.personaId)
-    .order("created_at", { ascending: false })
-    .limit(200);
-  if (parsed.data.dateFrom) {
-    q = q.gte("created_at", `${parsed.data.dateFrom}T00:00:00+02:00`);
+  const { data: persona, error: pErr } = await supabase
+    .from("organigramma_persone")
+    .select("id, nome, cognome, user_id")
+    .eq("id", personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pErr || !persona) {
+    return { success: false, error: pErr?.message ?? "Operatore non trovato." };
   }
-  if (parsed.data.dateTo) {
-    q = q.lte("created_at", `${parsed.data.dateTo}T23:59:59+02:00`);
-  }
-  if (parsed.data.azione) q = q.eq("azione", parsed.data.azione);
-  const { data, error } = await q;
-  if (error) return { success: false, error: error.message };
-  return {
-    success: true,
-    items: ((data ?? []) as Array<{
+  const userId = (persona as { user_id: string | null }).user_id;
+  const actorNome = `${(persona as { cognome: string }).cognome} ${(persona as { nome: string }).nome}`.trim();
+  const items: OrganigrammaAttivita[] = [];
+
+  if (userId) {
+    const [macchine, eventi, fogli] = await Promise.all([
+      supabase
+        .from("produzione_macchinario_attivita")
+        .select(
+          "id, azione, origine, note, created_at, area:produzione_aree(nome), macchinario:produzione_macchinari(nome), foglio:produzione_fogli_lavorazione(codice)"
+        )
+        .eq("created_by", userId)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("produzione_eventi_linea")
+        .select(
+          "id, tipo, note, started_at, closed_at, started_by, closed_by, area:produzione_aree(nome)"
+        )
+        .or(`started_by.eq.${userId},closed_by.eq.${userId}`)
+        .is("deleted_at", null)
+        .order("started_at", { ascending: false })
+        .limit(200),
+      supabase
+        .from("produzione_fogli_lavorazione")
+        .select("id, codice, prodotto, started_at, closed_at, created_by, closed_by")
+        .or(`created_by.eq.${userId},closed_by.eq.${userId}`)
+        .is("deleted_at", null)
+        .order("started_at", { ascending: false })
+        .limit(200),
+    ]);
+    if (macchine.error) return { success: false, error: macchine.error.message };
+    if (eventi.error) return { success: false, error: eventi.error.message };
+    if (fogli.error) return { success: false, error: fogli.error.message };
+
+    for (const r of (macchine.data ?? []) as Array<{
       id: string;
-      persona_id: string;
       azione: string;
       origine: string;
-      actor_nome: string;
       note: string;
       created_at: string;
-    }>).map((r) => ({
-      id: r.id,
-      personaId: r.persona_id,
-      azione: r.azione,
-      origine: r.origine,
-      actorNome: r.actor_nome,
+      area: { nome?: string } | { nome?: string }[] | null;
+      macchinario: { nome?: string } | { nome?: string }[] | null;
+      foglio: { codice?: string } | { codice?: string }[] | null;
+    }>) {
+      const azione =
+        r.azione === "on"
+          ? "entrata_lavorazione"
+          : r.azione === "off"
+            ? "uscita_lavorazione"
+            : r.azione === "arresto"
+              ? "arresto"
+              : "iot";
+      const foglio = relField(r.foglio, "codice");
+      items.push({
+        id: `mac-${r.id}`,
+        personaId,
+        azione,
+        origine: r.origine || "produzione",
+        actorNome,
+        note: r.note,
+        createdAt: r.created_at,
+        areaNome: relField(r.area, "nome"),
+        riferimento: [relField(r.macchinario, "nome"), foglio ? `Foglio ${foglio}` : ""]
+          .filter(Boolean)
+          .join(" · "),
+      });
+    }
+
+    for (const r of (eventi.data ?? []) as Array<{
+      id: string;
+      tipo: string;
+      note: string;
+      started_at: string;
+      closed_at: string | null;
+      started_by: string | null;
+      closed_by: string | null;
+      area: { nome?: string } | { nome?: string }[] | null;
+    }>) {
+      const areaNome = relField(r.area, "nome");
+      const titolo = eventoLineaLabel(r.tipo);
+      if (r.started_by === userId) {
+        items.push({
+          id: `ev-start-${r.id}`,
+          personaId,
+          azione: "evento_linea",
+          origine: "evento_linea",
+          actorNome,
+          note: r.note ? `Avvio ${titolo}. ${r.note}` : `Avvio ${titolo}`,
+          createdAt: r.started_at,
+          areaNome,
+          riferimento: titolo,
+        });
+      }
+      if (r.closed_by === userId && r.closed_at) {
+        items.push({
+          id: `ev-end-${r.id}`,
+          personaId,
+          azione: "evento_linea",
+          origine: "evento_linea",
+          actorNome,
+          note: r.note ? `Chiusura ${titolo}. ${r.note}` : `Chiusura ${titolo}`,
+          createdAt: r.closed_at,
+          areaNome,
+          riferimento: titolo,
+        });
+      }
+    }
+
+    for (const r of (fogli.data ?? []) as Array<{
+      id: string;
+      codice: string;
+      prodotto: string;
+      started_at: string;
+      closed_at: string | null;
+      created_by: string | null;
+      closed_by: string | null;
+    }>) {
+      if (r.created_by === userId) {
+        items.push({
+          id: `fl-open-${r.id}`,
+          personaId,
+          azione: "foglio",
+          origine: "foglio",
+          actorNome,
+          note: r.prodotto ? `Apertura. ${r.prodotto}` : "Apertura foglio",
+          createdAt: r.started_at,
+          areaNome: "",
+          riferimento: r.codice,
+        });
+      }
+      if (r.closed_by === userId && r.closed_at) {
+        items.push({
+          id: `fl-close-${r.id}`,
+          personaId,
+          azione: "foglio",
+          origine: "foglio",
+          actorNome,
+          note: r.prodotto ? `Chiusura. ${r.prodotto}` : "Chiusura foglio",
+          createdAt: r.closed_at,
+          areaNome: "",
+          riferimento: r.codice,
+        });
+      }
+    }
+  }
+
+  const { data: permessi, error: permErr } = await supabase
+    .from("organigramma_permessi")
+    .select("id, tipo, dal, al, note, created_at")
+    .eq("persona_id", personaId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (permErr) return { success: false, error: permErr.message };
+  for (const r of (permessi ?? []) as Array<{
+    id: string;
+    tipo: "ferie" | "permesso" | "malattia" | "altro";
+    dal: string;
+    al: string;
+    note: string;
+    created_at: string;
+  }>) {
+    items.push({
+      id: `ass-${r.id}`,
+      personaId,
+      azione: "assenza",
+      origine: "presenze",
+      actorNome,
       note: r.note,
-      createdAt: r.created_at,
-    })),
-  };
+      createdAt: `${r.dal}T00:00:00`,
+      areaNome: "",
+      riferimento: `${permessoTipoLabel(r.tipo)} · ${new Date(`${r.dal}T00:00:00`).toLocaleDateString("it-IT")} – ${new Date(`${r.al}T00:00:00`).toLocaleDateString("it-IT")}`,
+    });
+  }
+
+  const filtered = items
+    .filter((row) => inDateRange(row.createdAt, dateFrom, dateTo))
+    .filter((row) => !filtroAzione || row.azione === filtroAzione)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 200);
+
+  return { success: true, items: filtered, linkedLogin: Boolean(userId) };
 }
 
 export async function createPermessoAction(
