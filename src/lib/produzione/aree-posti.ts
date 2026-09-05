@@ -9,6 +9,19 @@ export type BilancioEsito = (typeof BILANCIO_ESITI)[number];
 
 export const BILANCIO_TOLLERANZA_KG = 0.01;
 
+export const POSTO_PERICOLOSITA = ["alta", "media", "bassa"] as const;
+export type PostoPericolosita = (typeof POSTO_PERICOLOSITA)[number];
+
+export function pericolositaLabel(level: PostoPericolosita): string {
+  if (level === "alta") return "Pericolo alto";
+  if (level === "media") return "Pericolosità media";
+  return "Pericolosità bassa";
+}
+
+export function isPostoPericolosita(v: string): v is PostoPericolosita {
+  return (POSTO_PERICOLOSITA as readonly string[]).includes(v);
+}
+
 export type ProduzionePostoLavoro = {
   id: string;
   areaId: string;
@@ -18,6 +31,7 @@ export type ProduzionePostoLavoro = {
   attivo: boolean;
   sortOrder: number;
   note: string;
+  pericolosita: PostoPericolosita;
   hasCamera: boolean;
   cameraIp: string | null;
   cameraRtspPath: string;
@@ -70,6 +84,7 @@ export const postoLavoroInputSchema = z.object({
   attivo: z.boolean().optional().default(true),
   sortOrder: z.number().int().optional(),
   note: z.string().trim().max(2000).optional().default(""),
+  pericolosita: z.enum(POSTO_PERICOLOSITA).optional().default("bassa"),
 });
 
 export type PostoLavoroInput = z.infer<typeof postoLavoroInputSchema>;

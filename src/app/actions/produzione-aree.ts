@@ -6,9 +6,11 @@ import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
   calcolaBilancioMassa,
   foglioConteggioInputSchema,
+  isPostoPericolosita,
   postoLavoroInputSchema,
   slugPosto,
   type FoglioConteggio,
+  type PostoPericolosita,
   type ProduzioneArea,
   type ProduzionePostoLavoro,
 } from "@/lib/produzione/aree-posti";
@@ -42,6 +44,7 @@ type PostoRow = {
   attivo: boolean;
   sort_order: number;
   note: string;
+  pericolosita?: string;
   has_camera?: boolean;
   camera_ip?: string | null;
   camera_rtsp_path?: string | null;
@@ -57,6 +60,9 @@ function mapPosto(row: PostoRow): ProduzionePostoLavoro {
     attivo: Boolean(row.attivo),
     sortOrder: row.sort_order ?? 0,
     note: row.note ?? "",
+    pericolosita: isPostoPericolosita(row.pericolosita ?? "bassa")
+      ? (row.pericolosita as PostoPericolosita)
+      : "bassa",
     hasCamera: Boolean(row.has_camera),
     cameraIp: row.camera_ip ?? null,
     cameraRtspPath: row.camera_rtsp_path || "/live/ch0",
@@ -109,7 +115,7 @@ export async function listProduzioneAreeAction(): Promise<
   if (ids.length) {
     const { data: posti, error: pErr } = await supabase
       .from("produzione_posti_lavoro")
-      .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, has_camera, camera_ip, camera_rtsp_path")
+      .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita, has_camera, camera_ip, camera_rtsp_path")
       .is("deleted_at", null)
       .in("area_id", ids)
       .order("sort_order", { ascending: true });
@@ -167,10 +173,11 @@ export async function createPostoLavoroAction(
       attivo: v.attivo ?? true,
       sort_order: v.sortOrder ?? 100,
       note: v.note ?? "",
+      pericolosita: v.pericolosita ?? "bassa",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note")
+    .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita")
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Salvataggio fallito" };
@@ -182,7 +189,12 @@ export async function createPostoLavoroAction(
     action: "create",
     actor_id: auth.userId,
     summary: `Creato posto lavoro ${item.codice}`,
-    payload: { area_id: item.areaId, codice: item.codice, nome: item.nome },
+    payload: {
+      area_id: item.areaId,
+      codice: item.codice,
+      nome: item.nome,
+      pericolosita: item.pericolosita,
+    },
   });
   return { success: true, item };
 }
@@ -215,11 +227,12 @@ export async function updatePostoLavoroAction(
       attivo: v.attivo ?? true,
       sort_order: v.sortOrder ?? 100,
       note: v.note ?? "",
+      pericolosita: v.pericolosita ?? "bassa",
       updated_by: auth.userId,
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note")
+    .select("id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita")
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito" };
@@ -231,7 +244,61 @@ export async function updatePostoLavoroAction(
     action: "update",
     actor_id: auth.userId,
     summary: `Aggiornato posto lavoro ${item.codice}`,
-    payload: { nome: item.nome },
+    payload: { nome: item.nome, pericolosita: item.pericolosita },
+  });
+  return { success: true, item };
+}
+
+export async function updatePostoPericolositaAction(
+  id: string,
+  pericolosita: PostoPericolosita
+): Promise<
+  { success: true; item: ProduzionePostoLavoro } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può cambiare la pericolosità." };
+  }
+  if (!isPostoPericolosita(pericolosita)) {
+    return { success: false, error: "Livello di pericolosità non valido." };
+  }
+  const supabase = await createClient();
+  const { data: prev } = await supabase
+    .from("produzione_posti_lavoro")
+    .select(
+      "id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita, has_camera, camera_ip, camera_rtsp_path"
+    )
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!prev) return { success: false, error: "Postazione non trovata." };
+  const before = mapPosto(prev as PostoRow);
+  const { data, error } = await supabase
+    .from("produzione_posti_lavoro")
+    .update({
+      pericolosita,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .select(
+      "id, area_id, codice, nome, descrizione, attivo, sort_order, note, pericolosita, has_camera, camera_ip, camera_rtsp_path"
+    )
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+  }
+  const item = mapPosto(data as PostoRow);
+  await writeAuditLog({
+    entity_type: "produzione_posti_lavoro",
+    entity_id: item.id,
+    action: "update_pericolosita",
+    actor_id: auth.userId,
+    summary: `Pericolosità ${item.codice}: ${before.pericolosita} → ${item.pericolosita}`,
+    payload: {
+      from: before.pericolosita,
+      to: item.pericolosita,
+    },
   });
   return { success: true, item };
 }

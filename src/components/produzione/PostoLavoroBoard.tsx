@@ -8,10 +8,20 @@ import {
   listPersoneMinimeAction,
   removeAutorizzazionePostoAction,
 } from "@/app/actions/organigramma";
-import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
+import {
+  listProduzioneAreeAction,
+  updatePostoPericolositaAction,
+} from "@/app/actions/produzione-aree";
+import { PericolositaBandiera } from "@/components/produzione/PericolositaBandiera";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import type { PersonaMinima, PostoAutorizzato } from "@/lib/amministrazione/organigramma";
-import type { ProduzioneArea, ProduzionePostoLavoro } from "@/lib/produzione/aree-posti";
+import {
+  POSTO_PERICOLOSITA,
+  pericolositaLabel,
+  type PostoPericolosita,
+  type ProduzioneArea,
+  type ProduzionePostoLavoro,
+} from "@/lib/produzione/aree-posti";
 
 type Props = {
   areaCodice: string;
@@ -22,9 +32,10 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
   const [pending, start] = useTransition();
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [posto, setPosto] = useState<ProduzionePostoLavoro | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     start(async () => {
       const res = await listProduzioneAreeAction();
       if (!res.success) {
@@ -33,8 +44,14 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
       }
       const a = res.items.find((x) => x.codice === areaCodice) ?? null;
       setArea(a);
+      setIsAdmin(res.isAdmin);
       setPosto(a?.posti.find((p) => p.codice === postoCodice) ?? null);
     });
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [areaCodice, postoCodice]);
 
   if (pending && !area) {
@@ -64,6 +81,39 @@ export function PostoLavoroBoard({ areaCodice, postoCodice }: Props) {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <p className="text-xs uppercase text-[var(--muted)]">Codice</p>
         <p className="font-mono text-sm">{posto.codice}</p>
+        <p className="mt-3 text-xs uppercase text-[var(--muted)]">
+          Pericolosità
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <PericolositaBandiera level={posto.pericolosita} />
+          {isAdmin ? (
+            <select
+              value={posto.pericolosita}
+              disabled={pending}
+              onChange={(e) => {
+                const next = e.target.value as PostoPericolosita;
+                start(async () => {
+                  const res = await updatePostoPericolositaAction(
+                    posto.id,
+                    next
+                  );
+                  if (!res.success) {
+                    setError(res.error);
+                    return;
+                  }
+                  setPosto(res.item);
+                });
+              }}
+              className="rounded-md border border-[var(--border)] bg-white px-2 py-1 text-xs"
+            >
+              {POSTO_PERICOLOSITA.map((level) => (
+                <option key={level} value={level}>
+                  {pericolositaLabel(level)}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
         <p className="mt-3 text-xs uppercase text-[var(--muted)]">Area</p>
         <p className="text-sm">{area.nome}</p>
         <p className="mt-3 text-xs uppercase text-[var(--muted)]">

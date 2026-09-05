@@ -7,9 +7,16 @@ import {
   listProduzioneAreeAction,
   softDeletePostoLavoroAction,
 } from "@/app/actions/produzione-aree";
+import { PericolositaBandiera } from "@/components/produzione/PericolositaBandiera";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
-import { slugPosto, type ProduzioneArea } from "@/lib/produzione/aree-posti";
+import {
+  POSTO_PERICOLOSITA,
+  pericolositaLabel,
+  slugPosto,
+  type PostoPericolosita,
+  type ProduzioneArea,
+} from "@/lib/produzione/aree-posti";
 
 function notifyAreeNav() {
   if (typeof window !== "undefined") {
@@ -29,6 +36,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
   const [nome, setNome] = useState("");
   const [codice, setCodice] = useState("");
   const [descrizione, setDescrizione] = useState("");
+  const [pericolosita, setPericolosita] = useState<PostoPericolosita>("bassa");
 
   function load() {
     start(async () => {
@@ -55,6 +63,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
         codice: codice.trim() || slugPosto(nome),
         nome: nome.trim(),
         descrizione: descrizione.trim(),
+        pericolosita,
         sortOrder: (area.posti.at(-1)?.sortOrder ?? 0) + 10,
       });
       if (!res.success) {
@@ -64,6 +73,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
       setNome("");
       setCodice("");
       setDescrizione("");
+      setPericolosita("bassa");
       setAdding(false);
       notifyAreeNav();
       load();
@@ -137,6 +147,22 @@ export function PostazioniBoard({ areaCodice }: Props) {
                 className="mt-1 block w-64 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
               />
             </label>
+            <label className="text-xs text-[var(--muted)]">
+              Pericolosità
+              <select
+                value={pericolosita}
+                onChange={(e) =>
+                  setPericolosita(e.target.value as PostoPericolosita)
+                }
+                className="mt-1 block w-52 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+              >
+                {POSTO_PERICOLOSITA.map((level) => (
+                  <option key={level} value={level}>
+                    {pericolositaLabel(level)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               disabled={pending || !nome.trim()}
@@ -162,7 +188,10 @@ export function PostazioniBoard({ areaCodice }: Props) {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-semibold">{p.nome}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">{p.nome}</p>
+                    <PericolositaBandiera level={p.pericolosita} compact />
+                  </div>
                   <p className="font-mono text-xs text-[var(--muted)]">{p.codice}</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">
                     {p.descrizione || "Operazione dedicata in quest’area."}
