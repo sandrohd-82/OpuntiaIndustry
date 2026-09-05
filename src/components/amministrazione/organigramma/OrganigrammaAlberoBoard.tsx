@@ -29,6 +29,10 @@ function wouldCycle(
   return false;
 }
 
+function initials(p: OrganigrammaPersona): string {
+  return `${p.nome.slice(0, 1)}${p.cognome.slice(0, 1)}`.toUpperCase();
+}
+
 export function OrganigrammaAlberoBoard() {
   const [items, setItems] = useState<OrganigrammaPersona[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -87,8 +91,10 @@ export function OrganigrammaAlberoBoard() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
-        Trascina un operatore su un altro per farlo dipendere da lui, oppure
-        sull’area «Primo livello» per toglierlo dalla gerarchia.
+        Organigramma a cascata: foto, nome e collegamenti verso i collaboratori.
+        {isAdmin
+          ? " Trascina una scheda su un’altra per creare il collegamento, oppure su «Primo livello» per toglierla dalla gerarchia."
+          : ""}
       </p>
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -96,54 +102,59 @@ export function OrganigrammaAlberoBoard() {
         </p>
       ) : null}
 
-      <button
-        type="button"
-        disabled={!isAdmin || busy}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setOverId("root");
-        }}
-        onDragLeave={() => {
-          if (overId === "root") setOverId(null);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          onDropTarget("root");
-        }}
-        className={`w-full rounded-xl border border-dashed px-4 py-3 text-left text-sm ${
-          overId === "root"
-            ? "border-[var(--primary)] bg-emerald-50"
-            : "border-[var(--border)] bg-[var(--card)]"
-        }`}
-      >
-        Primo livello (nessun superiore)
-      </button>
+      {isAdmin ? (
+        <button
+          type="button"
+          disabled={busy}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOverId("root");
+          }}
+          onDragLeave={() => {
+            if (overId === "root") setOverId(null);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            onDropTarget("root");
+          }}
+          className={`w-full rounded-xl border border-dashed px-4 py-3 text-left text-sm ${
+            overId === "root"
+              ? "border-[var(--primary)] bg-emerald-50"
+              : "border-[var(--border)] bg-[var(--card)]"
+          }`}
+        >
+          Primo livello (nessun superiore)
+        </button>
+      ) : null}
 
       {tree.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
-          Nessun operatore. Aggiungili da Elenco e mansioni.
+          Nessun operatore. Aggiungili da Elenco e mansioni, poi collegali
+          trascinando le schede.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {tree.map((n) => (
-            <TreeNode
-              key={n.id}
-              node={n}
-              isAdmin={isAdmin}
-              dragId={dragId}
-              overId={overId}
-              setDragId={setDragId}
-              setOverId={setOverId}
-              onDrop={onDropTarget}
-            />
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-gradient-to-b from-slate-50 to-white px-6 py-8">
+          <div className="flex min-w-max items-start justify-center gap-8">
+            {tree.map((n) => (
+              <OrgNode
+                key={n.id}
+                node={n}
+                isAdmin={isAdmin}
+                dragId={dragId}
+                overId={overId}
+                setDragId={setDragId}
+                setOverId={setOverId}
+                onDrop={onDropTarget}
+              />
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function TreeNode({
+function OrgNode({
   node,
   isAdmin,
   dragId,
@@ -161,72 +172,139 @@ function TreeNode({
   onDrop: (id: string) => void;
 }) {
   const figli = node.figli ?? [];
+  const dropping = overId === node.id && dragId && overId !== dragId;
+
   return (
-    <li>
-      <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setOverId(node.id);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDrop(node.id);
-        }}
-        className={`flex items-center gap-2 rounded-xl border bg-[var(--card)] px-3 py-2 ${
-          overId === node.id && dragId && overId !== dragId
-            ? "border-[var(--primary)] bg-emerald-50"
-            : "border-[var(--border)]"
-        } ${dragId === node.id ? "opacity-50" : ""}`}
-      >
-        {isAdmin ? (
-          <button
-            type="button"
-            draggable
-            title="Trascina per spostare"
-            onDragStart={(e) => {
-              e.dataTransfer.setData("text/plain", node.id);
-              e.dataTransfer.effectAllowed = "move";
-              setDragId(node.id);
-            }}
-            onDragEnd={() => {
-              setDragId(null);
-              setOverId(null);
-            }}
-            className="cursor-grab px-1 text-slate-400 hover:text-slate-600 active:cursor-grabbing"
-          >
-            ⋮⋮
-          </button>
-        ) : null}
-        <Link
-          href={`/app/amministrazione/organigramma/elenco-e-mansioni/${node.id}`}
-          className="min-w-0 flex-1"
-        >
-          <span className="block text-sm font-medium">{personaLabel(node)}</span>
-          <span className="block text-xs text-[var(--muted)]">
-            {[node.repartoNome, node.mansioni.map((m) => m.nome).join(", ")]
-              .filter(Boolean)
-              .join(" · ") || "Senza reparto / mansione"}
-          </span>
-        </Link>
-      </div>
+    <div className="flex flex-col items-center">
+      <PersonaCard
+        node={node}
+        isAdmin={isAdmin}
+        dragging={dragId === node.id}
+        dropping={Boolean(dropping)}
+        setDragId={setDragId}
+        setOverId={setOverId}
+        onDrop={onDrop}
+      />
       {figli.length ? (
-        <ul className="ml-6 mt-2 space-y-2 border-l border-slate-200 pl-3">
-          {figli.map((c) => (
-            <TreeNode
-              key={c.id}
-              node={c}
-              isAdmin={isAdmin}
-              dragId={dragId}
-              overId={overId}
-              setDragId={setDragId}
-              setOverId={setOverId}
-              onDrop={onDrop}
-            />
-          ))}
-        </ul>
+        <>
+          <div className="h-6 w-px bg-slate-300" />
+          <div className="flex items-start">
+            {figli.map((c, i) => (
+              <div key={c.id} className="relative flex flex-col items-center px-4">
+                {figli.length > 1 ? (
+                  <span
+                    className={`absolute top-0 h-px bg-slate-300 ${
+                      i === 0
+                        ? "left-1/2 right-0"
+                        : i === figli.length - 1
+                          ? "left-0 right-1/2"
+                          : "left-0 right-0"
+                    }`}
+                  />
+                ) : null}
+                <div className="h-6 w-px bg-slate-300" />
+                <OrgNode
+                  node={c}
+                  isAdmin={isAdmin}
+                  dragId={dragId}
+                  overId={overId}
+                  setDragId={setDragId}
+                  setOverId={setOverId}
+                  onDrop={onDrop}
+                />
+              </div>
+            ))}
+          </div>
+        </>
       ) : null}
-    </li>
+    </div>
+  );
+}
+
+function PersonaCard({
+  node,
+  isAdmin,
+  dragging,
+  dropping,
+  setDragId,
+  setOverId,
+  onDrop,
+}: {
+  node: OrganigrammaPersona;
+  isAdmin: boolean;
+  dragging: boolean;
+  dropping: boolean;
+  setDragId: (id: string | null) => void;
+  setOverId: (id: string | "root" | null) => void;
+  onDrop: (id: string) => void;
+}) {
+  const ruolo =
+    [node.repartoNome, node.mansioni.map((m) => m.nome).join(", ")]
+      .filter(Boolean)
+      .join(" · ") || "Senza mansione";
+
+  return (
+    <div
+      draggable={isAdmin}
+      onDragStart={(e) => {
+        if (!isAdmin) return;
+        e.dataTransfer.setData("text/plain", node.id);
+        e.dataTransfer.effectAllowed = "move";
+        setDragId(node.id);
+      }}
+      onDragEnd={() => {
+        setDragId(null);
+        setOverId(null);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setOverId(node.id);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDrop(node.id);
+      }}
+      className={`w-44 rounded-2xl border bg-white p-3 text-center shadow-sm transition ${
+        dropping
+          ? "border-emerald-500 bg-emerald-50 shadow-md"
+          : "border-slate-200"
+      } ${dragging ? "opacity-40" : ""} ${
+        isAdmin ? "cursor-grab active:cursor-grabbing" : ""
+      } ${node.inForza ? "" : "opacity-70"}`}
+    >
+      <Link
+        href={`/app/amministrazione/organigramma/elenco-e-mansioni/${node.id}`}
+        className="block"
+        onClick={(e) => {
+          if (dragging) e.preventDefault();
+        }}
+      >
+        {node.fotoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={node.fotoUrl}
+            alt={personaLabel(node)}
+            className="mx-auto h-16 w-16 rounded-full object-cover ring-2 ring-slate-200"
+          />
+        ) : (
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600 ring-2 ring-slate-200">
+            {initials(node)}
+          </span>
+        )}
+        <span className="mt-2 block text-sm font-semibold leading-tight text-slate-900">
+          {node.cognome} {node.nome}
+        </span>
+        <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted)]">
+          {ruolo}
+        </span>
+        {!node.inForza ? (
+          <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">
+            Non in forza
+          </span>
+        ) : null}
+      </Link>
+    </div>
   );
 }

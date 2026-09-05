@@ -266,6 +266,23 @@ async function signedUrl(path: string | null): Promise<string | null> {
   return data?.signedUrl ?? null;
 }
 
+async function signedUrls(
+  paths: Array<string | null | undefined>
+): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter((p): p is string => Boolean(p)))];
+  const map = new Map<string, string>();
+  if (!unique.length) return map;
+  const supabase = await createClient();
+  const { data } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(unique, 60 * 60);
+  (data ?? []).forEach((row, i) => {
+    const path = row.path || unique[i];
+    if (path && row.signedUrl) map.set(path, row.signedUrl);
+  });
+  return map;
+}
+
 async function loadMansioniFor(ids: string[]): Promise<Map<string, OrganigrammaMansione[]>> {
   const map = new Map<string, OrganigrammaMansione[]>();
   if (!ids.length) return map;
@@ -748,9 +765,10 @@ export async function listPersoneAction(): Promise<
     .order("cognome", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PersonaRow[];
-  const [mansioni, reparti] = await Promise.all([
+  const [mansioni, reparti, fotoMap] = await Promise.all([
     loadMansioniFor(rows.map((r) => r.id)),
     loadRepartiById(),
+    signedUrls(rows.map((r) => r.foto_path)),
   ]);
   return {
     success: true,
@@ -759,7 +777,7 @@ export async function listPersoneAction(): Promise<
       mapPersona(
         r,
         mansioni.get(r.id) ?? [],
-        null,
+        r.foto_path ? (fotoMap.get(r.foto_path) ?? null) : null,
         r.reparto_id ? (reparti.get(r.reparto_id)?.nome ?? "") : ""
       )
     ),
