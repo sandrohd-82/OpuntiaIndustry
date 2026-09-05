@@ -20,6 +20,7 @@ type Props = {
   file?: File | null;
   title?: string;
   hint?: string;
+  readyCaption?: string;
   onFile: (file: File) => void;
   onInvalid?: (message: string) => void;
 };
@@ -53,6 +54,7 @@ export function FileDropZone({
   file = null,
   title = "Trascina qui il file",
   hint = "PDF, JPG, PNG, WebP · max 15 MB",
+  readyCaption = "in bozza, premi Salva",
   onFile,
   onInvalid,
 }: Props) {
@@ -150,14 +152,14 @@ export function FileDropZone({
                 {file.size >= 1024 * 1024
                   ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
                   : `${Math.max(1, Math.round(file.size / 1024))} KB`}
-                {busy ? " · caricamento…" : " · pronto"}
+                {busy ? " · salvataggio…" : ` · ${readyCaption}`}
               </p>
             </div>
           </div>
           <p className="text-xs font-medium text-emerald-800">
             {busy
-              ? "Caricamento in corso…"
-              : "Clicca o trascina un altro file per sostituirlo"}
+              ? "Salvataggio in corso…"
+              : "Clicca o trascina un altro file per sostituirlo. Poi premi Salva."}
           </p>
         </>
       ) : (

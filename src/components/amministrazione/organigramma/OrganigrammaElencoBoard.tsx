@@ -470,8 +470,9 @@ function OperatoreCreateModal({
             Documenti di identità
           </legend>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Solo codice fiscale e carta d’identità (fronte e retro). Corsi,
-            certificati e buste paga si caricano nella scheda operatore.
+            Solo codice fiscale e carta d’identità (fronte e retro). I file
+            restano in bozza finché non premi Crea. Corsi, certificati e buste
+            paga si caricano nella scheda operatore.
           </p>
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {IDENTITA_CREATE.map((tipo) => (
@@ -482,6 +483,7 @@ function OperatoreCreateModal({
                 <FileDropZone
                   compact
                   file={docs[tipo] ?? null}
+                  readyCaption="in bozza, conferma con Crea"
                   onFile={(file) =>
                     setDocs((cur) => ({ ...cur, [tipo]: file }))
                   }

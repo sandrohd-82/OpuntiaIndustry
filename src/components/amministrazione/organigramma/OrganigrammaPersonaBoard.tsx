@@ -52,6 +52,29 @@ import {
 const inputCls =
   "mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-sm";
 
+function SalvaSezioneButton({
+  busy,
+  disabled,
+  label = "Salva",
+  onClick,
+}: {
+  busy?: boolean;
+  disabled?: boolean;
+  label?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || busy}
+      onClick={onClick}
+      className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+    >
+      {busy ? "Salvataggio…" : label}
+    </button>
+  );
+}
+
 type Props = { personaId: string };
 
 export function OrganigrammaPersonaBoard({ personaId }: Props) {
@@ -161,6 +184,7 @@ function AnagraficaCard({
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
+  const [pickedFoto, setPickedFoto] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -186,24 +210,24 @@ function AnagraficaCard({
       mansioneIds,
       repartoId: repartoId || undefined,
     });
+    if (!res.success) {
+      setBusy(false);
+      onError(res.error);
+      return;
+    }
+    if (pickedFoto) {
+      const fd = new FormData();
+      fd.set("personaId", item.id);
+      fd.set("file", pickedFoto);
+      const up = await uploadPersonaFotoAction(fd);
+      if (!up.success) {
+        setBusy(false);
+        onError(up.error);
+        return;
+      }
+      setPickedFoto(null);
+    }
     setBusy(false);
-    if (!res.success) {
-      onError(res.error);
-      return;
-    }
-    onSaved();
-  }
-
-  async function onFoto(file: File | null) {
-    if (!file) return;
-    const fd = new FormData();
-    fd.set("personaId", item.id);
-    fd.set("file", file);
-    const res = await uploadPersonaFotoAction(fd);
-    if (!res.success) {
-      onError(res.error);
-      return;
-    }
     onSaved();
   }
 
@@ -224,15 +248,18 @@ function AnagraficaCard({
             </div>
           )}
           {isAdmin ? (
-            <label className="mt-2 block text-xs text-[var(--primary)]">
-              Carica foto
-              <input
-                type="file"
+            <div className="mt-2 w-40">
+              <FileDropZone
+                compact
                 accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => void onFoto(e.target.files?.[0] ?? null)}
+                file={pickedFoto}
+                busy={busy}
+                title="Trascina la foto"
+                hint="JPG, PNG, WebP"
+                onFile={setPickedFoto}
+                onInvalid={onError}
               />
-            </label>
+            </div>
           ) : null}
         </div>
         <div className="min-w-0 flex-1">
@@ -349,14 +376,9 @@ function AnagraficaCard({
             />
           </label>
           {isAdmin ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void save()}
-              className="mt-3 rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-            >
-              {busy ? "Salvataggio…" : "Salva anagrafica"}
-            </button>
+            <div className="mt-3">
+              <SalvaSezioneButton busy={busy} onClick={() => void save()} />
+            </div>
           ) : null}
         </div>
       </div>
@@ -403,9 +425,11 @@ function DocumentiCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personaId]);
 
-  async function upload(file: File | null) {
-    if (!file) return;
-    setPicked(file);
+  async function save() {
+    if (!picked) {
+      setError("Seleziona un file, controlla i dati e premi Salva.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const fd = new FormData();
@@ -414,7 +438,7 @@ function DocumentiCard({
     fd.set("titolo", titolo);
     fd.set("periodo", periodo);
     fd.set("note", "");
-    fd.set("file", file);
+    fd.set("file", picked);
     const res = await uploadPersonaDocumentoAction(fd);
     setBusy(false);
     if (!res.success) {
@@ -439,7 +463,9 @@ function DocumentiCard({
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h3 className="text-sm font-semibold">{title}</h3>
-      <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        {hint} Compila, allega il file e premi Salva dopo il controllo.
+      </p>
       {isAdmin ? (
         <>
           <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -485,8 +511,18 @@ function DocumentiCard({
             <FileDropZone
               file={picked}
               busy={busy}
-              onFile={(f) => void upload(f)}
+              onFile={(f) => {
+                setError(null);
+                setPicked(f);
+              }}
               onInvalid={setError}
+            />
+          </div>
+          <div className="mt-3">
+            <SalvaSezioneButton
+              busy={busy}
+              disabled={!picked}
+              onClick={() => void save()}
             />
           </div>
         </>
@@ -581,9 +617,24 @@ function CertificatiCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personaId]);
 
-  async function upload(file: File | null) {
-    if (!file) return;
-    setPicked(file);
+  async function save() {
+    if (!titolo.trim()) {
+      setError("Indica il titolo, controlla i dati e premi Salva.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataRilascio)) {
+      setError("Indica la data di rilascio, poi premi Salva.");
+      return;
+    }
+    const anni = Number(validitaAnni);
+    if (!Number.isInteger(anni) || anni < 1 || anni > 30) {
+      setError("Validità: indica gli anni (1–30), poi premi Salva.");
+      return;
+    }
+    if (!picked) {
+      setError("Seleziona il documento, controlla i dati e premi Salva.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const fd = new FormData();
@@ -595,7 +646,7 @@ function CertificatiCard({
     fd.set("validitaAnni", validitaAnni);
     fd.set("periodo", "");
     fd.set("note", "");
-    fd.set("file", file);
+    fd.set("file", picked);
     const res = await uploadPersonaDocumentoAction(fd);
     setBusy(false);
     if (!res.success) {
@@ -626,7 +677,8 @@ function CertificatiCard({
         Il titolo salvato (es. Antincendio Liv.2) diventa selezionabile per gli
         altri operatori. La scadenza è calcolata da data di rilascio + anni di
         validità. Avvisi a 6 mesi, 3 mesi e poi ogni mese, finché non carichi
-        il certificato corrispondente.
+        il certificato corrispondente. Compila, allega il file e premi Salva
+        dopo il controllo: nulla viene registrato in automatico.
       </p>
       {!inForza ? (
         <p className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
@@ -729,8 +781,18 @@ function CertificatiCard({
             <FileDropZone
               file={picked}
               busy={busy}
-              onFile={(f) => void upload(f)}
+              onFile={(f) => {
+                setError(null);
+                setPicked(f);
+              }}
               onInvalid={setError}
+            />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <SalvaSezioneButton
+              busy={busy}
+              disabled={!picked}
+              onClick={() => void save()}
             />
           </div>
         </div>
@@ -870,7 +932,7 @@ function AutorizzazioniCard({
             }}
             className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            Autorizza
+            Salva
           </button>
         </div>
       ) : null}
@@ -1002,7 +1064,7 @@ function PermessiCard({
             }}
             className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white sm:self-end"
           >
-            Registra
+            Salva
           </button>
         </div>
       ) : null}
