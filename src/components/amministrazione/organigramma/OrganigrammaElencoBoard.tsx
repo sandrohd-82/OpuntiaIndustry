@@ -10,7 +10,11 @@ import {
   listMansioniAction,
   listPersoneAction,
   listRepartiAction,
+  softDeleteMansioneAction,
   softDeletePersonaAction,
+  softDeleteRepartoAction,
+  updateMansioneAction,
+  updateRepartoAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
@@ -218,21 +222,27 @@ export function OrganigrammaElencoBoard() {
         />
       ) : null}
       {showReparto ? (
-        <RepartoCreateModal
+        <CatalogoVociModal
+          title="Reparti"
+          entityLabel="reparto"
+          items={reparti}
           onClose={() => setShowReparto(false)}
-          onCreated={() => {
-            setShowReparto(false);
-            reload();
-          }}
+          onCreate={(payload) => createRepartoAction(payload)}
+          onUpdate={(payload) => updateRepartoAction(payload)}
+          onDelete={(id) => softDeleteRepartoAction(id)}
+          onChanged={reload}
         />
       ) : null}
       {showMansione ? (
-        <MansioneCreateModal
+        <CatalogoVociModal
+          title="Mansioni"
+          entityLabel="mansione"
+          items={mansioni}
           onClose={() => setShowMansione(false)}
-          onCreated={() => {
-            setShowMansione(false);
-            reload();
-          }}
+          onCreate={(payload) => createMansioneAction(payload)}
+          onUpdate={(payload) => updateMansioneAction(payload)}
+          onDelete={(id) => softDeleteMansioneAction(id)}
+          onChanged={reload}
         />
       ) : null}
       {deleting ? (
@@ -396,39 +406,127 @@ function PersonaCreateModal({
   );
 }
 
-function MansioneCreateModal({
+type CatalogoVoce = { id: string; nome: string; descrizione: string };
+
+function CatalogoVociModal({
+  title,
+  entityLabel,
+  items,
   onClose,
-  onCreated,
+  onCreate,
+  onUpdate,
+  onDelete,
+  onChanged,
 }: {
+  title: string;
+  entityLabel: string;
+  items: CatalogoVoce[];
   onClose: () => void;
-  onCreated: () => void;
+  onCreate: (
+    payload: { nome: string; descrizione: string }
+  ) => Promise<{ success: true } | { success: false; error: string }>;
+  onUpdate: (
+    payload: { id: string; nome: string; descrizione: string }
+  ) => Promise<{ success: true } | { success: false; error: string }>;
+  onDelete: (
+    id: string
+  ) => Promise<{ success: true } | { success: false; error: string }>;
+  onChanged: () => void;
 }) {
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
+  const [editing, setEditing] = useState<CatalogoVoce | null>(null);
+  const [deleting, setDeleting] = useState<CatalogoVoce | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  function resetForm() {
+    setNome("");
+    setDescrizione("");
+    setEditing(null);
+  }
+
+  function startEdit(item: CatalogoVoce) {
+    setEditing(item);
+    setNome(item.nome);
+    setDescrizione(item.descrizione);
+    setError(null);
+  }
 
   async function submit() {
     setBusy(true);
     setError(null);
-    const res = await createMansioneAction({ nome, descrizione });
+    const res = editing
+      ? await onUpdate({ id: editing.id, nome, descrizione })
+      : await onCreate({ nome, descrizione });
     setBusy(false);
     if (!res.success) {
       setError(res.error);
       return;
     }
-    onCreated();
+    resetForm();
+    onChanged();
   }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
-      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
-        <h2 className="text-base font-semibold">Nuova mansione</h2>
-        <label className="mt-3 block text-xs text-[var(--muted)]">
+      <div className="flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
+        <h2 className="text-base font-semibold">{title}</h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Elenco già presente. Puoi creare una nuova voce, modificare nome e
+          descrizione oppure eliminare (soft delete).
+        </p>
+
+        <div className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--border)]">
+          {items.length === 0 ? (
+            <p className="px-3 py-4 text-sm text-[var(--muted)]">
+              Nessuna voce in elenco.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)]">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className={`flex items-start justify-between gap-2 px-3 py-2 ${
+                    editing?.id === item.id ? "bg-slate-50" : ""
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{item.nome}</p>
+                    {item.descrizione ? (
+                      <p className="text-xs text-[var(--muted)]">{item.descrizione}</p>
+                    ) : null}
+                  </div>
+                  <div className="shrink-0 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(item)}
+                      className="text-[var(--primary)] hover:underline"
+                    >
+                      Modifica
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleting(item)}
+                      className="ml-3 text-red-700 hover:underline"
+                    >
+                      Elimina
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <h3 className="mt-4 text-sm font-semibold">
+          {editing ? `Modifica ${entityLabel}` : `Nuova ${entityLabel}`}
+        </h3>
+        <label className="mt-2 block text-xs text-[var(--muted)]">
           Nome
           <input value={nome} onChange={(e) => setNome(e.target.value)} className={inputCls} />
         </label>
-        <label className="mt-3 block text-xs text-[var(--muted)]">
+        <label className="mt-2 block text-xs text-[var(--muted)]">
           Descrizione
           <textarea
             value={descrizione}
@@ -438,88 +536,47 @@ function MansioneCreateModal({
           />
         </label>
         {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          {editing ? (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
+            >
+              Annulla modifica
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onClose}
             className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
           >
-            Annulla
+            Chiudi
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !nome.trim()}
             onClick={() => void submit()}
             className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {busy ? "Salvataggio…" : "Crea"}
+            {busy ? "Salvataggio…" : editing ? "Salva modifiche" : "Crea"}
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function RepartoCreateModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [nome, setNome] = useState("");
-  const [descrizione, setDescrizione] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    setBusy(true);
-    setError(null);
-    const res = await createRepartoAction({ nome, descrizione });
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
-      return;
-    }
-    onCreated();
-  }
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
-      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
-        <h2 className="text-base font-semibold">Nuovo reparto</h2>
-        <label className="mt-3 block text-xs text-[var(--muted)]">
-          Nome
-          <input value={nome} onChange={(e) => setNome(e.target.value)} className={inputCls} />
-        </label>
-        <label className="mt-3 block text-xs text-[var(--muted)]">
-          Descrizione
-          <textarea
-            value={descrizione}
-            onChange={(e) => setDescrizione(e.target.value)}
-            className={inputCls}
-            rows={2}
-          />
-        </label>
-        {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
-          >
-            Annulla
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void submit()}
-            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {busy ? "Salvataggio…" : "Crea"}
-          </button>
-        </div>
-      </div>
+      {deleting ? (
+        <SoftDeleteConfirmModal
+          entityLabel={deleting.nome}
+          confirmCode={deleting.nome}
+          onClose={() => setDeleting(null)}
+          onConfirm={async () => {
+            const res = await onDelete(deleting.id);
+            if (!res.success) throw new Error(res.error);
+            if (editing?.id === deleting.id) resetForm();
+            setDeleting(null);
+            onChanged();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

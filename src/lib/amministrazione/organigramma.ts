@@ -193,7 +193,12 @@ export const mansioneInputSchema = z.object({
   descrizione: z.string().trim().max(400).optional().default(""),
 });
 
+export const mansioneUpdateSchema = mansioneInputSchema.extend({
+  id: z.string().uuid(),
+});
+
 export const repartoInputSchema = mansioneInputSchema;
+export const repartoUpdateSchema = mansioneUpdateSchema;
 
 export const permessoInputSchema = z.object({
   personaId: z.string().uuid(),

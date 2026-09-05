@@ -8,10 +8,12 @@ import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   attivitaPersonaFilterSchema,
   mansioneInputSchema,
+  mansioneUpdateSchema,
   permessoInputSchema,
   personaInputSchema,
   personaUpdateSchema,
   repartoInputSchema,
+  repartoUpdateSchema,
   treeMoveSchema,
   type OrganigrammaAttivita,
   type OrganigrammaDocumento,
@@ -228,7 +230,86 @@ export async function createMansioneAction(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Salvataggio mansione fallito." };
   }
+  await writeAuditLog({
+    entity_type: "organigramma_mansioni",
+    entity_id: (data as OrganigrammaMansione).id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata mansione ${parsed.data.nome}`,
+  });
   return { success: true, item: data as OrganigrammaMansione };
+}
+
+export async function updateMansioneAction(
+  raw: unknown
+): Promise<
+  { success: true; item: OrganigrammaMansione } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può modificare le mansioni." };
+  }
+  const parsed = mansioneUpdateSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_mansioni")
+    .update({
+      nome: parsed.data.nome,
+      descrizione: parsed.data.descrizione ?? "",
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .select("id, codice, nome, descrizione")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento mansione fallito." };
+  }
+  await writeAuditLog({
+    entity_type: "organigramma_mansioni",
+    entity_id: parsed.data.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornata mansione ${parsed.data.nome}`,
+  });
+  return { success: true, item: data as OrganigrammaMansione };
+}
+
+export async function softDeleteMansioneAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può eliminare le mansioni." };
+  }
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("organigramma_mansioni")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await supabase
+    .from("organigramma_persona_mansioni")
+    .update({ deleted_at: now, deleted_by: auth.userId })
+    .eq("mansione_id", id)
+    .is("deleted_at", null);
+  await writeAuditLog({
+    entity_type: "organigramma_mansioni",
+    entity_id: id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Soft delete mansione organigramma",
+  });
+  return { success: true };
 }
 
 export async function listRepartiAction(): Promise<
@@ -289,6 +370,81 @@ export async function createRepartoAction(
     summary: `Creato reparto ${parsed.data.nome}`,
   });
   return { success: true, item: data as OrganigrammaReparto };
+}
+
+export async function updateRepartoAction(
+  raw: unknown
+): Promise<
+  { success: true; item: OrganigrammaReparto } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può modificare i reparti." };
+  }
+  const parsed = repartoUpdateSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_reparti")
+    .update({
+      nome: parsed.data.nome,
+      descrizione: parsed.data.descrizione ?? "",
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .select("id, codice, nome, descrizione")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento reparto fallito." };
+  }
+  await writeAuditLog({
+    entity_type: "organigramma_reparti",
+    entity_id: parsed.data.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Aggiornato reparto ${parsed.data.nome}`,
+  });
+  return { success: true, item: data as OrganigrammaReparto };
+}
+
+export async function softDeleteRepartoAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può eliminare i reparti." };
+  }
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("organigramma_reparti")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await supabase
+    .from("organigramma_persone")
+    .update({
+      reparto_id: null,
+      updated_by: auth.userId,
+    })
+    .eq("reparto_id", id)
+    .is("deleted_at", null);
+  await writeAuditLog({
+    entity_type: "organigramma_reparti",
+    entity_id: id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: "Soft delete reparto organigramma",
+  });
+  return { success: true };
 }
 
 export async function listPersoneAction(): Promise<
