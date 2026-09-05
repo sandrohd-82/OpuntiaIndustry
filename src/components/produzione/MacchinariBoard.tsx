@@ -113,8 +113,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
           <p className="mt-1 text-xs text-[var(--muted)]">
             Compare nel menu e in Gestione Area. Puoi metterlo da solo o sotto
             un insieme (come le macchine della vasca). Codice:{" "}
-            {MACCHINARIO_CODICE_HINT} (4 blocchi da 3 lettere, prefisso Mac-;
-            puoi usare maiuscole e minuscole).
+            {MACCHINARIO_CODICE_HINT} (4 blocchi da 3 caratteri, prefisso Mac-;
+            lettere e numeri, maiuscole e minuscole).
           </p>
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <label className="text-xs text-[var(--muted)]">

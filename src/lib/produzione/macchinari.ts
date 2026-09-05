@@ -38,16 +38,16 @@ export type MacchinarioRicambio = {
   note: string;
 };
 
-/** Mac-XXX-XXX-XXX: 4 blocchi da 3 lettere, prefisso fisso Mac-. */
+/** Mac-XXX-XXX-XXX: 4 blocchi da 3 caratteri (lettere e numeri), prefisso Mac-. */
 export const MACCHINARIO_CODICE_RE =
-  /^Mac-[A-Za-z]{3}-[A-Za-z]{3}-[A-Za-z]{3}$/;
+  /^Mac-[A-Za-z0-9]{3}-[A-Za-z0-9]{3}-[A-Za-z0-9]{3}$/;
 export const MACCHINARIO_CODICE_HINT = "Mac-XXX-XXX-XXX";
 
 export function normalizeMacchinarioCodice(raw: string): string {
-  const letters = raw.replace(/[^A-Za-z]/g, "");
-  const body = letters.toLowerCase().startsWith("mac")
-    ? letters.slice(3)
-    : letters;
+  const chars = raw.replace(/[^A-Za-z0-9]/g, "");
+  const body = chars.toLowerCase().startsWith("mac")
+    ? chars.slice(3)
+    : chars;
   const chunks = ["Mac"];
   for (let i = 0; i < 3; i++) {
     const part = body.slice(i * 3, i * 3 + 3);
@@ -69,7 +69,7 @@ function parseMacchinarioCodice(raw: string, allowLegacy: boolean): string {
   if (isMacchinarioCodiceNuovo(normalized)) return normalized;
   if (allowLegacy && LEGACY_MAC_CODICE_RE.test(trimmed)) return trimmed;
   throw new Error(
-    `Il codice deve essere ${MACCHINARIO_CODICE_HINT} (4 blocchi da 3 lettere).`
+    `Il codice deve essere ${MACCHINARIO_CODICE_HINT} (4 blocchi da 3 caratteri, lettere o numeri).`
   );
 }
 
