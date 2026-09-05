@@ -136,25 +136,45 @@ export function FileDropZone({
         ) : null}
         <span
           className={`absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center transition ${
-            dragOver || busy
-              ? "bg-slate-950/55 opacity-100"
-              : "bg-slate-950/50 opacity-0 group-hover:opacity-100"
+            photoSrc
+              ? dragOver || busy
+                ? "bg-slate-950/55 opacity-100"
+                : "bg-slate-950/50 opacity-0 group-hover:opacity-100"
+              : "opacity-100"
           }`}
         >
           {busy ? (
-            <span className="text-xs font-medium text-white">Salvataggio…</span>
+            <span
+              className={`text-xs font-medium ${photoSrc ? "text-white" : "text-slate-700"}`}
+            >
+              Salvataggio…
+            </span>
           ) : (
             <>
-              <span className="text-sm font-semibold text-white">
+              <span
+                className={`text-sm font-semibold ${
+                  photoSrc ? "text-white" : "text-slate-900"
+                }`}
+              >
                 {title === "Trascina qui il file" ? "Trascina qui la foto" : title}
               </span>
-              <span className="text-xs text-white/90">
+              <span className={`text-xs ${photoSrc ? "text-white/90" : "text-slate-600"}`}>
                 oppure{" "}
-                <span className="font-semibold underline decoration-2 underline-offset-2">
+                <span
+                  className={`font-semibold underline decoration-2 underline-offset-2 ${
+                    photoSrc ? "" : "text-[var(--primary)]"
+                  }`}
+                >
                   scegli dal computer
                 </span>
               </span>
-              <span className="mt-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white">
+              <span
+                className={`mt-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  photoSrc
+                    ? "bg-white/20 text-white"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
                 {hint}
               </span>
             </>
