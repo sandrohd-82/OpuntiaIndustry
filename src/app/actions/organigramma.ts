@@ -15,7 +15,11 @@ import {
   repartoInputSchema,
   repartoUpdateSchema,
   treeMoveSchema,
+  calcolaScadenzaCertificato,
+  certificatoAlertLivello,
+  type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
+  type OrganigrammaCertificatoCatalogo,
   type OrganigrammaDocumento,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
@@ -30,7 +34,10 @@ import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note, reparto_id";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note, reparto_id, in_forza, cessato_at";
+
+const DOC_COLS =
+  "id, persona_id, tipo, titolo, periodo, note, file_name, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
 
 type PersonaRow = {
   id: string;
@@ -45,6 +52,23 @@ type PersonaRow = {
   documento_stato: OrganigrammaPersona["documentoStato"];
   note: string;
   reparto_id?: string | null;
+  in_forza?: boolean;
+  cessato_at?: string | null;
+};
+
+type DocumentoRow = {
+  id: string;
+  persona_id: string;
+  tipo: OrganigrammaDocTipo;
+  titolo: string;
+  periodo: string;
+  note: string;
+  file_name: string;
+  created_at: string;
+  certificato_catalogo_id?: string | null;
+  data_rilascio?: string | null;
+  validita_anni?: number | null;
+  data_scadenza?: string | null;
 };
 
 async function requireAmmOrProd() {
@@ -84,7 +108,121 @@ function mapPersona(
     note: row.note ?? "",
     repartoId: row.reparto_id ?? null,
     repartoNome,
+    inForza: row.in_forza !== false,
+    cessatoAt: row.cessato_at ?? null,
     mansioni,
+  };
+}
+
+function mapDocumento(row: DocumentoRow): OrganigrammaDocumento {
+  return {
+    id: row.id,
+    personaId: row.persona_id,
+    tipo: row.tipo,
+    titolo: row.titolo,
+    periodo: row.periodo,
+    note: row.note,
+    fileName: row.file_name,
+    createdAt: row.created_at,
+    catalogoId: row.certificato_catalogo_id ?? null,
+    dataRilascio: row.data_rilascio ?? null,
+    validitaAnni: row.validita_anni ?? null,
+    dataScadenza: row.data_scadenza ?? null,
+  };
+}
+
+function slugCatalogo(nome: string): string {
+  return nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+}
+
+async function resolveCertificatoCatalogo(input: {
+  titolo: string;
+  validitaAnni: number;
+  actorId: string;
+}): Promise<
+  { success: true; item: OrganigrammaCertificatoCatalogo } | { success: false; error: string }
+> {
+  const nome = input.titolo.trim();
+  if (!nome) return { success: false, error: "Titolo certificato obbligatorio." };
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("organigramma_certificati_catalogo")
+    .select("id, codice, nome, descrizione, validita_anni_default")
+    .filter("nome", "ilike", nome.replace(/[%_\\]/g, "\\$&"))
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing) {
+    const row = existing as {
+      id: string;
+      codice: string;
+      nome: string;
+      descrizione: string;
+      validita_anni_default: number;
+    };
+    return {
+      success: true,
+      item: {
+        id: row.id,
+        codice: row.codice,
+        nome: row.nome,
+        descrizione: row.descrizione,
+        validitaAnniDefault: row.validita_anni_default,
+      },
+    };
+  }
+  const baseCodice = slugCatalogo(nome) || `c-${Date.now()}`;
+  const { data: codeClash } = await supabase
+    .from("organigramma_certificati_catalogo")
+    .select("id")
+    .eq("codice", baseCodice)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const codice = codeClash
+    ? `${baseCodice}-${Date.now().toString(36)}`.slice(0, 80)
+    : baseCodice;
+  const { data, error } = await supabase
+    .from("organigramma_certificati_catalogo")
+    .insert({
+      codice,
+      nome,
+      validita_anni_default: input.validitaAnni,
+      created_by: input.actorId,
+      updated_by: input.actorId,
+    })
+    .select("id, codice, nome, descrizione, validita_anni_default")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Salvataggio titolo certificato fallito." };
+  }
+  const row = data as {
+    id: string;
+    codice: string;
+    nome: string;
+    descrizione: string;
+    validita_anni_default: number;
+  };
+  await writeAuditLog({
+    entity_type: "organigramma_certificati_catalogo",
+    entity_id: row.id,
+    action: "create",
+    actor_id: input.actorId,
+    summary: `Catalogo certificato ${row.nome}`,
+  });
+  return {
+    success: true,
+    item: {
+      id: row.id,
+      codice: row.codice,
+      nome: row.nome,
+      descrizione: row.descrizione,
+      validitaAnniDefault: row.validita_anni_default,
+    },
   };
 }
 
@@ -445,6 +583,152 @@ export async function softDeleteRepartoAction(
     summary: "Soft delete reparto organigramma",
   });
   return { success: true };
+}
+
+export async function listCertificatiCatalogoAction(): Promise<
+  | { success: true; items: OrganigrammaCertificatoCatalogo[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_certificati_catalogo")
+    .select("id, codice, nome, descrizione, validita_anni_default")
+    .is("deleted_at", null)
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      codice: string;
+      nome: string;
+      descrizione: string;
+      validita_anni_default: number;
+    }>).map((r) => ({
+      id: r.id,
+      codice: r.codice,
+      nome: r.nome,
+      descrizione: r.descrizione,
+      validitaAnniDefault: r.validita_anni_default,
+    })),
+  };
+}
+
+export async function setOperatoreInForzaAction(
+  personaId: string,
+  inForza: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può cambiare lo stato in azienda." };
+  }
+  const now = new Date().toISOString();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("organigramma_persone")
+    .update({
+      in_forza: inForza,
+      cessato_at: inForza ? null : now,
+      cessato_by: inForza ? null : auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", personaId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await recordAttivita({
+    personaId,
+    azione: "cessazione",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: inForza ? "Operatore dichiarato di nuovo in forza" : "Operatore dichiarato non più in azienda",
+  });
+  await writeAuditLog({
+    entity_type: "organigramma_persone",
+    entity_id: personaId,
+    action: inForza ? "ripresa_servizio" : "cessazione",
+    actor_id: auth.userId,
+    summary: inForza
+      ? "Operatore di nuovo in forza"
+      : "Operatore dichiarato non più in azienda",
+  });
+  return { success: true };
+}
+
+export async function listCertificatiInScadenzaAction(): Promise<
+  | { success: true; items: CertificatoScadenzaAlert[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_documenti")
+    .select(
+      `${DOC_COLS}, persona:organigramma_persone(id, nome, cognome, in_forza, deleted_at)`
+    )
+    .in("tipo", ["corso", "certificato"])
+    .is("deleted_at", null)
+    .not("data_scadenza", "is", null);
+  if (error) return { success: false, error: error.message };
+
+  type Joined = DocumentoRow & {
+    persona:
+      | {
+          id: string;
+          nome: string;
+          cognome: string;
+          in_forza: boolean;
+          deleted_at: string | null;
+        }
+      | {
+          id: string;
+          nome: string;
+          cognome: string;
+          in_forza: boolean;
+          deleted_at: string | null;
+        }[]
+      | null;
+  };
+
+  const current = new Map<string, { doc: DocumentoRow; personaNome: string }>();
+  for (const raw of (data ?? []) as unknown as Joined[]) {
+    const persona = Array.isArray(raw.persona) ? raw.persona[0] : raw.persona;
+    if (!persona || persona.deleted_at || persona.in_forza === false) continue;
+    const key = `${raw.persona_id}:${raw.certificato_catalogo_id ?? raw.titolo.toLowerCase()}`;
+    const prev = current.get(key);
+    const rel = raw.data_rilascio ?? raw.created_at;
+    const prevRel = prev
+      ? (prev.doc.data_rilascio ?? prev.doc.created_at)
+      : "";
+    if (!prev || rel > prevRel) {
+      current.set(key, {
+        doc: raw,
+        personaNome: `${persona.cognome} ${persona.nome}`.trim(),
+      });
+    }
+  }
+
+  const items: CertificatoScadenzaAlert[] = [];
+  for (const { doc, personaNome } of current.values()) {
+    if (!doc.data_scadenza) continue;
+    const livello = certificatoAlertLivello(doc.data_scadenza);
+    if (!livello) continue;
+    items.push({
+      personaId: doc.persona_id,
+      personaNome,
+      documentoId: doc.id,
+      titolo: doc.titolo,
+      dataScadenza: doc.data_scadenza,
+      livello,
+    });
+  }
+  const rank = { scaduto: 0, mese: 1, "3mesi": 2, "6mesi": 3 };
+  items.sort(
+    (a, b) =>
+      rank[a.livello] - rank[b.livello] ||
+      a.dataScadenza.localeCompare(b.dataScadenza)
+  );
+  return { success: true, items };
 }
 
 export async function listPersoneAction(): Promise<
@@ -925,8 +1209,11 @@ export async function uploadPersonaDocumentoAction(
   const personaId = String(formData.get("personaId") ?? "");
   const tipo = String(formData.get("tipo") ?? "") as OrganigrammaDocTipo;
   const titolo = String(formData.get("titolo") ?? "").trim();
+  const catalogoIdRaw = String(formData.get("catalogoId") ?? "").trim();
   const periodo = String(formData.get("periodo") ?? "").trim();
   const note = String(formData.get("note") ?? "").trim();
+  const dataRilascio = String(formData.get("dataRilascio") ?? "").trim();
+  const validitaAnniRaw = String(formData.get("validitaAnni") ?? "").trim();
   const file = formData.get("file");
   if (!personaId || !(file instanceof File) || file.size === 0) {
     return { success: false, error: "File o operatore mancanti." };
@@ -954,6 +1241,35 @@ export async function uploadPersonaDocumentoAction(
         : file.type === "image/webp"
           ? "webp"
           : "jpg";
+  const isCert = tipo === "corso" || tipo === "certificato";
+  let catalogoId: string | null = catalogoIdRaw || null;
+  let titoloFinale = titolo || tipo;
+  let dataRilascioVal: string | null = null;
+  let validitaAnni: number | null = null;
+  let dataScadenza: string | null = null;
+  if (isCert) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataRilascio)) {
+      return { success: false, error: "Data di rilascio obbligatoria." };
+    }
+    const anni = Number(validitaAnniRaw);
+    if (!Number.isInteger(anni) || anni < 1 || anni > 30) {
+      return { success: false, error: "Validità: indica gli anni (1–30)." };
+    }
+    if (!titoloFinale || titoloFinale === tipo) {
+      return { success: false, error: "Seleziona o inserisci il titolo del certificato." };
+    }
+    const cat = await resolveCertificatoCatalogo({
+      titolo: titoloFinale,
+      validitaAnni: anni,
+      actorId: auth.userId,
+    });
+    if (!cat.success) return cat;
+    catalogoId = cat.item.id;
+    titoloFinale = cat.item.nome;
+    dataRilascioVal = dataRilascio;
+    validitaAnni = anni;
+    dataScadenza = calcolaScadenzaCertificato(dataRilascio, anni);
+  }
   const path = `${personaId}/${tipo}/${crypto.randomUUID()}.${ext}`;
   const supabase = await createClient();
   const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
@@ -966,57 +1282,41 @@ export async function uploadPersonaDocumentoAction(
     .insert({
       persona_id: personaId,
       tipo,
-      titolo: titolo || tipo,
+      titolo: titoloFinale,
       periodo,
       note,
       storage_path: path,
       file_name: file.name,
       mime: file.type,
+      certificato_catalogo_id: catalogoId,
+      data_rilascio: dataRilascioVal,
+      validita_anni: validitaAnni,
+      data_scadenza: dataScadenza,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select("id, persona_id, tipo, titolo, periodo, note, file_name, created_at")
+    .select(DOC_COLS)
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Salvataggio documento fallito." };
   }
   await recordAttivita({
     personaId,
-    azione: tipo === "busta_paga" ? "busta" : "documento",
+    azione: tipo === "busta_paga" ? "busta" : isCert ? "certificato" : "documento",
     actorId: auth.userId,
     actorNome: actorNome(auth.profile),
-    note: `Caricato ${titolo || tipo}`,
+    note: dataScadenza
+      ? `Caricato ${titoloFinale} (scade ${dataScadenza})`
+      : `Caricato ${titoloFinale}`,
   });
   await writeAuditLog({
     entity_type: "organigramma_documenti",
     entity_id: (data as { id: string }).id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Documento ${tipo} per persona ${personaId}`,
+    summary: `Documento ${tipo} ${titoloFinale} per operatore ${personaId}`,
   });
-  const row = data as {
-    id: string;
-    persona_id: string;
-    tipo: OrganigrammaDocTipo;
-    titolo: string;
-    periodo: string;
-    note: string;
-    file_name: string;
-    created_at: string;
-  };
-  return {
-    success: true,
-    item: {
-      id: row.id,
-      personaId: row.persona_id,
-      tipo: row.tipo,
-      titolo: row.titolo,
-      periodo: row.periodo,
-      note: row.note,
-      fileName: row.file_name,
-      createdAt: row.created_at,
-    },
-  };
+  return { success: true, item: mapDocumento(data as DocumentoRow) };
 }
 
 const ORGANIGRAMMA_DOC_TIPI_SET = new Set([
@@ -1039,32 +1339,14 @@ export async function listPersonaDocumentiAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("organigramma_documenti")
-    .select("id, persona_id, tipo, titolo, periodo, note, file_name, created_at")
+    .select(DOC_COLS)
     .eq("persona_id", personaId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) return { success: false, error: error.message };
   return {
     success: true,
-    items: ((data ?? []) as Array<{
-      id: string;
-      persona_id: string;
-      tipo: OrganigrammaDocTipo;
-      titolo: string;
-      periodo: string;
-      note: string;
-      file_name: string;
-      created_at: string;
-    }>).map((r) => ({
-      id: r.id,
-      personaId: r.persona_id,
-      tipo: r.tipo,
-      titolo: r.titolo,
-      periodo: r.periodo,
-      note: r.note,
-      fileName: r.file_name,
-      createdAt: r.created_at,
-    })),
+    items: ((data ?? []) as DocumentoRow[]).map(mapDocumento),
   };
 }
 

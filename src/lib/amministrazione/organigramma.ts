@@ -76,8 +76,18 @@ export type OrganigrammaPersona = {
   note: string;
   repartoId: string | null;
   repartoNome: string;
+  inForza: boolean;
+  cessatoAt: string | null;
   mansioni: OrganigrammaMansione[];
   figli?: OrganigrammaPersona[];
+};
+
+export type OrganigrammaCertificatoCatalogo = {
+  id: string;
+  codice: string;
+  nome: string;
+  descrizione: string;
+  validitaAnniDefault: number;
 };
 
 export type OrganigrammaDocumento = {
@@ -89,7 +99,60 @@ export type OrganigrammaDocumento = {
   note: string;
   fileName: string;
   createdAt: string;
+  catalogoId: string | null;
+  dataRilascio: string | null;
+  validitaAnni: number | null;
+  dataScadenza: string | null;
 };
+
+export const CERTIFICATO_ALERT_LIVELLI = [
+  "6mesi",
+  "3mesi",
+  "mese",
+  "scaduto",
+] as const;
+export type CertificatoAlertLivello = (typeof CERTIFICATO_ALERT_LIVELLI)[number];
+
+export type CertificatoScadenzaAlert = {
+  personaId: string;
+  personaNome: string;
+  documentoId: string;
+  titolo: string;
+  dataScadenza: string;
+  livello: CertificatoAlertLivello;
+};
+
+export function calcolaScadenzaCertificato(
+  dataRilascio: string,
+  validitaAnni: number
+): string {
+  const [y, m, d] = dataRilascio.split("-").map(Number);
+  const dt = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
+  dt.setUTCFullYear(dt.getUTCFullYear() + validitaAnni);
+  return dt.toISOString().slice(0, 10);
+}
+
+export function certificatoAlertLivello(
+  dataScadenza: string,
+  now = new Date()
+): CertificatoAlertLivello | null {
+  const [y, m, d] = dataScadenza.split("-").map(Number);
+  const exp = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((exp - today) / 86400000);
+  if (days < 0) return "scaduto";
+  if (days <= 31) return "mese";
+  if (days <= 92) return "3mesi";
+  if (days <= 183) return "6mesi";
+  return null;
+}
+
+export function certificatoAlertLabel(livello: CertificatoAlertLivello): string {
+  if (livello === "scaduto") return "Certificato scaduto";
+  if (livello === "mese") return "Scade entro un mese";
+  if (livello === "3mesi") return "Scade entro 3 mesi";
+  return "Scade entro 6 mesi";
+}
 
 export type OrganigrammaAttivita = {
   id: string;
@@ -144,6 +207,8 @@ export const ORGANIGRAMMA_AZIONI = [
   "busta",
   "permesso",
   "autorizzazione",
+  "cessazione",
+  "certificato",
 ] as const;
 
 export function attivitaPersonaLabel(azione: string): string {
@@ -157,6 +222,8 @@ export function attivitaPersonaLabel(azione: string): string {
   if (azione === "busta") return "Busta paga";
   if (azione === "permesso") return "Permesso / ferie";
   if (azione === "autorizzazione") return "Autorizzazione postazione";
+  if (azione === "cessazione") return "Stato in azienda";
+  if (azione === "certificato") return "Certificato";
   return azione;
 }
 

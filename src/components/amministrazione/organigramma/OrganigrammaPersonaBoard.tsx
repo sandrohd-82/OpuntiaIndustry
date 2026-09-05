@@ -8,6 +8,8 @@ import {
   getDocumentoUrlAction,
   getPersonaAction,
   listAutorizzazioniPersonaAction,
+  listCertificatiCatalogoAction,
+  listCertificatiInScadenzaAction,
   listMansioniAction,
   listRepartiAction,
   listPermessiAction,
@@ -15,6 +17,7 @@ import {
   listPersonaDocumentiAction,
   listPostiOrganigrammaAction,
   removeAutorizzazionePostoAction,
+  setOperatoreInForzaAction,
   setPermessoStatoAction,
   softDeleteDocumentoAction,
   updatePersonaAction,
@@ -26,10 +29,15 @@ import {
   ORGANIGRAMMA_PERMESSO_STATI,
   ORGANIGRAMMA_PERMESSO_TIPI,
   attivitaPersonaLabel,
+  calcolaScadenzaCertificato,
+  certificatoAlertLabel,
+  certificatoAlertLivello,
   docTipoLabel,
   permessoTipoLabel,
   personaLabel,
+  type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
+  type OrganigrammaCertificatoCatalogo,
   type OrganigrammaDocumento,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
@@ -107,13 +115,10 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         title="Documenti di identità"
         hint="Codice fiscale e carta d’identità, fronte e retro. Si possono caricare anche in creazione operatore."
       />
-      <DocumentiCard
+      <CertificatiCard
         personaId={item.id}
+        inForza={item.inForza}
         isAdmin={isAdmin}
-        tipi={["corso", "certificato"]}
-        title="Corsi e certificati"
-        hint="Allegati dei corsi e delle certificazioni."
-        askTitolo
       />
       <DocumentiCard
         personaId={item.id}
@@ -231,10 +236,30 @@ function AnagraficaCard({
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold">{personaLabel(item)}</h2>
-          <p className="text-xs capitalize text-[var(--muted)]">
+          <p className="text-xs text-[var(--muted)]">
+            {item.inForza ? "In forza" : "Non lavora più in azienda"}
+            {item.cessatoAt
+              ? ` dal ${new Date(item.cessatoAt).toLocaleDateString("it-IT")}`
+              : ""}
+            {" · "}
             Stato documento: {item.documentoStato}
-            {item.userId ? " · Collegata a un login" : ""}
+            {item.userId ? " · Collegato a un login" : ""}
           </p>
+          {isAdmin ? (
+            <button
+              type="button"
+              className="mt-2 rounded-md border border-[var(--border)] px-3 py-1 text-xs font-medium hover:bg-slate-50"
+              onClick={async () => {
+                const res = await setOperatoreInForzaAction(item.id, !item.inForza);
+                if (!res.success) onError(res.error);
+                else onSaved();
+              }}
+            >
+              {item.inForza
+                ? "Dichiara che non lavora più in azienda"
+                : "Riporta in forza"}
+            </button>
+          ) : null}
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs text-[var(--muted)]">
               Nome
@@ -498,6 +523,264 @@ function DocumentiCard({
               ) : null}
             </li>
           ))
+        )}
+      </ul>
+    </section>
+  );
+}
+
+function CertificatiCard({
+  personaId,
+  inForza,
+  isAdmin,
+}: {
+  personaId: string;
+  inForza: boolean;
+  isAdmin: boolean;
+}) {
+  const [items, setItems] = useState<OrganigrammaDocumento[]>([]);
+  const [catalogo, setCatalogo] = useState<OrganigrammaCertificatoCatalogo[]>([]);
+  const [alerts, setAlerts] = useState<CertificatoScadenzaAlert[]>([]);
+  const [tipo, setTipo] = useState<"corso" | "certificato">("certificato");
+  const [catalogoId, setCatalogoId] = useState("");
+  const [titolo, setTitolo] = useState("");
+  const [dataRilascio, setDataRilascio] = useState("");
+  const [validitaAnni, setValiditaAnni] = useState("5");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const scadenzaPrevista =
+    dataRilascio && Number(validitaAnni) >= 1
+      ? calcolaScadenzaCertificato(dataRilascio, Number(validitaAnni))
+      : "";
+
+  async function load() {
+    const [d, c, a] = await Promise.all([
+      listPersonaDocumentiAction(personaId),
+      listCertificatiCatalogoAction(),
+      listCertificatiInScadenzaAction(),
+    ]);
+    if (!d.success) {
+      setError(d.error);
+      return;
+    }
+    if (c.success) setCatalogo(c.items);
+    if (a.success) {
+      setAlerts(a.items.filter((x) => x.personaId === personaId));
+    }
+    setItems(d.items.filter((x) => x.tipo === "corso" || x.tipo === "certificato"));
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personaId]);
+
+  async function upload(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    const fd = new FormData();
+    fd.set("personaId", personaId);
+    fd.set("tipo", tipo);
+    fd.set("catalogoId", catalogoId);
+    fd.set("titolo", titolo);
+    fd.set("dataRilascio", dataRilascio);
+    fd.set("validitaAnni", validitaAnni);
+    fd.set("periodo", "");
+    fd.set("note", "");
+    fd.set("file", file);
+    const res = await uploadPersonaDocumentoAction(fd);
+    setBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setTitolo("");
+    setCatalogoId("");
+    setDataRilascio("");
+    setValiditaAnni("5");
+    await load();
+  }
+
+  async function openDoc(id: string) {
+    const res = await getDocumentoUrlAction(id);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    window.open(res.url, "_blank", "noopener,noreferrer");
+  }
+
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <h3 className="text-sm font-semibold">Corsi e certificati</h3>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        Il titolo salvato (es. Antincendio Liv.2) diventa selezionabile per gli
+        altri operatori. La scadenza è calcolata da data di rilascio + anni di
+        validità. Avvisi a 6 mesi, 3 mesi e poi ogni mese, finché non carichi
+        il certificato corrispondente.
+      </p>
+      {!inForza ? (
+        <p className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+          Operatore non in azienda: gli avvisi di scadenza sono disattivati.
+        </p>
+      ) : alerts.length ? (
+        <ul className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {alerts.map((al) => (
+            <li key={al.documentoId}>
+              {al.titolo} · {certificatoAlertLabel(al.livello)} · scade{" "}
+              {new Date(`${al.dataScadenza}T00:00:00`).toLocaleDateString("it-IT")}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {isAdmin ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-xs text-[var(--muted)]">
+            Tipo
+            <select
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value as "corso" | "certificato")}
+              className={inputCls}
+            >
+              <option value="certificato">Certificato</option>
+              <option value="corso">Corso</option>
+            </select>
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Titolo / certificato
+            <select
+              value={catalogoId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setCatalogoId(id);
+                const found = catalogo.find((x) => x.id === id);
+                if (found) {
+                  setTitolo(found.nome);
+                  setValiditaAnni(String(found.validitaAnniDefault));
+                } else {
+                  setTitolo("");
+                }
+              }}
+              className={inputCls}
+            >
+              <option value="">Nuovo titolo…</option>
+              {catalogo.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          {!catalogoId ? (
+            <label className="text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+              Nuovo titolo
+              <input
+                value={titolo}
+                onChange={(e) => setTitolo(e.target.value)}
+                className={inputCls}
+                placeholder="Es. Antincendio Liv.2"
+              />
+            </label>
+          ) : null}
+          <label className="text-xs text-[var(--muted)]">
+            Data rilascio
+            <input
+              type="date"
+              value={dataRilascio}
+              onChange={(e) => setDataRilascio(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Periodo validità (anni)
+            <input
+              type="number"
+              min={1}
+              max={30}
+              value={validitaAnni}
+              onChange={(e) => setValiditaAnni(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Scadenza (calcolata)
+            <input
+              readOnly
+              value={
+                scadenzaPrevista
+                  ? new Date(`${scadenzaPrevista}T00:00:00`).toLocaleDateString(
+                      "it-IT"
+                    )
+                  : "—"
+              }
+              className={`${inputCls} bg-slate-50`}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
+            File
+            <input
+              type="file"
+              accept="application/pdf,image/jpeg,image/png,image/webp"
+              disabled={busy}
+              className="mt-1 block w-full text-sm"
+              onChange={(e) => void upload(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        </div>
+      ) : null}
+      {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+      <ul className="mt-3 divide-y divide-[var(--border)]">
+        {items.length === 0 ? (
+          <li className="py-2 text-sm text-[var(--muted)]">Nessun allegato.</li>
+        ) : (
+          items.map((d) => {
+            const livello =
+              inForza && d.dataScadenza
+                ? certificatoAlertLivello(d.dataScadenza)
+                : null;
+            return (
+              <li key={d.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+                <span className="font-medium">{d.titolo || docTipoLabel(d.tipo)}</span>
+                <span className="text-xs text-[var(--muted)]">
+                  {docTipoLabel(d.tipo)}
+                  {d.dataRilascio
+                    ? ` · rilascio ${new Date(`${d.dataRilascio}T00:00:00`).toLocaleDateString("it-IT")}`
+                    : ""}
+                  {d.validitaAnni ? ` · validità ${d.validitaAnni} anni` : ""}
+                  {d.dataScadenza
+                    ? ` · scade ${new Date(`${d.dataScadenza}T00:00:00`).toLocaleDateString("it-IT")}`
+                    : ""}
+                </span>
+                {livello ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">
+                    {certificatoAlertLabel(livello)}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void openDoc(d.id)}
+                  className="text-[var(--primary)] hover:underline"
+                >
+                  Apri
+                </button>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const res = await softDeleteDocumentoAction(d.id);
+                      if (!res.success) setError(res.error);
+                      else await load();
+                    }}
+                    className="text-red-700 hover:underline"
+                  >
+                    Rimuovi
+                  </button>
+                ) : null}
+              </li>
+            );
+          })
         )}
       </ul>
     </section>

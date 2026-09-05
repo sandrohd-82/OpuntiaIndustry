@@ -8,6 +8,7 @@ import {
   createPersonaAction,
   createRepartoAction,
   importPersoneDaProfiliAction,
+  listCertificatiInScadenzaAction,
   listMansioniAction,
   listPersoneAction,
   listRepartiAction,
@@ -20,8 +21,10 @@ import {
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
+  certificatoAlertLabel,
   docTipoLabel,
   personaLabel,
+  type CertificatoScadenzaAlert,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
   type OrganigrammaPersona,
@@ -36,6 +39,7 @@ export function OrganigrammaElencoBoard() {
   const [items, setItems] = useState<OrganigrammaPersona[]>([]);
   const [mansioni, setMansioni] = useState<OrganigrammaMansione[]>([]);
   const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
+  const [alerts, setAlerts] = useState<CertificatoScadenzaAlert[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -46,10 +50,11 @@ export function OrganigrammaElencoBoard() {
 
   function reload() {
     start(async () => {
-      const [p, m, r] = await Promise.all([
+      const [p, m, r, a] = await Promise.all([
         listPersoneAction(),
         listMansioniAction(),
         listRepartiAction(),
+        listCertificatiInScadenzaAction(),
       ]);
       if (!p.success) {
         setError(p.error);
@@ -68,6 +73,7 @@ export function OrganigrammaElencoBoard() {
       setIsAdmin(p.isAdmin);
       setMansioni(m.items);
       setReparti(r.items);
+      if (a.success) setAlerts(a.items);
     });
   }
 
@@ -154,6 +160,36 @@ export function OrganigrammaElencoBoard() {
           {error}
         </p>
       ) : null}
+      {alerts.length ? (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <h3 className="text-sm font-semibold text-amber-950">
+            Certificati in scadenza
+          </h3>
+          <p className="mt-1 text-xs text-amber-900/80">
+            Avvisi a 6 mesi, 3 mesi e poi ogni mese, finché non carichi il
+            certificato corrispondente. Non vengono mostrati per chi non lavora
+            più in azienda.
+          </p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {alerts.map((al) => (
+              <li key={`${al.documentoId}-${al.livello}`}>
+                <Link
+                  href={`/app/amministrazione/organigramma/elenco-e-mansioni/${al.personaId}`}
+                  className="font-medium text-amber-950 hover:underline"
+                >
+                  {al.personaNome}
+                </Link>
+                {" · "}
+                {al.titolo}
+                {" · "}
+                {certificatoAlertLabel(al.livello)}
+                {" · scade "}
+                {new Date(`${al.dataScadenza}T00:00:00`).toLocaleDateString("it-IT")}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <table className="min-w-full text-sm">
@@ -164,14 +200,15 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Reparto</th>
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
-              <th className="px-4 py-2.5">Stato</th>
+              <th className="px-4 py-2.5">In azienda</th>
+              <th className="px-4 py-2.5">Certificati</th>
               <th className="px-4 py-2.5" />
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={8} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -189,7 +226,18 @@ export function OrganigrammaElencoBoard() {
                   <td className="px-4 py-2.5 font-mono text-xs">
                     {p.codiceFiscale || "—"}
                   </td>
-                  <td className="px-4 py-2.5 capitalize">{p.documentoStato}</td>
+                  <td className="px-4 py-2.5">
+                    {p.inForza ? "In forza" : "Non lavora più"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {alerts.some((al) => al.personaId === p.id) ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+                        In scadenza
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-right">
                     <Link
                       href={`/app/amministrazione/organigramma/elenco-e-mansioni/${p.id}`}
