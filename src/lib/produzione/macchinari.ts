@@ -50,7 +50,7 @@ export function normalizeMacchinarioCodice(raw: string): string {
     : letters;
   const chunks = ["Mac"];
   for (let i = 0; i < 3; i++) {
-    const part = body.slice(i * 3, i * 3 + 3).toUpperCase();
+    const part = body.slice(i * 3, i * 3 + 3);
     if (!part) break;
     chunks.push(part);
   }
