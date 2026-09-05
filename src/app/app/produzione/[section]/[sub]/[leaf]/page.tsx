@@ -41,8 +41,11 @@ export default async function ProduzioneLeafPage({ params }: Props) {
     return (
       <>
         <AppHeader
-          title={page?.label ?? "Postazioni"}
-          subtitle={page?.description ?? "Posti lavoro"}
+          title="Elenco Postazioni"
+          subtitle={
+            page?.description ??
+            "Posti lavoro che richiedono la presenza di un operatore."
+          }
         />
         <div className="p-6">
           <PostazioniBoard areaCodice={sub} />

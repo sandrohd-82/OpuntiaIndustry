@@ -85,9 +85,7 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         "lavaggio",
         "Lavaggio",
         "Versamento e bilancio di massa verso essiccazione.",
-        [
-          { slug: "linea-principale", label: "Linea principale", description: "Versamento e controllo quantità." },
-        ],
+        [],
         [
           {
             slug: "vasca-lavaggio",
@@ -246,13 +244,13 @@ function areaNavBranch(
       {
         slug: "postazioni",
         label: "Postazioni",
-        description: "Posti lavoro con operatore.",
+        description: "Aree che richiedono la presenza di un operatore.",
         path: `${base}/postazioni`,
         children: [
           {
             slug: "elenco",
-            label: "Elenco postazioni",
-            description: "Posti lavoro dell’area.",
+            label: "Elenco Postazioni",
+            description: "Posti lavoro con operatore in quest’area.",
             path: `${base}/postazioni`,
           },
           ...posti.map((p) => ({

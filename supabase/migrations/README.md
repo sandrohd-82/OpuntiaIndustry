@@ -26,8 +26,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260901170000` | `imballaggi_voci_prodotti_unita_misura.sql` | UM (kg/g/lt/ml/pz) sul collegamento prodotto |
 | `20260904190000` | `iot_devices_telemetry_commands.sql` | IoT REST + Realtime (devices, telemetry, commands) |
 | `20260905100000` | `macchinario_attivita_storico_filtri.sql` | Storico attività: tipi extra + foglio_id |
+| `20260905120000` | `lavaggio_senza_posto_linea.sql` | Lavaggio: soft delete posto seed linea-principale |
 
-**Prossimo timestamp libero: `20260905110000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260905130000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 
