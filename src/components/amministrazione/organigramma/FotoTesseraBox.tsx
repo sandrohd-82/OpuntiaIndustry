@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -19,6 +20,7 @@ import {
 } from "react-icons/fa6";
 
 const BOX = 176;
+const WORK = 280;
 const ACCEPT = "image/jpeg,image/png,image/webp";
 
 export type FotoTesseraHandle = {
@@ -55,11 +57,13 @@ async function cropToFile(
   const img = await loadImage(sourceUrl);
   const nw = img.naturalWidth || 1;
   const nh = img.naturalHeight || 1;
-  const cover = Math.max(BOX / nw, BOX / nh);
-  const dw = nw * cover * scale;
-  const dh = nh * cover * scale;
-  const left = (BOX - dw) / 2 + offsetX;
-  const top = (BOX - dh) / 2 + offsetY;
+  const contain = Math.min(WORK / nw, WORK / nh);
+  const dw = nw * contain * scale;
+  const dh = nh * contain * scale;
+  const left = (WORK - dw) / 2 + offsetX;
+  const top = (WORK - dh) / 2 + offsetY;
+  const fx = (WORK - BOX) / 2;
+  const fy = (WORK - BOX) / 2;
   const out = 512;
   const k = out / BOX;
   const canvas = document.createElement("canvas");
@@ -69,7 +73,7 @@ async function cropToFile(
   if (!ctx) throw new Error("Ritaglio foto non riuscito.");
   ctx.fillStyle = "#e2e8f0";
   ctx.fillRect(0, 0, out, out);
-  ctx.drawImage(img, left * k, top * k, dw * k, dh * k);
+  ctx.drawImage(img, (left - fx) * k, (top - fy) * k, dw * k, dh * k);
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (b) => (b ? resolve(b) : reject(new Error("Ritaglio foto non riuscito."))),
@@ -184,7 +188,7 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
     }
 
     function zoom(delta: number) {
-      setScale((v) => Math.min(3, Math.max(1, Math.round((v + delta) * 10) / 10)));
+      setScale((v) => Math.min(3, Math.max(0.4, Math.round((v + delta) * 10) / 10)));
       setDirty(true);
     }
 
@@ -251,36 +255,86 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
       </>
     );
 
-    const frame = (
+    const dropHandlers = {
+      onDragEnter: (e: ReactDragEvent) => {
+        e.preventDefault();
+        if (!disabled) setDragOver(true);
+      },
+      onDragOver: (e: ReactDragEvent) => {
+        e.preventDefault();
+        if (!disabled) setDragOver(true);
+      },
+      onDragLeave: (e: ReactDragEvent) => {
+        e.preventDefault();
+        setDragOver(false);
+      },
+      onDrop: (e: ReactDragEvent) => {
+        e.preventDefault();
+        setDragOver(false);
+        take(e.dataTransfer.files);
+      },
+    };
+
+    const fileInput = (
+      <input
+        id={inputId}
+        ref={inputRef}
+        type="file"
+        accept={ACCEPT}
+        disabled={disabled || busy}
+        className="sr-only"
+        onChange={(e) => {
+          take(e.target.files);
+          e.target.value = "";
+        }}
+      />
+    );
+
+    const frame = editing && photoSrc ? (
+      <div
+        className={`relative overflow-visible rounded-2xl bg-slate-100 ${
+          dragOver ? "ring-2 ring-emerald-500" : ""
+        }`}
+        style={{ width: WORK, height: WORK }}
+        {...dropHandlers}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={photoSrc}
+          alt={alt}
+          draggable={false}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="absolute max-h-none max-w-none cursor-grab object-contain object-center active:cursor-grabbing"
+          style={{
+            width: WORK,
+            height: WORK,
+            left: 0,
+            top: 0,
+            transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+            transformOrigin: "center center",
+          }}
+        />
+        <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-2xl">
+          <div
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-2xl border-2 border-dashed border-emerald-500 shadow-[0_0_0_400px_rgba(15,23,42,0.28)]"
+            style={{ width: BOX, height: BOX }}
+          />
+        </div>
+        {fileInput}
+      </div>
+    ) : (
       <div
         className={`relative h-44 w-44 overflow-hidden rounded-2xl border-2 border-dashed transition ${
-          disabled
-            ? ""
-            : dragOver
-              ? "border-emerald-500 shadow-md shadow-emerald-100"
-              : editing
-                ? "border-emerald-400"
-                : photoSrc
-                  ? "border-slate-300 group-hover:border-[var(--primary)]"
-                  : "border-slate-300 hover:border-[var(--primary)]"
+          dragOver
+            ? "border-emerald-500 shadow-md shadow-emerald-100"
+            : photoSrc
+              ? "border-slate-300 group-hover:border-[var(--primary)]"
+              : "border-slate-300 hover:border-[var(--primary)]"
         } ${photoSrc ? "bg-slate-200" : "bg-gradient-to-b from-slate-50 to-white"}`}
-        onDragEnter={(e) => {
-          e.preventDefault();
-          if (!disabled) setDragOver(true);
-        }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          if (!disabled) setDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-        }}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragOver(false);
-          take(e.dataTransfer.files);
-        }}
+        {...dropHandlers}
         onClick={() => {
           if (!photoSrc && !disabled) inputRef.current?.click();
         }}
@@ -290,18 +344,7 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
           <img
             src={photoSrc}
             alt={alt}
-            draggable={false}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            className={`absolute inset-0 h-full w-full object-cover ${
-              editing ? "cursor-grab active:cursor-grabbing" : ""
-            }`}
-            style={{
-              transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
-              transformOrigin: "center center",
-            }}
+            className="absolute inset-0 h-full w-full object-cover"
           />
         ) : null}
         {!editing ? (
@@ -329,18 +372,7 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
             </span>
           </span>
         ) : null}
-        <input
-          id={inputId}
-          ref={inputRef}
-          type="file"
-          accept={ACCEPT}
-          disabled={disabled || busy}
-          className="sr-only"
-          onChange={(e) => {
-            take(e.target.files);
-            e.target.value = "";
-          }}
-        />
+        {fileInput}
       </div>
     );
 
@@ -358,7 +390,7 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
     }
 
     return (
-      <div className="group relative flex flex-col items-center px-8 pb-2 pt-8">
+      <div className="group relative flex flex-col items-center overflow-visible px-10 pb-2 pt-8">
         {editing ? (
           <button
             type="button"
@@ -420,8 +452,9 @@ export const FotoTesseraBox = forwardRef<FotoTesseraHandle, Props>(
                 <FaPlus size={11} />
               </button>
             </div>
-            <p className="mt-1 max-w-[11rem] text-center text-[10px] text-slate-500">
-              Sposta e ridimensiona, poi premi Salva.
+            <p className="mt-1 max-w-[18rem] text-center text-[10px] text-slate-500">
+              L’immagine resta intera. Il riquadro verde è la foto tessera al
+              Salva.
             </p>
           </>
         ) : null}
