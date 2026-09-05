@@ -205,7 +205,9 @@ function TreeNode({
         >
           <span className="block text-sm font-medium">{personaLabel(node)}</span>
           <span className="block text-xs text-[var(--muted)]">
-            {node.mansioni.map((m) => m.nome).join(", ") || "Senza mansione"}
+            {[node.repartoNome, node.mansioni.map((m) => m.nome).join(", ")]
+              .filter(Boolean)
+              .join(" · ") || "Senza reparto / mansione"}
           </span>
         </Link>
       </div>

@@ -11,6 +11,7 @@ import {
   permessoInputSchema,
   personaInputSchema,
   personaUpdateSchema,
+  repartoInputSchema,
   treeMoveSchema,
   type OrganigrammaAttivita,
   type OrganigrammaDocumento,
@@ -18,6 +19,7 @@ import {
   type OrganigrammaMansione,
   type OrganigrammaPermesso,
   type OrganigrammaPersona,
+  type OrganigrammaReparto,
   type PersonaMinima,
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
@@ -26,7 +28,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note, reparto_id";
 
 type PersonaRow = {
   id: string;
@@ -40,6 +42,7 @@ type PersonaRow = {
   foto_path: string | null;
   documento_stato: OrganigrammaPersona["documentoStato"];
   note: string;
+  reparto_id?: string | null;
 };
 
 async function requireAmmOrProd() {
@@ -61,7 +64,8 @@ function actorNome(profile: { full_name?: string | null; email?: string }): stri
 function mapPersona(
   row: PersonaRow,
   mansioni: OrganigrammaMansione[] = [],
-  fotoUrl: string | null = null
+  fotoUrl: string | null = null,
+  repartoNome = ""
 ): OrganigrammaPersona {
   return {
     id: row.id,
@@ -76,8 +80,21 @@ function mapPersona(
     fotoUrl,
     documentoStato: row.documento_stato,
     note: row.note ?? "",
+    repartoId: row.reparto_id ?? null,
+    repartoNome,
     mansioni,
   };
+}
+
+async function loadRepartiById(): Promise<Map<string, OrganigrammaReparto>> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("organigramma_reparti")
+    .select("id, codice, nome, descrizione")
+    .is("deleted_at", null);
+  return new Map(
+    ((data ?? []) as OrganigrammaReparto[]).map((r) => [r.id, r])
+  );
 }
 
 async function recordAttivita(input: {
@@ -214,6 +231,66 @@ export async function createMansioneAction(
   return { success: true, item: data as OrganigrammaMansione };
 }
 
+export async function listRepartiAction(): Promise<
+  | { success: true; items: OrganigrammaReparto[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_reparti")
+    .select("id, codice, nome, descrizione")
+    .is("deleted_at", null)
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return { success: true, items: (data ?? []) as OrganigrammaReparto[] };
+}
+
+export async function createRepartoAction(
+  raw: unknown
+): Promise<
+  { success: true; item: OrganigrammaReparto } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può creare reparti." };
+  }
+  const parsed = repartoInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const codice = parsed.data.nome
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_reparti")
+    .insert({
+      codice: codice || `r-${Date.now()}`,
+      nome: parsed.data.nome,
+      descrizione: parsed.data.descrizione ?? "",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id, codice, nome, descrizione")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Salvataggio reparto fallito." };
+  }
+  await writeAuditLog({
+    entity_type: "organigramma_reparti",
+    entity_id: (data as OrganigrammaReparto).id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creato reparto ${parsed.data.nome}`,
+  });
+  return { success: true, item: data as OrganigrammaReparto };
+}
+
 export async function listPersoneAction(): Promise<
   | { success: true; items: OrganigrammaPersona[]; isAdmin: boolean }
   | { success: false; error: string }
@@ -227,11 +304,21 @@ export async function listPersoneAction(): Promise<
     .order("cognome", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PersonaRow[];
-  const mansioni = await loadMansioniFor(rows.map((r) => r.id));
+  const [mansioni, reparti] = await Promise.all([
+    loadMansioniFor(rows.map((r) => r.id)),
+    loadRepartiById(),
+  ]);
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
-    items: rows.map((r) => mapPersona(r, mansioni.get(r.id) ?? [])),
+    items: rows.map((r) =>
+      mapPersona(
+        r,
+        mansioni.get(r.id) ?? [],
+        null,
+        r.reparto_id ? (reparti.get(r.reparto_id)?.nome ?? "") : ""
+      )
+    ),
   };
 }
 
@@ -301,11 +388,19 @@ export async function getPersonaAction(
     return { success: false, error: error?.message ?? "Persona non trovata." };
   }
   const row = data as PersonaRow;
-  const mansioni = await loadMansioniFor([row.id]);
+  const [mansioni, reparti] = await Promise.all([
+    loadMansioniFor([row.id]),
+    loadRepartiById(),
+  ]);
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
-    item: mapPersona(row, mansioni.get(row.id) ?? [], await signedUrl(row.foto_path)),
+    item: mapPersona(
+      row,
+      mansioni.get(row.id) ?? [],
+      await signedUrl(row.foto_path),
+      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    ),
   };
 }
 
@@ -333,6 +428,7 @@ export async function createPersonaAction(
       carta_identita: v.cartaIdentita ?? "",
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
+      reparto_id: v.repartoId ?? null,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -360,8 +456,19 @@ export async function createPersonaAction(
     actor_id: auth.userId,
     summary: `Creata persona ${v.cognome} ${v.nome}`,
   });
-  const mansioni = await loadMansioniFor([row.id]);
-  return { success: true, item: mapPersona(row, mansioni.get(row.id) ?? []) };
+  const [mansioni, reparti] = await Promise.all([
+    loadMansioniFor([row.id]),
+    loadRepartiById(),
+  ]);
+  return {
+    success: true,
+    item: mapPersona(
+      row,
+      mansioni.get(row.id) ?? [],
+      null,
+      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    ),
+  };
 }
 
 export async function updatePersonaAction(
@@ -387,6 +494,7 @@ export async function updatePersonaAction(
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
       note: v.note ?? "",
+      reparto_id: v.repartoId ?? null,
       updated_by: auth.userId,
     })
     .eq("id", v.id)
@@ -415,10 +523,18 @@ export async function updatePersonaAction(
     summary: `Aggiornata persona ${v.cognome} ${v.nome}`,
   });
   const row = data as PersonaRow;
-  const mansioni = await loadMansioniFor([row.id]);
+  const [mansioni, reparti] = await Promise.all([
+    loadMansioniFor([row.id]),
+    loadRepartiById(),
+  ]);
   return {
     success: true,
-    item: mapPersona(row, mansioni.get(row.id) ?? [], await signedUrl(row.foto_path)),
+    item: mapPersona(
+      row,
+      mansioni.get(row.id) ?? [],
+      await signedUrl(row.foto_path),
+      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    ),
   };
 }
 

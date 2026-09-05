@@ -29,8 +29,9 @@ WikiOpuntia e OpuntiaItalia **non** hanno uno schema proprio: accodano file qui.
 | `20260905120000` | `lavaggio_senza_posto_linea.sql` | Lavaggio: soft delete posto seed linea-principale |
 | `20260905140000` | `organigramma_persone_iso9001.sql` | Organigramma: persone, mansioni, documenti, permessi, autorizzazioni postazione |
 | `20260905150000` | `posto_pericolosita.sql` | Postazioni: bandiera pericolosità alta/media/bassa |
+| `20260905160000` | `organigramma_reparti.sql` | Organigramma: catalogo reparti + FK persona |
 
-**Prossimo timestamp libero: `20260905160000` o successivo (sempre maggiore dell’ultimo).**
+**Prossimo timestamp libero: `20260905170000` o successivo (sempre maggiore dell’ultimo).**
 
 ## Regole (obbligatorie)
 

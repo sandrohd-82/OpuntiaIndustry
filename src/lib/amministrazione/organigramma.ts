@@ -54,6 +54,13 @@ export type OrganigrammaMansione = {
   descrizione: string;
 };
 
+export type OrganigrammaReparto = {
+  id: string;
+  codice: string;
+  nome: string;
+  descrizione: string;
+};
+
 export type OrganigrammaPersona = {
   id: string;
   nome: string;
@@ -67,6 +74,8 @@ export type OrganigrammaPersona = {
   fotoUrl: string | null;
   documentoStato: "bozza" | "approvato" | "chiuso";
   note: string;
+  repartoId: string | null;
+  repartoNome: string;
   mansioni: OrganigrammaMansione[];
   figli?: OrganigrammaPersona[];
 };
@@ -172,6 +181,7 @@ export const personaInputSchema = z.object({
   note: z.string().trim().max(2000).optional().default(""),
   mansioneIds: z.array(z.string().uuid()).optional().default([]),
   parentId: z.string().uuid().nullable().optional(),
+  repartoId: emptyOr(z.string().uuid()),
 });
 
 export const personaUpdateSchema = personaInputSchema.extend({
@@ -182,6 +192,8 @@ export const mansioneInputSchema = z.object({
   nome: z.string().trim().min(1, "Nome obbligatorio").max(80),
   descrizione: z.string().trim().max(400).optional().default(""),
 });
+
+export const repartoInputSchema = mansioneInputSchema;
 
 export const permessoInputSchema = z.object({
   personaId: z.string().uuid(),

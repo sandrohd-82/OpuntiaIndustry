@@ -5,9 +5,11 @@ import Link from "next/link";
 import {
   createMansioneAction,
   createPersonaAction,
+  createRepartoAction,
   importPersoneDaProfiliAction,
   listMansioniAction,
   listPersoneAction,
+  listRepartiAction,
   softDeletePersonaAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
@@ -15,6 +17,7 @@ import {
   personaLabel,
   type OrganigrammaMansione,
   type OrganigrammaPersona,
+  type OrganigrammaReparto,
 } from "@/lib/amministrazione/organigramma";
 
 const inputCls =
@@ -24,18 +27,21 @@ export function OrganigrammaElencoBoard() {
   const [pending, start] = useTransition();
   const [items, setItems] = useState<OrganigrammaPersona[]>([]);
   const [mansioni, setMansioni] = useState<OrganigrammaMansione[]>([]);
+  const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showMansione, setShowMansione] = useState(false);
+  const [showReparto, setShowReparto] = useState(false);
   const [deleting, setDeleting] = useState<OrganigrammaPersona | null>(null);
 
   function reload() {
     start(async () => {
-      const [p, m] = await Promise.all([
+      const [p, m, r] = await Promise.all([
         listPersoneAction(),
         listMansioniAction(),
+        listRepartiAction(),
       ]);
       if (!p.success) {
         setError(p.error);
@@ -45,10 +51,15 @@ export function OrganigrammaElencoBoard() {
         setError(m.error);
         return;
       }
+      if (!r.success) {
+        setError(r.error);
+        return;
+      }
       setError(null);
       setItems(p.items);
       setIsAdmin(p.isAdmin);
       setMansioni(m.items);
+      setReparti(r.items);
     });
   }
 
@@ -61,7 +72,7 @@ export function OrganigrammaElencoBoard() {
     const n = q.trim().toLowerCase();
     if (!n) return items;
     return items.filter((p) => {
-      const hay = `${p.cognome} ${p.nome} ${p.codiceFiscale} ${p.mansioni
+      const hay = `${p.cognome} ${p.nome} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
         .map((x) => x.nome)
         .join(" ")}`.toLowerCase();
       return hay.includes(n);
@@ -92,7 +103,7 @@ export function OrganigrammaElencoBoard() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className={inputCls}
-            placeholder="Cognome, nome, mansione…"
+            placeholder="Cognome, nome, reparto, mansione…"
           />
         </label>
         {isAdmin ? (
@@ -110,6 +121,13 @@ export function OrganigrammaElencoBoard() {
               className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
             >
               Nuova mansione
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowReparto(true)}
+              className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+            >
+              Nuovo reparto
             </button>
             <button
               type="button"
@@ -135,6 +153,7 @@ export function OrganigrammaElencoBoard() {
             <tr className="border-b border-[var(--border)] text-left text-xs uppercase text-[var(--muted)]">
               <th className="px-4 py-2.5">Cognome</th>
               <th className="px-4 py-2.5">Nome</th>
+              <th className="px-4 py-2.5">Reparto</th>
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">Stato</th>
@@ -144,7 +163,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={7} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessuna persona in organigramma."}
@@ -155,6 +174,7 @@ export function OrganigrammaElencoBoard() {
                 <tr key={p.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-2.5 font-medium">{p.cognome}</td>
                   <td className="px-4 py-2.5">{p.nome}</td>
+                  <td className="px-4 py-2.5">{p.repartoNome || "—"}</td>
                   <td className="px-4 py-2.5 text-[var(--muted)]">
                     {p.mansioni.map((m) => m.nome).join(", ") || "—"}
                   </td>
@@ -189,9 +209,19 @@ export function OrganigrammaElencoBoard() {
       {showForm ? (
         <PersonaCreateModal
           mansioni={mansioni}
+          reparti={reparti}
           onClose={() => setShowForm(false)}
           onCreated={() => {
             setShowForm(false);
+            reload();
+          }}
+        />
+      ) : null}
+      {showReparto ? (
+        <RepartoCreateModal
+          onClose={() => setShowReparto(false)}
+          onCreated={() => {
+            setShowReparto(false);
             reload();
           }}
         />
@@ -224,10 +254,12 @@ export function OrganigrammaElencoBoard() {
 
 function PersonaCreateModal({
   mansioni,
+  reparti,
   onClose,
   onCreated,
 }: {
   mansioni: OrganigrammaMansione[];
+  reparti: OrganigrammaReparto[];
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -235,6 +267,7 @@ function PersonaCreateModal({
   const [cognome, setCognome] = useState("");
   const [codiceFiscale, setCf] = useState("");
   const [cartaIdentita, setCi] = useState("");
+  const [repartoId, setRepartoId] = useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -250,6 +283,7 @@ function PersonaCreateModal({
       cartaIdentita,
       note,
       mansioneIds,
+      repartoId: repartoId || undefined,
     });
     setBusy(false);
     if (!res.success) {
@@ -292,6 +326,21 @@ function PersonaCreateModal({
               onChange={(e) => setCi(e.target.value)}
               className={inputCls}
             />
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Reparto
+            <select
+              value={repartoId}
+              onChange={(e) => setRepartoId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">Nessun reparto</option>
+              {reparti.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nome}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
         <fieldset className="mt-3">
@@ -375,6 +424,70 @@ function MansioneCreateModal({
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
       <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
         <h2 className="text-base font-semibold">Nuova mansione</h2>
+        <label className="mt-3 block text-xs text-[var(--muted)]">
+          Nome
+          <input value={nome} onChange={(e) => setNome(e.target.value)} className={inputCls} />
+        </label>
+        <label className="mt-3 block text-xs text-[var(--muted)]">
+          Descrizione
+          <textarea
+            value={descrizione}
+            onChange={(e) => setDescrizione(e.target.value)}
+            className={inputCls}
+            rows={2}
+          />
+        </label>
+        {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm"
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void submit()}
+            className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            {busy ? "Salvataggio…" : "Crea"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RepartoCreateModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [descrizione, setDescrizione] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    const res = await createRepartoAction({ nome, descrizione });
+    setBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    onCreated();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
+      <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
+        <h2 className="text-base font-semibold">Nuovo reparto</h2>
         <label className="mt-3 block text-xs text-[var(--muted)]">
           Nome
           <input value={nome} onChange={(e) => setNome(e.target.value)} className={inputCls} />

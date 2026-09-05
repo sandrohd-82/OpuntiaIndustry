@@ -9,6 +9,7 @@ import {
   getPersonaAction,
   listAutorizzazioniPersonaAction,
   listMansioniAction,
+  listRepartiAction,
   listPermessiAction,
   listPersonaAttivitaAction,
   listPersonaDocumentiAction,
@@ -34,6 +35,7 @@ import {
   type OrganigrammaMansione,
   type OrganigrammaPermesso,
   type OrganigrammaPersona,
+  type OrganigrammaReparto,
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
 } from "@/lib/amministrazione/organigramma";
@@ -47,14 +49,16 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
   const [item, setItem] = useState<OrganigrammaPersona | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [mansioni, setMansioni] = useState<OrganigrammaMansione[]>([]);
+  const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
     void (async () => {
-      const [p, m] = await Promise.all([
+      const [p, m, r] = await Promise.all([
         getPersonaAction(personaId),
         listMansioniAction(),
+        listRepartiAction(),
       ]);
       if (!p.success) {
         setError(p.error);
@@ -63,6 +67,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
       setItem(p.item);
       setIsAdmin(p.isAdmin);
       if (m.success) setMansioni(m.items);
+      if (r.success) setReparti(r.items);
     })();
   }, [personaId, refresh]);
 
@@ -90,6 +95,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
       <AnagraficaCard
         item={item}
         mansioni={mansioni}
+        reparti={reparti}
         isAdmin={isAdmin}
         onSaved={() => setRefresh((n) => n + 1)}
         onError={setError}
@@ -128,12 +134,14 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
 function AnagraficaCard({
   item,
   mansioni,
+  reparti,
   isAdmin,
   onSaved,
   onError,
 }: {
   item: OrganigrammaPersona;
   mansioni: OrganigrammaMansione[];
+  reparti: OrganigrammaReparto[];
   isAdmin: boolean;
   onSaved: () => void;
   onError: (msg: string | null) => void;
@@ -143,6 +151,7 @@ function AnagraficaCard({
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
   const [cartaIdentita, setCi] = useState(item.cartaIdentita);
   const [note, setNote] = useState(item.note);
+  const [repartoId, setRepartoId] = useState(item.repartoId ?? "");
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
@@ -154,6 +163,7 @@ function AnagraficaCard({
     setCf(item.codiceFiscale);
     setCi(item.cartaIdentita);
     setNote(item.note);
+    setRepartoId(item.repartoId ?? "");
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
 
@@ -168,6 +178,7 @@ function AnagraficaCard({
       cartaIdentita,
       note,
       mansioneIds,
+      repartoId: repartoId || undefined,
     });
     setBusy(false);
     if (!res.success) {
@@ -261,6 +272,22 @@ function AnagraficaCard({
                 onChange={(e) => setCi(e.target.value)}
                 className={inputCls}
               />
+            </label>
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Reparto
+              <select
+                value={repartoId}
+                disabled={!isAdmin}
+                onChange={(e) => setRepartoId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Nessun reparto</option>
+                {reparti.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nome}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
           <fieldset className="mt-3">
