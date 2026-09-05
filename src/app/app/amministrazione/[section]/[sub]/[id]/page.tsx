@@ -18,7 +18,7 @@ export default async function AmministrazioneSubIdPage({ params }: Props) {
   return (
     <>
       <AppHeader
-        title="Scheda persona"
+        title="Scheda operatore"
         subtitle="Anagrafica, documenti, autorizzazioni e registro attività"
       />
       <div className="p-6">

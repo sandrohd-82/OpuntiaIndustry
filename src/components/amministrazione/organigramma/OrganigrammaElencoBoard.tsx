@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   createMansioneAction,
   createPersonaAction,
@@ -15,10 +16,13 @@ import {
   softDeleteRepartoAction,
   updateMansioneAction,
   updateRepartoAction,
+  uploadPersonaDocumentoAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
+  docTipoLabel,
   personaLabel,
+  type OrganigrammaDocTipo,
   type OrganigrammaMansione,
   type OrganigrammaPersona,
   type OrganigrammaReparto,
@@ -96,7 +100,7 @@ export function OrganigrammaElencoBoard() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
-        Anagrafica distinta dal login. Ogni persona può comparire nell’albero e
+        Anagrafica distinta dal login. Ogni operatore può comparire nell’albero e
         ricevere mansioni, documenti e autorizzazioni alle postazioni.
       </p>
 
@@ -117,7 +121,7 @@ export function OrganigrammaElencoBoard() {
               onClick={() => setShowForm(true)}
               className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
             >
-              Nuova persona
+              Nuovo operatore
             </button>
             <button
               type="button"
@@ -170,7 +174,7 @@ export function OrganigrammaElencoBoard() {
                 <td colSpan={7} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
-                    : "Nessuna persona in organigramma."}
+                    : "Nessun operatore in organigramma."}
                 </td>
               </tr>
             ) : (
@@ -211,14 +215,10 @@ export function OrganigrammaElencoBoard() {
       </div>
 
       {showForm ? (
-        <PersonaCreateModal
+        <OperatoreCreateModal
           mansioni={mansioni}
           reparti={reparti}
           onClose={() => setShowForm(false)}
-          onCreated={() => {
-            setShowForm(false);
-            reload();
-          }}
         />
       ) : null}
       {showReparto ? (
@@ -262,17 +262,23 @@ export function OrganigrammaElencoBoard() {
   );
 }
 
-function PersonaCreateModal({
+const IDENTITA_CREATE: OrganigrammaDocTipo[] = [
+  "cf_fronte",
+  "cf_retro",
+  "ci_fronte",
+  "ci_retro",
+];
+
+function OperatoreCreateModal({
   mansioni,
   reparti,
   onClose,
-  onCreated,
 }: {
   mansioni: OrganigrammaMansione[];
   reparti: OrganigrammaReparto[];
   onClose: () => void;
-  onCreated: () => void;
 }) {
+  const router = useRouter();
   const [nome, setNome] = useState("");
   const [cognome, setCognome] = useState("");
   const [codiceFiscale, setCf] = useState("");
@@ -280,6 +286,9 @@ function PersonaCreateModal({
   const [repartoId, setRepartoId] = useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
+  const [docs, setDocs] = useState<Partial<Record<OrganigrammaDocTipo, File>>>(
+    {}
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -295,18 +304,42 @@ function PersonaCreateModal({
       mansioneIds,
       repartoId: repartoId || undefined,
     });
-    setBusy(false);
     if (!res.success) {
+      setBusy(false);
       setError(res.error);
       return;
     }
-    onCreated();
+    for (const tipo of IDENTITA_CREATE) {
+      const file = docs[tipo];
+      if (!file) continue;
+      const fd = new FormData();
+      fd.set("personaId", res.item.id);
+      fd.set("tipo", tipo);
+      fd.set("titolo", docTipoLabel(tipo));
+      fd.set("periodo", "");
+      fd.set("note", "");
+      fd.set("file", file);
+      const up = await uploadPersonaDocumentoAction(fd);
+      if (!up.success) {
+        setBusy(false);
+        setError(
+          `Operatore creato, ma il documento ${docTipoLabel(tipo)} non è stato caricato: ${up.error}`
+        );
+        router.push(
+          `/app/amministrazione/organigramma/elenco-e-mansioni/${res.item.id}`
+        );
+        return;
+      }
+    }
+    router.push(
+      `/app/amministrazione/organigramma/elenco-e-mansioni/${res.item.id}`
+    );
   }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
-      <div className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
-        <h2 className="text-base font-semibold">Nuova persona</h2>
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
+        <h2 className="text-base font-semibold">Nuovo operatore</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-xs text-[var(--muted)]">
             Nome
@@ -383,6 +416,36 @@ function PersonaCreateModal({
             rows={2}
           />
         </label>
+        <fieldset className="mt-3">
+          <legend className="text-xs font-medium text-slate-700">
+            Documenti di identità
+          </legend>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Solo codice fiscale e carta d’identità (fronte e retro). Corsi,
+            certificati e buste paga si caricano nella scheda operatore.
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {IDENTITA_CREATE.map((tipo) => (
+              <label key={tipo} className="text-xs text-[var(--muted)]">
+                {docTipoLabel(tipo)}
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,image/webp"
+                  className="mt-1 block w-full text-sm"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null;
+                    setDocs((cur) => {
+                      const next = { ...cur };
+                      if (file) next[tipo] = file;
+                      else delete next[tipo];
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+            ))}
+          </div>
+        </fieldset>
         {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -398,7 +461,7 @@ function PersonaCreateModal({
             onClick={() => void submit()}
             className="rounded-md bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {busy ? "Salvataggio…" : "Crea"}
+            {busy ? "Salvataggio…" : "Crea e apri scheda"}
           </button>
         </div>
       </div>

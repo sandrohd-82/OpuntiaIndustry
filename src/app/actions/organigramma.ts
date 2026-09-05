@@ -541,7 +541,7 @@ export async function getPersonaAction(
     .is("deleted_at", null)
     .maybeSingle();
   if (error || !data) {
-    return { success: false, error: error?.message ?? "Persona non trovata." };
+    return { success: false, error: error?.message ?? "Operatore non trovato." };
   }
   const row = data as PersonaRow;
   const [mansioni, reparti] = await Promise.all([
@@ -567,7 +567,7 @@ export async function createPersonaAction(
 > {
   const { auth } = await requireAreaAccess("amministrazione");
   if (!isAdminLikeProfile(auth.profile)) {
-    return { success: false, error: "Solo l’amministratore può aggiungere persone." };
+    return { success: false, error: "Solo l’amministratore può aggiungere operatori." };
   }
   const parsed = personaInputSchema.safeParse(raw);
   if (!parsed.success) {
@@ -610,7 +610,7 @@ export async function createPersonaAction(
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creata persona ${v.cognome} ${v.nome}`,
+    summary: `Creato operatore ${v.cognome} ${v.nome}`,
   });
   const [mansioni, reparti] = await Promise.all([
     loadMansioniFor([row.id]),
@@ -634,7 +634,7 @@ export async function updatePersonaAction(
 > {
   const { auth } = await requireAreaAccess("amministrazione");
   if (!isAdminLikeProfile(auth.profile)) {
-    return { success: false, error: "Solo l’amministratore può modificare le persone." };
+    return { success: false, error: "Solo l’amministratore può modificare gli operatori." };
   }
   const parsed = personaUpdateSchema.safeParse(raw);
   if (!parsed.success) {
@@ -676,7 +676,7 @@ export async function updatePersonaAction(
     entity_id: v.id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Aggiornata persona ${v.cognome} ${v.nome}`,
+    summary: `Aggiornato operatore ${v.cognome} ${v.nome}`,
   });
   const row = data as PersonaRow;
   const [mansioni, reparti] = await Promise.all([
@@ -699,7 +699,7 @@ export async function softDeletePersonaAction(
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("amministrazione");
   if (!isAdminLikeProfile(auth.profile)) {
-    return { success: false, error: "Solo l’amministratore può eliminare persone." };
+    return { success: false, error: "Solo l’amministratore può eliminare operatori." };
   }
   const supabase = await createClient();
   const now = new Date().toISOString();
@@ -723,7 +723,7 @@ export async function softDeletePersonaAction(
     azione: "delete",
     actorId: auth.userId,
     actorNome: actorNome(auth.profile),
-    note: "Persona rimossa (soft delete)",
+    note: "Operatore rimosso (soft delete)",
   });
   await writeAuditLog({
     entity_type: "organigramma_persone",
@@ -824,7 +824,7 @@ export async function movePersonaTreeAction(
     return { success: false, error: parsed.error.issues[0]?.message ?? "Spostamento non valido." };
   }
   if (parsed.data.parentId === parsed.data.personaId) {
-    return { success: false, error: "Una persona non può dipendere da sé stessa." };
+    return { success: false, error: "Un operatore non può dipendere da sé stesso." };
   }
   const supabase = await createClient();
   if (parsed.data.parentId) {
@@ -879,7 +879,7 @@ export async function uploadPersonaFotoAction(
   const personaId = String(formData.get("personaId") ?? "");
   const file = formData.get("file");
   if (!personaId || !(file instanceof File) || file.size === 0) {
-    return { success: false, error: "File o persona mancanti." };
+    return { success: false, error: "File o operatore mancanti." };
   }
   if (file.size > 6 * 1024 * 1024) {
     return { success: false, error: "Foto troppo grande (max 6 MB)." };
@@ -929,7 +929,7 @@ export async function uploadPersonaDocumentoAction(
   const note = String(formData.get("note") ?? "").trim();
   const file = formData.get("file");
   if (!personaId || !(file instanceof File) || file.size === 0) {
-    return { success: false, error: "File o persona mancanti." };
+    return { success: false, error: "File o operatore mancanti." };
   }
   if (!ORGANIGRAMMA_DOC_TIPI_SET.has(tipo)) {
     return { success: false, error: "Tipo documento non valido." };

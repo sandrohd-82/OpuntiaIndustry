@@ -190,7 +190,7 @@ function PostoAutorizzatiBlock({ postoId }: { postoId: string }) {
       {isAdmin ? (
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <label className="min-w-[14rem] flex-1 text-xs text-[var(--muted)]">
-            Persona
+            Operatore
             <select
               value={personaId}
               onChange={(e) => setPersonaId(e.target.value)}
@@ -230,7 +230,7 @@ function PostoAutorizzatiBlock({ postoId }: { postoId: string }) {
       <ul className="mt-3 divide-y divide-[var(--border)]">
         {items.length === 0 ? (
           <li className="py-2 text-sm text-[var(--muted)]">
-            Nessuna persona autorizzata.
+            Nessun operatore autorizzato.
           </li>
         ) : (
           items.map((a) => (

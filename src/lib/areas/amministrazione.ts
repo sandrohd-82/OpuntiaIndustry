@@ -175,7 +175,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
     slug: "organigramma",
     label: "Organigramma",
-    description: "Persone, mansioni e struttura aziendale",
+    description: "Operatori, mansioni e struttura aziendale",
     path: "/app/amministrazione/organigramma",
     children: [
       {

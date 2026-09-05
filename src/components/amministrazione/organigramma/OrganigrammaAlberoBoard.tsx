@@ -87,8 +87,8 @@ export function OrganigrammaAlberoBoard() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
-        Trascina una persona su un’altra per farla dipendere da lei, oppure
-        sull’area «Primo livello» per toglierla dalla gerarchia.
+        Trascina un operatore su un altro per farlo dipendere da lui, oppure
+        sull’area «Primo livello» per toglierlo dalla gerarchia.
       </p>
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -121,7 +121,7 @@ export function OrganigrammaAlberoBoard() {
 
       {tree.length === 0 ? (
         <p className="text-sm text-[var(--muted)]">
-          Nessuna persona. Aggiungile da Elenco e mansioni.
+          Nessun operatore. Aggiungili da Elenco e mansioni.
         </p>
       ) : (
         <ul className="space-y-2">

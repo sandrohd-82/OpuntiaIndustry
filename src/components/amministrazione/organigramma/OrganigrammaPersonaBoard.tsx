@@ -105,7 +105,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         isAdmin={isAdmin}
         tipi={["cf_fronte", "cf_retro", "ci_fronte", "ci_retro"]}
         title="Documenti di identità"
-        hint="Codice fiscale e carta d’identità, fronte e retro."
+        hint="Codice fiscale e carta d’identità, fronte e retro. Si possono caricare anche in creazione operatore."
       />
       <DocumentiCard
         personaId={item.id}
