@@ -24,6 +24,7 @@ import {
   uploadPersonaDocumentoAction,
   uploadPersonaFotoAction,
 } from "@/app/actions/organigramma";
+import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   ORGANIGRAMMA_AZIONI,
   ORGANIGRAMMA_PERMESSO_STATI,
@@ -384,6 +385,7 @@ function DocumentiCard({
   const [tipo, setTipo] = useState<OrganigrammaDocTipo>(tipi[0]!);
   const [titolo, setTitolo] = useState("");
   const [periodo, setPeriodo] = useState("");
+  const [picked, setPicked] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -403,6 +405,7 @@ function DocumentiCard({
 
   async function upload(file: File | null) {
     if (!file) return;
+    setPicked(file);
     setBusy(true);
     setError(null);
     const fd = new FormData();
@@ -418,6 +421,7 @@ function DocumentiCard({
       setError(res.error);
       return;
     }
+    setPicked(null);
     setTitolo("");
     setPeriodo("");
     await load();
@@ -437,55 +441,55 @@ function DocumentiCard({
       <h3 className="text-sm font-semibold">{title}</h3>
       <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p>
       {isAdmin ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {tipi.length > 1 ? (
-            <label className="text-xs text-[var(--muted)]">
-              Tipo
-              <select
-                value={tipo}
-                onChange={(e) => setTipo(e.target.value as OrganigrammaDocTipo)}
-                className={inputCls}
-              >
-                {tipi.map((t) => (
-                  <option key={t} value={t}>
-                    {docTipoLabel(t)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {askTitolo ? (
-            <label className="text-xs text-[var(--muted)]">
-              Titolo
-              <input
-                value={titolo}
-                onChange={(e) => setTitolo(e.target.value)}
-                className={inputCls}
-              />
-            </label>
-          ) : null}
-          {askPeriodo ? (
-            <label className="text-xs text-[var(--muted)]">
-              Periodo
-              <input
-                value={periodo}
-                onChange={(e) => setPeriodo(e.target.value)}
-                className={inputCls}
-                placeholder="2026-08"
-              />
-            </label>
-          ) : null}
-          <label className="text-xs text-[var(--muted)]">
-            File
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
-              disabled={busy}
-              className="mt-1 block w-full text-sm"
-              onChange={(e) => void upload(e.target.files?.[0] ?? null)}
+        <>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {tipi.length > 1 ? (
+              <label className="text-xs text-[var(--muted)]">
+                Tipo
+                <select
+                  value={tipo}
+                  onChange={(e) => setTipo(e.target.value as OrganigrammaDocTipo)}
+                  className={inputCls}
+                >
+                  {tipi.map((t) => (
+                    <option key={t} value={t}>
+                      {docTipoLabel(t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {askTitolo ? (
+              <label className="text-xs text-[var(--muted)]">
+                Titolo
+                <input
+                  value={titolo}
+                  onChange={(e) => setTitolo(e.target.value)}
+                  className={inputCls}
+                />
+              </label>
+            ) : null}
+            {askPeriodo ? (
+              <label className="text-xs text-[var(--muted)]">
+                Periodo
+                <input
+                  value={periodo}
+                  onChange={(e) => setPeriodo(e.target.value)}
+                  className={inputCls}
+                  placeholder="2026-08"
+                />
+              </label>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            <FileDropZone
+              file={picked}
+              busy={busy}
+              onFile={(f) => void upload(f)}
+              onInvalid={setError}
             />
-          </label>
-        </div>
+          </div>
+        </>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
       <ul className="mt-3 divide-y divide-[var(--border)]">
@@ -546,6 +550,7 @@ function CertificatiCard({
   const [titolo, setTitolo] = useState("");
   const [dataRilascio, setDataRilascio] = useState("");
   const [validitaAnni, setValiditaAnni] = useState("5");
+  const [picked, setPicked] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -578,6 +583,7 @@ function CertificatiCard({
 
   async function upload(file: File | null) {
     if (!file) return;
+    setPicked(file);
     setBusy(true);
     setError(null);
     const fd = new FormData();
@@ -596,6 +602,7 @@ function CertificatiCard({
       setError(res.error);
       return;
     }
+    setPicked(null);
     setTitolo("");
     setCatalogoId("");
     setDataRilascio("");
@@ -718,16 +725,14 @@ function CertificatiCard({
               className={`${inputCls} bg-slate-50`}
             />
           </label>
-          <label className="text-xs text-[var(--muted)] sm:col-span-2 lg:col-span-3">
-            File
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,image/webp"
-              disabled={busy}
-              className="mt-1 block w-full text-sm"
-              onChange={(e) => void upload(e.target.files?.[0] ?? null)}
+          <div className="sm:col-span-2 lg:col-span-3">
+            <FileDropZone
+              file={picked}
+              busy={busy}
+              onFile={(f) => void upload(f)}
+              onInvalid={setError}
             />
-          </label>
+          </div>
         </div>
       ) : null}
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}

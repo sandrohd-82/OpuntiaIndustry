@@ -20,6 +20,7 @@ import {
   uploadPersonaDocumentoAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   certificatoAlertLabel,
   docTipoLabel,
@@ -472,25 +473,21 @@ function OperatoreCreateModal({
             Solo codice fiscale e carta d’identità (fronte e retro). Corsi,
             certificati e buste paga si caricano nella scheda operatore.
           </p>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
             {IDENTITA_CREATE.map((tipo) => (
-              <label key={tipo} className="text-xs text-[var(--muted)]">
-                {docTipoLabel(tipo)}
-                <input
-                  type="file"
-                  accept="application/pdf,image/jpeg,image/png,image/webp"
-                  className="mt-1 block w-full text-sm"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] ?? null;
-                    setDocs((cur) => {
-                      const next = { ...cur };
-                      if (file) next[tipo] = file;
-                      else delete next[tipo];
-                      return next;
-                    });
-                  }}
+              <div key={tipo}>
+                <p className="mb-1 text-xs font-medium text-slate-700">
+                  {docTipoLabel(tipo)}
+                </p>
+                <FileDropZone
+                  compact
+                  file={docs[tipo] ?? null}
+                  onFile={(file) =>
+                    setDocs((cur) => ({ ...cur, [tipo]: file }))
+                  }
+                  onInvalid={setError}
                 />
-              </label>
+              </div>
             ))}
           </div>
         </fieldset>
