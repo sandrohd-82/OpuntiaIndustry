@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   addAutorizzazionePostoAction,
@@ -24,6 +24,10 @@ import {
   uploadPersonaFotoAction,
 } from "@/app/actions/organigramma";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
+import {
+  FotoTesseraBox,
+  type FotoTesseraHandle,
+} from "@/components/amministrazione/organigramma/FotoTesseraBox";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   ORGANIGRAMMA_AZIONI,
@@ -183,7 +187,7 @@ function AnagraficaCard({
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
-  const [pickedFoto, setPickedFoto] = useState<File | null>(null);
+  const fotoRef = useRef<FotoTesseraHandle>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -214,17 +218,23 @@ function AnagraficaCard({
       onError(res.error);
       return;
     }
-    if (pickedFoto) {
-      const fd = new FormData();
-      fd.set("personaId", item.id);
-      fd.set("file", pickedFoto);
-      const up = await uploadPersonaFotoAction(fd);
-      if (!up.success) {
-        setBusy(false);
-        onError(up.error);
-        return;
+    try {
+      const cropped = await fotoRef.current?.exportIfNeeded();
+      if (cropped) {
+        const fd = new FormData();
+        fd.set("personaId", item.id);
+        fd.set("file", cropped);
+        const up = await uploadPersonaFotoAction(fd);
+        if (!up.success) {
+          setBusy(false);
+          onError(up.error);
+          return;
+        }
       }
-      setPickedFoto(null);
+    } catch (err) {
+      setBusy(false);
+      onError(err instanceof Error ? err.message : "Salvataggio foto non riuscito.");
+      return;
     }
     setBusy(false);
     onSaved();
@@ -234,28 +244,14 @@ function AnagraficaCard({
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <div className="flex flex-wrap items-start gap-4">
         <div className="shrink-0">
-          {isAdmin ? (
-            <FileDropZone
-              variant="photo"
-              accept="image/jpeg,image/png,image/webp"
-              file={pickedFoto}
-              coverUrl={item.fotoUrl}
-              busy={busy}
-              title="Trascina qui la foto"
-              hint="JPG, PNG, WebP"
-              onFile={setPickedFoto}
-              onInvalid={onError}
-            />
-          ) : item.fotoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={item.fotoUrl}
-              alt={`Foto ${personaLabel(item)}`}
-              className="h-44 w-44 rounded-2xl object-cover"
-            />
-          ) : (
-            <div className="h-44 w-44 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50" />
-          )}
+          <FotoTesseraBox
+            ref={fotoRef}
+            coverUrl={item.fotoUrl}
+            busy={busy}
+            disabled={!isAdmin}
+            alt={`Foto ${personaLabel(item)}`}
+            onInvalid={onError}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold">{personaLabel(item)}</h2>
