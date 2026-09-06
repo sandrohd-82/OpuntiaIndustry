@@ -193,6 +193,26 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
       },
     ],
   },
+  {
+    slug: "registro-accessi",
+    label: "Registro accessi",
+    description: "Accessi al gestionale: email, data e ora",
+    path: "/app/amministrazione/registro-accessi",
+    children: [
+      {
+        slug: "timeline",
+        label: "Timeline",
+        description: "Sequenza temporale degli accessi al gestionale",
+        path: "/app/amministrazione/registro-accessi/timeline",
+      },
+      {
+        slug: "elenco",
+        label: "Elenco",
+        description: "Tabella accessi: email, data, ora ed esito",
+        path: "/app/amministrazione/registro-accessi/elenco",
+      },
+    ],
+  },
 ] as const;
 
 export function getFirstAmministrazionePath(): string {

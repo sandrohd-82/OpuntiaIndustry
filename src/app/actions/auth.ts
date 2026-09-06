@@ -19,6 +19,7 @@ import {
   twoFaSessionExpiresAt,
 } from "@/lib/auth/two-factor";
 import { sendOtpEmail } from "@/lib/email/smtp";
+import { recordAccesso } from "@/lib/auth/record-accesso";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
   AuthSession2faInsert,
@@ -57,6 +58,12 @@ export async function signInWithPassword(
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
+      await recordAccesso({
+        email,
+        evento: "login_fallito",
+        esito: "fallito",
+        note: error.message,
+      });
       return {
         success: false,
         error: `Credenziali non valide. (${error.message})`,
@@ -70,6 +77,13 @@ export async function signInWithPassword(
     if (!user) {
       return { success: false, error: "Sessione non valida dopo il login." };
     }
+
+    await recordAccesso({
+      userId: user.id,
+      email: user.email ?? email,
+      evento: "login",
+      esito: "successo",
+    });
 
     const service = createServiceClient();
     const { data: factor } = await service
@@ -249,8 +263,24 @@ export async function verifyEmailOtp(
       .from("user_second_factor")
       .update(attemptUpdate)
       .eq("user_id", user.id);
+    await recordAccesso({
+      userId: user.id,
+      email: user.email ?? "",
+      evento: "2fa_fallito",
+      esito: "fallito",
+      metodo2fa: "email",
+      note: "Codice email non corretto",
+    });
     return { success: false, error: "Codice non corretto." };
   }
+
+  await recordAccesso({
+    userId: user.id,
+    email: user.email ?? "",
+    evento: "2fa_ok",
+    esito: "successo",
+    metodo2fa: "email",
+  });
 
   const factorClear: UserSecondFactorUpdate = {
     otp_hash: null,
@@ -346,6 +376,14 @@ export async function verifyAppTotp(
         .from("user_second_factor")
         .update(attemptUpdate)
         .eq("user_id", user.id);
+      await recordAccesso({
+        userId: user.id,
+        email: user.email ?? "",
+        evento: "2fa_fallito",
+        esito: "fallito",
+        metodo2fa: "app",
+        note: "Codice Authenticator non corretto",
+      });
       return { success: false, error: "Codice non corretto." };
     }
 
@@ -356,6 +394,14 @@ export async function verifyAppTotp(
         verified_at: new Date().toISOString(),
       } satisfies UserSecondFactorUpdate)
       .eq("user_id", user.id);
+
+    await recordAccesso({
+      userId: user.id,
+      email: user.email ?? "",
+      evento: "2fa_ok",
+      esito: "successo",
+      metodo2fa: "app",
+    });
 
     const redirectTo = String(formData.get("redirect") ?? "/app/dashboard");
     return issueTwoFaSession(user.id, redirectTo);
@@ -377,6 +423,12 @@ export async function signOut(): Promise<void> {
   } = await supabase.auth.getUser();
 
   if (user) {
+    await recordAccesso({
+      userId: user.id,
+      email: user.email ?? "",
+      evento: "logout",
+      esito: "successo",
+    });
     const token = cookieStore.get(TWO_FA_SESSION_COOKIE)?.value;
     if (token) {
       const service = createServiceClient();

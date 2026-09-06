@@ -1399,6 +1399,53 @@ export interface AuditLogInsert {
   payload?: Record<string, unknown>;
 }
 
+export type RegistroAccessoEventoDb =
+  | "login"
+  | "login_fallito"
+  | "2fa_ok"
+  | "2fa_fallito"
+  | "logout";
+
+export interface RegistroAccessoRow {
+  id: string;
+  user_id: string | null;
+  email: string;
+  nome: string;
+  evento: RegistroAccessoEventoDb;
+  esito: "successo" | "fallito";
+  occurred_at: string;
+  ip: string | null;
+  user_agent: string | null;
+  metodo_2fa: "email" | "app" | null;
+  note: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface RegistroAccessoInsert {
+  id?: string;
+  user_id?: string | null;
+  email: string;
+  nome?: string;
+  evento: RegistroAccessoEventoDb;
+  esito: "successo" | "fallito";
+  occurred_at?: string;
+  ip?: string | null;
+  user_agent?: string | null;
+  metodo_2fa?: "email" | "app" | null;
+  note?: string;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+}
+
 export type FatturaStatoPagamento = "pagato" | "da_pagare" | "annullata";
 export type FatturaDilazioneStatoPagamento =
   | "pagato"
@@ -2728,6 +2775,12 @@ export interface Database {
       audit_log: {
         Row: AuditLogRow;
         Insert: AuditLogInsert;
+        Update: never;
+        Relationships: [];
+      };
+      registro_accessi: {
+        Row: RegistroAccessoRow;
+        Insert: RegistroAccessoInsert;
         Update: never;
         Relationships: [];
       };
