@@ -17,11 +17,8 @@ import {
 const inputCls =
   "mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-sm";
 
-type Props = {
-  vista: "timeline" | "elenco";
-};
-
-export function RegistroAccessiBoard({ vista }: Props) {
+export function RegistroAccessiBoard() {
+  const [vista, setVista] = useState<"timeline" | "elenco">("timeline");
   const [items, setItems] = useState<RegistroAccesso[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +68,36 @@ export function RegistroAccessiBoard({ vista }: Props) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[var(--muted)]">
-        Accessi al gestionale: email, data, ora ed esito. Il registro è
-        immutabile. Periodo predefinito: ultimi 30 giorni.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[var(--muted)]">
+          Accessi al gestionale: email, data, ora ed esito. Il registro è
+          immutabile. Periodo predefinito: ultimi 30 giorni.
+        </p>
+        <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          <button
+            type="button"
+            onClick={() => setVista("timeline")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              vista === "timeline"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            Timeline
+          </button>
+          <button
+            type="button"
+            onClick={() => setVista("elenco")}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              vista === "elenco"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            Elenco
+          </button>
+        </div>
+      </div>
 
       <form
         className="grid gap-3 rounded-xl border border-[var(--border)] bg-white p-3 sm:grid-cols-2 lg:grid-cols-6"

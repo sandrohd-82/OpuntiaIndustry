@@ -21,7 +21,6 @@ import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBo
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrganigrammaAlberoBoard } from "@/components/amministrazione/organigramma/OrganigrammaAlberoBoard";
 import { OrganigrammaElencoBoard } from "@/components/amministrazione/organigramma/OrganigrammaElencoBoard";
-import { RegistroAccessiBoard } from "@/components/amministrazione/RegistroAccessiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
@@ -74,6 +73,9 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         ? "/app/amministrazione/fornitori/elenco"
         : "/app/amministrazione/clienti/elenco"
     );
+  }
+  if (section === "registro-accessi") {
+    redirect("/app/amministrazione/registro-accessi");
   }
 
   const page = resolveAmministrazionePage([section, sub]);
@@ -321,17 +323,6 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrganigrammaAlberoBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "registro-accessi" && (sub === "timeline" || sub === "elenco")) {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <RegistroAccessiBoard vista={sub} />
         </div>
       </>
     );
