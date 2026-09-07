@@ -6,6 +6,9 @@ import {
   docTipoLabel,
   permessoTipoLabel,
   personaLabel,
+  validitaContratto,
+  validitaDaScadenza,
+  validitaDocumentoLabel,
   type PersonaSchedaExportFile,
   type PersonaSchedaExportPayload,
 } from "@/lib/amministrazione/organigramma";
@@ -219,6 +222,7 @@ function writeContrattiArea(
         ? `${c.fileName} (allegato in coda)`
         : c.fileName
       : "-";
+    const validita = validitaDocumentoLabel(validitaContratto(c));
     const rows: Array<[string, string]> = [
       ["Titolo", c.titolo || "-"],
       ["Tipologia", contrattoTipoLabel(c.tipologia)],
@@ -230,6 +234,7 @@ function writeContrattiArea(
           : formatData(c.dataFine),
       ],
       ["Importo", formatImportoPdf(c.importo)],
+      ["Validita", validita],
       ["Stato", contrattoStatoLabel(c.documentoStato)],
       ["File", fileLabel],
     ];
@@ -244,6 +249,18 @@ function writeContrattiArea(
         1: { cellWidth: "auto" },
       },
       body: rows.map(([k, v]) => [t(k), t(v)]),
+      didParseCell: (data) => {
+        if (data.section !== "body" || data.column.index !== 1) return;
+        const raw = String(data.cell.raw ?? "");
+        if (raw === "Scaduto") {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        }
+        if (raw === "In essere") {
+          data.cell.styles.textColor = [4, 120, 87];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
     });
     y =
       (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable
@@ -335,6 +352,18 @@ export async function downloadPersonaSchedaPdf(
                 4: { cellWidth: 26 },
               }
             : undefined,
+      didParseCell: (data) => {
+        if (data.section !== "body") return;
+        const raw = String(data.cell.raw ?? "");
+        if (raw === "Scaduto") {
+          data.cell.styles.textColor = [185, 28, 28];
+          data.cell.styles.fontStyle = "bold";
+        }
+        if (raw === "In essere") {
+          data.cell.styles.textColor = [4, 120, 87];
+          data.cell.styles.fontStyle = "bold";
+        }
+      },
     });
     y = (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
   }
@@ -353,13 +382,17 @@ export async function downloadPersonaSchedaPdf(
   if (sel.certificatiElenco) {
     sectionTable(
       "Corsi e certificati (elenco)",
-      ["Titolo", "Tipo", "Rilascio", "Scadenza"],
-      payload.certificati.map((d) => [
-        d.titolo || "—",
-        docTipoLabel(d.tipo),
-        formatData(d.dataRilascio),
-        formatData(d.dataScadenza),
-      ])
+      ["Titolo", "Tipo", "Rilascio", "Scadenza", "Validita"],
+      payload.certificati.map((d) => {
+        const v = validitaDaScadenza(d.dataScadenza);
+        return [
+          d.titolo || "—",
+          docTipoLabel(d.tipo),
+          formatData(d.dataRilascio),
+          formatData(d.dataScadenza),
+          v ? validitaDocumentoLabel(v) : "—",
+        ];
+      })
     );
   }
   if (sel.contrattiElenco || sel.contrattiFile) {

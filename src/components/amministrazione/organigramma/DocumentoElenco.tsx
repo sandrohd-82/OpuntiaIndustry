@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { FaDownload, FaEye } from "react-icons/fa6";
 import { getDocumentoUrlAction } from "@/app/actions/organigramma";
+import { ValiditaDocumentoBadge } from "@/components/amministrazione/organigramma/ValiditaDocumentoBadge";
 import {
   certificatoAlertLabel,
   certificatoAlertLivello,
   docTipoLabel,
+  validitaDaScadenza,
   type OrganigrammaDocumento,
 } from "@/lib/amministrazione/organigramma";
 
@@ -137,20 +139,14 @@ export function DocumentoElenco({
           </thead>
           <tbody>
             {items.map((d) => {
+              const validita =
+                variant === "certificati"
+                  ? validitaDaScadenza(d.dataScadenza)
+                  : null;
               const livello =
                 variant === "certificati" && inForza && d.dataScadenza
                   ? certificatoAlertLivello(d.dataScadenza)
                   : null;
-              const stato =
-                variant !== "certificati"
-                  ? null
-                  : !d.dataScadenza
-                    ? "—"
-                    : !inForza
-                      ? "Registrato"
-                      : livello
-                        ? certificatoAlertLabel(livello)
-                        : "Valido";
               return (
                 <tr key={d.id} className="border-t border-[var(--border)] align-top">
                   <td className="px-3 py-2.5 font-medium">
@@ -168,12 +164,17 @@ export function DocumentoElenco({
                       </td>
                       <td className="px-3 py-2.5">{formatData(d.dataScadenza)}</td>
                       <td className="px-3 py-2.5">
-                        {stato && stato !== "—" && stato !== "Valido" && stato !== "Registrato" ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                            {stato}
-                          </span>
+                        {validita ? (
+                          <div className="space-y-1">
+                            <ValiditaDocumentoBadge stato={validita} />
+                            {livello && livello !== "scaduto" ? (
+                              <p className="text-xs font-medium text-amber-800">
+                                {certificatoAlertLabel(livello)}
+                              </p>
+                            ) : null}
+                          </div>
                         ) : (
-                          <span className="text-xs text-[var(--muted)]">{stato}</span>
+                          <span className="text-xs text-[var(--muted)]">—</span>
                         )}
                       </td>
                     </>

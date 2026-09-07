@@ -20,6 +20,7 @@ import {
   uploadPersonaDocumentoAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { ValiditaDocumentoBadge } from "@/components/amministrazione/organigramma/ValiditaDocumentoBadge";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   certificatoAlertLabel,
@@ -173,10 +174,19 @@ export function OrganigrammaElencoBoard() {
           </p>
           <ul className="mt-2 space-y-1 text-sm">
             {alerts.map((al) => (
-              <li key={`${al.documentoId}-${al.livello}`}>
+              <li
+                key={`${al.documentoId}-${al.livello}`}
+                className={
+                  al.livello === "scaduto" ? "font-medium text-red-700" : undefined
+                }
+              >
                 <Link
                   href={`/app/amministrazione/organigramma/elenco-e-mansioni/${al.personaId}`}
-                  className="font-medium text-amber-950 hover:underline"
+                  className={`hover:underline ${
+                    al.livello === "scaduto"
+                      ? "font-medium text-red-800"
+                      : "font-medium text-amber-950"
+                  }`}
                 >
                   {al.personaNome}
                 </Link>
@@ -231,7 +241,11 @@ export function OrganigrammaElencoBoard() {
                     {p.inForza ? "In forza" : "Non lavora più"}
                   </td>
                   <td className="px-4 py-2.5">
-                    {alerts.some((al) => al.personaId === p.id) ? (
+                    {alerts.some(
+                      (al) => al.personaId === p.id && al.livello === "scaduto"
+                    ) ? (
+                      <ValiditaDocumentoBadge stato="scaduto" />
+                    ) : alerts.some((al) => al.personaId === p.id) ? (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
                         In scadenza
                       </span>

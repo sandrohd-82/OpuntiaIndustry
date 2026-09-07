@@ -668,9 +668,16 @@ function CertificatiCard({
           Operatore non in azienda: gli avvisi di scadenza sono disattivati.
         </p>
       ) : alerts.length ? (
-        <ul className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <ul className="mt-2 space-y-1">
           {alerts.map((al) => (
-            <li key={al.documentoId}>
+            <li
+              key={al.documentoId}
+              className={`rounded-md border px-3 py-2 text-sm ${
+                al.livello === "scaduto"
+                  ? "border-red-200 bg-red-50 text-red-800"
+                  : "border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
               {al.titolo} · {certificatoAlertLabel(al.livello)} · scade{" "}
               {new Date(`${al.dataScadenza}T00:00:00`).toLocaleDateString("it-IT")}
             </li>
@@ -903,9 +910,16 @@ function ContrattiCard({
         automatico.
       </p>
       {alerts.length ? (
-        <ul className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+        <ul className="mt-2 space-y-1">
           {alerts.map((al) => (
-            <li key={al.id}>
+            <li
+              key={al.id}
+              className={`rounded-md border px-3 py-2 text-sm ${
+                al.livello === "scaduto"
+                  ? "border-red-200 bg-red-50 text-red-800"
+                  : "border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
               {al.titolo} · {contrattoAlertLabel(al.livello)}
               {al.dataFine
                 ? ` · ${new Date(`${al.dataFine}T00:00:00`).toLocaleDateString("it-IT")}`

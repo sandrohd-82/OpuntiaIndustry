@@ -151,10 +151,39 @@ export function certificatoAlertLivello(
 }
 
 export function certificatoAlertLabel(livello: CertificatoAlertLivello): string {
-  if (livello === "scaduto") return "Certificato scaduto";
+  if (livello === "scaduto") return "Scaduto";
   if (livello === "mese") return "Scade entro un mese";
   if (livello === "3mesi") return "Scade entro 3 mesi";
   return "Scade entro 6 mesi";
+}
+
+export type ValiditaDocumento = "scaduto" | "in_essere";
+
+export function validitaDocumentoLabel(stato: ValiditaDocumento): string {
+  return stato === "scaduto" ? "Scaduto" : "In essere";
+}
+
+/** Confronta solo la data (YYYY-MM-DD) con oggi. null = nessuna scadenza. */
+export function isDataScaduta(
+  iso: string | null | undefined,
+  now = new Date()
+): boolean | null {
+  if (!iso) return null;
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const exp = Date.UTC(y, m - 1, d);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return exp < today;
+}
+
+export function validitaDaScadenza(
+  iso: string | null | undefined,
+  opts?: { senzaFine?: boolean; now?: Date }
+): ValiditaDocumento | null {
+  if (opts?.senzaFine) return "in_essere";
+  const scaduta = isDataScaduta(iso, opts?.now);
+  if (scaduta === null) return null;
+  return scaduta ? "scaduto" : "in_essere";
 }
 
 export type OrganigrammaAttivita = {
@@ -388,7 +417,16 @@ export function contrattoAlertLivello(
 }
 
 export function contrattoAlertLabel(livello: "30gg" | "scaduto"): string {
-  return livello === "scaduto" ? "Contratto scaduto" : "Scade entro 30 giorni";
+  return livello === "scaduto" ? "Scaduto" : "Scade entro 30 giorni";
+}
+
+export function validitaContratto(c: {
+  tipologia: OrganigrammaContrattoTipo;
+  dataFine: string | null;
+  now?: Date;
+}): ValiditaDocumento {
+  if (c.tipologia === "tempo_indeterminato") return "in_essere";
+  return validitaDaScadenza(c.dataFine, { now: c.now }) ?? "in_essere";
 }
 
 export function parseImportoContratto(

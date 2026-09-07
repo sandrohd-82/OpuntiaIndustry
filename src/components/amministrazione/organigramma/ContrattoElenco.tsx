@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { FaDownload, FaEye } from "react-icons/fa6";
 import { getContrattoUrlAction } from "@/app/actions/organigramma";
+import { ValiditaDocumentoBadge } from "@/components/amministrazione/organigramma/ValiditaDocumentoBadge";
 import {
   contrattoAlertLabel,
   contrattoAlertLivello,
   contrattoStatoLabel,
   contrattoTipoLabel,
+  validitaContratto,
   type OrganigrammaContratto,
   type OrganigrammaContrattoStato,
 } from "@/lib/amministrazione/organigramma";
@@ -122,12 +124,14 @@ export function ContrattoElenco({
               <th className="px-3 py-2.5">Dal</th>
               <th className="px-3 py-2.5">Al</th>
               <th className="px-3 py-2.5">Importo</th>
+              <th className="px-3 py-2.5">Validità</th>
               <th className="px-3 py-2.5">Stato</th>
               <th className="px-3 py-2.5">Azioni</th>
             </tr>
           </thead>
           <tbody>
             {items.map((d) => {
+              const validita = validitaContratto(d);
               const livello = contrattoAlertLivello(d.dataFine, d.documentoStato);
               return (
                 <tr key={d.id} className="border-t border-[var(--border)] align-top">
@@ -143,13 +147,18 @@ export function ContrattoElenco({
                     {d.tipologia === "tempo_indeterminato"
                       ? "Indeterminato"
                       : formatData(d.dataFine)}
-                    {livello ? (
-                      <span className="mt-1 block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                        {contrattoAlertLabel(livello)}
-                      </span>
-                    ) : null}
                   </td>
                   <td className="px-3 py-2.5">{formatImporto(d.importo)}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="space-y-1">
+                      <ValiditaDocumentoBadge stato={validita} />
+                      {livello && livello !== "scaduto" ? (
+                        <p className="text-xs font-medium text-amber-800">
+                          {contrattoAlertLabel(livello)}
+                        </p>
+                      ) : null}
+                    </div>
+                  </td>
                   <td className="px-3 py-2.5">
                     {isAdmin && onStato ? (
                       <select
