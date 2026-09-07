@@ -19,6 +19,7 @@ import {
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
   contrattoInputSchema,
+  parseImportoContratto,
   personaSchedaExportSchema,
   permessoTipoLabel,
   type CertificatoScadenzaAlert,
@@ -1726,6 +1727,24 @@ function mapContratto(r: ContrattoRow): OrganigrammaContratto {
   };
 }
 
+function isUploadBlob(v: unknown): v is Blob {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    typeof (v as Blob).arrayBuffer === "function" &&
+    typeof (v as Blob).size === "number"
+  );
+}
+
+function mimeContrattoDaNome(name: string, fallback: string): string {
+  const n = name.toLowerCase();
+  if (n.endsWith(".pdf")) return "application/pdf";
+  if (n.endsWith(".png")) return "image/png";
+  if (n.endsWith(".webp")) return "image/webp";
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+  return fallback;
+}
+
 export async function uploadPersonaContrattoAction(
   formData: FormData
 ): Promise<
@@ -1735,109 +1754,129 @@ export async function uploadPersonaContrattoAction(
   if (!isAdminLikeProfile(auth.profile)) {
     return { success: false, error: "Solo l’amministratore può registrare contratti." };
   }
-  const importoRaw = String(formData.get("importo") ?? "").trim().replace(",", ".");
-  const parsed = contrattoInputSchema.safeParse({
-    personaId: String(formData.get("personaId") ?? ""),
-    tipologia: String(formData.get("tipologia") ?? ""),
-    titolo: String(formData.get("titolo") ?? ""),
-    dataInizio: String(formData.get("dataInizio") ?? ""),
-    dataFine: String(formData.get("dataFine") ?? ""),
-    importo: importoRaw === "" ? undefined : Number(importoRaw),
-    note: String(formData.get("note") ?? ""),
-    documentoStato: String(formData.get("documentoStato") ?? "bozza"),
-  });
-  if (!parsed.success) {
+  try {
+    const importoParsed = parseImportoContratto(String(formData.get("importo") ?? ""));
+    if (!importoParsed.ok) {
+      return { success: false, error: "Importo non valido." };
+    }
+    const parsed = contrattoInputSchema.safeParse({
+      personaId: String(formData.get("personaId") ?? ""),
+      tipologia: String(formData.get("tipologia") ?? ""),
+      titolo: String(formData.get("titolo") ?? ""),
+      dataInizio: String(formData.get("dataInizio") ?? ""),
+      dataFine: String(formData.get("dataFine") ?? ""),
+      importo: importoParsed.value,
+      note: String(formData.get("note") ?? ""),
+      documentoStato: String(formData.get("documentoStato") ?? "bozza"),
+    });
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Dati contratto non validi.",
+      };
+    }
+    const file = formData.get("file");
+    if (!isUploadBlob(file) || file.size === 0) {
+      return { success: false, error: "Allega il contratto, controlla i dati e premi Salva." };
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      return { success: false, error: "File troppo grande (max 15 MB)." };
+    }
+    const fileName =
+      "name" in file && typeof file.name === "string" && file.name.trim()
+        ? file.name
+        : "contratto";
+    const mime = mimeContrattoDaNome(fileName, file.type || "");
+    const allowed = [
+      "application/pdf",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+    if (!allowed.includes(mime)) {
+      return { success: false, error: "Formato ammesso: PDF, JPG, PNG, WebP." };
+    }
+    const ext =
+      mime === "application/pdf"
+        ? "pdf"
+        : mime === "image/png"
+          ? "png"
+          : mime === "image/webp"
+            ? "webp"
+            : "jpg";
+    const path = `${parsed.data.personaId}/contratto/${crypto.randomUUID()}.${ext}`;
+    const supabase = await createClient();
+    const persona = await supabase
+      .from("organigramma_persone")
+      .select("id")
+      .eq("id", parsed.data.personaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!persona.data) {
+      return { success: false, error: "Operatore non trovato: il contratto deve essere sulla scheda." };
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, buffer, {
+      contentType: mime,
+      upsert: false,
+    });
+    if (upErr) return { success: false, error: upErr.message };
+    const stato = parsed.data.documentoStato ?? "bozza";
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("organigramma_contratti")
+      .insert({
+        persona_id: parsed.data.personaId,
+        tipologia: parsed.data.tipologia,
+        titolo: parsed.data.titolo,
+        data_inizio: parsed.data.dataInizio,
+        data_fine: parsed.data.dataFine ?? null,
+        importo: parsed.data.importo ?? null,
+        note: parsed.data.note ?? "",
+        storage_path: path,
+        file_name: fileName,
+        mime,
+        documento_stato: stato,
+        versione: 1,
+        approved_by: stato === "approvato" ? auth.userId : null,
+        approved_at: stato === "approvato" ? now : null,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select(CONTRATTO_COLS)
+      .single();
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Salvataggio contratto fallito." };
+    }
+    await recordAttivita({
+      personaId: parsed.data.personaId,
+      azione: "contratto",
+      actorId: auth.userId,
+      actorNome: actorNome(auth.profile),
+      note: `Registrato contratto ${parsed.data.titolo}`,
+    });
+    await writeAuditLog({
+      entity_type: "organigramma_contratti",
+      entity_id: (data as { id: string }).id,
+      action: "create",
+      actor_id: auth.userId,
+      summary: `Contratto ${parsed.data.tipologia} su operatore ${parsed.data.personaId}`,
+      payload: {
+        persona_id: parsed.data.personaId,
+        titolo: parsed.data.titolo,
+      },
+    });
+    return { success: true, item: mapContratto(data as ContrattoRow) };
+  } catch (e) {
+    console.error("[uploadPersonaContrattoAction]", e);
     return {
       success: false,
-      error: parsed.error.issues[0]?.message ?? "Dati contratto non validi.",
+      error:
+        e instanceof Error && e.message
+          ? e.message
+          : "Salvataggio contratto non riuscito. Riprova.",
     };
   }
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return { success: false, error: "Allega il contratto, controlla i dati e premi Salva." };
-  }
-  if (file.size > 15 * 1024 * 1024) {
-    return { success: false, error: "File troppo grande (max 15 MB)." };
-  }
-  const allowed = [
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-  ];
-  if (!allowed.includes(file.type)) {
-    return { success: false, error: "Formato ammesso: PDF, JPG, PNG, WebP." };
-  }
-  const ext =
-    file.type === "application/pdf"
-      ? "pdf"
-      : file.type === "image/png"
-        ? "png"
-        : file.type === "image/webp"
-          ? "webp"
-          : "jpg";
-  const path = `${parsed.data.personaId}/contratto/${crypto.randomUUID()}.${ext}`;
-  const supabase = await createClient();
-  const persona = await supabase
-    .from("organigramma_persone")
-    .select("id")
-    .eq("id", parsed.data.personaId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (!persona.data) {
-    return { success: false, error: "Operatore non trovato: il contratto deve essere sulla scheda." };
-  }
-  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
-    contentType: file.type,
-    upsert: false,
-  });
-  if (upErr) return { success: false, error: upErr.message };
-  const stato = parsed.data.documentoStato ?? "bozza";
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("organigramma_contratti")
-    .insert({
-      persona_id: parsed.data.personaId,
-      tipologia: parsed.data.tipologia,
-      titolo: parsed.data.titolo,
-      data_inizio: parsed.data.dataInizio,
-      data_fine: parsed.data.dataFine ?? null,
-      importo: parsed.data.importo ?? null,
-      note: parsed.data.note ?? "",
-      storage_path: path,
-      file_name: file.name,
-      mime: file.type,
-      documento_stato: stato,
-      versione: 1,
-      approved_by: stato === "approvato" ? auth.userId : null,
-      approved_at: stato === "approvato" ? now : null,
-      created_by: auth.userId,
-      updated_by: auth.userId,
-    })
-    .select(CONTRATTO_COLS)
-    .single();
-  if (error || !data) {
-    return { success: false, error: error?.message ?? "Salvataggio contratto fallito." };
-  }
-  await recordAttivita({
-    personaId: parsed.data.personaId,
-    azione: "contratto",
-    actorId: auth.userId,
-    actorNome: actorNome(auth.profile),
-    note: `Registrato contratto ${parsed.data.titolo}`,
-  });
-  await writeAuditLog({
-    entity_type: "organigramma_contratti",
-    entity_id: (data as { id: string }).id,
-    action: "create",
-    actor_id: auth.userId,
-    summary: `Contratto ${parsed.data.tipologia} su operatore ${parsed.data.personaId}`,
-    payload: {
-      persona_id: parsed.data.personaId,
-      titolo: parsed.data.titolo,
-    },
-  });
-  return { success: true, item: mapContratto(data as ContrattoRow) };
 }
 
 export async function listPersonaContrattiAction(

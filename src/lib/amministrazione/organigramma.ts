@@ -391,6 +391,19 @@ export function contrattoAlertLabel(livello: "30gg" | "scaduto"): string {
   return livello === "scaduto" ? "Contratto scaduto" : "Scade entro 30 giorni";
 }
 
+export function parseImportoContratto(
+  raw: string
+): { ok: true; value: number | undefined } | { ok: false } {
+  const s = raw.trim();
+  if (!s) return { ok: true, value: undefined };
+  const normalized = s.includes(",")
+    ? s.replace(/\./g, "").replace(",", ".")
+    : s.replace(/\s/g, "");
+  const n = Number(normalized);
+  if (!Number.isFinite(n) || n < 0) return { ok: false };
+  return { ok: true, value: n };
+}
+
 export const contrattoInputSchema = z
   .object({
     personaId: z.string().uuid(),
@@ -398,7 +411,7 @@ export const contrattoInputSchema = z
     titolo: z.string().trim().min(1, "Titolo obbligatorio").max(200),
     dataInizio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inizio non valida"),
     dataFine: emptyOr(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data fine non valida")),
-    importo: emptyOr(z.number().finite().nonnegative()),
+    importo: z.number().finite().nonnegative().optional(),
     note: z.string().trim().max(2000).optional().default(""),
     documentoStato: z.enum(ORGANIGRAMMA_CONTRATTO_STATI).optional().default("bozza"),
   })

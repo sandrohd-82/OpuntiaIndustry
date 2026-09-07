@@ -35,7 +35,12 @@ function isAccepted(file: File, accept: string): boolean {
   return tokens.some((t) => {
     if (t.startsWith(".")) return name.endsWith(t);
     if (t.endsWith("/*")) return type.startsWith(t.slice(0, -1));
-    return type === t;
+    if (type && type === t) return true;
+    if (t === "application/pdf") return name.endsWith(".pdf");
+    if (t === "image/jpeg") return /\.jpe?g$/.test(name);
+    if (t === "image/png") return name.endsWith(".png");
+    if (t === "image/webp") return name.endsWith(".webp");
+    return false;
   });
 }
 

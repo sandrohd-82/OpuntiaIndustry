@@ -858,30 +858,39 @@ function ContrattiCard({
     }
     setBusy(true);
     setError(null);
-    const fd = new FormData();
-    fd.set("personaId", personaId);
-    fd.set("tipologia", tipologia);
-    fd.set("titolo", titolo);
-    fd.set("dataInizio", dataInizio);
-    fd.set("dataFine", indeterminato ? "" : dataFine);
-    fd.set("importo", importo);
-    fd.set("note", note);
-    fd.set("documentoStato", stato);
-    fd.set("file", picked);
-    const res = await uploadPersonaContrattoAction(fd);
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
-      return;
+    try {
+      const fd = new FormData();
+      fd.set("personaId", personaId);
+      fd.set("tipologia", tipologia);
+      fd.set("titolo", titolo);
+      fd.set("dataInizio", dataInizio);
+      fd.set("dataFine", indeterminato ? "" : dataFine);
+      fd.set("importo", importo);
+      fd.set("note", note);
+      fd.set("documentoStato", stato);
+      fd.set("file", picked);
+      const res = await uploadPersonaContrattoAction(fd);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setPicked(null);
+      setTitolo("");
+      setDataInizio("");
+      setDataFine("");
+      setImporto("");
+      setNote("");
+      setStato("bozza");
+      await load();
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message
+          ? e.message
+          : "Salvataggio contratto non riuscito. Riprova."
+      );
+    } finally {
+      setBusy(false);
     }
-    setPicked(null);
-    setTitolo("");
-    setDataInizio("");
-    setDataFine("");
-    setImporto("");
-    setNote("");
-    setStato("bozza");
-    await load();
   }
 
   return (
@@ -1003,7 +1012,6 @@ function ContrattiCard({
           <div className="sm:col-span-2 lg:col-span-3">
             <SalvaSezioneButton
               busy={busy}
-              disabled={!picked}
               onClick={() => void save()}
             />
           </div>
