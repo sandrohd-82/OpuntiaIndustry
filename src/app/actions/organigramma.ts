@@ -15,6 +15,7 @@ import {
   repartoInputSchema,
   repartoUpdateSchema,
   treeMoveSchema,
+  treeMoveManySchema,
   treeReorderSchema,
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
@@ -1338,6 +1339,100 @@ export async function movePersonaTreeAction(
       : "Riportata a primo livello",
   });
   return { success: true };
+}
+
+export async function movePersoneTreeBatchAction(
+  raw: unknown
+): Promise<
+  { success: true; moved: number } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può modificare l’albero." };
+  }
+  const parsed = treeMoveManySchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Selezione non valida.",
+    };
+  }
+  const parentId = parsed.data.parentId;
+  const childIds = [...new Set(parsed.data.childIds)].filter((id) => id !== parentId);
+  if (!childIds.length) {
+    return { success: false, error: "Seleziona almeno un operatore da mettere sotto." };
+  }
+  const supabase = await createClient();
+  const { data: rows, error: loadErr } = await supabase
+    .from("organigramma_persone")
+    .select("id, parent_id")
+    .in("id", [parentId, ...childIds])
+    .is("deleted_at", null);
+  if (loadErr) return { success: false, error: loadErr.message };
+  const found = new Set(((rows ?? []) as Array<{ id: string }>).map((r) => r.id));
+  if (!found.has(parentId) || childIds.some((id) => !found.has(id))) {
+    return { success: false, error: "Alcuni operatori non sono più disponibili." };
+  }
+  const parentById = new Map(
+    ((rows ?? []) as Array<{ id: string; parent_id: string | null }>).map((r) => [
+      r.id,
+      r.parent_id,
+    ])
+  );
+  const { data: allRows } = await supabase
+    .from("organigramma_persone")
+    .select("id, parent_id")
+    .is("deleted_at", null);
+  for (const r of (allRows ?? []) as Array<{ id: string; parent_id: string | null }>) {
+    if (!parentById.has(r.id)) parentById.set(r.id, r.parent_id);
+  }
+  for (const childId of childIds) {
+    const seen = new Set<string>([childId]);
+    let cursor: string | null = parentId;
+    for (let i = 0; i < 40 && cursor; i++) {
+      if (seen.has(cursor)) {
+        return {
+          success: false,
+          error: "Il collegamento creerebbe un ciclo. Cambia la selezione.",
+        };
+      }
+      seen.add(cursor);
+      cursor = parentById.get(cursor) ?? null;
+    }
+  }
+  const siblings = ((allRows ?? []) as Array<{ id: string; parent_id: string | null }>)
+    .filter((r) => r.parent_id === parentId && !childIds.includes(r.id));
+  let sortOrder = siblings.length * 10;
+  for (const childId of childIds) {
+    sortOrder += 10;
+    const { error } = await supabase
+      .from("organigramma_persone")
+      .update({
+        parent_id: parentId,
+        sort_order: sortOrder,
+        updated_by: auth.userId,
+      })
+      .eq("id", childId)
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+    parentById.set(childId, parentId);
+    await recordAttivita({
+      personaId: childId,
+      azione: "albero",
+      actorId: auth.userId,
+      actorNome: actorNome(auth.profile),
+      note: "Messo sotto gerarchia nell’albero",
+    });
+  }
+  await writeAuditLog({
+    entity_type: "organigramma_persone",
+    entity_id: parentId,
+    action: "albero_gerarchia",
+    actor_id: auth.userId,
+    summary: `Collegati ${childIds.length} operatori sotto gerarchia`,
+    payload: { parent_id: parentId, child_ids: childIds },
+  });
+  return { success: true, moved: childIds.length };
 }
 
 export async function reorderPersoneAction(

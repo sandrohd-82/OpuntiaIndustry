@@ -349,6 +349,11 @@ export const treeReorderSchema = z.object({
   orderedIds: z.array(z.string().uuid()).min(2).max(200),
 });
 
+export const treeMoveManySchema = z.object({
+  parentId: z.string().uuid(),
+  childIds: z.array(z.string().uuid()).min(1).max(80),
+});
+
 export const ORGANIGRAMMA_CONTRATTO_TIPI = [
   "tempo_indeterminato",
   "tempo_determinato",
