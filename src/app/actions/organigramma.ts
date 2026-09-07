@@ -943,7 +943,9 @@ export async function preparePersonaSchedaExportAction(
   const documenti = docRows.map(mapDocumento);
   const identita = documenti.filter((d) => IDENTITA_TIPI.has(d.tipo));
   const certificati = documenti.filter((d) => CERT_TIPI.has(d.tipo));
-  const buste = documenti.filter((d) => d.tipo === "busta_paga");
+  const buste = documenti.filter(
+    (d) => d.tipo === "busta_paga" || d.tipo === "fattura"
+  );
 
   const files: PersonaSchedaExportFile[] = [];
   const addDocFiles = (
@@ -970,7 +972,7 @@ export async function preparePersonaSchedaExportAction(
     addDocFiles(docRows, "certificati", (t) => CERT_TIPI.has(t));
   }
   if (sel.busteFile) {
-    addDocFiles(docRows, "buste", (t) => t === "busta_paga");
+    addDocFiles(docRows, "buste", (t) => t === "busta_paga" || t === "fattura");
   }
   if (sel.contrattiFile) {
     for (const r of (contrattiRes.data ?? []) as ContrattoRow[]) {
@@ -1542,7 +1544,12 @@ export async function uploadPersonaDocumentoAction(
   }
   await recordAttivita({
     personaId,
-    azione: tipo === "busta_paga" ? "busta" : isCert ? "certificato" : "documento",
+    azione:
+      tipo === "busta_paga" || tipo === "fattura"
+        ? "busta"
+        : isCert
+          ? "certificato"
+          : "documento",
     actorId: auth.userId,
     actorNome: actorNome(auth.profile),
     note: dataScadenza
@@ -1567,6 +1574,7 @@ const ORGANIGRAMMA_DOC_TIPI_SET = new Set([
   "corso",
   "certificato",
   "busta_paga",
+  "fattura",
   "altro",
 ]);
 

@@ -8,6 +8,7 @@ export const ORGANIGRAMMA_DOC_TIPI = [
   "corso",
   "certificato",
   "busta_paga",
+  "fattura",
   "altro",
 ] as const;
 export type OrganigrammaDocTipo = (typeof ORGANIGRAMMA_DOC_TIPI)[number];
@@ -37,6 +38,7 @@ export function docTipoLabel(tipo: OrganigrammaDocTipo): string {
   if (tipo === "corso") return "Corso";
   if (tipo === "certificato") return "Certificato";
   if (tipo === "busta_paga") return "Busta paga";
+  if (tipo === "fattura") return "Fattura";
   return "Altro";
 }
 

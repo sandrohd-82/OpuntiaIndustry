@@ -171,7 +171,7 @@ export function EsportaSchedaOperatoreModal({ persona, onClose }: Props) {
             onFile={(v) => toggle("contrattiFile", v)}
           />
           <DocDual
-            title="Buste paga"
+            title="Fatture e buste paga"
             elenco={sel.busteElenco}
             file={sel.busteFile}
             onElenco={(v) => toggle("busteElenco", v)}

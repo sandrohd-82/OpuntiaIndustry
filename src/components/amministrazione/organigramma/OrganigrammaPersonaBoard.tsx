@@ -182,9 +182,9 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
       <DocumentiCard
         personaId={item.id}
         isAdmin={isAdmin}
-        tipi={["busta_paga"]}
-        title="Storico buste paga"
-        hint="Carica il file e indica il periodo (es. 2026-08)."
+        tipi={["fattura", "busta_paga"]}
+        title="Storico fatture e buste paga"
+        hint="Scegli il tipo: Fattura se l’operatore è esterno a contratto, Busta paga se è ingaggiato dall’azienda. Indica il periodo (es. 2026-08)."
         askTitolo
         askPeriodo
       />

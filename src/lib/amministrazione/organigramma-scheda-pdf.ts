@@ -84,7 +84,7 @@ function gruppoLabel(g: PersonaSchedaExportFile["gruppo"]): string {
   if (g === "identita") return "Documento di identità";
   if (g === "certificati") return "Corso / certificato";
   if (g === "contratti") return "Contratto";
-  return "Busta paga";
+  return "Fattura / busta paga";
 }
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
@@ -307,10 +307,11 @@ export async function downloadPersonaSchedaPdf(
   }
   if (sel.busteElenco) {
     sectionTable(
-      "Buste paga (elenco)",
-      ["Titolo", "Periodo", "File"],
+      "Fatture e buste paga (elenco)",
+      ["Tipo", "Titolo", "Periodo", "File"],
       payload.buste.map((d) => [
-        d.titolo || "Busta paga",
+        docTipoLabel(d.tipo),
+        d.titolo || docTipoLabel(d.tipo),
         d.periodo || "—",
         d.fileName || "—",
       ])
