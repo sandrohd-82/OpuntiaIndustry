@@ -628,57 +628,113 @@ export function nestAlbero(items: OrganigrammaPersona[]): AlberoNodo[] {
     return [...ids].sort().join(",");
   }
 
-  const byParents = new Map<string, OrganigrammaPersona[]>();
-  const senzaSuperiori: OrganigrammaPersona[] = [];
+  function ups(p: OrganigrammaPersona): string[] {
+    return superioriDi(p).filter((id) => byId.has(id));
+  }
+
+  function primaryOf(p: OrganigrammaPersona): string | null {
+    return p.parentId && byId.has(p.parentId) ? p.parentId : null;
+  }
+
+  const byPrimary = new Map<string | null, OrganigrammaPersona[]>();
   for (const p of items) {
-    const parents = superioriDi(p).filter((id) => byId.has(id));
-    if (!parents.length) {
-      senzaSuperiori.push(p);
-      continue;
-    }
-    const key = parentKey(parents);
-    const cur = byParents.get(key) ?? [];
+    const pid = primaryOf(p);
+    const cur = byPrimary.get(pid) ?? [];
     cur.push(p);
-    byParents.set(key, cur);
+    byPrimary.set(pid, cur);
   }
 
-  const groupSpecs: Array<{ parentIds: string[]; children: OrganigrammaPersona[] }> =
+  const sharedGroups: Array<{ memberIds: string[]; kids: OrganigrammaPersona[] }> =
     [];
-  const memberOfGroup = new Set<string>();
-  for (const [key, children] of byParents) {
-    const parentIds = key.split(",").filter(Boolean);
-    if (parentIds.length < 2) continue;
-    parentIds.forEach((id) => memberOfGroup.add(id));
-    groupSpecs.push({ parentIds, children });
+  const sharedKidIds = new Set<string>();
+  const grouped = new Map<string, OrganigrammaPersona[]>();
+  for (const p of items) {
+    const parents = ups(p);
+    if (parents.length < 2) continue;
+    const key = parentKey(parents);
+    const cur = grouped.get(key) ?? [];
+    cur.push(p);
+    grouped.set(key, cur);
+    sharedKidIds.add(p.id);
+  }
+  for (const [key, kids] of grouped) {
+    sharedGroups.push({ memberIds: key.split(",").filter(Boolean), kids });
   }
 
-  function hostOfMembers(parentIds: string[]): string | null {
-    const hosts = parentIds.map((id) => {
-      const m = byId.get(id);
-      const host = m?.parentId ?? null;
-      return host && byId.has(host) ? host : null;
-    });
-    if (hosts.length && hosts.every((h) => h === hosts[0])) return hosts[0];
-    return null;
-  }
+  const emitted = new Set<string>();
 
-  function buildPersonaNodo(p: OrganigrammaPersona): AlberoNodo {
-    const exclusive = (byParents.get(p.id) ?? []).filter(
-      (c) => !memberOfGroup.has(c.id)
-    );
-    exclusive.sort(sortPersone);
-    const figli: AlberoNodo[] = exclusive.map((c) => buildPersonaNodo(c));
-    for (const g of groupSpecs) {
-      if (hostOfMembers(g.parentIds) === p.id) {
-        figli.push(buildGruppoNodo(g));
-      }
-    }
-    figli.sort((a, b) => {
+  function sortNodi(nodi: AlberoNodo[]) {
+    nodi.sort((a, b) => {
       const aa = a.membri[0];
       const bb = b.membri[0];
       if (!aa || !bb) return 0;
       return sortPersone(aa, bb);
     });
+  }
+
+  function exclusiveKids(personId: string): OrganigrammaPersona[] {
+    return (byPrimary.get(personId) ?? [])
+      .filter((c) => !sharedKidIds.has(c.id))
+      .sort(sortPersone);
+  }
+
+  function groupsAmong(poolIds: string[]): AlberoNodo[] {
+    const pool = new Set(poolIds);
+    const out: AlberoNodo[] = [];
+    for (const g of sharedGroups) {
+      const key = parentKey(g.memberIds);
+      if (emitted.has(key)) continue;
+      if (!g.memberIds.every((id) => pool.has(id))) continue;
+      emitted.add(key);
+      out.push(buildGruppo(g.memberIds, g.kids));
+    }
+    return out;
+  }
+
+  function buildGruppo(memberIds: string[], kids: OrganigrammaPersona[]): AlberoNodo {
+    const membri = memberIds
+      .map((id) => byId.get(id))
+      .filter((p): p is OrganigrammaPersona => Boolean(p));
+    membri.sort(sortPersone);
+    const membriFigli = membri.map((m) =>
+      exclusiveKids(m.id).map((c) => buildPersona(c))
+    );
+    const nested = groupsAmong(kids.map((k) => k.id));
+    const nestedMemberIds = new Set(nested.flatMap((n) => n.membri.map((m) => m.id)));
+    const kidNodi = kids
+      .filter((k) => !nestedMemberIds.has(k.id))
+      .sort(sortPersone)
+      .map((k) => buildPersona(k));
+    const figli = [...nested, ...kidNodi];
+    sortNodi(figli);
+    return {
+      id: `gruppo:${parentKey(memberIds)}`,
+      kind: "gruppo",
+      membri,
+      membriFigli,
+      figli,
+    };
+  }
+
+  function buildPersona(p: OrganigrammaPersona): AlberoNodo {
+    const hosted = sharedGroups.filter((g) => {
+      const hosts = g.memberIds.map((id) => {
+        const m = byId.get(id);
+        return m ? primaryOf(m) : null;
+      });
+      return hosts.length > 0 && hosts.every((h) => h === p.id);
+    });
+    const hostedMemberIds = new Set(hosted.flatMap((g) => g.memberIds));
+    const figli: AlberoNodo[] = exclusiveKids(p.id)
+      .filter((c) => !hostedMemberIds.has(c.id))
+      .map((c) => buildPersona(c));
+    for (const g of hosted) {
+      const key = parentKey(g.memberIds);
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      figli.push(buildGruppo(g.memberIds, g.kids));
+    }
+    sortNodi(figli);
     return {
       id: p.id,
       kind: "persona",
@@ -688,77 +744,30 @@ export function nestAlbero(items: OrganigrammaPersona[]): AlberoNodo[] {
     };
   }
 
-  function buildGruppoNodo(g: {
-    parentIds: string[];
-    children: OrganigrammaPersona[];
-  }): AlberoNodo {
-    const membri = g.parentIds
-      .map((id) => byId.get(id))
-      .filter((p): p is OrganigrammaPersona => Boolean(p));
-    membri.sort(sortPersone);
-    const membriFigli = membri.map((m) => {
-      const exclusive = (byParents.get(m.id) ?? []).filter(
-        (c) => !memberOfGroup.has(c.id)
-      );
-      exclusive.sort(sortPersone);
-      return exclusive.map((c) => buildPersonaNodo(c));
-    });
-    const shared = g.children.slice().sort(sortPersone).map((c) => buildPersonaNodo(c));
-    return {
-      id: `gruppo:${[...g.parentIds].sort().join("+")}`,
-      kind: "gruppo",
-      membri,
-      membriFigli,
-      figli: shared,
-    };
-  }
-
   const roots: AlberoNodo[] = [];
-  for (const g of groupSpecs) {
-    if (hostOfMembers(g.parentIds) === null) {
-      roots.push(buildGruppoNodo(g));
+  for (const g of sharedGroups) {
+    const key = parentKey(g.memberIds);
+    if (emitted.has(key)) continue;
+    const hosts = g.memberIds.map((id) => {
+      const m = byId.get(id);
+      return m ? primaryOf(m) : null;
+    });
+    if (!hosts.length || !hosts.every((h) => h === hosts[0]) || hosts[0] === null) {
+      emitted.add(key);
+      roots.push(buildGruppo(g.memberIds, g.kids));
     }
   }
-  for (const p of senzaSuperiori) {
-    if (memberOfGroup.has(p.id)) continue;
-    roots.push(buildPersonaNodo(p));
+  for (const p of (byPrimary.get(null) ?? []).sort(sortPersone)) {
+    if (roots.some((r) => r.membri.some((m) => m.id === p.id))) continue;
+    roots.push(buildPersona(p));
   }
-  roots.sort((a, b) => {
-    const aa = a.membri[0];
-    const bb = b.membri[0];
-    if (!aa || !bb) return 0;
-    return sortPersone(aa, bb);
-  });
-
-  const placed = new Set<string>();
-  function collect(n: AlberoNodo) {
-    for (const m of n.membri) placed.add(m.id);
-    for (const f of n.figli) collect(f);
-    for (const arr of n.membriFigli) {
-      for (const f of arr) collect(f);
-    }
+  for (const g of sharedGroups) {
+    const key = parentKey(g.memberIds);
+    if (emitted.has(key)) continue;
+    emitted.add(key);
+    roots.push(buildGruppo(g.memberIds, g.kids));
   }
-  function findPersonaNodo(nodes: AlberoNodo[], id: string): AlberoNodo | null {
-    for (const n of nodes) {
-      if (n.kind === "persona" && n.membri[0]?.id === id) return n;
-      const inFigli = findPersonaNodo(n.figli, id);
-      if (inFigli) return inFigli;
-      for (const arr of n.membriFigli) {
-        const hit = findPersonaNodo(arr, id);
-        if (hit) return hit;
-      }
-    }
-    return null;
-  }
-  for (const r of roots) collect(r);
-  for (const p of items) {
-    if (placed.has(p.id)) continue;
-    const orphan = buildPersonaNodo(p);
-    collect(orphan);
-    const host = p.parentId ? findPersonaNodo(roots, p.parentId) : null;
-    if (host) host.figli.push(orphan);
-    else roots.push(orphan);
-  }
+  sortNodi(roots);
   return roots;
 }
 
