@@ -3,6 +3,7 @@ import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
@@ -76,6 +77,17 @@ export default async function ProduzioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FogliLavorazioneBoard initialFilter="chiusi" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "gestione-aree" && sub === "elenco") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <AreeElencoBoard />
         </div>
       </>
     );

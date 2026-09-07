@@ -89,6 +89,35 @@ export const postoLavoroInputSchema = z.object({
 
 export type PostoLavoroInput = z.infer<typeof postoLavoroInputSchema>;
 
+/** Slug riservati sotto /gestione-aree/ (non sono aree). */
+export const AREA_CODICI_RISERVATI = ["elenco"] as const;
+
+export function slugArea(raw: string): string {
+  return slugPosto(raw);
+}
+
+export const areaInputSchema = z.object({
+  codice: z
+    .string()
+    .trim()
+    .min(1, "Codice obbligatorio")
+    .max(40)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/i, "Usa lettere, numeri e trattini")
+    .refine(
+      (v) =>
+        !(AREA_CODICI_RISERVATI as readonly string[]).includes(v.toLowerCase()),
+      "Questo codice è riservato al menu Elenco."
+    ),
+  nome: z.string().trim().min(1, "Nome obbligatorio").max(120),
+  descrizione: z.string().trim().max(500).optional().default(""),
+  note: z.string().trim().max(2000).optional().default(""),
+  richiedeBilancioMassa: z.boolean().optional().default(false),
+  mostraInMenu: z.boolean().optional().default(true),
+  attivo: z.boolean().optional().default(true),
+});
+
+export type AreaInput = z.infer<typeof areaInputSchema>;
+
 export const foglioConteggioInputSchema = z.object({
   foglioId: z.string().uuid(),
   areaId: z.string().uuid(),

@@ -4,11 +4,14 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
+  areaInputSchema,
   calcolaBilancioMassa,
   foglioConteggioInputSchema,
   isPostoPericolosita,
   postoLavoroInputSchema,
+  slugArea,
   slugPosto,
+  type AreaInput,
   type FoglioConteggio,
   type PostoPericolosita,
   type ProduzioneArea,
@@ -143,6 +146,78 @@ export async function listProduzioneAreeAction(): Promise<
       mapArea(a, postiByArea.get(a.id) ?? [], macByArea.get(a.id) ?? [])
     ),
   };
+}
+
+const AREA_COLS =
+  "id, codice, nome, descrizione, richiede_bilancio_massa, attivo, sort_order, versione, documento_stato, note, mostra_in_menu, has_camera, camera_ip, camera_rtsp_path";
+
+export async function createProduzioneAreaAction(
+  raw: AreaInput
+): Promise<
+  { success: true; item: ProduzioneArea } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const parsed = areaInputSchema.safeParse({
+    ...raw,
+    codice: slugArea(String(raw.codice || raw.nome || "")),
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const v = parsed.data;
+  const supabase = await createClient();
+  const { data: last } = await supabase
+    .from("produzione_aree")
+    .select("sort_order")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sortOrder =
+    Number((last as { sort_order?: number } | null)?.sort_order ?? 0) + 10;
+
+  const { data, error } = await supabase
+    .from("produzione_aree")
+    .insert({
+      codice: v.codice.toLowerCase(),
+      nome: v.nome.trim(),
+      descrizione: v.descrizione ?? "",
+      note: v.note ?? "",
+      richiede_bilancio_massa: v.richiedeBilancioMassa ?? false,
+      mostra_in_menu: v.mostraInMenu ?? true,
+      attivo: v.attivo ?? true,
+      sort_order: sortOrder,
+      versione: 1,
+      documento_stato: "bozza",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select(AREA_COLS)
+    .single();
+  if (error || !data) {
+    if (error?.code === "23505") {
+      return { success: false, error: "Codice area già esistente." };
+    }
+    return { success: false, error: error?.message ?? "Salvataggio fallito." };
+  }
+  const item = mapArea(data as AreaRow, [], []);
+  void writeAuditLog({
+    entity_type: "produzione_aree",
+    entity_id: item.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata area ${item.codice}`,
+    payload: {
+      codice: item.codice,
+      nome: item.nome,
+      documento_stato: item.documentoStato,
+      versione: item.versione,
+    },
+  });
+  return { success: true, item };
 }
 
 export async function createPostoLavoroAction(

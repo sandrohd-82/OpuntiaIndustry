@@ -13,6 +13,13 @@ export { isNavBranch };
 /** Sidebar: ricarica il menu aree/posti dopo CRUD catalogo. */
 export const PRODUZIONE_AREE_NAV_EVENT = "opuntia-aree-updated";
 
+export const GESTIONE_AREE_ELENCO_NAV = {
+  slug: "elenco",
+  label: "Elenco",
+  description: "Elenco delle aree e creazione di nuove aree.",
+  path: "/app/produzione/gestione-aree/elenco",
+} as const;
+
 /** Menu Produzione — struttura target */
 export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
   {
@@ -69,6 +76,7 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     description: "Stato aree produttive e videosorveglianza",
     path: "/app/produzione/gestione-aree",
     children: [
+      GESTIONE_AREE_ELENCO_NAV,
       areaNavBranch(
         "lavaggio",
         "Lavaggio",
@@ -248,7 +256,9 @@ export function mergeProduzioneNavWithAree(
     if (section.slug !== "gestione-aree" || !isNavBranch(section)) return section;
     return {
       ...section,
-      children: aree
+      children: [
+        GESTIONE_AREE_ELENCO_NAV,
+        ...aree
         .filter((a) => a.mostraInMenu !== false)
         .map((a) =>
         areaNavBranch(
@@ -275,7 +285,8 @@ export function mergeProduzioneNavWithAree(
             })
           )
         )
-      ),
+        ),
+      ],
     };
   });
 }
