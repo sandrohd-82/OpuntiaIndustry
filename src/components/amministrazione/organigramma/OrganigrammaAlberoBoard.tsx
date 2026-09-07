@@ -31,91 +31,6 @@ function wouldCycle(
   return false;
 }
 
-function ancestorIds(
-  personaId: string,
-  byId: Map<string, OrganigrammaPersona>
-): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  let cursor = byId.get(personaId)?.parentId ?? null;
-  while (cursor && !seen.has(cursor)) {
-    out.push(cursor);
-    seen.add(cursor);
-    cursor = byId.get(cursor)?.parentId ?? null;
-  }
-  return out;
-}
-
-function lowestCommonAncestor(
-  a: string,
-  b: string,
-  byId: Map<string, OrganigrammaPersona>
-): string | null {
-  const fromA = new Set<string>([a, ...ancestorIds(a, byId)]);
-  if (fromA.has(b)) return b;
-  let cursor: string | null = b;
-  const seen = new Set<string>();
-  while (cursor && !seen.has(cursor)) {
-    if (fromA.has(cursor)) return cursor;
-    seen.add(cursor);
-    cursor = byId.get(cursor)?.parentId ?? null;
-  }
-  return null;
-}
-
-type GerarchiaSelezione =
-  | { ok: true; parentId: string }
-  | { ok: false; motivo: string };
-
-function analizzaGerarchia(
-  ids: string[],
-  byId: Map<string, OrganigrammaPersona>
-): GerarchiaSelezione {
-  if (ids.length < 2) {
-    return {
-      ok: false,
-      motivo: "Seleziona almeno due operatori della stessa gerarchia.",
-    };
-  }
-  if (ids.some((id) => !byId.has(id))) {
-    return { ok: false, motivo: "Alcuni operatori non sono più disponibili." };
-  }
-
-  const parentIds = ids.map((id) => byId.get(id)?.parentId ?? null);
-  const stessoGenitore = parentIds.every((p) => p === parentIds[0]);
-  if (stessoGenitore) {
-    const parentId = parentIds[0];
-    if (!parentId) {
-      return {
-        ok: false,
-        motivo:
-          "Seleziona operatori già sotto la stessa gerarchia, non tutti a primo livello.",
-      };
-    }
-    return { ok: true, parentId };
-  }
-
-  for (const cand of ids) {
-    const others = ids.filter((id) => id !== cand);
-    if (others.every((id) => ancestorIds(id, byId).includes(cand))) {
-      return { ok: true, parentId: cand };
-    }
-  }
-
-  let acc: string | null = ids[0];
-  for (let i = 1; i < ids.length; i += 1) {
-    if (!acc) break;
-    acc = lowestCommonAncestor(acc, ids[i], byId);
-  }
-  if (!acc) {
-    return {
-      ok: false,
-      motivo: "I selezionati non appartengono alla stessa gerarchia.",
-    };
-  }
-  return { ok: true, parentId: acc };
-}
-
 function initials(p: OrganigrammaPersona): string {
   return `${p.nome.slice(0, 1)}${p.cognome.slice(0, 1)}`.toUpperCase();
 }
@@ -163,12 +78,6 @@ export function OrganigrammaAlberoBoard() {
         .filter((p): p is OrganigrammaPersona => Boolean(p)),
     [daInserireIds, byId]
   );
-  const analisi = useMemo(
-    () => analizzaGerarchia(gerarchiaIds, byId),
-    [gerarchiaIds, byId]
-  );
-  const capoGerarchia = analisi.ok ? byId.get(analisi.parentId) ?? null : null;
-
   function clearSelezione() {
     setGerarchiaIds([]);
     setDaInserireIds([]);
@@ -193,30 +102,38 @@ export function OrganigrammaAlberoBoard() {
   }
 
   async function applicaInserimento() {
-    if (!analisi.ok) {
-      setError(analisi.motivo);
+    if (!gerarchiaIds.length) {
+      setError("Seleziona almeno un operatore.");
       return;
     }
     if (!daInserireIds.length) {
       setError("Seleziona almeno un operatore da inserire sotto gerarchia.");
       return;
     }
-    for (const childId of daInserireIds) {
-      if (wouldCycle(childId, analisi.parentId, byId)) {
-        setError("Il collegamento creerebbe un ciclo. Cambia la selezione.");
-        return;
+    for (const parentId of gerarchiaIds) {
+      for (const childId of daInserireIds) {
+        if (childId === parentId) continue;
+        if (wouldCycle(childId, parentId, byId)) {
+          setError("Il collegamento creerebbe un ciclo. Cambia la selezione.");
+          return;
+        }
       }
     }
     setBusy(true);
-    const res = await movePersoneTreeBatchAction({
-      parentId: analisi.parentId,
-      childIds: daInserireIds,
-    });
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
-      return;
+    for (const parentId of gerarchiaIds) {
+      const childIds = daInserireIds.filter((id) => id !== parentId);
+      if (!childIds.length) continue;
+      const res = await movePersoneTreeBatchAction({
+        parentId,
+        childIds,
+      });
+      if (!res.success) {
+        setBusy(false);
+        setError(res.error);
+        return;
+      }
     }
+    setBusy(false);
     clearSelezione();
     setError(null);
     await reload();
@@ -266,7 +183,7 @@ export function OrganigrammaAlberoBoard() {
     const target = byId.get(targetId);
     if (!drag || !target || drag.parentId !== target.parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona prima gli operatori della stessa gerarchia, poi usa il bottone per scegliere chi inserire sotto."
+        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona gli operatori, poi Seleziona Operatore/i da inserire sotto Gerarchia."
       );
       return;
     }
@@ -285,7 +202,7 @@ export function OrganigrammaAlberoBoard() {
     const drag = byId.get(dragPersonaId);
     if (!drag || drag.parentId !== parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona prima gli operatori della stessa gerarchia, poi usa il bottone per scegliere chi inserire sotto."
+        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona gli operatori, poi Seleziona Operatore/i da inserire sotto Gerarchia."
       );
       return;
     }
@@ -328,38 +245,30 @@ export function OrganigrammaAlberoBoard() {
       <p className="text-sm text-[var(--muted)]">
         Organigramma a cascata.{" "}
         {isAdmin
-          ? "Prima seleziona le foto degli operatori della stessa gerarchia. Poi usa Seleziona operatore/i da inserire sotto gerarchia. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
+          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia: quelli scelti vanno sotto gli operatori selezionati prima. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
           : "Clicca il nome per aprire la scheda operatore."}
       </p>
       {isAdmin && gerarchia.length ? (
         <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
           <p>
-            Gerarchia selezionata:{" "}
-            <strong>{gerarchia.map(personaLabel).join(", ")}</strong>
-            {analisi.ok && capoGerarchia ? (
+            Selezionati: <strong>{gerarchia.map(personaLabel).join(", ")}</strong>
+            {daInserire.length ? (
               <>
-                . I nuovi operatori andranno sotto{" "}
-                <strong>{personaLabel(capoGerarchia)}</strong>.
+                . Da inserire sotto: {daInserire.map(personaLabel).join(", ")}.
               </>
             ) : null}
-            {daInserire.length ? (
-              <> Da inserire: {daInserire.map(personaLabel).join(", ")}.</>
-            ) : null}
           </p>
-          {!analisi.ok ? (
-            <p className="text-xs text-sky-800">{analisi.motivo}</p>
-          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={busy || !analisi.ok}
+              disabled={busy}
               onClick={() => {
                 setPickerOpen(true);
                 setError(null);
               }}
               className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
-              Seleziona operatore/i da inserire sotto gerarchia
+              Seleziona Operatore/i da inserire sotto Gerarchia
             </button>
             {pickerOpen ? (
               <button
@@ -388,11 +297,11 @@ export function OrganigrammaAlberoBoard() {
               Annulla
             </button>
           </div>
-          {pickerOpen && analisi.ok ? (
+          {pickerOpen ? (
             <OperatorePicker
               items={items}
-              excludeIds={[analisi.parentId, ...gerarchiaIds]}
-              parentId={analisi.parentId}
+              excludeIds={gerarchiaIds}
+              parentIds={gerarchiaIds}
               byId={byId}
               selectedIds={daInserireIds}
               query={pickerQ}
@@ -666,7 +575,7 @@ function PersonaCard({
         className="mx-auto block cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
         title={
           isAdmin
-            ? "Clicca per selezionare gli operatori della stessa gerarchia"
+            ? "Clicca per selezionare l’operatore (poi altri a scelta)"
             : personaLabel(node)
         }
       >
@@ -731,7 +640,7 @@ function PersonaCard({
 function OperatorePicker({
   items,
   excludeIds,
-  parentId,
+  parentIds,
   byId,
   selectedIds,
   query,
@@ -740,7 +649,7 @@ function OperatorePicker({
 }: {
   items: OrganigrammaPersona[];
   excludeIds: string[];
-  parentId: string;
+  parentIds: string[];
   byId: Map<string, OrganigrammaPersona>;
   selectedIds: string[];
   query: string;
@@ -751,8 +660,9 @@ function OperatorePicker({
   const q = query.trim().toLowerCase();
   const list = items
     .filter((p) => !excluded.has(p.id))
-    .filter((p) => p.parentId !== parentId)
-    .filter((p) => !wouldCycle(p.id, parentId, byId))
+    .filter((p) =>
+      parentIds.every((parentId) => !wouldCycle(p.id, parentId, byId))
+    )
     .filter((p) => {
       if (!q) return true;
       return `${p.cognome} ${p.nome} ${p.repartoNome}`.toLowerCase().includes(q);
