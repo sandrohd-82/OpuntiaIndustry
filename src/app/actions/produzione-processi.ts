@@ -16,6 +16,10 @@ import {
   type ProcessoPasso,
 } from "@/lib/produzione/processi";
 import { createClient } from "@/lib/supabase/server";
+import {
+  isScriptFunzione,
+  type AttivitaScriptLink,
+} from "@/lib/script/catalogo";
 
 const ATTIVITA_COLS =
   "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id";
@@ -96,6 +100,98 @@ async function loadLuoghi(
   return { areaNome, postoNome };
 }
 
+async function loadScriptsByAttivita(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  attivitaIds: string[]
+): Promise<Map<string, AttivitaScriptLink[]>> {
+  const map = new Map<string, AttivitaScriptLink[]>();
+  if (attivitaIds.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processo_attivita_script")
+    .select(
+      "attivita_id, sort_order, gestionale_script(id, codice, nome, funzione)"
+    )
+    .in("attivita_id", attivitaIds)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  for (const row of (data ?? []) as Array<{
+    attivita_id: string;
+    gestionale_script:
+      | { id: string; codice: string; nome: string; funzione: string }
+      | { id: string; codice: string; nome: string; funzione: string }[]
+      | null;
+  }>) {
+    const raw = row.gestionale_script;
+    const s = Array.isArray(raw) ? raw[0] : raw;
+    if (!s || !isScriptFunzione(s.funzione)) continue;
+    const list = map.get(row.attivita_id) ?? [];
+    list.push({
+      id: s.id,
+      codice: s.codice,
+      nome: s.nome,
+      funzione: s.funzione,
+    });
+    map.set(row.attivita_id, list);
+  }
+  return map;
+}
+
+async function attachScriptsToAttivita(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  items: ProcessoAttivita[]
+): Promise<ProcessoAttivita[]> {
+  const scripts = await loadScriptsByAttivita(
+    supabase,
+    items.map((i) => i.id)
+  );
+  return items.map((i) => ({ ...i, scripts: scripts.get(i.id) ?? [] }));
+}
+
+async function syncAttivitaScripts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  attivitaId: string,
+  scriptIds: string[],
+  userId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const unique = [...new Set(scriptIds)];
+  if (unique.length > 0) {
+    const { count } = await supabase
+      .from("gestionale_script")
+      .select("id", { count: "exact", head: true })
+      .in("id", unique)
+      .is("deleted_at", null)
+      .eq("attivo", true);
+    if ((count ?? 0) !== unique.length) {
+      return { success: false, error: "Uno o più script non sono validi o attivi." };
+    }
+  }
+  const now = new Date().toISOString();
+  const { error: softErr } = await supabase
+    .from("produzione_processo_attivita_script")
+    .update({
+      deleted_at: now,
+      deleted_by: userId,
+      updated_by: userId,
+    })
+    .eq("attivita_id", attivitaId)
+    .is("deleted_at", null);
+  if (softErr) return { success: false, error: softErr.message };
+  if (unique.length === 0) return { success: true };
+  const { error } = await supabase
+    .from("produzione_processo_attivita_script")
+    .insert(
+      unique.map((scriptId, index) => ({
+        attivita_id: attivitaId,
+        script_id: scriptId,
+        sort_order: index + 1,
+        created_by: userId,
+        updated_by: userId,
+      }))
+    );
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
 function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
   const areaId = row.area_id ?? null;
   const postoId = row.posto_id ?? null;
@@ -110,6 +206,7 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
     postoId,
     areaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     postoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
+    scripts: [],
     createdAt: row.created_at,
   };
 }
@@ -154,6 +251,7 @@ function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
     attivitaPostoId: postoId,
     attivitaAreaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     attivitaPostoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
+    scripts: [],
   };
 }
 
@@ -270,7 +368,10 @@ export async function listProcessoAttivitaAction(): Promise<
   const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    items: ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi)),
+    items: await attachScriptsToAttivita(
+      supabase,
+      ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi))
+    ),
   };
 }
 
@@ -289,7 +390,10 @@ export async function listProcessoAttivitaAttiveAction(): Promise<
   const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    items: ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi)),
+    items: await attachScriptsToAttivita(
+      supabase,
+      ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi))
+    ),
   };
 }
 
@@ -334,21 +438,30 @@ export async function createProcessoAttivitaAction(
     return { success: false, error: error.message };
   }
   const luoghi = await loadLuoghi(supabase);
-  const item = mapAttivita(data as AttivitaRow, luoghi);
+  const created = mapAttivita(data as AttivitaRow, luoghi);
+  const scripts = await syncAttivitaScripts(
+    supabase,
+    created.id,
+    parsed.data.scriptIds,
+    auth.userId
+  );
+  if (!scripts.success) return scripts;
+  const [item] = await attachScriptsToAttivita(supabase, [created]);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
-    entity_id: item.id,
+    entity_id: created.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creata attività di processo ${item.codice}`,
+    summary: `Creata attività di processo ${created.codice}`,
     payload: {
-      codice: item.codice,
-      nome: item.nome,
-      area_id: item.areaId,
-      posto_id: item.postoId,
+      codice: created.codice,
+      nome: created.nome,
+      area_id: created.areaId,
+      posto_id: created.postoId,
+      script_ids: parsed.data.scriptIds,
     },
   });
-  return { success: true, item };
+  return { success: true, item: item ?? created };
 }
 
 export async function updateProcessoAttivitaAction(
@@ -394,21 +507,30 @@ export async function updateProcessoAttivitaAction(
     return { success: false, error: error.message };
   }
   const luoghi = await loadLuoghi(supabase);
-  const item = mapAttivita(data as AttivitaRow, luoghi);
+  const updated = mapAttivita(data as AttivitaRow, luoghi);
+  const scripts = await syncAttivitaScripts(
+    supabase,
+    updated.id,
+    parsed.data.scriptIds,
+    auth.userId
+  );
+  if (!scripts.success) return scripts;
+  const [item] = await attachScriptsToAttivita(supabase, [updated]);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
-    entity_id: item.id,
+    entity_id: updated.id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Aggiornata attività di processo ${item.codice}`,
+    summary: `Aggiornata attività di processo ${updated.codice}`,
     payload: {
-      codice: item.codice,
-      nome: item.nome,
-      area_id: item.areaId,
-      posto_id: item.postoId,
+      codice: updated.codice,
+      nome: updated.nome,
+      area_id: updated.areaId,
+      posto_id: updated.postoId,
+      script_ids: parsed.data.scriptIds,
     },
   });
-  return { success: true, item };
+  return { success: true, item: item ?? updated };
 }
 
 export async function softDeleteProcessoAttivitaAction(
@@ -800,11 +922,19 @@ async function listProcessoPassiInternal(
     .order("sort_order", { ascending: true });
   if (error) return { success: false, error: error.message };
   const luoghi = await loadLuoghi(supabase);
+  const passi = ((data ?? []) as unknown as PassoRow[]).map((row) =>
+    mapPasso(row, luoghi)
+  );
+  const scripts = await loadScriptsByAttivita(
+    supabase,
+    passi.map((p) => p.attivitaId)
+  );
   return {
     success: true,
-    passi: ((data ?? []) as unknown as PassoRow[]).map((row) =>
-      mapPasso(row, luoghi)
-    ),
+    passi: passi.map((p) => ({
+      ...p,
+      scripts: scripts.get(p.attivitaId) ?? [],
+    })),
   };
 }
 

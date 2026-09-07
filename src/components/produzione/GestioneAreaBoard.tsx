@@ -13,6 +13,7 @@ import type { IotDevice } from "@/lib/produzione/iot";
 import { EventiLineaCatalogoList } from "@/components/produzione/EventiLineaCatalogoList";
 import { EventoLineaModal } from "@/components/produzione/EventoLineaModal";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
+import { FoglioProcessiPanel } from "@/components/produzione/FoglioProcessiPanel";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
 import { MachinePowerToggle } from "@/components/produzione/MachinePowerToggle";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
@@ -241,6 +242,18 @@ export function GestioneAreaBoard({ areaCodice }: Props) {
             });
           }}
         />
+      ) : null}
+
+      {ready && fogliAperti.length > 0 ? (
+        <div className="space-y-3">
+          {fogliAperti.map((f) => (
+            <FoglioProcessiPanel
+              key={`proc-${f.id}`}
+              foglio={f}
+              filtraAreaId={area.id}
+            />
+          ))}
+        </div>
       ) : null}
 
       {area.richiedeBilancioMassa && ready ? (

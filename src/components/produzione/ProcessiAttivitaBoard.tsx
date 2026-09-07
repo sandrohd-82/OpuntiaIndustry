@@ -9,12 +9,14 @@ import {
   softDeleteProcessoAttivitaAction,
   updateProcessoAttivitaAction,
 } from "@/app/actions/produzione-processi";
+import { listGestionaleScriptAttiviAction } from "@/app/actions/script";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   labelLuogoAttivita,
   type ProcessoAttivita,
 } from "@/lib/produzione/processi";
+import { labelScriptFunzione, type GestionaleScript } from "@/lib/script/catalogo";
 
 type ProcessiAttivitaBoardProps = {
   startCreate?: boolean;
@@ -38,6 +40,9 @@ export function ProcessiAttivitaBoard({
   const [attivo, setAttivo] = useState(true);
   const [areaId, setAreaId] = useState("");
   const [postoId, setPostoId] = useState("");
+  const [scriptIds, setScriptIds] = useState<string[]>([]);
+  const [addScriptId, setAddScriptId] = useState("");
+  const [catalogoScript, setCatalogoScript] = useState<GestionaleScript[]>([]);
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -46,9 +51,10 @@ export function ProcessiAttivitaBoard({
 
   function load() {
     startTransition(async () => {
-      const [attRes, areeRes] = await Promise.all([
+      const [attRes, areeRes, scriptRes] = await Promise.all([
         listProcessoAttivitaAction(),
         listProduzioneAreeAction(),
+        listGestionaleScriptAttiviAction(),
       ]);
       if (!attRes.success) {
         setError(attRes.error);
@@ -60,9 +66,15 @@ export function ProcessiAttivitaBoard({
         setReady(true);
         return;
       }
+      if (!scriptRes.success) {
+        setError(scriptRes.error);
+        setReady(true);
+        return;
+      }
       setError(null);
       setItems(attRes.items);
       setAree(areeRes.items);
+      setCatalogoScript(scriptRes.items);
       setReady(true);
     });
   }
@@ -81,6 +93,8 @@ export function ProcessiAttivitaBoard({
     setAttivo(true);
     setAreaId("");
     setPostoId("");
+    setScriptIds([]);
+    setAddScriptId("");
   }
 
   function openEdit(a: ProcessoAttivita) {
@@ -93,6 +107,8 @@ export function ProcessiAttivitaBoard({
     setAttivo(a.attivo);
     setAreaId(a.areaId ?? "");
     setPostoId(a.postoId ?? "");
+    setScriptIds(a.scripts.map((s) => s.id));
+    setAddScriptId("");
   }
 
   function closeForm() {
@@ -110,6 +126,7 @@ export function ProcessiAttivitaBoard({
         attivo,
         areaId: areaId || null,
         postoId: postoId || null,
+        scriptIds,
       };
       const res = editing
         ? await updateProcessoAttivitaAction(editing.id, payload)
@@ -237,6 +254,81 @@ export function ProcessiAttivitaBoard({
               />
               Attiva
             </label>
+            <div className="sm:col-span-2">
+              <span className="mb-1 block text-sm font-medium">
+                Script collegati
+              </span>
+              <p className="mb-2 text-xs text-[var(--muted)]">
+                Aggiungi Script: seleziona una funzione (es. Pesata) perché
+                l’attività richieda e salvi i dati durante l’esecuzione.
+              </p>
+              {scriptIds.length > 0 ? (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {scriptIds.map((id) => {
+                    const s =
+                      catalogoScript.find((x) => x.id === id) ??
+                      items
+                        .flatMap((a) => a.scripts)
+                        .find((x) => x.id === id);
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-slate-50 px-2 py-0.5 text-xs"
+                      >
+                        {s
+                          ? `${s.nome} (${labelScriptFunzione(s.funzione)})`
+                          : id}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setScriptIds((prev) => prev.filter((x) => x !== id))
+                          }
+                          className="text-[var(--muted)] hover:text-red-600"
+                          aria-label="Rimuovi script"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mb-2 text-xs text-[var(--muted)]">
+                  Nessuno script collegato.
+                </p>
+              )}
+              <div className="flex flex-wrap items-end gap-2">
+                <select
+                  value={addScriptId}
+                  onChange={(e) => setAddScriptId(e.target.value)}
+                  className="min-w-[12rem] flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  <option value="">Seleziona script…</option>
+                  {catalogoScript
+                    .filter((s) => !scriptIds.includes(s.id))
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.nome} — {labelScriptFunzione(s.funzione)}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!addScriptId}
+                  onClick={() => {
+                    setScriptIds((prev) =>
+                      prev.includes(addScriptId)
+                        ? prev
+                        : [...prev, addScriptId]
+                    );
+                    setAddScriptId("");
+                  }}
+                  className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50"
+                >
+                  Aggiungi Script
+                </button>
+              </div>
+            </div>
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button
@@ -265,6 +357,7 @@ export function ProcessiAttivitaBoard({
               <th className="px-4 py-3">Codice</th>
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Luogo</th>
+              <th className="px-4 py-3">Script</th>
               <th className="px-4 py-3">Stato</th>
               <th className="px-4 py-3 text-right" />
             </tr>
@@ -283,6 +376,11 @@ export function ProcessiAttivitaBoard({
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">
                   {labelLuogoAttivita(a)}
+                </td>
+                <td className="px-4 py-3 text-xs text-[var(--muted)]">
+                  {a.scripts.length > 0
+                    ? a.scripts.map((s) => s.nome).join(", ")
+                    : "—"}
                 </td>
                 <td className="px-4 py-3">
                   {a.attivo ? (
@@ -312,7 +410,7 @@ export function ProcessiAttivitaBoard({
             {items.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-8 text-center text-[var(--muted)]"
                 >
                   Nessuna attività. Creane una per comporre i processi.

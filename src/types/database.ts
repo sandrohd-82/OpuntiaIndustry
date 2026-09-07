@@ -22,6 +22,7 @@ export type AreaSlug =
   | "area-fornitori"
   | "ricerca-sviluppo"
   | "wikiopuntia"
+  | "script"
   | "impostazioni";
 
 export interface AppRole {

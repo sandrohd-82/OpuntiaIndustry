@@ -16,6 +16,7 @@ import {
   FaGaugeHigh,
   FaGear,
   FaGlobe,
+  FaCode,
   FaIndustry,
   FaPlus,
   FaTruck,
@@ -43,6 +44,7 @@ import {
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
+import { SCRIPT_SECTIONS } from "@/lib/areas/script";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
@@ -78,6 +80,8 @@ function sectionsForArea(
   switch (slug) {
     case "produzione":
       return produzioneSections;
+    case "script":
+      return SCRIPT_SECTIONS;
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
     case "wikiopuntia":
@@ -112,6 +116,8 @@ function AreaIcon({ slug }: { slug: string }) {
       return <FaFlask className={cls} />;
     case "produzione":
       return <FaIndustry className={cls} />;
+    case "script":
+      return <FaCode className={cls} />;
     case "chat":
       return <FaComments className={cls} />;
     case "webmail":

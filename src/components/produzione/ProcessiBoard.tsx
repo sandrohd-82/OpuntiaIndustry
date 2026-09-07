@@ -572,6 +572,20 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                         </span>
                         <span className="min-w-0 flex-1 font-medium">
                           {attivitaLabel(p.attivitaId)}
+                          {(() => {
+                            const scripts =
+                              attivita.find((a) => a.id === p.attivitaId)
+                                ?.scripts ??
+                              passi.find((x) => x.attivitaId === p.attivitaId)
+                                ?.scripts ??
+                              [];
+                            if (scripts.length === 0) return null;
+                            return (
+                              <span className="ml-2 text-xs font-normal text-[var(--primary)]">
+                                Script: {scripts.map((s) => s.nome).join(", ")}
+                              </span>
+                            );
+                          })()}
                         </span>
                         <label className="inline-flex items-center gap-1 text-xs text-[var(--muted)]">
                           <input

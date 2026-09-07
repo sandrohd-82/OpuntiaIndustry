@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AttivitaScriptLink } from "@/lib/script/catalogo";
 
 export const PROCESSO_DOCUMENTO_STATI = [
   "bozza",
@@ -23,6 +24,7 @@ export type ProcessoAttivita = {
   postoId: string | null;
   areaNome: string;
   postoNome: string;
+  scripts: AttivitaScriptLink[];
   createdAt: string;
 };
 
@@ -56,6 +58,7 @@ export type ProcessoPasso = {
   attivitaPostoId: string | null;
   attivitaAreaNome: string;
   attivitaPostoNome: string;
+  scripts: AttivitaScriptLink[];
 };
 
 export const processoAttivitaInputSchema = z
@@ -67,6 +70,7 @@ export const processoAttivitaInputSchema = z
     attivo: z.boolean().optional().default(true),
     areaId: optionalUuid,
     postoId: optionalUuid,
+    scriptIds: z.array(z.string().uuid()).optional().default([]),
   })
   .superRefine((data, ctx) => {
     if (data.postoId && !data.areaId) {

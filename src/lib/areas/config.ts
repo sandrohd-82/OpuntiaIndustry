@@ -20,6 +20,11 @@ export const AREA_ROUTES: Record<
     label: "Produzione",
     description: "Fogli, processi, aree e calendari",
   },
+  script: {
+    path: "/app/script",
+    label: "Script",
+    description: "Funzioni del gestionale collegabili alle attività",
+  },
   magazzino: {
     path: "/app/magazzino",
     label: "Magazzino",
@@ -90,6 +95,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
+  "script",
   "chat",
   "webmail",
   "magazzino",
