@@ -18,10 +18,13 @@ import {
   treeReorderSchema,
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
+  contrattoInputSchema,
   permessoTipoLabel,
   type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
   type OrganigrammaCertificatoCatalogo,
+  type OrganigrammaContratto,
+  type OrganigrammaContrattoStato,
   type OrganigrammaDocumento,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
@@ -1505,6 +1508,325 @@ export async function softDeleteDocumentoAction(
       actorId: auth.userId,
       actorNome: actorNome(auth.profile),
       note: `Rimosso ${(data as { titolo?: string }).titolo ?? "documento"}`,
+    });
+  }
+  return { success: true };
+}
+
+const CONTRATTO_COLS =
+  "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, versione, approved_by, approved_at, created_at";
+
+type ContrattoRow = {
+  id: string;
+  persona_id: string;
+  tipologia: OrganigrammaContratto["tipologia"];
+  titolo: string;
+  data_inizio: string;
+  data_fine: string | null;
+  importo: number | string | null;
+  note: string;
+  file_name: string;
+  mime: string;
+  documento_stato: OrganigrammaContrattoStato;
+  versione: number;
+  approved_by: string | null;
+  approved_at: string | null;
+  created_at: string;
+};
+
+function mapContratto(r: ContrattoRow): OrganigrammaContratto {
+  const importo =
+    r.importo === null || r.importo === undefined
+      ? null
+      : Number(r.importo);
+  return {
+    id: r.id,
+    personaId: r.persona_id,
+    tipologia: r.tipologia,
+    titolo: r.titolo,
+    dataInizio: r.data_inizio,
+    dataFine: r.data_fine,
+    importo: Number.isFinite(importo) ? importo : null,
+    note: r.note ?? "",
+    fileName: r.file_name ?? "",
+    mime: r.mime ?? "",
+    documentoStato: r.documento_stato,
+    versione: r.versione,
+    approvedBy: r.approved_by,
+    approvedAt: r.approved_at,
+    createdAt: r.created_at,
+  };
+}
+
+export async function uploadPersonaContrattoAction(
+  formData: FormData
+): Promise<
+  { success: true; item: OrganigrammaContratto } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può registrare contratti." };
+  }
+  const importoRaw = String(formData.get("importo") ?? "").trim().replace(",", ".");
+  const parsed = contrattoInputSchema.safeParse({
+    personaId: String(formData.get("personaId") ?? ""),
+    tipologia: String(formData.get("tipologia") ?? ""),
+    titolo: String(formData.get("titolo") ?? ""),
+    dataInizio: String(formData.get("dataInizio") ?? ""),
+    dataFine: String(formData.get("dataFine") ?? ""),
+    importo: importoRaw === "" ? undefined : Number(importoRaw),
+    note: String(formData.get("note") ?? ""),
+    documentoStato: String(formData.get("documentoStato") ?? "bozza"),
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati contratto non validi.",
+    };
+  }
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { success: false, error: "Allega il contratto, controlla i dati e premi Salva." };
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return { success: false, error: "File troppo grande (max 15 MB)." };
+  }
+  const allowed = [
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ];
+  if (!allowed.includes(file.type)) {
+    return { success: false, error: "Formato ammesso: PDF, JPG, PNG, WebP." };
+  }
+  const ext =
+    file.type === "application/pdf"
+      ? "pdf"
+      : file.type === "image/png"
+        ? "png"
+        : file.type === "image/webp"
+          ? "webp"
+          : "jpg";
+  const path = `${parsed.data.personaId}/contratto/${crypto.randomUUID()}.${ext}`;
+  const supabase = await createClient();
+  const persona = await supabase
+    .from("organigramma_persone")
+    .select("id")
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!persona.data) {
+    return { success: false, error: "Operatore non trovato: il contratto deve essere sulla scheda." };
+  }
+  const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (upErr) return { success: false, error: upErr.message };
+  const stato = parsed.data.documentoStato ?? "bozza";
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("organigramma_contratti")
+    .insert({
+      persona_id: parsed.data.personaId,
+      tipologia: parsed.data.tipologia,
+      titolo: parsed.data.titolo,
+      data_inizio: parsed.data.dataInizio,
+      data_fine: parsed.data.dataFine ?? null,
+      importo: parsed.data.importo ?? null,
+      note: parsed.data.note ?? "",
+      storage_path: path,
+      file_name: file.name,
+      mime: file.type,
+      documento_stato: stato,
+      versione: 1,
+      approved_by: stato === "approvato" ? auth.userId : null,
+      approved_at: stato === "approvato" ? now : null,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select(CONTRATTO_COLS)
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Salvataggio contratto fallito." };
+  }
+  await recordAttivita({
+    personaId: parsed.data.personaId,
+    azione: "contratto",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: `Registrato contratto ${parsed.data.titolo}`,
+  });
+  await writeAuditLog({
+    entity_type: "organigramma_contratti",
+    entity_id: (data as { id: string }).id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Contratto ${parsed.data.tipologia} su operatore ${parsed.data.personaId}`,
+    payload: {
+      persona_id: parsed.data.personaId,
+      titolo: parsed.data.titolo,
+    },
+  });
+  return { success: true, item: mapContratto(data as ContrattoRow) };
+}
+
+export async function listPersonaContrattiAction(
+  personaId: string
+): Promise<
+  { success: true; items: OrganigrammaContratto[] } | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_contratti")
+    .select(CONTRATTO_COLS)
+    .eq("persona_id", personaId)
+    .is("deleted_at", null)
+    .order("data_inizio", { ascending: false });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as ContrattoRow[]).map(mapContratto),
+  };
+}
+
+export async function getContrattoUrlAction(
+  id: string,
+  purpose: "preview" | "download" = "preview"
+): Promise<
+  | { success: true; url: string; fileName: string; mime: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organigramma_contratti")
+    .select("storage_path, persona_id, titolo, file_name, mime")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Contratto non trovato." };
+  }
+  const row = data as {
+    storage_path: string;
+    persona_id: string;
+    titolo: string;
+    file_name: string;
+    mime: string;
+  };
+  await writeAuditLog({
+    entity_type: "organigramma_contratti",
+    entity_id: id,
+    action: purpose === "download" ? "download" : "view",
+    actor_id: auth.userId,
+    summary:
+      purpose === "download"
+        ? `Scaricato contratto ${row.titolo}`
+        : `Anteprima contratto ${row.titolo}`,
+    payload: { persona_id: row.persona_id },
+  });
+  const url = await signedUrl(row.storage_path);
+  if (!url) return { success: false, error: "URL contratto non disponibile." };
+  return {
+    success: true,
+    url,
+    fileName: row.file_name || "contratto",
+    mime: row.mime ?? "",
+  };
+}
+
+export async function setContrattoStatoAction(
+  id: string,
+  stato: OrganigrammaContrattoStato
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può cambiare lo stato." };
+  }
+  const supabase = await createClient();
+  const current = await supabase
+    .from("organigramma_contratti")
+    .select("persona_id, versione, titolo, documento_stato")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!current.data) {
+    return { success: false, error: "Contratto non trovato." };
+  }
+  const row = current.data as {
+    persona_id: string;
+    versione: number;
+    titolo: string;
+    documento_stato: OrganigrammaContrattoStato;
+  };
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("organigramma_contratti")
+    .update({
+      documento_stato: stato,
+      versione:
+        stato === "approvato" && row.documento_stato !== "approvato"
+          ? row.versione + 1
+          : row.versione,
+      approved_by: stato === "approvato" ? auth.userId : null,
+      approved_at: stato === "approvato" ? now : null,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await recordAttivita({
+    personaId: row.persona_id,
+    azione: "contratto",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: `Contratto ${row.titolo}: ${stato}`,
+  });
+  await writeAuditLog({
+    entity_type: "organigramma_contratti",
+    entity_id: id,
+    action: "status",
+    actor_id: auth.userId,
+    summary: `Stato contratto ${row.titolo}: ${stato}`,
+    payload: { persona_id: row.persona_id, stato },
+  });
+  return { success: true };
+}
+
+export async function softDeleteContrattoAction(
+  id: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può rimuovere contratti." };
+  }
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("organigramma_contratti")
+    .select("persona_id, titolo")
+    .eq("id", id)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("organigramma_contratti")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const personaId = (data as { persona_id?: string } | null)?.persona_id;
+  if (personaId) {
+    await recordAttivita({
+      personaId,
+      azione: "contratto",
+      actorId: auth.userId,
+      actorNome: actorNome(auth.profile),
+      note: `Rimosso contratto ${(data as { titolo?: string }).titolo ?? ""}`,
     });
   }
   return { success: true };

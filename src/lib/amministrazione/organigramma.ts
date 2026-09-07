@@ -212,6 +212,7 @@ export const ORGANIGRAMMA_AZIONI = [
   "autorizzazione",
   "cessazione",
   "certificato",
+  "contratto",
 ] as const;
 
 /** Attività operative in azienda (non anagrafica/documenti). */
@@ -245,6 +246,7 @@ export function attivitaPersonaLabel(azione: string): string {
   if (azione === "autorizzazione") return "Autorizzazione postazione";
   if (azione === "cessazione") return "Stato in azienda";
   if (azione === "certificato") return "Certificato";
+  if (azione === "contratto") return "Contratto";
   return azione;
 }
 
@@ -313,6 +315,105 @@ export const treeReorderSchema = z.object({
   parentId: z.string().uuid().nullable(),
   orderedIds: z.array(z.string().uuid()).min(2).max(200),
 });
+
+export const ORGANIGRAMMA_CONTRATTO_TIPI = [
+  "tempo_indeterminato",
+  "tempo_determinato",
+  "collaborazione",
+  "ingaggio",
+  "stage",
+  "altro",
+] as const;
+export type OrganigrammaContrattoTipo =
+  (typeof ORGANIGRAMMA_CONTRATTO_TIPI)[number];
+
+export const ORGANIGRAMMA_CONTRATTO_STATI = [
+  "bozza",
+  "approvato",
+  "chiuso",
+] as const;
+export type OrganigrammaContrattoStato =
+  (typeof ORGANIGRAMMA_CONTRATTO_STATI)[number];
+
+export type OrganigrammaContratto = {
+  id: string;
+  personaId: string;
+  tipologia: OrganigrammaContrattoTipo;
+  titolo: string;
+  dataInizio: string;
+  dataFine: string | null;
+  importo: number | null;
+  note: string;
+  fileName: string;
+  mime: string;
+  documentoStato: OrganigrammaContrattoStato;
+  versione: number;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+};
+
+export function contrattoTipoLabel(tipo: OrganigrammaContrattoTipo): string {
+  if (tipo === "tempo_indeterminato") return "Tempo indeterminato";
+  if (tipo === "tempo_determinato") return "Tempo determinato";
+  if (tipo === "collaborazione") return "Collaborazione";
+  if (tipo === "ingaggio") return "Ingaggio";
+  if (tipo === "stage") return "Stage";
+  return "Altro";
+}
+
+export function contrattoStatoLabel(stato: OrganigrammaContrattoStato): string {
+  if (stato === "approvato") return "Approvato";
+  if (stato === "chiuso") return "Chiuso";
+  return "Bozza";
+}
+
+export function contrattoAlertLivello(
+  dataFine: string | null,
+  stato: OrganigrammaContrattoStato,
+  now = new Date()
+): "30gg" | "scaduto" | null {
+  if (!dataFine || stato === "chiuso") return null;
+  const [y, m, d] = dataFine.split("-").map(Number);
+  const exp = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((exp - today) / 86400000);
+  if (days < 0) return "scaduto";
+  if (days <= 30) return "30gg";
+  return null;
+}
+
+export function contrattoAlertLabel(livello: "30gg" | "scaduto"): string {
+  return livello === "scaduto" ? "Contratto scaduto" : "Scade entro 30 giorni";
+}
+
+export const contrattoInputSchema = z
+  .object({
+    personaId: z.string().uuid(),
+    tipologia: z.enum(ORGANIGRAMMA_CONTRATTO_TIPI),
+    titolo: z.string().trim().min(1, "Titolo obbligatorio").max(200),
+    dataInizio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inizio non valida"),
+    dataFine: emptyOr(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data fine non valida")),
+    importo: emptyOr(z.number().finite().nonnegative()),
+    note: z.string().trim().max(2000).optional().default(""),
+    documentoStato: z.enum(ORGANIGRAMMA_CONTRATTO_STATI).optional().default("bozza"),
+  })
+  .superRefine((v, ctx) => {
+    if (v.tipologia === "tempo_indeterminato" && v.dataFine) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Il tempo indeterminato non ha data di fine.",
+        path: ["dataFine"],
+      });
+    }
+    if (v.dataFine && v.dataFine < v.dataInizio) {
+      ctx.addIssue({
+        code: "custom",
+        message: "La data di fine non può precedere l’inizio.",
+        path: ["dataFine"],
+      });
+    }
+  });
 
 export function personaLabel(p: { nome: string; cognome: string }): string {
   return `${p.cognome} ${p.nome}`.trim();

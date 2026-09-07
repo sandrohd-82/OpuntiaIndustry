@@ -17,12 +17,17 @@ import {
   listPostiOrganigrammaAction,
   removeAutorizzazionePostoAction,
   setOperatoreInForzaAction,
+  setContrattoStatoAction,
   setPermessoStatoAction,
+  softDeleteContrattoAction,
   softDeleteDocumentoAction,
   updatePersonaAction,
+  uploadPersonaContrattoAction,
   uploadPersonaDocumentoAction,
   uploadPersonaFotoAction,
+  listPersonaContrattiAction,
 } from "@/app/actions/organigramma";
+import { ContrattoElenco } from "@/components/amministrazione/organigramma/ContrattoElenco";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
 import {
   FotoTesseraBox,
@@ -31,17 +36,25 @@ import {
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   OPERATIVE_AZIONI,
+  ORGANIGRAMMA_CONTRATTO_STATI,
+  ORGANIGRAMMA_CONTRATTO_TIPI,
   ORGANIGRAMMA_PERMESSO_STATI,
   ORGANIGRAMMA_PERMESSO_TIPI,
   attivitaPersonaLabel,
   calcolaScadenzaCertificato,
   certificatoAlertLabel,
+  contrattoAlertLabel,
+  contrattoAlertLivello,
+  contrattoTipoLabel,
   docTipoLabel,
   permessoTipoLabel,
   personaLabel,
   type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
   type OrganigrammaCertificatoCatalogo,
+  type OrganigrammaContratto,
+  type OrganigrammaContrattoStato,
+  type OrganigrammaContrattoTipo,
   type OrganigrammaDocumento,
   type OrganigrammaDocTipo,
   type OrganigrammaMansione,
@@ -147,6 +160,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         inForza={item.inForza}
         isAdmin={isAdmin}
       />
+      <ContrattiCard personaId={item.id} isAdmin={isAdmin} />
       <DocumentiCard
         personaId={item.id}
         isAdmin={isAdmin}
@@ -759,6 +773,242 @@ function CertificatiCard({
           isAdmin
             ? async (id) => {
                 const res = await softDeleteDocumentoAction(id);
+                if (!res.success) setError(res.error);
+                else await load();
+              }
+            : undefined
+        }
+      />
+    </section>
+  );
+}
+
+function ContrattiCard({
+  personaId,
+  isAdmin,
+}: {
+  personaId: string;
+  isAdmin: boolean;
+}) {
+  const [items, setItems] = useState<OrganigrammaContratto[]>([]);
+  const [tipologia, setTipologia] =
+    useState<OrganigrammaContrattoTipo>("collaborazione");
+  const [titolo, setTitolo] = useState("");
+  const [dataInizio, setDataInizio] = useState("");
+  const [dataFine, setDataFine] = useState("");
+  const [importo, setImporto] = useState("");
+  const [note, setNote] = useState("");
+  const [stato, setStato] = useState<OrganigrammaContrattoStato>("bozza");
+  const [picked, setPicked] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const indeterminato = tipologia === "tempo_indeterminato";
+  const alerts = items
+    .map((c) => {
+      const livello = contrattoAlertLivello(c.dataFine, c.documentoStato);
+      return livello ? { id: c.id, titolo: c.titolo, livello, dataFine: c.dataFine } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => Boolean(x));
+
+  async function load() {
+    const res = await listPersonaContrattiAction(personaId);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setItems(res.items);
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personaId]);
+
+  async function save() {
+    if (!titolo.trim()) {
+      setError("Indica il titolo, controlla i dati e premi Salva.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dataInizio)) {
+      setError("Indica la data di inizio, poi premi Salva.");
+      return;
+    }
+    if (!picked) {
+      setError("Allega il contratto, controlla i dati e premi Salva.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const fd = new FormData();
+    fd.set("personaId", personaId);
+    fd.set("tipologia", tipologia);
+    fd.set("titolo", titolo);
+    fd.set("dataInizio", dataInizio);
+    fd.set("dataFine", indeterminato ? "" : dataFine);
+    fd.set("importo", importo);
+    fd.set("note", note);
+    fd.set("documentoStato", stato);
+    fd.set("file", picked);
+    const res = await uploadPersonaContrattoAction(fd);
+    setBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setPicked(null);
+    setTitolo("");
+    setDataInizio("");
+    setDataFine("");
+    setImporto("");
+    setNote("");
+    setStato("bozza");
+    await load();
+  }
+
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+      <h3 className="text-sm font-semibold">Contratti</h3>
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        Ogni contratto è collegato a questa scheda operatore: collaborazione,
+        ingaggio, tempo determinato o indeterminato, stage. Compila, allega il
+        file e premi Salva dopo il controllo: nulla viene registrato in
+        automatico.
+      </p>
+      {alerts.length ? (
+        <ul className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {alerts.map((al) => (
+            <li key={al.id}>
+              {al.titolo} · {contrattoAlertLabel(al.livello)}
+              {al.dataFine
+                ? ` · ${new Date(`${al.dataFine}T00:00:00`).toLocaleDateString("it-IT")}`
+                : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {isAdmin ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-xs text-[var(--muted)]">
+            Tipologia
+            <select
+              value={tipologia}
+              onChange={(e) => {
+                const next = e.target.value as OrganigrammaContrattoTipo;
+                setTipologia(next);
+                if (next === "tempo_indeterminato") setDataFine("");
+              }}
+              className={inputCls}
+            >
+              {ORGANIGRAMMA_CONTRATTO_TIPI.map((t) => (
+                <option key={t} value={t}>
+                  {contrattoTipoLabel(t)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Titolo / oggetto
+            <input
+              value={titolo}
+              onChange={(e) => setTitolo(e.target.value)}
+              className={inputCls}
+              placeholder="Es. Contratto di collaborazione 2026"
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Data inizio
+            <input
+              type="date"
+              value={dataInizio}
+              onChange={(e) => setDataInizio(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Data fine
+            <input
+              type="date"
+              value={dataFine}
+              disabled={indeterminato}
+              onChange={(e) => setDataFine(e.target.value)}
+              className={`${inputCls} ${indeterminato ? "bg-slate-50" : ""}`}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Importo (facoltativo)
+            <input
+              inputMode="decimal"
+              value={importo}
+              onChange={(e) => setImporto(e.target.value)}
+              className={inputCls}
+              placeholder="0,00"
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Stato
+            <select
+              value={stato}
+              onChange={(e) =>
+                setStato(e.target.value as OrganigrammaContrattoStato)
+              }
+              className={inputCls}
+            >
+              {ORGANIGRAMMA_CONTRATTO_STATI.map((s) => (
+                <option key={s} value={s}>
+                  {s === "approvato" ? "Approvato" : s === "chiuso" ? "Chiuso" : "Bozza"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Note
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className={inputCls}
+            />
+          </label>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <FileDropZone
+              file={picked}
+              busy={busy}
+              title="Allegato contratto"
+              hint="PDF o immagine. Premi Salva dopo il controllo."
+              onFile={(f) => {
+                setError(null);
+                setPicked(f);
+              }}
+              onInvalid={setError}
+            />
+          </div>
+          <div className="sm:col-span-2 lg:col-span-3">
+            <SalvaSezioneButton
+              busy={busy}
+              disabled={!picked}
+              onClick={() => void save()}
+            />
+          </div>
+        </div>
+      ) : null}
+      {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
+      <ContrattoElenco
+        items={items}
+        isAdmin={isAdmin}
+        onError={setError}
+        onStato={
+          isAdmin
+            ? async (id, next) => {
+                const res = await setContrattoStatoAction(id, next);
+                if (!res.success) setError(res.error);
+                else await load();
+              }
+            : undefined
+        }
+        onRemove={
+          isAdmin
+            ? async (id) => {
+                const res = await softDeleteContrattoAction(id);
                 if (!res.success) setError(res.error);
                 else await load();
               }
