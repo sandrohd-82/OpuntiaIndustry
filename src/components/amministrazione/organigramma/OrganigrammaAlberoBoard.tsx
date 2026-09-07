@@ -349,6 +349,7 @@ export function OrganigrammaAlberoBoard() {
               <AlberoBranch
                 key={n.id}
                 node={n}
+                ingresso={false}
                 isAdmin={isAdmin}
                 dragId={dragId}
                 overId={overId}
@@ -379,6 +380,7 @@ export function OrganigrammaAlberoBoard() {
 
 type BranchProps = {
   node: AlberoNodo;
+  ingresso?: boolean;
   isAdmin: boolean;
   dragId: string | null;
   overId: string | null;
@@ -390,6 +392,26 @@ type BranchProps = {
   onDropEnd: (parentId: string | null) => void;
   onPhotoClick: (id: string) => void;
 };
+
+function LineaOrizzontale({
+  index,
+  total,
+  edge,
+}: {
+  index: number;
+  total: number;
+  edge: "top" | "bottom";
+}) {
+  if (total < 2) return null;
+  const pos = edge === "top" ? "top-0" : "bottom-0";
+  const span =
+    index === 0
+      ? "left-1/2 right-0"
+      : index === total - 1
+        ? "left-0 right-1/2"
+        : "left-0 right-0";
+  return <span className={`absolute ${pos} h-px bg-slate-300 ${span}`} />;
+}
 
 function FigliRow({
   figli,
@@ -412,20 +434,15 @@ function FigliRow({
       <div className="flex items-start">
         {figli.map((c, i) => (
           <div key={c.id} className="relative flex flex-col items-center px-4">
-            {figli.length > 1 ? (
-              <span
-                className={`absolute top-0 h-px bg-slate-300 ${
-                  i === 0
-                    ? "left-1/2 right-0"
-                    : i === figli.length - 1
-                      ? "left-0 right-1/2"
-                      : "left-0 right-0"
-                }`}
-              />
-            ) : null}
-            <div className="h-6 w-px bg-slate-300" />
+            {c.kind === "gruppo" ? null : (
+              <>
+                <LineaOrizzontale index={i} total={figli.length} edge="top" />
+                <div className="h-6 w-px bg-slate-300" />
+              </>
+            )}
             <AlberoBranch
               node={c}
+              ingresso
               isAdmin={isAdmin}
               dragId={dragId}
               overId={overId}
@@ -488,6 +505,7 @@ function AlberoBranch(props: BranchProps) {
 function OrgGruppo(props: BranchProps) {
   const { node } = props;
   const membri = node.membri;
+  const ingresso = Boolean(props.ingresso);
   return (
     <div className="flex flex-col items-center">
       <div className="flex items-stretch">
@@ -496,6 +514,12 @@ function OrgGruppo(props: BranchProps) {
           const exclusive = node.membriFigli[i] ?? [];
           return (
             <div key={m.id} className="relative flex flex-col items-center px-4">
+              {ingresso ? (
+                <>
+                  <LineaOrizzontale index={i} total={membri.length} edge="top" />
+                  <div className="h-6 w-px bg-slate-300" />
+                </>
+              ) : null}
               <PersonaCard
                 node={m}
                 isAdmin={props.isAdmin}
@@ -516,18 +540,8 @@ function OrgGruppo(props: BranchProps) {
               {exclusive.length ? (
                 <FigliRow {...props} figli={exclusive} parentId={m.id} />
               ) : null}
-              <div className="h-6 w-px bg-slate-300" />
-              {membri.length > 1 ? (
-                <span
-                  className={`absolute bottom-0 h-px bg-slate-300 ${
-                    i === 0
-                      ? "left-1/2 right-0"
-                      : i === membri.length - 1
-                        ? "left-0 right-1/2"
-                        : "left-0 right-0"
-                  }`}
-                />
-              ) : null}
+              <div className="mt-auto h-6 w-px bg-slate-300" />
+              <LineaOrizzontale index={i} total={membri.length} edge="bottom" />
             </div>
           );
         })}
