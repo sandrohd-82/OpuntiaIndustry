@@ -9,8 +9,10 @@ import {
   reorderPersoneAction,
 } from "@/app/actions/organigramma";
 import {
-  nestPersone,
+  nestAlbero,
   personaLabel,
+  superioriDi,
+  type AlberoNodo,
   type OrganigrammaPersona,
 } from "@/lib/amministrazione/organigramma";
 
@@ -22,11 +24,15 @@ function wouldCycle(
   if (!newParentId) return false;
   if (newParentId === personaId) return true;
   const seen = new Set<string>([personaId]);
-  let cursor: string | null = newParentId;
-  while (cursor) {
+  const stack = [newParentId];
+  while (stack.length) {
+    const cursor = stack.pop();
+    if (!cursor) break;
     if (seen.has(cursor)) return true;
     seen.add(cursor);
-    cursor = byId.get(cursor)?.parentId ?? null;
+    const persona = byId.get(cursor);
+    if (!persona) continue;
+    for (const up of superioriDi(persona)) stack.push(up);
   }
   return false;
 }
@@ -62,7 +68,7 @@ export function OrganigrammaAlberoBoard() {
     void reload();
   }, []);
 
-  const tree = useMemo(() => nestPersone(items), [items]);
+  const tree = useMemo(() => nestAlbero(items), [items]);
   const byId = useMemo(() => new Map(items.map((p) => [p.id, p])), [items]);
   const gerarchia = useMemo(
     () =>
@@ -128,20 +134,15 @@ export function OrganigrammaAlberoBoard() {
       }
     }
     setBusy(true);
-    for (const parentId of gerarchiaIds) {
-      const childIds = daInserireIds.filter((id) => id !== parentId);
-      if (!childIds.length) continue;
-      const res = await movePersoneTreeBatchAction({
-        parentId,
-        childIds,
-      });
-      if (!res.success) {
-        setBusy(false);
-        setError(res.error);
-        return;
-      }
-    }
+    const res = await movePersoneTreeBatchAction({
+      parentIds: gerarchiaIds,
+      childIds: daInserireIds,
+    });
     setBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
     clearSelezione();
     setError(null);
     await reload();
@@ -253,7 +254,7 @@ export function OrganigrammaAlberoBoard() {
       <p className="text-sm text-[var(--muted)]">
         Organigramma a cascata.{" "}
         {isAdmin
-          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi. Indietro torna alla selezione precedente, Annulla chiude tutto. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
+          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi: vanno sotto tutti i selezionati, collegati da una linea. Indietro torna alla selezione precedente, Annulla chiude tutto. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
           : "Clicca il nome per aprire la scheda operatore."}
       </p>
       {isAdmin && gerarchia.length ? (
@@ -345,7 +346,7 @@ export function OrganigrammaAlberoBoard() {
         <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-gradient-to-b from-slate-50 to-white px-6 py-8">
           <div className="flex min-w-max items-start justify-center gap-8">
             {tree.map((n) => (
-              <OrgNode
+              <AlberoBranch
                 key={n.id}
                 node={n}
                 isAdmin={isAdmin}
@@ -376,20 +377,8 @@ export function OrganigrammaAlberoBoard() {
   );
 }
 
-function OrgNode({
-  node,
-  isAdmin,
-  dragId,
-  overId,
-  gerarchiaIds,
-  daInserireIds,
-  setDragId,
-  setOverId,
-  onDrop,
-  onDropEnd,
-  onPhotoClick,
-}: {
-  node: OrganigrammaPersona;
+type BranchProps = {
+  node: AlberoNodo;
   isAdmin: boolean;
   dragId: string | null;
   overId: string | null;
@@ -400,74 +389,154 @@ function OrgNode({
   onDrop: (id: string) => void;
   onDropEnd: (parentId: string | null) => void;
   onPhotoClick: (id: string) => void;
-}) {
-  const figli = node.figli ?? [];
-  const dropping = overId === node.id && dragId && overId !== dragId;
+};
 
+function FigliRow({
+  figli,
+  parentId,
+  isAdmin,
+  dragId,
+  overId,
+  gerarchiaIds,
+  daInserireIds,
+  setDragId,
+  setOverId,
+  onDrop,
+  onDropEnd,
+  onPhotoClick,
+}: Omit<BranchProps, "node"> & { figli: AlberoNodo[]; parentId: string | null }) {
+  if (!figli.length) return null;
   return (
-    <div className="flex flex-col items-center">
-      <PersonaCard
-        node={node}
-        isAdmin={isAdmin}
-        dragging={dragId === node.id}
-        dropping={Boolean(dropping)}
-        role={
-          gerarchiaIds.includes(node.id)
-            ? "gerarchia"
-            : daInserireIds.includes(node.id)
-              ? "inserire"
-              : null
-        }
-        setDragId={setDragId}
-        setOverId={setOverId}
-        onDrop={onDrop}
-        onPhotoClick={onPhotoClick}
-      />
-      {figli.length ? (
-        <>
-          <div className="h-6 w-px bg-slate-300" />
-          <div className="flex items-start">
-            {figli.map((c, i) => (
-              <div key={c.id} className="relative flex flex-col items-center px-4">
-                {figli.length > 1 ? (
-                  <span
-                    className={`absolute top-0 h-px bg-slate-300 ${
-                      i === 0
-                        ? "left-1/2 right-0"
-                        : i === figli.length - 1
-                          ? "left-0 right-1/2"
-                          : "left-0 right-0"
-                    }`}
-                  />
-                ) : null}
-                <div className="h-6 w-px bg-slate-300" />
-                <OrgNode
-                  node={c}
-                  isAdmin={isAdmin}
-                  dragId={dragId}
-                  overId={overId}
-                  gerarchiaIds={gerarchiaIds}
-                  daInserireIds={daInserireIds}
-                  setDragId={setDragId}
-                  setOverId={setOverId}
-                  onDrop={onDrop}
-                  onDropEnd={onDropEnd}
-                  onPhotoClick={onPhotoClick}
-                />
-              </div>
-            ))}
-            <EndSlot
-              parentId={node.id}
+    <>
+      <div className="h-6 w-px bg-slate-300" />
+      <div className="flex items-start">
+        {figli.map((c, i) => (
+          <div key={c.id} className="relative flex flex-col items-center px-4">
+            {figli.length > 1 ? (
+              <span
+                className={`absolute top-0 h-px bg-slate-300 ${
+                  i === 0
+                    ? "left-1/2 right-0"
+                    : i === figli.length - 1
+                      ? "left-0 right-1/2"
+                      : "left-0 right-0"
+                }`}
+              />
+            ) : null}
+            <div className="h-6 w-px bg-slate-300" />
+            <AlberoBranch
+              node={c}
               isAdmin={isAdmin}
               dragId={dragId}
               overId={overId}
-              siblingCount={figli.length}
+              gerarchiaIds={gerarchiaIds}
+              daInserireIds={daInserireIds}
+              setDragId={setDragId}
               setOverId={setOverId}
+              onDrop={onDrop}
               onDropEnd={onDropEnd}
+              onPhotoClick={onPhotoClick}
             />
           </div>
-        </>
-      ) : null}
+        ))}
+        <EndSlot
+          parentId={parentId}
+          isAdmin={isAdmin}
+          dragId={dragId}
+          overId={overId}
+          siblingCount={figli.length}
+          setOverId={setOverId}
+          onDropEnd={onDropEnd}
+        />
+      </div>
+    </>
+  );
+}
+
+function AlberoBranch(props: BranchProps) {
+  const { node } = props;
+  if (node.kind === "gruppo") {
+    return <OrgGruppo {...props} />;
+  }
+  const persona = node.membri[0];
+  if (!persona) return null;
+  const dropping = props.overId === persona.id && props.dragId && props.overId !== props.dragId;
+  return (
+    <div className="flex flex-col items-center">
+      <PersonaCard
+        node={persona}
+        isAdmin={props.isAdmin}
+        dragging={props.dragId === persona.id}
+        dropping={Boolean(dropping)}
+        role={
+          props.gerarchiaIds.includes(persona.id)
+            ? "gerarchia"
+            : props.daInserireIds.includes(persona.id)
+              ? "inserire"
+              : null
+        }
+        setDragId={props.setDragId}
+        setOverId={props.setOverId}
+        onDrop={props.onDrop}
+        onPhotoClick={props.onPhotoClick}
+      />
+      <FigliRow {...props} figli={node.figli} parentId={persona.id} />
+    </div>
+  );
+}
+
+function OrgGruppo(props: BranchProps) {
+  const { node } = props;
+  const membri = node.membri;
+  return (
+    <div className="flex flex-col items-center">
+      <div className="flex items-stretch">
+        {membri.map((m, i) => {
+          const dropping = props.overId === m.id && props.dragId && props.overId !== props.dragId;
+          const exclusive = node.membriFigli[i] ?? [];
+          return (
+            <div key={m.id} className="relative flex flex-col items-center px-4">
+              <PersonaCard
+                node={m}
+                isAdmin={props.isAdmin}
+                dragging={props.dragId === m.id}
+                dropping={Boolean(dropping)}
+                role={
+                  props.gerarchiaIds.includes(m.id)
+                    ? "gerarchia"
+                    : props.daInserireIds.includes(m.id)
+                      ? "inserire"
+                      : null
+                }
+                setDragId={props.setDragId}
+                setOverId={props.setOverId}
+                onDrop={props.onDrop}
+                onPhotoClick={props.onPhotoClick}
+              />
+              {exclusive.length ? (
+                <FigliRow {...props} figli={exclusive} parentId={m.id} />
+              ) : null}
+              <div className="h-6 w-px bg-slate-300" />
+              {membri.length > 1 ? (
+                <span
+                  className={`absolute bottom-0 h-px bg-slate-300 ${
+                    i === 0
+                      ? "left-1/2 right-0"
+                      : i === membri.length - 1
+                        ? "left-0 right-1/2"
+                        : "left-0 right-0"
+                  }`}
+                />
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+      <FigliRow
+        {...props}
+        figli={node.figli}
+        parentId={membri[0]?.id ?? null}
+      />
     </div>
   );
 }

@@ -47,7 +47,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, sort_order, foto_path, documento_stato, note, reparto_id, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -60,6 +60,7 @@ type PersonaRow = {
   carta_identita: string;
   user_id: string | null;
   parent_id: string | null;
+  co_parent_ids?: string[] | null;
   sort_order: number;
   foto_path: string | null;
   documento_stato: OrganigrammaPersona["documentoStato"];
@@ -115,6 +116,13 @@ function mapPersona(
     cartaIdentita: row.carta_identita ?? "",
     userId: row.user_id,
     parentId: row.parent_id,
+    superioreIds: [
+      ...new Set(
+        [row.parent_id, ...(row.co_parent_ids ?? [])].filter(
+          (id): id is string => Boolean(id)
+        )
+      ),
+    ],
     sortOrder: row.sort_order ?? 100,
     fotoPath: row.foto_path,
     fotoUrl,
@@ -1192,6 +1200,30 @@ export async function softDeletePersonaAction(
     .update({ parent_id: null, updated_by: auth.userId })
     .eq("parent_id", id)
     .is("deleted_at", null);
+  const { data: conCo } = await supabase
+    .from("organigramma_persone")
+    .select("id, parent_id, co_parent_ids")
+    .contains("co_parent_ids", [id])
+    .is("deleted_at", null);
+  for (const row of (conCo ?? []) as Array<{
+    id: string;
+    parent_id: string | null;
+    co_parent_ids: string[] | null;
+  }>) {
+    const rest = (row.co_parent_ids ?? []).filter((x) => x !== id);
+    const nextParent = row.parent_id === id ? (rest[0] ?? null) : row.parent_id;
+    const nextCo =
+      row.parent_id === id ? rest.slice(1) : rest;
+    await supabase
+      .from("organigramma_persone")
+      .update({
+        parent_id: nextParent,
+        co_parent_ids: nextCo,
+        updated_by: auth.userId,
+      })
+      .eq("id", row.id)
+      .is("deleted_at", null);
+  }
   await recordAttivita({
     personaId: id,
     azione: "delete",
@@ -1323,6 +1355,7 @@ export async function movePersonaTreeAction(
     .from("organigramma_persone")
     .update({
       parent_id: parsed.data.parentId,
+      co_parent_ids: [],
       sort_order: parsed.data.sortOrder ?? 100,
       updated_by: auth.userId,
     })
@@ -1357,80 +1390,97 @@ export async function movePersoneTreeBatchAction(
       error: parsed.error.issues[0]?.message ?? "Selezione non valida.",
     };
   }
-  const parentId = parsed.data.parentId;
-  const childIds = [...new Set(parsed.data.childIds)].filter((id) => id !== parentId);
-  if (!childIds.length) {
+  const parentIds = [...new Set(parsed.data.parentIds)];
+  const childIds = [...new Set(parsed.data.childIds)].filter(
+    (id) => !parentIds.includes(id)
+  );
+  if (!parentIds.length || !childIds.length) {
     return { success: false, error: "Seleziona almeno un operatore da mettere sotto." };
   }
+  const primaryId = parentIds[0];
+  const coParentIds = parentIds.slice(1);
   const supabase = await createClient();
   const { data: rows, error: loadErr } = await supabase
     .from("organigramma_persone")
-    .select("id, parent_id")
-    .in("id", [parentId, ...childIds])
+    .select("id, parent_id, co_parent_ids")
+    .in("id", [...parentIds, ...childIds])
     .is("deleted_at", null);
   if (loadErr) return { success: false, error: loadErr.message };
   const found = new Set(((rows ?? []) as Array<{ id: string }>).map((r) => r.id));
-  if (!found.has(parentId) || childIds.some((id) => !found.has(id))) {
+  if (parentIds.some((id) => !found.has(id)) || childIds.some((id) => !found.has(id))) {
     return { success: false, error: "Alcuni operatori non sono più disponibili." };
   }
-  const parentById = new Map(
-    ((rows ?? []) as Array<{ id: string; parent_id: string | null }>).map((r) => [
-      r.id,
-      r.parent_id,
-    ])
-  );
+  const upsById = new Map<string, string[]>();
   const { data: allRows } = await supabase
     .from("organigramma_persone")
-    .select("id, parent_id")
+    .select("id, parent_id, co_parent_ids")
     .is("deleted_at", null);
-  for (const r of (allRows ?? []) as Array<{ id: string; parent_id: string | null }>) {
-    if (!parentById.has(r.id)) parentById.set(r.id, r.parent_id);
+  for (const r of (allRows ?? []) as Array<{
+    id: string;
+    parent_id: string | null;
+    co_parent_ids: string[] | null;
+  }>) {
+    upsById.set(
+      r.id,
+      [...new Set([r.parent_id, ...(r.co_parent_ids ?? [])].filter((x): x is string => Boolean(x)))]
+    );
   }
   for (const childId of childIds) {
-    const seen = new Set<string>([childId]);
-    let cursor: string | null = parentId;
-    for (let i = 0; i < 40 && cursor; i++) {
-      if (seen.has(cursor)) {
-        return {
-          success: false,
-          error: "Il collegamento creerebbe un ciclo. Cambia la selezione.",
-        };
+    for (const parentId of parentIds) {
+      const seen = new Set<string>([childId]);
+      const stack = [parentId];
+      while (stack.length) {
+        const cursor = stack.pop();
+        if (!cursor) break;
+        if (seen.has(cursor)) {
+          return {
+            success: false,
+            error: "Il collegamento creerebbe un ciclo. Cambia la selezione.",
+          };
+        }
+        seen.add(cursor);
+        for (const up of upsById.get(cursor) ?? []) stack.push(up);
       }
-      seen.add(cursor);
-      cursor = parentById.get(cursor) ?? null;
     }
   }
   const siblings = ((allRows ?? []) as Array<{ id: string; parent_id: string | null }>)
-    .filter((r) => r.parent_id === parentId && !childIds.includes(r.id));
+    .filter((r) => r.parent_id === primaryId && !childIds.includes(r.id));
   let sortOrder = siblings.length * 10;
   for (const childId of childIds) {
     sortOrder += 10;
     const { error } = await supabase
       .from("organigramma_persone")
       .update({
-        parent_id: parentId,
+        parent_id: primaryId,
+        co_parent_ids: coParentIds,
         sort_order: sortOrder,
         updated_by: auth.userId,
       })
       .eq("id", childId)
       .is("deleted_at", null);
     if (error) return { success: false, error: error.message };
-    parentById.set(childId, parentId);
+    upsById.set(childId, parentIds);
     await recordAttivita({
       personaId: childId,
       azione: "albero",
       actorId: auth.userId,
       actorNome: actorNome(auth.profile),
-      note: "Messo sotto gerarchia nell’albero",
+      note:
+        parentIds.length > 1
+          ? "Messo sotto più operatori, collegati da una linea"
+          : "Messo sotto gerarchia nell’albero",
     });
   }
   await writeAuditLog({
     entity_type: "organigramma_persone",
-    entity_id: parentId,
+    entity_id: primaryId,
     action: "albero_gerarchia",
     actor_id: auth.userId,
-    summary: `Collegati ${childIds.length} operatori sotto gerarchia`,
-    payload: { parent_id: parentId, child_ids: childIds },
+    summary:
+      parentIds.length > 1
+        ? `Collegati ${childIds.length} operatori sotto ${parentIds.length} superiori`
+        : `Collegati ${childIds.length} operatori sotto gerarchia`,
+    payload: { parent_ids: parentIds, child_ids: childIds },
   });
   return { success: true, moved: childIds.length };
 }

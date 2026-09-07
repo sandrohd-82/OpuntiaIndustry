@@ -71,6 +71,7 @@ export type OrganigrammaPersona = {
   cartaIdentita: string;
   userId: string | null;
   parentId: string | null;
+  superioreIds: string[];
   sortOrder: number;
   fotoPath: string | null;
   fotoUrl: string | null;
@@ -350,7 +351,7 @@ export const treeReorderSchema = z.object({
 });
 
 export const treeMoveManySchema = z.object({
-  parentId: z.string().uuid(),
+  parentIds: z.array(z.string().uuid()).min(1).max(20),
   childIds: z.array(z.string().uuid()).min(1).max(80),
 });
 
@@ -564,6 +565,19 @@ export function personaLabel(p: { nome: string; cognome: string }): string {
   return `${p.cognome} ${p.nome}`.trim();
 }
 
+export function superioriDi(p: OrganigrammaPersona): string[] {
+  if (p.superioreIds?.length) return p.superioreIds;
+  return p.parentId ? [p.parentId] : [];
+}
+
+export type AlberoNodo = {
+  id: string;
+  kind: "persona" | "gruppo";
+  membri: OrganigrammaPersona[];
+  membriFigli: AlberoNodo[][];
+  figli: AlberoNodo[];
+};
+
 export function nestPersone(items: OrganigrammaPersona[]): OrganigrammaPersona[] {
   const byId = new Map(items.map((p) => [p.id, { ...p, figli: [] as OrganigrammaPersona[] }]));
   const roots: OrganigrammaPersona[] = [];
@@ -581,6 +595,119 @@ export function nestPersone(items: OrganigrammaPersona[]): OrganigrammaPersona[]
     for (const n of nodes) sortTree(n.figli ?? []);
   }
   sortTree(roots);
+  return roots;
+}
+
+export function nestAlbero(items: OrganigrammaPersona[]): AlberoNodo[] {
+  const byId = new Map(items.map((p) => [p.id, p]));
+  const sortPersone = (a: OrganigrammaPersona, b: OrganigrammaPersona) =>
+    a.sortOrder - b.sortOrder || a.cognome.localeCompare(b.cognome, "it");
+
+  function parentKey(ids: string[]): string {
+    return [...ids].sort().join(",");
+  }
+
+  const byParents = new Map<string, OrganigrammaPersona[]>();
+  const senzaSuperiori: OrganigrammaPersona[] = [];
+  for (const p of items) {
+    const parents = superioriDi(p).filter((id) => byId.has(id));
+    if (!parents.length) {
+      senzaSuperiori.push(p);
+      continue;
+    }
+    const key = parentKey(parents);
+    const cur = byParents.get(key) ?? [];
+    cur.push(p);
+    byParents.set(key, cur);
+  }
+
+  const groupSpecs: Array<{ parentIds: string[]; children: OrganigrammaPersona[] }> =
+    [];
+  const memberOfGroup = new Set<string>();
+  for (const [key, children] of byParents) {
+    const parentIds = key.split(",").filter(Boolean);
+    if (parentIds.length < 2) continue;
+    parentIds.forEach((id) => memberOfGroup.add(id));
+    groupSpecs.push({ parentIds, children });
+  }
+
+  function hostOfMembers(parentIds: string[]): string | null {
+    const hosts = parentIds.map((id) => {
+      const m = byId.get(id);
+      const host = m?.parentId ?? null;
+      return host && byId.has(host) ? host : null;
+    });
+    if (hosts.length && hosts.every((h) => h === hosts[0])) return hosts[0];
+    return null;
+  }
+
+  function buildPersonaNodo(p: OrganigrammaPersona): AlberoNodo {
+    const exclusive = (byParents.get(p.id) ?? []).filter(
+      (c) => !memberOfGroup.has(c.id)
+    );
+    exclusive.sort(sortPersone);
+    const figli: AlberoNodo[] = exclusive.map((c) => buildPersonaNodo(c));
+    for (const g of groupSpecs) {
+      if (hostOfMembers(g.parentIds) === p.id) {
+        figli.push(buildGruppoNodo(g));
+      }
+    }
+    figli.sort((a, b) => {
+      const aa = a.membri[0];
+      const bb = b.membri[0];
+      if (!aa || !bb) return 0;
+      return sortPersone(aa, bb);
+    });
+    return {
+      id: p.id,
+      kind: "persona",
+      membri: [p],
+      membriFigli: [[]],
+      figli,
+    };
+  }
+
+  function buildGruppoNodo(g: {
+    parentIds: string[];
+    children: OrganigrammaPersona[];
+  }): AlberoNodo {
+    const membri = g.parentIds
+      .map((id) => byId.get(id))
+      .filter((p): p is OrganigrammaPersona => Boolean(p));
+    membri.sort(sortPersone);
+    const membriFigli = membri.map((m) => {
+      const exclusive = (byParents.get(m.id) ?? []).filter(
+        (c) => !memberOfGroup.has(c.id)
+      );
+      exclusive.sort(sortPersone);
+      return exclusive.map((c) => buildPersonaNodo(c));
+    });
+    const shared = g.children.slice().sort(sortPersone).map((c) => buildPersonaNodo(c));
+    return {
+      id: `gruppo:${[...g.parentIds].sort().join("+")}`,
+      kind: "gruppo",
+      membri,
+      membriFigli,
+      figli: shared,
+    };
+  }
+
+  const roots: AlberoNodo[] = [];
+  for (const g of groupSpecs) {
+    if (hostOfMembers(g.parentIds) === null) {
+      roots.push(buildGruppoNodo(g));
+    }
+  }
+  for (const p of senzaSuperiori) {
+    if (memberOfGroup.has(p.id)) continue;
+    roots.push(buildPersonaNodo(p));
+  }
+  roots.sort((a, b) => {
+    const aa = a.membri[0];
+    const bb = b.membri[0];
+    if (!aa || !bb) return 0;
+    return sortPersone(aa, bb);
+  });
   return roots;
 }
 
