@@ -31,6 +31,91 @@ function wouldCycle(
   return false;
 }
 
+function ancestorIds(
+  personaId: string,
+  byId: Map<string, OrganigrammaPersona>
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  let cursor = byId.get(personaId)?.parentId ?? null;
+  while (cursor && !seen.has(cursor)) {
+    out.push(cursor);
+    seen.add(cursor);
+    cursor = byId.get(cursor)?.parentId ?? null;
+  }
+  return out;
+}
+
+function lowestCommonAncestor(
+  a: string,
+  b: string,
+  byId: Map<string, OrganigrammaPersona>
+): string | null {
+  const fromA = new Set<string>([a, ...ancestorIds(a, byId)]);
+  if (fromA.has(b)) return b;
+  let cursor: string | null = b;
+  const seen = new Set<string>();
+  while (cursor && !seen.has(cursor)) {
+    if (fromA.has(cursor)) return cursor;
+    seen.add(cursor);
+    cursor = byId.get(cursor)?.parentId ?? null;
+  }
+  return null;
+}
+
+type GerarchiaSelezione =
+  | { ok: true; parentId: string }
+  | { ok: false; motivo: string };
+
+function analizzaGerarchia(
+  ids: string[],
+  byId: Map<string, OrganigrammaPersona>
+): GerarchiaSelezione {
+  if (ids.length < 2) {
+    return {
+      ok: false,
+      motivo: "Seleziona almeno due operatori della stessa gerarchia.",
+    };
+  }
+  if (ids.some((id) => !byId.has(id))) {
+    return { ok: false, motivo: "Alcuni operatori non sono più disponibili." };
+  }
+
+  const parentIds = ids.map((id) => byId.get(id)?.parentId ?? null);
+  const stessoGenitore = parentIds.every((p) => p === parentIds[0]);
+  if (stessoGenitore) {
+    const parentId = parentIds[0];
+    if (!parentId) {
+      return {
+        ok: false,
+        motivo:
+          "Seleziona operatori già sotto la stessa gerarchia, non tutti a primo livello.",
+      };
+    }
+    return { ok: true, parentId };
+  }
+
+  for (const cand of ids) {
+    const others = ids.filter((id) => id !== cand);
+    if (others.every((id) => ancestorIds(id, byId).includes(cand))) {
+      return { ok: true, parentId: cand };
+    }
+  }
+
+  let acc: string | null = ids[0];
+  for (let i = 1; i < ids.length; i += 1) {
+    if (!acc) break;
+    acc = lowestCommonAncestor(acc, ids[i], byId);
+  }
+  if (!acc) {
+    return {
+      ok: false,
+      motivo: "I selezionati non appartengono alla stessa gerarchia.",
+    };
+  }
+  return { ok: true, parentId: acc };
+}
+
 function initials(p: OrganigrammaPersona): string {
   return `${p.nome.slice(0, 1)}${p.cognome.slice(0, 1)}`.toUpperCase();
 }
@@ -41,8 +126,8 @@ export function OrganigrammaAlberoBoard() {
   const [error, setError] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
-  const [superioreId, setSuperioreId] = useState<string | null>(null);
-  const [sottoIds, setSottoIds] = useState<string[]>([]);
+  const [gerarchiaIds, setGerarchiaIds] = useState<string[]>([]);
+  const [daInserireIds, setDaInserireIds] = useState<string[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQ, setPickerQ] = useState("");
   const [busy, setBusy] = useState(false);
@@ -64,39 +149,68 @@ export function OrganigrammaAlberoBoard() {
 
   const tree = useMemo(() => nestPersone(items), [items]);
   const byId = useMemo(() => new Map(items.map((p) => [p.id, p])), [items]);
-  const superiore = superioreId ? byId.get(superioreId) ?? null : null;
-  const sotto = sottoIds
-    .map((id) => byId.get(id))
-    .filter((p): p is OrganigrammaPersona => Boolean(p));
+  const gerarchia = useMemo(
+    () =>
+      gerarchiaIds
+        .map((id) => byId.get(id))
+        .filter((p): p is OrganigrammaPersona => Boolean(p)),
+    [gerarchiaIds, byId]
+  );
+  const daInserire = useMemo(
+    () =>
+      daInserireIds
+        .map((id) => byId.get(id))
+        .filter((p): p is OrganigrammaPersona => Boolean(p)),
+    [daInserireIds, byId]
+  );
+  const analisi = useMemo(
+    () => analizzaGerarchia(gerarchiaIds, byId),
+    [gerarchiaIds, byId]
+  );
+  const capoGerarchia = analisi.ok ? byId.get(analisi.parentId) ?? null : null;
 
   function clearSelezione() {
-    setSuperioreId(null);
-    setSottoIds([]);
+    setGerarchiaIds([]);
+    setDaInserireIds([]);
     setPickerOpen(false);
     setPickerQ("");
   }
 
-  function toggleSotto(id: string) {
-    setSottoIds((cur) =>
+  function toggleGerarchia(id: string) {
+    setGerarchiaIds((cur) =>
+      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    );
+    setDaInserireIds((cur) => cur.filter((x) => x !== id));
+    setPickerOpen(false);
+    setPickerQ("");
+  }
+
+  function toggleDaInserire(id: string) {
+    if (gerarchiaIds.includes(id)) return;
+    setDaInserireIds((cur) =>
       cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
     );
   }
 
-  async function applicaGerarchia() {
-    if (!superioreId || !sottoIds.length) {
-      setError("Seleziona il superiore e almeno un operatore da mettere sotto.");
+  async function applicaInserimento() {
+    if (!analisi.ok) {
+      setError(analisi.motivo);
       return;
     }
-    for (const childId of sottoIds) {
-      if (wouldCycle(childId, superioreId, byId)) {
+    if (!daInserireIds.length) {
+      setError("Seleziona almeno un operatore da inserire sotto gerarchia.");
+      return;
+    }
+    for (const childId of daInserireIds) {
+      if (wouldCycle(childId, analisi.parentId, byId)) {
         setError("Il collegamento creerebbe un ciclo. Cambia la selezione.");
         return;
       }
     }
     setBusy(true);
     const res = await movePersoneTreeBatchAction({
-      parentId: superioreId,
-      childIds: sottoIds,
+      parentId: analisi.parentId,
+      childIds: daInserireIds,
     });
     setBusy(false);
     if (!res.success) {
@@ -152,7 +266,7 @@ export function OrganigrammaAlberoBoard() {
     const target = byId.get(targetId);
     if (!drag || !target || drag.parentId !== target.parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: clicca il superiore, poi gli operatori, infine Metti sotto gerarchia."
+        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona prima gli operatori della stessa gerarchia, poi usa il bottone per scegliere chi inserire sotto."
       );
       return;
     }
@@ -171,7 +285,7 @@ export function OrganigrammaAlberoBoard() {
     const drag = byId.get(dragPersonaId);
     if (!drag || drag.parentId !== parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: clicca il superiore, poi gli operatori, infine Metti sotto gerarchia."
+        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona prima gli operatori della stessa gerarchia, poi usa il bottone per scegliere chi inserire sotto."
       );
       return;
     }
@@ -187,16 +301,12 @@ export function OrganigrammaAlberoBoard() {
   function onPhotoClick(id: string) {
     if (!isAdmin || busy) return;
     setError(null);
-    if (!superioreId) {
-      setSuperioreId(id);
-      setSottoIds((cur) => cur.filter((x) => x !== id));
+    if (pickerOpen) {
+      if (gerarchiaIds.includes(id)) return;
+      toggleDaInserire(id);
       return;
     }
-    if (superioreId === id) {
-      clearSelezione();
-      return;
-    }
-    toggleSotto(id);
+    toggleGerarchia(id);
   }
 
   function onDropCard(targetId: string) {
@@ -218,47 +328,56 @@ export function OrganigrammaAlberoBoard() {
       <p className="text-sm text-[var(--muted)]">
         Organigramma a cascata.{" "}
         {isAdmin
-          ? "Clicca la foto del superiore, poi una o più foto degli operatori da mettere sotto. Conferma con Metti sotto gerarchia. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
+          ? "Prima seleziona le foto degli operatori della stessa gerarchia. Poi usa Seleziona operatore/i da inserire sotto gerarchia. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
           : "Clicca il nome per aprire la scheda operatore."}
       </p>
-      {isAdmin && (superiore || sotto.length) ? (
+      {isAdmin && gerarchia.length ? (
         <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
           <p>
-            {superiore ? (
+            Gerarchia selezionata:{" "}
+            <strong>{gerarchia.map(personaLabel).join(", ")}</strong>
+            {analisi.ok && capoGerarchia ? (
               <>
-                Superiore: <strong>{personaLabel(superiore)}</strong>
-                {sotto.length
-                  ? `. Da mettere sotto: ${sotto.map(personaLabel).join(", ")}.`
-                  : ". Clicca una o più altre foto (secondo, terzo operatore…)."}
+                . I nuovi operatori andranno sotto{" "}
+                <strong>{personaLabel(capoGerarchia)}</strong>.
               </>
-            ) : (
-              "Clicca la foto del superiore."
-            )}
+            ) : null}
+            {daInserire.length ? (
+              <> Da inserire: {daInserire.map(personaLabel).join(", ")}.</>
+            ) : null}
           </p>
+          {!analisi.ok ? (
+            <p className="text-xs text-sky-800">{analisi.motivo}</p>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              disabled={busy || !superioreId || sotto.length === 0}
-              onClick={() => void applicaGerarchia()}
+              disabled={busy || !analisi.ok}
+              onClick={() => {
+                setPickerOpen(true);
+                setError(null);
+              }}
               className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
-              {busy ? "Collegamento…" : "Metti sotto gerarchia"}
+              Seleziona operatore/i da inserire sotto gerarchia
             </button>
-            <button
-              type="button"
-              className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium"
-              onClick={() => setPickerOpen((v) => !v)}
-              disabled={!superioreId || busy}
-            >
-              Aggiungi altri operatori
-            </button>
-            {superiore ? (
+            {pickerOpen ? (
+              <button
+                type="button"
+                disabled={busy || daInserire.length === 0}
+                onClick={() => void applicaInserimento()}
+                className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                {busy ? "Inserimento…" : "Inserisci sotto gerarchia"}
+              </button>
+            ) : null}
+            {gerarchia.length === 1 ? (
               <button
                 type="button"
                 className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium"
-                onClick={() => void unlink(superiore.id)}
+                onClick={() => void unlink(gerarchia[0].id)}
               >
-                Porta superiore a primo livello
+                Porta a primo livello
               </button>
             ) : null}
             <button
@@ -269,14 +388,16 @@ export function OrganigrammaAlberoBoard() {
               Annulla
             </button>
           </div>
-          {pickerOpen && superioreId ? (
+          {pickerOpen && analisi.ok ? (
             <OperatorePicker
               items={items}
-              superioreId={superioreId}
-              sottoIds={sottoIds}
+              excludeIds={[analisi.parentId, ...gerarchiaIds]}
+              parentId={analisi.parentId}
+              byId={byId}
+              selectedIds={daInserireIds}
               query={pickerQ}
               onQuery={setPickerQ}
-              onToggle={toggleSotto}
+              onToggle={toggleDaInserire}
             />
           ) : null}
         </div>
@@ -301,8 +422,8 @@ export function OrganigrammaAlberoBoard() {
                 isAdmin={isAdmin}
                 dragId={dragId}
                 overId={overId}
-                superioreId={superioreId}
-                sottoIds={sottoIds}
+                gerarchiaIds={gerarchiaIds}
+                daInserireIds={daInserireIds}
                 setDragId={setDragId}
                 setOverId={setOverId}
                 onDrop={onDropCard}
@@ -331,8 +452,8 @@ function OrgNode({
   isAdmin,
   dragId,
   overId,
-  superioreId,
-  sottoIds,
+  gerarchiaIds,
+  daInserireIds,
   setDragId,
   setOverId,
   onDrop,
@@ -343,8 +464,8 @@ function OrgNode({
   isAdmin: boolean;
   dragId: string | null;
   overId: string | null;
-  superioreId: string | null;
-  sottoIds: string[];
+  gerarchiaIds: string[];
+  daInserireIds: string[];
   setDragId: (id: string | null) => void;
   setOverId: (id: string | null) => void;
   onDrop: (id: string) => void;
@@ -362,10 +483,10 @@ function OrgNode({
         dragging={dragId === node.id}
         dropping={Boolean(dropping)}
         role={
-          superioreId === node.id
-            ? "superiore"
-            : sottoIds.includes(node.id)
-              ? "sotto"
+          gerarchiaIds.includes(node.id)
+            ? "gerarchia"
+            : daInserireIds.includes(node.id)
+              ? "inserire"
               : null
         }
         setDragId={setDragId}
@@ -396,8 +517,8 @@ function OrgNode({
                   isAdmin={isAdmin}
                   dragId={dragId}
                   overId={overId}
-                  superioreId={superioreId}
-                  sottoIds={sottoIds}
+                  gerarchiaIds={gerarchiaIds}
+                  daInserireIds={daInserireIds}
                   setDragId={setDragId}
                   setOverId={setOverId}
                   onDrop={onDrop}
@@ -483,7 +604,7 @@ function PersonaCard({
   isAdmin: boolean;
   dragging: boolean;
   dropping: boolean;
-  role: "superiore" | "sotto" | null;
+  role: "gerarchia" | "inserire" | null;
   setDragId: (id: string | null) => void;
   setOverId: (id: string | null) => void;
   onDrop: (id: string) => void;
@@ -523,9 +644,9 @@ function PersonaCard({
         onDrop(node.id);
       }}
       className={`w-44 rounded-2xl border bg-white p-3 text-center shadow-sm transition ${
-        role === "superiore"
+        role === "gerarchia"
           ? "border-sky-500 ring-2 ring-sky-300"
-          : role === "sotto"
+          : role === "inserire"
             ? "border-emerald-500 ring-2 ring-emerald-300"
             : dropping
               ? "border-amber-400 bg-amber-50 shadow-md"
@@ -545,7 +666,7 @@ function PersonaCard({
         className="mx-auto block cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
         title={
           isAdmin
-            ? "Clicca: prima il superiore, poi gli operatori da mettere sotto"
+            ? "Clicca per selezionare gli operatori della stessa gerarchia"
             : personaLabel(node)
         }
       >
@@ -556,9 +677,9 @@ function PersonaCard({
             alt={personaLabel(node)}
             draggable={false}
             className={`h-16 w-16 rounded-full object-cover ring-2 ${
-              role === "superiore"
+              role === "gerarchia"
                 ? "ring-sky-500"
-                : role === "sotto"
+                : role === "inserire"
                   ? "ring-emerald-500"
                   : "ring-slate-200"
             }`}
@@ -566,9 +687,9 @@ function PersonaCard({
         ) : (
           <span
             className={`flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600 ring-2 ${
-              role === "superiore"
+              role === "gerarchia"
                 ? "ring-sky-500"
-                : role === "sotto"
+                : role === "inserire"
                   ? "ring-emerald-500"
                   : "ring-slate-200"
             }`}
@@ -577,13 +698,13 @@ function PersonaCard({
           </span>
         )}
       </button>
-      {role === "superiore" ? (
+      {role === "gerarchia" ? (
         <span className="mt-1 inline-block rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-800">
-          Superiore
+          Gerarchia
         </span>
-      ) : role === "sotto" ? (
+      ) : role === "inserire" ? (
         <span className="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-          Sotto gerarchia
+          Da inserire
         </span>
       ) : null}
       <Link
@@ -609,22 +730,29 @@ function PersonaCard({
 
 function OperatorePicker({
   items,
-  superioreId,
-  sottoIds,
+  excludeIds,
+  parentId,
+  byId,
+  selectedIds,
   query,
   onQuery,
   onToggle,
 }: {
   items: OrganigrammaPersona[];
-  superioreId: string;
-  sottoIds: string[];
+  excludeIds: string[];
+  parentId: string;
+  byId: Map<string, OrganigrammaPersona>;
+  selectedIds: string[];
   query: string;
   onQuery: (q: string) => void;
   onToggle: (id: string) => void;
 }) {
+  const excluded = new Set(excludeIds);
   const q = query.trim().toLowerCase();
   const list = items
-    .filter((p) => p.id !== superioreId)
+    .filter((p) => !excluded.has(p.id))
+    .filter((p) => p.parentId !== parentId)
+    .filter((p) => !wouldCycle(p.id, parentId, byId))
     .filter((p) => {
       if (!q) return true;
       return `${p.cognome} ${p.nome} ${p.repartoNome}`.toLowerCase().includes(q);
@@ -647,7 +775,7 @@ function OperatorePicker({
               <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-slate-50">
                 <input
                   type="checkbox"
-                  checked={sottoIds.includes(p.id)}
+                  checked={selectedIds.includes(p.id)}
                   onChange={() => onToggle(p.id)}
                 />
                 <span>
