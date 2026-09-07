@@ -903,7 +903,6 @@ export async function preparePersonaSchedaExportAction(
     sel.certificatiFile ||
     sel.busteElenco ||
     sel.busteFile;
-  const needContratti = sel.contrattiElenco || sel.contrattiFile;
 
   const [docsRes, contrattiRes, authzRes, permessiRes] = await Promise.all([
     needDocs
@@ -914,14 +913,14 @@ export async function preparePersonaSchedaExportAction(
           .is("deleted_at", null)
           .order("created_at", { ascending: false })
       : Promise.resolve({ data: [], error: null }),
-    needContratti
-      ? supabase
-          .from("organigramma_contratti")
-          .select(CONTRATTO_COLS)
-          .eq("persona_id", sel.personaId)
-          .is("deleted_at", null)
-          .order("data_inizio", { ascending: false })
-      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("organigramma_contratti")
+      .select(
+        "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, versione, approved_by, approved_at, created_at"
+      )
+      .eq("persona_id", sel.personaId)
+      .is("deleted_at", null)
+      .order("data_inizio", { ascending: false }),
     sel.autorizzazioni
       ? listAutorizzazioniPersonaAction(sel.personaId)
       : Promise.resolve({ success: true as const, items: [] }),
@@ -1023,7 +1022,7 @@ export async function preparePersonaSchedaExportAction(
       persona: personaRes.item,
       identita: sel.identitaElenco ? identita : [],
       certificati: sel.certificatiElenco ? certificati : [],
-      contratti: sel.contrattiElenco ? contratti : [],
+      contratti,
       buste: sel.busteElenco ? buste : [],
       autorizzazioni: sel.autorizzazioni ? authzRes.items : [],
       permessi: sel.permessi ? permessiRes.items : [],

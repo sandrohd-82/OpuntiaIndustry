@@ -55,8 +55,13 @@ function pdfSafeText(value: string): string {
   return out.replace(/\s+/g, " ").trim();
 }
 
-function t(value: string): string {
-  return pdfSafeText(value);
+function t(value: unknown): string {
+  return pdfSafeText(String(value ?? ""));
+}
+
+function formatImportoPdf(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "-";
+  return `${value.toFixed(2).replace(".", ",")} EUR`;
 }
 
 function formatData(iso: string | null | undefined): string {
@@ -180,6 +185,73 @@ function writeAnagrafica(
   return y;
 }
 
+function writeContrattiArea(
+  doc: jsPDF,
+  payload: PersonaSchedaExportPayload,
+  startY: number
+): number {
+  const margin = 14;
+  const items = Array.isArray(payload.contratti) ? payload.contratti : [];
+  const files = Array.isArray(payload.files) ? payload.files : [];
+  let y = startY;
+  if (y > 240) {
+    doc.addPage();
+    y = 16;
+  }
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text(t("Contratti"), margin, y);
+  y += 5;
+  if (!items.length) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(t("Nessun contratto registrato."), margin, y);
+    return y + 8;
+  }
+  for (const c of items) {
+    if (y > 248) {
+      doc.addPage();
+      y = 16;
+    }
+    const inCoda = files.some((f) => f.gruppo === "contratti" && f.id === c.id);
+    const fileLabel = c.fileName
+      ? inCoda
+        ? `${c.fileName} (allegato in coda)`
+        : c.fileName
+      : "-";
+    const rows: Array<[string, string]> = [
+      ["Titolo", c.titolo || "-"],
+      ["Tipologia", contrattoTipoLabel(c.tipologia)],
+      ["Dal", formatData(c.dataInizio)],
+      [
+        "Al",
+        c.tipologia === "tempo_indeterminato"
+          ? "Indeterminato"
+          : formatData(c.dataFine),
+      ],
+      ["Importo", formatImportoPdf(c.importo)],
+      ["Stato", contrattoStatoLabel(c.documentoStato)],
+      ["File", fileLabel],
+    ];
+    if (c.note?.trim()) rows.push(["Note", c.note]);
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      theme: "plain",
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 1.2 },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 38 },
+        1: { cellWidth: "auto" },
+      },
+      body: rows.map(([k, v]) => [t(k), t(v)]),
+    });
+    y =
+      (doc as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable
+        .finalY + 6;
+  }
+  return y;
+}
+
 export async function downloadPersonaSchedaPdf(
   payload: PersonaSchedaExportPayload
 ): Promise<void> {
@@ -290,20 +362,8 @@ export async function downloadPersonaSchedaPdf(
       ])
     );
   }
-  if (sel.contrattiElenco) {
-    sectionTable(
-      "Contratti (elenco)",
-      ["Titolo", "Tipologia", "Dal", "Al", "Stato"],
-      payload.contratti.map((c) => [
-        c.titolo,
-        contrattoTipoLabel(c.tipologia),
-        formatData(c.dataInizio),
-        c.tipologia === "tempo_indeterminato"
-          ? "Indeterminato"
-          : formatData(c.dataFine),
-        contrattoStatoLabel(c.documentoStato),
-      ])
-    );
+  if (sel.contrattiElenco || sel.contrattiFile) {
+    y = writeContrattiArea(doc, payload, y);
   }
   if (sel.busteElenco) {
     sectionTable(
