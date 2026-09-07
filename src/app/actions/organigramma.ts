@@ -20,6 +20,8 @@ import {
   certificatoAlertLivello,
   contrattoInputSchema,
   parseImportoContratto,
+  periodiTacitoRinnovo,
+  puoApplicareTacitoRinnovo,
   personaSchedaExportSchema,
   permessoTipoLabel,
   type CertificatoScadenzaAlert,
@@ -916,7 +918,7 @@ export async function preparePersonaSchedaExportAction(
     supabase
       .from("organigramma_contratti")
       .select(
-        "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, versione, approved_by, approved_at, created_at"
+        "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, tacito_rinnovo, rinnovato_da_id, versione, approved_by, approved_at, created_at"
       )
       .eq("persona_id", sel.personaId)
       .is("deleted_at", null)
@@ -1681,7 +1683,7 @@ export async function softDeleteDocumentoAction(
 }
 
 const CONTRATTO_COLS =
-  "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, versione, approved_by, approved_at, created_at";
+  "id, persona_id, tipologia, titolo, data_inizio, data_fine, importo, note, storage_path, file_name, mime, documento_stato, tacito_rinnovo, rinnovato_da_id, versione, approved_by, approved_at, created_at";
 
 type ContrattoRow = {
   id: string;
@@ -1696,6 +1698,8 @@ type ContrattoRow = {
   file_name: string;
   mime: string;
   documento_stato: OrganigrammaContrattoStato;
+  tacito_rinnovo: boolean;
+  rinnovato_da_id: string | null;
   versione: number;
   approved_by: string | null;
   approved_at: string | null;
@@ -1719,6 +1723,8 @@ function mapContratto(r: ContrattoRow): OrganigrammaContratto {
     fileName: r.file_name ?? "",
     mime: r.mime ?? "",
     documentoStato: r.documento_stato,
+    tacitoRinnovo: Boolean(r.tacito_rinnovo),
+    rinnovatoDaId: r.rinnovato_da_id ?? null,
     versione: r.versione,
     approvedBy: r.approved_by,
     approvedAt: r.approved_at,
@@ -1766,7 +1772,8 @@ export async function uploadPersonaContrattoAction(
       dataFine: String(formData.get("dataFine") ?? ""),
       importo: importoParsed.value,
       note: String(formData.get("note") ?? ""),
-      documentoStato: String(formData.get("documentoStato") ?? "bozza"),
+      documentoStato: String(formData.get("documentoStato") ?? "proposto"),
+      tacitoRinnovo: String(formData.get("tacitoRinnovo") ?? "") === "1",
     });
     if (!parsed.success) {
       return {
@@ -1820,7 +1827,7 @@ export async function uploadPersonaContrattoAction(
       upsert: false,
     });
     if (upErr) return { success: false, error: upErr.message };
-    const stato = parsed.data.documentoStato ?? "bozza";
+    const stato = parsed.data.documentoStato ?? "proposto";
     const now = new Date().toISOString();
     const { data, error } = await supabase
       .from("organigramma_contratti")
@@ -1836,9 +1843,10 @@ export async function uploadPersonaContrattoAction(
         file_name: fileName,
         mime,
         documento_stato: stato,
+        tacito_rinnovo: Boolean(parsed.data.tacitoRinnovo),
         versione: 1,
-        approved_by: stato === "approvato" ? auth.userId : null,
-        approved_at: stato === "approvato" ? now : null,
+        approved_by: stato === "accettato" ? auth.userId : null,
+        approved_at: stato === "accettato" ? now : null,
         created_by: auth.userId,
         updated_by: auth.userId,
       })
@@ -1952,6 +1960,9 @@ export async function setContrattoStatoAction(
   if (!isAdminLikeProfile(auth.profile)) {
     return { success: false, error: "Solo l’amministratore può cambiare lo stato." };
   }
+  if (stato !== "proposto" && stato !== "accettato" && stato !== "respinto") {
+    return { success: false, error: "Stato non valido. Usa Proposto, Accettato o Respinto." };
+  }
   const supabase = await createClient();
   const current = await supabase
     .from("organigramma_contratti")
@@ -1974,11 +1985,11 @@ export async function setContrattoStatoAction(
     .update({
       documento_stato: stato,
       versione:
-        stato === "approvato" && row.documento_stato !== "approvato"
+        stato === "accettato" && row.documento_stato !== "accettato"
           ? row.versione + 1
           : row.versione,
-      approved_by: stato === "approvato" ? auth.userId : null,
-      approved_at: stato === "approvato" ? now : null,
+      approved_by: stato === "accettato" ? auth.userId : null,
+      approved_at: stato === "accettato" ? now : null,
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -2036,6 +2047,160 @@ export async function softDeleteContrattoAction(
     });
   }
   return { success: true };
+}
+
+export async function applicaTacitoRinnovoAction(
+  id: string
+): Promise<
+  | { success: true; creati: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può applicare il tacito rinnovo." };
+  }
+  const supabase = await createClient();
+  const sourceRes = await supabase
+    .from("organigramma_contratti")
+    .select(CONTRATTO_COLS)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (sourceRes.error || !sourceRes.data) {
+    return { success: false, error: sourceRes.error?.message ?? "Contratto non trovato." };
+  }
+  const source = mapContratto(sourceRes.data as ContrattoRow);
+  if (!puoApplicareTacitoRinnovo(source) || !source.dataInizio || !source.dataFine) {
+    return {
+      success: false,
+      error: "Il tacito rinnovo richiede un contratto con data di fine, non respinto.",
+    };
+  }
+
+  const allRes = await supabase
+    .from("organigramma_contratti")
+    .select(CONTRATTO_COLS)
+    .eq("persona_id", source.personaId)
+    .is("deleted_at", null);
+  if (allRes.error) return { success: false, error: allRes.error.message };
+  const rows = ((allRes.data ?? []) as ContrattoRow[]).map(mapContratto);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  let rootId = source.id;
+  const walked = new Set<string>();
+  while (byId.get(rootId)?.rinnovatoDaId && !walked.has(rootId)) {
+    walked.add(rootId);
+    rootId = byId.get(rootId)!.rinnovatoDaId!;
+  }
+  const family = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const r of rows) {
+      if (r.rinnovatoDaId && family.has(r.rinnovatoDaId) && !family.has(r.id)) {
+        family.add(r.id);
+        grew = true;
+      }
+    }
+  }
+  const root = byId.get(rootId) ?? source;
+  const familyRows = rows.filter((r) => family.has(r.id));
+  const latestFine = familyRows
+    .map((r) => r.dataFine)
+    .filter((d): d is string => Boolean(d))
+    .sort()
+    .at(-1);
+  if (!root.dataInizio || !root.dataFine || !latestFine) {
+    return { success: false, error: "Date del contratto non sufficienti per il rinnovo." };
+  }
+
+  const esistenti = new Set(
+    rows
+      .filter((r) => r.dataInizio && r.dataFine)
+      .map((r) => `${r.dataInizio}|${r.dataFine}`)
+  );
+  const periodi = periodiTacitoRinnovo({
+    origInizio: root.dataInizio,
+    origFine: root.dataFine,
+    dopoFine: latestFine,
+  }).filter((p) => !esistenti.has(`${p.dataInizio}|${p.dataFine}`));
+
+  if (!periodi.length) {
+    return {
+      success: false,
+      error: "Nessun periodo da generare: la copertura arriva già a oggi.",
+    };
+  }
+
+  await supabase
+    .from("organigramma_contratti")
+    .update({
+      tacito_rinnovo: true,
+      updated_by: auth.userId,
+    })
+    .eq("id", source.id)
+    .is("deleted_at", null);
+
+  let prevId = familyRows
+    .filter((r) => r.dataFine === latestFine)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.id ?? source.id;
+  let creati = 0;
+  for (const periodo of periodi) {
+    const { data, error } = await supabase
+      .from("organigramma_contratti")
+      .insert({
+        persona_id: source.personaId,
+        tipologia: source.tipologia,
+        titolo: source.titolo,
+        data_inizio: periodo.dataInizio,
+        data_fine: periodo.dataFine,
+        importo: source.importo,
+        note: source.note,
+        storage_path: (sourceRes.data as ContrattoRow).storage_path,
+        file_name: source.fileName,
+        mime: source.mime,
+        documento_stato: "proposto",
+        tacito_rinnovo: true,
+        rinnovato_da_id: prevId,
+        versione: 1,
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (error || !data) {
+      return {
+        success: false,
+        error:
+          creati > 0
+            ? `Create ${creati} copie, poi errore: ${error?.message ?? "inserimento fallito."}`
+            : error?.message ?? "Creazione rinnovo fallita.",
+      };
+    }
+    prevId = (data as { id: string }).id;
+    creati += 1;
+  }
+
+  await recordAttivita({
+    personaId: source.personaId,
+    azione: "contratto",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: `Tacito rinnovo ${source.titolo}: ${creati} copie proposte`,
+  });
+  await writeAuditLog({
+    entity_type: "organigramma_contratti",
+    entity_id: source.id,
+    action: "tacito_rinnovo",
+    actor_id: auth.userId,
+    summary: `Tacito rinnovo contratto ${source.titolo}: ${creati} periodi`,
+    payload: {
+      persona_id: source.personaId,
+      periodi,
+      creati,
+    },
+  });
+  return { success: true, creati };
 }
 
 function relField(

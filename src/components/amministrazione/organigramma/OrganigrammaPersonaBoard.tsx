@@ -17,6 +17,7 @@ import {
   listPostiOrganigrammaAction,
   removeAutorizzazionePostoAction,
   setOperatoreInForzaAction,
+  applicaTacitoRinnovoAction,
   setContrattoStatoAction,
   setPermessoStatoAction,
   softDeleteContrattoAction,
@@ -823,7 +824,8 @@ function ContrattiCard({
   const [dataFine, setDataFine] = useState("");
   const [importo, setImporto] = useState("");
   const [note, setNote] = useState("");
-  const [stato, setStato] = useState<OrganigrammaContrattoStato>("bozza");
+  const [stato, setStato] = useState<OrganigrammaContrattoStato>("proposto");
+  const [tacitoRinnovo, setTacitoRinnovo] = useState(false);
   const [picked, setPicked] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -875,6 +877,7 @@ function ContrattiCard({
       fd.set("importo", importo);
       fd.set("note", note);
       fd.set("documentoStato", stato);
+      fd.set("tacitoRinnovo", tacitoRinnovo ? "1" : "0");
       fd.set("file", picked);
       const res = await uploadPersonaContrattoAction(fd);
       if (!res.success) {
@@ -887,7 +890,8 @@ function ContrattiCard({
       setDataFine("");
       setImporto("");
       setNote("");
-      setStato("bozza");
+      setStato("proposto");
+      setTacitoRinnovo(false);
       await load();
     } catch (e) {
       setError(
@@ -907,7 +911,9 @@ function ContrattiCard({
         Ogni contratto è collegato a questa scheda operatore: collaborazione,
         ingaggio, tempo determinato o indeterminato, stage. Compila, allega il
         file e premi Salva dopo il controllo: nulla viene registrato in
-        automatico.
+        automatico. Iter: Proposto, poi Accettato o Respinto; se Accettato
+        la validità è In essere o Scaduto. Tacito rinnovo: clicca in elenco
+        per generare le copie fino a oggi (restano Proposte).
       </p>
       {alerts.length ? (
         <ul className="mt-2 space-y-1">
@@ -997,10 +1003,23 @@ function ContrattiCard({
             >
               {ORGANIGRAMMA_CONTRATTO_STATI.map((s) => (
                 <option key={s} value={s}>
-                  {s === "approvato" ? "Approvato" : s === "chiuso" ? "Chiuso" : "Bozza"}
+                  {s === "accettato"
+                    ? "Accettato"
+                    : s === "respinto"
+                      ? "Respinto"
+                      : "Proposto"}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)] sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={tacitoRinnovo}
+              disabled={indeterminato}
+              onChange={(e) => setTacitoRinnovo(e.target.checked)}
+            />
+            Tacito rinnovo (poi applica le copie dall’elenco)
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">
             Note
@@ -1049,6 +1068,15 @@ function ContrattiCard({
           isAdmin
             ? async (id) => {
                 const res = await softDeleteContrattoAction(id);
+                if (!res.success) setError(res.error);
+                else await load();
+              }
+            : undefined
+        }
+        onTacitoRinnovo={
+          isAdmin
+            ? async (id) => {
+                const res = await applicaTacitoRinnovoAction(id);
                 if (!res.success) setError(res.error);
                 else await load();
               }

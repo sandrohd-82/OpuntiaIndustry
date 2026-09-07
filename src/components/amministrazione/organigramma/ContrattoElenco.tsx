@@ -9,6 +9,7 @@ import {
   contrattoAlertLivello,
   contrattoStatoLabel,
   contrattoTipoLabel,
+  puoApplicareTacitoRinnovo,
   validitaContratto,
   type OrganigrammaContratto,
   type OrganigrammaContrattoStato,
@@ -73,12 +74,14 @@ export function ContrattoElenco({
   isAdmin,
   onRemove,
   onStato,
+  onTacitoRinnovo,
   onError,
 }: {
   items: OrganigrammaContratto[];
   isAdmin: boolean;
   onRemove?: (id: string) => Promise<void>;
   onStato?: (id: string, stato: OrganigrammaContrattoStato) => Promise<void>;
+  onTacitoRinnovo?: (id: string) => Promise<void>;
   onError: (msg: string) => void;
 }) {
   const [preview, setPreview] = useState<{
@@ -139,6 +142,7 @@ export function ContrattoElenco({
                     <p className="font-medium">{d.titolo}</p>
                     <p className="text-xs text-[var(--muted)]">
                       {d.fileName || "—"} · v{d.versione}
+                      {d.tacitoRinnovo ? " · Tacito rinnovo" : ""}
                     </p>
                   </td>
                   <td className="px-3 py-2.5">{contrattoTipoLabel(d.tipologia)}</td>
@@ -151,7 +155,11 @@ export function ContrattoElenco({
                   <td className="px-3 py-2.5">{formatImporto(d.importo)}</td>
                   <td className="px-3 py-2.5">
                     <div className="space-y-1">
-                      <ValiditaDocumentoBadge stato={validita} />
+                      {validita ? (
+                        <ValiditaDocumentoBadge stato={validita} />
+                      ) : (
+                        <span className="text-xs text-[var(--muted)]">—</span>
+                      )}
                       {livello && livello !== "scaduto" ? (
                         <p className="text-xs font-medium text-amber-800">
                           {contrattoAlertLabel(livello)}
@@ -171,9 +179,9 @@ export function ContrattoElenco({
                           )
                         }
                       >
-                        <option value="bozza">Bozza</option>
-                        <option value="approvato">Approvato</option>
-                        <option value="chiuso">Chiuso</option>
+                        <option value="proposto">Proposto</option>
+                        <option value="accettato">Accettato</option>
+                        <option value="respinto">Respinto</option>
                       </select>
                     ) : (
                       contrattoStatoLabel(d.documentoStato)
@@ -203,6 +211,26 @@ export function ContrattoElenco({
                         <FaDownload size={12} />
                         Download
                       </button>
+                      {isAdmin && onTacitoRinnovo && puoApplicareTacitoRinnovo(d) ? (
+                        <button
+                          type="button"
+                          disabled={busyId === d.id}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                "Applicare il tacito rinnovo? Verranno create le copie a copertura fino a oggi, in stato Proposto."
+                              )
+                            ) {
+                              return;
+                            }
+                            setBusyId(d.id);
+                            void onTacitoRinnovo(d.id).finally(() => setBusyId(null));
+                          }}
+                          className="text-xs font-medium text-[var(--primary)] hover:underline disabled:opacity-50"
+                        >
+                          Tacito rinnovo
+                        </button>
+                      ) : null}
                       {isAdmin && onRemove ? (
                         <button
                           type="button"

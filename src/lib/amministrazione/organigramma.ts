@@ -361,9 +361,9 @@ export type OrganigrammaContrattoTipo =
   (typeof ORGANIGRAMMA_CONTRATTO_TIPI)[number];
 
 export const ORGANIGRAMMA_CONTRATTO_STATI = [
-  "bozza",
-  "approvato",
-  "chiuso",
+  "proposto",
+  "accettato",
+  "respinto",
 ] as const;
 export type OrganigrammaContrattoStato =
   (typeof ORGANIGRAMMA_CONTRATTO_STATI)[number];
@@ -380,6 +380,8 @@ export type OrganigrammaContratto = {
   fileName: string;
   mime: string;
   documentoStato: OrganigrammaContrattoStato;
+  tacitoRinnovo: boolean;
+  rinnovatoDaId: string | null;
   versione: number;
   approvedBy: string | null;
   approvedAt: string | null;
@@ -396,9 +398,9 @@ export function contrattoTipoLabel(tipo: OrganigrammaContrattoTipo): string {
 }
 
 export function contrattoStatoLabel(stato: OrganigrammaContrattoStato): string {
-  if (stato === "approvato") return "Approvato";
-  if (stato === "chiuso") return "Chiuso";
-  return "Bozza";
+  if (stato === "accettato") return "Accettato";
+  if (stato === "respinto") return "Respinto";
+  return "Proposto";
 }
 
 export function contrattoAlertLivello(
@@ -406,7 +408,7 @@ export function contrattoAlertLivello(
   stato: OrganigrammaContrattoStato,
   now = new Date()
 ): "30gg" | "scaduto" | null {
-  if (!dataFine || stato === "chiuso") return null;
+  if (!dataFine || stato === "respinto" || stato === "proposto") return null;
   const [y, m, d] = dataFine.split("-").map(Number);
   const exp = Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1);
   const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
@@ -423,10 +425,92 @@ export function contrattoAlertLabel(livello: "30gg" | "scaduto"): string {
 export function validitaContratto(c: {
   tipologia: OrganigrammaContrattoTipo;
   dataFine: string | null;
+  documentoStato?: OrganigrammaContrattoStato;
   now?: Date;
-}): ValiditaDocumento {
+}): ValiditaDocumento | null {
+  if (c.documentoStato && c.documentoStato !== "accettato") return null;
   if (c.tipologia === "tempo_indeterminato") return "in_essere";
   return validitaDaScadenza(c.dataFine, { now: c.now }) ?? "in_essere";
+}
+
+function parseYmd(iso: string): { y: number; m: number; d: number } | null {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return { y, m, d };
+}
+
+function formatYmd(y: number, m: number, d: number): string {
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function addOneDay(iso: string): string {
+  const p = parseYmd(iso);
+  if (!p) return iso;
+  const dt = new Date(Date.UTC(p.y, p.m - 1, p.d));
+  dt.setUTCDate(dt.getUTCDate() + 1);
+  return dt.toISOString().slice(0, 10);
+}
+
+function spanEndFromStart(
+  nextStart: string,
+  origStart: string,
+  origEnd: string
+): string {
+  const ns = parseYmd(nextStart);
+  const os = parseYmd(origStart);
+  const oe = parseYmd(origEnd);
+  if (!ns || !os || !oe) return nextStart;
+  const y = ns.y + (oe.y - os.y);
+  const last = new Date(Date.UTC(y, oe.m, 0)).getUTCDate();
+  return formatYmd(y, oe.m, Math.min(oe.d, last));
+}
+
+/** Periodi successivi, stessa durata, fino a coprire oggi. */
+export function periodiTacitoRinnovo(input: {
+  origInizio: string;
+  origFine: string;
+  dopoFine?: string;
+  now?: Date;
+}): Array<{ dataInizio: string; dataFine: string }> {
+  const dataInizio = input.origInizio;
+  const dataFine = input.origFine;
+  const now = input.now ?? new Date();
+  const start = parseYmd(dataInizio);
+  const end = parseYmd(dataFine);
+  if (!start || !end || dataFine < dataInizio) return [];
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const lastEnd = input.dopoFine ?? dataFine;
+  const last = parseYmd(lastEnd);
+  if (!last) return [];
+  const lastEndUtc = Date.UTC(last.y, last.m - 1, last.d);
+  if (lastEndUtc >= today) return [];
+  const out: Array<{ dataInizio: string; dataFine: string }> = [];
+  let nextStart = addOneDay(lastEnd);
+  for (let i = 0; i < 40; i++) {
+    const nextEnd = spanEndFromStart(nextStart, dataInizio, dataFine);
+    if (nextEnd < nextStart) break;
+    out.push({ dataInizio: nextStart, dataFine: nextEnd });
+    const ns = parseYmd(nextStart);
+    const ne = parseYmd(nextEnd);
+    if (!ns || !ne) break;
+    const startUtc = Date.UTC(ns.y, ns.m - 1, ns.d);
+    const endUtc = Date.UTC(ne.y, ne.m - 1, ne.d);
+    if (startUtc <= today && today <= endUtc) break;
+    if (endUtc >= today) break;
+    nextStart = addOneDay(nextEnd);
+  }
+  return out;
+}
+
+export function puoApplicareTacitoRinnovo(c: {
+  tipologia: OrganigrammaContrattoTipo;
+  dataFine: string | null;
+  documentoStato: OrganigrammaContrattoStato;
+}): boolean {
+  if (c.tipologia === "tempo_indeterminato") return false;
+  if (!c.dataFine) return false;
+  if (c.documentoStato === "respinto") return false;
+  return true;
 }
 
 export function parseImportoContratto(
@@ -451,7 +535,8 @@ export const contrattoInputSchema = z
     dataFine: emptyOr(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data fine non valida")),
     importo: z.number().finite().nonnegative().optional(),
     note: z.string().trim().max(2000).optional().default(""),
-    documentoStato: z.enum(ORGANIGRAMMA_CONTRATTO_STATI).optional().default("bozza"),
+    documentoStato: z.enum(ORGANIGRAMMA_CONTRATTO_STATI).optional().default("proposto"),
+    tacitoRinnovo: z.boolean().optional().default(false),
   })
   .superRefine((v, ctx) => {
     if (v.tipologia === "tempo_indeterminato" && v.dataFine) {

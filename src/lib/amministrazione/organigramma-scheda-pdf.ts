@@ -222,7 +222,7 @@ function writeContrattiArea(
         ? `${c.fileName} (allegato in coda)`
         : c.fileName
       : "-";
-    const validita = validitaDocumentoLabel(validitaContratto(c));
+    const validita = validitaContratto(c);
     const rows: Array<[string, string]> = [
       ["Titolo", c.titolo || "-"],
       ["Tipologia", contrattoTipoLabel(c.tipologia)],
@@ -234,10 +234,11 @@ function writeContrattiArea(
           : formatData(c.dataFine),
       ],
       ["Importo", formatImportoPdf(c.importo)],
-      ["Validita", validita],
-      ["Stato", contrattoStatoLabel(c.documentoStato)],
+      ["Iter", contrattoStatoLabel(c.documentoStato)],
+      ["Validita", validita ? validitaDocumentoLabel(validita) : "-"],
       ["File", fileLabel],
     ];
+    if (c.tacitoRinnovo) rows.push(["Tacito rinnovo", "Si"]);
     if (c.note?.trim()) rows.push(["Note", c.note]);
     autoTable(doc, {
       startY: y,
