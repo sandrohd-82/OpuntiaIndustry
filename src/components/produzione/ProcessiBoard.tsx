@@ -11,6 +11,7 @@ import {
   FaTrash,
   FaXmark,
 } from "react-icons/fa6";
+import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   approvaProcessoAction,
   chiudiProcessoAction,
@@ -23,8 +24,11 @@ import {
   updateProcessoAction,
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
+  attivitaCompatibileConArea,
   labelDocumentoStato,
+  labelLuogoAttivita,
   type Processo,
   type ProcessoAttivita,
   type ProcessoPasso,
@@ -55,6 +59,7 @@ type ProcessiBoardProps = {
 export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [items, setItems] = useState<Processo[]>([]);
   const [attivita, setAttivita] = useState<ProcessoAttivita[]>([]);
+  const [aree, setAree] = useState<ProduzioneArea[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -73,6 +78,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [descrizione, setDescrizione] = useState("");
   const [note, setNote] = useState("");
   const [attivo, setAttivo] = useState(true);
+  const [areaId, setAreaId] = useState("");
 
   const selected = useMemo(
     () => items.find((p) => p.id === selectedId) ?? null,
@@ -81,14 +87,19 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
 
   const attivitaDisponibili = useMemo(() => {
     const used = new Set(draftPassi.map((p) => p.attivitaId));
-    return attivita.filter((a) => !used.has(a.id));
-  }, [attivita, draftPassi]);
+    return attivita.filter(
+      (a) =>
+        !used.has(a.id) &&
+        attivitaCompatibileConArea(a.areaId, selected?.areaId ?? null)
+    );
+  }, [attivita, draftPassi, selected]);
 
   function loadList() {
     startTransition(async () => {
-      const [procRes, attRes] = await Promise.all([
+      const [procRes, attRes, areeRes] = await Promise.all([
         listProcessiAction(),
         listProcessoAttivitaAttiveAction(),
+        listProduzioneAreeAction(),
       ]);
       if (!procRes.success) {
         setError(procRes.error);
@@ -100,9 +111,15 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         setReady(true);
         return;
       }
+      if (!areeRes.success) {
+        setError(areeRes.error);
+        setReady(true);
+        return;
+      }
       setError(null);
       setItems(procRes.items);
       setAttivita(attRes.items);
+      setAree(areeRes.items);
       setReady(true);
     });
   }
@@ -144,6 +161,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     setDescrizione("");
     setNote("");
     setAttivo(true);
+    setAreaId("");
   }
 
   function openEdit(p: Processo) {
@@ -158,6 +176,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     setDescrizione(p.descrizione);
     setNote(p.note);
     setAttivo(p.attivo);
+    setAreaId(p.areaId ?? "");
   }
 
   function closeForm() {
@@ -167,7 +186,14 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
 
   function saveForm() {
     startTransition(async () => {
-      const payload = { codice, nome, descrizione, note, attivo };
+      const payload = {
+        codice,
+        nome,
+        descrizione,
+        note,
+        attivo,
+        areaId: areaId || null,
+      };
       const res = editing
         ? await updateProcessoAction(editing.id, payload)
         : await createProcessoAction(payload);
@@ -258,9 +284,18 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
 
   function attivitaLabel(id: string): string {
     const fromCatalog = attivita.find((a) => a.id === id);
-    if (fromCatalog) return `${fromCatalog.codice} — ${fromCatalog.nome}`;
+    if (fromCatalog) {
+      const luogo = labelLuogoAttivita(fromCatalog);
+      return `${fromCatalog.codice} — ${fromCatalog.nome} (${luogo})`;
+    }
     const fromPassi = passi.find((p) => p.attivitaId === id);
-    if (fromPassi) return `${fromPassi.attivitaCodice} — ${fromPassi.attivitaNome}`;
+    if (fromPassi) {
+      const luogo = labelLuogoAttivita({
+        areaNome: fromPassi.attivitaAreaNome,
+        postoNome: fromPassi.attivitaPostoNome,
+      });
+      return `${fromPassi.attivitaCodice} — ${fromPassi.attivitaNome} (${luogo})`;
+    }
     return id;
   }
 
@@ -272,7 +307,8 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Processi produttivi come ricette ordinate di attività. Documento
+          Un processo è l’insieme delle attività eseguite in un’area (es.
+          Processo di taglio = Spaccapale, Coltelli e Cubettatrice). Documento
           controllato: Bozza / Approvato / Chiuso.
         </p>
         <button
@@ -302,7 +338,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
               <input
                 value={codice}
                 onChange={(e) => setCodice(e.target.value.toUpperCase())}
-                placeholder="es. PX-ESSICCAZIONE"
+                placeholder="es. PX-TAGLIO"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
               />
             </label>
@@ -311,9 +347,24 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
               <input
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                placeholder="es. Essiccazione"
+                placeholder="es. Processo di taglio"
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               />
+            </label>
+            <label className="text-sm sm:col-span-2">
+              <span className="mb-1 block font-medium">Area di esecuzione</span>
+              <select
+                value={areaId}
+                onChange={(e) => setAreaId(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                <option value="">Nessuna area specifica</option>
+                {aree.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.nome}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Descrizione</span>
@@ -368,6 +419,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
               <tr>
                 <th className="px-4 py-3">Codice</th>
                 <th className="px-4 py-3">Nome</th>
+                <th className="px-4 py-3">Area</th>
                 <th className="px-4 py-3">Doc.</th>
                 <th className="px-4 py-3">Passi</th>
                 <th className="px-4 py-3 text-right" />
@@ -391,6 +443,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     </button>
                   </td>
                   <td className="px-4 py-3">{p.nome}</td>
+                  <td className="px-4 py-3 text-[var(--muted)]">
+                    {p.areaNome || "—"}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={statoClass(p.documentoStato)}>
                       {labelDocumentoStato(p.documentoStato)}
@@ -422,10 +477,10 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
               {items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-4 py-8 text-center text-[var(--muted)]"
                   >
-                    Nessun processo. Creane uno (es. Essiccazione).
+                    Nessun processo. Creane uno (es. Processo di taglio).
                   </td>
                 </tr>
               ) : null}
@@ -449,6 +504,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
                     {labelDocumentoStato(selected.documentoStato)} · v
                     {selected.versione}
+                    {selected.areaNome ? ` · ${selected.areaNome}` : ""}
                     {selected.descrizione ? ` · ${selected.descrizione}` : ""}
                   </p>
                 </div>
@@ -584,7 +640,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                         <option value="">Seleziona…</option>
                         {attivitaDisponibili.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.codice} — {a.nome}
+                            {a.codice} — {a.nome} ({labelLuogoAttivita(a)})
                           </option>
                         ))}
                       </select>

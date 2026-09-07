@@ -3,6 +3,7 @@
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
+  attivitaCompatibileConArea,
   processoAttivitaInputSchema,
   processoComposizioneSchema,
   processoInputSchema,
@@ -16,6 +17,11 @@ import {
 } from "@/lib/produzione/processi";
 import { createClient } from "@/lib/supabase/server";
 
+const ATTIVITA_COLS =
+  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id";
+const PROCESSO_COLS =
+  "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at, area_id";
+
 type AttivitaRow = {
   id: string;
   codice: string;
@@ -24,6 +30,8 @@ type AttivitaRow = {
   attivo: boolean;
   note: string | null;
   created_at: string;
+  area_id: string | null;
+  posto_id: string | null;
 };
 
 type ProcessoRow = {
@@ -38,6 +46,7 @@ type ProcessoRow = {
   approvato_at: string | null;
   approvato_by: string | null;
   created_at: string;
+  area_id: string | null;
 };
 
 type PassoRow = {
@@ -50,10 +59,46 @@ type PassoRow = {
   produzione_processo_attivita: {
     codice: string;
     nome: string;
+    area_id: string | null;
+    posto_id: string | null;
   } | null;
 };
 
-function mapAttivita(row: AttivitaRow): ProcessoAttivita {
+type Luoghi = {
+  areaNome: Map<string, string>;
+  postoNome: Map<string, string>;
+};
+
+async function loadLuoghi(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<Luoghi> {
+  const [areeRes, postiRes] = await Promise.all([
+    supabase
+      .from("produzione_aree")
+      .select("id, nome")
+      .is("deleted_at", null),
+    supabase
+      .from("produzione_posti_lavoro")
+      .select("id, nome")
+      .is("deleted_at", null),
+  ]);
+  const areaNome = new Map<string, string>();
+  const postoNome = new Map<string, string>();
+  for (const row of (areeRes.data ?? []) as Array<{ id: string; nome: string }>) {
+    areaNome.set(row.id, row.nome);
+  }
+  for (const row of (postiRes.data ?? []) as Array<{
+    id: string;
+    nome: string;
+  }>) {
+    postoNome.set(row.id, row.nome);
+  }
+  return { areaNome, postoNome };
+}
+
+function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
+  const areaId = row.area_id ?? null;
+  const postoId = row.posto_id ?? null;
   return {
     id: row.id,
     codice: row.codice,
@@ -61,11 +106,20 @@ function mapAttivita(row: AttivitaRow): ProcessoAttivita {
     descrizione: row.descrizione ?? "",
     attivo: Boolean(row.attivo),
     note: row.note ?? "",
+    areaId,
+    postoId,
+    areaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
+    postoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
     createdAt: row.created_at,
   };
 }
 
-function mapProcesso(row: ProcessoRow, passiCount = 0): Processo {
+function mapProcesso(
+  row: ProcessoRow,
+  luoghi: Luoghi,
+  passiCount = 0
+): Processo {
+  const areaId = row.area_id ?? null;
   return {
     id: row.id,
     codice: row.codice,
@@ -73,6 +127,8 @@ function mapProcesso(row: ProcessoRow, passiCount = 0): Processo {
     descrizione: row.descrizione ?? "",
     attivo: Boolean(row.attivo),
     note: row.note ?? "",
+    areaId,
+    areaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     versione: row.versione,
     documentoStato: row.documento_stato,
     approvatoAt: row.approvato_at,
@@ -82,7 +138,9 @@ function mapProcesso(row: ProcessoRow, passiCount = 0): Processo {
   };
 }
 
-function mapPasso(row: PassoRow): ProcessoPasso {
+function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
+  const areaId = row.produzione_processo_attivita?.area_id ?? null;
+  const postoId = row.produzione_processo_attivita?.posto_id ?? null;
   return {
     id: row.id,
     processoId: row.processo_id,
@@ -92,6 +150,10 @@ function mapPasso(row: PassoRow): ProcessoPasso {
     note: row.note ?? "",
     attivitaCodice: row.produzione_processo_attivita?.codice ?? "",
     attivitaNome: row.produzione_processo_attivita?.nome ?? "",
+    attivitaAreaId: areaId,
+    attivitaPostoId: postoId,
+    attivitaAreaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
+    attivitaPostoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
   };
 }
 
@@ -113,6 +175,70 @@ async function countPassiByProcesso(
   return map;
 }
 
+async function resolveAreaPosto(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  areaId: string | null,
+  postoId: string | null
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (postoId && !areaId) {
+    return { success: false, error: "La postazione richiede un'area." };
+  }
+  if (areaId) {
+    const { data: area, error } = await supabase
+      .from("produzione_aree")
+      .select("id")
+      .eq("id", areaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    if (!area) return { success: false, error: "Area non trovata." };
+  }
+  if (postoId) {
+    const { data: posto, error } = await supabase
+      .from("produzione_posti_lavoro")
+      .select("id, area_id")
+      .eq("id", postoId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) return { success: false, error: error.message };
+    if (!posto) return { success: false, error: "Postazione non trovata." };
+    if ((posto as { area_id: string }).area_id !== areaId) {
+      return {
+        success: false,
+        error: "La postazione non appartiene all'area selezionata.",
+      };
+    }
+  }
+  return { success: true };
+}
+
+async function assertProcessoAreaCompatibile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  processoId: string,
+  areaId: string | null
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (!areaId) return { success: true };
+  const { data, error } = await supabase
+    .from("produzione_processo_passi")
+    .select("attivita_id, produzione_processo_attivita(area_id, codice, nome)")
+    .eq("processo_id", processoId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  for (const row of (data ?? []) as Array<{
+    produzione_processo_attivita: { area_id: string | null; codice: string; nome: string } | null;
+  }>) {
+    const attArea = row.produzione_processo_attivita?.area_id ?? null;
+    if (!attivitaCompatibileConArea(attArea, areaId)) {
+      const codice = row.produzione_processo_attivita?.codice ?? "";
+      return {
+        success: false,
+        error: `Il processo ha attività di un'altra area (${codice}). Rimuovile dalla composizione prima di cambiare area.`,
+      };
+    }
+  }
+  return { success: true };
+}
+
 // ---------------------------------------------------------------------------
 // Attività di processo
 // ---------------------------------------------------------------------------
@@ -124,13 +250,14 @@ export async function listProcessoAttivitaAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
-    .select("id, codice, nome, descrizione, attivo, note, created_at")
+    .select(ATTIVITA_COLS)
     .is("deleted_at", null)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    items: ((data ?? []) as AttivitaRow[]).map(mapAttivita),
+    items: ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi)),
   };
 }
 
@@ -141,14 +268,15 @@ export async function listProcessoAttivitaAttiveAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
-    .select("id, codice, nome, descrizione, attivo, note, created_at")
+    .select(ATTIVITA_COLS)
     .is("deleted_at", null)
     .eq("attivo", true)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    items: ((data ?? []) as AttivitaRow[]).map(mapAttivita),
+    items: ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi)),
   };
 }
 
@@ -166,6 +294,11 @@ export async function createProcessoAttivitaAction(
     };
   }
   const supabase = await createClient();
+  const areaId = parsed.data.areaId ?? null;
+  const postoId = parsed.data.postoId ?? null;
+  const luogo = await resolveAreaPosto(supabase, areaId, postoId);
+  if (!luogo.success) return luogo;
+
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
     .insert({
@@ -174,10 +307,12 @@ export async function createProcessoAttivitaAction(
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
       attivo: parsed.data.attivo ?? true,
+      area_id: areaId,
+      posto_id: postoId,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select("id, codice, nome, descrizione, attivo, note, created_at")
+    .select(ATTIVITA_COLS)
     .single();
   if (error) {
     if (error.code === "23505") {
@@ -185,14 +320,20 @@ export async function createProcessoAttivitaAction(
     }
     return { success: false, error: error.message };
   }
-  const item = mapAttivita(data as AttivitaRow);
+  const luoghi = await loadLuoghi(supabase);
+  const item = mapAttivita(data as AttivitaRow, luoghi);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Creata attività di processo ${item.codice}`,
-    payload: { codice: item.codice, nome: item.nome },
+    payload: {
+      codice: item.codice,
+      nome: item.nome,
+      area_id: item.areaId,
+      posto_id: item.postoId,
+    },
   });
   return { success: true, item };
 }
@@ -212,6 +353,11 @@ export async function updateProcessoAttivitaAction(
     };
   }
   const supabase = await createClient();
+  const areaId = parsed.data.areaId ?? null;
+  const postoId = parsed.data.postoId ?? null;
+  const luogo = await resolveAreaPosto(supabase, areaId, postoId);
+  if (!luogo.success) return luogo;
+
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
     .update({
@@ -220,11 +366,13 @@ export async function updateProcessoAttivitaAction(
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
       attivo: parsed.data.attivo ?? true,
+      area_id: areaId,
+      posto_id: postoId,
       updated_by: auth.userId,
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .select("id, codice, nome, descrizione, attivo, note, created_at")
+    .select(ATTIVITA_COLS)
     .single();
   if (error) {
     if (error.code === "23505") {
@@ -232,14 +380,20 @@ export async function updateProcessoAttivitaAction(
     }
     return { success: false, error: error.message };
   }
-  const item = mapAttivita(data as AttivitaRow);
+  const luoghi = await loadLuoghi(supabase);
+  const item = mapAttivita(data as AttivitaRow, luoghi);
   void writeAuditLog({
     entity_type: "produzione_processo_attivita",
     entity_id: item.id,
     action: "update",
     actor_id: auth.userId,
     summary: `Aggiornata attività di processo ${item.codice}`,
-    payload: { codice: item.codice, nome: item.nome },
+    payload: {
+      codice: item.codice,
+      nome: item.nome,
+      area_id: item.areaId,
+      posto_id: item.postoId,
+    },
   });
   return { success: true, item };
 }
@@ -296,20 +450,21 @@ export async function listProcessiAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_processi")
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .is("deleted_at", null)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as ProcessoRow[];
-  const counts = await countPassiByProcesso(
-    supabase,
-    rows.map((r) => r.id)
-  );
+  const [counts, luoghi] = await Promise.all([
+    countPassiByProcesso(
+      supabase,
+      rows.map((r) => r.id)
+    ),
+    loadLuoghi(supabase),
+  ]);
   return {
     success: true,
-    items: rows.map((r) => mapProcesso(r, counts.get(r.id) ?? 0)),
+    items: rows.map((r) => mapProcesso(r, luoghi, counts.get(r.id) ?? 0)),
   };
 }
 
@@ -323,9 +478,7 @@ export async function getProcessoAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_processi")
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -335,9 +488,10 @@ export async function getProcessoAction(
   const passiRes = await listProcessoPassiInternal(supabase, id);
   if (!passiRes.success) return passiRes;
 
+  const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    item: mapProcesso(data as ProcessoRow, passiRes.passi.length),
+    item: mapProcesso(data as ProcessoRow, luoghi, passiRes.passi.length),
     passi: passiRes.passi,
   };
 }
@@ -356,6 +510,10 @@ export async function createProcessoAction(
     };
   }
   const supabase = await createClient();
+  const areaId = parsed.data.areaId ?? null;
+  const luogo = await resolveAreaPosto(supabase, areaId, null);
+  if (!luogo.success) return luogo;
+
   const { data, error } = await supabase
     .from("produzione_processi")
     .insert({
@@ -364,14 +522,13 @@ export async function createProcessoAction(
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
       attivo: parsed.data.attivo ?? true,
+      area_id: areaId,
       versione: 1,
       documento_stato: "bozza",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .single();
   if (error) {
     if (error.code === "23505") {
@@ -379,14 +536,20 @@ export async function createProcessoAction(
     }
     return { success: false, error: error.message };
   }
-  const item = mapProcesso(data as ProcessoRow, 0);
+  const luoghi = await loadLuoghi(supabase);
+  const item = mapProcesso(data as ProcessoRow, luoghi, 0);
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Creato processo ${item.codice}`,
-    payload: { codice: item.codice, nome: item.nome, versione: 1 },
+    payload: {
+      codice: item.codice,
+      nome: item.nome,
+      versione: 1,
+      area_id: item.areaId,
+    },
   });
   return { success: true, item };
 }
@@ -406,6 +569,9 @@ export async function updateProcessoAction(
     };
   }
   const supabase = await createClient();
+  const areaId = parsed.data.areaId ?? null;
+  const luogo = await resolveAreaPosto(supabase, areaId, null);
+  if (!luogo.success) return luogo;
 
   const { data: existing, error: loadErr } = await supabase
     .from("produzione_processi")
@@ -425,6 +591,9 @@ export async function updateProcessoAction(
     };
   }
 
+  const compat = await assertProcessoAreaCompatibile(supabase, id, areaId);
+  if (!compat.success) return compat;
+
   const wasApprovato = stato === "approvato";
   const nextVersione = wasApprovato
     ? Number((existing as { versione: number }).versione) + 1
@@ -438,6 +607,7 @@ export async function updateProcessoAction(
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
       attivo: parsed.data.attivo ?? true,
+      area_id: areaId,
       updated_by: auth.userId,
       ...(wasApprovato
         ? {
@@ -450,9 +620,7 @@ export async function updateProcessoAction(
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .single();
   if (error) {
     if (error.code === "23505") {
@@ -460,8 +628,11 @@ export async function updateProcessoAction(
     }
     return { success: false, error: error.message };
   }
-  const counts = await countPassiByProcesso(supabase, [id]);
-  const item = mapProcesso(data as ProcessoRow, counts.get(id) ?? 0);
+  const [counts, luoghi] = await Promise.all([
+    countPassiByProcesso(supabase, [id]),
+    loadLuoghi(supabase),
+  ]);
+  const item = mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0);
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
@@ -475,6 +646,7 @@ export async function updateProcessoAction(
       nome: item.nome,
       versione: item.versione,
       documento_stato: item.documentoStato,
+      area_id: item.areaId,
     },
   });
   return { success: true, item };
@@ -499,14 +671,15 @@ export async function approvaProcessoAction(
     .eq("id", id)
     .is("deleted_at", null)
     .neq("documento_stato", "chiuso")
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
   if (!data) return { success: false, error: "Processo non trovato o chiuso." };
-  const counts = await countPassiByProcesso(supabase, [id]);
-  const item = mapProcesso(data as ProcessoRow, counts.get(id) ?? 0);
+  const [counts, luoghi] = await Promise.all([
+    countPassiByProcesso(supabase, [id]),
+    loadLuoghi(supabase),
+  ]);
+  const item = mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0);
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
@@ -534,14 +707,15 @@ export async function chiudiProcessoAction(
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .select(
-      "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at"
-    )
+    .select(PROCESSO_COLS)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
   if (!data) return { success: false, error: "Processo non trovato." };
-  const counts = await countPassiByProcesso(supabase, [id]);
-  const item = mapProcesso(data as ProcessoRow, counts.get(id) ?? 0);
+  const [counts, luoghi] = await Promise.all([
+    countPassiByProcesso(supabase, [id]),
+    loadLuoghi(supabase),
+  ]);
+  const item = mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0);
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
@@ -606,15 +780,18 @@ async function listProcessoPassiInternal(
   const { data, error } = await supabase
     .from("produzione_processo_passi")
     .select(
-      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome)"
+      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id)"
     )
     .eq("processo_id", processoId)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const luoghi = await loadLuoghi(supabase);
   return {
     success: true,
-    passi: ((data ?? []) as unknown as PassoRow[]).map(mapPasso),
+    passi: ((data ?? []) as unknown as PassoRow[]).map((row) =>
+      mapPasso(row, luoghi)
+    ),
   };
 }
 
@@ -655,7 +832,7 @@ export async function setProcessoComposizioneAction(
 
   const { data: processo, error: loadErr } = await supabase
     .from("produzione_processi")
-    .select("id, codice, documento_stato, versione")
+    .select("id, codice, documento_stato, versione, area_id")
     .eq("id", processoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -668,17 +845,40 @@ export async function setProcessoComposizioneAction(
     return { success: false, error: "Processo chiuso: composizione non modificabile." };
   }
 
+  const processoAreaId = (processo as { area_id: string | null }).area_id ?? null;
+
   if (attivitaIds.length > 0) {
-    const { count } = await supabase
+    const { data: atts, error: attErr } = await supabase
       .from("produzione_processo_attivita")
-      .select("id", { count: "exact", head: true })
+      .select("id, area_id, codice, attivo")
       .in("id", attivitaIds)
-      .is("deleted_at", null)
-      .eq("attivo", true);
-    if ((count ?? 0) !== attivitaIds.length) {
+      .is("deleted_at", null);
+    if (attErr) return { success: false, error: attErr.message };
+    const rows = (atts ?? []) as Array<{
+      id: string;
+      area_id: string | null;
+      codice: string;
+      attivo: boolean;
+    }>;
+    if (rows.length !== attivitaIds.length) {
       return {
         success: false,
-        error: "Una o più attività non sono valide o non sono attive.",
+        error: "Una o più attività non sono valide.",
+      };
+    }
+    if (rows.some((a) => !a.attivo)) {
+      return {
+        success: false,
+        error: "Una o più attività non sono attive.",
+      };
+    }
+    const incompatibile = rows.find(
+      (a) => !attivitaCompatibileConArea(a.area_id, processoAreaId)
+    );
+    if (incompatibile) {
+      return {
+        success: false,
+        error: `L'attività ${incompatibile.codice} appartiene a un'altra area rispetto al processo.`,
       };
     }
   }
