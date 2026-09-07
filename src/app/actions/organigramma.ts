@@ -19,6 +19,7 @@ import {
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
   contrattoInputSchema,
+  personaSchedaExportSchema,
   permessoTipoLabel,
   type CertificatoScadenzaAlert,
   type OrganigrammaAttivita,
@@ -27,6 +28,8 @@ import {
   type OrganigrammaContrattoStato,
   type OrganigrammaDocumento,
   type OrganigrammaDocTipo,
+  type PersonaSchedaExportFile,
+  type PersonaSchedaExportPayload,
   type OrganigrammaMansione,
   type OrganigrammaPermesso,
   type OrganigrammaPersona,
@@ -870,6 +873,162 @@ export async function getPersonaAction(
   };
 }
 
+const IDENTITA_TIPI = new Set(["cf_fronte", "cf_retro", "ci_fronte", "ci_retro"]);
+const CERT_TIPI = new Set(["corso", "certificato"]);
+
+export async function preparePersonaSchedaExportAction(
+  raw: unknown
+): Promise<
+  | { success: true; payload: PersonaSchedaExportPayload }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = personaSchedaExportSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Selezione non valida.",
+    };
+  }
+  const sel = parsed.data;
+  const personaRes = await getPersonaAction(sel.personaId);
+  if (!personaRes.success) return personaRes;
+
+  const supabase = await createClient();
+  const needDocs =
+    sel.identitaElenco ||
+    sel.identitaFile ||
+    sel.certificatiElenco ||
+    sel.certificatiFile ||
+    sel.busteElenco ||
+    sel.busteFile;
+  const needContratti = sel.contrattiElenco || sel.contrattiFile;
+
+  const [docsRes, contrattiRes, authzRes, permessiRes] = await Promise.all([
+    needDocs
+      ? supabase
+          .from("organigramma_documenti")
+          .select(`${DOC_COLS}, storage_path`)
+          .eq("persona_id", sel.personaId)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    needContratti
+      ? supabase
+          .from("organigramma_contratti")
+          .select(CONTRATTO_COLS)
+          .eq("persona_id", sel.personaId)
+          .is("deleted_at", null)
+          .order("data_inizio", { ascending: false })
+      : Promise.resolve({ data: [], error: null }),
+    sel.autorizzazioni
+      ? listAutorizzazioniPersonaAction(sel.personaId)
+      : Promise.resolve({ success: true as const, items: [] }),
+    sel.permessi
+      ? listPermessiAction(sel.personaId)
+      : Promise.resolve({ success: true as const, items: [] }),
+  ]);
+
+  if (docsRes.error) return { success: false, error: docsRes.error.message };
+  if (contrattiRes.error) {
+    return { success: false, error: contrattiRes.error.message };
+  }
+  if (!authzRes.success) return authzRes;
+  if (!permessiRes.success) return permessiRes;
+
+  const docRows = (docsRes.data ?? []) as Array<
+    DocumentoRow & { storage_path: string }
+  >;
+  const contratti = ((contrattiRes.data ?? []) as ContrattoRow[]).map(mapContratto);
+  const documenti = docRows.map(mapDocumento);
+  const identita = documenti.filter((d) => IDENTITA_TIPI.has(d.tipo));
+  const certificati = documenti.filter((d) => CERT_TIPI.has(d.tipo));
+  const buste = documenti.filter((d) => d.tipo === "busta_paga");
+
+  const files: PersonaSchedaExportFile[] = [];
+  const addDocFiles = (
+    rows: Array<DocumentoRow & { storage_path: string }>,
+    gruppo: PersonaSchedaExportFile["gruppo"],
+    pred: (t: OrganigrammaDocTipo) => boolean
+  ) => {
+    for (const r of rows) {
+      if (!pred(r.tipo) || !r.storage_path) continue;
+      files.push({
+        id: r.id,
+        gruppo,
+        titolo: r.titolo || r.tipo,
+        fileName: r.file_name,
+        mime: r.mime,
+        url: r.storage_path,
+      });
+    }
+  };
+  if (sel.identitaFile) {
+    addDocFiles(docRows, "identita", (t) => IDENTITA_TIPI.has(t));
+  }
+  if (sel.certificatiFile) {
+    addDocFiles(docRows, "certificati", (t) => CERT_TIPI.has(t));
+  }
+  if (sel.busteFile) {
+    addDocFiles(docRows, "buste", (t) => t === "busta_paga");
+  }
+  if (sel.contrattiFile) {
+    for (const r of (contrattiRes.data ?? []) as ContrattoRow[]) {
+      const path = r.storage_path;
+      if (!path) continue;
+      files.push({
+        id: r.id,
+        gruppo: "contratti",
+        titolo: r.titolo,
+        fileName: r.file_name,
+        mime: r.mime,
+        url: path,
+      });
+    }
+  }
+
+  const urlMap = await signedUrls(files.map((f) => f.url));
+  const signedFiles = files
+    .map((f) => {
+      const url = urlMap.get(f.url);
+      return url ? { ...f, url } : null;
+    })
+    .filter((f): f is PersonaSchedaExportFile => Boolean(f));
+
+  await recordAttivita({
+    personaId: sel.personaId,
+    azione: "export_pdf",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: "Esportata scheda operatore in PDF",
+  });
+  await writeAuditLog({
+    entity_type: "organigramma_persone",
+    entity_id: sel.personaId,
+    action: "export_pdf",
+    actor_id: auth.userId,
+    summary: `Export PDF scheda ${personaRes.item.cognome} ${personaRes.item.nome}`,
+    payload: { ...sel, fileCount: signedFiles.length },
+  });
+
+  return {
+    success: true,
+    payload: {
+      exportedAt: new Date().toISOString(),
+      exportedBy: actorNome(auth.profile),
+      selection: sel,
+      persona: personaRes.item,
+      identita: sel.identitaElenco ? identita : [],
+      certificati: sel.certificatiElenco ? certificati : [],
+      contratti: sel.contrattiElenco ? contratti : [],
+      buste: sel.busteElenco ? buste : [],
+      autorizzazioni: sel.autorizzazioni ? authzRes.items : [],
+      permessi: sel.permessi ? permessiRes.items : [],
+      files: signedFiles,
+    },
+  };
+}
+
 export async function createPersonaAction(
   raw: unknown
 ): Promise<
@@ -1525,6 +1684,7 @@ type ContrattoRow = {
   data_fine: string | null;
   importo: number | string | null;
   note: string;
+  storage_path: string;
   file_name: string;
   mime: string;
   documento_stato: OrganigrammaContrattoStato;

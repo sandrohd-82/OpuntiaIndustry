@@ -29,6 +29,7 @@ import {
 } from "@/app/actions/organigramma";
 import { ContrattoElenco } from "@/components/amministrazione/organigramma/ContrattoElenco";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
+import { EsportaSchedaOperatoreModal } from "@/components/amministrazione/organigramma/EsportaSchedaOperatoreModal";
 import {
   FotoTesseraBox,
   type FotoTesseraHandle,
@@ -100,6 +101,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
   const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -128,16 +130,32 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
 
   return (
     <div className="space-y-4">
-      <Link
-        href="/app/amministrazione/organigramma/elenco-e-mansioni"
-        className="text-sm font-medium text-[var(--primary)] hover:underline"
-      >
-        ← Elenco e mansioni
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link
+          href="/app/amministrazione/organigramma/elenco-e-mansioni"
+          className="text-sm font-medium text-[var(--primary)] hover:underline"
+        >
+          ← Elenco e mansioni
+        </Link>
+        <button
+          type="button"
+          onClick={() => setExportOpen(true)}
+          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
+        >
+          Esporta PDF
+        </button>
+      </div>
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
         </p>
+      ) : null}
+
+      {exportOpen ? (
+        <EsportaSchedaOperatoreModal
+          persona={item}
+          onClose={() => setExportOpen(false)}
+        />
       ) : null}
 
       <AnagraficaCard

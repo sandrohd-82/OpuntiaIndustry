@@ -213,6 +213,7 @@ export const ORGANIGRAMMA_AZIONI = [
   "cessazione",
   "certificato",
   "contratto",
+  "export_pdf",
 ] as const;
 
 /** Attività operative in azienda (non anagrafica/documenti). */
@@ -247,6 +248,7 @@ export function attivitaPersonaLabel(azione: string): string {
   if (azione === "cessazione") return "Stato in azienda";
   if (azione === "certificato") return "Certificato";
   if (azione === "contratto") return "Contratto";
+  if (azione === "export_pdf") return "Export PDF scheda";
   return azione;
 }
 
@@ -438,3 +440,83 @@ export function nestPersone(items: OrganigrammaPersona[]): OrganigrammaPersona[]
   sortTree(roots);
   return roots;
 }
+
+export const personaSchedaExportSchema = z
+  .object({
+    personaId: z.string().uuid(),
+    anagrafica: z.boolean(),
+    foto: z.boolean(),
+    identitaElenco: z.boolean(),
+    identitaFile: z.boolean(),
+    certificatiElenco: z.boolean(),
+    certificatiFile: z.boolean(),
+    contrattiElenco: z.boolean(),
+    contrattiFile: z.boolean(),
+    busteElenco: z.boolean(),
+    busteFile: z.boolean(),
+    autorizzazioni: z.boolean(),
+    permessi: z.boolean(),
+  })
+  .superRefine((v, ctx) => {
+    const any =
+      v.anagrafica ||
+      v.foto ||
+      v.identitaElenco ||
+      v.identitaFile ||
+      v.certificatiElenco ||
+      v.certificatiFile ||
+      v.contrattiElenco ||
+      v.contrattiFile ||
+      v.busteElenco ||
+      v.busteFile ||
+      v.autorizzazioni ||
+      v.permessi;
+    if (!any) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Seleziona almeno una sezione da esportare.",
+      });
+    }
+  });
+
+export type PersonaSchedaExportSelection = z.infer<
+  typeof personaSchedaExportSchema
+>;
+
+export const defaultPersonaSchedaExport = {
+  anagrafica: true,
+  foto: true,
+  identitaElenco: true,
+  identitaFile: false,
+  certificatiElenco: true,
+  certificatiFile: false,
+  contrattiElenco: true,
+  contrattiFile: false,
+  busteElenco: true,
+  busteFile: false,
+  autorizzazioni: true,
+  permessi: true,
+} as const;
+
+export type PersonaSchedaExportFile = {
+  id: string;
+  gruppo: "identita" | "certificati" | "contratti" | "buste";
+  titolo: string;
+  fileName: string;
+  mime: string;
+  url: string;
+};
+
+export type PersonaSchedaExportPayload = {
+  exportedAt: string;
+  exportedBy: string;
+  selection: PersonaSchedaExportSelection;
+  persona: OrganigrammaPersona;
+  identita: OrganigrammaDocumento[];
+  certificati: OrganigrammaDocumento[];
+  contratti: OrganigrammaContratto[];
+  buste: OrganigrammaDocumento[];
+  autorizzazioni: PostoAutorizzato[];
+  permessi: OrganigrammaPermesso[];
+  files: PersonaSchedaExportFile[];
+};
