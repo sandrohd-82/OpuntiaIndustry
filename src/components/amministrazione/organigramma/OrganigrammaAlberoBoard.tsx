@@ -9,6 +9,7 @@ import {
   reorderPersoneAction,
 } from "@/app/actions/organigramma";
 import {
+  collegamentoCreaCiclo,
   nestAlbero,
   personaLabel,
   superioriDi,
@@ -21,20 +22,10 @@ function wouldCycle(
   newParentId: string | null,
   byId: Map<string, OrganigrammaPersona>
 ): boolean {
-  if (!newParentId) return false;
-  if (newParentId === personaId) return true;
-  const seen = new Set<string>([personaId]);
-  const stack = [newParentId];
-  while (stack.length) {
-    const cursor = stack.pop();
-    if (!cursor) break;
-    if (seen.has(cursor)) return true;
-    seen.add(cursor);
-    const persona = byId.get(cursor);
-    if (!persona) continue;
-    for (const up of superioriDi(persona)) stack.push(up);
-  }
-  return false;
+  return collegamentoCreaCiclo(personaId, newParentId, (id) => {
+    const persona = byId.get(id);
+    return persona ? superioriDi(persona) : [];
+  });
 }
 
 function initials(p: OrganigrammaPersona): string {

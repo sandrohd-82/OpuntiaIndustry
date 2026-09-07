@@ -16,6 +16,7 @@ import {
   repartoUpdateSchema,
   treeMoveSchema,
   treeMoveManySchema,
+  collegamentoCreaCiclo,
   treeReorderSchema,
   calcolaScadenzaCertificato,
   certificatoAlertLivello,
@@ -1427,19 +1428,17 @@ export async function movePersoneTreeBatchAction(
   }
   for (const childId of childIds) {
     for (const parentId of parentIds) {
-      const seen = new Set<string>([childId]);
-      const stack = [parentId];
-      while (stack.length) {
-        const cursor = stack.pop();
-        if (!cursor) break;
-        if (seen.has(cursor)) {
-          return {
-            success: false,
-            error: "Il collegamento creerebbe un ciclo. Cambia la selezione.",
-          };
-        }
-        seen.add(cursor);
-        for (const up of upsById.get(cursor) ?? []) stack.push(up);
+      if (
+        collegamentoCreaCiclo(
+          childId,
+          parentId,
+          (id) => upsById.get(id) ?? []
+        )
+      ) {
+        return {
+          success: false,
+          error: "Il collegamento creerebbe un ciclo. Cambia la selezione.",
+        };
       }
     }
   }

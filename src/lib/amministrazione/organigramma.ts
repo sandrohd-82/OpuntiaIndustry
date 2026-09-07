@@ -570,6 +570,27 @@ export function superioriDi(p: OrganigrammaPersona): string[] {
   return p.parentId ? [p.parentId] : [];
 }
 
+/** Ciclo solo se il nuovo superiore è (o diventa) discendente del collaboratore. */
+export function collegamentoCreaCiclo(
+  childId: string,
+  newParentId: string | null,
+  upsOf: (id: string) => string[]
+): boolean {
+  if (!newParentId) return false;
+  if (newParentId === childId) return true;
+  const seen = new Set<string>();
+  const stack = [newParentId];
+  while (stack.length) {
+    const cursor = stack.pop();
+    if (!cursor) continue;
+    if (cursor === childId) return true;
+    if (seen.has(cursor)) continue;
+    seen.add(cursor);
+    for (const up of upsOf(cursor)) stack.push(up);
+  }
+  return false;
+}
+
 export type AlberoNodo = {
   id: string;
   kind: "persona" | "gruppo";
