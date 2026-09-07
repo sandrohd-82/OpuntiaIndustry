@@ -384,24 +384,20 @@ type BranchProps = {
   onPhotoClick: (id: string) => void;
 };
 
-function LineaOrizzontale({
+function TBar({
   index,
   total,
-  edge,
 }: {
   index: number;
   total: number;
-  edge: "top" | "bottom";
 }) {
-  if (total < 2) return null;
-  const pos = edge === "top" ? "top-0" : "bottom-0";
-  const span =
-    index === 0
-      ? "left-1/2 right-0"
-      : index === total - 1
-        ? "left-0 right-1/2"
-        : "left-0 right-0";
-  return <span className={`absolute ${pos} h-px bg-slate-300 ${span}`} />;
+  if (total < 2) return <div className="h-px w-full" />;
+  return (
+    <div className="flex h-px w-full">
+      <div className={`h-px flex-1 ${index === 0 ? "bg-transparent" : "bg-slate-300"}`} />
+      <div className={`h-px flex-1 ${index === total - 1 ? "bg-transparent" : "bg-slate-300"}`} />
+    </div>
+  );
 }
 
 function FigliRow({
@@ -420,11 +416,11 @@ function FigliRow({
 }: Omit<BranchProps, "node"> & { figli: AlberoNodo[]; parentId: string | null }) {
   if (!figli.length) return null;
   return (
-    <>
+    <div className="flex flex-col items-center">
       <div className="h-6 w-px bg-slate-300" />
-      <div className="flex items-start">
+      <div className="flex items-start justify-center">
         {figli.map((c, i) => (
-          <div key={c.id} className="relative flex flex-col items-center px-4">
+          <div key={c.id} className="flex flex-col items-center px-4">
             {c.kind === "gruppo" ? (
               <AlberoBranch
                 node={c}
@@ -442,8 +438,10 @@ function FigliRow({
               />
             ) : (
               <>
-                <LineaOrizzontale index={i} total={figli.length} edge="top" />
-                <div className="h-6 w-px bg-slate-300" />
+                <div className="flex w-44 flex-col items-center">
+                  <TBar index={i} total={figli.length} />
+                  <div className="h-6 w-px bg-slate-300" />
+                </div>
                 <AlberoBranch
                   node={c}
                   isAdmin={isAdmin}
@@ -461,17 +459,19 @@ function FigliRow({
             )}
           </div>
         ))}
-        <EndSlot
-          parentId={parentId}
-          isAdmin={isAdmin}
-          dragId={dragId}
-          overId={overId}
-          siblingCount={figli.length}
-          setOverId={setOverId}
-          onDropEnd={onDropEnd}
-        />
+        {dragId ? (
+          <EndSlot
+            parentId={parentId}
+            isAdmin={isAdmin}
+            dragId={dragId}
+            overId={overId}
+            siblingCount={figli.length}
+            setOverId={setOverId}
+            onDropEnd={onDropEnd}
+          />
+        ) : null}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -514,17 +514,17 @@ function OrgGruppo(props: BranchProps) {
   const ingresso = Boolean(props.ingresso);
   return (
     <div className="flex flex-col items-center">
-      <div className="flex items-stretch">
+      <div className="flex items-stretch justify-center">
         {membri.map((m, i) => {
           const dropping = props.overId === m.id && props.dragId && props.overId !== props.dragId;
           const exclusive = node.membriFigli[i] ?? [];
           return (
-            <div key={m.id} className="relative flex flex-col items-center px-4">
+            <div key={m.id} className="flex flex-col items-center px-4">
               {ingresso ? (
-                <>
-                  <LineaOrizzontale index={i} total={membri.length} edge="top" />
+                <div className="flex w-44 flex-col items-center">
+                  <TBar index={i} total={membri.length} />
                   <div className="h-6 w-px bg-slate-300" />
-                </>
+                </div>
               ) : null}
               <PersonaCard
                 node={m}
@@ -546,49 +546,21 @@ function OrgGruppo(props: BranchProps) {
               {exclusive.length ? (
                 <FigliRow {...props} figli={exclusive} parentId={m.id} />
               ) : null}
-              {condivisi.length ? <div className="mt-auto h-6 w-px bg-slate-300" /> : null}
               {condivisi.length ? (
-                <LineaOrizzontale index={i} total={membri.length} edge="bottom" />
+                <div className="mt-auto flex w-44 flex-col items-center">
+                  <div className="h-6 w-px bg-slate-300" />
+                  <TBar index={i} total={membri.length} />
+                </div>
               ) : null}
             </div>
           );
         })}
       </div>
-      {condivisi.length ? (
-        <div className="flex flex-col items-center">
-          <div className="h-6 w-px bg-slate-300" />
-          <div className="flex items-start">
-            {condivisi.map((c, i) => (
-              <div key={c.id} className="relative flex flex-col items-center px-4">
-                <LineaOrizzontale index={i} total={condivisi.length} edge="top" />
-                <div className="h-6 w-px bg-slate-300" />
-                <AlberoBranch
-                  node={c}
-                  isAdmin={props.isAdmin}
-                  dragId={props.dragId}
-                  overId={props.overId}
-                  gerarchiaIds={props.gerarchiaIds}
-                  daInserireIds={props.daInserireIds}
-                  setDragId={props.setDragId}
-                  setOverId={props.setOverId}
-                  onDrop={props.onDrop}
-                  onDropEnd={props.onDropEnd}
-                  onPhotoClick={props.onPhotoClick}
-                />
-              </div>
-            ))}
-            <EndSlot
-              parentId={membri[0]?.id ?? null}
-              isAdmin={props.isAdmin}
-              dragId={props.dragId}
-              overId={props.overId}
-              siblingCount={condivisi.length}
-              setOverId={props.setOverId}
-              onDropEnd={props.onDropEnd}
-            />
-          </div>
-        </div>
-      ) : null}
+      <FigliRow
+        {...props}
+        figli={condivisi}
+        parentId={membri[0]?.id ?? null}
+      />
     </div>
   );
 }
