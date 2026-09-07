@@ -434,26 +434,40 @@ function FigliRow({
       <div className="flex items-start">
         {figli.map((c, i) => (
           <div key={c.id} className="relative flex flex-col items-center px-4">
-            {c.kind === "gruppo" ? null : (
+            {c.kind === "gruppo" ? (
+              <AlberoBranch
+                node={c}
+                ingresso
+                isAdmin={isAdmin}
+                dragId={dragId}
+                overId={overId}
+                gerarchiaIds={gerarchiaIds}
+                daInserireIds={daInserireIds}
+                setDragId={setDragId}
+                setOverId={setOverId}
+                onDrop={onDrop}
+                onDropEnd={onDropEnd}
+                onPhotoClick={onPhotoClick}
+              />
+            ) : (
               <>
                 <LineaOrizzontale index={i} total={figli.length} edge="top" />
                 <div className="h-6 w-px bg-slate-300" />
+                <AlberoBranch
+                  node={c}
+                  isAdmin={isAdmin}
+                  dragId={dragId}
+                  overId={overId}
+                  gerarchiaIds={gerarchiaIds}
+                  daInserireIds={daInserireIds}
+                  setDragId={setDragId}
+                  setOverId={setOverId}
+                  onDrop={onDrop}
+                  onDropEnd={onDropEnd}
+                  onPhotoClick={onPhotoClick}
+                />
               </>
             )}
-            <AlberoBranch
-              node={c}
-              ingresso
-              isAdmin={isAdmin}
-              dragId={dragId}
-              overId={overId}
-              gerarchiaIds={gerarchiaIds}
-              daInserireIds={daInserireIds}
-              setDragId={setDragId}
-              setOverId={setOverId}
-              onDrop={onDrop}
-              onDropEnd={onDropEnd}
-              onPhotoClick={onPhotoClick}
-            />
           </div>
         ))}
         <EndSlot
@@ -505,6 +519,7 @@ function AlberoBranch(props: BranchProps) {
 function OrgGruppo(props: BranchProps) {
   const { node } = props;
   const membri = node.membri;
+  const condivisi = node.figli ?? [];
   const ingresso = Boolean(props.ingresso);
   return (
     <div className="flex flex-col items-center">
@@ -540,17 +555,49 @@ function OrgGruppo(props: BranchProps) {
               {exclusive.length ? (
                 <FigliRow {...props} figli={exclusive} parentId={m.id} />
               ) : null}
-              <div className="mt-auto h-6 w-px bg-slate-300" />
-              <LineaOrizzontale index={i} total={membri.length} edge="bottom" />
+              {condivisi.length ? <div className="mt-auto h-6 w-px bg-slate-300" /> : null}
+              {condivisi.length ? (
+                <LineaOrizzontale index={i} total={membri.length} edge="bottom" />
+              ) : null}
             </div>
           );
         })}
       </div>
-      <FigliRow
-        {...props}
-        figli={node.figli}
-        parentId={membri[0]?.id ?? null}
-      />
+      {condivisi.length ? (
+        <div className="flex flex-col items-center">
+          <div className="h-6 w-px bg-slate-300" />
+          <div className="flex items-start">
+            {condivisi.map((c, i) => (
+              <div key={c.id} className="relative flex flex-col items-center px-4">
+                <LineaOrizzontale index={i} total={condivisi.length} edge="top" />
+                <div className="h-6 w-px bg-slate-300" />
+                <AlberoBranch
+                  node={c}
+                  isAdmin={props.isAdmin}
+                  dragId={props.dragId}
+                  overId={props.overId}
+                  gerarchiaIds={props.gerarchiaIds}
+                  daInserireIds={props.daInserireIds}
+                  setDragId={props.setDragId}
+                  setOverId={props.setOverId}
+                  onDrop={props.onDrop}
+                  onDropEnd={props.onDropEnd}
+                  onPhotoClick={props.onPhotoClick}
+                />
+              </div>
+            ))}
+            <EndSlot
+              parentId={membri[0]?.id ?? null}
+              isAdmin={props.isAdmin}
+              dragId={props.dragId}
+              overId={props.overId}
+              siblingCount={condivisi.length}
+              setOverId={props.setOverId}
+              onDropEnd={props.onDropEnd}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

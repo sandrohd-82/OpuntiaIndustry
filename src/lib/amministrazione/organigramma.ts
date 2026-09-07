@@ -708,6 +708,36 @@ export function nestAlbero(items: OrganigrammaPersona[]): AlberoNodo[] {
     if (!aa || !bb) return 0;
     return sortPersone(aa, bb);
   });
+
+  const placed = new Set<string>();
+  function collect(n: AlberoNodo) {
+    for (const m of n.membri) placed.add(m.id);
+    for (const f of n.figli) collect(f);
+    for (const arr of n.membriFigli) {
+      for (const f of arr) collect(f);
+    }
+  }
+  function findPersonaNodo(nodes: AlberoNodo[], id: string): AlberoNodo | null {
+    for (const n of nodes) {
+      if (n.kind === "persona" && n.membri[0]?.id === id) return n;
+      const inFigli = findPersonaNodo(n.figli, id);
+      if (inFigli) return inFigli;
+      for (const arr of n.membriFigli) {
+        const hit = findPersonaNodo(arr, id);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+  for (const r of roots) collect(r);
+  for (const p of items) {
+    if (placed.has(p.id)) continue;
+    const orphan = buildPersonaNodo(p);
+    collect(orphan);
+    const host = p.parentId ? findPersonaNodo(roots, p.parentId) : null;
+    if (host) host.figli.push(orphan);
+    else roots.push(orphan);
+  }
   return roots;
 }
 
