@@ -83,6 +83,14 @@ export function OrganigrammaAlberoBoard() {
     setDaInserireIds([]);
     setPickerOpen(false);
     setPickerQ("");
+    setError(null);
+  }
+
+  function tornaIndietro() {
+    setDaInserireIds([]);
+    setPickerOpen(false);
+    setPickerQ("");
+    setError(null);
   }
 
   function toggleGerarchia(id: string) {
@@ -245,7 +253,7 @@ export function OrganigrammaAlberoBoard() {
       <p className="text-sm text-[var(--muted)]">
         Organigramma a cascata.{" "}
         {isAdmin
-          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia: quelli scelti vanno sotto gli operatori selezionati prima. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
+          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi. Indietro torna alla selezione precedente, Annulla chiude tutto. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
           : "Clicca il nome per aprire la scheda operatore."}
       </p>
       {isAdmin && gerarchia.length ? (
@@ -259,28 +267,39 @@ export function OrganigrammaAlberoBoard() {
             ) : null}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setPickerOpen(true);
-                setError(null);
-              }}
-              className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-            >
-              Seleziona Operatore/i da inserire sotto Gerarchia
-            </button>
-            {pickerOpen ? (
+            {!pickerOpen ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setPickerOpen(true);
+                  setError(null);
+                }}
+                className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+              >
+                Seleziona Operatore/i da inserire sotto Gerarchia
+              </button>
+            ) : (
               <button
                 type="button"
                 disabled={busy || daInserire.length === 0}
                 onClick={() => void applicaInserimento()}
                 className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
               >
-                {busy ? "Inserimento…" : "Inserisci sotto gerarchia"}
+                {busy ? "Inserimento…" : "Concludi"}
+              </button>
+            )}
+            {pickerOpen ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={tornaIndietro}
+                className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium"
+              >
+                Indietro
               </button>
             ) : null}
-            {gerarchia.length === 1 ? (
+            {gerarchia.length === 1 && !pickerOpen ? (
               <button
                 type="button"
                 className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium"
@@ -291,7 +310,8 @@ export function OrganigrammaAlberoBoard() {
             ) : null}
             <button
               type="button"
-              className="rounded-md px-2 py-1 text-xs font-medium text-sky-800 hover:underline"
+              disabled={busy}
+              className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium"
               onClick={clearSelezione}
             >
               Annulla
