@@ -50,22 +50,10 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/produzione/processi-e-attivita",
     children: [
       {
-        slug: "nuovo-processo",
-        label: "+ Nuovo processo",
-        description: "Creazione di un nuovo processo (insieme di attività)",
-        path: "/app/produzione/processi-e-attivita/nuovo-processo",
-      },
-      {
         slug: "elenco-processi",
         label: "Elenco Processi",
         description: "Elenco dei processi creati",
         path: "/app/produzione/processi-e-attivita/elenco-processi",
-      },
-      {
-        slug: "nuova-attivita",
-        label: "+ Nuova Attività",
-        description: "Creazione di una nuova attività di processo",
-        path: "/app/produzione/processi-e-attivita/nuova-attivita",
       },
       {
         slug: "elenco-attivita",

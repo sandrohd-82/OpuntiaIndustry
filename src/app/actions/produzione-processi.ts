@@ -220,19 +220,32 @@ async function assertProcessoAreaCompatibile(
   if (!areaId) return { success: true };
   const { data, error } = await supabase
     .from("produzione_processo_passi")
-    .select("attivita_id, produzione_processo_attivita(area_id, codice, nome)")
+    .select("attivita_id")
     .eq("processo_id", processoId)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
-  for (const row of (data ?? []) as Array<{
-    produzione_processo_attivita: { area_id: string | null; codice: string; nome: string } | null;
+  const attivitaIds = [
+    ...new Set(
+      ((data ?? []) as Array<{ attivita_id: string }>).map((r) => r.attivita_id)
+    ),
+  ];
+  if (attivitaIds.length === 0) return { success: true };
+
+  const { data: atts, error: attErr } = await supabase
+    .from("produzione_processo_attivita")
+    .select("area_id, codice")
+    .in("id", attivitaIds)
+    .is("deleted_at", null);
+  if (attErr) return { success: false, error: attErr.message };
+
+  for (const att of (atts ?? []) as Array<{
+    area_id: string | null;
+    codice: string;
   }>) {
-    const attArea = row.produzione_processo_attivita?.area_id ?? null;
-    if (!attivitaCompatibileConArea(attArea, areaId)) {
-      const codice = row.produzione_processo_attivita?.codice ?? "";
+    if (!attivitaCompatibileConArea(att.area_id, areaId)) {
       return {
         success: false,
-        error: `Il processo ha attività di un'altra area (${codice}). Rimuovile dalla composizione prima di cambiare area.`,
+        error: `Il processo ha attività di un'altra area (${att.codice}). Rimuovile dalla composizione prima di cambiare area.`,
       };
     }
   }

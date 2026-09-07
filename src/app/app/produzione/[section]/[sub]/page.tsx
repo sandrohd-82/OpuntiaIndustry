@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
@@ -17,6 +17,12 @@ export default async function ProduzioneSubPage({ params }: Props) {
   await requireAreaAccess("produzione");
 
   const { section, sub } = await params;
+  if (section === "processi-e-attivita" && sub === "nuovo-processo") {
+    redirect("/app/produzione/processi-e-attivita/elenco-processi");
+  }
+  if (section === "processi-e-attivita" && sub === "nuova-attivita") {
+    redirect("/app/produzione/processi-e-attivita/elenco-attivita");
+  }
   const page = await resolveProduzioneDynamic([section, sub]);
   if (!page) notFound();
 
@@ -31,34 +37,12 @@ export default async function ProduzioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "processi-e-attivita" && sub === "nuovo-processo") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ProcessiBoard startCreate />
-        </div>
-      </>
-    );
-  }
-
   if (section === "processi-e-attivita" && sub === "elenco-processi") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ProcessiBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "processi-e-attivita" && sub === "nuova-attivita") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ProcessiAttivitaBoard startCreate />
         </div>
       </>
     );
