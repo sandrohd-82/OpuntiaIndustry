@@ -58,6 +58,8 @@ type MacchinaRow = {
   note: string;
   parent_id: string | null;
   tipo: ProduzioneMacchinario["tipo"];
+  acquistato?: boolean;
+  link_acquisto?: string;
 };
 
 type RicambioRow = {
@@ -72,6 +74,7 @@ type RicambioRow = {
   unita: string;
   soglia_minima: number;
   note: string;
+  link_acquisto?: string;
 };
 
 function mapMacchina(row: MacchinaRow): ProduzioneMacchinario {
@@ -90,6 +93,8 @@ function mapMacchina(row: MacchinaRow): ProduzioneMacchinario {
     note: row.note ?? "",
     parentId: row.parent_id ?? null,
     tipo: row.tipo ?? "macchina",
+    acquistato: Boolean(row.acquistato),
+    linkAcquisto: row.link_acquisto ?? "",
   };
 }
 
@@ -106,13 +111,14 @@ function mapRicambio(row: RicambioRow): MacchinarioRicambio {
     unita: row.unita || "pz",
     sogliaMinima: row.soglia_minima ?? 0,
     note: row.note ?? "",
+    linkAcquisto: row.link_acquisto ?? "",
   };
 }
 
 const MACCHINA_COLS =
-  "id, area_id, codice, nome, descrizione, iot_collegato, stato_iot, stato_note, stato_at, attivo, sort_order, note, parent_id, tipo";
+  "id, area_id, codice, nome, descrizione, iot_collegato, stato_iot, stato_note, stato_at, attivo, sort_order, note, parent_id, tipo, acquistato, link_acquisto";
 const RICAMBIO_COLS =
-  "id, macchinario_id, articolo, nome_dettaglio, azienda_venditrice, presente, scaffale, quantita, unita, soglia_minima, note";
+  "id, macchinario_id, articolo, nome_dettaglio, azienda_venditrice, presente, scaffale, quantita, unita, soglia_minima, note, link_acquisto";
 
 export async function listMacchinariByAreaIdsAction(
   areaIds: string[]
@@ -205,6 +211,8 @@ export async function createMacchinarioAction(
       parent_id: v.parentId ?? null,
       sort_order: v.sortOrder ?? 100,
       note: v.note ?? "",
+      acquistato: v.acquistato ?? false,
+      link_acquisto: v.acquistato ? (v.linkAcquisto ?? "") : "",
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -295,6 +303,8 @@ export async function updateMacchinarioAnagraficaAction(
         descrizione: v.descrizione ?? "",
         note: v.note ?? "",
         iot_collegato: v.iotCollegato,
+        acquistato: v.acquistato ?? false,
+        link_acquisto: v.acquistato ? (v.linkAcquisto ?? "") : "",
         updated_by: auth.userId,
       })
       .in("id", ids)
@@ -602,6 +612,7 @@ export async function upsertRicambioAction(
     unita: v.unita || "pz",
     soglia_minima: v.sogliaMinima ?? 0,
     note: v.note ?? "",
+    link_acquisto: v.linkAcquisto ?? "",
     updated_by: auth.userId,
   };
   if (id) {

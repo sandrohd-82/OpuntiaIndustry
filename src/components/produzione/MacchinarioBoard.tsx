@@ -29,6 +29,7 @@ import {
   isInsieme,
   MACCHINARIO_CODICE_HINT,
   nestMacchinari,
+  isHttpUrl,
   normalizeMacchinarioCodice,
   ricambioSottoSoglia,
   type MacchinarioRicambio,
@@ -49,6 +50,8 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
   const [codiceEdit, setCodiceEdit] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [noteAnag, setNoteAnag] = useState("");
+  const [acquistato, setAcquistato] = useState(false);
+  const [linkAcquisto, setLinkAcquisto] = useState("");
   const [savingAnag, setSavingAnag] = useState(false);
   const [area, setArea] = useState<ProduzioneArea | null>(null);
   const [macchina, setMacchina] = useState<ProduzioneMacchinario | null>(null);
@@ -65,6 +68,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
   const [scaffale, setScaffale] = useState("");
   const [quantita, setQuantita] = useState("0");
   const [soglia, setSoglia] = useState("0");
+  const [linkAcquistoRicambio, setLinkAcquistoRicambio] = useState("");
   const [iotDevice, setIotDevice] = useState<IotDevice | null>(null);
   const [deviceCode, setDeviceCode] = useState("");
   const [pollSeconds, setPollSeconds] = useState("5");
@@ -93,6 +97,8 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         setCodiceEdit(m.codice);
         setDescrizione(m.descrizione);
         setNoteAnag(m.note);
+        setAcquistato(m.acquistato);
+        setLinkAcquisto(m.linkAcquisto);
         setEditAnagrafica(false);
         setIot(m.iotCollegato);
         setArresto(m.statoIot === "arresto");
@@ -201,6 +207,39 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
               className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
             />
           </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={acquistato}
+              disabled={!editAnagrafica}
+              onChange={(e) => setAcquistato(e.target.checked)}
+            />
+            Acquistato
+          </label>
+          {acquistato ? (
+            <label className="sm:col-span-2 text-xs text-[var(--muted)]">
+              Link di acquisto
+              {editAnagrafica ? (
+                <input
+                  value={linkAcquisto}
+                  onChange={(e) => setLinkAcquisto(e.target.value)}
+                  placeholder="https://…"
+                  className="mt-1 w-full rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                />
+              ) : isHttpUrl(linkAcquisto) ? (
+                <a
+                  href={linkAcquisto}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 block text-sm font-medium text-[var(--primary)] hover:underline"
+                >
+                  {linkAcquisto}
+                </a>
+              ) : (
+                <span className="mt-1 block text-sm">Non indicato</span>
+              )}
+            </label>
+          ) : null}
         </div>
         {editAnagrafica ? (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -219,6 +258,8 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                       descrizione,
                       note: noteAnag,
                       iotCollegato: iot,
+                      acquistato,
+                      linkAcquisto: acquistato ? linkAcquisto : "",
                     });
                     if (!res.success) {
                       setError(res.error);
@@ -252,6 +293,8 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                 setCodiceEdit(macchina.codice);
                 setDescrizione(macchina.descrizione);
                 setNoteAnag(macchina.note);
+                setAcquistato(macchina.acquistato);
+                setLinkAcquisto(macchina.linkAcquisto);
                 setEditAnagrafica(false);
               }}
               className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
@@ -658,6 +701,15 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                   className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
                 />
               </label>
+              <label className="sm:col-span-2 text-xs text-[var(--muted)]">
+                Link di acquisto
+                <input
+                  value={linkAcquistoRicambio}
+                  onChange={(e) => setLinkAcquistoRicambio(e.target.value)}
+                  placeholder="https://…"
+                  className="mt-1 w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                />
+              </label>
             </>
           ) : null}
         </div>
@@ -675,6 +727,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                 scaffale,
                 quantita: Number(quantita) || 0,
                 sogliaMinima: Number(soglia) || 0,
+                linkAcquisto: presente ? linkAcquistoRicambio : "",
               });
               if (!res.success) {
                 setError(res.error);
@@ -687,6 +740,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
               setScaffale("");
               setQuantita("0");
               setSoglia("0");
+              setLinkAcquistoRicambio("");
               load();
             })
           }
@@ -705,13 +759,14 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                 <th className="py-2 pr-3">Presente</th>
                 <th className="py-2 pr-3">Scaffale</th>
                 <th className="py-2 pr-3">Pezzi</th>
+                <th className="py-2 pr-3">Acquisto</th>
                 <th className="py-2 pr-3" />
               </tr>
             </thead>
             <tbody>
               {ricambi.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-3 text-[var(--muted)]">
+                  <td colSpan={8} className="py-3 text-[var(--muted)]">
                     Nessun ricambio registrato.
                   </td>
                 </tr>
@@ -736,6 +791,20 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
                             ricambioSottoSoglia(r) ? " · sotto soglia" : ""
                           }`
                         : "—"}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {r.presente && isHttpUrl(r.linkAcquisto) ? (
+                        <a
+                          href={r.linkAcquisto}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-[var(--primary)] hover:underline"
+                        >
+                          Apri
+                        </a>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-2">
                       <button

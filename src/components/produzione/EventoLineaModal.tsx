@@ -216,6 +216,8 @@ export function EventoLineaModal({
                           note: "",
                           parentId: null,
                           tipo: "macchina",
+                          acquistato: false,
+                          linkAcquisto: "",
                         }}
                         origine="evento_linea"
                         eventoLineaId={evento.id}

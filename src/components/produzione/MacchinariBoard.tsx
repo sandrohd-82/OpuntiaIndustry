@@ -32,6 +32,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
   const [iot, setIot] = useState(false);
   const [parentId, setParentId] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [acquistato, setAcquistato] = useState(false);
+  const [linkAcquisto, setLinkAcquisto] = useState("");
 
   function patchMacchina(item: ProduzioneMacchinario) {
     setArea((prev) =>
@@ -71,6 +73,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
         iotCollegato: iot,
         sortOrder: (area.macchinari.at(-1)?.sortOrder ?? 0) + 10,
         parentId: parentId || null,
+        acquistato,
+        linkAcquisto: acquistato ? linkAcquisto : "",
       });
       if (!res.success) {
         setError(res.error);
@@ -81,6 +85,8 @@ export function MacchinariBoard({ areaCodice }: Props) {
       setDescrizione("");
       setIot(false);
       setParentId("");
+      setAcquistato(false);
+      setLinkAcquisto("");
       window.dispatchEvent(new Event(PRODUZIONE_AREE_NAV_EVENT));
       load();
     });
@@ -167,6 +173,25 @@ export function MacchinariBoard({ areaCodice }: Props) {
               />
               Collegato IoT
             </label>
+            <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={acquistato}
+                onChange={(e) => setAcquistato(e.target.checked)}
+              />
+              Acquistato
+            </label>
+            {acquistato ? (
+              <label className="text-xs text-[var(--muted)]">
+                Link di acquisto
+                <input
+                  value={linkAcquisto}
+                  onChange={(e) => setLinkAcquisto(e.target.value)}
+                  placeholder="https://…"
+                  className="mt-1 block w-72 rounded-md border border-[var(--border)] px-2 py-1.5 text-sm"
+                />
+              </label>
+            ) : null}
             <button
               type="button"
               disabled={
@@ -207,6 +232,16 @@ export function MacchinariBoard({ areaCodice }: Props) {
                       ? "Insieme: lo stato è quello delle macchine interne."
                       : m.descrizione || "Impianto di area."}
                   </p>
+                  {m.acquistato && m.linkAcquisto ? (
+                    <a
+                      href={m.linkAcquisto}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-sm font-medium text-[var(--primary)] hover:underline"
+                    >
+                      Link di acquisto
+                    </a>
+                  ) : null}
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <MachinePowerToggle

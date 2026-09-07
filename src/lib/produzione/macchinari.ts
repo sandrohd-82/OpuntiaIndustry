@@ -21,6 +21,8 @@ export type ProduzioneMacchinario = {
   note: string;
   parentId: string | null;
   tipo: MacchinarioTipo;
+  acquistato: boolean;
+  linkAcquisto: string;
   figli?: ProduzioneMacchinario[];
 };
 
@@ -36,6 +38,7 @@ export type MacchinarioRicambio = {
   unita: string;
   sogliaMinima: number;
   note: string;
+  linkAcquisto: string;
 };
 
 /** Mac-XXX-XXX-XXX: 4 blocchi da 3 caratteri (lettere e numeri), prefisso Mac-. */
@@ -73,6 +76,17 @@ function parseMacchinarioCodice(raw: string, allowLegacy: boolean): string {
   );
 }
 
+export const optionalHttpUrl = z
+  .string()
+  .trim()
+  .max(2000)
+  .optional()
+  .default("")
+  .refine(
+    (v) => !v || /^https?:\/\/\S+$/i.test(v),
+    "Il link deve iniziare con http:// o https://."
+  );
+
 const codiceMacchinaNuovo = z.string().trim().transform((v, ctx) => {
   try {
     return parseMacchinarioCodice(v, false);
@@ -106,6 +120,8 @@ export const macchinarioInputSchema = z.object({
   sortOrder: z.number().int().optional(),
   note: z.string().trim().max(2000).optional().default(""),
   parentId: z.string().uuid().nullable().optional(),
+  acquistato: z.boolean().optional().default(false),
+  linkAcquisto: optionalHttpUrl,
 });
 
 export const macchinarioAnagraficaSchema = z.object({
@@ -115,6 +131,8 @@ export const macchinarioAnagraficaSchema = z.object({
   descrizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(2000).optional().default(""),
   iotCollegato: z.boolean(),
+  acquistato: z.boolean().optional().default(false),
+  linkAcquisto: optionalHttpUrl,
 });
 
 export const macchinarioParentSchema = z.object({
@@ -139,6 +157,7 @@ export const ricambioInputSchema = z.object({
   unita: z.string().trim().max(20).optional().default("pz"),
   sogliaMinima: z.number().int().min(0).optional().default(0),
   note: z.string().trim().max(2000).optional().default(""),
+  linkAcquisto: optionalHttpUrl,
 });
 
 export function iotDotClass(stato: IotStato): string {
@@ -158,6 +177,10 @@ export function iotStatoLabel(stato: IotStato): string {
 export function normalizeIotStato(iotCollegato: boolean, stato: IotStato): IotStato {
   if (iotCollegato && stato === "no_iot") return "spento";
   return stato;
+}
+
+export function isHttpUrl(v: string): boolean {
+  return /^https?:\/\/\S+$/i.test(v.trim());
 }
 
 export function ricambioSottoSoglia(r: MacchinarioRicambio): boolean {
