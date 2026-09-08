@@ -65,26 +65,6 @@ const WEBMAIL_LINK_INFO_CSS = `<style id="oi-link-info">
 a.oi-link-info, button.oi-link-info, input.oi-link-info {
   position: relative;
 }
-a.oi-link-info::after,
-button.oi-link-info::after,
-input.oi-link-info::after {
-  content: "i";
-  display: inline-block;
-  margin-left: 0.35em;
-  width: 1.05em;
-  height: 1.05em;
-  line-height: 1.05em;
-  text-align: center;
-  border-radius: 999px;
-  border: 1px solid #7dd3fc;
-  background: #f0f9ff;
-  color: #075985;
-  font-size: 10px;
-  font-weight: 700;
-  font-family: system-ui, Segoe UI, sans-serif;
-  vertical-align: super;
-  cursor: help;
-}
 a.oi-link-info:hover::before,
 a.oi-link-info:focus::before {
   content: "Destinazione: " attr(href);
@@ -102,8 +82,9 @@ button.oi-link-info:focus::before,
 input.oi-link-info:hover::before,
 input.oi-link-info:focus::before {
   position: absolute;
-  left: 0;
+  left: 50%;
   bottom: calc(100% + 8px);
+  transform: translateX(-50%);
   z-index: 2147483647;
   width: max-content;
   max-width: min(22rem, 72vw);
@@ -171,7 +152,7 @@ function injectLinkInfoCss(html: string): string {
 
 /**
  * Riscrive cid:… → URL allegati; rimuove CSP che blocca le immagini;
- * forza link in nuova scheda; aggiunge «i» info a nuvola su link/pulsanti;
+ * forza link in nuova scheda; nuvola info al passaggio su link/pulsanti;
  * wrappa in documento HTML minimo se serve.
  */
 export function rewriteWebmailHtml(input: {

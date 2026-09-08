@@ -3,14 +3,17 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-type Props = {
-  text: string;
-};
-
 /**
- * Icona «i»: al passaggio (e al focus) apre una finestra a nuvola.
+ * Avvolge pulsante/link: al passaggio (e al focus) apre la finestra a nuvola.
+ * Nessuna icona «i».
  */
-export function InfoNuvola({ text }: Props) {
+export function WithInfoNuvola({
+  info,
+  children,
+}: {
+  info: string;
+  children: ReactNode;
+}) {
   const tipId = useId();
   const ref = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
@@ -30,21 +33,16 @@ export function InfoNuvola({ text }: Props) {
   return (
     <span
       ref={ref}
-      className="relative inline-flex shrink-0 align-middle"
+      className="inline-flex align-middle"
       onMouseEnter={show}
       onMouseLeave={hide}
+      onFocusCapture={show}
+      onBlurCapture={(e) => {
+        const next = e.relatedTarget as Node | null;
+        if (!next || !e.currentTarget.contains(next)) hide();
+      }}
     >
-      <span
-        tabIndex={0}
-        role="img"
-        aria-label={`Informazioni: ${text}`}
-        aria-describedby={open ? tipId : undefined}
-        onFocus={show}
-        onBlur={hide}
-        className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-sky-300 bg-sky-50 text-[10px] font-bold leading-none text-sky-800"
-      >
-        i
-      </span>
+      {children}
       {open
         ? createPortal(
             <span
@@ -56,7 +54,7 @@ export function InfoNuvola({ text }: Props) {
               }}
               className="pointer-events-none fixed z-[90] w-64 max-w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-[calc(100%+10px)] rounded-2xl border border-sky-100 bg-white px-3 py-2 text-left text-[11px] font-normal normal-case leading-relaxed tracking-normal text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.16)]"
             >
-              {text}
+              {info}
               <span
                 aria-hidden
                 className="absolute left-1/2 top-full h-0 w-0 -translate-x-1/2 border-x-8 border-t-8 border-x-transparent border-t-white drop-shadow-sm"
@@ -65,21 +63,6 @@ export function InfoNuvola({ text }: Props) {
             document.body
           )
         : null}
-    </span>
-  );
-}
-
-export function WithInfoNuvola({
-  info,
-  children,
-}: {
-  info: string;
-  children: ReactNode;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      {children}
-      <InfoNuvola text={info} />
     </span>
   );
 }
