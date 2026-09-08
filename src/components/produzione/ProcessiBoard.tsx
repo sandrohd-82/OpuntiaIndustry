@@ -22,6 +22,7 @@ import {
   updateProcessoAction,
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { ProcessoAttivitaCreateModal } from "@/components/produzione/ProcessoAttivitaCreateModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   labelLuogoAttivita,
@@ -62,6 +63,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [addAttivitaId, setAddAttivitaId] = useState("");
   const [attivitaSearchOpen, setAttivitaSearchOpen] = useState(false);
   const [attivitaSearch, setAttivitaSearch] = useState("");
+  const [createAttivitaOpen, setCreateAttivitaOpen] = useState(false);
   const attivitaSearchRef = useRef<HTMLInputElement>(null);
 
   const [codice, setCodice] = useState("");
@@ -452,9 +454,19 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
 
               {editing ? (
                 <div>
-                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                    Composizione attività
-                  </h4>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                      Composizione attività
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setCreateAttivitaOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                    >
+                      <FaPlus size={11} />
+                      Nuova attività
+                    </button>
+                  </div>
                   {draftPassi.length === 0 ? (
                     <p className="mb-3 text-sm text-[var(--muted)]">
                       Nessuna attività. Aggiungi i passi in ordine di
@@ -804,6 +816,57 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
           </div>
         </div>
       ) : null}
+
+      <ProcessoAttivitaCreateModal
+        open={createAttivitaOpen}
+        aree={aree}
+        defaultAreaId={editing?.areaId ?? (areaId || null)}
+        onClose={() => setCreateAttivitaOpen(false)}
+        onCreated={(item) => {
+          setAttivita((prev) =>
+            prev.some((a) => a.id === item.id) ? prev : [...prev, item]
+          );
+          const nextPassi = [
+            ...draftPassi,
+            {
+              key: `new-${item.id}-${Date.now()}`,
+              attivitaId: item.id,
+              obbligatorio: true,
+              note: "",
+            },
+          ];
+          setDraftPassi(nextPassi);
+          if (!editing) {
+            setComposizioneDirty(true);
+            return;
+          }
+          startTransition(async () => {
+            const res = await setProcessoComposizioneAction(editing.id, {
+              passi: nextPassi.map((p) => ({
+                attivitaId: p.attivitaId,
+                obbligatorio: p.obbligatorio,
+                note: p.note,
+              })),
+            });
+            if (!res.success) {
+              setError(res.error);
+              setComposizioneDirty(true);
+              return;
+            }
+            setPassi(res.passi);
+            setDraftPassi(
+              res.passi.map((p) => ({
+                key: p.id,
+                attivitaId: p.attivitaId,
+                obbligatorio: p.obbligatorio,
+                note: p.note,
+              }))
+            );
+            setComposizioneDirty(false);
+            loadList();
+          });
+        }}
+      />
 
       {deleting ? (
         <SoftDeleteConfirmModal
