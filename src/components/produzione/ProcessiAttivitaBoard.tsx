@@ -12,9 +12,12 @@ import {
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
+import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import {
+  formatTempoMedio,
   labelLuogoAttivita,
   type ProcessoAttivita,
+  type TempoMedioUnita,
 } from "@/lib/produzione/processi";
 
 type ProcessiAttivitaBoardProps = {
@@ -44,6 +47,9 @@ export function ProcessiAttivitaBoard({
   const [attivo, setAttivo] = useState(true);
   const [areaId, setAreaId] = useState("");
   const [postoId, setPostoId] = useState("");
+  const [tempoMedioValore, setTempoMedioValore] = useState(0);
+  const [tempoMedioUnita, setTempoMedioUnita] =
+    useState<TempoMedioUnita>("sec");
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -87,6 +93,8 @@ export function ProcessiAttivitaBoard({
     setAttivo(true);
     setAreaId("");
     setPostoId("");
+    setTempoMedioValore(0);
+    setTempoMedioUnita("sec");
   }
 
   function openEdit(a: ProcessoAttivita) {
@@ -99,6 +107,8 @@ export function ProcessiAttivitaBoard({
     setAttivo(a.attivo);
     setAreaId(a.areaId ?? "");
     setPostoId(a.postoId ?? "");
+    setTempoMedioValore(a.tempoMedioValore);
+    setTempoMedioUnita(a.tempoMedioUnita);
   }
 
   function closeForm() {
@@ -116,6 +126,8 @@ export function ProcessiAttivitaBoard({
         attivo,
         areaId: areaId || null,
         postoId: postoId || null,
+        tempoMedioValore,
+        tempoMedioUnita,
         scriptIds: editing?.scripts.map((s) => s.id) ?? [],
       };
       const res = editing
@@ -219,6 +231,12 @@ export function ProcessiAttivitaBoard({
                 ))}
               </select>
             </label>
+            <TempoMedioAttivitaFields
+              valore={tempoMedioValore}
+              unita={tempoMedioUnita}
+              onValoreChange={setTempoMedioValore}
+              onUnitaChange={setTempoMedioUnita}
+            />
             <label className="text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Descrizione</span>
               <textarea
@@ -272,6 +290,7 @@ export function ProcessiAttivitaBoard({
               <th className="px-4 py-3">Codice</th>
               <th className="px-4 py-3">Nome</th>
               <th className="px-4 py-3">Luogo</th>
+              <th className="px-4 py-3">Tempo medio</th>
               <th className="px-4 py-3">Stato</th>
               <th className="px-4 py-3 text-right" />
             </tr>
@@ -290,6 +309,9 @@ export function ProcessiAttivitaBoard({
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">
                   {labelLuogoAttivita(a)}
+                </td>
+                <td className="px-4 py-3 text-[var(--muted)]">
+                  {formatTempoMedio(a.tempoMedioValore, a.tempoMedioUnita)}
                 </td>
                 <td className="px-4 py-3">
                   {a.attivo ? (
@@ -330,7 +352,7 @@ export function ProcessiAttivitaBoard({
             {items.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-8 text-center text-[var(--muted)]"
                 >
                   Nessuna attività. Creane una per comporre i processi.

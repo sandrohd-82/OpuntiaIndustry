@@ -5,7 +5,11 @@ import {
   listProcessoAttivitaStoricoAction,
   ripristinaProcessoAttivitaAction,
 } from "@/app/actions/produzione-processi";
-import { labelLuogoAttivita, type ProcessoAttivita } from "@/lib/produzione/processi";
+import {
+  formatTempoMedio,
+  labelLuogoAttivita,
+  type ProcessoAttivita,
+} from "@/lib/produzione/processi";
 
 export function ProcessiAttivitaStoricoBoard() {
   const [items, setItems] = useState<ProcessoAttivita[]>([]);
@@ -115,6 +119,11 @@ export function ProcessiAttivitaStoricoBoard() {
                   </h3>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
                     {labelLuogoAttivita(selected)}
+                    {" · "}
+                    {formatTempoMedio(
+                      selected.tempoMedioValore,
+                      selected.tempoMedioUnita
+                    )}
                     {selected.deprecatoNote
                       ? ` · ${selected.deprecatoNote}`
                       : ""}

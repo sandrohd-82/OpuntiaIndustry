@@ -6,7 +6,12 @@ import {
   listProcessiStoricoAction,
   ripristinaProcessoAction,
 } from "@/app/actions/produzione-processi";
-import { labelLuogoAttivita, type Processo, type ProcessoPasso } from "@/lib/produzione/processi";
+import {
+  formatTempoMedio,
+  labelLuogoAttivita,
+  type Processo,
+  type ProcessoPasso,
+} from "@/lib/produzione/processi";
 
 export function ProcessiStoricoBoard() {
   const [items, setItems] = useState<Processo[]>([]);
@@ -183,6 +188,11 @@ export function ProcessiStoricoBoard() {
                         areaNome: passo.attivitaAreaNome,
                         postoNome: passo.attivitaPostoNome,
                       })}
+                      {" · "}
+                      {formatTempoMedio(
+                        passo.tempoMedioValore,
+                        passo.tempoMedioUnita
+                      )}
                     </span>
                   </li>
                 ))}

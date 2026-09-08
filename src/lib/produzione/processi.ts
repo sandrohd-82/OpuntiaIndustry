@@ -13,6 +13,30 @@ const optionalUuid = z
   .union([z.string().uuid(), z.literal(""), z.null(), z.undefined()])
   .transform((v) => (typeof v === "string" && v.length > 0 ? v : null));
 
+export const TEMPO_MEDIO_UNITA = ["sec", "min", "ore"] as const;
+
+export type TempoMedioUnita = (typeof TEMPO_MEDIO_UNITA)[number];
+
+export function parseTempoMedioUnita(
+  value: string | null | undefined
+): TempoMedioUnita {
+  if (value === "min" || value === "ore") return value;
+  return "sec";
+}
+
+export function labelTempoMedioUnita(unita: TempoMedioUnita): string {
+  if (unita === "sec") return "Sec";
+  if (unita === "min") return "Min";
+  return "Ore";
+}
+
+export function formatTempoMedio(
+  valore: number,
+  unita: TempoMedioUnita
+): string {
+  return `${Number.isFinite(valore) ? valore : 0} ${labelTempoMedioUnita(unita)}`;
+}
+
 export type ProcessoAttivita = {
   id: string;
   codice: string;
@@ -24,6 +48,8 @@ export type ProcessoAttivita = {
   postoId: string | null;
   areaNome: string;
   postoNome: string;
+  tempoMedioValore: number;
+  tempoMedioUnita: TempoMedioUnita;
   scripts: AttivitaScriptLink[];
   createdAt: string;
   deprecatoAt: string | null;
@@ -65,6 +91,8 @@ export type ProcessoPasso = {
   attivitaPostoId: string | null;
   attivitaAreaNome: string;
   attivitaPostoNome: string;
+  tempoMedioValore: number;
+  tempoMedioUnita: TempoMedioUnita;
   scripts: AttivitaScriptLink[];
 };
 
@@ -77,6 +105,8 @@ export const processoAttivitaInputSchema = z
     attivo: z.boolean().optional().default(true),
     areaId: optionalUuid,
     postoId: optionalUuid,
+    tempoMedioValore: z.coerce.number().int().min(0).max(999999).default(0),
+    tempoMedioUnita: z.enum(TEMPO_MEDIO_UNITA).default("sec"),
     scriptIds: z.array(z.string().uuid()).optional().default([]),
   })
   .superRefine((data, ctx) => {

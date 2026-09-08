@@ -13,6 +13,7 @@ import {
   type FoglioProcessoDisponibile,
 } from "@/lib/produzione/foglio-processi";
 import type { FoglioLavorazione } from "@/lib/produzione/fogli-lavorazione";
+import { formatTempoMedio } from "@/lib/produzione/processi";
 
 type Props = {
   foglio: FoglioLavorazione;
@@ -223,6 +224,12 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                           </span>{" "}
                           <span className="font-medium">
                             {passo.attivitaNome}
+                          </span>
+                          <span className="ml-2 text-xs text-[var(--muted)]">
+                            {formatTempoMedio(
+                              passo.tempoMedioValore,
+                              passo.tempoMedioUnita
+                            )}
                           </span>
                           {passo.scripts.length > 0 ? (
                             <span className="ml-2 text-xs text-[var(--primary)]">

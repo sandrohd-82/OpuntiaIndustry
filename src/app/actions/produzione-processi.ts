@@ -5,6 +5,7 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   deprecaProcessoAttivitaSchema,
   deprecaProcessoSchema,
+  parseTempoMedioUnita,
   processoAttivitaInputSchema,
   processoComposizioneSchema,
   processoInputSchema,
@@ -24,7 +25,7 @@ import {
 } from "@/lib/script/catalogo";
 
 const ATTIVITA_COLS =
-  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
+  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id, tempo_medio_valore, tempo_medio_unita, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 const PROCESSO_COLS =
   "id, codice, nome, descrizione, attivo, note, versione, documento_stato, created_at, area_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 
@@ -38,6 +39,8 @@ type AttivitaRow = {
   created_at: string;
   area_id: string | null;
   posto_id: string | null;
+  tempo_medio_valore: number | string | null;
+  tempo_medio_unita: string | null;
   deprecato_at: string | null;
   deprecato_by: string | null;
   deprecato_note: string | null;
@@ -73,6 +76,8 @@ type PassoRow = {
     nome: string;
     area_id: string | null;
     posto_id: string | null;
+    tempo_medio_valore?: number | string | null;
+    tempo_medio_unita?: string | null;
   } | null;
 };
 
@@ -214,6 +219,8 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
     postoId,
     areaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     postoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
+    tempoMedioValore: Number(row.tempo_medio_valore) || 0,
+    tempoMedioUnita: parseTempoMedioUnita(row.tempo_medio_unita),
     scripts: [],
     createdAt: row.created_at,
     deprecatoAt: row.deprecato_at ?? null,
@@ -302,6 +309,10 @@ function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
     attivitaPostoId: postoId,
     attivitaAreaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     attivitaPostoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
+    tempoMedioValore: Number(row.produzione_processo_attivita?.tempo_medio_valore) || 0,
+    tempoMedioUnita: parseTempoMedioUnita(
+      row.produzione_processo_attivita?.tempo_medio_unita
+    ),
     scripts: [],
   };
 }
@@ -440,6 +451,8 @@ export async function createProcessoAttivitaAction(
       attivo: parsed.data.attivo ?? true,
       area_id: areaId,
       posto_id: postoId,
+      tempo_medio_valore: parsed.data.tempoMedioValore,
+      tempo_medio_unita: parsed.data.tempoMedioUnita,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -472,6 +485,8 @@ export async function createProcessoAttivitaAction(
       nome: created.nome,
       area_id: created.areaId,
       posto_id: created.postoId,
+      tempo_medio_valore: created.tempoMedioValore,
+      tempo_medio_unita: created.tempoMedioUnita,
       script_ids: parsed.data.scriptIds,
     },
   });
@@ -524,6 +539,8 @@ export async function updateProcessoAttivitaAction(
       attivo: parsed.data.attivo ?? true,
       area_id: areaId,
       posto_id: postoId,
+      tempo_medio_valore: parsed.data.tempoMedioValore,
+      tempo_medio_unita: parsed.data.tempoMedioUnita,
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -557,6 +574,8 @@ export async function updateProcessoAttivitaAction(
       nome: updated.nome,
       area_id: updated.areaId,
       posto_id: updated.postoId,
+      tempo_medio_valore: updated.tempoMedioValore,
+      tempo_medio_unita: updated.tempoMedioUnita,
       script_ids: parsed.data.scriptIds,
     },
   });
@@ -1152,7 +1171,7 @@ async function listProcessoPassiInternal(
   const { data, error } = await supabase
     .from("produzione_processo_passi")
     .select(
-      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id)"
+      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita)"
     )
     .eq("processo_id", processoId)
     .is("deleted_at", null)

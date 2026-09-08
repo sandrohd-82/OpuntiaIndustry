@@ -25,6 +25,7 @@ import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteC
 import { ProcessoAttivitaCreateModal } from "@/components/produzione/ProcessoAttivitaCreateModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
+  formatTempoMedio,
   labelLuogoAttivita,
   type Processo,
   type ProcessoAttivita,
@@ -280,7 +281,11 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     const fromCatalog = attivita.find((a) => a.id === id);
     if (fromCatalog) {
       const luogo = labelLuogoAttivita(fromCatalog);
-      return `${fromCatalog.codice} — ${fromCatalog.nome} (${luogo})`;
+      const tempo = formatTempoMedio(
+        fromCatalog.tempoMedioValore,
+        fromCatalog.tempoMedioUnita
+      );
+      return `${fromCatalog.codice} — ${fromCatalog.nome} (${luogo} · ${tempo})`;
     }
     const fromPassi = passi.find((p) => p.attivitaId === id);
     if (fromPassi) {
@@ -288,7 +293,11 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         areaNome: fromPassi.attivitaAreaNome,
         postoNome: fromPassi.attivitaPostoNome,
       });
-      return `${fromPassi.attivitaCodice} — ${fromPassi.attivitaNome} (${luogo})`;
+      const tempo = formatTempoMedio(
+        fromPassi.tempoMedioValore,
+        fromPassi.tempoMedioUnita
+      );
+      return `${fromPassi.attivitaCodice} — ${fromPassi.attivitaNome} (${luogo} · ${tempo})`;
     }
     return id;
   }
@@ -562,7 +571,12 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                           </option>
                           {attivitaDisponibili.map((a) => (
                             <option key={a.id} value={a.id}>
-                              {a.codice} — {a.nome} ({labelLuogoAttivita(a)})
+                              {a.codice} — {a.nome} ({labelLuogoAttivita(a)} ·{" "}
+                              {formatTempoMedio(
+                                a.tempoMedioValore,
+                                a.tempoMedioUnita
+                              )}
+                              )
                             </option>
                           ))}
                         </select>

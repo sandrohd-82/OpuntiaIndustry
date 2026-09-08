@@ -14,7 +14,10 @@ import {
   type FoglioProcessoEsecuzione,
   type FoglioEsecuzioneStato,
 } from "@/lib/produzione/foglio-processi";
-import type { ProcessoPasso } from "@/lib/produzione/processi";
+import {
+  parseTempoMedioUnita,
+  type ProcessoPasso,
+} from "@/lib/produzione/processi";
 import { isScriptFunzione, type AttivitaScriptLink } from "@/lib/script/catalogo";
 import { createClient } from "@/lib/supabase/server";
 
@@ -56,12 +59,16 @@ type PassoQueryRow = {
         nome: string;
         area_id: string | null;
         posto_id: string | null;
+        tempo_medio_valore?: number | string | null;
+        tempo_medio_unita?: string | null;
       }
     | {
         codice: string;
         nome: string;
         area_id: string | null;
         posto_id: string | null;
+        tempo_medio_valore?: number | string | null;
+        tempo_medio_unita?: string | null;
       }[]
     | null;
 };
@@ -151,7 +158,7 @@ async function loadPassiByProcesso(
   const { data } = await supabase
     .from("produzione_processo_passi")
     .select(
-      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id)"
+      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita)"
     )
     .in("processo_id", processoIds)
     .is("deleted_at", null)
@@ -177,6 +184,8 @@ async function loadPassiByProcesso(
       attivitaPostoId: postoId,
       attivitaAreaNome: areaId ? (areaNome.get(areaId) ?? "") : "",
       attivitaPostoNome: postoId ? (postoNome.get(postoId) ?? "") : "",
+      tempoMedioValore: Number(att?.tempo_medio_valore) || 0,
+      tempoMedioUnita: parseTempoMedioUnita(att?.tempo_medio_unita),
       scripts: scripts.get(row.attivita_id) ?? [],
     };
     const list = map.get(row.processo_id) ?? [];

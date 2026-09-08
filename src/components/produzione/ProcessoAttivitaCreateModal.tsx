@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { FaXmark } from "react-icons/fa6";
 import { createProcessoAttivitaAction } from "@/app/actions/produzione-processi";
+import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
-import type { ProcessoAttivita } from "@/lib/produzione/processi";
+import type { ProcessoAttivita, TempoMedioUnita } from "@/lib/produzione/processi";
 
 type Props = {
   open: boolean;
@@ -28,6 +29,9 @@ export function ProcessoAttivitaCreateModal({
   const [attivo, setAttivo] = useState(true);
   const [areaId, setAreaId] = useState("");
   const [postoId, setPostoId] = useState("");
+  const [tempoMedioValore, setTempoMedioValore] = useState(0);
+  const [tempoMedioUnita, setTempoMedioUnita] =
+    useState<TempoMedioUnita>("sec");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -40,6 +44,8 @@ export function ProcessoAttivitaCreateModal({
     setAttivo(true);
     setAreaId(defaultAreaId ?? "");
     setPostoId("");
+    setTempoMedioValore(0);
+    setTempoMedioUnita("sec");
     setError(null);
   }, [open, defaultAreaId]);
 
@@ -60,6 +66,8 @@ export function ProcessoAttivitaCreateModal({
         attivo,
         areaId: areaId || null,
         postoId: postoId || null,
+        tempoMedioValore,
+        tempoMedioUnita,
         scriptIds: [],
       });
       if (!res.success) {
@@ -154,6 +162,12 @@ export function ProcessoAttivitaCreateModal({
               ))}
             </select>
           </label>
+          <TempoMedioAttivitaFields
+            valore={tempoMedioValore}
+            unita={tempoMedioUnita}
+            onValoreChange={setTempoMedioValore}
+            onUnitaChange={setTempoMedioUnita}
+          />
           <label className="text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Descrizione</span>
             <textarea
