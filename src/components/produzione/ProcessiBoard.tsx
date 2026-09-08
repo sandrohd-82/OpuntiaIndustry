@@ -283,7 +283,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
       const luogo = labelLuogoAttivita(fromCatalog);
       const tempo = formatTempoMedio(
         fromCatalog.tempoMedioValore,
-        fromCatalog.tempoMedioUnita
+        fromCatalog.tempoMedioUnita,
+        fromCatalog.tempoOgniValore,
+        fromCatalog.tempoOgniUnita
       );
       return `${fromCatalog.codice} — ${fromCatalog.nome} (${luogo} · ${tempo})`;
     }
@@ -295,7 +297,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
       });
       const tempo = formatTempoMedio(
         fromPassi.tempoMedioValore,
-        fromPassi.tempoMedioUnita
+        fromPassi.tempoMedioUnita,
+        fromPassi.tempoOgniValore,
+        fromPassi.tempoOgniUnita
       );
       return `${fromPassi.attivitaCodice} — ${fromPassi.attivitaNome} (${luogo} · ${tempo})`;
     }
@@ -574,7 +578,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                               {a.codice} — {a.nome} ({labelLuogoAttivita(a)} ·{" "}
                               {formatTempoMedio(
                                 a.tempoMedioValore,
-                                a.tempoMedioUnita
+                                a.tempoMedioUnita,
+                                a.tempoOgniValore,
+                                a.tempoOgniUnita
                               )}
                               )
                             </option>

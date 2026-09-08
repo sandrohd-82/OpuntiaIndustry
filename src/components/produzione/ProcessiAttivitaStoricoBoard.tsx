@@ -122,7 +122,9 @@ export function ProcessiAttivitaStoricoBoard() {
                     {" · "}
                     {formatTempoMedio(
                       selected.tempoMedioValore,
-                      selected.tempoMedioUnita
+                      selected.tempoMedioUnita,
+                      selected.tempoOgniValore,
+                      selected.tempoOgniUnita
                     )}
                     {selected.deprecatoNote
                       ? ` · ${selected.deprecatoNote}`

@@ -30,11 +30,37 @@ export function labelTempoMedioUnita(unita: TempoMedioUnita): string {
   return "Ore";
 }
 
+export const TEMPO_OGNI_UNITA = ["pz", "kg", "g", "lt", "ml"] as const;
+
+export type TempoOgniUnita = (typeof TEMPO_OGNI_UNITA)[number];
+
+export function parseTempoOgniUnita(
+  value: string | null | undefined
+): TempoOgniUnita {
+  if (
+    value === "kg" ||
+    value === "g" ||
+    value === "lt" ||
+    value === "ml"
+  ) {
+    return value;
+  }
+  return "pz";
+}
+
+export function labelTempoOgniUnita(unita: TempoOgniUnita): string {
+  return unita;
+}
+
 export function formatTempoMedio(
   valore: number,
-  unita: TempoMedioUnita
+  unita: TempoMedioUnita,
+  ogniValore = 1,
+  ogniUnita: TempoOgniUnita = "pz"
 ): string {
-  return `${Number.isFinite(valore) ? valore : 0} ${labelTempoMedioUnita(unita)}`;
+  const tempo = `${Number.isFinite(valore) ? valore : 0} ${labelTempoMedioUnita(unita)}`;
+  const ogni = Number.isFinite(ogniValore) && ogniValore > 0 ? ogniValore : 1;
+  return `${tempo} · Ogni ${ogni} ${labelTempoOgniUnita(ogniUnita)}`;
 }
 
 export type ProcessoAttivita = {
@@ -50,6 +76,8 @@ export type ProcessoAttivita = {
   postoNome: string;
   tempoMedioValore: number;
   tempoMedioUnita: TempoMedioUnita;
+  tempoOgniValore: number;
+  tempoOgniUnita: TempoOgniUnita;
   scripts: AttivitaScriptLink[];
   createdAt: string;
   deprecatoAt: string | null;
@@ -93,6 +121,8 @@ export type ProcessoPasso = {
   attivitaPostoNome: string;
   tempoMedioValore: number;
   tempoMedioUnita: TempoMedioUnita;
+  tempoOgniValore: number;
+  tempoOgniUnita: TempoOgniUnita;
   scripts: AttivitaScriptLink[];
 };
 
@@ -107,6 +137,8 @@ export const processoAttivitaInputSchema = z
     postoId: optionalUuid,
     tempoMedioValore: z.coerce.number().int().min(0).max(999999).default(0),
     tempoMedioUnita: z.enum(TEMPO_MEDIO_UNITA).default("sec"),
+    tempoOgniValore: z.coerce.number().int().min(1).max(999999).default(1),
+    tempoOgniUnita: z.enum(TEMPO_OGNI_UNITA).default("pz"),
     scriptIds: z.array(z.string().uuid()).optional().default([]),
   })
   .superRefine((data, ctx) => {

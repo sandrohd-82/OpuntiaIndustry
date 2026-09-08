@@ -16,6 +16,7 @@ import {
 } from "@/lib/produzione/foglio-processi";
 import {
   parseTempoMedioUnita,
+  parseTempoOgniUnita,
   type ProcessoPasso,
 } from "@/lib/produzione/processi";
 import { isScriptFunzione, type AttivitaScriptLink } from "@/lib/script/catalogo";
@@ -61,6 +62,8 @@ type PassoQueryRow = {
         posto_id: string | null;
         tempo_medio_valore?: number | string | null;
         tempo_medio_unita?: string | null;
+        tempo_ogni_valore?: number | string | null;
+        tempo_ogni_unita?: string | null;
       }
     | {
         codice: string;
@@ -69,6 +72,8 @@ type PassoQueryRow = {
         posto_id: string | null;
         tempo_medio_valore?: number | string | null;
         tempo_medio_unita?: string | null;
+        tempo_ogni_valore?: number | string | null;
+        tempo_ogni_unita?: string | null;
       }[]
     | null;
 };
@@ -158,7 +163,7 @@ async function loadPassiByProcesso(
   const { data } = await supabase
     .from("produzione_processo_passi")
     .select(
-      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita)"
+      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita, tempo_ogni_valore, tempo_ogni_unita)"
     )
     .in("processo_id", processoIds)
     .is("deleted_at", null)
@@ -186,6 +191,8 @@ async function loadPassiByProcesso(
       attivitaPostoNome: postoId ? (postoNome.get(postoId) ?? "") : "",
       tempoMedioValore: Number(att?.tempo_medio_valore) || 0,
       tempoMedioUnita: parseTempoMedioUnita(att?.tempo_medio_unita),
+      tempoOgniValore: Number(att?.tempo_ogni_valore) || 1,
+      tempoOgniUnita: parseTempoOgniUnita(att?.tempo_ogni_unita),
       scripts: scripts.get(row.attivita_id) ?? [],
     };
     const list = map.get(row.processo_id) ?? [];

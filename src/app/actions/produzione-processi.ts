@@ -6,6 +6,7 @@ import {
   deprecaProcessoAttivitaSchema,
   deprecaProcessoSchema,
   parseTempoMedioUnita,
+  parseTempoOgniUnita,
   processoAttivitaInputSchema,
   processoComposizioneSchema,
   processoInputSchema,
@@ -25,7 +26,7 @@ import {
 } from "@/lib/script/catalogo";
 
 const ATTIVITA_COLS =
-  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id, tempo_medio_valore, tempo_medio_unita, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
+  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id, tempo_medio_valore, tempo_medio_unita, tempo_ogni_valore, tempo_ogni_unita, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 const PROCESSO_COLS =
   "id, codice, nome, descrizione, attivo, note, versione, documento_stato, created_at, area_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 
@@ -41,6 +42,8 @@ type AttivitaRow = {
   posto_id: string | null;
   tempo_medio_valore: number | string | null;
   tempo_medio_unita: string | null;
+  tempo_ogni_valore: number | string | null;
+  tempo_ogni_unita: string | null;
   deprecato_at: string | null;
   deprecato_by: string | null;
   deprecato_note: string | null;
@@ -78,6 +81,8 @@ type PassoRow = {
     posto_id: string | null;
     tempo_medio_valore?: number | string | null;
     tempo_medio_unita?: string | null;
+    tempo_ogni_valore?: number | string | null;
+    tempo_ogni_unita?: string | null;
   } | null;
 };
 
@@ -221,6 +226,8 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
     postoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
     tempoMedioValore: Number(row.tempo_medio_valore) || 0,
     tempoMedioUnita: parseTempoMedioUnita(row.tempo_medio_unita),
+    tempoOgniValore: Number(row.tempo_ogni_valore) || 1,
+    tempoOgniUnita: parseTempoOgniUnita(row.tempo_ogni_unita),
     scripts: [],
     createdAt: row.created_at,
     deprecatoAt: row.deprecato_at ?? null,
@@ -312,6 +319,11 @@ function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
     tempoMedioValore: Number(row.produzione_processo_attivita?.tempo_medio_valore) || 0,
     tempoMedioUnita: parseTempoMedioUnita(
       row.produzione_processo_attivita?.tempo_medio_unita
+    ),
+    tempoOgniValore:
+      Number(row.produzione_processo_attivita?.tempo_ogni_valore) || 1,
+    tempoOgniUnita: parseTempoOgniUnita(
+      row.produzione_processo_attivita?.tempo_ogni_unita
     ),
     scripts: [],
   };
@@ -453,6 +465,8 @@ export async function createProcessoAttivitaAction(
       posto_id: postoId,
       tempo_medio_valore: parsed.data.tempoMedioValore,
       tempo_medio_unita: parsed.data.tempoMedioUnita,
+      tempo_ogni_valore: parsed.data.tempoOgniValore,
+      tempo_ogni_unita: parsed.data.tempoOgniUnita,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -487,6 +501,8 @@ export async function createProcessoAttivitaAction(
       posto_id: created.postoId,
       tempo_medio_valore: created.tempoMedioValore,
       tempo_medio_unita: created.tempoMedioUnita,
+      tempo_ogni_valore: created.tempoOgniValore,
+      tempo_ogni_unita: created.tempoOgniUnita,
       script_ids: parsed.data.scriptIds,
     },
   });
@@ -541,6 +557,8 @@ export async function updateProcessoAttivitaAction(
       posto_id: postoId,
       tempo_medio_valore: parsed.data.tempoMedioValore,
       tempo_medio_unita: parsed.data.tempoMedioUnita,
+      tempo_ogni_valore: parsed.data.tempoOgniValore,
+      tempo_ogni_unita: parsed.data.tempoOgniUnita,
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -576,6 +594,8 @@ export async function updateProcessoAttivitaAction(
       posto_id: updated.postoId,
       tempo_medio_valore: updated.tempoMedioValore,
       tempo_medio_unita: updated.tempoMedioUnita,
+      tempo_ogni_valore: updated.tempoOgniValore,
+      tempo_ogni_unita: updated.tempoOgniUnita,
       script_ids: parsed.data.scriptIds,
     },
   });
@@ -1171,7 +1191,7 @@ async function listProcessoPassiInternal(
   const { data, error } = await supabase
     .from("produzione_processo_passi")
     .select(
-      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita)"
+      "id, processo_id, attivita_id, sort_order, obbligatorio, note, produzione_processo_attivita(codice, nome, area_id, posto_id, tempo_medio_valore, tempo_medio_unita, tempo_ogni_valore, tempo_ogni_unita)"
     )
     .eq("processo_id", processoId)
     .is("deleted_at", null)

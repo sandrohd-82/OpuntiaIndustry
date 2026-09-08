@@ -18,6 +18,7 @@ import {
   labelLuogoAttivita,
   type ProcessoAttivita,
   type TempoMedioUnita,
+  type TempoOgniUnita,
 } from "@/lib/produzione/processi";
 
 type ProcessiAttivitaBoardProps = {
@@ -50,6 +51,8 @@ export function ProcessiAttivitaBoard({
   const [tempoMedioValore, setTempoMedioValore] = useState(0);
   const [tempoMedioUnita, setTempoMedioUnita] =
     useState<TempoMedioUnita>("sec");
+  const [tempoOgniValore, setTempoOgniValore] = useState(1);
+  const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -95,6 +98,8 @@ export function ProcessiAttivitaBoard({
     setPostoId("");
     setTempoMedioValore(0);
     setTempoMedioUnita("sec");
+    setTempoOgniValore(1);
+    setTempoOgniUnita("pz");
   }
 
   function openEdit(a: ProcessoAttivita) {
@@ -109,6 +114,8 @@ export function ProcessiAttivitaBoard({
     setPostoId(a.postoId ?? "");
     setTempoMedioValore(a.tempoMedioValore);
     setTempoMedioUnita(a.tempoMedioUnita);
+    setTempoOgniValore(a.tempoOgniValore);
+    setTempoOgniUnita(a.tempoOgniUnita);
   }
 
   function closeForm() {
@@ -128,6 +135,8 @@ export function ProcessiAttivitaBoard({
         postoId: postoId || null,
         tempoMedioValore,
         tempoMedioUnita,
+        tempoOgniValore,
+        tempoOgniUnita,
         scriptIds: editing?.scripts.map((s) => s.id) ?? [],
       };
       const res = editing
@@ -234,8 +243,12 @@ export function ProcessiAttivitaBoard({
             <TempoMedioAttivitaFields
               valore={tempoMedioValore}
               unita={tempoMedioUnita}
+              ogniValore={tempoOgniValore}
+              ogniUnita={tempoOgniUnita}
               onValoreChange={setTempoMedioValore}
               onUnitaChange={setTempoMedioUnita}
+              onOgniValoreChange={setTempoOgniValore}
+              onOgniUnitaChange={setTempoOgniUnita}
             />
             <label className="text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Descrizione</span>
@@ -311,7 +324,12 @@ export function ProcessiAttivitaBoard({
                   {labelLuogoAttivita(a)}
                 </td>
                 <td className="px-4 py-3 text-[var(--muted)]">
-                  {formatTempoMedio(a.tempoMedioValore, a.tempoMedioUnita)}
+                  {formatTempoMedio(
+                    a.tempoMedioValore,
+                    a.tempoMedioUnita,
+                    a.tempoOgniValore,
+                    a.tempoOgniUnita
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   {a.attivo ? (

@@ -191,7 +191,9 @@ export function ProcessiStoricoBoard() {
                       {" · "}
                       {formatTempoMedio(
                         passo.tempoMedioValore,
-                        passo.tempoMedioUnita
+                        passo.tempoMedioUnita,
+                        passo.tempoOgniValore,
+                        passo.tempoOgniUnita
                       )}
                     </span>
                   </li>

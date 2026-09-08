@@ -5,7 +5,11 @@ import { FaXmark } from "react-icons/fa6";
 import { createProcessoAttivitaAction } from "@/app/actions/produzione-processi";
 import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
-import type { ProcessoAttivita, TempoMedioUnita } from "@/lib/produzione/processi";
+import type {
+  ProcessoAttivita,
+  TempoMedioUnita,
+  TempoOgniUnita,
+} from "@/lib/produzione/processi";
 
 type Props = {
   open: boolean;
@@ -32,6 +36,8 @@ export function ProcessoAttivitaCreateModal({
   const [tempoMedioValore, setTempoMedioValore] = useState(0);
   const [tempoMedioUnita, setTempoMedioUnita] =
     useState<TempoMedioUnita>("sec");
+  const [tempoOgniValore, setTempoOgniValore] = useState(1);
+  const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -46,6 +52,8 @@ export function ProcessoAttivitaCreateModal({
     setPostoId("");
     setTempoMedioValore(0);
     setTempoMedioUnita("sec");
+    setTempoOgniValore(1);
+    setTempoOgniUnita("pz");
     setError(null);
   }, [open, defaultAreaId]);
 
@@ -68,6 +76,8 @@ export function ProcessoAttivitaCreateModal({
         postoId: postoId || null,
         tempoMedioValore,
         tempoMedioUnita,
+        tempoOgniValore,
+        tempoOgniUnita,
         scriptIds: [],
       });
       if (!res.success) {
@@ -165,8 +175,12 @@ export function ProcessoAttivitaCreateModal({
           <TempoMedioAttivitaFields
             valore={tempoMedioValore}
             unita={tempoMedioUnita}
+            ogniValore={tempoOgniValore}
+            ogniUnita={tempoOgniUnita}
             onValoreChange={setTempoMedioValore}
             onUnitaChange={setTempoMedioUnita}
+            onOgniValoreChange={setTempoOgniValore}
+            onOgniUnitaChange={setTempoOgniUnita}
           />
           <label className="text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Descrizione</span>

@@ -228,7 +228,9 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
                           <span className="ml-2 text-xs text-[var(--muted)]">
                             {formatTempoMedio(
                               passo.tempoMedioValore,
-                              passo.tempoMedioUnita
+                              passo.tempoMedioUnita,
+                              passo.tempoOgniValore,
+                              passo.tempoOgniUnita
                             )}
                           </span>
                           {passo.scripts.length > 0 ? (
