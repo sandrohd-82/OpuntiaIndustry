@@ -165,6 +165,7 @@ export async function listWebmailUnreadCountsAction(
     .eq("direction", "inbound")
     .eq("is_seen", false)
     .is("deleted_at", null)
+    .is("archived_at", null)
     .neq("folder", "TRASH")
     .limit(5000);
   if (error) return { success: false, error: error.message };
@@ -180,6 +181,35 @@ export async function listWebmailUnreadCountsAction(
     }
   }
   return { success: true, counts: { inbox, byCategoriaId } };
+}
+
+/**
+ * Non lette in In arrivo (senza categoria) per ogni casella visibile.
+ */
+export async function listWebmailUnreadInboxByAccountAction(): Promise<
+  | { success: true; byAccountId: Record<string, number> }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("account_id")
+    .eq("direction", "inbound")
+    .eq("is_seen", false)
+    .is("categoria_id", null)
+    .is("deleted_at", null)
+    .is("archived_at", null)
+    .neq("folder", "TRASH")
+    .limit(8000);
+  if (error) return { success: false, error: error.message };
+  const byAccountId: Record<string, number> = {};
+  for (const r of data ?? []) {
+    const id = String(r.account_id ?? "");
+    if (!id) continue;
+    byAccountId[id] = (byAccountId[id] ?? 0) + 1;
+  }
+  return { success: true, byAccountId };
 }
 
 export async function markWebmailMessaggioSeenAction(

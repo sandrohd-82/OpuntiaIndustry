@@ -59,6 +59,7 @@ import {
   type WebmailMessaggio,
 } from "@/lib/webmail/types";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
+import { notifyWebmailUnreadNav } from "@/lib/webmail/unread-nav";
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -258,6 +259,7 @@ export function WebmailBoard({
     setCategorie(c.items);
     setMessaggi(m.messaggi);
     setTotalCount(m.total);
+    notifyWebmailUnreadNav(accountFilter || null);
     if (m.messaggi.length === 0 && m.page > 0 && m.total > 0) {
       setPage(m.page - 1);
     }
@@ -336,6 +338,8 @@ export function WebmailBoard({
                 ? "1 nuova mail ricevuta dalla casella."
                 : `${n} nuove mail ricevute dalla casella.`
             );
+            setPage(0);
+            notifyWebmailUnreadNav(accountLiveRef.current || null);
             await reloadRef.current();
           }
         } catch (e) {
@@ -411,6 +415,7 @@ export function WebmailBoard({
       const seen = await markWebmailMessaggioSeenAction(selectedId);
       if (seen.success) {
         patchMessaggio(seen.messaggio);
+        notifyWebmailUnreadNav(seen.messaggio.accountId);
       }
       const res = await getWebmailBozzaForMessaggioAction(selectedId);
       if (!res.success) {
@@ -454,7 +459,9 @@ export function WebmailBoard({
     setSyncModalOpen(false);
     setSyncProgress(null);
     if (importedIds.length > 0) {
+      setPage(0);
       setImportedStatus({ ids: importedIds, extraInfo });
+      notifyWebmailUnreadNav(accountFilter || null);
     } else {
       setInfo(extraInfo ?? "Nessuna nuova mail importata.");
     }

@@ -331,12 +331,16 @@ async function importInboxUidList(
         received_at: receivedAt,
         sent_at: receivedAt,
         is_seen: false,
-        categoria_id: learned.categoriaId,
-        categoria_suggest_id: learned.categoriaSuggestId,
-        categoria_suggest_mode: learned.categoriaSuggestMode,
-        categoria_auto_pending: learned.categoriaAutoPending,
-        categoria_auto_applied_at: learned.categoriaAutoAppliedAt,
-        categoria_auto_notified: learned.categoriaAutoNotified,
+        // Sempre In arrivo (non letta): l’apprendimento resta un suggerimento.
+        categoria_id: null,
+        categoria_suggest_id:
+          learned.categoriaSuggestId || learned.categoriaId || null,
+        categoria_suggest_mode: learned.categoriaId
+          ? "suggest"
+          : learned.categoriaSuggestMode,
+        categoria_auto_pending: false,
+        categoria_auto_applied_at: null,
+        categoria_auto_notified: false,
         azienda_tipo: anagrafica.aziendaTipo,
         azienda_id: anagrafica.aziendaId,
         azienda_label: anagrafica.aziendaLabel,

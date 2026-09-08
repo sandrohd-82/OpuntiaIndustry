@@ -16,6 +16,7 @@ import {
   type WebmailUnreadCounts,
 } from "@/app/actions/webmail";
 import type { WebmailCategoria } from "@/lib/webmail/types";
+import { WEBMAIL_UNREAD_NAV_EVENT } from "@/lib/webmail/unread-nav";
 
 type Props = {
   accountId: string;
@@ -98,9 +99,24 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   }, [reload]);
 
   useEffect(() => {
-    const t = window.setTimeout(reload, 500);
+    const t = window.setTimeout(reload, 400);
     return () => window.clearTimeout(t);
   }, [pathname, reload]);
+
+  useEffect(() => {
+    function onUnread(ev: Event) {
+      const id = (ev as CustomEvent<{ accountId?: string | null }>).detail
+        ?.accountId;
+      if (id && id !== accountId) return;
+      reload();
+    }
+    window.addEventListener(WEBMAIL_UNREAD_NAV_EVENT, onUnread);
+    const poll = window.setInterval(reload, 8000);
+    return () => {
+      window.removeEventListener(WEBMAIL_UNREAD_NAV_EVENT, onUnread);
+      window.clearInterval(poll);
+    };
+  }, [accountId, reload]);
 
   return (
     <aside className="flex max-h-[min(78vh,52rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white shadow-sm">

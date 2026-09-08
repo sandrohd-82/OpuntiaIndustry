@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { listWebmailAccountsAction } from "@/app/actions/webmail";
+import {
+  listWebmailAccountsAction,
+  listWebmailUnreadInboxByAccountAction,
+} from "@/app/actions/webmail";
 import type { WebmailAccountPublic } from "@/lib/webmail/types";
+import { WEBMAIL_UNREAD_NAV_EVENT } from "@/lib/webmail/unread-nav";
 
 function itemClass(active: boolean) {
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
@@ -38,15 +42,30 @@ export function WebmailSidebarNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(true);
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
+  const [unreadByAccount, setUnreadByAccount] = useState<
+    Record<string, number>
+  >({});
 
   const load = useCallback(() => {
     void listWebmailAccountsAction().then((a) => {
       setAccounts(a.success ? a.accounts : []);
     });
+    void listWebmailUnreadInboxByAccountAction().then((res) => {
+      if (res.success) setUnreadByAccount(res.byAccountId);
+    });
   }, []);
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  useEffect(() => {
+    window.addEventListener(WEBMAIL_UNREAD_NAV_EVENT, load);
+    const poll = window.setInterval(load, 8000);
+    return () => {
+      window.removeEventListener(WEBMAIL_UNREAD_NAV_EVENT, load);
+      window.clearInterval(poll);
+    };
   }, [load]);
 
   useEffect(() => {
@@ -76,14 +95,23 @@ export function WebmailSidebarNav() {
               accounts.map((acc) => {
                 const base = `/app/webmail/caselle/${acc.id}`;
                 const active = pathname.startsWith(base);
+                const unread = unreadByAccount[acc.id] ?? 0;
                 return (
                   <li key={acc.id}>
                     <Link
                       href={`${base}/in-arrivo`}
-                      className={itemClass(active)}
+                      className={`${itemClass(active)} justify-between`}
                       title={acc.emailAddress}
                     >
                       <span className="truncate">{acc.label}</span>
+                      {unread > 0 ? (
+                        <span
+                          className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white"
+                          title={`${unread} non lette in arrivo`}
+                        >
+                          {unread}
+                        </span>
+                      ) : null}
                     </Link>
                   </li>
                 );
