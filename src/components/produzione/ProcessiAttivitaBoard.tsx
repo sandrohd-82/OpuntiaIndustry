@@ -5,6 +5,7 @@ import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   createProcessoAttivitaAction,
+  deprecaProcessoAttivitaAction,
   listProcessoAttivitaAction,
   softDeleteProcessoAttivitaAction,
   updateProcessoAttivitaAction,
@@ -33,6 +34,11 @@ export function ProcessiAttivitaBoard({
   const [editing, setEditing] = useState<ProcessoAttivita | null>(null);
   const [creating, setCreating] = useState(startCreate);
   const [deleting, setDeleting] = useState<ProcessoAttivita | null>(null);
+  const [deprecating, setDeprecating] = useState<ProcessoAttivita | null>(
+    null
+  );
+  const [deprecatoNote, setDeprecatoNote] = useState("");
+  const [sostituitoDa, setSostituitoDa] = useState("");
   const [codice, setCodice] = useState("");
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
@@ -399,6 +405,17 @@ export function ProcessiAttivitaBoard({
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      setDeprecating(a);
+                      setDeprecatoNote("");
+                      setSostituitoDa("");
+                    }}
+                    className="mr-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--muted)] hover:bg-slate-50"
+                  >
+                    Depreca
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setDeleting(a)}
                     className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                   >
@@ -436,6 +453,82 @@ export function ProcessiAttivitaBoard({
             load();
           }}
         />
+      ) : null}
+
+      {deprecating ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <h3 className="text-sm font-semibold">
+              Depreca {deprecating.codice}
+            </h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Va nello storico: resta visibile per traccia, non è più in
+              elenco. Non è un’eliminazione (quella è solo per errori o test).
+            </p>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium">
+                Sostituita da (opzionale)
+              </span>
+              <select
+                value={sostituitoDa}
+                onChange={(e) => setSostituitoDa(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                <option value="">Nessuna attività sostitutiva</option>
+                {items
+                  .filter((x) => x.id !== deprecating.id)
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.codice} — {x.nome}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium">Nota</span>
+              <textarea
+                value={deprecatoNote}
+                onChange={(e) => setDeprecatoNote(e.target.value)}
+                rows={2}
+                placeholder="Versione aggiornata / non più utile…"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeprecating(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  startTransition(async () => {
+                    const res = await deprecaProcessoAttivitaAction(
+                      deprecating.id,
+                      {
+                        note: deprecatoNote,
+                        sostituitoDa: sostituitoDa || null,
+                      }
+                    );
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    setDeprecating(null);
+                    load();
+                  });
+                }}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {pending ? "Salvataggio…" : "Sposta nello storico"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

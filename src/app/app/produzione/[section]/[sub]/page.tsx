@@ -7,7 +7,6 @@ import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
-import { ProcessiStoricoBoard } from "@/components/produzione/ProcessiStoricoBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { resolveProduzioneDynamic } from "../../_resolve";
 
@@ -24,6 +23,15 @@ export default async function ProduzioneSubPage({ params }: Props) {
   }
   if (section === "processi-e-attivita" && sub === "nuova-attivita") {
     redirect("/app/produzione/processi-e-attivita/elenco-attivita");
+  }
+  if (section === "processi-e-attivita" && sub === "storico-processi") {
+    redirect("/app/archivio/produzione/processi-e-attivita/storico-processi");
+  }
+  if (section === "processi-e-attivita" && sub === "storico-attivita") {
+    redirect("/app/archivio/produzione/processi-e-attivita/storico-attivita");
+  }
+  if (section === "fogli-lavorazione" && sub === "storico") {
+    redirect("/app/archivio/produzione/fogli-lavorazione/storico");
   }
   const page = await resolveProduzioneDynamic([section, sub]);
   if (!page) notFound();
@@ -50,17 +58,6 @@ export default async function ProduzioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "processi-e-attivita" && sub === "storico-processi") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <ProcessiStoricoBoard />
-        </div>
-      </>
-    );
-  }
-
   if (section === "processi-e-attivita" && sub === "elenco-attivita") {
     return (
       <>
@@ -78,17 +75,6 @@ export default async function ProduzioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FogliInEsecuzioneBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "fogli-lavorazione" && sub === "storico") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <FogliLavorazioneBoard initialFilter="chiusi" />
         </div>
       </>
     );

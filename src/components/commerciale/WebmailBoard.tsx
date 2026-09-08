@@ -15,6 +15,8 @@ import {
   markWebmailMessaggioSeenAction,
   rejectWebmailCategoriaSuggestionAction,
   restoreWebmailMessaggioAction,
+  archiveWebmailMessaggioAction,
+  unarchiveWebmailMessaggioAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
   softDeleteWebmailMessaggioAction,
@@ -816,6 +818,28 @@ export function WebmailBoard({
                     >
                       Ripristina
                     </button>
+                  ) : view === "archiviate" ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await unarchiveWebmailMessaggioAction(
+                            selected.id
+                          );
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setSelectedId(null);
+                          setInfo("Mail ripristinata dall'archivio.");
+                          await reload();
+                        });
+                      }}
+                    >
+                      Ripristina in casella
+                    </button>
                   ) : (
                     <>
                       <button
@@ -831,6 +855,27 @@ export function WebmailBoard({
                         onClick={() => setAziendaModalOpen(true)}
                       >
                         Collega ad azienda
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res = await archiveWebmailMessaggioAction(
+                              selected.id
+                            );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setSelectedId(null);
+                            setInfo("Mail spostata in Archiviate.");
+                            await reload();
+                          });
+                        }}
+                      >
+                        Archivia
                       </button>
                       <button
                         type="button"

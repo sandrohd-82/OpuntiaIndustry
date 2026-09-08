@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ContrattiFiscaliBoard } from "@/components/amministrazione/ContrattiFiscaliBoard";
 import { DashboardFiscaleBoard } from "@/components/amministrazione/DashboardFiscaleBoard";
 import { FatturaEmissioneBoard } from "@/components/amministrazione/FatturaEmissioneBoard";
@@ -19,6 +19,9 @@ export default async function AreaFiscaleSubPage({ params }: Props) {
   await requireAreaAccess("area-fiscale");
 
   const { section, sub } = await params;
+  if (section === "contratti" && sub === "archivio") {
+    redirect("/app/archivio/area-fiscale/contratti/archivio");
+  }
   const page = resolveAreaFiscalePage([section, sub]);
   if (!page) notFound();
 
@@ -99,7 +102,7 @@ export default async function AreaFiscaleSubPage({ params }: Props) {
     );
   }
 
-  if (section === "contratti" && (sub === "nuovo" || sub === "elenco" || sub === "archivio")) {
+  if (section === "contratti" && (sub === "nuovo" || sub === "elenco")) {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />

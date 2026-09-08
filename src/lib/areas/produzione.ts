@@ -42,12 +42,6 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/produzione/fogli-lavorazione/in-esecuzione",
         badge: { kind: "status", active: false },
       },
-      {
-        slug: "storico",
-        label: "Storico Fogli",
-        description: "Storico dei fogli di lavorazione",
-        path: "/app/produzione/fogli-lavorazione/storico",
-      },
     ],
   },
   {
@@ -61,13 +55,6 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         label: "Elenco Processi",
         description: "Processi attualmente utilizzati",
         path: "/app/produzione/processi-e-attivita/elenco-processi",
-      },
-      {
-        slug: "storico-processi",
-        label: "Storico processi",
-        description:
-          "Processi deprecati: sostituiti da una versione aggiornata o non più utili, con traccia visibile",
-        path: "/app/produzione/processi-e-attivita/storico-processi",
       },
       {
         slug: "elenco-attivita",

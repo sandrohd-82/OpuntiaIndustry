@@ -4,10 +4,12 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   attivitaCompatibileConArea,
+  deprecaProcessoAttivitaSchema,
   deprecaProcessoSchema,
   processoAttivitaInputSchema,
   processoComposizioneSchema,
   processoInputSchema,
+  type DeprecaProcessoAttivitaInput,
   type DeprecaProcessoInput,
   type Processo,
   type ProcessoAttivita,
@@ -23,7 +25,7 @@ import {
 } from "@/lib/script/catalogo";
 
 const ATTIVITA_COLS =
-  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id";
+  "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 const PROCESSO_COLS =
   "id, codice, nome, descrizione, attivo, note, versione, documento_stato, created_at, area_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 
@@ -37,6 +39,10 @@ type AttivitaRow = {
   created_at: string;
   area_id: string | null;
   posto_id: string | null;
+  deprecato_at: string | null;
+  deprecato_by: string | null;
+  deprecato_note: string | null;
+  sostituito_da: string | null;
 };
 
 type ProcessoRow = {
@@ -211,6 +217,10 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
     postoNome: postoId ? (luoghi.postoNome.get(postoId) ?? "") : "",
     scripts: [],
     createdAt: row.created_at,
+    deprecatoAt: row.deprecato_at ?? null,
+    deprecatoBy: row.deprecato_by ?? null,
+    deprecatoNote: row.deprecato_note ?? "",
+    sostituitoDa: row.sostituito_da ?? null,
   };
 }
 
@@ -396,16 +406,23 @@ async function assertProcessoAreaCompatibile(
 // Attività di processo
 // ---------------------------------------------------------------------------
 
-export async function listProcessoAttivitaAction(): Promise<
+async function listAttivitaByCollocazione(
+  storico: boolean,
+  onlyAttive = false
+): Promise<
   { success: true; items: ProcessoAttivita[] } | { success: false; error: string }
 > {
   await requireAreaAccess("produzione");
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("produzione_processo_attivita")
     .select(ATTIVITA_COLS)
-    .is("deleted_at", null)
-    .order("codice", { ascending: true });
+    .is("deleted_at", null);
+  query = storico
+    ? query.not("deprecato_at", "is", null)
+    : query.is("deprecato_at", null);
+  if (onlyAttive) query = query.eq("attivo", true);
+  const { data, error } = await query.order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
   const luoghi = await loadLuoghi(supabase);
   return {
@@ -417,26 +434,22 @@ export async function listProcessoAttivitaAction(): Promise<
   };
 }
 
+export async function listProcessoAttivitaAction(): Promise<
+  { success: true; items: ProcessoAttivita[] } | { success: false; error: string }
+> {
+  return listAttivitaByCollocazione(false);
+}
+
+export async function listProcessoAttivitaStoricoAction(): Promise<
+  { success: true; items: ProcessoAttivita[] } | { success: false; error: string }
+> {
+  return listAttivitaByCollocazione(true);
+}
+
 export async function listProcessoAttivitaAttiveAction(): Promise<
   { success: true; items: ProcessoAttivita[] } | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("produzione_processo_attivita")
-    .select(ATTIVITA_COLS)
-    .is("deleted_at", null)
-    .eq("attivo", true)
-    .order("codice", { ascending: true });
-  if (error) return { success: false, error: error.message };
-  const luoghi = await loadLuoghi(supabase);
-  return {
-    success: true,
-    items: await attachScriptsToAttivita(
-      supabase,
-      ((data ?? []) as AttivitaRow[]).map((row) => mapAttivita(row, luoghi))
-    ),
-  };
+  return listAttivitaByCollocazione(false, true);
 }
 
 export async function createProcessoAttivitaAction(
@@ -526,6 +539,22 @@ export async function updateProcessoAttivitaAction(
   const luogo = await resolveAreaPosto(supabase, areaId, postoId);
   if (!luogo.success) return luogo;
 
+  const { data: existing, error: loadErr } = await supabase
+    .from("produzione_processo_attivita")
+    .select("id, deprecato_at")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (loadErr) return { success: false, error: loadErr.message };
+  if (!existing) return { success: false, error: "Attività non trovata." };
+  if ((existing as { deprecato_at: string | null }).deprecato_at) {
+    return {
+      success: false,
+      error:
+        "Attività deprecata: è nello storico e non si modifica. Ripristinala in elenco se serve.",
+    };
+  }
+
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
     .update({
@@ -614,6 +643,135 @@ export async function softDeleteProcessoAttivitaAction(
     payload: {},
   });
   return { success: true };
+}
+
+export async function deprecaProcessoAttivitaAction(
+  id: string,
+  raw: DeprecaProcessoAttivitaInput
+): Promise<
+  { success: true; item: ProcessoAttivita } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const parsed = deprecaProcessoAttivitaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const supabase = await createClient();
+  const { data: existing, error: loadErr } = await supabase
+    .from("produzione_processo_attivita")
+    .select("id, codice, deprecato_at")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (loadErr) return { success: false, error: loadErr.message };
+  if (!existing) return { success: false, error: "Attività non trovata." };
+  if ((existing as { deprecato_at: string | null }).deprecato_at) {
+    return { success: false, error: "Attività già nello storico." };
+  }
+
+  const sostituitoDa = parsed.data.sostituitoDa ?? null;
+  if (sostituitoDa) {
+    if (sostituitoDa === id) {
+      return {
+        success: false,
+        error: "Un'attività non può sostituire se stessa.",
+      };
+    }
+    const { data: dest, error: destErr } = await supabase
+      .from("produzione_processo_attivita")
+      .select("id, deprecato_at")
+      .eq("id", sostituitoDa)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (destErr) return { success: false, error: destErr.message };
+    if (!dest) {
+      return { success: false, error: "Attività sostitutiva non trovata." };
+    }
+    if ((dest as { deprecato_at: string | null }).deprecato_at) {
+      return {
+        success: false,
+        error: "L'attività sostitutiva deve essere in elenco, non nello storico.",
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("produzione_processo_attivita")
+    .update({
+      deprecato_at: now,
+      deprecato_by: auth.userId,
+      deprecato_note: parsed.data.note?.trim() ?? "",
+      sostituito_da: sostituitoDa,
+      attivo: false,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .is("deprecato_at", null)
+    .select(ATTIVITA_COLS)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Attività non trovata." };
+  const luoghi = await loadLuoghi(supabase);
+  const mapped = mapAttivita(data as AttivitaRow, luoghi);
+  const [item] = await attachScriptsToAttivita(supabase, [mapped]);
+  void writeAuditLog({
+    entity_type: "produzione_processo_attivita",
+    entity_id: mapped.id,
+    action: "deprecate",
+    actor_id: auth.userId,
+    summary: `Deprecata attività ${(existing as { codice: string }).codice}`,
+    payload: {
+      deprecato_at: now,
+      deprecato_note: parsed.data.note?.trim() ?? "",
+      sostituito_da: sostituitoDa,
+    },
+  });
+  return { success: true, item: item ?? mapped };
+}
+
+export async function ripristinaProcessoAttivitaAction(
+  id: string
+): Promise<
+  { success: true; item: ProcessoAttivita } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_processo_attivita")
+    .update({
+      deprecato_at: null,
+      deprecato_by: null,
+      deprecato_note: "",
+      sostituito_da: null,
+      attivo: true,
+      updated_by: auth.userId,
+    })
+    .eq("id", id)
+    .is("deleted_at", null)
+    .not("deprecato_at", "is", null)
+    .select(ATTIVITA_COLS)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) {
+    return { success: false, error: "Attività non trovata nello storico." };
+  }
+  const luoghi = await loadLuoghi(supabase);
+  const mapped = mapAttivita(data as AttivitaRow, luoghi);
+  const [item] = await attachScriptsToAttivita(supabase, [mapped]);
+  void writeAuditLog({
+    entity_type: "produzione_processo_attivita",
+    entity_id: mapped.id,
+    action: "restore",
+    actor_id: auth.userId,
+    summary: `Ripristinata in elenco attività ${mapped.codice}`,
+    payload: {},
+  });
+  return { success: true, item: item ?? mapped };
 }
 
 // ---------------------------------------------------------------------------

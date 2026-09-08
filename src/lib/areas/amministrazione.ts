@@ -136,12 +136,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Ordini/processi già registrati, programmati o in esecuzione",
         path: "/app/amministrazione/ordini/processati",
       },
-      {
-        slug: "storico",
-        label: "Storico",
-        description: "Ordini e processi già conclusi",
-        path: "/app/amministrazione/ordini/storico",
-      },
     ],
   },
   {
@@ -192,12 +186,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/amministrazione/organigramma/albero",
       },
     ],
-  },
-  {
-    slug: "registro-accessi",
-    label: "Registro accessi",
-    description: "Accessi al gestionale: timeline o elenco",
-    path: "/app/amministrazione/registro-accessi",
   },
 ] as const;
 

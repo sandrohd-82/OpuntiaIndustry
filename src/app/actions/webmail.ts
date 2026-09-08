@@ -593,7 +593,7 @@ export async function listWebmailMessaggiAction(input?: {
   accountId?: string | null;
   categoriaId?: string | null;
   onlyAiDraft?: boolean;
-  /** Vista casella: inbox = senza categoria; cestino = soft-deleted. */
+  /** Vista casella: inbox = senza categoria; cestino = soft-deleted; archiviate. */
   view?: WebmailMailboxView;
 }): Promise<
   | { success: true; messaggi: WebmailMessaggio[] }
@@ -611,8 +611,10 @@ export async function listWebmailMessaggiAction(input?: {
 
   if (view === "cestino") {
     q = q.not("deleted_at", "is", null);
+  } else if (view === "archiviate") {
+    q = q.is("deleted_at", null).not("archived_at", "is", null);
   } else {
-    q = q.is("deleted_at", null);
+    q = q.is("deleted_at", null).is("archived_at", null);
   }
 
   if (view !== "bozze") {
@@ -1723,6 +1725,77 @@ export async function restoreWebmailMessaggioAction(
     success: true,
     messaggio: mapMessaggio(data as Record<string, unknown>),
   };
+}
+
+export async function archiveWebmailMessaggioAction(
+  messaggioId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      archived_at: now,
+      archived_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .is("archived_at", null)
+    .select("id, subject")
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Messaggio non trovato." };
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(data.id),
+    action: "archive",
+    actor_id: auth.userId,
+    summary: `Mail archiviata: ${(data as { subject?: string }).subject ?? ""}`,
+    payload: { archived_at: now },
+  });
+  return { success: true };
+}
+
+export async function unarchiveWebmailMessaggioAction(
+  messaggioId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .update({
+      archived_at: null,
+      archived_by: null,
+      updated_by: auth.userId,
+    })
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .not("archived_at", "is", null)
+    .select("id, subject")
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) {
+    return { success: false, error: "Messaggio non trovato in archivio." };
+  }
+
+  await writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(data.id),
+    action: "unarchive",
+    actor_id: auth.userId,
+    summary: `Mail ripristinata dall'archivio: ${(data as { subject?: string }).subject ?? ""}`,
+    payload: {},
+  });
+  return { success: true };
 }
 
 /**

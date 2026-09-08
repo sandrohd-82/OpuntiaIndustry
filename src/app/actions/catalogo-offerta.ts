@@ -13,7 +13,7 @@ import {
   type CatalogoOffertaKind,
 } from "@/lib/amministrazione/catalogo-offerta";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -145,6 +145,13 @@ export async function listCatalogoProdottiFornitoreAction(): Promise<
   return listCatalogoAction("prodotto");
 }
 
+export async function listCatalogoProdottiFornitoreEliminatiAction(): Promise<
+  | { success: true; items: CatalogoOffertaItem[] }
+  | { success: false; error: string }
+> {
+  return listCatalogoAction("prodotto", { onlyDeleted: true });
+}
+
 export async function listCatalogoContributiAction(): Promise<
   | { success: true; items: CatalogoOffertaItem[] }
   | { success: false; error: string }
@@ -153,12 +160,17 @@ export async function listCatalogoContributiAction(): Promise<
 }
 
 async function listCatalogoAction(
-  kind: CatalogoOffertaKind
+  kind: CatalogoOffertaKind,
+  opts?: { onlyDeleted?: boolean }
 ): Promise<
   | { success: true; items: CatalogoOffertaItem[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  if (opts?.onlyDeleted) {
+    await requireAnyAreaAccess(["amministrazione", "magazzino"]);
+  } else {
+    await requireAreaAccess("amministrazione");
+  }
   const supabase = await createClient();
   const PAGE = 1000;
   const items: CatalogoOffertaItem[] = [];
@@ -173,10 +185,11 @@ async function listCatalogoAction(
   for (let from = 0; ; from += PAGE) {
     const to = from + PAGE - 1;
     // select("*": evita ParserError su select dinamica union (Ct senza colonne medio)
-    const { data, error } = await supabase
-      .from(tableName(kind))
-      .select("*")
-      .is("deleted_at", null)
+    let q = supabase.from(tableName(kind)).select("*");
+    q = opts?.onlyDeleted
+      ? q.not("deleted_at", "is", null)
+      : q.is("deleted_at", null);
+    const { data, error } = await q
       .order("codice", { ascending: true })
       .range(from, to);
     if (error) return { success: false, error: error.message };

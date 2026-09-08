@@ -65,6 +65,16 @@ export default async function MagazzinoSubPage({ params }: Props) {
     }
   }
 
+  if (section === "materia-prima" && sub === "storico") {
+    redirect("/app/archivio/magazzino/materia-prima/storico");
+  }
+  if (section === "prodotti-di-consumo" && sub === "eliminati-obsoleti") {
+    redirect("/app/archivio/magazzino/prodotti-di-consumo/eliminati-obsoleti");
+  }
+  if (section === "note-di-acquisto" && sub === "storico") {
+    redirect("/app/archivio/magazzino/note-di-acquisto/storico");
+  }
+
   const page = resolveMagazzinoPage([section, sub]);
   if (!page) notFound();
 

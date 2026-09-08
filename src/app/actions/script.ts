@@ -35,7 +35,6 @@ async function requireScriptCatalogRead() {
   if (!auth) redirect("/login");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
   const ok =
-    userCanAccessArea(auth.areas, "script") ||
     userCanAccessArea(auth.areas, "produzione");
   if (!ok) notFound();
   return { auth };
@@ -92,7 +91,7 @@ export async function createGestionaleScriptAction(
 ): Promise<
   { success: true; item: GestionaleScript } | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("script");
+  const { auth } = await requireAreaAccess("produzione");
   const parsed = scriptInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -139,7 +138,6 @@ export async function createGestionaleScriptAction(
       funzione: item.funzione,
     },
   });
-  revalidatePath("/app/script/elenco");
   revalidatePath("/app/produzione/processi-e-attivita/elenco-attivita");
   return { success: true, item };
 }
@@ -150,7 +148,7 @@ export async function updateGestionaleScriptAction(
 ): Promise<
   { success: true; item: GestionaleScript } | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("script");
+  const { auth } = await requireAreaAccess("produzione");
   const parsed = scriptInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -207,7 +205,6 @@ export async function updateGestionaleScriptAction(
       attivo: item.attivo,
     },
   });
-  revalidatePath("/app/script/elenco");
   revalidatePath("/app/produzione/processi-e-attivita/elenco-attivita");
   return { success: true, item };
 }
@@ -215,7 +212,7 @@ export async function updateGestionaleScriptAction(
 export async function softDeleteGestionaleScriptAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("script");
+  const { auth } = await requireAreaAccess("produzione");
   const supabase = await createClient();
   const { count } = await supabase
     .from("produzione_processo_attivita_script")
@@ -249,6 +246,5 @@ export async function softDeleteGestionaleScriptAction(
     summary: "Soft delete script gestionale",
     payload: {},
   });
-  revalidatePath("/app/script/elenco");
   return { success: true };
 }

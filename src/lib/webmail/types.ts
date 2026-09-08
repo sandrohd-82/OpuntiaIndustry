@@ -264,4 +264,5 @@ export type WebmailMailboxView =
   | "inbox"
   | "categoria"
   | "bozze"
-  | "cestino";
+  | "cestino"
+  | "archiviate";

@@ -20,10 +20,10 @@ export const AREA_ROUTES: Record<
     label: "Produzione",
     description: "Fogli, processi, aree e calendari",
   },
-  script: {
-    path: "/app/script",
-    label: "Script",
-    description: "Funzioni del gestionale collegabili alle attività",
+  archivio: {
+    path: "/app/archivio",
+    label: "Archivio",
+    description: "Storici, archivi e tracciabilità delle aree operative",
   },
   magazzino: {
     path: "/app/magazzino",
@@ -102,7 +102,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "area-fiscale",
   "area-fornitori",
   "impostazioni",
-  "script",
+  "archivio",
 ];
 
 /** Aree non mostrate nel menu (ancora raggiungibili se in permessi). */

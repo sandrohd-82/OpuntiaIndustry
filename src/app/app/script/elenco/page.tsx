@@ -1,18 +1,5 @@
-import { AppHeader } from "@/components/layout/AppHeader";
-import { ScriptElencoBoard } from "@/components/script/ScriptElencoBoard";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { redirect } from "next/navigation";
 
-export default async function ScriptElencoPage() {
-  await requireAreaAccess("script");
-  return (
-    <>
-      <AppHeader
-        title="Script"
-        subtitle="Funzioni del gestionale collegabili alle attività (es. Pesata)."
-      />
-      <div className="p-6">
-        <ScriptElencoBoard />
-      </div>
-    </>
-  );
+export default function ScriptElencoRemovedPage() {
+  redirect("/app/dashboard");
 }

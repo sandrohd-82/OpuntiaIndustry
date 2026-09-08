@@ -16,7 +16,7 @@ import {
   FaGaugeHigh,
   FaGear,
   FaGlobe,
-  FaCode,
+  FaBoxArchive,
   FaIndustry,
   FaPlus,
   FaTruck,
@@ -44,8 +44,12 @@ import {
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
-import { SCRIPT_SECTIONS } from "@/lib/areas/script";
+import {
+  filterArchivioNavByAccess,
+  mergeArchivioWebmailCaselle,
+} from "@/lib/areas/archivio";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
+import { listWebmailAccountsAction } from "@/app/actions/webmail";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
@@ -75,13 +79,14 @@ function sortAreasForSidebar(areas: UserArea[]) {
 
 function sectionsForArea(
   slug: AreaSlug,
-  produzioneSections: readonly NavItem[] = PRODUZIONE_SECTIONS
+  produzioneSections: readonly NavItem[] = PRODUZIONE_SECTIONS,
+  archivioSections: readonly NavItem[] | null = null
 ): readonly NavItem[] | null {
   switch (slug) {
     case "produzione":
       return produzioneSections;
-    case "script":
-      return SCRIPT_SECTIONS;
+    case "archivio":
+      return archivioSections;
     case "ricerca-sviluppo":
       return RICERCA_SVILUPPO_SECTIONS;
     case "wikiopuntia":
@@ -116,8 +121,8 @@ function AreaIcon({ slug }: { slug: string }) {
       return <FaFlask className={cls} />;
     case "produzione":
       return <FaIndustry className={cls} />;
-    case "script":
-      return <FaCode className={cls} />;
+    case "archivio":
+      return <FaBoxArchive className={cls} />;
     case "chat":
       return <FaComments className={cls} />;
     case "webmail":
@@ -331,6 +336,9 @@ export function AppSidebar({
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
     useState<readonly NavItem[]>(PRODUZIONE_SECTIONS);
+  const [archivioNav, setArchivioNav] = useState<readonly NavItem[]>(() =>
+    filterArchivioNavByAccess(areas)
+  );
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -388,6 +396,41 @@ export function AppSidebar({
     };
   }, [hasProduzione]);
 
+  const hasArchivio = areas.some((a) => a.slug === "archivio");
+  useEffect(() => {
+    const base = filterArchivioNavByAccess(areas);
+    if (!hasArchivio) {
+      setArchivioNav(base);
+      return;
+    }
+    const hasWebmail = base.some((s) => s.slug === "webmail");
+    if (!hasWebmail) {
+      setArchivioNav(base);
+      return;
+    }
+    let cancelled = false;
+    void listWebmailAccountsAction()
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          setArchivioNav(base);
+          return;
+        }
+        setArchivioNav(
+          mergeArchivioWebmailCaselle(
+            base,
+            res.accounts.map((a) => ({ id: a.id, label: a.label }))
+          )
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setArchivioNav(base);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [areas, hasArchivio]);
+
   useEffect(() => {
     setOpenKeys((prev) => {
       const next = new Set(prev);
@@ -405,7 +448,7 @@ export function AppSidebar({
       }
       if (areaSlug) {
         addUnlessClosed(areaSlug);
-        const sections = sectionsForArea(areaSlug, produzioneNav);
+        const sections = sectionsForArea(areaSlug, produzioneNav, archivioNav);
         if (sections) {
           for (const key of openKeysFromPathname(sections, pathname, [
             areaSlug,
@@ -416,7 +459,7 @@ export function AppSidebar({
       }
       return next;
     });
-  }, [pathname, webSections, produzioneNav, userClosed]);
+  }, [pathname, webSections, produzioneNav, archivioNav, userClosed]);
 
   function toggle(...keys: string[]) {
     const isOpen = keys.some((k) => openKeys.has(k));
@@ -532,7 +575,11 @@ export function AppSidebar({
               area.slug === "amministrazione"
                 ? pathMatches(pathname, href) && !isWebHubPath(pathname)
                 : pathMatches(pathname, href);
-            const treeSections = sectionsForArea(area.slug, produzioneNav);
+            const treeSections = sectionsForArea(
+              area.slug,
+              produzioneNav,
+              archivioNav
+            );
 
             const extra =
               area.slug === "chat" ? (

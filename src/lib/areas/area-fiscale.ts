@@ -102,12 +102,6 @@ export const AREA_FISCALE_SECTIONS: readonly NavItem[] = [
         description: "Contratti attivi e in bozza",
         path: "/app/area-fiscale/contratti/elenco",
       },
-      {
-        slug: "archivio",
-        label: "Archivio",
-        description: "Contratti archiviati o scaduti",
-        path: "/app/area-fiscale/contratti/archivio",
-      },
     ],
   },
   {

@@ -137,6 +137,45 @@ export async function listConversationsForUser(
   return items;
 }
 
+export async function listDeletedConversationsForUser(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<(ConversationListItem & { deletedAt: string | null })[]> {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select(
+      "id, customer_id, producer_id, listing_id, created_at, updated_at, deleted_at"
+    )
+    .not("deleted_at", "is", null)
+    .or(`customer_id.eq.${userId},producer_id.eq.${userId}`)
+    .order("updated_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const conversations = (data ?? []).map((r) => ({
+    conv: mapConversation(r as Parameters<typeof mapConversation>[0]),
+    deletedAt: (r as { deleted_at?: string | null }).deleted_at ?? null,
+  }));
+  const peerIds = conversations.map(({ conv }) => peerIdOf(conv, userId));
+  const profiles = await loadProfiles(supabase, peerIds);
+
+  const items: (ConversationListItem & { deletedAt: string | null })[] = [];
+  for (const { conv, deletedAt } of conversations) {
+    const peerId = peerIdOf(conv, userId);
+    const peer = profiles.get(peerId);
+    items.push({
+      ...conv,
+      peerId,
+      peerName: displayName(peer, peerId.slice(0, 8)),
+      peerEmail: peer?.email ?? "",
+      peerChatStatus: peer?.chat_status ?? "offline",
+      lastMessage: null,
+      unreadCount: 0,
+      deletedAt,
+    });
+  }
+  return items;
+}
+
 export async function listMessages(
   supabase: SupabaseClient,
   conversationId: string

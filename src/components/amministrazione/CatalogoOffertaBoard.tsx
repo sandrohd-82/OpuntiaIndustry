@@ -6,6 +6,7 @@ import {
   createCatalogoProdottoFornitoreAction,
   createCatalogoServizioAction,
   listCatalogoProdottiFornitoreAction,
+  listCatalogoProdottiFornitoreEliminatiAction,
   listCatalogoServiziAction,
   softDeleteCatalogoProdottoFornitoreAction,
   softDeleteCatalogoServizioAction,
@@ -29,9 +30,10 @@ import { catalogoPrefix } from "@/lib/amministrazione/catalogo-offerta";
 
 type Props = {
   kind: CatalogoOffertaKind;
+  onlyDeleted?: boolean;
 };
 
-export function CatalogoOffertaBoard({ kind }: Props) {
+export function CatalogoOffertaBoard({ kind, onlyDeleted = false }: Props) {
   const [items, setItems] = useState<CatalogoOffertaItem[]>([]);
   const [ready, setReady] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -51,7 +53,9 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     const result =
       kind === "servizio"
         ? await listCatalogoServiziAction()
-        : await listCatalogoProdottiFornitoreAction();
+        : onlyDeleted
+          ? await listCatalogoProdottiFornitoreEliminatiAction()
+          : await listCatalogoProdottiFornitoreAction();
     if (result.success) {
       setItems(result.items);
       setError(null);
@@ -63,7 +67,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
 
   useEffect(() => {
     void refresh();
-  }, [kind]);
+  }, [kind, onlyDeleted]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -142,9 +146,11 @@ export function CatalogoOffertaBoard({ kind }: Props) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Catalogo {title.toLowerCase()} con targa {prefix}. Modifica aggiorna
-          fatture e schede collegate; eliminazione richiede documenti aggiornati.
+          {onlyDeleted
+            ? `Prodotti ${title.toLowerCase()} eliminati o obsoleti (soft delete, traccia conservata).`
+            : `Catalogo ${title.toLowerCase()} con targa ${prefix}. Modifica aggiorna fatture e schede collegate; eliminazione richiede documenti aggiornati.`}
         </p>
+        {onlyDeleted ? null : (
         <button
           type="button"
           onClick={() => {
@@ -156,6 +162,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
           <FaPlus size={14} />
           Nuovo {entityLabel}
         </button>
+        )}
       </div>
 
       {error ? (
@@ -247,6 +254,11 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                     {item.note || "—"}
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {onlyDeleted ? (
+                      <span className="text-xs text-[var(--muted)]">
+                        Eliminato
+                      </span>
+                    ) : (
                     <div className="inline-flex gap-1">
                       <button
                         type="button"
@@ -284,6 +296,7 @@ export function CatalogoOffertaBoard({ kind }: Props) {
                         <FaTrash size={12} />
                       </button>
                     </div>
+                    )}
                   </td>
                 </tr>
               ))}

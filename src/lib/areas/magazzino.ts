@@ -31,12 +31,6 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         path: "/app/magazzino/materia-prima/stato",
       },
       {
-        slug: "storico",
-        label: "Storico",
-        description: "Storico materia prima transitata in azienda",
-        path: "/app/magazzino/materia-prima/storico",
-      },
-      {
         slug: "scartati-non-conformi",
         label: "Scartati/Non conformi",
         description:
@@ -74,12 +68,6 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         label: "Elenco prodotti",
         description: "Elenco prodotti di magazzino (schede Pr)",
         path: "/app/magazzino/prodotti-di-consumo/elenco",
-      },
-      {
-        slug: "eliminati-obsoleti",
-        label: "Eliminati/obsoleti",
-        description: "Prodotti eliminati o dichiarati obsoleti",
-        path: "/app/magazzino/prodotti-di-consumo/eliminati-obsoleti",
       },
     ],
   },
@@ -133,12 +121,6 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
         description: "Note di acquisto aperte",
         path: "/app/magazzino/note-di-acquisto/aperte",
         badge: { kind: "count", count: 0 },
-      },
-      {
-        slug: "storico",
-        label: "Storico",
-        description: "Storico note di acquisto",
-        path: "/app/magazzino/note-di-acquisto/storico",
       },
     ],
   },

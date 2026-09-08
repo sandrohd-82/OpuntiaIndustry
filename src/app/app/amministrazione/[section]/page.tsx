@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import { RegistroAccessiBoard } from "@/components/amministrazione/RegistroAccessiBoard";
 import { RubricaBoard } from "@/components/amministrazione/RubricaBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
@@ -29,6 +28,9 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
   if (section === "dipendenti") {
     redirect("/app/amministrazione/organigramma");
   }
+  if (section === "registro-accessi") {
+    redirect("/app/archivio/amministrazione/registro-accessi");
+  }
   if (section === "clienti") {
     redirect("/app/amministrazione/clienti/elenco");
   }
@@ -47,19 +49,6 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RubricaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "registro-accessi") {
-    const page = resolveAmministrazionePage([section]);
-    if (!page) notFound();
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <RegistroAccessiBoard />
         </div>
       </>
     );

@@ -26,6 +26,10 @@ export type ProcessoAttivita = {
   postoNome: string;
   scripts: AttivitaScriptLink[];
   createdAt: string;
+  deprecatoAt: string | null;
+  deprecatoBy: string | null;
+  deprecatoNote: string;
+  sostituitoDa: string | null;
 };
 
 export type Processo = {
@@ -102,6 +106,15 @@ export const deprecaProcessoSchema = z.object({
 });
 
 export type DeprecaProcessoInput = z.infer<typeof deprecaProcessoSchema>;
+
+export const deprecaProcessoAttivitaSchema = z.object({
+  note: z.string().trim().max(2000).optional().default(""),
+  sostituitoDa: optionalUuid,
+});
+
+export type DeprecaProcessoAttivitaInput = z.infer<
+  typeof deprecaProcessoAttivitaSchema
+>;
 
 export function isProcessoInElenco(p: {
   deprecatoAt?: string | null;

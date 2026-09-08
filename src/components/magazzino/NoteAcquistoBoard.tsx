@@ -14,7 +14,11 @@ function statoLabel(s: NotaAcquisto["documentoStato"]) {
   return "Annullata";
 }
 
-export function NoteAcquistoBoard() {
+export function NoteAcquistoBoard({
+  mode = "aperte",
+}: {
+  mode?: "aperte" | "storico";
+}) {
   const [items, setItems] = useState<NotaAcquisto[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +33,11 @@ export function NoteAcquistoBoard() {
         setReady(true);
         return;
       }
-      setItems(res.items);
+      const rows =
+        mode === "storico"
+          ? res.items.filter((n) => n.documentoStato !== "aperta")
+          : res.items.filter((n) => n.documentoStato === "aperta");
+      setItems(rows);
       setError(null);
       setReady(true);
     });
@@ -37,7 +45,7 @@ export function NoteAcquistoBoard() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [mode]);
 
   if (!ready) {
     return (
@@ -48,9 +56,9 @@ export function NoteAcquistoBoard() {
   return (
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
-        Note generate quando la giacenza raggiunge o scende sotto la quantità
-        riserva. Una sola nota resta <strong>aperta</strong>; le righe
-        prodotti si accumulano finché non la chiudi.
+        {mode === "storico"
+          ? "Storico note di acquisto chiuse o annullate. Le note aperte restano in Magazzino."
+          : "Note generate quando la giacenza raggiunge o scende sotto la quantità riserva. Una sola nota resta aperta; le righe prodotti si accumulano finché non la chiudi."}
       </p>
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

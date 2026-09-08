@@ -17,7 +17,6 @@ import {
   PortaleRichiesteBoard,
 } from "@/components/amministrazione/PortaleLeadBoard";
 import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
-import { OrdiniStoricoBoard } from "@/components/amministrazione/OrdiniStoricoBoard";
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrganigrammaAlberoBoard } from "@/components/amministrazione/organigramma/OrganigrammaAlberoBoard";
 import { OrganigrammaElencoBoard } from "@/components/amministrazione/organigramma/OrganigrammaElencoBoard";
@@ -75,7 +74,10 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
   if (section === "registro-accessi") {
-    redirect("/app/amministrazione/registro-accessi");
+    redirect("/app/archivio/amministrazione/registro-accessi");
+  }
+  if (section === "ordini" && sub === "storico") {
+    redirect("/app/archivio/amministrazione/ordini/storico");
   }
 
   const page = resolveAmministrazionePage([section, sub]);
@@ -142,17 +144,6 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <PreventiviBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "ordini" && sub === "storico") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <OrdiniStoricoBoard />
         </div>
       </>
     );

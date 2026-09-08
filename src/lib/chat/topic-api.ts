@@ -29,6 +29,25 @@ export async function listActiveTopics(
   return ((data ?? []) as Parameters<typeof mapTopic>[0][]).map(mapTopic);
 }
 
+export async function listArchivedTopics(
+  supabase: SupabaseClient
+): Promise<ChatTopic[]> {
+  const { data, error } = await supabase.rpc("list_my_archived_chat_topics");
+  if (error) {
+    const legacy = await supabase
+      .from("chat_topics")
+      .select("id, titolo, stato, created_at, updated_at")
+      .is("deleted_at", null)
+      .eq("stato", "archiviato")
+      .order("updated_at", { ascending: false });
+    if (legacy.error) throw new Error(error.message);
+    return ((legacy.data ?? []) as Parameters<typeof mapTopic>[0][]).map(
+      mapTopic
+    );
+  }
+  return ((data ?? []) as Parameters<typeof mapTopic>[0][]).map(mapTopic);
+}
+
 export async function createChatTopic(
   supabase: SupabaseClient,
   titolo: string,
