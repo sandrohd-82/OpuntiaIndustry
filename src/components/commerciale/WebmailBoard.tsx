@@ -970,7 +970,15 @@ export function WebmailBoard({
               return (
                 <li
                   key={m.id}
-                  className={expanded ? "bg-sky-50/40" : "bg-white"}
+                  className={
+                    !m.isSeen
+                      ? expanded
+                        ? "bg-amber-100"
+                        : "bg-amber-50"
+                      : expanded
+                        ? "bg-sky-50/40"
+                        : "bg-white"
+                  }
                 >
                   <div className="flex w-full items-start gap-2 px-4 py-3">
                     {selectMode ? (
@@ -987,7 +995,9 @@ export function WebmailBoard({
                       onClick={() =>
                         setSelectedId((prev) => (prev === m.id ? null : m.id))
                       }
-                      className="flex min-w-0 flex-1 items-start gap-2 text-left text-sm transition hover:bg-slate-50"
+                      className={`flex min-w-0 flex-1 items-start gap-2 text-left text-sm transition ${
+                        m.isSeen ? "hover:bg-slate-50" : "hover:bg-amber-100/80"
+                      }`}
                     >
                     <FaChevronDown
                       size={12}
