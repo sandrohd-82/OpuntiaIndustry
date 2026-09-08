@@ -8,6 +8,8 @@ export const maxDuration = 60;
 /**
  * Cron sync Webmail (Vercel Cron / scheduler esterno).
  * Header: Authorization: Bearer $CRON_SECRET
+ * Importa solo mail più nuove dell’ultimo UID già in archivio
+ * (non riempie i buchi storici come non lette).
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET?.trim();
@@ -27,7 +29,9 @@ export async function GET(request: Request) {
 
   try {
     const supabase = createServiceClient();
-    const result = await syncAllWebmailAccounts(supabase);
+    const result = await syncAllWebmailAccounts(supabase, {
+      newMailOnly: true,
+    });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     console.error("[cron webmail]", e);

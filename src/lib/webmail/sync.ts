@@ -167,6 +167,23 @@ function pickMissingBatch(
   return { list, pending: missingSorted.length - list.length };
 }
 
+function normalizeMessageUid(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function imapFlagsHasSeen(flags: unknown): boolean {
+  if (!flags) return false;
+  const items =
+    flags instanceof Set
+      ? [...flags]
+      : Array.isArray(flags)
+        ? flags
+        : typeof flags === "object"
+          ? Object.values(flags as Record<string, unknown>)
+          : [flags];
+  return items.some((f) => String(f).toLowerCase() === "\\seen");
+}
+
 async function loadExistingUids(
   supabase: Service,
   accountId: string,
@@ -176,17 +193,90 @@ async function loadExistingUids(
   const chunkSize = 200;
   for (let i = 0; i < candidateUids.length; i += chunkSize) {
     const chunk = candidateUids.slice(i, i + chunkSize);
-    const { data: existingRows } = await supabase
+    const { data: existingRows, error } = await supabase
       .from("webmail_messaggi")
       .select("message_uid")
       .eq("account_id", accountId)
       .eq("folder", "INBOX")
       .in("message_uid", chunk);
+    if (error) {
+      console.error("[webmail sync existing uids]", error.message);
+      for (const uid of chunk) existingSet.add(normalizeMessageUid(uid));
+      continue;
+    }
     for (const row of existingRows ?? []) {
-      existingSet.add(String(row.message_uid));
+      existingSet.add(normalizeMessageUid(row.message_uid));
     }
   }
   return existingSet;
+}
+
+/** UID IMAP più alto già in archivio (anche soft-delete): il cron non deve tornare indietro. */
+async function loadMaxInboxUid(
+  supabase: Service,
+  accountId: string
+): Promise<number> {
+  let maxUid = 0;
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await supabase
+      .from("webmail_messaggi")
+      .select("message_uid")
+      .eq("account_id", accountId)
+      .eq("folder", "INBOX")
+      .range(from, from + page - 1);
+    if (error) {
+      console.error("[webmail sync max uid]", error.message);
+      break;
+    }
+    const rows = data ?? [];
+    for (const row of rows) {
+      const n = Number(normalizeMessageUid(row.message_uid));
+      if (Number.isFinite(n) && n > maxUid) maxUid = n;
+    }
+    if (rows.length < page) break;
+  }
+  return maxUid;
+}
+
+async function messageIdAlreadyImported(
+  supabase: Service,
+  accountId: string,
+  messageId: string | null | undefined
+): Promise<boolean> {
+  const header = messageId?.trim();
+  if (!header) return false;
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("id")
+    .eq("account_id", accountId)
+    .eq("message_id_header", header)
+    .limit(1);
+  if (error) {
+    console.error("[webmail sync message-id]", error.message);
+    return true;
+  }
+  return Boolean(data?.[0]?.id);
+}
+
+async function loadImapSeenByUid(
+  client: ImapFlow,
+  uids: string[]
+): Promise<Map<string, boolean>> {
+  const seenByUid = new Map<string, boolean>();
+  if (uids.length === 0) return seenByUid;
+  try {
+    for await (const msg of client.fetch(uids.join(","), { flags: true }, { uid: true })) {
+      if (!msg.uid) continue;
+      seenByUid.set(String(msg.uid), imapFlagsHasSeen(msg.flags));
+    }
+  } catch (e) {
+    console.error(
+      "[webmail sync flags]",
+      e instanceof Error ? e.message : e
+    );
+  }
+  return seenByUid;
 }
 
 async function loadAccountBlacklist(
@@ -262,6 +352,7 @@ async function importInboxUidList(
 ): Promise<{ imported: number; importedIds: string[] }> {
   let imported = 0;
   const importedIds: string[] = [];
+  const seenByUid = await loadImapSeenByUid(client, list);
 
   for (const uidStr of list) {
     const uid = Number(uidStr);
@@ -313,13 +404,19 @@ async function importInboxUidList(
       fromAddress: fromAddr,
     });
 
+    const messageIdHeader =
+      typeof parsed.messageId === "string" ? parsed.messageId.trim() : "";
+    if (await messageIdAlreadyImported(supabase, account.id, messageIdHeader)) {
+      continue;
+    }
+
     const { data: inserted, error } = await supabase
       .from("webmail_messaggi")
       .insert({
         account_id: account.id,
         direction: "inbound",
         message_uid: uidStr,
-        message_id_header: parsed.messageId || null,
+        message_id_header: messageIdHeader || null,
         folder: "INBOX",
         from_address: fromAddr,
         from_name: fromName,
@@ -330,7 +427,7 @@ async function importInboxUidList(
         body_html: bodyHtml,
         received_at: receivedAt,
         sent_at: receivedAt,
-        is_seen: false,
+        is_seen: seenByUid.get(uidStr) === true,
         // Sempre In arrivo (non letta): l’apprendimento resta un suggerimento.
         categoria_id: null,
         categoria_suggest_id:
@@ -396,7 +493,12 @@ async function importInboxUidList(
 export async function syncWebmailAccount(
   supabase: Service,
   account: AccountRow,
-  options?: { limit?: number; mode?: WebmailSyncMode }
+  options?: {
+    limit?: number;
+    mode?: WebmailSyncMode;
+    /** Solo UID più alti di quelli già in archivio (cron / nuove arrivate). */
+    newMailOnly?: boolean;
+  }
 ): Promise<SyncWebmailResult> {
   const limit = options?.limit ?? WEBMAIL_SYNC_SAFE_BATCH;
   const batchLimit = Math.min(
@@ -404,6 +506,7 @@ export async function syncWebmailAccount(
     Math.max(1, Number.isFinite(limit) ? limit : WEBMAIL_SYNC_SAFE_BATCH)
   );
   const mode: WebmailSyncMode = options?.mode === "older" ? "older" : "recent";
+  const newMailOnly = Boolean(options?.newMailOnly);
 
   let imported = 0;
   let skipped = 0;
@@ -446,7 +549,14 @@ export async function syncWebmailAccount(
       const blacklist = await loadAccountBlacklist(supabase, account.id);
 
       const existingSet = await loadExistingUids(supabase, account.id, all);
-      const missing = all.filter((uid) => !existingSet.has(uid));
+      let missing = all.filter((uid) => !existingSet.has(uid));
+      if (newMailOnly) {
+        const maxUid = await loadMaxInboxUid(supabase, account.id);
+        missing = missing.filter((uid) => {
+          const n = Number(uid);
+          return Number.isFinite(n) && n > maxUid;
+        });
+      }
       skipped = all.length - missing.length;
       const picked = pickMissingBatch(missing, existingSet, mode, batchLimit);
       const list = picked.list;
@@ -520,7 +630,7 @@ export type WebmailLiveSyncResult = SyncWebmailResult & {
 };
 
 /**
- * Ascolto casella: importa solo le mail più recenti mancanti.
+ * Ascolto casella: importa solo UID più nuovi di quelli già in archivio.
  * Se non ce ne sono, resta in IMAP IDLE finché ne arriva una (o scade l’attesa).
  */
 export async function syncWebmailAccountLive(
@@ -587,7 +697,12 @@ export async function syncWebmailAccountLive(
           account.id,
           recent
         );
-        const missing = recent.filter((uid) => !existingSet.has(uid));
+        const maxUid = await loadMaxInboxUid(supabase, account.id);
+        const missing = recent.filter((uid) => {
+          if (existingSet.has(uid)) return false;
+          const n = Number(uid);
+          return Number.isFinite(n) && n > maxUid;
+        });
         if (missing.length === 0) {
           return { imported: 0, importedIds: [] as string[] };
         }
@@ -940,7 +1055,11 @@ export async function deleteImapMessageBestEffort(input: {
 
 export async function syncAllWebmailAccounts(
   supabase: Service,
-  options?: { mode?: WebmailSyncMode; limit?: number }
+  options?: {
+    mode?: WebmailSyncMode;
+    limit?: number;
+    newMailOnly?: boolean;
+  }
 ): Promise<{
   accounts: number;
   imported: number;
