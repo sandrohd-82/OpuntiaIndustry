@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { FaChevronDown } from "react-icons/fa6";
 import {
-  addWebmailBlacklistAction,
   confirmWebmailCategoriaSuggestionAction,
+  confirmWebmailMessaggioDeleteAction,
   generateWebmailAiReplyAction,
   getWebmailBozzaForMessaggioAction,
   isWebmailSenderBlacklistedAction,
@@ -19,13 +19,13 @@ import {
   unarchiveWebmailMessaggioAction,
   runWebmailSyncAction,
   sendWebmailBozzaAction,
-  softDeleteWebmailMessaggioAction,
   translateWebmailTextAction,
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
 } from "@/app/actions/webmail";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
 import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
+import { WebmailDeleteConfirmModal } from "@/components/webmail/WebmailDeleteConfirmModal";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import type {
   WebmailAccountPublic,
@@ -83,7 +83,7 @@ export function WebmailBoard({
   const [catModalOpen, setCatModalOpen] = useState(false);
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
-  const [blacklistAllAccounts, setBlacklistAllAccounts] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [headersOpen, setHeadersOpen] = useState(false);
   const [inboundTranslation, setInboundTranslation] = useState<{
     subject: string | null;
@@ -113,6 +113,7 @@ export function WebmailBoard({
     setOutboundTranslation(null);
     setShowPlainText(false);
     setHtmlReloadToken(0);
+    setDeleteConfirmOpen(false);
   }, [selectedId]);
 
   const catById = useMemo(() => {
@@ -735,66 +736,6 @@ export function WebmailBoard({
                   </p>
                 ) : null}
 
-                <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/70 px-3 py-2 text-xs text-rose-950">
-                  <label className="flex cursor-pointer items-start gap-2">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5"
-                      checked={senderBlacklisted}
-                      disabled={pending || senderBlacklisted}
-                      onChange={(e) => {
-                        if (!e.target.checked || !selected) return;
-                        const applyAll = blacklistAllAccounts;
-                        if (
-                          !window.confirm(
-                            applyAll
-                              ? `Non importare più mail da ${selected.fromAddress} su TUTTE le caselle?\nVerranno eliminate dal gestionale tutte le mail già presenti da questo mittente.`
-                              : `Non importare più mail da ${selected.fromAddress} su questa casella?\nVerranno eliminate dal gestionale tutte le mail già presenti da questo mittente.`
-                          )
-                        ) {
-                          return;
-                        }
-                        startTransition(async () => {
-                          const res = await addWebmailBlacklistAction({
-                            emailAddress: selected.fromAddress,
-                            accountId: selected.accountId,
-                            applyToAllAccounts: applyAll,
-                            messaggioId: selected.id,
-                          });
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          setSenderBlacklisted(true);
-                          setSelectedId(null);
-                          setBozza(null);
-                          setInfo(
-                            `Blacklist ${res.item.emailAddress}: eliminate ${res.purged} mail. Non verranno più importate.`
-                          );
-                          await reload();
-                        });
-                      }}
-                    />
-                    <span>
-                      <span className="font-semibold">Non importare più</span>{" "}
-                      da <code>{selected.fromAddress}</code>
-                      {senderBlacklisted ? " (già in blacklist)" : ""}
-                    </span>
-                  </label>
-                  {!senderBlacklisted ? (
-                    <label className="mt-2 flex items-center gap-2 pl-5 text-[11px]">
-                      <input
-                        type="checkbox"
-                        checked={blacklistAllAccounts}
-                        onChange={(e) =>
-                          setBlacklistAllAccounts(e.target.checked)
-                        }
-                      />
-                      Applica a tutte le caselle
-                    </label>
-                  ) : null}
-                </div>
-
                 <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -892,32 +833,7 @@ export function WebmailBoard({
                         type="button"
                         disabled={pending}
                         className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              "Eliminare questa mail dal gestionale? Verrà tentata anche la rimozione dalla casella IMAP (Trash). Non verrà più risincronizzata."
-                            )
-                          ) {
-                            return;
-                          }
-                          startTransition(async () => {
-                            const res = await softDeleteWebmailMessaggioAction(
-                              selected.id
-                            );
-                            if (!res.success) {
-                              setError(res.error);
-                              return;
-                            }
-                            setSelectedId(null);
-                            setBozza(null);
-                            setInfo(
-                              res.imapOk
-                                ? `Mail eliminata. IMAP: ${res.imapDetail}`
-                                : `Mail eliminata dal gestionale (non verrà più sincronizzata). IMAP: ${res.imapDetail}`
-                            );
-                            await reload();
-                          });
-                        }}
+                        onClick={() => setDeleteConfirmOpen(true)}
                       >
                         Elimina
                       </button>
@@ -1309,6 +1225,40 @@ export function WebmailBoard({
               patchMessaggio(m);
               setInfo(info);
               void reload();
+            }}
+          />
+          <WebmailDeleteConfirmModal
+            open={deleteConfirmOpen}
+            fromAddress={selected.fromAddress}
+            alreadyBlocked={senderBlacklisted}
+            pending={pending}
+            onClose={() => setDeleteConfirmOpen(false)}
+            onConfirm={({ blockFutureImport, deleteAllFromSender }) => {
+              startTransition(async () => {
+                const res = await confirmWebmailMessaggioDeleteAction({
+                  messaggioId: selected.id,
+                  blockFutureImport,
+                  deleteAllFromSender,
+                });
+                if (!res.success) {
+                  setError(res.error);
+                  return;
+                }
+                setDeleteConfirmOpen(false);
+                setSelectedId(null);
+                setBozza(null);
+                const bits = ["Mail eliminata."];
+                if (res.blockedFuture) {
+                  bits.push(
+                    `Non verranno più importate mail da ${selected.fromAddress}.`
+                  );
+                }
+                if (deleteAllFromSender) {
+                  bits.push(`Eliminate ${res.purged} mail da questo indirizzo.`);
+                }
+                setInfo(bits.join(" "));
+                await reload();
+              });
             }}
           />
         </>

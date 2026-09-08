@@ -2472,9 +2472,88 @@ export async function listWebmailBlacklistAction(accountId?: string | null): Pro
   };
 }
 
+async function purgeWebmailMessagesByFromAddress(input: {
+  email: string;
+  accountId: string | null;
+  actorId: string;
+}): Promise<
+  | { success: true; purged: number; imapTried: number }
+  | { success: false; error: string }
+> {
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+  let msgQuery = service
+    .from("webmail_messaggi")
+    .select("id, account_id, folder, message_uid")
+    .ilike("from_address", input.email)
+    .is("deleted_at", null);
+  if (input.accountId) {
+    msgQuery = msgQuery.eq("account_id", input.accountId);
+  }
+  const { data: toPurge, error: purgeErr } = await msgQuery.limit(2000);
+  if (purgeErr) {
+    return { success: false, error: purgeErr.message };
+  }
+
+  const ids = (toPurge ?? []).map((m) => String(m.id));
+  if (ids.length > 0) {
+    await service
+      .from("webmail_messaggi")
+      .update({
+        deleted_at: now,
+        deleted_by: input.actorId,
+        updated_by: input.actorId,
+      })
+      .in("id", ids);
+
+    await service
+      .from("webmail_bozze_ai")
+      .update({
+        deleted_at: now,
+        deleted_by: input.actorId,
+        updated_by: input.actorId,
+      })
+      .in("messaggio_id", ids)
+      .is("deleted_at", null);
+  }
+
+  let imapTried = 0;
+  const accountCache = new Map<
+    string,
+    Parameters<typeof deleteImapMessageBestEffort>[0]["account"]
+  >();
+  for (const m of (toPurge ?? []).slice(0, 30)) {
+    const accId = String(m.account_id);
+    let account = accountCache.get(accId);
+    if (!account) {
+      const { data: acc } = await service
+        .from("webmail_accounts")
+        .select(
+          "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+        )
+        .eq("id", accId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!acc) continue;
+      account = acc as Parameters<
+        typeof deleteImapMessageBestEffort
+      >[0]["account"];
+      accountCache.set(accId, account);
+    }
+    if (!m.message_uid) continue;
+    imapTried += 1;
+    await deleteImapMessageBestEffort({
+      account,
+      folder: String(m.folder || "INBOX"),
+      messageUid: String(m.message_uid),
+    });
+  }
+
+  return { success: true, purged: ids.length, imapTried };
+}
+
 /**
- * Aggiunge mittente in blacklist, soft-delete tutte le mail da quell'indirizzo
- * (best-effort IMAP) e blocca futuri import.
+ * Aggiunge mittente in blacklist. Opzionale: soft-delete le mail già importate.
  */
 export async function addWebmailBlacklistAction(raw: unknown): Promise<
   | {
@@ -2493,6 +2572,8 @@ export async function addWebmailBlacklistAction(raw: unknown): Promise<
     applyToAllAccounts: z.boolean().optional().default(false),
     messaggioId: z.string().uuid().nullable().optional(),
     note: z.string().trim().max(500).optional().default(""),
+    /** Se false, solo blocca i futuri import (non cancella le mail già presenti). */
+    purgeExisting: z.boolean().optional().default(false),
   });
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
@@ -2511,7 +2592,6 @@ export async function addWebmailBlacklistAction(raw: unknown): Promise<
     ? null
     : (parsed.data.accountId ?? null);
 
-  const supabase = await createClient();
   const service = createServiceClient();
 
   // Upsert-like: se già presente attiva, riusa
@@ -2549,73 +2629,17 @@ export async function addWebmailBlacklistAction(raw: unknown): Promise<
     itemRow = inserted;
   }
 
-  const now = new Date().toISOString();
-
-  // Soft-delete tutte le mail con quel mittente (scope casella o globale)
-  let msgQuery = service
-    .from("webmail_messaggi")
-    .select("id, account_id, folder, message_uid")
-    .ilike("from_address", email)
-    .is("deleted_at", null);
-  if (accountId) {
-    msgQuery = msgQuery.eq("account_id", accountId);
-  }
-  const { data: toPurge, error: purgeErr } = await msgQuery.limit(2000);
-  if (purgeErr) {
-    return { success: false, error: purgeErr.message };
-  }
-
-  const ids = (toPurge ?? []).map((m) => String(m.id));
-  if (ids.length > 0) {
-    await service
-      .from("webmail_messaggi")
-      .update({
-        deleted_at: now,
-        deleted_by: auth.userId,
-        updated_by: auth.userId,
-      })
-      .in("id", ids);
-
-    await service
-      .from("webmail_bozze_ai")
-      .update({
-        deleted_at: now,
-        deleted_by: auth.userId,
-        updated_by: auth.userId,
-      })
-      .in("messaggio_id", ids)
-      .is("deleted_at", null);
-  }
-
-  // Best-effort IMAP (max 30 per non timeout)
+  let purged = 0;
   let imapTried = 0;
-  const accountCache = new Map<
-    string,
-    Parameters<typeof deleteImapMessageBestEffort>[0]["account"]
-  >();
-  for (const m of (toPurge ?? []).slice(0, 30)) {
-    const accId = String(m.account_id);
-    let account = accountCache.get(accId);
-    if (!account) {
-      const { data: acc } = await service
-        .from("webmail_accounts")
-        .select(
-          "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
-        )
-        .eq("id", accId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (!acc) continue;
-      account = acc as Parameters<typeof deleteImapMessageBestEffort>[0]["account"];
-      accountCache.set(accId, account);
-    }
-    if (!m.message_uid) continue;
-    imapTried += 1;
-    await deleteImapMessageBestEffort({
-      account,
-      folder: String(m.folder || "INBOX"),
-      messageUid: String(m.message_uid),
+  if (parsed.data.purgeExisting) {
+    const purge = await purgeWebmailMessagesByFromAddress({
+      email,
+      accountId,
+      actorId: auth.userId,
     });
+    if (!purge.success) return purge;
+    purged = purge.purged;
+    imapTried = purge.imapTried;
   }
 
   await writeAuditLog({
@@ -2623,19 +2647,22 @@ export async function addWebmailBlacklistAction(raw: unknown): Promise<
     entity_id: String(itemRow.id),
     action: "create",
     actor_id: auth.userId,
-    summary: `Blacklist mittente ${email} (purgate ${ids.length} mail)`,
+    summary: parsed.data.purgeExisting
+      ? `Blacklist mittente ${email} (purgate ${purged} mail)`
+      : `Blacklist mittente ${email} (solo blocco sync)`,
     payload: {
       email,
       accountId,
       applyToAll: parsed.data.applyToAllAccounts,
-      purged: ids.length,
+      purged,
       imapTried,
+      purgeExisting: parsed.data.purgeExisting,
     },
   });
 
   return {
     success: true,
-    purged: ids.length,
+    purged,
     imapTried,
     item: {
       id: String(itemRow.id),
@@ -2644,6 +2671,101 @@ export async function addWebmailBlacklistAction(raw: unknown): Promise<
       note: String(itemRow.note ?? ""),
       createdAt: String(itemRow.created_at),
     },
+  };
+}
+
+export async function confirmWebmailMessaggioDeleteAction(raw: unknown): Promise<
+  | {
+      success: true;
+      purged: number;
+      blockedFuture: boolean;
+      imapOk: boolean;
+      imapDetail: string;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = z
+    .object({
+      messaggioId: z.string().uuid(),
+      blockFutureImport: z.boolean(),
+      deleteAllFromSender: z.boolean(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati eliminazione non validi." };
+  }
+
+  const supabase = await createClient();
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id, from_address, account_id")
+    .eq("id", parsed.data.messaggioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+
+  const { normalizeBlacklistEmail } = await import("@/lib/webmail/blacklist");
+  const email = normalizeBlacklistEmail(String(msg.from_address ?? ""));
+
+  let blockedFuture = false;
+  if (parsed.data.blockFutureImport && email) {
+    const bl = await addWebmailBlacklistAction({
+      emailAddress: email,
+      accountId: null,
+      applyToAllAccounts: true,
+      messaggioId: parsed.data.messaggioId,
+      purgeExisting: false,
+      note: "Blocco sync da conferma elimina WebMail",
+    });
+    if (!bl.success) return bl;
+    blockedFuture = true;
+  }
+
+  if (parsed.data.deleteAllFromSender && email) {
+    const purge = await purgeWebmailMessagesByFromAddress({
+      email,
+      accountId: null,
+      actorId: auth.userId,
+    });
+    if (!purge.success) return purge;
+    await writeAuditLog({
+      entity_type: "webmail_messaggi",
+      entity_id: parsed.data.messaggioId,
+      action: "purge_by_sender",
+      actor_id: auth.userId,
+      summary: `Eliminate ${purge.purged} mail da ${email}`,
+      payload: {
+        email,
+        purged: purge.purged,
+        imapTried: purge.imapTried,
+        blockedFuture,
+      },
+    });
+    return {
+      success: true,
+      purged: purge.purged,
+      blockedFuture,
+      imapOk: purge.imapTried > 0,
+      imapDetail:
+        purge.imapTried > 0
+          ? `IMAP tentato su ${purge.imapTried} messaggi`
+          : "IMAP non tentato",
+    };
+  }
+
+  const deleted = await softDeleteWebmailMessaggioAction(
+    parsed.data.messaggioId
+  );
+  if (!deleted.success) return deleted;
+  return {
+    success: true,
+    purged: 1,
+    blockedFuture,
+    imapOk: deleted.imapOk,
+    imapDetail: deleted.imapDetail,
   };
 }
 
