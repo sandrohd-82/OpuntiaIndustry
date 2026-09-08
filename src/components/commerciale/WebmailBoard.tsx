@@ -132,6 +132,14 @@ export function WebmailBoard({
     [messaggi, selectedId]
   );
 
+  const headerChecked = useMemo(() => {
+    if (selectedIds.length === 0) return false;
+    if (totalCount > 0 && selectedIds.length === totalCount) return true;
+    return (
+      messaggi.length > 0 && messaggi.every((m) => selectedIds.includes(m.id))
+    );
+  }, [selectedIds, messaggi, totalCount]);
+
   useEffect(() => {
     setHeadersOpen(false);
     setInboundTranslation(null);
@@ -307,6 +315,10 @@ export function WebmailBoard({
   function onHeaderSelectClick() {
     if (!selectMode) {
       setSelectMode(true);
+      return;
+    }
+    if (headerChecked) {
+      setSelectedIds([]);
       return;
     }
     setSelectScopeOpen(true);
@@ -616,9 +628,10 @@ export function WebmailBoard({
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
-                checked={selectMode}
+                checked={headerChecked}
                 onChange={onHeaderSelectClick}
-                aria-label="Seleziona messaggi"
+                aria-label="Seleziona tutte le mail"
+                aria-checked={headerChecked}
                 className="h-4 w-4"
               />
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
