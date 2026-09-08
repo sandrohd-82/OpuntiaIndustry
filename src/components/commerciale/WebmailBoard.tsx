@@ -26,6 +26,10 @@ import {
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
 import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
 import { WebmailDeleteConfirmModal } from "@/components/webmail/WebmailDeleteConfirmModal";
+import {
+  WebmailSyncModal,
+  type WebmailSyncChoice,
+} from "@/components/webmail/WebmailSyncModal";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import type {
   WebmailAccountPublic,
@@ -84,6 +88,8 @@ export function WebmailBoard({
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [headersOpen, setHeadersOpen] = useState(false);
   const [inboundTranslation, setInboundTranslation] = useState<{
     subject: string | null;
@@ -216,19 +222,70 @@ export function WebmailBoard({
   }
 
   function syncNow() {
+    setError(null);
     setInfo(null);
+    setSyncProgress(null);
+    setSyncModalOpen(true);
+  }
+
+  function runSyncChoice(choice: WebmailSyncChoice) {
+    const accountId = accountFilter || undefined;
+    const gapMs = 2000;
     startTransition(async () => {
       try {
-        const res = await runWebmailSyncAction(accountFilter || undefined);
+        if (choice === "all") {
+          let imported = 0;
+          let round = 0;
+          while (round < 200) {
+            setSyncProgress(
+              `Richiesta ${round + 1}: importazione di massimo 40 mail…`
+            );
+            const res = await runWebmailSyncAction(accountId, "recent");
+            if (!res.success) {
+              setError(res.error);
+              setSyncProgress(null);
+              return;
+            }
+            imported += res.imported;
+            const errs = res.errors ?? [];
+            if (errs.length) {
+              setError(errs.join("; "));
+            }
+            if (res.pending <= 0) {
+              setSyncModalOpen(false);
+              setSyncProgress(null);
+              setInfo(`Sync completata: ${imported} mail importate.`);
+              await reload();
+              return;
+            }
+            setSyncProgress(
+              `Importate ${imported}. Attesa prima della prossima richiesta (${res.pending} ancora)…`
+            );
+            await new Promise((r) => setTimeout(r, gapMs));
+            round += 1;
+          }
+          setSyncModalOpen(false);
+          setSyncProgress(null);
+          setInfo(`Sync parziale: ${imported} mail importate. Riprova per continuare.`);
+          await reload();
+          return;
+        }
+
+        const res = await runWebmailSyncAction(
+          accountId,
+          choice === "older" ? "older" : "recent"
+        );
         if (!res.success) {
           setError(res.error);
           return;
         }
         const errs = res.errors ?? [];
+        setSyncModalOpen(false);
+        setSyncProgress(null);
         setInfo(
           `Sync: ${res.imported} nuovi` +
             (res.pending > 0
-              ? ` · ancora ${res.pending} da importare (premi di nuovo Sincronizza)`
+              ? ` · ancora ${res.pending} da importare`
               : "") +
             (errs.length ? ` · ${errs.join("; ")}` : "")
         );
@@ -239,6 +296,7 @@ export function WebmailBoard({
             ? e.message
             : "Errore sync (timeout o connessione). Riprova."
         );
+        setSyncProgress(null);
       }
     });
   }
@@ -336,7 +394,7 @@ export function WebmailBoard({
             onClick={syncNow}
             className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            Sincronizza ora
+            Sincronizza
           </button>
         ) : null}
       </div>
@@ -1263,6 +1321,19 @@ export function WebmailBoard({
           />
         </>
       ) : null}
+
+      <WebmailSyncModal
+        open={syncModalOpen}
+        accountId={accountFilter || undefined}
+        running={pending && syncModalOpen}
+        progress={syncProgress}
+        onClose={() => {
+          if (pending) return;
+          setSyncModalOpen(false);
+          setSyncProgress(null);
+        }}
+        onConfirm={runSyncChoice}
+      />
     </div>
   );
 }

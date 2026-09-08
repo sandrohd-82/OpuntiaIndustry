@@ -123,6 +123,67 @@ export type SyncWebmailResult = {
   error?: string;
 };
 
+export type WebmailSyncMode = "recent" | "older";
+
+/** Massimo mail per singola richiesta IMAP (sicurezza timeout / provider). */
+export const WEBMAIL_SYNC_SAFE_BATCH = 40;
+
+export type WebmailSyncPreviewAccount = {
+  accountId: string;
+  email: string;
+  missing: number;
+  importedInScope: number;
+  olderAvailable: number;
+};
+
+function pickMissingBatch(
+  missing: string[],
+  existing: Iterable<string>,
+  mode: WebmailSyncMode,
+  batchLimit: number
+): { list: string[]; pending: number } {
+  const missingSorted = [...missing].sort((a, b) => Number(a) - Number(b));
+  if (missingSorted.length === 0) return { list: [], pending: 0 };
+
+  if (mode === "older") {
+    const existingNums = [...existing]
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0);
+    if (existingNums.length === 0) {
+      return { list: [], pending: missingSorted.length };
+    }
+    const minImported = Math.min(...existingNums);
+    const older = missingSorted.filter((u) => Number(u) < minImported);
+    const list = older.slice(-batchLimit);
+    return { list, pending: missingSorted.length - list.length };
+  }
+
+  const list = missingSorted.slice(-batchLimit);
+  return { list, pending: missingSorted.length - list.length };
+}
+
+async function loadExistingUids(
+  supabase: Service,
+  accountId: string,
+  candidateUids: string[]
+): Promise<Set<string>> {
+  const existingSet = new Set<string>();
+  const chunkSize = 200;
+  for (let i = 0; i < candidateUids.length; i += chunkSize) {
+    const chunk = candidateUids.slice(i, i + chunkSize);
+    const { data: existingRows } = await supabase
+      .from("webmail_messaggi")
+      .select("message_uid")
+      .eq("account_id", accountId)
+      .eq("folder", "INBOX")
+      .in("message_uid", chunk);
+    for (const row of existingRows ?? []) {
+      existingSet.add(String(row.message_uid));
+    }
+  }
+  return existingSet;
+}
+
 /**
  * Sync IMAP in batch. Con sync_since storico non importa tutto in un colpo
  * (evita timeout Vercel / schermata bianca): rilanciare sync per continuare.
@@ -130,18 +191,14 @@ export type SyncWebmailResult = {
 export async function syncWebmailAccount(
   supabase: Service,
   account: AccountRow,
-  options?: { limit?: number }
+  options?: { limit?: number; mode?: WebmailSyncMode }
 ): Promise<SyncWebmailResult> {
-  const hasCustomSince = Boolean(
-    account.sync_since &&
-      /^\d{4}-\d{2}-\d{2}$/.test(String(account.sync_since).slice(0, 10))
+  const limit = options?.limit ?? WEBMAIL_SYNC_SAFE_BATCH;
+  const batchLimit = Math.min(
+    WEBMAIL_SYNC_SAFE_BATCH,
+    Math.max(1, Number.isFinite(limit) ? limit : WEBMAIL_SYNC_SAFE_BATCH)
   );
-  const limit =
-    options?.limit ??
-    Number(
-      process.env.WEBMAIL_SYNC_BATCH_SIZE ?? (hasCustomSince ? "40" : "60")
-    );
-  const batchLimit = Math.max(1, Number.isFinite(limit) ? limit : 40);
+  const mode: WebmailSyncMode = options?.mode === "older" ? "older" : "recent";
 
   let imported = 0;
   let skipped = 0;
@@ -191,26 +248,12 @@ export async function syncWebmailAccount(
         )
       );
 
-      const existingSet = new Set<string>();
-      const chunkSize = 200;
-      for (let i = 0; i < all.length; i += chunkSize) {
-        const chunk = all.slice(i, i + chunkSize);
-        const { data: existingRows } = await supabase
-          .from("webmail_messaggi")
-          .select("message_uid")
-          .eq("account_id", account.id)
-          .eq("folder", "INBOX")
-          .in("message_uid", chunk);
-        for (const row of existingRows ?? []) {
-          existingSet.add(String(row.message_uid));
-        }
-      }
-
+      const existingSet = await loadExistingUids(supabase, account.id, all);
       const missing = all.filter((uid) => !existingSet.has(uid));
       skipped = all.length - missing.length;
-      // Ultime mancanti per prime (INBOX recente); ripeti sync per le più vecchie
-      const list = missing.slice(-batchLimit);
-      const pending = Math.max(0, missing.length - list.length);
+      const picked = pickMissingBatch(missing, existingSet, mode, batchLimit);
+      const list = picked.list;
+      const pending = picked.pending;
 
       for (const uidStr of list) {
         const uid = Number(uidStr);
@@ -376,6 +419,114 @@ export async function syncWebmailAccount(
   }
 }
 
+export async function previewWebmailAccount(
+  supabase: Service,
+  account: AccountRow
+): Promise<
+  | Omit<WebmailSyncPreviewAccount, "accountId" | "email">
+  | { error: string }
+> {
+  let password: string;
+  try {
+    password = decryptWebmailSecret(account.password_encrypted);
+  } catch (e) {
+    return {
+      error:
+        e instanceof Error
+          ? e.message
+          : "Password casella non decifrabile (WEBMAIL_ENCRYPTION_KEY?).",
+    };
+  }
+
+  const client = new ImapFlow({
+    host: account.imap_host,
+    port: account.imap_port,
+    secure: account.imap_secure,
+    auth: { user: account.username, pass: password },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      const since = resolveWebmailSyncSince(account.sync_since);
+      const uids = await client.search({ since }, { uid: true });
+      const all = (uids || []).map((u) => String(u));
+      const existingSet = await loadExistingUids(supabase, account.id, all);
+      const missing = all.filter((uid) => !existingSet.has(uid));
+      const older = pickMissingBatch(
+        missing,
+        existingSet,
+        "older",
+        WEBMAIL_SYNC_SAFE_BATCH
+      );
+      return {
+        missing: missing.length,
+        importedInScope: existingSet.size,
+        olderAvailable: older.list.length,
+      };
+    } finally {
+      lock.release();
+    }
+  } catch (e) {
+    return { error: formatImapSyncError(e, account) };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function previewWebmailAccounts(
+  supabase: Service,
+  accountId?: string
+): Promise<
+  | { success: true; totalMissing: number; accounts: WebmailSyncPreviewAccount[] }
+  | { success: false; error: string }
+> {
+  let query = supabase
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+    )
+    .is("deleted_at", null);
+  if (accountId) {
+    query = query.eq("id", accountId);
+  } else {
+    query = query.eq("sync_enabled", true);
+  }
+  const { data, error } = await query;
+  if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as AccountRow[];
+  if (rows.length === 0) {
+    return { success: false, error: "Nessuna casella da sincronizzare." };
+  }
+
+  const accounts: WebmailSyncPreviewAccount[] = [];
+  let totalMissing = 0;
+  for (const row of rows) {
+    const res = await previewWebmailAccount(supabase, row);
+    if ("error" in res) {
+      return {
+        success: false,
+        error: `${row.email_address}: ${res.error}`,
+      };
+    }
+    totalMissing += res.missing;
+    accounts.push({
+      accountId: row.id,
+      email: row.email_address,
+      missing: res.missing,
+      importedInScope: res.importedInScope,
+      olderAvailable: res.olderAvailable,
+    });
+  }
+  return { success: true, totalMissing, accounts };
+}
+
 const TRASH_CANDIDATES = [
   "Trash",
   "INBOX.Trash",
@@ -445,7 +596,8 @@ export async function deleteImapMessageBestEffort(input: {
 }
 
 export async function syncAllWebmailAccounts(
-  supabase: Service
+  supabase: Service,
+  options?: { mode?: WebmailSyncMode; limit?: number }
 ): Promise<{
   accounts: number;
   imported: number;
@@ -475,7 +627,7 @@ export async function syncAllWebmailAccounts(
   let pending = 0;
   const errors: string[] = [];
   for (const row of (data ?? []) as AccountRow[]) {
-    const res = await syncWebmailAccount(supabase, row);
+    const res = await syncWebmailAccount(supabase, row, options);
     imported += res.imported;
     drafted += res.drafted;
     pending += res.pending;

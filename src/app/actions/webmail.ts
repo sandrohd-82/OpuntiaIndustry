@@ -7,10 +7,14 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
   deleteImapMessageBestEffort,
+  previewWebmailAccounts,
   reloadMessaggioBodyAndAttachments,
   sendMailViaAccount,
   syncAllWebmailAccounts,
   syncWebmailAccount,
+  WEBMAIL_SYNC_SAFE_BATCH,
+  type WebmailSyncMode,
+  type WebmailSyncPreviewAccount,
 } from "@/lib/webmail/sync";
 import {
   bufferToDataUrl,
@@ -867,7 +871,31 @@ export async function sendWebmailBozzaAction(
   return { success: true };
 }
 
-export async function runWebmailSyncAction(accountId?: string): Promise<
+export async function previewWebmailSyncAction(accountId?: string): Promise<
+  | {
+      success: true;
+      totalMissing: number;
+      batchSize: number;
+      accounts: WebmailSyncPreviewAccount[];
+    }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const service = createServiceClient();
+  const res = await previewWebmailAccounts(service, accountId || undefined);
+  if (!res.success) return res;
+  return {
+    success: true,
+    totalMissing: res.totalMissing,
+    batchSize: WEBMAIL_SYNC_SAFE_BATCH,
+    accounts: res.accounts,
+  };
+}
+
+export async function runWebmailSyncAction(
+  accountId?: string,
+  mode: WebmailSyncMode = "recent"
+): Promise<
   | {
       success: true;
       imported: number;
@@ -880,6 +908,7 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
   try {
     await requireWebmailAccess();
     const service = createServiceClient();
+    const opts = { mode, limit: WEBMAIL_SYNC_SAFE_BATCH };
     if (accountId) {
       const { data: account, error } = await service
         .from("webmail_accounts")
@@ -897,7 +926,8 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
       }
       const res = await syncWebmailAccount(
         service,
-        account as Parameters<typeof syncWebmailAccount>[1]
+        account as Parameters<typeof syncWebmailAccount>[1],
+        opts
       );
       return {
         success: true,
@@ -907,7 +937,7 @@ export async function runWebmailSyncAction(accountId?: string): Promise<
         errors: res.error ? [res.error] : [],
       };
     }
-    const res = await syncAllWebmailAccounts(service);
+    const res = await syncAllWebmailAccounts(service, opts);
     return {
       success: true,
       imported: res.imported,
