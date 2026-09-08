@@ -2,6 +2,7 @@
 
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireSuperadmin, requireWebmailAccess } from "@/lib/areas/guard";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
@@ -24,14 +25,18 @@ import {
   WEBMAIL_INLINE_DATA_URL_MAX_BYTES,
 } from "@/lib/webmail/html-render";
 import {
+  bulkWebmailCategoriaSchema,
+  bulkWebmailDeleteSchema,
   composeNuovaMailSchema,
   sendBozzaSchema,
   setWebmailImportedSeenSchema,
+  WEBMAIL_PAGE_SIZE,
   translateWebmailSchema,
   updateBozzaSchema,
   webmailAccountInputSchema,
   WEBMAIL_PROVIDER_PRESETS,
   type WebmailAccountPublic,
+  type WebmailListFilter,
   type WebmailBozzaAi,
   type WebmailCategoria,
   type WebmailMailboxView,
@@ -594,61 +599,272 @@ export async function setWebmailAccountGrantsAction(input: {
   return { success: true };
 }
 
-export async function listWebmailMessaggiAction(input?: {
-  accountId?: string | null;
-  categoriaId?: string | null;
-  onlyAiDraft?: boolean;
-  /** Vista casella: inbox = senza categoria; cestino = soft-deleted; archiviate. */
-  view?: WebmailMailboxView;
-}): Promise<
-  | { success: true; messaggi: WebmailMessaggio[] }
+function applyWebmailMessaggiFilters<T>(
+  q: T,
+  input?: WebmailListFilter
+): T {
+  const view = input?.view ?? "all";
+  let next = q as {
+    eq: (c: string, v: unknown) => typeof next;
+    is: (c: string, v: null) => typeof next;
+    not: (c: string, op: string, v: null) => typeof next;
+  };
+
+  if (view === "cestino") {
+    next = next.not("deleted_at", "is", null).is("purged_at", null);
+  } else if (view === "archiviate") {
+    next = next.is("deleted_at", null).not("archived_at", "is", null);
+  } else {
+    next = next.is("deleted_at", null).is("archived_at", null);
+  }
+
+  if (view !== "bozze") {
+    if (view === "inbox" || view === "categoria" || view === "all") {
+      next = next.eq("direction", "inbound");
+    }
+  } else {
+    next = next.eq("has_ai_draft", true);
+  }
+
+  if (view === "inbox") {
+    next = next.is("categoria_id", null);
+  } else if (view === "categoria" && input?.categoriaId) {
+    next = next.eq("categoria_id", input.categoriaId);
+  } else if (input?.categoriaId) {
+    next = next.eq("categoria_id", input.categoriaId);
+  }
+
+  if (input?.accountId) next = next.eq("account_id", input.accountId);
+  if (input?.onlyAiDraft && view !== "bozze") {
+    next = next.eq("has_ai_draft", true);
+  }
+
+  return next as T;
+}
+
+export async function listWebmailMessaggiAction(input?: WebmailListFilter): Promise<
+  | { success: true; messaggi: WebmailMessaggio[]; total: number; page: number }
   | { success: false; error: string }
 > {
   await requireWebmailAccess();
   const supabase = await createClient();
-  const view = input?.view ?? "all";
+  const page = Math.max(0, Math.floor(input?.page ?? 0));
+  const from = page * WEBMAIL_PAGE_SIZE;
+  const to = from + WEBMAIL_PAGE_SIZE - 1;
 
   let q = supabase
     .from("webmail_messaggi")
-    .select(MESSAGGIO_SELECT)
-    .order("received_at", { ascending: false })
-    .limit(150);
+    .select(MESSAGGIO_SELECT, { count: "exact" })
+    .order("received_at", { ascending: false });
+  q = applyWebmailMessaggiFilters(q, input);
+  q = q.range(from, to);
 
-  if (view === "cestino") {
-    q = q.not("deleted_at", "is", null);
-  } else if (view === "archiviate") {
-    q = q.is("deleted_at", null).not("archived_at", "is", null);
-  } else {
-    q = q.is("deleted_at", null).is("archived_at", null);
-  }
-
-  if (view !== "bozze") {
-    // bozze possono includere outbound con bozza; le altre viste restano inbound
-    if (view === "inbox" || view === "categoria" || view === "all") {
-      q = q.eq("direction", "inbound");
-    }
-  } else {
-    q = q.eq("has_ai_draft", true);
-  }
-
-  if (view === "inbox") {
-    q = q.is("categoria_id", null);
-  } else if (view === "categoria" && input?.categoriaId) {
-    q = q.eq("categoria_id", input.categoriaId);
-  } else if (input?.categoriaId) {
-    q = q.eq("categoria_id", input.categoriaId);
-  }
-
-  if (input?.accountId) q = q.eq("account_id", input.accountId);
-  if (input?.onlyAiDraft && view !== "bozze") q = q.eq("has_ai_draft", true);
-
-  const { data, error } = await q;
+  const { data, error, count } = await q;
   if (error) return { success: false, error: error.message };
   return {
     success: true,
     messaggi: (data ?? []).map((r) =>
       mapMessaggio(r as Record<string, unknown>)
     ),
+    total: count ?? 0,
+    page,
+  };
+}
+
+export async function listWebmailMessaggioIdsAction(
+  input?: WebmailListFilter
+): Promise<
+  { success: true; ids: string[]; total: number } | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const supabase = await createClient();
+  const ids: string[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+  let total = 0;
+
+  while (ids.length < 8000) {
+    let q = supabase
+      .from("webmail_messaggi")
+      .select("id", { count: offset === 0 ? "exact" : undefined })
+      .order("received_at", { ascending: false })
+      .range(offset, offset + pageSize - 1);
+    q = applyWebmailMessaggiFilters(q, input);
+    const { data, error, count } = await q;
+    if (error) return { success: false, error: error.message };
+    if (offset === 0) total = count ?? 0;
+    const batch = (data ?? []).map((r) => String(r.id));
+    ids.push(...batch);
+    if (batch.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return { success: true, ids: ids.slice(0, 8000), total };
+}
+
+export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promise<
+  { success: true; updated: number } | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = bulkWebmailCategoriaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const ids = [...new Set(parsed.data.messaggioIds)];
+  const supabase = await createClient();
+  let updated = 0;
+  const chunkSize = 200;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("webmail_messaggi")
+      .update({
+        categoria_id: parsed.data.categoriaId,
+        categoria_suggest_id: null,
+        categoria_suggest_mode: null,
+        categoria_auto_pending: false,
+        updated_by: auth.userId,
+      })
+      .in("id", chunk)
+      .is("purged_at", null)
+      .select("id");
+    if (error) return { success: false, error: error.message };
+    updated += data?.length ?? 0;
+  }
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: ids[0]!,
+    action: "set_categoria",
+    actor_id: auth.userId,
+    summary: `Spostate ${updated} mail in categoria`,
+    payload: {
+      categoriaId: parsed.data.categoriaId,
+      requested: ids.length,
+      updated,
+    },
+  });
+
+  return { success: true, updated };
+}
+
+export async function bulkDeleteWebmailMessaggiAction(raw: unknown): Promise<
+  | { success: true; updated: number; purged: number; imapTried: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = bulkWebmailDeleteSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const ids = [...new Set(parsed.data.messaggioIds)];
+  const expected = fraseConfermaSoftDelete(`MAIL-${ids.length}`);
+  if (parsed.data.confermaTestuale.trim() !== expected) {
+    return { success: false, error: `Digita esattamente: ${expected}` };
+  }
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+  let updated = 0;
+  const chunkSize = 200;
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const patch: Record<string, unknown> = {
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    };
+    if (parsed.data.purgeFromTrash) {
+      patch.purged_at = now;
+      patch.purged_by = auth.userId;
+    }
+    const { data, error } = await supabase
+      .from("webmail_messaggi")
+      .update(patch)
+      .in("id", chunk)
+      .is("purged_at", null)
+      .select("id");
+    if (error) return { success: false, error: error.message };
+    updated += data?.length ?? 0;
+
+    await supabase
+      .from("webmail_bozze_ai")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .in("messaggio_id", chunk)
+      .is("deleted_at", null);
+  }
+
+  let imapTried = 0;
+  if (ids.length <= WEBMAIL_PAGE_SIZE) {
+    const { data: rows } = await service
+      .from("webmail_messaggi")
+      .select("id, account_id, folder, message_uid")
+      .in("id", ids);
+    const accountCache = new Map<
+      string,
+      Parameters<typeof deleteImapMessageBestEffort>[0]["account"]
+    >();
+    for (const m of rows ?? []) {
+      const accId = String(m.account_id);
+      let account = accountCache.get(accId);
+      if (!account) {
+        const { data: acc } = await service
+          .from("webmail_accounts")
+          .select(
+            "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+          )
+          .eq("id", accId)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (!acc) continue;
+        account = acc as Parameters<
+          typeof deleteImapMessageBestEffort
+        >[0]["account"];
+        accountCache.set(accId, account);
+      }
+      if (!m.message_uid) continue;
+      imapTried += 1;
+      await deleteImapMessageBestEffort({
+        account,
+        folder: String(m.folder || "INBOX"),
+        messageUid: String(m.message_uid),
+      });
+    }
+  }
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: ids[0]!,
+    action: parsed.data.purgeFromTrash ? "purge" : "soft_delete",
+    actor_id: auth.userId,
+    summary: parsed.data.purgeFromTrash
+      ? `Spostate ${updated} mail nel cestino e rimosse dal cestino`
+      : `Spostate ${updated} mail nel cestino`,
+    payload: {
+      requested: ids.length,
+      updated,
+      purgeFromTrash: parsed.data.purgeFromTrash,
+      imapTried,
+    },
+  });
+
+  return {
+    success: true,
+    updated,
+    purged: parsed.data.purgeFromTrash ? updated : 0,
+    imapTried,
   };
 }
 
@@ -992,7 +1208,7 @@ export async function setWebmailImportedSeenAction(raw: {
         updated_by: auth.userId,
       })
       .in("id", chunk)
-      .is("deleted_at", null)
+      .is("purged_at", null)
       .select("id");
     if (error) return { success: false, error: error.message };
     updated += data?.length ?? 0;
@@ -1004,8 +1220,8 @@ export async function setWebmailImportedSeenAction(raw: {
     action: "update",
     actor_id: auth.userId,
     summary: parsed.data.seen
-      ? `Stato post-sync: ${updated} mail impostate come Lette`
-      : `Stato post-sync: ${updated} mail impostate come Da leggere`,
+      ? `${updated} mail impostate come Lette`
+      : `${updated} mail impostate come Da leggere`,
     payload: {
       seen: parsed.data.seen,
       requested: ids.length,

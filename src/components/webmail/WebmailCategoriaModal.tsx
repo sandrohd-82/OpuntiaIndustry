@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { FaXmark } from "react-icons/fa6";
 import {
+  bulkSetWebmailMessaggiCategoriaAction,
   createWebmailCategoriaAction,
   setWebmailMessaggioCategoriaAction,
 } from "@/app/actions/webmail";
@@ -10,7 +11,7 @@ import type { WebmailCategoria } from "@/lib/webmail/types";
 
 type Props = {
   open: boolean;
-  messaggioId: string;
+  messaggioIds: string[];
   categorie: WebmailCategoria[];
   currentCategoriaId: string | null;
   onClose: () => void;
@@ -20,7 +21,7 @@ type Props = {
 
 export function WebmailCategoriaModal({
   open,
-  messaggioId,
+  messaggioIds,
   categorie,
   currentCategoriaId,
   onClose,
@@ -44,15 +45,16 @@ export function WebmailCategoriaModal({
   if (!open) return null;
 
   function saveExisting() {
+    if (messaggioIds.length === 0) {
+      setError("Nessuna mail selezionata.");
+      return;
+    }
     if (!selected) {
       setError("Seleziona una categoria.");
       return;
     }
     startTransition(async () => {
-      const res = await setWebmailMessaggioCategoriaAction({
-        messaggioId,
-        categoriaId: selected,
-      });
+      const res = await assignCategoria(selected);
       if (!res.success) {
         setError(res.error);
         return;
@@ -60,6 +62,27 @@ export function WebmailCategoriaModal({
       onDone(selected, res.learnMode);
       onClose();
     });
+  }
+
+  async function assignCategoria(
+    categoriaId: string
+  ): Promise<
+    { success: true; learnMode: string } | { success: false; error: string }
+  > {
+    if (messaggioIds.length === 1 && messaggioIds[0]) {
+      const res = await setWebmailMessaggioCategoriaAction({
+        messaggioId: messaggioIds[0],
+        categoriaId,
+      });
+      if (!res.success) return res;
+      return { success: true, learnMode: res.learnMode };
+    }
+    const res = await bulkSetWebmailMessaggiCategoriaAction({
+      messaggioIds,
+      categoriaId,
+    });
+    if (!res.success) return res;
+    return { success: true, learnMode: "bulk" };
   }
 
   function createAndAssign() {
@@ -77,10 +100,7 @@ export function WebmailCategoriaModal({
         return;
       }
       onCategoriaCreated(created.item);
-      const res = await setWebmailMessaggioCategoriaAction({
-        messaggioId,
-        categoriaId: created.item.id,
-      });
+      const res = await assignCategoria(created.item.id);
       if (!res.success) {
         setError(res.error);
         return;

@@ -275,3 +275,26 @@ export type WebmailMailboxView =
   | "bozze"
   | "cestino"
   | "archiviate";
+
+export const WEBMAIL_PAGE_SIZE = 40;
+
+export type WebmailListFilter = {
+  accountId?: string | null;
+  categoriaId?: string | null;
+  onlyAiDraft?: boolean;
+  view?: WebmailMailboxView;
+  page?: number;
+};
+
+export const bulkWebmailMessaggiSchema = z.object({
+  messaggioIds: z.array(z.string().uuid()).min(1).max(8000),
+});
+
+export const bulkWebmailDeleteSchema = bulkWebmailMessaggiSchema.extend({
+  confermaTestuale: z.string().trim().min(3),
+  purgeFromTrash: z.boolean(),
+});
+
+export const bulkWebmailCategoriaSchema = bulkWebmailMessaggiSchema.extend({
+  categoriaId: z.string().uuid(),
+});

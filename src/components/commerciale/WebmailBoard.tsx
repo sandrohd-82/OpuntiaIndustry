@@ -12,6 +12,8 @@ import {
   listWebmailAccountsAction,
   listWebmailCategorieAction,
   listWebmailMessaggiAction,
+  listWebmailMessaggioIdsAction,
+  bulkDeleteWebmailMessaggiAction,
   markWebmailMessaggioSeenAction,
   rejectWebmailCategoriaSuggestionAction,
   restoreWebmailMessaggioAction,
@@ -24,7 +26,9 @@ import {
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
 } from "@/app/actions/webmail";
+import { WebmailBulkDeleteModal } from "@/components/webmail/WebmailBulkDeleteModal";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
+import { WebmailSelectScopeModal } from "@/components/webmail/WebmailSelectScopeModal";
 import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
 import { WebmailDeleteConfirmModal } from "@/components/webmail/WebmailDeleteConfirmModal";
 import {
@@ -36,12 +40,13 @@ import {
   type WebmailSyncChoice,
 } from "@/components/webmail/WebmailSyncModal";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
-import type {
-  WebmailAccountPublic,
-  WebmailBozzaAi,
-  WebmailCategoria,
-  WebmailMailboxView,
-  WebmailMessaggio,
+import {
+  WEBMAIL_PAGE_SIZE,
+  type WebmailAccountPublic,
+  type WebmailBozzaAi,
+  type WebmailCategoria,
+  type WebmailMailboxView,
+  type WebmailMessaggio,
 } from "@/lib/webmail/types";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 
@@ -75,6 +80,8 @@ export function WebmailBoard({
   const [accounts, setAccounts] = useState<WebmailAccountPublic[]>([]);
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [messaggi, setMessaggi] = useState<WebmailMessaggio[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [accountFilter, setAccountFilter] = useState<string>(
     initialAccountId ?? ""
   );
@@ -89,7 +96,11 @@ export function WebmailBoard({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [catModalOpen, setCatModalOpen] = useState(false);
+  const [catTargetIds, setCatTargetIds] = useState<string[]>([]);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectScopeOpen, setSelectScopeOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -153,6 +164,7 @@ export function WebmailBoard({
               : null,
         onlyAiDraft: effectiveView === "bozze" ? true : onlyDraft,
         view: effectiveView,
+        page,
       }),
     ]);
     if (!a.success) {
@@ -170,21 +182,43 @@ export function WebmailBoard({
     setAccounts(a.accounts);
     setCategorie(c.items);
     setMessaggi(m.messaggi);
-  }, [accountFilter, categoriaFilter, onlyDraft, view, categoriaId]);
+    setTotalCount(m.total);
+    if (m.messaggi.length === 0 && m.page > 0 && m.total > 0) {
+      setPage(m.page - 1);
+    }
+  }, [accountFilter, categoriaFilter, onlyDraft, view, categoriaId, page]);
+
+  function resetSelection() {
+    setSelectMode(false);
+    setSelectedIds([]);
+    setSelectScopeOpen(false);
+    setBulkDeleteOpen(false);
+  }
 
   useEffect(() => {
     setAccountFilter(initialAccountId ?? "");
     setSelectedId(null);
+    setPage(0);
+    resetSelection();
   }, [initialAccountId]);
 
   useEffect(() => {
     setCategoriaFilter(categoriaId ?? "");
     setSelectedId(null);
+    setPage(0);
+    resetSelection();
   }, [categoriaId]);
 
   useEffect(() => {
     setOnlyDraft(view === "bozze");
+    setPage(0);
+    resetSelection();
   }, [view]);
+
+  useEffect(() => {
+    setPage(0);
+    resetSelection();
+  }, [accountFilter, categoriaFilter, onlyDraft]);
 
   useEffect(() => {
     void reload();
@@ -248,6 +282,72 @@ export function WebmailBoard({
     } else {
       setInfo(extraInfo ?? "Nessuna nuova mail importata.");
     }
+  }
+
+  function currentListFilter() {
+    return {
+      accountId: accountFilter || null,
+      categoriaId:
+        view === "categoria"
+          ? categoriaId || categoriaFilter || null
+          : view === "all"
+            ? categoriaFilter || null
+            : null,
+      onlyAiDraft: view === "bozze" ? true : onlyDraft,
+      view,
+    };
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  }
+
+  function onHeaderSelectClick() {
+    if (!selectMode) {
+      setSelectMode(true);
+      return;
+    }
+    setSelectScopeOpen(true);
+  }
+
+  function chooseSelectPage() {
+    setSelectedIds(messaggi.map((m) => m.id));
+    setSelectScopeOpen(false);
+  }
+
+  function chooseSelectAll() {
+    startTransition(async () => {
+      const res = await listWebmailMessaggioIdsAction(currentListFilter());
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setSelectedIds(res.ids);
+      setSelectScopeOpen(false);
+    });
+  }
+
+  function applyBulkSeen(seen: boolean) {
+    if (selectedIds.length === 0) return;
+    startTransition(async () => {
+      const res = await setWebmailImportedSeenAction({
+        messaggioIds: selectedIds,
+        seen,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setInfo(
+        seen
+          ? `${res.updated} mail segnalate come già lette.`
+          : `${res.updated} mail segnalate come da leggere.`
+      );
+      resetSelection();
+      await reload();
+    });
   }
 
   function applyImportedStatus(choice: WebmailImportedSeenChoice) {
@@ -511,13 +611,94 @@ export function WebmailBoard({
       ) : null}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Messaggi
-          </p>
-          <p className="text-[11px] text-slate-500">
-            Clicca una riga per aprire il contenuto
-          </p>
+        <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectMode}
+                onChange={onHeaderSelectClick}
+                aria-label="Seleziona messaggi"
+                className="h-4 w-4"
+              />
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Messaggi
+              </p>
+              {selectMode ? (
+                <button
+                  type="button"
+                  onClick={resetSelection}
+                  className="text-[11px] text-slate-500 underline"
+                >
+                  Annulla
+                </button>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <span>
+                {totalCount === 0
+                  ? "0-0 di 0 mail"
+                  : `${page * WEBMAIL_PAGE_SIZE}-${Math.min(
+                      page * WEBMAIL_PAGE_SIZE + WEBMAIL_PAGE_SIZE,
+                      totalCount
+                    )} di ${totalCount} mail`}
+              </span>
+              <button
+                type="button"
+                disabled={page <= 0}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                className="rounded border border-slate-200 px-1.5 py-0.5 disabled:opacity-30"
+                aria-label="Pagina precedente"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                disabled={(page + 1) * WEBMAIL_PAGE_SIZE >= totalCount}
+                onClick={() => setPage((p) => p + 1)}
+                className="rounded border border-slate-200 px-1.5 py-0.5 disabled:opacity-30"
+                aria-label="Pagina successiva"
+              >
+                ›
+              </button>
+            </div>
+          </div>
+          {selectedIds.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => applyBulkSeen(false)}
+                className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium"
+              >
+                Segnala come da leggere
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => applyBulkSeen(true)}
+                className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium"
+              >
+                Segnala come già lette
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setBulkDeleteOpen(true)}
+                className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-700"
+              >
+                Elimina
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => setCatTargetIds([...selectedIds])}
+                className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium"
+              >
+                Sposta in categoria
+              </button>
+            </div>
+          ) : null}
         </div>
         <ul className="max-h-[min(78vh,52rem)] divide-y divide-slate-100 overflow-y-auto">
           {messaggi.length === 0 ? (
@@ -533,13 +714,23 @@ export function WebmailBoard({
                   key={m.id}
                   className={expanded ? "bg-sky-50/40" : "bg-white"}
                 >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSelectedId((prev) => (prev === m.id ? null : m.id))
-                    }
-                    className="flex w-full items-start gap-2 px-4 py-3 text-left text-sm transition hover:bg-slate-50"
-                  >
+                  <div className="flex w-full items-start gap-2 px-4 py-3">
+                    {selectMode ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(m.id)}
+                        onChange={() => toggleSelected(m.id)}
+                        className="mt-1 h-4 w-4 shrink-0"
+                        aria-label={`Seleziona ${m.subject}`}
+                      />
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedId((prev) => (prev === m.id ? null : m.id))
+                      }
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left text-sm transition hover:bg-slate-50"
+                    >
                     <FaChevronDown
                       size={12}
                       className={`mt-1 shrink-0 text-slate-400 transition ${
@@ -599,7 +790,8 @@ export function WebmailBoard({
                         )}
                       </div>
                     </div>
-                  </button>
+                    </button>
+                  </div>
 
                   {expanded && selected ? (
             <div
@@ -775,7 +967,7 @@ export function WebmailBoard({
                               return;
                             }
                             patchMessaggio(res.messaggio);
-                            setCatModalOpen(true);
+                            setCatTargetIds([selected.id]);
                           });
                         }}
                       >
@@ -919,7 +1111,7 @@ export function WebmailBoard({
                       <button
                         type="button"
                         className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                        onClick={() => setCatModalOpen(true)}
+                        onClick={() => setCatTargetIds([selected.id])}
                       >
                         Sposta in categoria
                       </button>
@@ -1314,24 +1506,32 @@ export function WebmailBoard({
         </div>
       ) : null}
 
+      <WebmailCategoriaModal
+        open={catTargetIds.length > 0}
+        messaggioIds={catTargetIds}
+        categorie={categorie}
+        currentCategoriaId={
+          catTargetIds.length === 1
+            ? (messaggi.find((m) => m.id === catTargetIds[0])?.categoriaId ??
+              null)
+            : null
+        }
+        onClose={() => setCatTargetIds([])}
+        onCategoriaCreated={(c) =>
+          setCategorie((prev) =>
+            prev.some((x) => x.id === c.id) ? prev : [...prev, c]
+          )
+        }
+        onDone={(_id, learnMode) => {
+          setInfo(`Categoria aggiornata. Apprendimento: ${learnMode}.`);
+          setCatTargetIds([]);
+          resetSelection();
+          void reload();
+        }}
+      />
+
       {selected ? (
         <>
-          <WebmailCategoriaModal
-            open={catModalOpen}
-            messaggioId={selected.id}
-            categorie={categorie}
-            currentCategoriaId={selected.categoriaId}
-            onClose={() => setCatModalOpen(false)}
-            onCategoriaCreated={(c) =>
-              setCategorie((prev) =>
-                prev.some((x) => x.id === c.id) ? prev : [...prev, c]
-              )
-            }
-            onDone={(_id, learnMode) => {
-              setInfo(`Categoria aggiornata. Apprendimento: ${learnMode}.`);
-              void reload();
-            }}
-          />
           <WebmailCollegaAziendaFlow
             open={aziendaModalOpen}
             messaggio={selected}
@@ -1396,6 +1596,44 @@ export function WebmailBoard({
         importedCount={importedStatus?.ids.length ?? 0}
         pending={pending}
         onChoose={applyImportedStatus}
+      />
+      <WebmailSelectScopeModal
+        open={selectScopeOpen}
+        pageCount={messaggi.length}
+        totalCount={totalCount}
+        pending={pending}
+        onClose={() => setSelectScopeOpen(false)}
+        onChoosePage={chooseSelectPage}
+        onChooseAll={chooseSelectAll}
+      />
+      <WebmailBulkDeleteModal
+        open={bulkDeleteOpen}
+        count={selectedIds.length}
+        inCestino={view === "cestino"}
+        pending={pending}
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={({ confermaTestuale, purgeFromTrash }) => {
+          startTransition(async () => {
+            const res = await bulkDeleteWebmailMessaggiAction({
+              messaggioIds: selectedIds,
+              confermaTestuale,
+              purgeFromTrash,
+            });
+            if (!res.success) {
+              setError(res.error);
+              return;
+            }
+            setBulkDeleteOpen(false);
+            setSelectedId(null);
+            setInfo(
+              purgeFromTrash
+                ? `${res.updated} mail spostate nel cestino e rimosse dal cestino.`
+                : `${res.updated} mail spostate nel cestino.`
+            );
+            resetSelection();
+            await reload();
+          });
+        }}
       />
     </div>
   );
