@@ -5,6 +5,7 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   deprecaProcessoAttivitaSchema,
   deprecaProcessoSchema,
+  normalizeAttivitaCodice,
   parseTempoMedioUnita,
   parseTempoOgniUnita,
   processoAttivitaInputSchema,
@@ -434,6 +435,52 @@ export async function listProcessoAttivitaAttiveAction(): Promise<
   return listAttivitaByCollocazione(false, true);
 }
 
+async function attivitaCodiceOccupato(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  codice: string,
+  excludeId?: string
+): Promise<string | null> {
+  const code = normalizeAttivitaCodice(codice);
+  if (!code) return "Codice obbligatorio.";
+  const { data, error } = await supabase
+    .from("produzione_processo_attivita")
+    .select("id, codice, deleted_at, deprecato_at")
+    .ilike("codice", code)
+    .limit(20);
+  if (error) return error.message;
+  const hit = (data ?? []).find(
+    (r) =>
+      normalizeAttivitaCodice(String(r.codice ?? "")) === code &&
+      String(r.id) !== excludeId
+  );
+  if (!hit) return null;
+  if (hit.deleted_at) {
+    return "Codice già usato da un’attività eliminata: non si riutilizza.";
+  }
+  if (hit.deprecato_at) {
+    return "Codice già usato nello storico. Scegline uno nuovo.";
+  }
+  return "Codice attività già esistente.";
+}
+
+export async function listProcessoAttivitaCodiciAction(): Promise<
+  { success: true; codici: string[] } | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_processo_attivita")
+    .select("codice")
+    .limit(8000);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    codici: (data ?? [])
+      .map((r) => normalizeAttivitaCodice(String(r.codice ?? "")))
+      .filter(Boolean),
+  };
+}
+
 export async function createProcessoAttivitaAction(
   raw: ProcessoAttivitaInput
 ): Promise<
@@ -453,10 +500,14 @@ export async function createProcessoAttivitaAction(
   const luogo = await resolveAreaPosto(supabase, areaId, postoId);
   if (!luogo.success) return luogo;
 
+  const codice = normalizeAttivitaCodice(parsed.data.codice);
+  const clash = await attivitaCodiceOccupato(supabase, codice);
+  if (clash) return { success: false, error: clash };
+
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
     .insert({
-      codice: parsed.data.codice.trim().toUpperCase(),
+      codice,
       nome: parsed.data.nome.trim(),
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
@@ -545,10 +596,14 @@ export async function updateProcessoAttivitaAction(
     };
   }
 
+  const codice = normalizeAttivitaCodice(parsed.data.codice);
+  const clash = await attivitaCodiceOccupato(supabase, codice, id);
+  if (clash) return { success: false, error: clash };
+
   const { data, error } = await supabase
     .from("produzione_processo_attivita")
     .update({
-      codice: parsed.data.codice.trim().toUpperCase(),
+      codice,
       nome: parsed.data.nome.trim(),
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",

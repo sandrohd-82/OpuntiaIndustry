@@ -2,18 +2,25 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { FaXmark } from "react-icons/fa6";
-import { createProcessoAttivitaAction } from "@/app/actions/produzione-processi";
+import {
+  createProcessoAttivitaAction,
+  listProcessoAttivitaCodiciAction,
+} from "@/app/actions/produzione-processi";
+import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
 import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
-import type {
-  ProcessoAttivita,
-  TempoMedioUnita,
-  TempoOgniUnita,
+import {
+  isAttivitaCodicePreso,
+  nextUniqueAttivitaCodice,
+  type ProcessoAttivita,
+  type TempoMedioUnita,
+  type TempoOgniUnita,
 } from "@/lib/produzione/processi";
 
 type Props = {
   open: boolean;
   aree: ProduzioneArea[];
+  catalog: ProcessoAttivita[];
   defaultAreaId?: string | null;
   onClose: () => void;
   onCreated: (item: ProcessoAttivita) => void;
@@ -22,6 +29,7 @@ type Props = {
 export function ProcessoAttivitaCreateModal({
   open,
   aree,
+  catalog,
   defaultAreaId,
   onClose,
   onCreated,
@@ -40,6 +48,8 @@ export function ProcessoAttivitaCreateModal({
   const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [copiaDaId, setCopiaDaId] = useState("");
+  const [codiciOccupati, setCodiciOccupati] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -54,8 +64,29 @@ export function ProcessoAttivitaCreateModal({
     setTempoMedioUnita("sec");
     setTempoOgniValore(1);
     setTempoOgniUnita("pz");
+    setCopiaDaId("");
     setError(null);
+    void listProcessoAttivitaCodiciAction().then((res) => {
+      if (res.success) setCodiciOccupati(res.codici);
+    });
   }, [open, defaultAreaId]);
+
+  const codicePreso = isAttivitaCodicePreso(codice, codiciOccupati);
+
+  function applyCopiaDa(a: ProcessoAttivita) {
+    setCopiaDaId(a.id);
+    setCodice(nextUniqueAttivitaCodice(a.codice, codiciOccupati));
+    setNome(a.nome);
+    setDescrizione(a.descrizione);
+    setNote(a.note);
+    setAttivo(true);
+    setAreaId(a.areaId ?? defaultAreaId ?? "");
+    setPostoId(a.postoId ?? "");
+    setTempoMedioValore(a.tempoMedioValore);
+    setTempoMedioUnita(a.tempoMedioUnita);
+    setTempoOgniValore(a.tempoOgniValore);
+    setTempoOgniUnita(a.tempoOgniUnita);
+  }
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -120,14 +151,28 @@ export function ProcessoAttivitaCreateModal({
         ) : null}
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <CopiaDaAttivitaField
+            catalog={catalog}
+            value={copiaDaId}
+            onCopy={applyCopiaDa}
+          />
           <label className="text-sm">
             <span className="mb-1 block font-medium">Codice</span>
             <input
               value={codice}
               onChange={(e) => setCodice(e.target.value.toUpperCase())}
               placeholder="es. AP-SPACCAPALE"
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
+              className={`w-full rounded-lg border px-3 py-2 font-mono text-sm ${
+                codicePreso
+                  ? "border-red-400 bg-red-50"
+                  : "border-[var(--border)]"
+              }`}
             />
+            {codicePreso ? (
+              <span className="mt-1 block text-xs text-red-700">
+                Questo codice esiste già. Scegline uno diverso.
+              </span>
+            ) : null}
           </label>
           <label className="text-sm">
             <span className="mb-1 block font-medium">Nome</span>
@@ -220,7 +265,9 @@ export function ProcessoAttivitaCreateModal({
           </button>
           <button
             type="button"
-            disabled={pending || !codice.trim() || !nome.trim()}
+            disabled={
+              pending || !codice.trim() || !nome.trim() || codicePreso
+            }
             onClick={save}
             className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
           >

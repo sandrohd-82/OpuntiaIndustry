@@ -153,6 +153,45 @@ export const processoAttivitaInputSchema = z
 
 export type ProcessoAttivitaInput = z.infer<typeof processoAttivitaInputSchema>;
 
+export function normalizeAttivitaCodice(raw: string): string {
+  return raw.trim().toUpperCase();
+}
+
+/** Prossimo codice libero a partire da uno esistente (mai un duplicato). */
+export function nextUniqueAttivitaCodice(
+  base: string,
+  taken: Iterable<string>
+): string {
+  const used = new Set(
+    [...taken].map(normalizeAttivitaCodice).filter(Boolean)
+  );
+  const normalized = normalizeAttivitaCodice(base);
+  const stem = normalized.replace(/-\d+$/, "") || normalized || "ATT";
+  if (normalized && !used.has(normalized)) return normalized;
+  for (let n = 2; n < 10_000; n += 1) {
+    const candidate = `${stem}-${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${stem}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+export function isAttivitaCodicePreso(
+  codice: string,
+  taken: Iterable<string>,
+  excludeNormalized?: string
+): boolean {
+  const c = normalizeAttivitaCodice(codice);
+  if (!c) return false;
+  const skip = excludeNormalized
+    ? normalizeAttivitaCodice(excludeNormalized)
+    : "";
+  for (const x of taken) {
+    const n = normalizeAttivitaCodice(x);
+    if (n && n === c && n !== skip) return true;
+  }
+  return false;
+}
+
 export const processoInputSchema = z.object({
   codice: z.string().trim().min(1, "Codice obbligatorio.").max(64),
   nome: z.string().trim().min(1, "Nome obbligatorio.").max(200),

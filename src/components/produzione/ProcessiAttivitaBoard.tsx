@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaCopy, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   createProcessoAttivitaAction,
   deprecaProcessoAttivitaAction,
   listProcessoAttivitaAction,
+  listProcessoAttivitaCodiciAction,
   softDeleteProcessoAttivitaAction,
   updateProcessoAttivitaAction,
 } from "@/app/actions/produzione-processi";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import { TempoMedioAttivitaFields } from "@/components/produzione/TempoMedioAttivitaFields";
 import {
   formatTempoMedio,
+  isAttivitaCodicePreso,
   labelLuogoAttivita,
+  nextUniqueAttivitaCodice,
   type ProcessoAttivita,
   type TempoMedioUnita,
   type TempoOgniUnita,
@@ -53,6 +57,8 @@ export function ProcessiAttivitaBoard({
     useState<TempoMedioUnita>("sec");
   const [tempoOgniValore, setTempoOgniValore] = useState(1);
   const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
+  const [copiaDaId, setCopiaDaId] = useState("");
+  const [codiciOccupati, setCodiciOccupati] = useState<string[]>([]);
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -61,9 +67,10 @@ export function ProcessiAttivitaBoard({
 
   function load() {
     startTransition(async () => {
-      const [attRes, areeRes] = await Promise.all([
+      const [attRes, areeRes, codRes] = await Promise.all([
         listProcessoAttivitaAction(),
         listProduzioneAreeAction(),
+        listProcessoAttivitaCodiciAction(),
       ]);
       if (!attRes.success) {
         setError(attRes.error);
@@ -78,6 +85,7 @@ export function ProcessiAttivitaBoard({
       setError(null);
       setItems(attRes.items);
       setAree(areeRes.items);
+      setCodiciOccupati(codRes.success ? codRes.codici : []);
       setReady(true);
     });
   }
@@ -100,6 +108,28 @@ export function ProcessiAttivitaBoard({
     setTempoMedioUnita("sec");
     setTempoOgniValore(1);
     setTempoOgniUnita("pz");
+    setCopiaDaId("");
+  }
+
+  function applyCopiaDa(a: ProcessoAttivita) {
+    setCopiaDaId(a.id);
+    setCodice(nextUniqueAttivitaCodice(a.codice, codiciOccupati));
+    setNome(a.nome);
+    setDescrizione(a.descrizione);
+    setNote(a.note);
+    setAttivo(true);
+    setAreaId(a.areaId ?? "");
+    setPostoId(a.postoId ?? "");
+    setTempoMedioValore(a.tempoMedioValore);
+    setTempoMedioUnita(a.tempoMedioUnita);
+    setTempoOgniValore(a.tempoOgniValore);
+    setTempoOgniUnita(a.tempoOgniUnita);
+  }
+
+  function openCopy(a: ProcessoAttivita) {
+    setCreating(true);
+    setEditing(null);
+    applyCopiaDa(a);
   }
 
   function openEdit(a: ProcessoAttivita) {
@@ -116,12 +146,20 @@ export function ProcessiAttivitaBoard({
     setTempoMedioUnita(a.tempoMedioUnita);
     setTempoOgniValore(a.tempoOgniValore);
     setTempoOgniUnita(a.tempoOgniUnita);
+    setCopiaDaId("");
   }
 
   function closeForm() {
     setCreating(false);
     setEditing(null);
+    setCopiaDaId("");
   }
+
+  const codicePreso = isAttivitaCodicePreso(
+    codice,
+    codiciOccupati,
+    editing?.codice
+  );
 
   function saveForm() {
     startTransition(async () => {
@@ -188,14 +226,30 @@ export function ProcessiAttivitaBoard({
             {editing ? "Modifica attività" : "Nuova attività"}
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {creating ? (
+              <CopiaDaAttivitaField
+                catalog={items}
+                value={copiaDaId}
+                onCopy={applyCopiaDa}
+              />
+            ) : null}
             <label className="text-sm">
               <span className="mb-1 block font-medium">Codice</span>
               <input
                 value={codice}
                 onChange={(e) => setCodice(e.target.value.toUpperCase())}
                 placeholder="es. AP-SPACCAPALE"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 font-mono text-sm"
+                className={`w-full rounded-lg border px-3 py-2 font-mono text-sm ${
+                  codicePreso
+                    ? "border-red-400 bg-red-50"
+                    : "border-[var(--border)]"
+                }`}
               />
+              {codicePreso ? (
+                <span className="mt-1 block text-xs text-red-700">
+                  Questo codice esiste già. Scegline uno diverso.
+                </span>
+              ) : null}
             </label>
             <label className="text-sm">
               <span className="mb-1 block font-medium">Nome</span>
@@ -286,7 +340,9 @@ export function ProcessiAttivitaBoard({
             </button>
             <button
               type="button"
-              disabled={pending || !codice.trim() || !nome.trim()}
+              disabled={
+                pending || !codice.trim() || !nome.trim() || codicePreso
+              }
               onClick={saveForm}
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
@@ -345,6 +401,13 @@ export function ProcessiAttivitaBoard({
                     className="mr-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--primary)] hover:bg-slate-50"
                   >
                     <FaPen size={11} /> Modifica
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openCopy(a)}
+                    className="mr-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                  >
+                    <FaCopy size={11} /> Copia
                   </button>
                   <button
                     type="button"

@@ -840,6 +840,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
       <ProcessoAttivitaCreateModal
         open={createAttivitaOpen}
         aree={aree}
+        catalog={attivita}
         defaultAreaId={editing?.areaId ?? (areaId || null)}
         onClose={() => setCreateAttivitaOpen(false)}
         onCreated={(item) => {
