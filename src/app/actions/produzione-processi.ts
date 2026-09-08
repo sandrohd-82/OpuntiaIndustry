@@ -3,7 +3,6 @@
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
-  attivitaCompatibileConArea,
   deprecaProcessoAttivitaSchema,
   deprecaProcessoSchema,
   processoAttivitaInputSchema,
@@ -356,46 +355,6 @@ async function resolveAreaPosto(
       return {
         success: false,
         error: "La postazione non appartiene all'area selezionata.",
-      };
-    }
-  }
-  return { success: true };
-}
-
-async function assertProcessoAreaCompatibile(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  processoId: string,
-  areaId: string | null
-): Promise<{ success: true } | { success: false; error: string }> {
-  if (!areaId) return { success: true };
-  const { data, error } = await supabase
-    .from("produzione_processo_passi")
-    .select("attivita_id")
-    .eq("processo_id", processoId)
-    .is("deleted_at", null);
-  if (error) return { success: false, error: error.message };
-  const attivitaIds = [
-    ...new Set(
-      ((data ?? []) as Array<{ attivita_id: string }>).map((r) => r.attivita_id)
-    ),
-  ];
-  if (attivitaIds.length === 0) return { success: true };
-
-  const { data: atts, error: attErr } = await supabase
-    .from("produzione_processo_attivita")
-    .select("area_id, codice")
-    .in("id", attivitaIds)
-    .is("deleted_at", null);
-  if (attErr) return { success: false, error: attErr.message };
-
-  for (const att of (atts ?? []) as Array<{
-    area_id: string | null;
-    codice: string;
-  }>) {
-    if (!attivitaCompatibileConArea(att.area_id, areaId)) {
-      return {
-        success: false,
-        error: `Il processo ha attività di un'altra area (${att.codice}). Rimuovile dalla composizione prima di cambiare area.`,
       };
     }
   }
@@ -957,9 +916,6 @@ export async function updateProcessoAction(
   const inElenco = assertInElenco(existing as { deprecato_at: string | null });
   if (!inElenco.success) return inElenco;
 
-  const compat = await assertProcessoAreaCompatibile(supabase, id, areaId);
-  if (!compat.success) return compat;
-
   const { data, error } = await supabase
     .from("produzione_processi")
     .update({
@@ -1245,12 +1201,6 @@ export async function setProcessoComposizioneAction(
   }
 
   const attivitaIds = parsed.data.passi.map((p) => p.attivitaId);
-  if (new Set(attivitaIds).size !== attivitaIds.length) {
-    return {
-      success: false,
-      error: "La stessa attività non può comparire due volte nello stesso processo.",
-    };
-  }
 
   const supabase = await createClient();
 
@@ -1265,22 +1215,20 @@ export async function setProcessoComposizioneAction(
   const inElenco = assertInElenco(processo as { deprecato_at: string | null });
   if (!inElenco.success) return inElenco;
 
-  const processoAreaId = (processo as { area_id: string | null }).area_id ?? null;
-
   if (attivitaIds.length > 0) {
     const { data: atts, error: attErr } = await supabase
       .from("produzione_processo_attivita")
-      .select("id, area_id, codice, attivo")
+      .select("id, codice, attivo")
       .in("id", attivitaIds)
       .is("deleted_at", null);
     if (attErr) return { success: false, error: attErr.message };
     const rows = (atts ?? []) as Array<{
       id: string;
-      area_id: string | null;
       codice: string;
       attivo: boolean;
     }>;
-    if (rows.length !== attivitaIds.length) {
+    const found = new Set(rows.map((r) => r.id));
+    if (attivitaIds.some((id) => !found.has(id))) {
       return {
         success: false,
         error: "Una o più attività non sono valide.",
@@ -1290,15 +1238,6 @@ export async function setProcessoComposizioneAction(
       return {
         success: false,
         error: "Una o più attività non sono attive.",
-      };
-    }
-    const incompatibile = rows.find(
-      (a) => !attivitaCompatibileConArea(a.area_id, processoAreaId)
-    );
-    if (incompatibile) {
-      return {
-        success: false,
-        error: `L'attività ${incompatibile.codice} appartiene a un'altra area rispetto al processo.`,
       };
     }
   }

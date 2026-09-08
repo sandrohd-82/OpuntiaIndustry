@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   FaArrowDown,
   FaArrowUp,
+  FaMagnifyingGlass,
   FaPen,
   FaPlus,
   FaTrash,
@@ -23,7 +24,6 @@ import {
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
-  attivitaCompatibileConArea,
   labelLuogoAttivita,
   type Processo,
   type ProcessoAttivita,
@@ -60,6 +60,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [draftPassi, setDraftPassi] = useState<DraftPasso[]>([]);
   const [composizioneDirty, setComposizioneDirty] = useState(false);
   const [addAttivitaId, setAddAttivitaId] = useState("");
+  const [attivitaSearchOpen, setAttivitaSearchOpen] = useState(false);
+  const [attivitaSearch, setAttivitaSearch] = useState("");
+  const attivitaSearchRef = useRef<HTMLInputElement>(null);
 
   const [codice, setCodice] = useState("");
   const [nome, setNome] = useState("");
@@ -73,13 +76,13 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   );
 
   const attivitaDisponibili = useMemo(() => {
-    const used = new Set(draftPassi.map((p) => p.attivitaId));
-    return attivita.filter(
-      (a) =>
-        !used.has(a.id) &&
-        attivitaCompatibileConArea(a.areaId, selected?.areaId ?? null)
-    );
-  }, [attivita, draftPassi, selected]);
+    const q = attivitaSearch.trim().toLowerCase();
+    if (!q) return attivita;
+    return attivita.filter((a) => {
+      const hay = `${a.codice} ${a.nome} ${labelLuogoAttivita(a)}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [attivita, attivitaSearch]);
 
   function loadList() {
     startTransition(async () => {
@@ -133,8 +136,15 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
       );
       setComposizioneDirty(false);
       setAddAttivitaId("");
+      setAttivitaSearch("");
+      setAttivitaSearchOpen(false);
     });
   }
+
+  useEffect(() => {
+    if (!attivitaSearchOpen) return;
+    attivitaSearchRef.current?.focus();
+  }, [attivitaSearchOpen]);
 
   useEffect(() => {
     loadList();
@@ -566,23 +576,57 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                 )}
 
                 <div className="flex flex-wrap items-end gap-2">
-                    <label className="min-w-[12rem] flex-1 text-sm">
+                    <div className="min-w-[12rem] flex-1">
                       <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                         Aggiungi attività
                       </span>
-                      <select
-                        value={addAttivitaId}
-                        onChange={(e) => setAddAttivitaId(e.target.value)}
-                        className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                      >
-                        <option value="">Seleziona…</option>
-                        {attivitaDisponibili.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.codice} — {a.nome} ({labelLuogoAttivita(a)})
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={addAttivitaId}
+                          onChange={(e) => setAddAttivitaId(e.target.value)}
+                          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                        >
+                          <option value="">
+                            {attivita.length === 0
+                              ? "Nessuna attività in catalogo"
+                              : `Seleziona… (${attivitaDisponibili.length}/${attivita.length})`}
                           </option>
-                        ))}
-                      </select>
-                    </label>
+                          {attivitaDisponibili.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.codice} — {a.nome} ({labelLuogoAttivita(a)})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          aria-label="Cerca attività"
+                          aria-pressed={attivitaSearchOpen}
+                          title="Cerca attività"
+                          onClick={() => {
+                            setAttivitaSearchOpen((open) => {
+                              if (open) setAttivitaSearch("");
+                              return !open;
+                            });
+                          }}
+                          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-sm ${
+                            attivitaSearchOpen || attivitaSearch.trim()
+                              ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                              : "border-[var(--border)] text-[var(--muted)] hover:bg-slate-50"
+                          }`}
+                        >
+                          <FaMagnifyingGlass size={14} />
+                        </button>
+                      </div>
+                      {attivitaSearchOpen ? (
+                        <input
+                          ref={attivitaSearchRef}
+                          value={attivitaSearch}
+                          onChange={(e) => setAttivitaSearch(e.target.value)}
+                          placeholder="Cerca per codice, nome o luogo…"
+                          className="mt-2 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                        />
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       disabled={!addAttivitaId}
