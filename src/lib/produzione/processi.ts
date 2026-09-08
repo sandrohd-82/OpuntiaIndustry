@@ -38,9 +38,12 @@ export type Processo = {
   areaId: string | null;
   areaNome: string;
   versione: number;
-  documentoStato: ProcessoDocumentoStato;
-  approvatoAt: string | null;
-  approvatoBy: string | null;
+  deprecatoAt: string | null;
+  deprecatoBy: string | null;
+  deprecatoNote: string;
+  sostituitoDa: string | null;
+  sostituitoDaCodice: string;
+  sostituitoDaNome: string;
   createdAt: string;
   passiCount: number;
 };
@@ -92,6 +95,19 @@ export const processoInputSchema = z.object({
   attivo: z.boolean().optional().default(true),
   areaId: optionalUuid,
 });
+
+export const deprecaProcessoSchema = z.object({
+  note: z.string().trim().max(2000).optional().default(""),
+  sostituitoDa: optionalUuid,
+});
+
+export type DeprecaProcessoInput = z.infer<typeof deprecaProcessoSchema>;
+
+export function isProcessoInElenco(p: {
+  deprecatoAt?: string | null;
+}): boolean {
+  return !p.deprecatoAt;
+}
 
 export type ProcessoInput = z.infer<typeof processoInputSchema>;
 

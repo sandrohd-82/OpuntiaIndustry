@@ -59,8 +59,15 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
       {
         slug: "elenco-processi",
         label: "Elenco Processi",
-        description: "Elenco dei processi creati",
+        description: "Processi attualmente utilizzati",
         path: "/app/produzione/processi-e-attivita/elenco-processi",
+      },
+      {
+        slug: "storico-processi",
+        label: "Storico processi",
+        description:
+          "Processi deprecati: sostituiti da una versione aggiornata o non più utili, con traccia visibile",
+        path: "/app/produzione/processi-e-attivita/storico-processi",
       },
       {
         slug: "elenco-attivita",

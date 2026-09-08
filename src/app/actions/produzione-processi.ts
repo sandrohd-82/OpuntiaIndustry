@@ -4,14 +4,15 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   attivitaCompatibileConArea,
+  deprecaProcessoSchema,
   processoAttivitaInputSchema,
   processoComposizioneSchema,
   processoInputSchema,
+  type DeprecaProcessoInput,
   type Processo,
   type ProcessoAttivita,
   type ProcessoAttivitaInput,
   type ProcessoComposizioneInput,
-  type ProcessoDocumentoStato,
   type ProcessoInput,
   type ProcessoPasso,
 } from "@/lib/produzione/processi";
@@ -24,7 +25,7 @@ import {
 const ATTIVITA_COLS =
   "id, codice, nome, descrizione, attivo, note, created_at, area_id, posto_id";
 const PROCESSO_COLS =
-  "id, codice, nome, descrizione, attivo, note, versione, documento_stato, approvato_at, approvato_by, created_at, area_id";
+  "id, codice, nome, descrizione, attivo, note, versione, documento_stato, created_at, area_id, deprecato_at, deprecato_by, deprecato_note, sostituito_da";
 
 type AttivitaRow = {
   id: string;
@@ -46,11 +47,13 @@ type ProcessoRow = {
   attivo: boolean;
   note: string | null;
   versione: number;
-  documento_stato: ProcessoDocumentoStato;
-  approvato_at: string | null;
-  approvato_by: string | null;
+  documento_stato: string;
   created_at: string;
   area_id: string | null;
+  deprecato_at: string | null;
+  deprecato_by: string | null;
+  deprecato_note: string | null;
+  sostituito_da: string | null;
 };
 
 type PassoRow = {
@@ -214,7 +217,8 @@ function mapAttivita(row: AttivitaRow, luoghi: Luoghi): ProcessoAttivita {
 function mapProcesso(
   row: ProcessoRow,
   luoghi: Luoghi,
-  passiCount = 0
+  passiCount = 0,
+  sostituto?: { codice: string; nome: string } | null
 ): Processo {
   const areaId = row.area_id ?? null;
   return {
@@ -227,12 +231,50 @@ function mapProcesso(
     areaId,
     areaNome: areaId ? (luoghi.areaNome.get(areaId) ?? "") : "",
     versione: row.versione,
-    documentoStato: row.documento_stato,
-    approvatoAt: row.approvato_at,
-    approvatoBy: row.approvato_by,
+    deprecatoAt: row.deprecato_at,
+    deprecatoBy: row.deprecato_by,
+    deprecatoNote: row.deprecato_note ?? "",
+    sostituitoDa: row.sostituito_da,
+    sostituitoDaCodice: sostituto?.codice ?? "",
+    sostituitoDaNome: sostituto?.nome ?? "",
     createdAt: row.created_at,
     passiCount,
   };
+}
+
+async function loadSostituti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  rows: ProcessoRow[]
+): Promise<Map<string, { codice: string; nome: string }>> {
+  const ids = [
+    ...new Set(rows.map((r) => r.sostituito_da).filter((id): id is string => Boolean(id))),
+  ];
+  const map = new Map<string, { codice: string; nome: string }>();
+  if (ids.length === 0) return map;
+  const { data } = await supabase
+    .from("produzione_processi")
+    .select("id, codice, nome")
+    .in("id", ids);
+  for (const row of (data ?? []) as Array<{
+    id: string;
+    codice: string;
+    nome: string;
+  }>) {
+    map.set(row.id, { codice: row.codice, nome: row.nome });
+  }
+  return map;
+}
+
+function assertInElenco(
+  row: { deprecato_at?: string | null; deleted_at?: string | null }
+): { success: true } | { success: false; error: string } {
+  if (row.deprecato_at) {
+    return {
+      success: false,
+      error: "Processo deprecato: è nello storico e non si modifica. Ripristinalo in elenco se serve.",
+    };
+  }
+  return { success: true };
 }
 
 function mapPasso(row: PassoRow, luoghi: Luoghi): ProcessoPasso {
@@ -578,29 +620,54 @@ export async function softDeleteProcessoAttivitaAction(
 // Processi
 // ---------------------------------------------------------------------------
 
-export async function listProcessiAction(): Promise<
+async function listProcessiByCollocazione(
+  storico: boolean
+): Promise<
   { success: true; items: Processo[] } | { success: false; error: string }
 > {
   await requireAreaAccess("produzione");
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("produzione_processi")
     .select(PROCESSO_COLS)
-    .is("deleted_at", null)
-    .order("codice", { ascending: true });
+    .is("deleted_at", null);
+  query = storico
+    ? query.not("deprecato_at", "is", null)
+    : query.is("deprecato_at", null);
+  const { data, error } = await query.order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as ProcessoRow[];
-  const [counts, luoghi] = await Promise.all([
+  const [counts, luoghi, sostituti] = await Promise.all([
     countPassiByProcesso(
       supabase,
       rows.map((r) => r.id)
     ),
     loadLuoghi(supabase),
+    loadSostituti(supabase, rows),
   ]);
   return {
     success: true,
-    items: rows.map((r) => mapProcesso(r, luoghi, counts.get(r.id) ?? 0)),
+    items: rows.map((r) =>
+      mapProcesso(
+        r,
+        luoghi,
+        counts.get(r.id) ?? 0,
+        r.sostituito_da ? (sostituti.get(r.sostituito_da) ?? null) : null
+      )
+    ),
   };
+}
+
+export async function listProcessiAction(): Promise<
+  { success: true; items: Processo[] } | { success: false; error: string }
+> {
+  return listProcessiByCollocazione(false);
+}
+
+export async function listProcessiStoricoAction(): Promise<
+  { success: true; items: Processo[] } | { success: false; error: string }
+> {
+  return listProcessiByCollocazione(true);
 }
 
 export async function getProcessoAction(
@@ -623,10 +690,19 @@ export async function getProcessoAction(
   const passiRes = await listProcessoPassiInternal(supabase, id);
   if (!passiRes.success) return passiRes;
 
-  const luoghi = await loadLuoghi(supabase);
+  const row = data as ProcessoRow;
+  const [luoghi, sostituti] = await Promise.all([
+    loadLuoghi(supabase),
+    loadSostituti(supabase, [row]),
+  ]);
   return {
     success: true,
-    item: mapProcesso(data as ProcessoRow, luoghi, passiRes.passi.length),
+    item: mapProcesso(
+      row,
+      luoghi,
+      passiRes.passi.length,
+      row.sostituito_da ? (sostituti.get(row.sostituito_da) ?? null) : null
+    ),
     passi: passiRes.passi,
   };
 }
@@ -656,10 +732,14 @@ export async function createProcessoAction(
       nome: parsed.data.nome.trim(),
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
-      attivo: parsed.data.attivo ?? true,
+      attivo: true,
       area_id: areaId,
       versione: 1,
-      documento_stato: "bozza",
+      documento_stato: "approvato",
+      deprecato_at: null,
+      deprecato_by: null,
+      deprecato_note: "",
+      sostituito_da: null,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -710,29 +790,17 @@ export async function updateProcessoAction(
 
   const { data: existing, error: loadErr } = await supabase
     .from("produzione_processi")
-    .select("id, documento_stato, versione")
+    .select("id, deprecato_at, versione")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
   if (loadErr) return { success: false, error: loadErr.message };
   if (!existing) return { success: false, error: "Processo non trovato." };
-
-  const stato = (existing as { documento_stato: ProcessoDocumentoStato })
-    .documento_stato;
-  if (stato === "chiuso") {
-    return {
-      success: false,
-      error: "Processo chiuso: non modificabile. Creane una nuova versione.",
-    };
-  }
+  const inElenco = assertInElenco(existing as { deprecato_at: string | null });
+  if (!inElenco.success) return inElenco;
 
   const compat = await assertProcessoAreaCompatibile(supabase, id, areaId);
   if (!compat.success) return compat;
-
-  const wasApprovato = stato === "approvato";
-  const nextVersione = wasApprovato
-    ? Number((existing as { versione: number }).versione) + 1
-    : Number((existing as { versione: number }).versione);
 
   const { data, error } = await supabase
     .from("produzione_processi")
@@ -741,17 +809,9 @@ export async function updateProcessoAction(
       nome: parsed.data.nome.trim(),
       descrizione: parsed.data.descrizione?.trim() ?? "",
       note: parsed.data.note?.trim() ?? "",
-      attivo: parsed.data.attivo ?? true,
+      attivo: true,
       area_id: areaId,
       updated_by: auth.userId,
-      ...(wasApprovato
-        ? {
-            documento_stato: "bozza",
-            versione: nextVersione,
-            approvato_at: null,
-            approvato_by: null,
-          }
-        : {}),
     })
     .eq("id", id)
     .is("deleted_at", null)
@@ -773,60 +833,116 @@ export async function updateProcessoAction(
     entity_id: item.id,
     action: "update",
     actor_id: auth.userId,
-    summary: wasApprovato
-      ? `Modifica processo ${item.codice}: nuova bozza v${item.versione}`
-      : `Aggiornato processo ${item.codice}`,
+    summary: `Aggiornato processo ${item.codice}`,
     payload: {
       codice: item.codice,
       nome: item.nome,
       versione: item.versione,
-      documento_stato: item.documentoStato,
       area_id: item.areaId,
     },
   });
   return { success: true, item };
 }
 
-export async function approvaProcessoAction(
-  id: string
+export async function deprecaProcessoAction(
+  id: string,
+  raw: DeprecaProcessoInput
 ): Promise<
   { success: true; item: Processo } | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("produzione");
+  const parsed = deprecaProcessoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
   const supabase = await createClient();
+  const { data: existing, error: loadErr } = await supabase
+    .from("produzione_processi")
+    .select("id, codice, deprecato_at")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (loadErr) return { success: false, error: loadErr.message };
+  if (!existing) return { success: false, error: "Processo non trovato." };
+  const inElenco = assertInElenco(existing as { deprecato_at: string | null });
+  if (!inElenco.success) return inElenco;
+
+  const sostituitoDa = parsed.data.sostituitoDa ?? null;
+  if (sostituitoDa) {
+    if (sostituitoDa === id) {
+      return {
+        success: false,
+        error: "Un processo non può sostituire se stesso.",
+      };
+    }
+    const { data: dest, error: destErr } = await supabase
+      .from("produzione_processi")
+      .select("id, deprecato_at")
+      .eq("id", sostituitoDa)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (destErr) return { success: false, error: destErr.message };
+    if (!dest) {
+      return { success: false, error: "Processo sostitutivo non trovato." };
+    }
+    if ((dest as { deprecato_at: string | null }).deprecato_at) {
+      return {
+        success: false,
+        error: "Il processo sostitutivo deve essere in elenco, non nello storico.",
+      };
+    }
+  }
+
   const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("produzione_processi")
     .update({
-      documento_stato: "approvato",
-      approvato_at: now,
-      approvato_by: auth.userId,
+      deprecato_at: now,
+      deprecato_by: auth.userId,
+      deprecato_note: parsed.data.note?.trim() ?? "",
+      sostituito_da: sostituitoDa,
+      attivo: false,
+      documento_stato: "chiuso",
       updated_by: auth.userId,
     })
     .eq("id", id)
     .is("deleted_at", null)
-    .neq("documento_stato", "chiuso")
+    .is("deprecato_at", null)
     .select(PROCESSO_COLS)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
-  if (!data) return { success: false, error: "Processo non trovato o chiuso." };
-  const [counts, luoghi] = await Promise.all([
+  if (!data) return { success: false, error: "Processo non trovato." };
+  const row = data as ProcessoRow;
+  const [counts, luoghi, sostituti] = await Promise.all([
     countPassiByProcesso(supabase, [id]),
     loadLuoghi(supabase),
+    loadSostituti(supabase, [row]),
   ]);
-  const item = mapProcesso(data as ProcessoRow, luoghi, counts.get(id) ?? 0);
+  const item = mapProcesso(
+    row,
+    luoghi,
+    counts.get(id) ?? 0,
+    row.sostituito_da ? (sostituti.get(row.sostituito_da) ?? null) : null
+  );
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
-    action: "approve",
+    action: "deprecate",
     actor_id: auth.userId,
-    summary: `Approvato processo ${item.codice} v${item.versione}`,
-    payload: { versione: item.versione, approvato_at: now },
+    summary: `Deprecato processo ${(existing as { codice: string }).codice}`,
+    payload: {
+      deprecato_at: now,
+      deprecato_note: item.deprecatoNote,
+      sostituito_da: sostituitoDa,
+    },
   });
   return { success: true, item };
 }
 
-export async function chiudiProcessoAction(
+export async function ripristinaProcessoAction(
   id: string
 ): Promise<
   { success: true; item: Processo } | { success: false; error: string }
@@ -836,16 +952,23 @@ export async function chiudiProcessoAction(
   const { data, error } = await supabase
     .from("produzione_processi")
     .update({
-      documento_stato: "chiuso",
-      attivo: false,
+      deprecato_at: null,
+      deprecato_by: null,
+      deprecato_note: "",
+      sostituito_da: null,
+      attivo: true,
+      documento_stato: "approvato",
       updated_by: auth.userId,
     })
     .eq("id", id)
     .is("deleted_at", null)
+    .not("deprecato_at", "is", null)
     .select(PROCESSO_COLS)
     .maybeSingle();
   if (error) return { success: false, error: error.message };
-  if (!data) return { success: false, error: "Processo non trovato." };
+  if (!data) {
+    return { success: false, error: "Processo non trovato nello storico." };
+  }
   const [counts, luoghi] = await Promise.all([
     countPassiByProcesso(supabase, [id]),
     loadLuoghi(supabase),
@@ -854,10 +977,10 @@ export async function chiudiProcessoAction(
   void writeAuditLog({
     entity_type: "produzione_processi",
     entity_id: item.id,
-    action: "close",
+    action: "restore",
     actor_id: auth.userId,
-    summary: `Chiuso processo ${item.codice} v${item.versione}`,
-    payload: { versione: item.versione },
+    summary: `Ripristinato in elenco processo ${item.codice}`,
+    payload: {},
   });
   return { success: true, item };
 }
@@ -896,8 +1019,8 @@ export async function softDeleteProcessoAction(
     entity_id: id,
     action: "soft_delete",
     actor_id: auth.userId,
-    summary: "Soft delete processo",
-    payload: {},
+    summary: "Eliminato processo errato o di test",
+    payload: { motivo: "errato_o_test" },
   });
   return { success: true };
 }
@@ -975,18 +1098,14 @@ export async function setProcessoComposizioneAction(
 
   const { data: processo, error: loadErr } = await supabase
     .from("produzione_processi")
-    .select("id, codice, documento_stato, versione, area_id")
+    .select("id, codice, deprecato_at, area_id")
     .eq("id", processoId)
     .is("deleted_at", null)
     .maybeSingle();
   if (loadErr) return { success: false, error: loadErr.message };
   if (!processo) return { success: false, error: "Processo non trovato." };
-
-  const stato = (processo as { documento_stato: ProcessoDocumentoStato })
-    .documento_stato;
-  if (stato === "chiuso") {
-    return { success: false, error: "Processo chiuso: composizione non modificabile." };
-  }
+  const inElenco = assertInElenco(processo as { deprecato_at: string | null });
+  if (!inElenco.success) return inElenco;
 
   const processoAreaId = (processo as { area_id: string | null }).area_id ?? null;
 
@@ -1054,28 +1173,11 @@ export async function setProcessoComposizioneAction(
     if (insertErr) return { success: false, error: insertErr.message };
   }
 
-  const wasApprovato = stato === "approvato";
-  if (wasApprovato) {
-    const nextVersione =
-      Number((processo as { versione: number }).versione) + 1;
-    await supabase
-      .from("produzione_processi")
-      .update({
-        documento_stato: "bozza",
-        versione: nextVersione,
-        approvato_at: null,
-        approvato_by: null,
-        updated_by: auth.userId,
-      })
-      .eq("id", processoId)
-      .is("deleted_at", null);
-  } else {
-    await supabase
-      .from("produzione_processi")
-      .update({ updated_by: auth.userId })
-      .eq("id", processoId)
-      .is("deleted_at", null);
-  }
+  await supabase
+    .from("produzione_processi")
+    .update({ updated_by: auth.userId })
+    .eq("id", processoId)
+    .is("deleted_at", null);
 
   const passiRes = await listProcessoPassiInternal(supabase, processoId);
   if (!passiRes.success) return passiRes;
@@ -1092,7 +1194,6 @@ export async function setProcessoComposizioneAction(
         codice: p.attivitaCodice,
         sort_order: p.sortOrder,
       })),
-      tornato_bozza: wasApprovato,
     },
   });
 

@@ -4,8 +4,6 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   FaArrowDown,
   FaArrowUp,
-  FaCheck,
-  FaLock,
   FaPen,
   FaPlus,
   FaTrash,
@@ -13,9 +11,8 @@ import {
 } from "react-icons/fa6";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
-  approvaProcessoAction,
-  chiudiProcessoAction,
   createProcessoAction,
+  deprecaProcessoAction,
   getProcessoAction,
   listProcessiAction,
   listProcessoAttivitaAttiveAction,
@@ -27,7 +24,6 @@ import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteC
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
 import {
   attivitaCompatibileConArea,
-  labelDocumentoStato,
   labelLuogoAttivita,
   type Processo,
   type ProcessoAttivita,
@@ -40,17 +36,6 @@ type DraftPasso = {
   obbligatorio: boolean;
   note: string;
 };
-
-function statoClass(stato: Processo["documentoStato"]): string {
-  switch (stato) {
-    case "approvato":
-      return "text-emerald-700";
-    case "chiuso":
-      return "text-slate-500";
-    default:
-      return "text-amber-700";
-  }
-}
 
 type ProcessiBoardProps = {
   startCreate?: boolean;
@@ -67,6 +52,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [editing, setEditing] = useState<Processo | null>(null);
   const [creating, setCreating] = useState(startCreate);
   const [deleting, setDeleting] = useState<Processo | null>(null);
+  const [deprecating, setDeprecating] = useState<Processo | null>(null);
+  const [deprecatoNote, setDeprecatoNote] = useState("");
+  const [sostituitoDa, setSostituitoDa] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [passi, setPassi] = useState<ProcessoPasso[]>([]);
   const [draftPassi, setDraftPassi] = useState<DraftPasso[]>([]);
@@ -77,7 +65,6 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
   const [nome, setNome] = useState("");
   const [descrizione, setDescrizione] = useState("");
   const [note, setNote] = useState("");
-  const [attivo, setAttivo] = useState(true);
   const [areaId, setAreaId] = useState("");
 
   const selected = useMemo(
@@ -160,22 +147,16 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     setNome("");
     setDescrizione("");
     setNote("");
-    setAttivo(true);
     setAreaId("");
   }
 
   function openEdit(p: Processo) {
-    if (p.documentoStato === "chiuso") {
-      setError("Processo chiuso: non modificabile.");
-      return;
-    }
     setEditing(p);
     setCreating(false);
     setCodice(p.codice);
     setNome(p.nome);
     setDescrizione(p.descrizione);
     setNote(p.note);
-    setAttivo(p.attivo);
     setAreaId(p.areaId ?? "");
   }
 
@@ -191,7 +172,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         nome,
         descrizione,
         note,
-        attivo,
+        attivo: true,
         areaId: areaId || null,
       };
       const res = editing
@@ -307,9 +288,9 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Un processo è l’insieme delle attività eseguite in un’area (es.
-          Processo di taglio = Spaccapale, Coltelli e Cubettatrice). Documento
-          controllato: Bozza / Approvato / Chiuso.
+          Processi attualmente utilizzati. Depreca quelli sostituiti o non più
+          utili (restano nello storico). Elimina solo processi creati per test
+          o completamente sbagliati.
         </p>
         <button
           type="button"
@@ -383,14 +364,6 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               />
             </label>
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={attivo}
-                onChange={(e) => setAttivo(e.target.checked)}
-              />
-              Attivo
-            </label>
           </div>
           <div className="mt-3 flex justify-end gap-2">
             <button
@@ -420,7 +393,6 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                 <th className="px-4 py-3">Codice</th>
                 <th className="px-4 py-3">Nome</th>
                 <th className="px-4 py-3">Area</th>
-                <th className="px-4 py-3">Doc.</th>
                 <th className="px-4 py-3">Passi</th>
                 <th className="px-4 py-3 text-right" />
               </tr>
@@ -446,21 +418,12 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                   <td className="px-4 py-3 text-[var(--muted)]">
                     {p.areaNome || "—"}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={statoClass(p.documentoStato)}>
-                      {labelDocumentoStato(p.documentoStato)}
-                    </span>
-                    <span className="ml-1 text-xs text-[var(--muted)]">
-                      v{p.versione}
-                    </span>
-                  </td>
                   <td className="px-4 py-3 tabular-nums">{p.passiCount}</td>
                   <td className="px-4 py-3 text-right whitespace-nowrap">
                     <button
                       type="button"
                       onClick={() => openEdit(p)}
-                      disabled={p.documentoStato === "chiuso"}
-                      className="mr-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--primary)] hover:bg-slate-50 disabled:opacity-40"
+                      className="mr-1 inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--primary)] hover:bg-slate-50"
                     >
                       <FaPen size={11} />
                     </button>
@@ -477,7 +440,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
               {items.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={5}
                     className="px-4 py-8 text-center text-[var(--muted)]"
                   >
                     Nessun processo. Creane uno (es. Processo di taglio).
@@ -491,8 +454,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           {!selected ? (
             <p className="text-sm text-[var(--muted)]">
-              Seleziona un processo per gestirne la composizione e lo stato
-              documento.
+              Seleziona un processo per gestirne la composizione.
             </p>
           ) : (
             <div className="space-y-4">
@@ -502,54 +464,22 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     {selected.codice} — {selected.nome}
                   </h3>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
-                    {labelDocumentoStato(selected.documentoStato)} · v
-                    {selected.versione}
-                    {selected.areaNome ? ` · ${selected.areaNome}` : ""}
+                    {selected.areaNome ? selected.areaNome : "Nessuna area"}
                     {selected.descrizione ? ` · ${selected.descrizione}` : ""}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {selected.documentoStato === "bozza" ? (
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        startTransition(async () => {
-                          const res = await approvaProcessoAction(selected.id);
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          loadList();
-                          loadDetail(selected.id);
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-800"
-                    >
-                      <FaCheck size={11} /> Approva
-                    </button>
-                  ) : null}
-                  {selected.documentoStato !== "chiuso" ? (
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        startTransition(async () => {
-                          const res = await chiudiProcessoAction(selected.id);
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          loadList();
-                          loadDetail(selected.id);
-                        });
-                      }}
-                      className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                    >
-                      <FaLock size={11} /> Chiudi
-                    </button>
-                  ) : null}
-                </div>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    setDeprecating(selected);
+                    setDeprecatoNote("");
+                    setSostituitoDa("");
+                  }}
+                  className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                >
+                  Depreca
+                </button>
               </div>
 
               <div>
@@ -591,7 +521,6 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                           <input
                             type="checkbox"
                             checked={p.obbligatorio}
-                            disabled={selected.documentoStato === "chiuso"}
                             onChange={(e) => {
                               setDraftPassi((prev) =>
                                 prev.map((x, i) =>
@@ -605,43 +534,38 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                           />
                           Obbl.
                         </label>
-                        {selected.documentoStato !== "chiuso" ? (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => movePasso(index, -1)}
-                              disabled={index === 0}
-                              className="rounded p-1 text-[var(--muted)] hover:bg-slate-50 disabled:opacity-30"
-                              aria-label="Sposta su"
-                            >
-                              <FaArrowUp size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => movePasso(index, 1)}
-                              disabled={index === draftPassi.length - 1}
-                              className="rounded p-1 text-[var(--muted)] hover:bg-slate-50 disabled:opacity-30"
-                              aria-label="Sposta giù"
-                            >
-                              <FaArrowDown size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removePasso(index)}
-                              className="rounded p-1 text-red-600 hover:bg-red-50"
-                              aria-label="Rimuovi"
-                            >
-                              <FaXmark size={12} />
-                            </button>
-                          </>
-                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => movePasso(index, -1)}
+                          disabled={index === 0}
+                          className="rounded p-1 text-[var(--muted)] hover:bg-slate-50 disabled:opacity-30"
+                          aria-label="Sposta su"
+                        >
+                          <FaArrowUp size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => movePasso(index, 1)}
+                          disabled={index === draftPassi.length - 1}
+                          className="rounded p-1 text-[var(--muted)] hover:bg-slate-50 disabled:opacity-30"
+                          aria-label="Sposta giù"
+                        >
+                          <FaArrowDown size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removePasso(index)}
+                          className="rounded p-1 text-red-600 hover:bg-red-50"
+                          aria-label="Rimuovi"
+                        >
+                          <FaXmark size={12} />
+                        </button>
                       </li>
                     ))}
                   </ul>
                 )}
 
-                {selected.documentoStato !== "chiuso" ? (
-                  <div className="flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2">
                     <label className="min-w-[12rem] flex-1 text-sm">
                       <span className="mb-1 block text-xs font-medium text-[var(--muted)]">
                         Aggiungi attività
@@ -676,7 +600,6 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                       {pending ? "Salvataggio…" : "Salva composizione"}
                     </button>
                   </div>
-                ) : null}
 
                 {attivita.length === 0 ? (
                   <p className="mt-3 text-xs text-amber-700">
@@ -689,6 +612,84 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
           )}
         </div>
       </div>
+
+      {deprecating ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+            <h3 className="text-sm font-semibold">
+              Depreca {deprecating.codice}
+            </h3>
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Va nello storico: resta visibile per traccia, non è più in
+              elenco e non si avvia sul foglio. Non è un’eliminazione.
+            </p>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium">
+                Sostituito da (opzionale)
+              </span>
+              <select
+                value={sostituitoDa}
+                onChange={(e) => setSostituitoDa(e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                <option value="">Nessun processo sostitutivo</option>
+                {items
+                  .filter((p) => p.id !== deprecating.id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.codice} — {p.nome}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="mt-3 block text-sm">
+              <span className="mb-1 block font-medium">Nota</span>
+              <textarea
+                value={deprecatoNote}
+                onChange={(e) => setDeprecatoNote(e.target.value)}
+                rows={2}
+                placeholder="Versione aggiornata / non più utile…"
+                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDeprecating(null)}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  startTransition(async () => {
+                    const res = await deprecaProcessoAction(deprecating.id, {
+                      note: deprecatoNote,
+                      sostituitoDa: sostituitoDa || null,
+                    });
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    if (selectedId === deprecating.id) {
+                      setSelectedId(null);
+                      setPassi([]);
+                      setDraftPassi([]);
+                    }
+                    setDeprecating(null);
+                    loadList();
+                  });
+                }}
+                className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {pending ? "Salvataggio…" : "Sposta nello storico"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {deleting ? (
         <SoftDeleteConfirmModal

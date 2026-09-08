@@ -7,6 +7,7 @@ import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
+import { ProcessiStoricoBoard } from "@/components/produzione/ProcessiStoricoBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { resolveProduzioneDynamic } from "../../_resolve";
 
@@ -44,6 +45,17 @@ export default async function ProduzioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ProcessiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "processi-e-attivita" && sub === "storico-processi") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <ProcessiStoricoBoard />
         </div>
       </>
     );

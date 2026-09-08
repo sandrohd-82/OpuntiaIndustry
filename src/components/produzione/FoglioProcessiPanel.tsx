@@ -158,7 +158,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
     <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h3 className="text-sm font-semibold">Processi sul foglio</h3>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Seleziona un processo approvato. Se un’attività ha lo script Pesata, il
+        Seleziona un processo in elenco. Se un’attività ha lo script Pesata, il
         gestionale richiede e salva ogni peso (registro immutabile).
       </p>
       {error ? (
@@ -168,7 +168,7 @@ export function FoglioProcessiPanel({ foglio, filtraAreaId }: Props) {
       ) : null}
       {items.length === 0 ? (
         <p className="mt-3 text-sm text-[var(--muted)]">
-          Nessun processo approvato disponibile.
+          Nessun processo in elenco disponibile.
         </p>
       ) : (
         <ul className="mt-3 space-y-2">

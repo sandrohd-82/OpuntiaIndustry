@@ -242,8 +242,7 @@ export async function listProcessiPerFoglioAction(
     .from("produzione_processi")
     .select("id, codice, nome, descrizione, area_id")
     .is("deleted_at", null)
-    .eq("attivo", true)
-    .eq("documento_stato", "approvato")
+    .is("deprecato_at", null)
     .order("codice", { ascending: true });
   if (procErr) return { success: false, error: procErr.message };
   const procRows = (processi ?? []) as ProcessoListRow[];
@@ -348,7 +347,7 @@ export async function avviaEsecuzioneProcessoAction(raw: {
 
   const { data: processo, error: procErr } = await supabase
     .from("produzione_processi")
-    .select("id, codice, documento_stato, attivo")
+    .select("id, codice, deprecato_at")
     .eq("id", parsed.data.processoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -356,13 +355,12 @@ export async function avviaEsecuzioneProcessoAction(raw: {
   if (!processo) return { success: false, error: "Processo non trovato." };
   const p = processo as {
     codice: string;
-    documento_stato: string;
-    attivo: boolean;
+    deprecato_at: string | null;
   };
-  if (!p.attivo || p.documento_stato !== "approvato") {
+  if (p.deprecato_at) {
     return {
       success: false,
-      error: "Si possono avviare solo processi approvati e attivi.",
+      error: "Questo processo è deprecato: è nello storico e non si avvia sul foglio.",
     };
   }
 
