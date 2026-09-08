@@ -31,7 +31,11 @@ import {
   sendBozzaSchema,
   setWebmailImportedSeenSchema,
   WEBMAIL_PAGE_SIZE,
+  WEBMAIL_SORT_DIRS,
+  WEBMAIL_SORT_KEYS,
   translateWebmailSchema,
+  type WebmailSortDir,
+  type WebmailSortKey,
   updateBozzaSchema,
   webmailAccountInputSchema,
   WEBMAIL_PROVIDER_PRESETS,
@@ -672,6 +676,40 @@ function applyWebmailMessaggiFilters<T>(
   return next as T;
 }
 
+function parseWebmailSort(
+  input?: WebmailListFilter
+): { key: WebmailSortKey; dir: WebmailSortDir } {
+  const key = WEBMAIL_SORT_KEYS.includes(input?.sortKey as WebmailSortKey)
+    ? (input!.sortKey as WebmailSortKey)
+    : "received_at";
+  const dir = WEBMAIL_SORT_DIRS.includes(input?.sortDir as WebmailSortDir)
+    ? (input!.sortDir as WebmailSortDir)
+    : key === "is_seen"
+      ? "asc"
+      : "desc";
+  return { key, dir };
+}
+
+function applyWebmailMessaggiSort<T>(
+  q: T,
+  input?: WebmailListFilter
+): T {
+  const { key, dir } = parseWebmailSort(input);
+  const ascending = dir === "asc";
+  let next = q as {
+    order: (
+      col: string,
+      opts?: { ascending?: boolean; nullsFirst?: boolean }
+    ) => typeof next;
+  };
+  next = next.order(key, { ascending, nullsFirst: false });
+  if (key !== "received_at") {
+    next = next.order("received_at", { ascending: false, nullsFirst: false });
+  }
+  next = next.order("id", { ascending: false });
+  return next as T;
+}
+
 export async function listWebmailMessaggiAction(input?: WebmailListFilter): Promise<
   | { success: true; messaggi: WebmailMessaggio[]; total: number; page: number }
   | { success: false; error: string }
@@ -684,9 +722,9 @@ export async function listWebmailMessaggiAction(input?: WebmailListFilter): Prom
 
   let q = supabase
     .from("webmail_messaggi")
-    .select(MESSAGGIO_SELECT, { count: "exact" })
-    .order("received_at", { ascending: false });
+    .select(MESSAGGIO_SELECT, { count: "exact" });
   q = applyWebmailMessaggiFilters(q, input);
+  q = applyWebmailMessaggiSort(q, input);
   q = q.range(from, to);
 
   const { data, error, count } = await q;
@@ -717,9 +755,9 @@ export async function listWebmailMessaggioIdsAction(
     let q = supabase
       .from("webmail_messaggi")
       .select("id", { count: offset === 0 ? "exact" : undefined })
-      .order("received_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
     q = applyWebmailMessaggiFilters(q, input);
+    q = applyWebmailMessaggiSort(q, input);
     const { data, error, count } = await q;
     if (error) return { success: false, error: error.message };
     if (offset === 0) total = count ?? 0;

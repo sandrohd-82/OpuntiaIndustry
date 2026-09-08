@@ -52,7 +52,10 @@ import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
   WEBMAIL_PAGE_SIZE,
+  WEBMAIL_SORT_LABELS,
   type WebmailAccountPublic,
+  type WebmailSortDir,
+  type WebmailSortKey,
   type WebmailBozzaAi,
   type WebmailCategoria,
   type WebmailMailboxView,
@@ -136,6 +139,8 @@ export function WebmailBoard({
   const [messaggi, setMessaggi] = useState<WebmailMessaggio[]>([]);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
+  const [sortKey, setSortKey] = useState<WebmailSortKey>("received_at");
+  const [sortDir, setSortDir] = useState<WebmailSortDir>("desc");
   const [accountFilter, setAccountFilter] = useState<string>(
     initialAccountId ?? ""
   );
@@ -241,6 +246,8 @@ export function WebmailBoard({
         onlyAiDraft: effectiveView === "bozze" ? true : onlyDraft,
         view: effectiveView,
         page,
+        sortKey,
+        sortDir,
       }),
     ]);
     if (!a.success) {
@@ -263,7 +270,16 @@ export function WebmailBoard({
     if (m.messaggi.length === 0 && m.page > 0 && m.total > 0) {
       setPage(m.page - 1);
     }
-  }, [accountFilter, categoriaFilter, onlyDraft, view, categoriaId, page]);
+  }, [
+    accountFilter,
+    categoriaFilter,
+    onlyDraft,
+    view,
+    categoriaId,
+    page,
+    sortKey,
+    sortDir,
+  ]);
 
   const reloadRef = useRef(reload);
   reloadRef.current = reload;
@@ -478,6 +494,8 @@ export function WebmailBoard({
             : null,
       onlyAiDraft: view === "bozze" ? true : onlyDraft,
       view,
+      sortKey,
+      sortDir,
     };
   }
 
@@ -892,7 +910,59 @@ export function WebmailBoard({
                 </button>
               ) : null}
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+              <label className="inline-flex items-center gap-1">
+                <span className="sr-only">Ordina per</span>
+                <select
+                  value={sortKey}
+                  onChange={(e) => {
+                    const next = e.target.value as WebmailSortKey;
+                    setSortKey(next);
+                    setSortDir(next === "is_seen" ? "asc" : "desc");
+                    setPage(0);
+                  }}
+                  className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700"
+                  aria-label="Ordina per"
+                >
+                  {(
+                    Object.keys(WEBMAIL_SORT_LABELS) as WebmailSortKey[]
+                  ).map((k) => (
+                    <option key={k} value={k}>
+                      {WEBMAIL_SORT_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                  setPage(0);
+                }}
+                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-white"
+                aria-label={
+                  sortDir === "asc"
+                    ? "Ordine crescente. Clicca per decrescente"
+                    : "Ordine decrescente. Clicca per crescente"
+                }
+                title={
+                  sortKey === "is_seen"
+                    ? sortDir === "asc"
+                      ? "Non lette prima"
+                      : "Lette prima"
+                    : sortDir === "asc"
+                      ? "Crescente"
+                      : "Decrescente"
+                }
+              >
+                {sortKey === "is_seen"
+                  ? sortDir === "asc"
+                    ? "Non lette ↓"
+                    : "Lette ↓"
+                  : sortDir === "asc"
+                    ? "Crescente ↑"
+                    : "Decrescente ↓"}
+              </button>
               <span>
                 {totalCount === 0
                   ? "0-0 di 0 mail"

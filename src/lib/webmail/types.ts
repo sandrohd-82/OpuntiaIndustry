@@ -278,12 +278,34 @@ export type WebmailMailboxView =
 
 export const WEBMAIL_PAGE_SIZE = 40;
 
+export const WEBMAIL_SORT_KEYS = [
+  "received_at",
+  "is_seen",
+  "from_address",
+  "subject",
+] as const;
+
+export type WebmailSortKey = (typeof WEBMAIL_SORT_KEYS)[number];
+
+export const WEBMAIL_SORT_DIRS = ["desc", "asc"] as const;
+
+export type WebmailSortDir = (typeof WEBMAIL_SORT_DIRS)[number];
+
+export const WEBMAIL_SORT_LABELS: Record<WebmailSortKey, string> = {
+  received_at: "Data",
+  is_seen: "Non lette",
+  from_address: "Mittente",
+  subject: "Oggetto",
+};
+
 export type WebmailListFilter = {
   accountId?: string | null;
   categoriaId?: string | null;
   onlyAiDraft?: boolean;
   view?: WebmailMailboxView;
   page?: number;
+  sortKey?: WebmailSortKey;
+  sortDir?: WebmailSortDir;
 };
 
 export const bulkWebmailMessaggiSchema = z.object({
