@@ -208,6 +208,15 @@ export const sendBozzaSchema = z.object({
   bozzaId: z.string().uuid(),
 });
 
+export const setWebmailImportedSeenSchema = z.object({
+  messaggioIds: z.array(z.string().uuid()).max(8000),
+  seen: z.boolean(),
+});
+
+export type SetWebmailImportedSeenInput = z.infer<
+  typeof setWebmailImportedSeenSchema
+>;
+
 export const composeNuovaMailSchema = z.object({
   accountId: z.string().uuid(),
   to: z

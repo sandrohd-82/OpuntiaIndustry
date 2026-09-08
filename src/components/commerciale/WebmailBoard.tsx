@@ -18,6 +18,7 @@ import {
   archiveWebmailMessaggioAction,
   unarchiveWebmailMessaggioAction,
   runWebmailSyncAction,
+  setWebmailImportedSeenAction,
   sendWebmailBozzaAction,
   translateWebmailTextAction,
   updateWebmailBozzaAction,
@@ -26,6 +27,10 @@ import {
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
 import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
 import { WebmailDeleteConfirmModal } from "@/components/webmail/WebmailDeleteConfirmModal";
+import {
+  WebmailSyncImportedStatusModal,
+  type WebmailImportedSeenChoice,
+} from "@/components/webmail/WebmailSyncImportedStatusModal";
 import {
   WebmailSyncModal,
   type WebmailSyncChoice,
@@ -90,6 +95,10 @@ export function WebmailBoard({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncProgress, setSyncProgress] = useState<string | null>(null);
+  const [importedStatus, setImportedStatus] = useState<{
+    ids: string[];
+    extraInfo: string | null;
+  } | null>(null);
   const [headersOpen, setHeadersOpen] = useState(false);
   const [inboundTranslation, setInboundTranslation] = useState<{
     subject: string | null;
@@ -228,6 +237,48 @@ export function WebmailBoard({
     setSyncModalOpen(true);
   }
 
+  function finishSyncImport(
+    importedIds: string[],
+    extraInfo: string | null
+  ) {
+    setSyncModalOpen(false);
+    setSyncProgress(null);
+    if (importedIds.length > 0) {
+      setImportedStatus({ ids: importedIds, extraInfo });
+    } else {
+      setInfo(extraInfo ?? "Nessuna nuova mail importata.");
+    }
+  }
+
+  function applyImportedStatus(choice: WebmailImportedSeenChoice) {
+    if (!importedStatus) return;
+    const ids = importedStatus.ids;
+    const extraInfo = importedStatus.extraInfo;
+    startTransition(async () => {
+      const res = await setWebmailImportedSeenAction({
+        messaggioIds: ids,
+        seen: choice === "read",
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      const stato = choice === "read" ? "Lette" : "Da leggere";
+      setImportedStatus(null);
+      setInfo(
+        `${ids.length} mail importate. Stato: ${stato}.${
+          extraInfo ? ` ${extraInfo}` : ""
+        }`
+      );
+      setMessaggi((prev) =>
+        prev.map((m) =>
+          ids.includes(m.id) ? { ...m, isSeen: choice === "read" } : m
+        )
+      );
+      await reload();
+    });
+  }
+
   function runSyncChoice(choice: WebmailSyncChoice) {
     const accountId = accountFilter || undefined;
     const gapMs = 2000;
@@ -235,6 +286,7 @@ export function WebmailBoard({
       try {
         if (choice === "all") {
           let imported = 0;
+          const importedIds: string[] = [];
           let round = 0;
           while (round < 200) {
             setSyncProgress(
@@ -243,18 +295,22 @@ export function WebmailBoard({
             const res = await runWebmailSyncAction(accountId, "recent");
             if (!res.success) {
               setError(res.error);
-              setSyncProgress(null);
+              if (importedIds.length > 0) {
+                finishSyncImport(importedIds, null);
+                await reload();
+              } else {
+                setSyncProgress(null);
+              }
               return;
             }
             imported += res.imported;
+            importedIds.push(...(res.importedIds ?? []));
             const errs = res.errors ?? [];
             if (errs.length) {
               setError(errs.join("; "));
             }
             if (res.pending <= 0) {
-              setSyncModalOpen(false);
-              setSyncProgress(null);
-              setInfo(`Sync completata: ${imported} mail importate.`);
+              finishSyncImport(importedIds, null);
               await reload();
               return;
             }
@@ -264,9 +320,10 @@ export function WebmailBoard({
             await new Promise((r) => setTimeout(r, gapMs));
             round += 1;
           }
-          setSyncModalOpen(false);
-          setSyncProgress(null);
-          setInfo(`Sync parziale: ${imported} mail importate. Riprova per continuare.`);
+          finishSyncImport(
+            importedIds,
+            "Sync parziale. Riprova per continuare."
+          );
           await reload();
           return;
         }
@@ -280,14 +337,14 @@ export function WebmailBoard({
           return;
         }
         const errs = res.errors ?? [];
-        setSyncModalOpen(false);
-        setSyncProgress(null);
-        setInfo(
-          `Sync: ${res.imported} nuovi` +
-            (res.pending > 0
-              ? ` · ancora ${res.pending} da importare`
-              : "") +
-            (errs.length ? ` · ${errs.join("; ")}` : "")
+        finishSyncImport(
+          res.importedIds ?? [],
+          [
+            res.pending > 0 ? `Ancora ${res.pending} da importare.` : "",
+            errs.length ? errs.join("; ") : "",
+          ]
+            .filter(Boolean)
+            .join(" ") || null
         );
         await reload();
       } catch (e) {
@@ -1333,6 +1390,12 @@ export function WebmailBoard({
           setSyncProgress(null);
         }}
         onConfirm={runSyncChoice}
+      />
+      <WebmailSyncImportedStatusModal
+        open={Boolean(importedStatus)}
+        importedCount={importedStatus?.ids.length ?? 0}
+        pending={pending}
+        onChoose={applyImportedStatus}
       />
     </div>
   );

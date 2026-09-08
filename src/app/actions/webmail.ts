@@ -26,6 +26,7 @@ import {
 import {
   composeNuovaMailSchema,
   sendBozzaSchema,
+  setWebmailImportedSeenSchema,
   translateWebmailSchema,
   updateBozzaSchema,
   webmailAccountInputSchema,
@@ -901,6 +902,7 @@ export async function runWebmailSyncAction(
       imported: number;
       drafted: number;
       pending: number;
+      importedIds: string[];
       errors: string[];
     }
   | { success: false; error: string }
@@ -934,6 +936,7 @@ export async function runWebmailSyncAction(
         imported: res.imported,
         drafted: res.drafted,
         pending: res.pending,
+        importedIds: res.importedIds,
         errors: res.error ? [res.error] : [],
       };
     }
@@ -943,6 +946,7 @@ export async function runWebmailSyncAction(
       imported: res.imported,
       drafted: res.drafted,
       pending: res.pending,
+      importedIds: res.importedIds,
       errors: res.errors,
     };
   } catch (e) {
@@ -955,6 +959,61 @@ export async function runWebmailSyncAction(
           : "Errore imprevisto durante la sincronizzazione.",
     };
   }
+}
+
+export async function setWebmailImportedSeenAction(raw: {
+  messaggioIds: string[];
+  seen: boolean;
+}): Promise<
+  { success: true; updated: number } | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = setWebmailImportedSeenSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const ids = [...new Set(parsed.data.messaggioIds)];
+  if (ids.length === 0) {
+    return { success: true, updated: 0 };
+  }
+
+  const supabase = await createClient();
+  let updated = 0;
+  const chunkSize = 200;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from("webmail_messaggi")
+      .update({
+        is_seen: parsed.data.seen,
+        updated_by: auth.userId,
+      })
+      .in("id", chunk)
+      .is("deleted_at", null)
+      .select("id");
+    if (error) return { success: false, error: error.message };
+    updated += data?.length ?? 0;
+  }
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: ids[0]!,
+    action: "update",
+    actor_id: auth.userId,
+    summary: parsed.data.seen
+      ? `Stato post-sync: ${updated} mail impostate come Lette`
+      : `Stato post-sync: ${updated} mail impostate come Da leggere`,
+    payload: {
+      seen: parsed.data.seen,
+      requested: ids.length,
+      updated,
+    },
+  });
+
+  return { success: true, updated };
 }
 
 export async function getWebmailProviderPresetsAction() {

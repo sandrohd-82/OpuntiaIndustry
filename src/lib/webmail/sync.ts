@@ -120,6 +120,7 @@ export type SyncWebmailResult = {
   drafted: number;
   skipped: number;
   pending: number;
+  importedIds: string[];
   error?: string;
 };
 
@@ -203,6 +204,7 @@ export async function syncWebmailAccount(
   let imported = 0;
   let skipped = 0;
   const drafted = 0;
+  const importedIds: string[] = [];
 
   let password: string;
   try {
@@ -213,6 +215,7 @@ export async function syncWebmailAccount(
       drafted: 0,
       skipped: 0,
       pending: 0,
+      importedIds: [],
       error:
         e instanceof Error
           ? e.message
@@ -343,6 +346,7 @@ export async function syncWebmailAccount(
           continue;
         }
         imported += 1;
+        importedIds.push(String(inserted.id));
 
         const attRes = await persistMessaggioAttachments({
           supabase,
@@ -396,7 +400,7 @@ export async function syncWebmailAccount(
         },
       });
 
-      return { imported, drafted, skipped, pending };
+      return { imported, drafted, skipped, pending, importedIds };
     } finally {
       lock.release();
     }
@@ -409,7 +413,14 @@ export async function syncWebmailAccount(
         last_sync_error: message.slice(0, 900),
       })
       .eq("id", account.id);
-    return { imported, drafted, skipped, pending: 0, error: message };
+    return {
+      imported,
+      drafted,
+      skipped,
+      pending: 0,
+      importedIds,
+      error: message,
+    };
   } finally {
     try {
       await client.logout();
@@ -603,6 +614,7 @@ export async function syncAllWebmailAccounts(
   imported: number;
   drafted: number;
   pending: number;
+  importedIds: string[];
   errors: string[];
 }> {
   const { data, error } = await supabase
@@ -618,6 +630,7 @@ export async function syncAllWebmailAccounts(
       imported: 0,
       drafted: 0,
       pending: 0,
+      importedIds: [],
       errors: [error.message],
     };
   }
@@ -625,12 +638,14 @@ export async function syncAllWebmailAccounts(
   let imported = 0;
   let drafted = 0;
   let pending = 0;
+  const importedIds: string[] = [];
   const errors: string[] = [];
   for (const row of (data ?? []) as AccountRow[]) {
     const res = await syncWebmailAccount(supabase, row, options);
     imported += res.imported;
     drafted += res.drafted;
     pending += res.pending;
+    importedIds.push(...res.importedIds);
     if (res.error) errors.push(`${row.email_address}: ${res.error}`);
   }
   return {
@@ -638,6 +653,7 @@ export async function syncAllWebmailAccounts(
     imported,
     drafted,
     pending,
+    importedIds,
     errors,
   };
 }

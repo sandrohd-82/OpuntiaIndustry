@@ -8,10 +8,15 @@ import {
   listWebmailAccountsAction,
   listWebmailOperatorsAction,
   runWebmailSyncAction,
+  setWebmailImportedSeenAction,
   softDeleteWebmailAccountAction,
   upsertWebmailAccountAction,
   type WebmailOperatorOption,
 } from "@/app/actions/webmail";
+import {
+  WebmailSyncImportedStatusModal,
+  type WebmailImportedSeenChoice,
+} from "@/components/webmail/WebmailSyncImportedStatusModal";
 import { WebmailSetupGuideModal } from "@/components/webmail/WebmailSetupGuideModal";
 import {
   WEBMAIL_PROVIDER_PRESETS,
@@ -45,6 +50,10 @@ export function WebmailAdminCaselleBoard() {
   const [grantedUserIds, setGrantedUserIds] = useState<string[]>([]);
   const [syncEnabled, setSyncEnabled] = useState(true);
   const [syncSince, setSyncSince] = useState("");
+  const [importedStatus, setImportedStatus] = useState<{
+    ids: string[];
+    extraInfo: string | null;
+  } | null>(null);
 
   const preset = WEBMAIL_PROVIDER_PRESETS[provider];
   const profileById = useMemo(
@@ -204,6 +213,40 @@ export function WebmailAdminCaselleBoard() {
     });
   }
 
+  function finishSyncImport(
+    importedIds: string[],
+    extraInfo: string | null
+  ) {
+    if (importedIds.length > 0) {
+      setImportedStatus({ ids: importedIds, extraInfo });
+    } else {
+      setInfo(extraInfo ?? "Nessuna nuova mail importata.");
+    }
+  }
+
+  function applyImportedStatus(choice: WebmailImportedSeenChoice) {
+    if (!importedStatus) return;
+    const ids = importedStatus.ids;
+    const extraInfo = importedStatus.extraInfo;
+    startTransition(async () => {
+      const res = await setWebmailImportedSeenAction({
+        messaggioIds: ids,
+        seen: choice === "read",
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      const stato = choice === "read" ? "Lette" : "Da leggere";
+      setImportedStatus(null);
+      setInfo(
+        `${ids.length} mail importate. Stato: ${stato}.${
+          extraInfo ? ` ${extraInfo}` : ""
+        }`
+      );
+    });
+  }
+
   function syncAccount(acc: AccountWithGrants) {
     setInfo(null);
     startTransition(async () => {
@@ -214,12 +257,17 @@ export function WebmailAdminCaselleBoard() {
           return;
         }
         const errs = res.errors ?? [];
-        setInfo(
-          `Sync ${acc.label}: ${res.imported} nuovi` +
-            (res.pending > 0
-              ? ` · ancora ${res.pending} (sincronizza di nuovo)`
-              : "") +
-            (errs.length ? ` · ${errs.join("; ")}` : "")
+        finishSyncImport(
+          res.importedIds ?? [],
+          [
+            `Sync ${acc.label}.`,
+            res.pending > 0
+              ? `Ancora ${res.pending} (sincronizza di nuovo).`
+              : "",
+            errs.length ? errs.join("; ") : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
         );
         await reload();
       } catch (e) {
@@ -240,12 +288,17 @@ export function WebmailAdminCaselleBoard() {
           return;
         }
         const errs = res.errors ?? [];
-        setInfo(
-          `Sync tutte: ${res.imported} nuovi` +
-            (res.pending > 0
-              ? ` · ancora ${res.pending} (sincronizza di nuovo)`
-              : "") +
-            (errs.length ? ` · ${errs.join("; ")}` : "")
+        finishSyncImport(
+          res.importedIds ?? [],
+          [
+            "Sync tutte.",
+            res.pending > 0
+              ? `Ancora ${res.pending} (sincronizza di nuovo).`
+              : "",
+            errs.length ? errs.join("; ") : "",
+          ]
+            .filter(Boolean)
+            .join(" ")
         );
         await reload();
       } catch (e) {
@@ -582,6 +635,12 @@ export function WebmailAdminCaselleBoard() {
       <WebmailSetupGuideModal
         open={guideOpen}
         onClose={() => setGuideOpen(false)}
+      />
+      <WebmailSyncImportedStatusModal
+        open={Boolean(importedStatus)}
+        importedCount={importedStatus?.ids.length ?? 0}
+        pending={pending}
+        onChoose={applyImportedStatus}
       />
     </div>
   );
