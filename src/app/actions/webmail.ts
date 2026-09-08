@@ -1452,6 +1452,446 @@ export async function searchWebmailAziendeAction(
   return { success: true, items };
 }
 
+export type WebmailAnagraficaHit = {
+  tipo: "cliente" | "cliente_possibile";
+  id: string;
+  label: string;
+  email: string;
+  via: "email" | "pec" | "referente";
+  contattoId: string | null;
+  contattoNome: string;
+};
+
+function normalizeLookupEmail(raw: string): string {
+  const t = raw.trim().toLowerCase();
+  const angled = t.match(/<([^>]+@[^>]+)>/);
+  return (angled?.[1] ?? t).trim();
+}
+
+export async function lookupWebmailAnagraficaByEmailAction(
+  fromAddress: string
+): Promise<
+  | { success: true; hits: WebmailAnagraficaHit[] }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const email = normalizeLookupEmail(fromAddress);
+  if (!email || !email.includes("@")) {
+    return { success: true, hits: [] };
+  }
+  const service = createServiceClient();
+  const hits: WebmailAnagraficaHit[] = [];
+  const seen = new Set<string>();
+
+  function push(hit: WebmailAnagraficaHit) {
+    const key = `${hit.tipo}:${hit.id}:${hit.contattoId ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    hits.push(hit);
+  }
+
+  const [clientiEmail, clientiPec, possEmail, possPec, rubricaRes] =
+    await Promise.all([
+    service
+      .from("clienti")
+      .select("id, ragione_sociale, email, pec")
+      .is("deleted_at", null)
+      .ilike("email", email),
+    service
+      .from("clienti")
+      .select("id, ragione_sociale, email, pec")
+      .is("deleted_at", null)
+      .ilike("pec", email),
+    service
+      .from("clienti_possibili")
+      .select("id, ragione_sociale, email, pec")
+      .is("deleted_at", null)
+      .ilike("email", email),
+    service
+      .from("clienti_possibili")
+      .select("id, ragione_sociale, email, pec")
+      .is("deleted_at", null)
+      .ilike("pec", email),
+    service
+      .from("rubrica_contatti")
+      .select("id, nome, cognome, email, azienda_tipo, azienda_id, azienda_label")
+      .is("deleted_at", null)
+      .ilike("email", email)
+      .in("azienda_tipo", ["cliente", "cliente_possibile"]),
+  ]);
+  if (clientiEmail.error) {
+    return { success: false, error: clientiEmail.error.message };
+  }
+  if (clientiPec.error) {
+    return { success: false, error: clientiPec.error.message };
+  }
+  if (possEmail.error) return { success: false, error: possEmail.error.message };
+  if (possPec.error) return { success: false, error: possPec.error.message };
+  if (rubricaRes.error) return { success: false, error: rubricaRes.error.message };
+
+  const clientiRows = [...(clientiEmail.data ?? []), ...(clientiPec.data ?? [])];
+  const possRows = [...(possEmail.data ?? []), ...(possPec.data ?? [])];
+
+  for (const r of clientiRows) {
+    const pec = String(r.pec ?? "").trim().toLowerCase();
+    push({
+      tipo: "cliente",
+      id: String(r.id),
+      label: String(r.ragione_sociale ?? ""),
+      email,
+      via: pec === email ? "pec" : "email",
+      contattoId: null,
+      contattoNome: "",
+    });
+  }
+  for (const r of possRows) {
+    const pec = String(r.pec ?? "").trim().toLowerCase();
+    push({
+      tipo: "cliente_possibile",
+      id: String(r.id),
+      label: String(r.ragione_sociale ?? ""),
+      email,
+      via: pec === email ? "pec" : "email",
+      contattoId: null,
+      contattoNome: "",
+    });
+  }
+  for (const r of rubricaRes.data ?? []) {
+    const tipo = r.azienda_tipo === "cliente_possibile"
+      ? "cliente_possibile"
+      : "cliente";
+    if (!r.azienda_id) continue;
+    push({
+      tipo,
+      id: String(r.azienda_id),
+      label: String(r.azienda_label ?? ""),
+      email,
+      via: "referente",
+      contattoId: String(r.id),
+      contattoNome: `${r.nome ?? ""} ${r.cognome ?? ""}`.trim(),
+    });
+  }
+  return { success: true, hits };
+}
+
+export async function extractWebmailAnagraficaFromEmailAction(
+  messaggioId: string
+): Promise<
+  | {
+      success: true;
+      extract: import("@/lib/webmail/ai").WebmailAnagraficaExtract;
+    }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const idParsed = z.string().uuid().safeParse(messaggioId);
+  if (!idParsed.success) return { success: false, error: "Messaggio non valido." };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("from_address, from_name, subject, body_text")
+    .eq("id", idParsed.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Messaggio non trovato." };
+  }
+  const { extractAnagraficaFromEmail } = await import("@/lib/webmail/ai");
+  const extract = await extractAnagraficaFromEmail({
+    fromName: String(data.from_name ?? ""),
+    fromAddress: String(data.from_address ?? ""),
+    subject: String(data.subject ?? ""),
+    bodyText: String(data.body_text ?? ""),
+  });
+  return { success: true, extract };
+}
+
+async function persistEmailAutoLink(input: {
+  email: string;
+  aziendaTipo: "cliente" | "cliente_possibile";
+  aziendaId: string;
+  aziendaLabel: string;
+  contattoId: string | null;
+  actorId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const service = createServiceClient();
+  const email = normalizeLookupEmail(input.email);
+  const now = new Date().toISOString();
+  const { data: existing } = await service
+    .from("webmail_email_anagrafica_auto_link")
+    .select("id")
+    .eq("email_normalized", email)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing) {
+    const { error } = await service
+      .from("webmail_email_anagrafica_auto_link")
+      .update({
+        azienda_tipo: input.aziendaTipo,
+        azienda_id: input.aziendaId,
+        azienda_label: input.aziendaLabel,
+        contatto_id: input.contattoId,
+        updated_by: input.actorId,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await service.from("webmail_email_anagrafica_auto_link").insert({
+      email_normalized: email,
+      azienda_tipo: input.aziendaTipo,
+      azienda_id: input.aziendaId,
+      azienda_label: input.aziendaLabel,
+      contatto_id: input.contattoId,
+      created_by: input.actorId,
+      updated_by: input.actorId,
+    });
+    if (error) return { success: false, error: error.message };
+  }
+  await writeAuditLog({
+    entity_type: "webmail_email_anagrafica_auto_link",
+    entity_id: input.aziendaId,
+    action: "upsert",
+    actor_id: input.actorId,
+    summary: `Auto-collegamento mail ${email} → ${input.aziendaLabel}`,
+    payload: {
+      email,
+      azienda_tipo: input.aziendaTipo,
+      azienda_id: input.aziendaId,
+      at: now,
+    },
+  });
+  return { success: true };
+}
+
+async function linkAllMessagesByEmail(input: {
+  email: string;
+  aziendaTipo: "cliente" | "cliente_possibile";
+  aziendaId: string;
+  aziendaLabel: string;
+  contattoId: string | null;
+  actorId: string;
+}): Promise<number> {
+  const service = createServiceClient();
+  const email = normalizeLookupEmail(input.email);
+  const { data } = await service
+    .from("webmail_messaggi")
+    .update({
+      azienda_tipo: input.aziendaTipo,
+      azienda_id: input.aziendaId,
+      azienda_label: input.aziendaLabel,
+      contatto_id: input.contattoId,
+      link_stato: "collegata",
+      updated_by: input.actorId,
+    })
+    .ilike("from_address", email)
+    .is("deleted_at", null)
+    .select("id");
+  return data?.length ?? 0;
+}
+
+export async function confirmWebmailAnagraficaLinkAction(raw: unknown): Promise<
+  | { success: true; messaggio: WebmailMessaggio; linkedCount: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = z
+    .object({
+      messaggioId: z.string().uuid(),
+      aziendaTipo: z.enum(["cliente", "cliente_possibile"]),
+      aziendaId: z.string().uuid(),
+      aziendaLabel: z.string().trim().max(300),
+      contattoId: z.string().uuid().nullable().optional(),
+      linkAllExisting: z.boolean(),
+      persistAutoLink: z.boolean(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+
+  const supabase = await createClient();
+  const { data: msg, error: msgErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id, from_address")
+    .eq("id", parsed.data.messaggioId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (msgErr || !msg) {
+    return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
+  }
+  const email = String(msg.from_address ?? "");
+  const contattoId = parsed.data.contattoId ?? null;
+
+  const linked = await linkWebmailMessaggioAnagraficaAction({
+    messaggioId: parsed.data.messaggioId,
+    aziendaTipo: parsed.data.aziendaTipo,
+    aziendaId: parsed.data.aziendaId,
+    aziendaLabel: parsed.data.aziendaLabel,
+    contattoId,
+    linkStato: "collegata",
+    rematch: false,
+  });
+  if (!linked.success) return linked;
+
+  let linkedCount = 1;
+  if (parsed.data.linkAllExisting) {
+    linkedCount = await linkAllMessagesByEmail({
+      email,
+      aziendaTipo: parsed.data.aziendaTipo,
+      aziendaId: parsed.data.aziendaId,
+      aziendaLabel: parsed.data.aziendaLabel,
+      contattoId,
+      actorId: auth.userId,
+    });
+  }
+  if (parsed.data.persistAutoLink) {
+    const auto = await persistEmailAutoLink({
+      email,
+      aziendaTipo: parsed.data.aziendaTipo,
+      aziendaId: parsed.data.aziendaId,
+      aziendaLabel: parsed.data.aziendaLabel,
+      contattoId,
+      actorId: auth.userId,
+    });
+    if (!auto.success) return auto;
+  }
+  return { success: true, messaggio: linked.messaggio, linkedCount };
+}
+
+export async function createAndLinkWebmailAnagraficaAction(raw: unknown): Promise<
+  | { success: true; messaggio: WebmailMessaggio; linkedCount: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = z
+    .object({
+      messaggioId: z.string().uuid(),
+      kind: z.enum(["cliente", "cliente_possibile"]),
+      azienda: z.object({
+        ragioneSociale: z.string().trim().min(1).max(200),
+        partitaIva: z.string().trim().max(20).optional().default(""),
+        codiceFiscale: z.string().trim().max(20).optional().default(""),
+        isPrivato: z.boolean().optional().default(false),
+        email: z.string().trim().max(120).optional().default(""),
+        pec: z.string().trim().max(120).optional().default(""),
+        sdiCode: z.string().trim().max(10).optional().default(""),
+        telefono: z.string().trim().max(60).optional().default(""),
+        sitoWeb: z.string().trim().max(200).optional().default(""),
+        nazione: z.string().trim().max(80).optional().default("Italia"),
+        provincia: z.string().trim().max(80).optional().default(""),
+        citta: z.string().trim().max(80).optional().default(""),
+        cap: z.string().trim().max(16).optional().default(""),
+        indirizzo: z.string().trim().max(200).optional().default(""),
+      }),
+      referente: z
+        .object({
+          nome: z.string().trim().max(80).optional().default(""),
+          cognome: z.string().trim().max(80).optional().default(""),
+          email: z.string().trim().max(120).optional().default(""),
+          telefono: z.string().trim().max(60).optional().default(""),
+          mansione: z.string().trim().max(120).optional().default(""),
+        })
+        .optional(),
+      includeReferente: z.boolean().optional().default(false),
+      linkAllExisting: z.boolean(),
+      persistAutoLink: z.boolean(),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+
+  const { emptySede } = await import("@/lib/amministrazione/clienti");
+  const aziendaInput = {
+    ragioneSociale: parsed.data.azienda.ragioneSociale,
+    partitaIva: parsed.data.azienda.partitaIva,
+    codiceFiscale: parsed.data.azienda.codiceFiscale,
+    isPrivato: parsed.data.azienda.isPrivato,
+    email: parsed.data.azienda.email,
+    pec: parsed.data.azienda.pec,
+    sdiCode: parsed.data.azienda.sdiCode,
+    telefono: parsed.data.azienda.telefono,
+    sitoWeb: parsed.data.azienda.sitoWeb,
+    sedeAmministrativa: {
+      nazione: parsed.data.azienda.nazione || "Italia",
+      provincia: parsed.data.azienda.provincia,
+      citta: parsed.data.azienda.citta,
+      cap: parsed.data.azienda.cap,
+      indirizzo: parsed.data.azienda.indirizzo,
+    },
+    sedeMagazzino: emptySede(),
+    consegneAltraAzienda: [],
+    prodottiAcquistati: [],
+  };
+
+  let aziendaId = "";
+  let aziendaLabel = parsed.data.azienda.ragioneSociale;
+  if (parsed.data.kind === "cliente") {
+    const { createClienteAction } = await import("@/app/actions/clienti");
+    const created = await createClienteAction(aziendaInput);
+    if (!created.success) return created;
+    aziendaId = created.cliente.id;
+    aziendaLabel = created.cliente.ragioneSociale;
+  } else {
+    const { createClientePossibileAction } = await import(
+      "@/app/actions/promemorie-e-note"
+    );
+    const created = await createClientePossibileAction(aziendaInput);
+    if (!created.success) return created;
+    aziendaId = created.item.id;
+    aziendaLabel = created.item.ragioneSociale;
+  }
+
+  let contattoId: string | null = null;
+  if (parsed.data.includeReferente && parsed.data.referente) {
+    const nr = parsed.data.referente;
+    const service = createServiceClient();
+    const { data: created, error: cErr } = await service
+      .from("rubrica_contatti")
+      .insert({
+        nome: nr.nome.trim() || "Referente",
+        cognome: nr.cognome.trim() || "—",
+        telefono: nr.telefono.trim() || "",
+        email: nr.email.trim() || parsed.data.azienda.email,
+        rapporto: "referente",
+        azienda_tipo: parsed.data.kind,
+        azienda_id: aziendaId,
+        azienda_label: aziendaLabel,
+        mansione: nr.mansione.trim() || "",
+        note: "Creato da WebMail",
+        created_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .select("id")
+      .single();
+    if (cErr || !created) {
+      return {
+        success: false,
+        error: cErr?.message ?? "Creazione referente fallita.",
+      };
+    }
+    contattoId = String(created.id);
+    await writeAuditLog({
+      entity_type: "rubrica_contatti",
+      entity_id: contattoId,
+      action: "create_from_webmail",
+      actor_id: auth.userId,
+      summary: "Referente creato da WebMail (nuova anagrafica)",
+    });
+  }
+
+  return confirmWebmailAnagraficaLinkAction({
+    messaggioId: parsed.data.messaggioId,
+    aziendaTipo: parsed.data.kind,
+    aziendaId,
+    aziendaLabel,
+    contattoId,
+    linkAllExisting: parsed.data.linkAllExisting,
+    persistAutoLink: parsed.data.persistAutoLink,
+  });
+}
+
 export async function listWebmailReferentiAziendaAction(input: {
   aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
   aziendaId: string;

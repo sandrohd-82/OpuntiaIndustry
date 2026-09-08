@@ -245,3 +245,192 @@ Rispondi JSON: {"subject":"...","bodyText":"..."}`,
     };
   }
 }
+
+export type WebmailAnagraficaExtract = {
+  ragioneSociale: string;
+  partitaIva: string;
+  codiceFiscale: string;
+  isPrivato: boolean;
+  email: string;
+  pec: string;
+  sdiCode: string;
+  telefono: string;
+  sitoWeb: string;
+  nazione: string;
+  provincia: string;
+  citta: string;
+  cap: string;
+  indirizzo: string;
+  referenteNome: string;
+  referenteCognome: string;
+  referenteEmail: string;
+  referenteTelefono: string;
+  referenteMansione: string;
+  hasReferente: boolean;
+};
+
+function emptyExtract(email: string): WebmailAnagraficaExtract {
+  return {
+    ragioneSociale: "",
+    partitaIva: "",
+    codiceFiscale: "",
+    isPrivato: false,
+    email,
+    pec: "",
+    sdiCode: "",
+    telefono: "",
+    sitoWeb: "",
+    nazione: "Italia",
+    provincia: "",
+    citta: "",
+    cap: "",
+    indirizzo: "",
+    referenteNome: "",
+    referenteCognome: "",
+    referenteEmail: email,
+    referenteTelefono: "",
+    referenteMansione: "",
+    hasReferente: false,
+  };
+}
+
+function heuristicExtractAnagrafica(input: {
+  fromName: string;
+  fromAddress: string;
+  subject: string;
+  bodyText: string;
+}): WebmailAnagraficaExtract {
+  const email = input.fromAddress.trim().toLowerCase();
+  const text = `${input.fromName}\n${input.subject}\n${input.bodyText}`;
+  const out = emptyExtract(email);
+  const piva = text.match(/\b(?:P\.?\s*IVA|Partita\s*IVA)[:\s]*([0-9]{11})\b/i);
+  const pivaLoose = text.match(/\b([0-9]{11})\b/);
+  out.partitaIva = (piva?.[1] || pivaLoose?.[1] || "").trim();
+  const cf = text.match(
+    /\b(?:C\.?\s*F\.?|Codice\s*fiscale)[:\s]*([A-Z0-9]{16})\b/i
+  );
+  out.codiceFiscale = (cf?.[1] || "").toUpperCase();
+  const tel = text.match(
+    /(?:tel(?:efono)?|phone|cell(?:ulare)?)[:\s]*([+0-9\s()./-]{8,20})/i
+  );
+  out.telefono = (tel?.[1] || "").replace(/\s+/g, " ").trim();
+  const pec = text.match(/\b([a-z0-9._%+-]+@pec\.[a-z0-9.-]+\.[a-z]{2,})\b/i);
+  out.pec = (pec?.[1] || "").toLowerCase();
+  const site = text.match(/\b(https?:\/\/[^\s<>"]+|www\.[^\s<>"]+)/i);
+  out.sitoWeb = (site?.[1] || "").replace(/[),.;]+$/, "");
+  const nameParts = input.fromName.trim().split(/\s+/).filter(Boolean);
+  if (nameParts.length >= 2) {
+    out.referenteNome = nameParts[0] ?? "";
+    out.referenteCognome = nameParts.slice(1).join(" ");
+    out.hasReferente = true;
+  } else if (nameParts.length === 1 && nameParts[0] && !nameParts[0].includes("@")) {
+    out.referenteNome = nameParts[0];
+    out.hasReferente = true;
+  }
+  const domain = email.includes("@") ? email.split("@")[1] ?? "" : "";
+  const generic = new Set([
+    "gmail.com",
+    "yahoo.com",
+    "yahoo.it",
+    "hotmail.com",
+    "outlook.com",
+    "libero.it",
+    "icloud.com",
+    "pec.it",
+  ]);
+  if (domain && !generic.has(domain.toLowerCase())) {
+    const brand = domain.split(".")[0] ?? "";
+    out.ragioneSociale = brand
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return out;
+}
+
+/** Estrae intestazione, piè di pagina e referente dalla mail. */
+export async function extractAnagraficaFromEmail(input: {
+  fromName: string;
+  fromAddress: string;
+  subject: string;
+  bodyText: string;
+}): Promise<WebmailAnagraficaExtract> {
+  const fallback = heuristicExtractAnagrafica(input);
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey || process.env.WEBMAIL_AI_ENABLED === "false") {
+    return fallback;
+  }
+  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.1,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Estrai i dati anagrafici aziendali da un'email commerciale italiana (intestazione e firma/piè di pagina).
+Non inventare partita IVA, codice fiscale, indirizzi o telefoni se non sono nel testo.
+Rispondi SOLO JSON:
+{"ragioneSociale":"","partitaIva":"","codiceFiscale":"","isPrivato":false,"email":"","pec":"","sdiCode":"","telefono":"","sitoWeb":"","nazione":"Italia","provincia":"","citta":"","cap":"","indirizzo":"","referenteNome":"","referenteCognome":"","referenteEmail":"","referenteTelefono":"","referenteMansione":"","hasReferente":false}`,
+          },
+          {
+            role: "user",
+            content: `Mittente: ${input.fromName} <${input.fromAddress}>\nOggetto: ${input.subject}\n\n${input.bodyText.slice(0, 8000)}`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      console.error("[webmail extract]", await res.text());
+      return fallback;
+    }
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const parsed = JSON.parse(
+      json.choices?.[0]?.message?.content ?? "{}"
+    ) as Partial<WebmailAnagraficaExtract>;
+    return {
+      ...fallback,
+      ragioneSociale: parsed.ragioneSociale?.trim() || fallback.ragioneSociale,
+      partitaIva: parsed.partitaIva?.trim() || fallback.partitaIva,
+      codiceFiscale:
+        parsed.codiceFiscale?.trim().toUpperCase() || fallback.codiceFiscale,
+      isPrivato: Boolean(parsed.isPrivato),
+      email: parsed.email?.trim().toLowerCase() || fallback.email,
+      pec: parsed.pec?.trim().toLowerCase() || fallback.pec,
+      sdiCode: parsed.sdiCode?.trim().toUpperCase() || fallback.sdiCode,
+      telefono: parsed.telefono?.trim() || fallback.telefono,
+      sitoWeb: parsed.sitoWeb?.trim() || fallback.sitoWeb,
+      nazione: parsed.nazione?.trim() || fallback.nazione,
+      provincia: parsed.provincia?.trim() || fallback.provincia,
+      citta: parsed.citta?.trim() || fallback.citta,
+      cap: parsed.cap?.trim() || fallback.cap,
+      indirizzo: parsed.indirizzo?.trim() || fallback.indirizzo,
+      referenteNome: parsed.referenteNome?.trim() || fallback.referenteNome,
+      referenteCognome:
+        parsed.referenteCognome?.trim() || fallback.referenteCognome,
+      referenteEmail:
+        parsed.referenteEmail?.trim().toLowerCase() || fallback.referenteEmail,
+      referenteTelefono:
+        parsed.referenteTelefono?.trim() || fallback.referenteTelefono,
+      referenteMansione:
+        parsed.referenteMansione?.trim() || fallback.referenteMansione,
+      hasReferente: Boolean(
+        parsed.hasReferente ||
+          parsed.referenteNome?.trim() ||
+          parsed.referenteCognome?.trim() ||
+          fallback.hasReferente
+      ),
+    };
+  } catch (e) {
+    console.error("[webmail extract anagrafica]", e);
+    return fallback;
+  }
+}

@@ -25,7 +25,7 @@ import {
   reloadWebmailMessaggioBodyAction,
 } from "@/app/actions/webmail";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
-import { WebmailCollegaAziendaModal } from "@/components/webmail/WebmailCollegaAziendaModal";
+import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import type {
   WebmailAccountPublic,
@@ -796,6 +796,24 @@ export function WebmailBoard({
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
+                        onClick={() => setAziendaModalOpen(true)}
+                      >
+                        Collega azienda
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-lg bg-violet-700 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                        onClick={() => {
+                          if (bozza) openAiReplyModal();
+                          else generateAi();
+                        }}
+                      >
+                        {bozza ? "Apri risposta AI" : "Genera risposta AI"}
+                      </button>
                   {view === "cestino" ? (
                     <button
                       type="button"
@@ -848,13 +866,6 @@ export function WebmailBoard({
                         onClick={() => setCatModalOpen(true)}
                       >
                         Sposta in categoria
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
-                        onClick={() => setAziendaModalOpen(true)}
-                      >
-                        Collega ad azienda
                       </button>
                       <button
                         type="button"
@@ -1055,27 +1066,6 @@ export function WebmailBoard({
                   />
                 )}
               </section>
-              {view === "cestino" ? null : (
-              <section className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] p-4">
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    if (bozza) openAiReplyModal();
-                    else generateAi();
-                  }}
-                  className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  {bozza ? "Apri risposta AI" : "Genera risposta AI"}
-                </button>
-                {bozza ? (
-                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-                    Bozza{" "}
-                    {bozza.documentoStato === "inviata" ? "inviata" : "pronta"}
-                  </span>
-                ) : null}
-              </section>
-              )}
             </div>
                   ) : null}
                 </li>
@@ -1311,13 +1301,14 @@ export function WebmailBoard({
               void reload();
             }}
           />
-          <WebmailCollegaAziendaModal
+          <WebmailCollegaAziendaFlow
             open={aziendaModalOpen}
             messaggio={selected}
             onClose={() => setAziendaModalOpen(false)}
-            onDone={(m) => {
+            onDone={(m, info) => {
               patchMessaggio(m);
-              setInfo("Azienda/referente collegati.");
+              setInfo(info);
+              void reload();
             }}
           />
         </>

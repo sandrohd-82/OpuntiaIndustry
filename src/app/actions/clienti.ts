@@ -14,7 +14,7 @@ import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche
 import { writeAuditLog } from "@/lib/audit";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
 export type ClientiActionResult =
@@ -165,7 +165,11 @@ export async function listClientiAction(): Promise<
 export async function createClienteAction(
   input: ClienteInput
 ): Promise<ClientiActionResult> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "webmail",
+    "commerciale",
+  ]);
   const supabase = await createClient();
 
   const normalized = normalizeClienteInput(input);

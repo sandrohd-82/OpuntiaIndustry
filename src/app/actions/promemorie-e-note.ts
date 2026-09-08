@@ -2,7 +2,7 @@
 
 import { notFound, redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   consegneToDb,
@@ -769,7 +769,11 @@ export async function createClientePossibileAction(
   | { success: true; item: ClientePossibile }
   | { success: false; error: string }
 > {
-  const { auth } = await guardAdmin();
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "webmail",
+    "commerciale",
+  ]);
   const asCliente = input as ClienteInput;
   const merged = {
     ...asCliente,
@@ -804,10 +808,7 @@ export async function createClientePossibileAction(
       parsed.data.prodottiInteressati ??
       [],
   });
-  const fiscalErr = validateClienteFiscali({
-    ...normalized,
-    isPrivato: false,
-  });
+  const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) return { success: false, error: fiscalErr };
   // Sedi facoltative sul lead: se aperte e parziali, già validate dal form
 
@@ -822,7 +823,7 @@ export async function createClientePossibileAction(
       ragione_sociale: normalized.ragioneSociale,
       partita_iva: normalized.partitaIva,
       codice_fiscale: normalized.codiceFiscale,
-      is_privato: false,
+      is_privato: normalized.isPrivato,
       email: normalized.email ?? "",
       pec: normalized.pec ?? "",
       sdi_code: normalized.sdiCode ?? "",

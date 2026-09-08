@@ -12,7 +12,9 @@ export type WebmailAnagraficaMatch = {
 };
 
 function normalizeEmail(raw: string): string {
-  return raw.trim().toLowerCase();
+  const t = raw.trim().toLowerCase();
+  const angled = t.match(/<([^>]+@[^>]+)>/);
+  return (angled?.[1] ?? t).trim();
 }
 
 /**
@@ -31,6 +33,25 @@ export async function matchWebmailAnagrafica(
     linkStato: "bozza",
   };
   if (!email || !email.includes("@")) return empty;
+
+  const { data: auto, error: autoErr } = await supabase
+    .from("webmail_email_anagrafica_auto_link")
+    .select("azienda_tipo, azienda_id, azienda_label, contatto_id")
+    .eq("email_normalized", email)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!autoErr && auto?.azienda_id) {
+    const tipo = String(auto.azienda_tipo ?? "");
+    if (tipo === "cliente" || tipo === "cliente_possibile") {
+      return {
+        aziendaTipo: tipo,
+        aziendaId: String(auto.azienda_id),
+        aziendaLabel: String(auto.azienda_label ?? ""),
+        contattoId: auto.contatto_id ? String(auto.contatto_id) : null,
+        linkStato: "collegata",
+      };
+    }
+  }
 
   const { data: contatto } = await supabase
     .from("rubrica_contatti")
@@ -60,13 +81,23 @@ export async function matchWebmailAnagrafica(
     };
   }
 
-  const { data: cliente } = await supabase
+  const { data: clienteEmail } = await supabase
     .from("clienti")
-    .select("id, ragione_sociale, email")
+    .select("id, ragione_sociale, email, pec")
     .ilike("email", email)
     .is("deleted_at", null)
     .limit(1)
     .maybeSingle();
+  const { data: clientePec } = clienteEmail
+    ? { data: null }
+    : await supabase
+        .from("clienti")
+        .select("id, ragione_sociale, email, pec")
+        .ilike("pec", email)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+  const cliente = clienteEmail ?? clientePec;
   if (cliente) {
     return {
       aziendaTipo: "cliente",
@@ -94,13 +125,23 @@ export async function matchWebmailAnagrafica(
     };
   }
 
-  const { data: possibile } = await supabase
+  const { data: possEmail } = await supabase
     .from("clienti_possibili")
-    .select("id, ragione_sociale, email")
+    .select("id, ragione_sociale, email, pec")
     .ilike("email", email)
     .is("deleted_at", null)
     .limit(1)
     .maybeSingle();
+  const { data: possPec } = possEmail
+    ? { data: null }
+    : await supabase
+        .from("clienti_possibili")
+        .select("id, ragione_sociale, email, pec")
+        .ilike("pec", email)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle();
+  const possibile = possEmail ?? possPec;
   if (possibile) {
     return {
       aziendaTipo: "cliente_possibile",
