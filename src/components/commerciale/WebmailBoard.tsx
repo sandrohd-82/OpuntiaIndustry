@@ -22,9 +22,11 @@ import {
   runWebmailSyncAction,
   setWebmailImportedSeenAction,
   sendWebmailBozzaAction,
+  sendWebmailNuovaMailAction,
   translateWebmailTextAction,
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
+  type WebmailMessaggioAllegatoPublic,
 } from "@/app/actions/webmail";
 import { WebmailBulkDeleteModal } from "@/components/webmail/WebmailBulkDeleteModal";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
@@ -125,7 +127,14 @@ export function WebmailBoard({
   } | null>(null);
   const [showPlainText, setShowPlainText] = useState(false);
   const [htmlReloadToken, setHtmlReloadToken] = useState(0);
-  const [aiReplyModalOpen, setAiReplyModalOpen] = useState(false);
+  const [sidePanel, setSidePanel] = useState<
+    "ai" | "reply" | "allegato" | null
+  >(null);
+  const [previewAllegato, setPreviewAllegato] =
+    useState<WebmailMessaggioAllegatoPublic | null>(null);
+  const [replyTo, setReplyTo] = useState("");
+  const [replySubject, setReplySubject] = useState("");
+  const [replyBody, setReplyBody] = useState("");
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -235,10 +244,12 @@ export function WebmailBoard({
   useEffect(() => {
     if (!selectedId) {
       setBozza(null);
-      setAiReplyModalOpen(false);
+      setSidePanel(null);
+      setPreviewAllegato(null);
       return;
     }
-    setAiReplyModalOpen(false);
+    setSidePanel(null);
+    setPreviewAllegato(null);
     void (async () => {
       const seen = await markWebmailMessaggioSeenAction(selectedId);
       if (seen.success) {
@@ -473,7 +484,7 @@ export function WebmailBoard({
   function generateAi() {
     if (!selected) return;
     setInfo(null);
-    setAiReplyModalOpen(true);
+    setSidePanel("ai");
     startTransition(async () => {
       const res = await generateWebmailAiReplyAction(selected.id);
       if (!res.success) {
@@ -489,7 +500,51 @@ export function WebmailBoard({
   }
 
   function openAiReplyModal() {
-    setAiReplyModalOpen(true);
+    setSidePanel("ai");
+  }
+
+  function openReplyPanel() {
+    if (!selected) return;
+    const subj = selected.subject.trim();
+    setReplyTo(selected.fromAddress);
+    setReplySubject(/^re\s*:/i.test(subj) ? subj : `Re: ${subj || "(senza oggetto)"}`);
+    setReplyBody("");
+    setSidePanel("reply");
+  }
+
+  function openAllegatoPanel(file: WebmailMessaggioAllegatoPublic) {
+    setPreviewAllegato(file);
+    setSidePanel("allegato");
+  }
+
+  function closeSidePanel() {
+    setSidePanel(null);
+    setPreviewAllegato(null);
+  }
+
+  function sendReply() {
+    if (!selected) return;
+    if (
+      !window.confirm(
+        "Inviare questa risposta dalla casella collegata? L’operazione sarà registrata in audit."
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const res = await sendWebmailNuovaMailAction({
+        accountId: selected.accountId,
+        to: replyTo,
+        subject: replySubject,
+        bodyText: replyBody,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setInfo("Risposta inviata.");
+      closeSidePanel();
+    });
   }
 
   function saveDraft() {
@@ -530,7 +585,7 @@ export function WebmailBoard({
       }
       setInfo("Email inviata. Audit registrato.");
       setBozza(null);
-      setAiReplyModalOpen(false);
+      closeSidePanel();
       await reload();
     });
   }
@@ -809,10 +864,16 @@ export function WebmailBoard({
                   {expanded && selected ? (
             <div
               className={`border-t border-sky-100 bg-white ${
-                view === "cestino" ? "" : "lg:grid lg:grid-cols-2"
+                sidePanel
+                  ? "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(20rem,40%)]"
+                  : ""
               }`}
             >
-              <section className="border-b border-[var(--border)] p-4 lg:border-b-0 lg:border-r">
+              <section
+                className={`min-w-0 border-b border-[var(--border)] p-4 lg:border-b-0 ${
+                  sidePanel ? "lg:border-r" : ""
+                }`}
+              >
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Mail ricevuta
                 </h3>
@@ -1067,6 +1128,14 @@ export function WebmailBoard({
                       <button
                         type="button"
                         disabled={pending}
+                        className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 disabled:opacity-50"
+                        onClick={openReplyPanel}
+                      >
+                        Rispondi
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
                         className="rounded-lg bg-violet-700 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                         onClick={() => {
                           if (bozza) openAiReplyModal();
@@ -1299,9 +1368,296 @@ export function WebmailBoard({
                     forcePlain={showPlainText}
                     reloadToken={htmlReloadToken}
                     onError={(msg) => setError(msg)}
+                    onAllegatoClick={openAllegatoPanel}
                   />
                 )}
               </section>
+              {sidePanel ? (
+                <aside className="flex min-h-[24rem] min-w-0 flex-col border-t border-[var(--border)] bg-slate-50/70 lg:border-t-0 lg:border-l">
+                  <div className="flex shrink-0 items-start justify-between gap-2 border-b border-[var(--border)] bg-white px-4 py-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        {sidePanel === "ai"
+                          ? "Risposta AI"
+                          : sidePanel === "reply"
+                            ? "Rispondi"
+                            : previewAllegato?.filename || "Allegato"}
+                      </h3>
+                      <p className="mt-0.5 text-[11px] text-slate-500">
+                        {sidePanel === "ai"
+                          ? "Controlla, modifica e invia. La bozza resta salvata sulla mail."
+                          : sidePanel === "reply"
+                            ? "Scrivi e invia la risposta dalla casella collegata."
+                            : previewAllegato?.mimeType || "Anteprima allegato"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={closeSidePanel}
+                      className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
+                    >
+                      Chiudi
+                    </button>
+                  </div>
+                  {sidePanel === "allegato" && previewAllegato ? (
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                      {previewAllegato.url &&
+                      /^image\//i.test(previewAllegato.mimeType) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={previewAllegato.url}
+                          alt={previewAllegato.filename}
+                          className="max-h-[70vh] w-full rounded-lg border border-[var(--border)] object-contain bg-white"
+                        />
+                      ) : previewAllegato.url &&
+                        /pdf/i.test(previewAllegato.mimeType) ? (
+                        <iframe
+                          title={previewAllegato.filename}
+                          src={previewAllegato.url}
+                          className="min-h-[70vh] w-full rounded-lg border border-[var(--border)] bg-white"
+                        />
+                      ) : (
+                        <p className="text-sm text-[var(--muted)]">
+                          Anteprima non disponibile per questo tipo di file.
+                        </p>
+                      )}
+                      {previewAllegato.url ? (
+                        <a
+                          href={previewAllegato.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex text-xs font-medium text-sky-800 hover:underline"
+                        >
+                          Apri / scarica
+                        </a>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {sidePanel === "reply" ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+                        <label className="block text-sm">
+                          <span className="mb-1 block text-xs font-medium">
+                            A
+                          </span>
+                          <input
+                            value={replyTo}
+                            onChange={(e) => setReplyTo(e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label className="block text-sm">
+                          <span className="mb-1 block text-xs font-medium">
+                            Oggetto
+                          </span>
+                          <input
+                            value={replySubject}
+                            onChange={(e) => setReplySubject(e.target.value)}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+                        <label className="block text-sm">
+                          <span className="mb-1 block text-xs font-medium">
+                            Testo
+                          </span>
+                          <textarea
+                            value={replyBody}
+                            onChange={(e) => setReplyBody(e.target.value)}
+                            rows={12}
+                            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                          />
+                        </label>
+                      </div>
+                      <div className="flex shrink-0 flex-wrap gap-2 border-t border-[var(--border)] bg-white px-4 py-3">
+                        <button
+                          type="button"
+                          disabled={pending || !replyTo.trim() || !replyBody.trim()}
+                          onClick={sendReply}
+                          className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          Invia
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {sidePanel === "ai" ? (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+                        {!bozza ? (
+                          <div className="space-y-3 py-6 text-center">
+                            <p className="text-sm text-[var(--muted)]">
+                              {pending
+                                ? "Generazione risposta in corso…"
+                                : "Nessuna bozza. Genera una proposta di risposta."}
+                            </p>
+                            <button
+                              type="button"
+                              disabled={pending}
+                              onClick={generateAi}
+                              className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                            >
+                              Genera risposta AI
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-xs text-[var(--muted)]">
+                              Intent: {bozza.intent}
+                              {bozza.confidence != null
+                                ? ` · ${bozza.confidence}%`
+                                : ""}
+                            </p>
+                            <label className="block text-sm">
+                              <span className="mb-1 block text-xs font-medium">
+                                Oggetto
+                              </span>
+                              <input
+                                value={draftSubject}
+                                onChange={(e) => setDraftSubject(e.target.value)}
+                                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <label className="block text-sm">
+                              <span className="mb-1 block text-xs font-medium">
+                                Testo
+                              </span>
+                              <textarea
+                                value={draftBody}
+                                onChange={(e) => setDraftBody(e.target.value)}
+                                rows={12}
+                                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                              />
+                            </label>
+                            <div className="flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2">
+                              <label className="text-xs">
+                                <span className="mb-1 block font-medium text-[var(--muted)]">
+                                  Traduci bozza in
+                                </span>
+                                <select
+                                  value={outboundLang}
+                                  onChange={(e) =>
+                                    setOutboundLang(e.target.value)
+                                  }
+                                  className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
+                                >
+                                  {WEBMAIL_TRANSLATE_LANGS.filter(
+                                    (l) => l.code !== "it"
+                                  ).map((l) => (
+                                    <option key={l.code} value={l.code}>
+                                      {l.label}
+                                    </option>
+                                  ))}
+                                  <option value="it">Italiano</option>
+                                </select>
+                              </label>
+                              <button
+                                type="button"
+                                disabled={pending || !draftBody.trim()}
+                                className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 disabled:opacity-50"
+                                onClick={() => {
+                                  startTransition(async () => {
+                                    const res = await translateWebmailTextAction({
+                                      messaggioId: selected.id,
+                                      bozzaId: bozza.id,
+                                      subject: draftSubject,
+                                      bodyText: draftBody,
+                                      targetLang: outboundLang,
+                                      direction: "outbound",
+                                    });
+                                    if (!res.success) {
+                                      setError(res.error);
+                                      return;
+                                    }
+                                    setOutboundTranslation({
+                                      subject: res.subject,
+                                      bodyText: res.bodyText,
+                                      targetLangLabel: res.targetLangLabel,
+                                    });
+                                    setInfo(
+                                      `Traduzione bozza → ${res.targetLangLabel} (${res.model}).`
+                                    );
+                                  });
+                                }}
+                              >
+                                Traduci
+                              </button>
+                              {outboundTranslation ? (
+                                <button
+                                  type="button"
+                                  disabled={pending}
+                                  className="rounded-lg bg-sky-700 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                                  onClick={() => {
+                                    if (outboundTranslation.subject) {
+                                      setDraftSubject(
+                                        outboundTranslation.subject
+                                      );
+                                    }
+                                    setDraftBody(outboundTranslation.bodyText);
+                                    setInfo(
+                                      `Traduzione applicata al testo della bozza (${outboundTranslation.targetLangLabel}). Salva se vuoi conservarla.`
+                                    );
+                                  }}
+                                >
+                                  Applica alla bozza
+                                </button>
+                              ) : null}
+                            </div>
+                            {outboundTranslation ? (
+                              <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-slate-800">
+                                {[
+                                  outboundTranslation.subject
+                                    ? `Oggetto: ${outboundTranslation.subject}`
+                                    : null,
+                                  outboundTranslation.bodyText,
+                                ]
+                                  .filter(Boolean)
+                                  .join("\n\n")}
+                              </pre>
+                            ) : null}
+                            {bozza.allegati.length > 0 ? (
+                              <ul className="space-y-1 text-xs text-slate-700">
+                                {bozza.allegati.map((a) => (
+                                  <li key={a.id}>Allegato: {a.fileName}</li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </>
+                        )}
+                      </div>
+                      {bozza ? (
+                        <div className="flex shrink-0 flex-wrap gap-2 border-t border-[var(--border)] bg-white px-4 py-3">
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={generateAi}
+                            className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm text-violet-900"
+                          >
+                            Rigenera AI
+                          </button>
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={saveDraft}
+                            className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                          >
+                            Salva modifiche
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              pending || bozza.documentoStato === "inviata"
+                            }
+                            onClick={sendDraft}
+                            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                          >
+                            Invia email
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </aside>
+              ) : null}
             </div>
                   ) : null}
                 </li>
@@ -1310,214 +1666,6 @@ export function WebmailBoard({
           )}
         </ul>
       </div>
-
-      {selected && aiReplyModalOpen ? (
-        <div
-          data-nested-modal
-          className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
-          onClick={(e) => {
-            e.stopPropagation();
-            setAiReplyModalOpen(false);
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          <div
-            role="dialog"
-            aria-modal
-            aria-label="Risposta AI"
-            className="flex max-h-[min(92vh,44rem)] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl border border-[var(--border)] bg-white shadow-2xl sm:rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-start justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Risposta AI
-                </h3>
-                <p className="mt-0.5 text-[11px] text-slate-500">
-                  Controlla, modifica e invia. La bozza resta salvata sulla
-                  mail.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAiReplyModalOpen(false)}
-                className="rounded-lg border border-[var(--border)] px-2.5 py-1 text-xs font-medium hover:bg-slate-50"
-              >
-                Chiudi
-              </button>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
-              {!bozza ? (
-                <div className="space-y-3 py-6 text-center">
-                  <p className="text-sm text-[var(--muted)]">
-                    {pending
-                      ? "Generazione risposta in corso…"
-                      : "Nessuna bozza. Genera una proposta di risposta."}
-                  </p>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={generateAi}
-                    className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  >
-                    Genera risposta AI
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-[var(--muted)]">
-                    Intent: {bozza.intent}
-                    {bozza.confidence != null
-                      ? ` · ${bozza.confidence}%`
-                      : ""}
-                  </p>
-                  <label className="block text-sm">
-                    <span className="mb-1 block text-xs font-medium">
-                      Oggetto
-                    </span>
-                    <input
-                      value={draftSubject}
-                      onChange={(e) => setDraftSubject(e.target.value)}
-                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="block text-sm">
-                    <span className="mb-1 block text-xs font-medium">
-                      Testo
-                    </span>
-                    <textarea
-                      value={draftBody}
-                      onChange={(e) => setDraftBody(e.target.value)}
-                      rows={12}
-                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <div className="flex flex-wrap items-end gap-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2">
-                    <label className="text-xs">
-                      <span className="mb-1 block font-medium text-[var(--muted)]">
-                        Traduci bozza in
-                      </span>
-                      <select
-                        value={outboundLang}
-                        onChange={(e) => setOutboundLang(e.target.value)}
-                        className="rounded border border-[var(--border)] bg-white px-2 py-1.5 text-sm"
-                      >
-                        {WEBMAIL_TRANSLATE_LANGS.filter(
-                          (l) => l.code !== "it"
-                        ).map((l) => (
-                          <option key={l.code} value={l.code}>
-                            {l.label}
-                          </option>
-                        ))}
-                        <option value="it">Italiano</option>
-                      </select>
-                    </label>
-                    <button
-                      type="button"
-                      disabled={pending || !draftBody.trim()}
-                      className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 disabled:opacity-50"
-                      onClick={() => {
-                        startTransition(async () => {
-                          const res = await translateWebmailTextAction({
-                            messaggioId: selected.id,
-                            bozzaId: bozza.id,
-                            subject: draftSubject,
-                            bodyText: draftBody,
-                            targetLang: outboundLang,
-                            direction: "outbound",
-                          });
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          setOutboundTranslation({
-                            subject: res.subject,
-                            bodyText: res.bodyText,
-                            targetLangLabel: res.targetLangLabel,
-                          });
-                          setInfo(
-                            `Traduzione bozza → ${res.targetLangLabel} (${res.model}).`
-                          );
-                        });
-                      }}
-                    >
-                      Traduci
-                    </button>
-                    {outboundTranslation ? (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        className="rounded-lg bg-sky-700 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                        onClick={() => {
-                          if (outboundTranslation.subject) {
-                            setDraftSubject(outboundTranslation.subject);
-                          }
-                          setDraftBody(outboundTranslation.bodyText);
-                          setInfo(
-                            `Traduzione applicata al testo della bozza (${outboundTranslation.targetLangLabel}). Salva se vuoi conservarla.`
-                          );
-                        }}
-                      >
-                        Applica alla bozza
-                      </button>
-                    ) : null}
-                  </div>
-                  {outboundTranslation ? (
-                    <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs text-slate-800">
-                      {[
-                        outboundTranslation.subject
-                          ? `Oggetto: ${outboundTranslation.subject}`
-                          : null,
-                        outboundTranslation.bodyText,
-                      ]
-                        .filter(Boolean)
-                        .join("\n\n")}
-                    </pre>
-                  ) : null}
-                  {bozza.allegati.length > 0 ? (
-                    <ul className="space-y-1 text-xs text-slate-700">
-                      {bozza.allegati.map((a) => (
-                        <li key={a.id}>Allegato: {a.fileName}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              )}
-            </div>
-
-            {bozza ? (
-              <div className="flex shrink-0 flex-wrap gap-2 border-t border-[var(--border)] bg-slate-50 px-4 py-3">
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={generateAi}
-                  className="rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm text-violet-900"
-                >
-                  Rigenera AI
-                </button>
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={saveDraft}
-                  className="rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-                >
-                  Salva modifiche
-                </button>
-                <button
-                  type="button"
-                  disabled={pending || bozza.documentoStato === "inviata"}
-                  onClick={sendDraft}
-                  className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                >
-                  Invia email
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
 
       <WebmailCategoriaModal
         open={catTargetIds.length > 0}
