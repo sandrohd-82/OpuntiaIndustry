@@ -95,7 +95,6 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
-  "script",
   "chat",
   "webmail",
   "magazzino",
@@ -103,6 +102,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "area-fiscale",
   "area-fornitori",
   "impostazioni",
+  "script",
 ];
 
 /** Aree non mostrate nel menu (ancora raggiungibili se in permessi). */
