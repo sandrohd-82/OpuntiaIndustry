@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { FaChevronDown } from "react-icons/fa6";
 import {
   confirmWebmailCategoriaSuggestionAction,
@@ -107,6 +114,8 @@ const MAIL_INFO = {
   rigenera: "Genera di nuovo la bozza AI, sostituendo quella attuale.",
   salvaBozza: "Salva le modifiche alla bozza su questa mail.",
   inviaBozza: "Invia la bozza AI come email di risposta.",
+  live:
+    "Ascolta la casella in tempo reale (IMAP IDLE): le nuove mail compaiono appena arrivano sul server. Resta attivo finché questa pagina è aperta. Spegni il pulsante per interrompere.",
 };
 
 export function WebmailBoard({
@@ -177,6 +186,13 @@ export function WebmailBoard({
   const [replyTo, setReplyTo] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBody, setReplyBody] = useState("");
+  const [liveKeep, setLiveKeep] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<{
+    at: Date | null;
+    listening: boolean;
+    lastImported: number;
+    error: string | null;
+  }>({ at: null, listening: false, lastImported: 0, error: null });
 
   const selected = useMemo(
     () => messaggi.find((m) => m.id === selectedId) ?? null,
@@ -246,6 +262,105 @@ export function WebmailBoard({
       setPage(m.page - 1);
     }
   }, [accountFilter, categoriaFilter, onlyDraft, view, categoriaId, page]);
+
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  const accountLiveRef = useRef(accountFilter);
+  accountLiveRef.current = accountFilter;
+  const syncBusyRef = useRef(false);
+  syncBusyRef.current = Boolean(syncProgress || syncModalOpen);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("webmail-live-sync") === "1") {
+        setLiveKeep(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("webmail-live-sync", liveKeep ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [liveKeep]);
+
+  useEffect(() => {
+    if (!liveKeep) {
+      setLiveStatus((s) => ({ ...s, listening: false }));
+      return;
+    }
+    const ac = new AbortController();
+    let cancelled = false;
+    setLiveStatus((s) => ({ ...s, listening: true, error: null }));
+
+    void (async () => {
+      while (!cancelled) {
+        while (syncBusyRef.current && !cancelled) {
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        if (cancelled) break;
+        try {
+          const res = await fetch("/api/webmail/live-sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              accountId: accountLiveRef.current || null,
+            }),
+            signal: ac.signal,
+          });
+          const data = (await res.json()) as {
+            imported?: number;
+            error?: string;
+            errors?: string[];
+          };
+          if (cancelled) break;
+          const err =
+            data.error ||
+            (data.errors && data.errors.length
+              ? data.errors.join("; ")
+              : null);
+          setLiveStatus({
+            at: new Date(),
+            listening: true,
+            lastImported: data.imported ?? 0,
+            error: err,
+          });
+          if ((data.imported ?? 0) > 0) {
+            const n = data.imported ?? 0;
+            setInfo(
+              n === 1
+                ? "1 nuova mail ricevuta dalla casella."
+                : `${n} nuove mail ricevute dalla casella.`
+            );
+            await reloadRef.current();
+          }
+        } catch (e) {
+          if (
+            cancelled ||
+            (e instanceof DOMException && e.name === "AbortError")
+          ) {
+            break;
+          }
+          setLiveStatus((s) => ({
+            ...s,
+            at: new Date(),
+            error:
+              e instanceof Error ? e.message : "Ascolto interrotto. Riprovo…",
+          }));
+          await new Promise((r) => setTimeout(r, 2500));
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, [liveKeep, accountFilter]);
 
   function resetSelection() {
     setSelectMode(false);
@@ -653,17 +768,43 @@ export function WebmailBoard({
                   ? "Messaggi nella categoria selezionata."
                   : "Leggi la mail, genera la risposta AI solo quando serve, sposta in categoria e collega l’azienda. Il sistema impara dalle tue conferme (soglie 2 / 4 / 6)."}
         </p>
-        {view !== "cestino" ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={syncNow}
-            className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            Sincronizza
-          </button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {view !== "cestino" ? (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={syncNow}
+              className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Sincronizza
+            </button>
+          ) : null}
+          <WithInfoNuvola info={MAIL_INFO.live}>
+            <button
+              type="button"
+              aria-pressed={liveKeep}
+              onClick={() => setLiveKeep((v) => !v)}
+              className={`rounded-lg px-3 py-2 text-sm font-medium disabled:opacity-50 ${
+                liveKeep
+                  ? "bg-emerald-700 text-white"
+                  : "border border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100"
+              }`}
+            >
+              {liveKeep ? "In ascolto…" : "Mantieni sincronizzato"}
+            </button>
+          </WithInfoNuvola>
+        </div>
       </div>
+      {liveKeep ? (
+        <p className="inline-flex items-center gap-2 text-xs text-emerald-800">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+          Ascolto casella: le nuove mail arrivano appena sono sul server.
+          {liveStatus.at
+            ? ` Ultimo controllo ${liveStatus.at.toLocaleTimeString("it-IT")}.`
+            : ""}
+          {liveStatus.error ? ` ${liveStatus.error}` : ""}
+        </p>
+      ) : null}
 
       {hideTopFilters ? null : (
       <div className="flex flex-wrap gap-2">
