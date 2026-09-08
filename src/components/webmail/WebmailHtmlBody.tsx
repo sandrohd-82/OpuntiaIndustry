@@ -5,6 +5,7 @@ import {
   getWebmailMessaggioHtmlAction,
   type WebmailMessaggioAllegatoPublic,
 } from "@/app/actions/webmail";
+import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 
 type Props = {
   messaggioId: string;
@@ -99,24 +100,32 @@ export function WebmailHtmlBody({
         <ul className="flex flex-wrap gap-2">
           {downloadable.map((a) => (
             <li key={a.id}>
-              {onAllegatoClick ? (
-                <button
-                  type="button"
-                  onClick={() => onAllegatoClick(a)}
-                  className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-sky-800 hover:bg-sky-50"
-                >
-                  {a.filename || "Allegato"}
-                </button>
-              ) : (
-                <a
-                  href={a.url ?? undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-sky-800 hover:bg-sky-50"
-                >
-                  {a.filename || "Allegato"}
-                </a>
-              )}
+              <WithInfoNuvola
+                info={
+                  onAllegatoClick
+                    ? "Apre l’anteprima dell’allegato nel pannello di destra."
+                    : "Apre o scarica questo allegato in una nuova scheda."
+                }
+              >
+                {onAllegatoClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onAllegatoClick(a)}
+                    className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-sky-800 hover:bg-sky-50"
+                  >
+                    {a.filename || "Allegato"}
+                  </button>
+                ) : (
+                  <a
+                    href={a.url ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-sky-800 hover:bg-sky-50"
+                  >
+                    {a.filename || "Allegato"}
+                  </a>
+                )}
+              </WithInfoNuvola>
             </li>
           ))}
         </ul>

@@ -61,9 +61,118 @@ export function normalizeAttachmentMime(raw: string | undefined | null): string 
   return map[base] || base || "application/octet-stream";
 }
 
+const WEBMAIL_LINK_INFO_CSS = `<style id="oi-link-info">
+a.oi-link-info, button.oi-link-info, input.oi-link-info {
+  position: relative;
+}
+a.oi-link-info::after,
+button.oi-link-info::after,
+input.oi-link-info::after {
+  content: "i";
+  display: inline-block;
+  margin-left: 0.35em;
+  width: 1.05em;
+  height: 1.05em;
+  line-height: 1.05em;
+  text-align: center;
+  border-radius: 999px;
+  border: 1px solid #7dd3fc;
+  background: #f0f9ff;
+  color: #075985;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: system-ui, Segoe UI, sans-serif;
+  vertical-align: super;
+  cursor: help;
+}
+a.oi-link-info:hover::before,
+a.oi-link-info:focus::before {
+  content: "Destinazione: " attr(href);
+}
+button.oi-link-info:hover::before,
+button.oi-link-info:focus::before,
+input.oi-link-info:hover::before,
+input.oi-link-info:focus::before {
+  content: "Pulsante contenuto nella mail. Controlla sempre dove porta prima di cliccare.";
+}
+a.oi-link-info:hover::before,
+a.oi-link-info:focus::before,
+button.oi-link-info:hover::before,
+button.oi-link-info:focus::before,
+input.oi-link-info:hover::before,
+input.oi-link-info:focus::before {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 2147483647;
+  width: max-content;
+  max-width: min(22rem, 72vw);
+  padding: 8px 12px;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #e0f2fe;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 400;
+  font-family: system-ui, Segoe UI, sans-serif;
+  word-break: break-all;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+</style>`;
+
+function ensureInfoClass(attrs: string): string {
+  if (/\bclass\s*=\s*"/i.test(attrs)) {
+    return attrs.replace(/\bclass\s*=\s*"/i, 'class="oi-link-info ');
+  }
+  if (/\bclass\s*=\s*'/i.test(attrs)) {
+    return attrs.replace(/\bclass\s*=\s*'/i, "class='oi-link-info ");
+  }
+  if (/\bclass\s*=/i.test(attrs)) {
+    return attrs.replace(/\bclass\s*=/i, 'class="oi-link-info ');
+  }
+  return `${attrs} class="oi-link-info"`;
+}
+
+function decorateMailInteractiveTags(html: string): string {
+  let out = html.replace(/<a\b([^>]*)>/gi, (_m, attrs: string) => {
+    let a = ensureInfoClass(attrs);
+    if (!/\btarget\s*=/i.test(a)) a += ' target="_blank"';
+    if (!/\brel\s*=/i.test(a)) a += ' rel="noopener noreferrer"';
+    return `<a${a}>`;
+  });
+  out = out.replace(/<button\b([^>]*)>/gi, (_m, attrs: string) => {
+    return `<button${ensureInfoClass(attrs)}>`;
+  });
+  out = out.replace(/<input\b([^>]*)>/gi, (full, attrs: string) => {
+    if (!/\btype\s*=\s*["']?(button|submit|reset|image)/i.test(attrs)) {
+      return full;
+    }
+    return `<input${ensureInfoClass(attrs)}>`;
+  });
+  return out;
+}
+
+function injectLinkInfoCss(html: string): string {
+  if (/id=["']oi-link-info["']/.test(html)) return html;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head([^>]*)>/i, `<head$1>${WEBMAIL_LINK_INFO_CSS}`);
+  }
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(
+      /<html([^>]*)>/i,
+      `<html$1><head>${WEBMAIL_LINK_INFO_CSS}</head>`
+    );
+  }
+  return `${WEBMAIL_LINK_INFO_CSS}${html}`;
+}
+
 /**
  * Riscrive cid:… → URL allegati; rimuove CSP che blocca le immagini;
- * forza link in nuova scheda; wrappa in documento HTML minimo se serve.
+ * forza link in nuova scheda; aggiunge «i» info a nuvola su link/pulsanti;
+ * wrappa in documento HTML minimo se serve.
  */
 export function rewriteWebmailHtml(input: {
   html: string;
@@ -110,13 +219,7 @@ export function rewriteWebmailHtml(input: {
     }
   );
 
-  // Link esterni → nuova scheda
-  html = html.replace(/<a\b([^>]*)>/gi, (_m, attrs: string) => {
-    let a = attrs;
-    if (!/\btarget\s*=/i.test(a)) a += ' target="_blank"';
-    if (!/\brel\s*=/i.test(a)) a += ' rel="noopener noreferrer"';
-    return `<a${a}>`;
-  });
+  html = decorateMailInteractiveTags(html);
 
   const looksComplete =
     /<html[\s>]/i.test(html) || /<!DOCTYPE\s+html/i.test(html);
@@ -128,10 +231,10 @@ export function rewriteWebmailHtml(input: {
         `<head$1><style>img{max-width:100%;height:auto;}</style>`
       );
     }
-    return html;
+    return injectLinkInfoCss(html);
   }
 
-  return `<!DOCTYPE html>
+  return injectLinkInfoCss(`<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
@@ -145,7 +248,7 @@ export function rewriteWebmailHtml(input: {
 <body>
 ${html}
 </body>
-</html>`;
+</html>`);
 }
 
 export function extractPlainFromHtml(html: string): string {

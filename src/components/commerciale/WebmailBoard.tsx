@@ -41,6 +41,7 @@ import {
   WebmailSyncModal,
   type WebmailSyncChoice,
 } from "@/components/webmail/WebmailSyncModal";
+import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
   WEBMAIL_PAGE_SIZE,
@@ -66,6 +67,47 @@ function linkStatoLabel(stato: WebmailMessaggio["linkStato"]) {
   if (stato === "da_salvare") return "Da salvare";
   return "Bozza";
 }
+
+const MAIL_INFO = {
+  headers:
+    "Mostra o nasconde mittente, destinatari, date, Message-ID e gli altri header della mail.",
+  catSi:
+    "Conferma che la categoria proposta è corretta. Il sistema impara per le prossime mail simili.",
+  catNo:
+    "Rifiuta la categoria automatica e ti permette di scegliere tu dove spostare la mail.",
+  catConferma:
+    "Applica a questa mail la categoria suggerita dal sistema.",
+  catIgnora:
+    "Lascia la mail dove sta e non applica il suggerimento di categoria.",
+  collega:
+    "Collega questa mail a un cliente o a un possibile cliente in anagrafica.",
+  rispondi:
+    "Apre a destra il pannello per scrivere e inviare una risposta dalla casella collegata.",
+  ai: "Apre a destra il pannello della risposta AI: genera, controlla, salva e invia la bozza.",
+  ripristina: "Riporta la mail dal cestino alla casella.",
+  ripristinaArchivio: "Riporta la mail dall’archivio alla casella.",
+  categoria: "Scegli una categoria (cartella) in cui spostare questa mail.",
+  archivia: "Sposta la mail in Archiviate, fuori dalla casella principale.",
+  elimina: "Sposta la mail nel cestino. Non è una cancellazione fisica: resta tracciata.",
+  rematch: "Riesegue il riconoscimento automatico del mittente in anagrafica.",
+  traduci:
+    "Mostra una traduzione in italiano del testo. L’originale della mail non viene modificato.",
+  toggleTraduzione: "Alterna tra il testo originale e la traduzione.",
+  soloTesto: "Mostra il corpo come testo semplice oppure come HTML formattato.",
+  ricarica:
+    "Riscarica dal server della casella il corpo HTML e gli allegati di questa mail.",
+  chiudiPannello:
+    "Chiude il pannello di destra e riporta la mail a tutta larghezza.",
+  apriAllegato: "Apre o scarica l’allegato in una nuova scheda.",
+  inviaRisposta: "Invia la risposta dalla casella collegata al destinatario indicato.",
+  generaAiPannello: "Crea una nuova bozza di risposta con l’AI.",
+  traduciBozza: "Traduce la bozza nella lingua scelta, senza inviarla.",
+  applicaTraduzione:
+    "Sostituisce oggetto e testo della bozza con la traduzione mostrata.",
+  rigenera: "Genera di nuovo la bozza AI, sostituendo quella attuale.",
+  salvaBozza: "Salva le modifiche alla bozza su questa mail.",
+  inviaBozza: "Invia la bozza AI come email di risposta.",
+};
 
 export function WebmailBoard({
   initialAccountId = null,
@@ -886,6 +928,7 @@ export function WebmailBoard({
                       Da {selected.fromName || selected.fromAddress} ·{" "}
                       {formatWhen(selected.receivedAt)}
                     </span>
+                    <WithInfoNuvola info={MAIL_INFO.headers}>
                     <button
                       type="button"
                       aria-expanded={headersOpen}
@@ -905,6 +948,7 @@ export function WebmailBoard({
                         }`}
                       />
                     </button>
+                    </WithInfoNuvola>
                   </div>
                   {headersOpen ? (
                     <dl className="mt-2 space-y-1.5 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2.5 text-xs text-slate-800">
@@ -1003,6 +1047,7 @@ export function WebmailBoard({
                       corretto?
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
+                      <WithInfoNuvola info={MAIL_INFO.catSi}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1026,6 +1071,8 @@ export function WebmailBoard({
                       >
                         Sì, corretto
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.catNo}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1047,6 +1094,7 @@ export function WebmailBoard({
                       >
                         No, cambia
                       </button>
+                      </WithInfoNuvola>
                     </div>
                   </div>
                 ) : null}
@@ -1060,6 +1108,7 @@ export function WebmailBoard({
                       <strong>{suggestCat.nome}</strong>. Confermi?
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
+                      <WithInfoNuvola info={MAIL_INFO.catConferma}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1083,6 +1132,8 @@ export function WebmailBoard({
                       >
                         Conferma
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.catIgnora}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1103,6 +1154,7 @@ export function WebmailBoard({
                       >
                         Ignora
                       </button>
+                      </WithInfoNuvola>
                     </div>
                   </div>
                 ) : null}
@@ -1118,6 +1170,7 @@ export function WebmailBoard({
                 ) : null}
 
                 <div className="mt-3 flex flex-wrap gap-2">
+                      <WithInfoNuvola info={MAIL_INFO.collega}>
                       <button
                         type="button"
                         className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
@@ -1125,6 +1178,8 @@ export function WebmailBoard({
                       >
                         Collega azienda
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.rispondi}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1133,6 +1188,8 @@ export function WebmailBoard({
                       >
                         Rispondi
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.ai}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1144,7 +1201,9 @@ export function WebmailBoard({
                       >
                         {bozza ? "Apri risposta AI" : "Genera risposta AI"}
                       </button>
+                      </WithInfoNuvola>
                   {view === "cestino" ? (
+                    <WithInfoNuvola info={MAIL_INFO.ripristina}>
                     <button
                       type="button"
                       disabled={pending}
@@ -1166,7 +1225,9 @@ export function WebmailBoard({
                     >
                       Ripristina
                     </button>
+                    </WithInfoNuvola>
                   ) : view === "archiviate" ? (
+                    <WithInfoNuvola info={MAIL_INFO.ripristinaArchivio}>
                     <button
                       type="button"
                       disabled={pending}
@@ -1188,8 +1249,10 @@ export function WebmailBoard({
                     >
                       Ripristina in casella
                     </button>
+                    </WithInfoNuvola>
                   ) : (
                     <>
+                      <WithInfoNuvola info={MAIL_INFO.categoria}>
                       <button
                         type="button"
                         className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium"
@@ -1197,6 +1260,8 @@ export function WebmailBoard({
                       >
                         Sposta in categoria
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.archivia}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1218,6 +1283,8 @@ export function WebmailBoard({
                       >
                         Archivia
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.elimina}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1226,6 +1293,7 @@ export function WebmailBoard({
                       >
                         Elimina
                       </button>
+                      </WithInfoNuvola>
                     </>
                   )}
                 </div>
@@ -1240,6 +1308,7 @@ export function WebmailBoard({
                     {linkStatoLabel(selected.linkStato)}
                     {selected.contattoId ? " · referente collegato" : ""}
                   </p>
+                  <WithInfoNuvola info={MAIL_INFO.rematch}>
                   <button
                     type="button"
                     disabled={pending}
@@ -1261,8 +1330,10 @@ export function WebmailBoard({
                   >
                     Ricalcola match mittente
                   </button>
+                  </WithInfoNuvola>
                 </div>
                 <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <WithInfoNuvola info={MAIL_INFO.traduci}>
                   <button
                     type="button"
                     disabled={pending || !selected.bodyText.trim()}
@@ -1294,7 +1365,9 @@ export function WebmailBoard({
                   >
                     Traduci in italiano
                   </button>
+                  </WithInfoNuvola>
                   {inboundTranslation ? (
+                    <WithInfoNuvola info={MAIL_INFO.toggleTraduzione}>
                     <button
                       type="button"
                       className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
@@ -1306,9 +1379,11 @@ export function WebmailBoard({
                         ? "Mostra originale"
                         : "Mostra traduzione"}
                     </button>
+                    </WithInfoNuvola>
                   ) : null}
                   {!showInboundTranslation ? (
                     <>
+                      <WithInfoNuvola info={MAIL_INFO.soloTesto}>
                       <button
                         type="button"
                         className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium hover:bg-slate-50"
@@ -1316,6 +1391,8 @@ export function WebmailBoard({
                       >
                         {showPlainText ? "Mostra HTML" : "Solo testo"}
                       </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.ricarica}>
                       <button
                         type="button"
                         disabled={pending}
@@ -1341,6 +1418,7 @@ export function WebmailBoard({
                       >
                         Ricarica corpo e allegati
                       </button>
+                      </WithInfoNuvola>
                     </>
                   ) : null}
                 </div>
@@ -1391,6 +1469,7 @@ export function WebmailBoard({
                             : previewAllegato?.mimeType || "Anteprima allegato"}
                       </p>
                     </div>
+                    <WithInfoNuvola info={MAIL_INFO.chiudiPannello}>
                     <button
                       type="button"
                       onClick={closeSidePanel}
@@ -1398,6 +1477,7 @@ export function WebmailBoard({
                     >
                       Chiudi
                     </button>
+                    </WithInfoNuvola>
                   </div>
                   {sidePanel === "allegato" && previewAllegato ? (
                     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
@@ -1422,6 +1502,7 @@ export function WebmailBoard({
                         </p>
                       )}
                       {previewAllegato.url ? (
+                        <WithInfoNuvola info={MAIL_INFO.apriAllegato}>
                         <a
                           href={previewAllegato.url}
                           target="_blank"
@@ -1430,6 +1511,7 @@ export function WebmailBoard({
                         >
                           Apri / scarica
                         </a>
+                        </WithInfoNuvola>
                       ) : null}
                     </div>
                   ) : null}
@@ -1469,6 +1551,7 @@ export function WebmailBoard({
                         </label>
                       </div>
                       <div className="flex shrink-0 flex-wrap gap-2 border-t border-[var(--border)] bg-white px-4 py-3">
+                        <WithInfoNuvola info={MAIL_INFO.inviaRisposta}>
                         <button
                           type="button"
                           disabled={pending || !replyTo.trim() || !replyBody.trim()}
@@ -1477,6 +1560,7 @@ export function WebmailBoard({
                         >
                           Invia
                         </button>
+                        </WithInfoNuvola>
                       </div>
                     </div>
                   ) : null}
@@ -1490,6 +1574,7 @@ export function WebmailBoard({
                                 ? "Generazione risposta in corso…"
                                 : "Nessuna bozza. Genera una proposta di risposta."}
                             </p>
+                            <WithInfoNuvola info={MAIL_INFO.generaAiPannello}>
                             <button
                               type="button"
                               disabled={pending}
@@ -1498,6 +1583,7 @@ export function WebmailBoard({
                             >
                               Genera risposta AI
                             </button>
+                            </WithInfoNuvola>
                           </div>
                         ) : (
                           <>
@@ -1550,6 +1636,7 @@ export function WebmailBoard({
                                   <option value="it">Italiano</option>
                                 </select>
                               </label>
+                              <WithInfoNuvola info={MAIL_INFO.traduciBozza}>
                               <button
                                 type="button"
                                 disabled={pending || !draftBody.trim()}
@@ -1581,7 +1668,9 @@ export function WebmailBoard({
                               >
                                 Traduci
                               </button>
+                              </WithInfoNuvola>
                               {outboundTranslation ? (
+                                <WithInfoNuvola info={MAIL_INFO.applicaTraduzione}>
                                 <button
                                   type="button"
                                   disabled={pending}
@@ -1600,6 +1689,7 @@ export function WebmailBoard({
                                 >
                                   Applica alla bozza
                                 </button>
+                                </WithInfoNuvola>
                               ) : null}
                             </div>
                             {outboundTranslation ? (
@@ -1626,6 +1716,7 @@ export function WebmailBoard({
                       </div>
                       {bozza ? (
                         <div className="flex shrink-0 flex-wrap gap-2 border-t border-[var(--border)] bg-white px-4 py-3">
+                          <WithInfoNuvola info={MAIL_INFO.rigenera}>
                           <button
                             type="button"
                             disabled={pending}
@@ -1634,6 +1725,8 @@ export function WebmailBoard({
                           >
                             Rigenera AI
                           </button>
+                          </WithInfoNuvola>
+                          <WithInfoNuvola info={MAIL_INFO.salvaBozza}>
                           <button
                             type="button"
                             disabled={pending}
@@ -1642,6 +1735,8 @@ export function WebmailBoard({
                           >
                             Salva modifiche
                           </button>
+                          </WithInfoNuvola>
+                          <WithInfoNuvola info={MAIL_INFO.inviaBozza}>
                           <button
                             type="button"
                             disabled={
@@ -1652,6 +1747,7 @@ export function WebmailBoard({
                           >
                             Invia email
                           </button>
+                          </WithInfoNuvola>
                         </div>
                       ) : null}
                     </div>
