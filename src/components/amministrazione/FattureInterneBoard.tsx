@@ -9,6 +9,7 @@ import {
 } from "react";
 import { FaArrowsRotate, FaCalculator, FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
 import { AZ } from "@/lib/auth/action-access";
 import {
   getFatturaByIdAction,
@@ -104,6 +105,7 @@ function sortValue(f: Fattura, key: SortKey): string | number {
 }
 
 export function FattureInterneBoard({ kind }: Props) {
+  const { canElaboraContabilita } = useSensitiveAuth();
   const registraKey =
     kind === "nota_credito"
       ? AZ.registraNotaCredito
@@ -306,7 +308,8 @@ export function FattureInterneBoard({ kind }: Props) {
           <p className="text-sm text-[var(--muted)]">{titleHint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {kind === "emessa" || kind === "ricevuta" ? (
+          {canElaboraContabilita &&
+          (kind === "emessa" || kind === "ricevuta") ? (
             <button
               type="button"
               onClick={() => setElaboraOpen(true)}

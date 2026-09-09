@@ -7,19 +7,34 @@ import {
   type ProfileAuthSettings,
 } from "@/lib/auth/data-scope";
 
-const Ctx = createContext<ProfileAuthSettings>(EMPTY_AUTH_SETTINGS);
+export type SensitiveAuthValue = ProfileAuthSettings & {
+  canElaboraContabilita: boolean;
+};
+
+const EMPTY: SensitiveAuthValue = {
+  ...EMPTY_AUTH_SETTINGS,
+  canElaboraContabilita: false,
+};
+
+const Ctx = createContext<SensitiveAuthValue>(EMPTY);
 
 export function SensitiveAuthProvider({
   settings,
+  canElaboraContabilita = false,
   children,
 }: {
   settings: ProfileAuthSettings;
+  canElaboraContabilita?: boolean;
   children: ReactNode;
 }) {
-  return <Ctx.Provider value={settings}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={{ ...settings, canElaboraContabilita }}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
-export function useSensitiveAuth(): ProfileAuthSettings {
+export function useSensitiveAuth(): SensitiveAuthValue {
   return useContext(Ctx);
 }
 

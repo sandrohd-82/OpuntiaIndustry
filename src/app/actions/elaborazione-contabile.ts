@@ -10,6 +10,7 @@ import {
 } from "@/lib/amministrazione/elaborazione-contabile";
 import type { TrimestreNumero } from "@/lib/amministrazione/trimestre-commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { assertElaboraContabilita } from "@/lib/auth/elabora-contabilita";
 import { createClient } from "@/lib/supabase/server";
 import type {
   ElaborazioneContabileInsert,
@@ -102,6 +103,8 @@ export async function getElaborazioneContabileAction(input: {
   trimestre: TrimestreNumero;
 }): Promise<ElaborazioneActionResult> {
   await requireAreaAccess("amministrazione");
+  const gate = await assertElaboraContabilita();
+  if (!gate.ok) return { success: false, error: gate.error };
   const supabase = await createClient();
 
   const fatture = await loadFattureTrimestre(
@@ -150,6 +153,8 @@ export async function saveElaborazioneContabileAction(
   raw: unknown
 ): Promise<ElaborazioneActionResult> {
   const { auth } = await requireAreaAccess("amministrazione");
+  const gate = await assertElaboraContabilita();
+  if (!gate.ok) return { success: false, error: gate.error };
   const parsed = elaborazioneSaveSchema.safeParse(raw);
   if (!parsed.success) {
     return {

@@ -15,6 +15,7 @@ import { loadAccessMaps } from "@/app/actions/page-access";
 import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
 import { ImpostaAutorizzazioniButton } from "@/components/layout/ImpostaAutorizzazioniButton";
 import { SensitiveAuthProvider } from "@/components/layout/SensitiveAuthProvider";
+import { canElaboraContabilitaAccess } from "@/lib/auth/action-access";
 import { applySensitiveLocks, isFiscalePath, isRicercaSviluppoPath } from "@/lib/auth/data-scope";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
@@ -103,7 +104,15 @@ export default async function AppLayout({
   const canCreateProfiles = isSuperadminProfile(auth.actorProfile);
 
   return (
-    <SensitiveAuthProvider settings={authSettings}>
+    <SensitiveAuthProvider
+      settings={authSettings}
+      canElaboraContabilita={canElaboraContabilitaAccess({
+        isSuperadminSelf:
+          isSuperadminProfile(auth.profile) && !auth.impersonating,
+        isCommercialista: authSettings.isCommercialista,
+        actionAccess,
+      })}
+    >
     <div className="flex min-h-screen">
       <AppSidebar
         areas={menuAreas}
