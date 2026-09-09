@@ -51,10 +51,15 @@ import {
   mergeArchivioWebmailCaselle,
 } from "@/lib/areas/archivio";
 import { isWebHubPath, webSectionsForAccess } from "@/lib/areas/web";
-import { listWebmailAccountsAction } from "@/app/actions/webmail";
+import {
+  listWebmailAccountsAction,
+  listWebmailMenuAccountsAction,
+  setImpersonatedWebmailAreaAccessAction,
+} from "@/app/actions/webmail";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
+import { WEBMAIL_GRANT_NAV_EVENT } from "@/lib/webmail/unread-nav";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
@@ -285,7 +290,13 @@ function FirstLevelButton({
   badge?: NavBadge;
   extra?: ReactNode;
   tone?: AccessTone | null;
-  areaAccess?: { areaKey: string; tone: AccessTone } | null;
+  areaAccess?: {
+    areaKey: string;
+    tone: AccessTone;
+    onSet?: (
+      visibile: boolean
+    ) => Promise<{ success: true } | { success: false; error: string }>;
+  } | null;
   onToggle: () => void;
 }) {
   return (
@@ -305,7 +316,11 @@ function FirstLevelButton({
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
       </button>
       {rail || !areaAccess ? null : (
-        <MenuAreaAccessToggle areaKey={areaAccess.areaKey} tone={areaAccess.tone} />
+        <MenuAreaAccessToggle
+          areaKey={areaAccess.areaKey}
+          tone={areaAccess.tone}
+          onSet={areaAccess.onSet}
+        />
       )}
       {rail ? null : extra}
     </div>
@@ -466,6 +481,9 @@ export function AppSidebar({
   const [archivioNav, setArchivioNav] = useState<readonly NavItem[]>(() =>
     filterArchivioNavByAccess(areas)
   );
+  const [webmailGrantTone, setWebmailGrantTone] = useState<AccessTone | null>(
+    null
+  );
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -557,6 +575,26 @@ export function AppSidebar({
       cancelled = true;
     };
   }, [areas, hasArchivio]);
+
+  useEffect(() => {
+    if (!testMenuMode || !canCreateProfiles) {
+      setWebmailGrantTone(null);
+      return;
+    }
+    let cancelled = false;
+    function reload() {
+      void listWebmailMenuAccountsAction().then((res) => {
+        if (cancelled || !res.success) return;
+        setWebmailGrantTone(res.grantTone);
+      });
+    }
+    reload();
+    window.addEventListener(WEBMAIL_GRANT_NAV_EVENT, reload);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(WEBMAIL_GRANT_NAV_EVENT, reload);
+    };
+  }, [testMenuMode, canCreateProfiles, userId]);
 
   useEffect(() => {
     setOpenKeys((prev) => {
@@ -773,9 +811,25 @@ export function AppSidebar({
                 : treeSectionsRaw;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
-              ? toneForAreaAccess(href, pageAccess, toneChildren)
+              ? area.slug === "webmail" && webmailGrantTone
+                ? webmailGrantTone
+                : toneForAreaAccess(href, pageAccess, toneChildren)
               : null;
-            const areaAccess = areaToggle(href, toneChildren);
+            const areaAccess =
+              area.slug === "webmail" && canToggleAreas
+                ? {
+                    areaKey: href,
+                    tone: webmailGrantTone ?? "unset",
+                    onSet: async (visibile: boolean) => {
+                      const res =
+                        await setImpersonatedWebmailAreaAccessAction(visibile);
+                      if (res.success) {
+                        setWebmailGrantTone(visibile ? "on" : "off");
+                      }
+                      return res;
+                    },
+                  }
+                : areaToggle(href, toneChildren);
 
             const extra =
               area.slug === "chat" ? (
@@ -861,7 +915,13 @@ export function AppSidebar({
                     areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
-                  {!collapsed && open ? <WebmailSidebarNav /> : null}
+                  {!collapsed && open ? (
+                    <WebmailSidebarNav
+                      testMenuMode={testMenuMode}
+                      branchToggle={canToggleAreas}
+                      onGrantToneChange={setWebmailGrantTone}
+                    />
+                  ) : null}
                 </li>
               );
             }

@@ -1,9 +1,17 @@
 "use server";
 
-import { isAdminLikeProfile } from "@/lib/auth/roles";
+import { revalidatePath } from "next/cache";
+import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
-import { requireSuperadmin, requireWebmailAccess } from "@/lib/areas/guard";
+import {
+  isTestImpersonation,
+  requireSuperadmin,
+  requireWebmailAccess,
+} from "@/lib/areas/guard";
+import { toneForGrantSelection, type AccessTone } from "@/lib/auth/page-access";
+import { getAuthContext, getAuthUser, getProfile } from "@/lib/auth/session";
+import { setAreaAccessAction } from "@/app/actions/page-access";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
@@ -772,6 +780,265 @@ export async function setWebmailAccountGrantsAction(input: {
   });
 
   return { success: true };
+}
+
+const WEBMAIL_ACCOUNT_SELECT =
+  "id, label, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, sync_enabled, sync_since, last_sync_at, last_sync_error, owner_user_id";
+
+async function requireTestImpersonationMailboxAssign() {
+  const user = await getAuthUser();
+  if (!user) return { ok: false as const, error: "Non autenticato." };
+  const actor = await getProfile(user.id);
+  if (!actor || !isSuperadminProfile(actor)) {
+    return {
+      ok: false as const,
+      error: "Solo il Super Admin può assegnare le caselle.",
+    };
+  }
+  const auth = await getAuthContext();
+  if (!auth || !isTestImpersonation(auth)) {
+    return {
+      ok: false as const,
+      error: "Entra nel profilo test con lo switch per assegnare le caselle.",
+    };
+  }
+  return {
+    ok: true as const,
+    actorUserId: user.id,
+    targetId: auth.userId,
+  };
+}
+
+async function applyWebmailGrantForProfile(opts: {
+  accountId: string;
+  targetId: string;
+  actorUserId: string;
+  granted: boolean;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { accountId, targetId, actorUserId, granted } = opts;
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+
+  const { data: rows, error } = await service
+    .from("webmail_account_grants")
+    .select("id, deleted_at")
+    .eq("account_id", accountId)
+    .eq("user_id", targetId)
+    .order("updated_at", { ascending: false });
+  if (error) return { success: false, error: error.message };
+
+  const active = (rows ?? []).filter((r) => !r.deleted_at);
+  const inactive = (rows ?? []).filter((r) => r.deleted_at);
+
+  if (granted) {
+    if (active.length > 0) return { success: true };
+    if (inactive.length > 0) {
+      const { error: upErr } = await service
+        .from("webmail_account_grants")
+        .update({
+          deleted_at: null,
+          deleted_by: null,
+          can_send: true,
+          updated_by: actorUserId,
+        })
+        .eq("id", inactive[0]!.id);
+      if (upErr) return { success: false, error: upErr.message };
+      return { success: true };
+    }
+    const { error: insErr } = await service.from("webmail_account_grants").insert({
+      account_id: accountId,
+      user_id: targetId,
+      can_send: true,
+      created_by: actorUserId,
+      updated_by: actorUserId,
+    });
+    if (insErr) return { success: false, error: insErr.message };
+    return { success: true };
+  }
+
+  if (active.length === 0) return { success: true };
+  const { error: delErr } = await service
+    .from("webmail_account_grants")
+    .update({
+      deleted_at: now,
+      deleted_by: actorUserId,
+      updated_by: actorUserId,
+    })
+    .in(
+      "id",
+      active.map((r) => r.id)
+    );
+  if (delErr) return { success: false, error: delErr.message };
+  return { success: true };
+}
+
+export async function listWebmailMenuAccountsAction(): Promise<
+  | {
+      success: true;
+      accounts: WebmailAccountPublic[];
+      grantedIds: string[];
+      assignMode: boolean;
+      grantTone: AccessTone;
+    }
+  | { success: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth) return { success: false, error: "Non autenticato." };
+  if (auth.mustEnrollTotp || !auth.isSecondFactorVerified) {
+    return { success: false, error: "Accesso non verificato." };
+  }
+
+  const assignMode =
+    isSuperadminProfile(auth.actorProfile) && isTestImpersonation(auth);
+
+  if (!assignMode) {
+    const res = await listWebmailAccountsAction();
+    if (!res.success) return res;
+    const ids = res.accounts.map((a) => a.id);
+    return {
+      success: true,
+      accounts: res.accounts,
+      grantedIds: ids,
+      assignMode: false,
+      grantTone: toneForGrantSelection(ids.length, ids.length),
+    };
+  }
+
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("webmail_accounts")
+    .select(WEBMAIL_ACCOUNT_SELECT)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: true });
+  if (error) return { success: false, error: error.message };
+
+  const accounts = (data ?? []).map((r) =>
+    mapAccount(r as Record<string, unknown>)
+  );
+  const { data: grants, error: gErr } = await service
+    .from("webmail_account_grants")
+    .select("account_id")
+    .eq("user_id", auth.userId)
+    .is("deleted_at", null);
+  if (gErr) return { success: false, error: gErr.message };
+
+  const accountIdSet = new Set(accounts.map((a) => a.id));
+  const grantedIds = (grants ?? [])
+    .map((g) => String(g.account_id))
+    .filter((id) => accountIdSet.has(id));
+
+  return {
+    success: true,
+    accounts,
+    grantedIds,
+    assignMode: true,
+    grantTone: toneForGrantSelection(grantedIds.length, accounts.length),
+  };
+}
+
+export async function setImpersonatedWebmailAccountAccessAction(
+  accountId: string,
+  granted: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requireTestImpersonationMailboxAssign();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const idParsed = z.string().uuid().safeParse(accountId);
+  if (!idParsed.success) return { success: false, error: "Casella non valida." };
+
+  const applied = await applyWebmailGrantForProfile({
+    accountId: idParsed.data,
+    targetId: gate.targetId,
+    actorUserId: gate.actorUserId,
+    granted,
+  });
+  if (!applied.success) return applied;
+
+  if (granted) {
+    const area = await setAreaAccessAction("/app/webmail", true);
+    if (!area.success) return area;
+  }
+
+  const service = createServiceClient();
+  await service.from("audit_log").insert({
+    entity_type: "webmail_account_grants",
+    entity_id: idParsed.data,
+    action: granted ? "grant_on" : "grant_off",
+    actor_id: gate.actorUserId,
+    summary: `Casella webmail ${granted ? "assegnata" : "revocata"} al profilo test`,
+    payload: {
+      account_id: idParsed.data,
+      target_user_id: gate.targetId,
+      granted,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function setImpersonatedWebmailAllAccountsAccessAction(
+  granted: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requireTestImpersonationMailboxAssign();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const service = createServiceClient();
+  const { data: accounts, error } = await service
+    .from("webmail_accounts")
+    .select("id")
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  if (!granted) {
+    const now = new Date().toISOString();
+    const { error: revErr } = await service
+      .from("webmail_account_grants")
+      .update({
+        deleted_at: now,
+        deleted_by: gate.actorUserId,
+        updated_by: gate.actorUserId,
+      })
+      .eq("user_id", gate.targetId)
+      .is("deleted_at", null);
+    if (revErr) return { success: false, error: revErr.message };
+  } else {
+    for (const row of accounts ?? []) {
+      const applied = await applyWebmailGrantForProfile({
+        accountId: String(row.id),
+        targetId: gate.targetId,
+        actorUserId: gate.actorUserId,
+        granted: true,
+      });
+      if (!applied.success) return applied;
+    }
+  }
+
+  await service.from("audit_log").insert({
+    entity_type: "webmail_account_grants",
+    entity_id: gate.targetId,
+    action: granted ? "grant_all_on" : "grant_all_off",
+    actor_id: gate.actorUserId,
+    summary: granted
+      ? "Tutte le caselle webmail assegnate al profilo test"
+      : "Tutte le caselle webmail revocate al profilo test",
+    payload: {
+      target_user_id: gate.targetId,
+      granted,
+      account_count: (accounts ?? []).length,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}
+
+export async function setImpersonatedWebmailAreaAccessAction(
+  granted: boolean
+): Promise<{ success: true } | { success: false; error: string }> {
+  const page = await setAreaAccessAction("/app/webmail", granted);
+  if (!page.success) return page;
+  return setImpersonatedWebmailAllAccountsAccessAction(granted);
 }
 
 function applyWebmailMessaggiFilters<T>(

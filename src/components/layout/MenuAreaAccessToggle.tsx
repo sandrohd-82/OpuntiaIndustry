@@ -5,12 +5,17 @@ import { useState, useTransition } from "react";
 import { setAreaAccessAction } from "@/app/actions/page-access";
 import type { AccessTone } from "@/lib/auth/page-access";
 
+type SetResult =
+  | { success: true }
+  | { success: false; error: string };
+
 type Props = {
   areaKey: string;
   tone: AccessTone;
+  onSet?: (visibile: boolean) => Promise<SetResult>;
 };
 
-export function MenuAreaAccessToggle({ areaKey, tone }: Props) {
+export function MenuAreaAccessToggle({ areaKey, tone, onSet }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -18,7 +23,9 @@ export function MenuAreaAccessToggle({ areaKey, tone }: Props) {
   function setVisibile(next: boolean) {
     setError(null);
     startTransition(async () => {
-      const res = await setAreaAccessAction(areaKey, next);
+      const res = onSet
+        ? await onSet(next)
+        : await setAreaAccessAction(areaKey, next);
       if (!res.success) {
         setError(res.error);
         return;

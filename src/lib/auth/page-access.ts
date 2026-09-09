@@ -235,6 +235,17 @@ export function toneForAreaAccess(
   return toneForGroup(areaKey, map, childItems);
 }
 
+/** WebMail in profilo test: On = casella assegnata, Off = non assegnata. */
+export function toneForGrantSelection(
+  granted: number,
+  total: number
+): AccessTone {
+  if (total <= 0) return "unset";
+  if (granted <= 0) return "off";
+  if (granted >= total) return "on";
+  return "mixed";
+}
+
 export function toneForSubtreeAccess(
   path: string,
   map: PageAccessMap,
