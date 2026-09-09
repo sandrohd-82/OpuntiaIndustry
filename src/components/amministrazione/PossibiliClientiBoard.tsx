@@ -1,16 +1,21 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaClockRotateLeft, FaPen, FaPlus } from "react-icons/fa6";
+import { FaClockRotateLeft, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createClientePossibileAction,
   listClientiPossibiliAction,
+  softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
-import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import {
+  ActionGate,
+  useAnagraficaPrivileges,
+} from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
+import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 
 export function PossibiliClientiBoard() {
@@ -20,6 +25,8 @@ export function PossibiliClientiBoard() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
+  const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
+  const priv = useAnagraficaPrivileges("cliente_possibile");
 
   function reload() {
     startTransition(async () => {
@@ -77,6 +84,7 @@ export function PossibiliClientiBoard() {
                 {lead.email ? ` · ${lead.email}` : ""}
               </p>
             </div>
+            {priv.canTimeline ? (
             <button
               type="button"
               onClick={() => setTimelineFor(lead)}
@@ -86,6 +94,8 @@ export function PossibiliClientiBoard() {
               <FaClockRotateLeft size={10} />
               Timeline
             </button>
+            ) : null}
+            {priv.canEdit(lead.createdBy) ? (
             <button
               type="button"
               onClick={() => setEditingLead(lead)}
@@ -94,6 +104,17 @@ export function PossibiliClientiBoard() {
               <FaPen size={10} />
               Modifica
             </button>
+            ) : null}
+            {priv.canDelete(lead.createdBy) ? (
+            <button
+              type="button"
+              onClick={() => setDeleting(lead)}
+              className="inline-flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+            >
+              <FaTrash size={10} />
+              Elimina
+            </button>
+            ) : null}
           </li>
         ))}
         {items.length === 0 && !pending ? (
@@ -149,6 +170,25 @@ export function PossibiliClientiBoard() {
           aziendaId={timelineFor.id}
           aziendaLabel={timelineFor.ragioneSociale}
           onClose={() => setTimelineFor(null)}
+        />
+      ) : null}
+
+      {deleting ? (
+        <SoftDeleteConfirmModal
+          entityLabel="possibile cliente"
+          confirmCode={deleting.ragioneSociale}
+          onClose={() => setDeleting(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await softDeleteClientePossibileAction({
+              id: deleting.id,
+              confermaTestuale,
+            });
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setDeleting(null);
+            reload();
+          }}
         />
       ) : null}
     </div>

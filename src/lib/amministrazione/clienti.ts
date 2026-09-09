@@ -32,6 +32,7 @@ export type Cliente = {
   consegneAltraAzienda: ConsegnaAltraAzienda[];
   prodottiAcquistati: string[];
   createdAt: string;
+  createdBy: string | null;
 };
 
 export type ClienteInput = {
@@ -193,6 +194,7 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     consegneAltraAzienda: rawConsegne.map(mapConsegnaRow),
     prodottiAcquistati: row.prodotti_acquistati ?? [],
     createdAt: row.created_at,
+    createdBy: row.created_by ?? null,
   };
 }
 

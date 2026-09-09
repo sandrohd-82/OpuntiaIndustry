@@ -4,24 +4,33 @@ import {
   type PageAccessMap,
 } from "@/lib/auth/page-access";
 
+export type AnagraficaPrivilegeKind =
+  | "cliente"
+  | "cliente_possibile"
+  | "fornitore";
+
 export type ActionAccessItem = {
   key: string;
   path: string;
   label: string;
   area: string;
+  /** Se presente, l’azione sta negli ambiti anagrafica (non in «Azioni di creazione»). */
+  privilegeKind?: AnagraficaPrivilegeKind;
 };
 
 function item(
   area: string,
   path: string,
   slug: string,
-  label: string
+  label: string,
+  privilegeKind?: AnagraficaPrivilegeKind
 ): ActionAccessItem {
   return {
     key: `${ACTION_ACCESS_KEY_PREFIX}${path}/${slug}`,
     path,
     label,
     area,
+    privilegeKind,
   };
 }
 
@@ -31,9 +40,72 @@ function item(
  */
 export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
   item("Amministrazione", "/app/amministrazione/clienti/elenco", "nuovo-cliente", "Nuovo cliente"),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/elenco",
+    "timeline",
+    "Mostra timeline",
+    "cliente"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/elenco",
+    "modifica-altrui",
+    "Modifica schede non create da lui",
+    "cliente"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/elenco",
+    "elimina",
+    "Eliminazione",
+    "cliente"
+  ),
   item("Amministrazione", "/app/amministrazione/clienti/possibili", "nuovo-possibile-cliente", "Nuovo possibile cliente"),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/possibili",
+    "timeline",
+    "Mostra timeline",
+    "cliente_possibile"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/possibili",
+    "modifica-altrui",
+    "Modifica schede non create da lui",
+    "cliente_possibile"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/clienti/possibili",
+    "elimina",
+    "Eliminazione",
+    "cliente_possibile"
+  ),
   item("Amministrazione", "/app/amministrazione/fornitori/bio", "nuovo-fornitore", "Nuovo fornitore"),
   item("Amministrazione", "/app/amministrazione/fornitori/elenco", "nuovo-fornitore", "Nuovo fornitore"),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/fornitori/elenco",
+    "timeline",
+    "Mostra timeline",
+    "fornitore"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/fornitori/elenco",
+    "modifica-altrui",
+    "Modifica schede non create da lui",
+    "fornitore"
+  ),
+  item(
+    "Amministrazione",
+    "/app/amministrazione/fornitori/elenco",
+    "elimina",
+    "Eliminazione",
+    "fornitore"
+  ),
   item("Amministrazione", "/app/amministrazione/rubrica", "nuovo-contatto", "Nuovo contatto"),
   item("Amministrazione", "/app/amministrazione/schede/materia-prima", "nuova-materia-prima", "Nuova materia prima"),
   item("Amministrazione", "/app/amministrazione/schede/servizi", "nuovo-servizio", "Nuovo servizio"),
@@ -86,12 +158,26 @@ export const ACTION_ACCESS_KEY_SET = new Set(
 export const AZ = {
   nuovoCliente:
     "action:/app/amministrazione/clienti/elenco/nuovo-cliente",
+  clientiTimeline: "action:/app/amministrazione/clienti/elenco/timeline",
+  clientiModificaAltrui:
+    "action:/app/amministrazione/clienti/elenco/modifica-altrui",
+  clientiElimina: "action:/app/amministrazione/clienti/elenco/elimina",
   nuovoPossibileCliente:
     "action:/app/amministrazione/clienti/possibili/nuovo-possibile-cliente",
+  possibiliTimeline:
+    "action:/app/amministrazione/clienti/possibili/timeline",
+  possibiliModificaAltrui:
+    "action:/app/amministrazione/clienti/possibili/modifica-altrui",
+  possibiliElimina: "action:/app/amministrazione/clienti/possibili/elimina",
   nuovoFornitoreBio:
     "action:/app/amministrazione/fornitori/bio/nuovo-fornitore",
   nuovoFornitore:
     "action:/app/amministrazione/fornitori/elenco/nuovo-fornitore",
+  fornitoriTimeline:
+    "action:/app/amministrazione/fornitori/elenco/timeline",
+  fornitoriModificaAltrui:
+    "action:/app/amministrazione/fornitori/elenco/modifica-altrui",
+  fornitoriElimina: "action:/app/amministrazione/fornitori/elenco/elimina",
   nuovoContatto: "action:/app/amministrazione/rubrica/nuovo-contatto",
   nuovaMateriaPrima:
     "action:/app/amministrazione/schede/materia-prima/nuova-materia-prima",
@@ -164,6 +250,42 @@ export function isActionAllowed(
   return map[actionKey] !== false;
 }
 
+/** Deny-by-default: solo On esplicito. */
+export function isPrivilegedActionOn(
+  map: PageAccessMap,
+  actionKey: string
+): boolean {
+  return map[actionKey] === true;
+}
+
+export const ANAGRAFICA_PRIVILEGE_BLOCKS: ReadonlyArray<{
+  scopeKey: string;
+  kind: AnagraficaPrivilegeKind;
+  title: string;
+  items: readonly ActionAccessItem[];
+}> = [
+  {
+    scopeKey: "anagrafiche_clienti",
+    kind: "cliente",
+    title: "Clienti — operazioni sulla scheda",
+    items: ACTION_ACCESS_CATALOG.filter((row) => row.privilegeKind === "cliente"),
+  },
+  {
+    scopeKey: "anagrafiche_clienti",
+    kind: "cliente_possibile",
+    title: "Possibili clienti — operazioni sulla scheda",
+    items: ACTION_ACCESS_CATALOG.filter(
+      (row) => row.privilegeKind === "cliente_possibile"
+    ),
+  },
+  {
+    scopeKey: "fornitori",
+    kind: "fornitore",
+    title: "Fornitori — operazioni sulla scheda",
+    items: ACTION_ACCESS_CATALOG.filter((row) => row.privilegeKind === "fornitore"),
+  },
+];
+
 /** Deny-by-default: solo commercialista, Super Admin reale, o On esplicito. */
 export function canElaboraContabilitaAccess(opts: {
   isSuperadminSelf: boolean;
@@ -184,7 +306,9 @@ export function toneForAction(
 }
 
 export function groupActionCatalog(
-  items: readonly ActionAccessItem[] = ACTION_ACCESS_CATALOG
+  items: readonly ActionAccessItem[] = ACTION_ACCESS_CATALOG.filter(
+    (row) => !row.privilegeKind
+  )
 ): Array<{ area: string; items: ActionAccessItem[] }> {
   const groups: Array<{ area: string; items: ActionAccessItem[] }> = [];
   const index = new Map<string, ActionAccessItem[]>();

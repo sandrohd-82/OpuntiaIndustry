@@ -15,6 +15,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
@@ -299,6 +300,20 @@ export async function updateClienteAction(
 ): Promise<ClientiActionResult> {
   const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const { data: existingCliente } = await supabase
+    .from("clienti")
+    .select("created_by")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const editGate = await assertAnagraficaPrivilege({
+    kind: "cliente",
+    op: "update",
+    createdBy: existingCliente?.created_by
+      ? String(existingCliente.created_by)
+      : null,
+  });
+  if (!editGate.ok) return { success: false, error: editGate.error };
 
   const normalized = normalizeClienteInput(input);
   const fiscalErr = validateClienteFiscali(normalized);
@@ -388,7 +403,7 @@ export async function softDeleteClienteAction(input: {
 
   const { data: existing, error: loadError } = await supabase
     .from("clienti")
-    .select("id, codice_targa, ragione_sociale, deleted_at")
+    .select("id, codice_targa, ragione_sociale, created_by, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
 
@@ -396,6 +411,12 @@ export async function softDeleteClienteAction(input: {
   if (!existing || existing.deleted_at) {
     return { success: false, error: "Cliente non trovato." };
   }
+  const delGate = await assertAnagraficaPrivilege({
+    kind: "cliente",
+    op: "delete",
+    createdBy: existing.created_by ? String(existing.created_by) : null,
+  });
+  if (!delGate.ok) return { success: false, error: delGate.error };
 
   const codice = String(existing.codice_targa);
   const expected = fraseConfermaSoftDelete(codice);

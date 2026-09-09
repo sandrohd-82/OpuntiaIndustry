@@ -295,6 +295,7 @@ export function draftToFornitorePreview(
     bioCertificatoPath: "",
     bioCodice: "",
     createdAt: new Date().toISOString(),
+    createdBy: null,
   };
 }
 
@@ -319,6 +320,7 @@ export function draftToClientePreview(
     consegneAltraAzienda: [],
     prodottiAcquistati: [],
     createdAt: new Date().toISOString(),
+    createdBy: null,
   };
 }
 

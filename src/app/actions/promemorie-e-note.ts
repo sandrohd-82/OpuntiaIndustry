@@ -3,7 +3,9 @@
 import { notFound, redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   consegneToDb,
@@ -32,7 +34,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_at, updated_at";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_by, created_at, updated_at";
 
 function mapConsegnaLead(
   row: ClienteConsegnaAltraAziendaRow | Record<string, unknown>
@@ -90,6 +92,7 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     clienteId: r.cliente_id ? String(r.cliente_id) : null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
+    createdBy: r.created_by ? String(r.created_by) : null,
   };
 }
 
@@ -898,6 +901,21 @@ export async function updateClientePossibileAction(
   | { success: false; error: string }
 > {
   const { auth } = await guardAdmin();
+  const supabaseGate = await createClient();
+  const { data: existingLead } = await supabaseGate
+    .from("clienti_possibili")
+    .select("created_by")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const editGate = await assertAnagraficaPrivilege({
+    kind: "cliente_possibile",
+    op: "update",
+    createdBy: existingLead?.created_by
+      ? String(existingLead.created_by)
+      : null,
+  });
+  if (!editGate.ok) return { success: false, error: editGate.error };
   const asCliente = input as ClienteInput;
   const merged = {
     ...asCliente,
@@ -998,6 +1016,58 @@ export async function updateClientePossibileAction(
     payload: { referenti: referenteIds.length },
   });
   return { success: true, item };
+}
+
+export async function softDeleteClientePossibileAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await guardAdmin();
+  const supabase = await createClient();
+  const { data: existing, error: loadError } = await supabase
+    .from("clienti_possibili")
+    .select("id, ragione_sociale, created_by, deleted_at")
+    .eq("id", input.id)
+    .maybeSingle();
+  if (loadError) return { success: false, error: loadError.message };
+  if (!existing || existing.deleted_at) {
+    return { success: false, error: "Possibile cliente non trovato." };
+  }
+  const delGate = await assertAnagraficaPrivilege({
+    kind: "cliente_possibile",
+    op: "delete",
+    createdBy: existing.created_by ? String(existing.created_by) : null,
+  });
+  if (!delGate.ok) return { success: false, error: delGate.error };
+
+  const expected = fraseConfermaSoftDelete(String(existing.ragione_sociale));
+  if (input.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("clienti_possibili")
+    .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "clienti_possibili",
+    entity_id: input.id,
+    action: "soft_delete",
+    actor_id: auth.userId,
+    summary: `Possibile cliente eliminato: ${existing.ragione_sociale}`,
+  });
+  return { success: true };
 }
 
 // —— Bozze nota standard ——

@@ -15,7 +15,10 @@ import {
 import { rinumeraTutteFattureRicevuteAction } from "@/app/actions/fatture";
 import { startFattureRicevuteSyncAction } from "@/app/actions/fatture-sync";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
-import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import {
+  ActionGate,
+  useAnagraficaPrivileges,
+} from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -80,6 +83,9 @@ function FornitoreRow({
   onToggleSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const priv = useAnagraficaPrivileges("fornitore");
+  const canEdit = priv.canEdit(fornitore.createdBy);
+  const canDelete = priv.canDelete(fornitore.createdBy);
 
   return (
     <>
@@ -125,6 +131,7 @@ function FornitoreRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            {priv.canTimeline ? (
             <button
               type="button"
               onClick={() => onTimeline(fornitore)}
@@ -134,6 +141,8 @@ function FornitoreRow({
               <FaClockRotateLeft size={11} />
               Timeline
             </button>
+            ) : null}
+            {canEdit ? (
             <button
               type="button"
               onClick={() => onEdit(fornitore)}
@@ -142,6 +151,8 @@ function FornitoreRow({
               <FaPen size={11} />
               Modifica
             </button>
+            ) : null}
+            {canDelete ? (
             <button
               type="button"
               onClick={() => onDelete(fornitore)}
@@ -150,6 +161,7 @@ function FornitoreRow({
               <FaTrash size={11} />
               Elimina
             </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
@@ -165,6 +177,7 @@ function FornitoreRow({
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={selectMode ? 10 : 9} className="px-4 py-4">
+            {canEdit ? (
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
@@ -175,6 +188,7 @@ function FornitoreRow({
                 Modifica scheda
               </button>
             </div>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <SedeDetail
                 title="Sede Amministrativa"

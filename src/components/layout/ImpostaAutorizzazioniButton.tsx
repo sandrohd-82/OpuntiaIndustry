@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/data-scope";
 import {
   ACTION_ACCESS_CATALOG,
+  ANAGRAFICA_PRIVILEGE_BLOCKS,
   groupActionCatalog,
   toneForAction,
 } from "@/lib/auth/action-access";
@@ -164,8 +165,9 @@ export function ImpostaAutorizzazioniButton({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return ACTION_ACCESS_CATALOG;
-    return ACTION_ACCESS_CATALOG.filter(
+    const catalog = ACTION_ACCESS_CATALOG.filter((row) => !row.privilegeKind);
+    if (!q) return catalog;
+    return catalog.filter(
       (row) =>
         row.path.toLowerCase().includes(q) ||
         row.label.toLowerCase().includes(q) ||
@@ -238,7 +240,8 @@ export function ImpostaAutorizzazioniButton({
                   Imposta autorizzazioni
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Ambiti sui dati sensibili, aree blindate e azioni di creazione.
+                  Ambiti sui dati, operazioni sulle schede anagrafiche, aree
+                  blindate e azioni di creazione.
                 </p>
               </div>
               <button
@@ -325,6 +328,51 @@ export function ImpostaAutorizzazioniButton({
                             }
                             onChange={(mode) => setScope(group.key, mode)}
                           />
+                          {ANAGRAFICA_PRIVILEGE_BLOCKS.filter(
+                            (block) => block.scopeKey === group.key
+                          ).map((block) => (
+                            <div
+                              key={block.kind}
+                              className="mt-3 rounded-lg border border-amber-200 bg-white/80 p-3"
+                            >
+                              <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">
+                                {block.title}
+                              </p>
+                              <p className="mt-1 text-[11px] text-amber-800">
+                                Off o non impostata = non consentita. La
+                                modifica delle proprie schede resta sempre
+                                possibile.
+                              </p>
+                              <ul className="mt-2 space-y-2">
+                                {block.items.map((row) => {
+                                  const tone = toneForAction(
+                                    actionMap,
+                                    row.key
+                                  );
+                                  return (
+                                    <li
+                                      key={row.key}
+                                      className="flex flex-wrap items-center justify-between gap-2"
+                                    >
+                                      <span className="text-sm font-medium text-slate-800">
+                                        {row.label}
+                                      </span>
+                                      <LightOnOff
+                                        tone={tone}
+                                        pending={
+                                          pending &&
+                                          pendingKey === `action:${row.key}`
+                                        }
+                                        onSet={(next) =>
+                                          setVisibile(row.key, next)
+                                        }
+                                      />
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </section>

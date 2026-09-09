@@ -36,6 +36,7 @@ export type Fornitore = {
   bioCertificatoPath: string;
   bioCodice: string;
   createdAt: string;
+  createdBy: string | null;
 };
 
 export type FornitoreInput = {
@@ -192,6 +193,7 @@ export function mapFornitoreRow(row: FornitoreRow): Fornitore {
     bioCertificatoPath: row.bio_certificato_path ?? "",
     bioCodice: row.bio_codice ?? "",
     createdAt: row.created_at,
+    createdBy: row.created_by ?? null,
   };
 }
 

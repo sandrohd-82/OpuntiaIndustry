@@ -50,7 +50,7 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
   {
     key: "anagrafiche_clienti",
     title: "Clienti, possibili clienti e rubrica",
-    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica.",
+    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica. Sotto: timeline, modifica schede altrui, eliminazione.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
@@ -60,7 +60,7 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
   {
     key: "fornitori",
     title: "Elenco fornitori",
-    hint: "Obbligatoria. Vale per l’elenco fornitori.",
+    hint: "Obbligatoria. Vale per l’elenco fornitori. Sotto: timeline, modifica schede altrui, eliminazione.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },

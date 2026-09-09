@@ -135,6 +135,10 @@ export default async function AppLayout({
         <ActionAccessProvider
           actionAccess={actionAccess}
           testMenuMode={testMenuMode}
+          userId={auth.userId}
+          bypassPrivileges={
+            isSuperadminProfile(auth.profile) && !auth.impersonating
+          }
         >
           {testMenuMode && canCreateProfiles ? (
             <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">

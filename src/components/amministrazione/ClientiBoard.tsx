@@ -16,7 +16,10 @@ import {
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
-import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import {
+  ActionGate,
+  useAnagraficaPrivileges,
+} from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
@@ -78,6 +81,9 @@ function ClienteRow({
   onToggleSelect: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const priv = useAnagraficaPrivileges("cliente");
+  const canEdit = priv.canEdit(cliente.createdBy);
+  const canDelete = priv.canDelete(cliente.createdBy);
 
   return (
     <>
@@ -146,6 +152,7 @@ function ClienteRow({
         </td>
         <td className="px-4 py-3 text-right">
           <div className="inline-flex items-center gap-1">
+            {priv.canTimeline ? (
             <button
               type="button"
               onClick={() => onTimeline(cliente)}
@@ -155,6 +162,8 @@ function ClienteRow({
               <FaClockRotateLeft size={11} />
               Timeline
             </button>
+            ) : null}
+            {canEdit ? (
             <button
               type="button"
               onClick={() => onEdit(cliente)}
@@ -163,6 +172,8 @@ function ClienteRow({
               <FaPen size={11} />
               Modifica
             </button>
+            ) : null}
+            {canDelete ? (
             <button
               type="button"
               onClick={() => onDelete(cliente)}
@@ -171,6 +182,7 @@ function ClienteRow({
               <FaTrash size={11} />
               Elimina
             </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
@@ -186,6 +198,7 @@ function ClienteRow({
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={8} className="px-4 py-4">
+            {canEdit ? (
             <div className="mb-3 flex justify-end">
               <button
                 type="button"
@@ -196,6 +209,7 @@ function ClienteRow({
                 Modifica scheda
               </button>
             </div>
+            ) : null}
             <div className="grid gap-4 sm:grid-cols-2">
               <SedeDetail
                 title="Sede Amministrativa"

@@ -1,0 +1,137 @@
+import { loadAccessMaps } from "@/app/actions/page-access";
+import {
+  AZ,
+  isPrivilegedActionOn,
+  type AnagraficaPrivilegeKind,
+} from "@/lib/auth/action-access";
+import { isSuperadminProfile } from "@/lib/auth/roles";
+import { getAuthContext } from "@/lib/auth/session";
+import type { PageAccessMap } from "@/lib/auth/page-access";
+
+export const ANAGRAFICA_ACTION_KEYS: Record<
+  AnagraficaPrivilegeKind,
+  { timeline: string; modificaAltrui: string; elimina: string }
+> = {
+  cliente: {
+    timeline: AZ.clientiTimeline,
+    modificaAltrui: AZ.clientiModificaAltrui,
+    elimina: AZ.clientiElimina,
+  },
+  cliente_possibile: {
+    timeline: AZ.possibiliTimeline,
+    modificaAltrui: AZ.possibiliModificaAltrui,
+    elimina: AZ.possibiliElimina,
+  },
+  fornitore: {
+    timeline: AZ.fornitoriTimeline,
+    modificaAltrui: AZ.fornitoriModificaAltrui,
+    elimina: AZ.fornitoriElimina,
+  },
+};
+
+export function kindFromAziendaTipo(
+  tipo: string
+): AnagraficaPrivilegeKind | null {
+  if (tipo === "cliente") return "cliente";
+  if (tipo === "cliente_possibile") return "cliente_possibile";
+  if (tipo === "fornitore") return "fornitore";
+  return null;
+}
+
+export function canEditAnagraficaRecord(opts: {
+  bypass: boolean;
+  userId: string;
+  createdBy: string | null | undefined;
+  editOthers: boolean;
+}): boolean {
+  if (opts.bypass) return true;
+  if (opts.createdBy && opts.createdBy === opts.userId) return true;
+  return opts.editOthers;
+}
+
+export function canDeleteAnagraficaRecord(opts: {
+  bypass: boolean;
+  userId: string;
+  createdBy: string | null | undefined;
+  canDelete: boolean;
+  editOthers: boolean;
+}): boolean {
+  if (opts.bypass) return true;
+  if (!opts.canDelete) return false;
+  if (opts.createdBy && opts.createdBy === opts.userId) return true;
+  return opts.editOthers;
+}
+
+export async function assertAnagraficaPrivilege(opts: {
+  kind: AnagraficaPrivilegeKind;
+  op: "timeline" | "update" | "delete";
+  createdBy?: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const auth = await getAuthContext();
+  if (!auth) return { ok: false, error: "Non autenticato." };
+  const bypass =
+    isSuperadminProfile(auth.profile) && !auth.impersonating;
+  if (bypass) return { ok: true };
+
+  const { actionAccess } = await loadAccessMaps(auth.userId);
+  return evaluateAnagraficaPrivilege({
+    actionAccess,
+    userId: auth.userId,
+    kind: opts.kind,
+    op: opts.op,
+    createdBy: opts.createdBy,
+  });
+}
+
+export function evaluateAnagraficaPrivilege(opts: {
+  actionAccess: PageAccessMap;
+  userId: string;
+  kind: AnagraficaPrivilegeKind;
+  op: "timeline" | "update" | "delete";
+  createdBy?: string | null;
+}): { ok: true } | { ok: false; error: string } {
+  const keys = ANAGRAFICA_ACTION_KEYS[opts.kind];
+  if (opts.op === "timeline") {
+    if (isPrivilegedActionOn(opts.actionAccess, keys.timeline)) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: "Timeline non autorizzata per questo profilo.",
+    };
+  }
+  if (opts.op === "update") {
+    if (
+      canEditAnagraficaRecord({
+        bypass: false,
+        userId: opts.userId,
+        createdBy: opts.createdBy,
+        editOthers: isPrivilegedActionOn(
+          opts.actionAccess,
+          keys.modificaAltrui
+        ),
+      })
+    ) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: "Non puoi modificare schede create da altri operatori.",
+    };
+  }
+  if (
+    canDeleteAnagraficaRecord({
+      bypass: false,
+      userId: opts.userId,
+      createdBy: opts.createdBy,
+      canDelete: isPrivilegedActionOn(opts.actionAccess, keys.elimina),
+      editOthers: isPrivilegedActionOn(opts.actionAccess, keys.modificaAltrui),
+    })
+  ) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error: "Eliminazione non autorizzata per questo profilo.",
+  };
+}

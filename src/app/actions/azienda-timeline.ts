@@ -4,6 +4,10 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess, requireWebmailAccess } from "@/lib/areas/guard";
 import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
+import {
+  assertAnagraficaPrivilege,
+  kindFromAziendaTipo,
+} from "@/lib/auth/anagrafica-privileges";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";
@@ -127,6 +131,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   const parsed = inputSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: "Azienda non valida." };
+  }
+  const timelineKind = kindFromAziendaTipo(parsed.data.aziendaTipo);
+  if (timelineKind) {
+    const tlGate = await assertAnagraficaPrivilege({
+      kind: timelineKind,
+      op: "timeline",
+    });
+    if (!tlGate.ok) return { success: false, error: tlGate.error };
   }
   const { aziendaTipo, aziendaId } = parsed.data;
   const service = createServiceClient();

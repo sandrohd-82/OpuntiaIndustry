@@ -100,6 +100,7 @@ export type ClientePossibile = {
   clienteId: string | null;
   createdAt: string;
   updatedAt: string;
+  createdBy: string | null;
 };
 
 export const createPromemoriaSchema = z.object({
@@ -261,6 +262,7 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     consegneAltraAzienda: lead.consegneAltraAzienda,
     prodottiAcquistati: lead.prodottiInteressati,
     createdAt: "",
+    createdBy: null,
   };
 }
 

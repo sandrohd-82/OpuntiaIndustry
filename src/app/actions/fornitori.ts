@@ -16,6 +16,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeCompanyNameKey, normalizeVatKey, companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
 
@@ -506,7 +507,7 @@ export async function updateFornitoreAction(
 
   const { data: existing, error: existingError } = await supabase
     .from("fornitori")
-    .select("bio_certificato_path, deleted_at, enrichment_snapshot")
+    .select("bio_certificato_path, deleted_at, enrichment_snapshot, created_by")
     .eq("id", id)
     .maybeSingle();
 
@@ -516,6 +517,12 @@ export async function updateFornitoreAction(
   if (!existing || existing.deleted_at) {
     return { success: false, error: "Fornitore non trovato." };
   }
+  const editGate = await assertAnagraficaPrivilege({
+    kind: "fornitore",
+    op: "update",
+    createdBy: existing.created_by ? String(existing.created_by) : null,
+  });
+  if (!editGate.ok) return { success: false, error: editGate.error };
 
   let nextPath = String(existing.bio_certificato_path ?? "");
 
@@ -624,7 +631,7 @@ export async function softDeleteFornitoreAction(input: {
 
   const { data: existing, error: loadError } = await supabase
     .from("fornitori")
-    .select("id, codice_targa, ragione_sociale, deleted_at")
+    .select("id, codice_targa, ragione_sociale, created_by, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
 
@@ -632,6 +639,12 @@ export async function softDeleteFornitoreAction(input: {
   if (!existing || existing.deleted_at) {
     return { success: false, error: "Fornitore non trovato." };
   }
+  const delGate = await assertAnagraficaPrivilege({
+    kind: "fornitore",
+    op: "delete",
+    createdBy: existing.created_by ? String(existing.created_by) : null,
+  });
+  if (!delGate.ok) return { success: false, error: delGate.error };
 
   const codice = String(existing.codice_targa);
   const expected = fraseConfermaSoftDelete(codice);
