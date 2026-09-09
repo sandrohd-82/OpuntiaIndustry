@@ -3717,6 +3717,38 @@ export type WebmailMessaggioAllegatoPublic = {
   url: string | null;
 };
 
+/** Testo mail per traduzione / azioni (l’elenco non carica più il body). */
+export async function getWebmailMessaggioTextAction(
+  messaggioId: string
+): Promise<
+  { success: true; bodyText: string } | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const parsedId = messaggioIdSchema.safeParse(messaggioId);
+  if (!parsedId.success) {
+    return { success: false, error: "Messaggio non valido." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("body_text, body_html")
+    .eq("id", parsedId.data)
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Messaggio non trovato." };
+  let text = String(data.body_text ?? "").trim();
+  if (!text) {
+    text = String(data.body_html ?? "")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  return { success: true, bodyText: text };
+}
+
 /**
  * HTML messaggio con CID risolti (URL firmati) per iframe sandbox.
  */

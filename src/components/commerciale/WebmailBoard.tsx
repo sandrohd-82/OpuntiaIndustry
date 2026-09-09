@@ -36,6 +36,7 @@ import {
   translateWebmailTextAction,
   updateWebmailBozzaAction,
   reloadWebmailMessaggioBodyAction,
+  getWebmailMessaggioTextAction,
   type WebmailMessaggioAllegatoPublic,
 } from "@/app/actions/webmail";
 import { WebmailBulkDeleteModal } from "@/components/webmail/WebmailBulkDeleteModal";
@@ -489,7 +490,11 @@ export function WebmailBoard({
     setSidePanel(null);
     setPreviewAllegato(null);
     void (async () => {
-      const seen = await markWebmailMessaggioSeenAction(selectedId);
+      const [seen, textRes, res] = await Promise.all([
+        markWebmailMessaggioSeenAction(selectedId),
+        getWebmailMessaggioTextAction(selectedId),
+        getWebmailBozzaForMessaggioAction(selectedId),
+      ]);
       if (seen.success) {
         setMessaggi((prev) =>
           prev.map((x) =>
@@ -498,7 +503,13 @@ export function WebmailBoard({
         );
         notifyWebmailUnreadNav(seen.messaggio.accountId);
       }
-      const res = await getWebmailBozzaForMessaggioAction(selectedId);
+      if (textRes.success && textRes.bodyText) {
+        setMessaggi((prev) =>
+          prev.map((x) =>
+            x.id === selectedId ? { ...x, bodyText: textRes.bodyText } : x
+          )
+        );
+      }
       if (!res.success) {
         setError(res.error);
         setOpeningId(null);
@@ -1839,14 +1850,35 @@ export function WebmailBoard({
                   <WithInfoNuvola info={MAIL_INFO.traduci}>
                   <button
                     type="button"
-                    disabled={pending || !selected.bodyText.trim()}
+                    disabled={pending || openingId === selected.id}
                     className="rounded-lg border border-sky-300 bg-sky-50 px-2.5 py-1.5 text-xs font-medium text-sky-900 hover:bg-sky-100 disabled:opacity-50"
                     onClick={() => {
                       startTransition(async () => {
+                        let bodyText = selected.bodyText.trim();
+                        if (!bodyText) {
+                          const loaded = await getWebmailMessaggioTextAction(
+                            selected.id
+                          );
+                          if (!loaded.success) {
+                            setError(loaded.error);
+                            return;
+                          }
+                          bodyText = loaded.bodyText.trim();
+                          if (bodyText) {
+                            patchMessaggio({
+                              ...selected,
+                              bodyText,
+                            });
+                          }
+                        }
+                        if (!bodyText) {
+                          setError("Questa mail non ha testo da tradurre.");
+                          return;
+                        }
                         const res = await translateWebmailTextAction({
                           messaggioId: selected.id,
                           subject: selected.subject,
-                          bodyText: selected.bodyText,
+                          bodyText,
                           targetLang: "it",
                           direction: "inbound",
                         });
