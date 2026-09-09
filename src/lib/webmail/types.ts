@@ -273,8 +273,12 @@ export type WebmailMailboxView =
   | "inbox"
   | "categoria"
   | "bozze"
+  | "spam"
   | "cestino"
   | "archiviate";
+
+/** Cartella logica IMAP/gestionale per lo spam. */
+export const WEBMAIL_JUNK_FOLDER = "JUNK";
 
 export const WEBMAIL_PAGE_SIZE = 40;
 

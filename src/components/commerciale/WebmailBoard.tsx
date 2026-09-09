@@ -26,6 +26,9 @@ import {
   restoreWebmailMessaggioAction,
   archiveWebmailMessaggioAction,
   unarchiveWebmailMessaggioAction,
+  setWebmailMessaggiSpamAction,
+  markWebmailMessaggioSpamAction,
+  unmarkWebmailMessaggioSpamAction,
   runWebmailSyncAction,
   setWebmailImportedSeenAction,
   sendWebmailBozzaAction,
@@ -97,6 +100,8 @@ const MAIL_INFO = {
   ai: "Apre a destra il pannello della risposta AI: genera, controlla, salva e invia la bozza.",
   ripristina: "Riporta la mail dal cestino alla casella.",
   ripristinaArchivio: "Riporta la mail dall’archivio alla casella.",
+  spam: "Sposta la mail in Spam. Non è una cancellazione: resta tracciata e la puoi ripristinare.",
+  nonSpam: "Riporta la mail da Spam in In arrivo.",
   categoria: "Scegli una categoria (cartella) in cui spostare questa mail.",
   archivia: "Sposta la mail in Archiviate, fuori dalla casella principale.",
   elimina: "Sposta la mail nel cestino. Non è una cancellazione fisica: resta tracciata.",
@@ -785,7 +790,9 @@ export function WebmailBoard({
         <p className="max-w-2xl text-sm text-[var(--muted)]">
           {view === "cestino"
             ? "Mail eliminate (soft delete). Puoi ripristinarle nel gestionale."
-            : view === "inbox"
+            : view === "spam"
+              ? "Mail in Spam (casella e, se presente, cartella Junk IMAP). Puoi ripristinarle in In arrivo."
+              : view === "inbox"
               ? "In arrivo: messaggi senza categoria. Spostali in una categoria quando li classifichi."
               : view === "bozze"
                 ? "Messaggi con bozza AI da revisionare o inviare."
@@ -1017,6 +1024,55 @@ export function WebmailBoard({
               >
                 Elimina
               </button>
+              {view === "spam" ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      const res = await setWebmailMessaggiSpamAction({
+                        messaggioIds: selectedIds,
+                        spam: false,
+                      });
+                      if (!res.success) {
+                        setError(res.error);
+                        return;
+                      }
+                      setInfo(`${res.updated} mail ripristinate da Spam.`);
+                      resetSelection();
+                      notifyWebmailUnreadNav(accountFilter || null);
+                      await reload();
+                    });
+                  }}
+                  className="rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium text-emerald-800"
+                >
+                  Non è spam
+                </button>
+              ) : view !== "cestino" && view !== "archiviate" ? (
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() => {
+                    startTransition(async () => {
+                      const res = await setWebmailMessaggiSpamAction({
+                        messaggioIds: selectedIds,
+                        spam: true,
+                      });
+                      if (!res.success) {
+                        setError(res.error);
+                        return;
+                      }
+                      setInfo(`${res.updated} mail spostate in Spam.`);
+                      resetSelection();
+                      notifyWebmailUnreadNav(accountFilter || null);
+                      await reload();
+                    });
+                  }}
+                  className="rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-xs font-medium text-amber-800"
+                >
+                  Segnala come spam
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={pending}
@@ -1454,6 +1510,43 @@ export function WebmailBoard({
                       Ripristina
                     </button>
                     </WithInfoNuvola>
+                  ) : view === "spam" ? (
+                    <>
+                    <WithInfoNuvola info={MAIL_INFO.nonSpam}>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await unmarkWebmailMessaggioSpamAction(
+                            selected.id
+                          );
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setSelectedId(null);
+                          setInfo("Mail ripristinata da Spam.");
+                          notifyWebmailUnreadNav(accountFilter || null);
+                          await reload();
+                        });
+                      }}
+                    >
+                      Non è spam
+                    </button>
+                    </WithInfoNuvola>
+                    <WithInfoNuvola info={MAIL_INFO.elimina}>
+                    <button
+                      type="button"
+                      disabled={pending}
+                      className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      Elimina
+                    </button>
+                    </WithInfoNuvola>
+                    </>
                   ) : view === "archiviate" ? (
                     <WithInfoNuvola info={MAIL_INFO.ripristinaArchivio}>
                     <button
@@ -1487,6 +1580,30 @@ export function WebmailBoard({
                         onClick={() => setCatTargetIds([selected.id])}
                       >
                         Sposta in categoria
+                      </button>
+                      </WithInfoNuvola>
+                      <WithInfoNuvola info={MAIL_INFO.spam}>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        className="rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-50"
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res = await markWebmailMessaggioSpamAction(
+                              selected.id
+                            );
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setSelectedId(null);
+                            setInfo("Mail spostata in Spam.");
+                            notifyWebmailUnreadNav(accountFilter || null);
+                            await reload();
+                          });
+                        }}
+                      >
+                        Spam
                       </button>
                       </WithInfoNuvola>
                       <WithInfoNuvola info={MAIL_INFO.archivia}>

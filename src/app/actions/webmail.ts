@@ -8,6 +8,8 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
   deleteImapMessageBestEffort,
+  IMAP_SPAM_CANDIDATES,
+  moveImapMessageBestEffort,
   previewWebmailAccounts,
   reloadMessaggioBodyAndAttachments,
   sendMailViaAccount,
@@ -27,6 +29,7 @@ import {
 import {
   bulkWebmailCategoriaSchema,
   bulkWebmailDeleteSchema,
+  bulkWebmailMessaggiSchema,
   composeNuovaMailSchema,
   sendBozzaSchema,
   setWebmailImportedSeenSchema,
@@ -144,6 +147,7 @@ export async function listWebmailCategorieAction(): Promise<
 
 export type WebmailUnreadCounts = {
   inbox: number;
+  spam: number;
   byCategoriaId: Record<string, number>;
 };
 
@@ -164,7 +168,7 @@ export async function listWebmailUnreadCountsAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_messaggi")
-    .select("id, categoria_id")
+    .select("id, categoria_id, spam_at, folder")
     .eq("account_id", parsed.data)
     .eq("direction", "inbound")
     .eq("is_seen", false)
@@ -175,8 +179,16 @@ export async function listWebmailUnreadCountsAction(
   if (error) return { success: false, error: error.message };
 
   let inbox = 0;
+  let spam = 0;
   const byCategoriaId: Record<string, number> = {};
   for (const r of data ?? []) {
+    const isSpam =
+      Boolean(r.spam_at) ||
+      String(r.folder ?? "").toUpperCase() === "JUNK";
+    if (isSpam) {
+      spam += 1;
+      continue;
+    }
     const cat = r.categoria_id ? String(r.categoria_id) : null;
     if (!cat) {
       inbox += 1;
@@ -184,7 +196,7 @@ export async function listWebmailUnreadCountsAction(
       byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + 1;
     }
   }
-  return { success: true, counts: { inbox, byCategoriaId } };
+  return { success: true, counts: { inbox, spam, byCategoriaId } };
 }
 
 /**
@@ -204,7 +216,9 @@ export async function listWebmailUnreadInboxByAccountAction(): Promise<
     .is("categoria_id", null)
     .is("deleted_at", null)
     .is("archived_at", null)
+    .is("spam_at", null)
     .neq("folder", "TRASH")
+    .neq("folder", "JUNK")
     .limit(8000);
   if (error) return { success: false, error: error.message };
   const byAccountId: Record<string, number> = {};
@@ -642,18 +656,33 @@ function applyWebmailMessaggiFilters<T>(
     eq: (c: string, v: unknown) => typeof next;
     is: (c: string, v: null) => typeof next;
     not: (c: string, op: string, v: null) => typeof next;
+    neq: (c: string, v: unknown) => typeof next;
   };
 
   if (view === "cestino") {
     next = next.not("deleted_at", "is", null).is("purged_at", null);
   } else if (view === "archiviate") {
     next = next.is("deleted_at", null).not("archived_at", "is", null);
+  } else if (view === "spam") {
+    next = next
+      .is("deleted_at", null)
+      .is("archived_at", null)
+      .not("spam_at", "is", null);
   } else {
-    next = next.is("deleted_at", null).is("archived_at", null);
+    next = next
+      .is("deleted_at", null)
+      .is("archived_at", null)
+      .is("spam_at", null)
+      .neq("folder", "JUNK");
   }
 
   if (view !== "bozze") {
-    if (view === "inbox" || view === "categoria" || view === "all") {
+    if (
+      view === "inbox" ||
+      view === "categoria" ||
+      view === "all" ||
+      view === "spam"
+    ) {
       next = next.eq("direction", "inbound");
     }
   } else {
@@ -794,6 +823,8 @@ export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promi
         categoria_suggest_id: null,
         categoria_suggest_mode: null,
         categoria_auto_pending: false,
+        spam_at: null,
+        spam_by: null,
         updated_by: auth.userId,
       })
       .in("id", chunk)
@@ -2609,6 +2640,125 @@ export async function unarchiveWebmailMessaggioAction(
     payload: {},
   });
   return { success: true };
+}
+
+async function loadWebmailAccountForImap(accountId: string) {
+  const service = createServiceClient();
+  const { data } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+    )
+    .eq("id", accountId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  return data as
+    | Parameters<typeof moveImapMessageBestEffort>[0]["account"]
+    | null;
+}
+
+/**
+ * Sposta mail in Spam (soft-state + best effort IMAP Junk). Non elimina.
+ */
+export async function setWebmailMessaggiSpamAction(raw: {
+  messaggioIds: string[];
+  spam: boolean;
+}): Promise<
+  { success: true; updated: number } | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = bulkWebmailMessaggiSchema
+    .extend({ spam: z.boolean() })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const ids = [...new Set(parsed.data.messaggioIds)];
+  if (ids.length === 0) return { success: true, updated: 0 };
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const patch = parsed.data.spam
+    ? {
+        spam_at: now,
+        spam_by: auth.userId,
+        archived_at: null,
+        archived_by: null,
+        updated_by: auth.userId,
+      }
+    : {
+        spam_at: null,
+        spam_by: null,
+        updated_by: auth.userId,
+      };
+
+  const { data: rows, error } = await supabase
+    .from("webmail_messaggi")
+    .update(patch)
+    .in("id", ids)
+    .is("deleted_at", null)
+    .is("purged_at", null)
+    .select("id, account_id, folder, message_uid, subject");
+  if (error) return { success: false, error: error.message };
+  const updated = rows?.length ?? 0;
+
+  if (updated > 0 && updated <= WEBMAIL_PAGE_SIZE) {
+    const accountCache = new Map<
+      string,
+      Parameters<typeof moveImapMessageBestEffort>[0]["account"]
+    >();
+    for (const m of rows ?? []) {
+      const accId = String(m.account_id);
+      let account = accountCache.get(accId);
+      if (!account) {
+        const loaded = await loadWebmailAccountForImap(accId);
+        if (!loaded) continue;
+        account = loaded;
+        accountCache.set(accId, account);
+      }
+      if (!m.message_uid) continue;
+      await moveImapMessageBestEffort({
+        account,
+        folder: String(m.folder || "INBOX"),
+        messageUid: String(m.message_uid),
+        targets: parsed.data.spam ? IMAP_SPAM_CANDIDATES : ["INBOX"],
+      });
+    }
+  }
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: ids[0]!,
+    action: parsed.data.spam ? "spam" : "unspam",
+    actor_id: auth.userId,
+    summary: parsed.data.spam
+      ? `Spostate ${updated} mail in Spam`
+      : `Ripristinate ${updated} mail da Spam`,
+    payload: { requested: ids.length, updated, spam: parsed.data.spam },
+  });
+
+  return { success: true, updated };
+}
+
+export async function markWebmailMessaggioSpamAction(
+  messaggioId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  return setWebmailMessaggiSpamAction({
+    messaggioIds: [messaggioId],
+    spam: true,
+  });
+}
+
+export async function unmarkWebmailMessaggioSpamAction(
+  messaggioId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  return setWebmailMessaggiSpamAction({
+    messaggioIds: [messaggioId],
+    spam: false,
+  });
 }
 
 /**

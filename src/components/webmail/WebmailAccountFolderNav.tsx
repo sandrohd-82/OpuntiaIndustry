@@ -9,6 +9,7 @@ import {
   FaRobot,
   FaTrashCan,
   FaFolderOpen,
+  FaBan,
 } from "react-icons/fa6";
 import {
   listWebmailCategorieAction,
@@ -74,7 +75,7 @@ function navItemClass(active: boolean) {
 }
 
 /**
- * Sottomenu casella (ex sidebar): Nuova, categorie, In arrivo, Bozze, Cestino.
+ * Sottomenu casella (ex sidebar): Nuova, categorie, In arrivo, Bozze, Spam, Cestino.
  */
 export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   const pathname = usePathname();
@@ -82,6 +83,7 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [counts, setCounts] = useState<WebmailUnreadCounts>({
     inbox: 0,
+    spam: 0,
     byCategoriaId: {},
   });
 
@@ -210,6 +212,21 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
             }
           />
           <span className="truncate">Bozze AI</span>
+        </Link>
+        <Link
+          href={`${base}/spam`}
+          className={`${navItemClass(pathname === `${base}/spam`)} justify-between`}
+        >
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <FaBan
+              size={13}
+              className={
+                pathname === `${base}/spam` ? "text-white" : "text-amber-600"
+              }
+            />
+            <span className="truncate">Spam</span>
+          </span>
+          <UnreadPill count={counts.spam} />
         </Link>
         <Link
           href={`${base}/cestino`}

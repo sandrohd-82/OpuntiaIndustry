@@ -187,7 +187,8 @@ function imapFlagsHasSeen(flags: unknown): boolean {
 async function loadExistingUids(
   supabase: Service,
   accountId: string,
-  candidateUids: string[]
+  candidateUids: string[],
+  folder = "INBOX"
 ): Promise<Set<string>> {
   const existingSet = new Set<string>();
   const chunkSize = 200;
@@ -197,7 +198,7 @@ async function loadExistingUids(
       .from("webmail_messaggi")
       .select("message_uid")
       .eq("account_id", accountId)
-      .eq("folder", "INBOX")
+      .eq("folder", folder)
       .in("message_uid", chunk);
     if (error) {
       console.error("[webmail sync existing uids]", error.message);
@@ -212,9 +213,10 @@ async function loadExistingUids(
 }
 
 /** UID IMAP più alto già in archivio (anche soft-delete): il cron non deve tornare indietro. */
-async function loadMaxInboxUid(
+async function loadMaxFolderUid(
   supabase: Service,
-  accountId: string
+  accountId: string,
+  folder = "INBOX"
 ): Promise<number> {
   let maxUid = 0;
   const page = 1000;
@@ -223,7 +225,7 @@ async function loadMaxInboxUid(
       .from("webmail_messaggi")
       .select("message_uid")
       .eq("account_id", accountId)
-      .eq("folder", "INBOX")
+      .eq("folder", folder)
       .range(from, from + page - 1);
     if (error) {
       console.error("[webmail sync max uid]", error.message);
@@ -237,6 +239,13 @@ async function loadMaxInboxUid(
     if (rows.length < page) break;
   }
   return maxUid;
+}
+
+async function loadMaxInboxUid(
+  supabase: Service,
+  accountId: string
+): Promise<number> {
+  return loadMaxFolderUid(supabase, accountId, "INBOX");
 }
 
 async function messageIdAlreadyImported(
@@ -257,6 +266,39 @@ async function messageIdAlreadyImported(
     return true;
   }
   return Boolean(data?.[0]?.id);
+}
+
+async function markExistingSpamByMessageId(
+  supabase: Service,
+  accountId: string,
+  messageId: string | null | undefined
+): Promise<boolean> {
+  const header = messageId?.trim();
+  if (!header) return false;
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .select("id, spam_at")
+    .eq("account_id", accountId)
+    .eq("message_id_header", header)
+    .limit(1);
+  if (error) {
+    console.error("[webmail sync spam message-id]", error.message);
+    return true;
+  }
+  const row = data?.[0];
+  if (!row?.id) return false;
+  if (!row.spam_at) {
+    await supabase
+      .from("webmail_messaggi")
+      .update({
+        spam_at: new Date().toISOString(),
+        archived_at: null,
+        archived_by: null,
+      })
+      .eq("id", row.id)
+      .is("deleted_at", null);
+  }
+  return true;
 }
 
 async function loadImapSeenByUid(
@@ -348,7 +390,8 @@ async function importInboxUidList(
   account: AccountRow,
   client: ImapFlow,
   list: string[],
-  blacklist: Set<string>
+  blacklist: Set<string>,
+  options?: { folder?: string; asSpam?: boolean }
 ): Promise<{ imported: number; importedIds: string[] }> {
   let imported = 0;
   const importedIds: string[] = [];
@@ -406,9 +449,24 @@ async function importInboxUidList(
 
     const messageIdHeader =
       typeof parsed.messageId === "string" ? parsed.messageId.trim() : "";
-    if (await messageIdAlreadyImported(supabase, account.id, messageIdHeader)) {
+    if (options?.asSpam) {
+      if (
+        await markExistingSpamByMessageId(
+          supabase,
+          account.id,
+          messageIdHeader
+        )
+      ) {
+        continue;
+      }
+    } else if (
+      await messageIdAlreadyImported(supabase, account.id, messageIdHeader)
+    ) {
       continue;
     }
+
+    const storeFolder = options?.folder || "INBOX";
+    const nowIso = new Date().toISOString();
 
     const { data: inserted, error } = await supabase
       .from("webmail_messaggi")
@@ -417,7 +475,8 @@ async function importInboxUidList(
         direction: "inbound",
         message_uid: uidStr,
         message_id_header: messageIdHeader || null,
-        folder: "INBOX",
+        folder: storeFolder,
+        spam_at: options?.asSpam ? nowIso : null,
         from_address: fromAddr,
         from_name: fromName,
         to_addresses: toAddresses,
@@ -486,6 +545,123 @@ async function importInboxUidList(
   return { imported, importedIds };
 }
 
+export const IMAP_SPAM_CANDIDATES = [
+  "Junk",
+  "Spam",
+  "INBOX.Spam",
+  "INBOX/Spam",
+  "INBOX.Junk",
+  "INBOX/Junk",
+  "[Gmail]/Spam",
+  "Bulk Mail",
+  "Junk E-mail",
+];
+
+async function resolveImapSpamMailbox(
+  client: ImapFlow
+): Promise<string | null> {
+  for (const name of IMAP_SPAM_CANDIDATES) {
+    try {
+      const lock = await client.getMailboxLock(name);
+      lock.release();
+      return name;
+    } catch {
+      // cartella assente su questo provider
+    }
+  }
+  try {
+    const boxes = await client.list();
+    for (const box of boxes) {
+      const path = String(
+        (box as { path?: string }).path ??
+          (box as { name?: string }).name ??
+          ""
+      );
+      const special = String(
+        (box as { specialUse?: string }).specialUse ?? ""
+      );
+      if (
+        special.toLowerCase() === "\\junk" ||
+        /(?:^|[/.])(spam|junk)(?:$|[/.])/i.test(path)
+      ) {
+        return path;
+      }
+    }
+  } catch {
+    // list non disponibile
+  }
+  return null;
+}
+
+async function importSpamMailbox(
+  supabase: Service,
+  account: AccountRow,
+  client: ImapFlow,
+  blacklist: Set<string>,
+  options: {
+    batchLimit: number;
+    mode: WebmailSyncMode;
+    newMailOnly: boolean;
+  }
+): Promise<{
+  imported: number;
+  importedIds: string[];
+  skipped: number;
+  pending: number;
+}> {
+  const empty = {
+    imported: 0,
+    importedIds: [] as string[],
+    skipped: 0,
+    pending: 0,
+  };
+  const spamBox = await resolveImapSpamMailbox(client);
+  if (!spamBox) return empty;
+
+  const lock = await client.getMailboxLock(spamBox);
+  try {
+    const since = resolveWebmailSyncSince(account.sync_since);
+    const uids = await client.search({ since }, { uid: true });
+    const all = (uids || []).map((u) => String(u));
+    const existingSet = await loadExistingUids(
+      supabase,
+      account.id,
+      all,
+      "JUNK"
+    );
+    let missing = all.filter((uid) => !existingSet.has(uid));
+    if (options.newMailOnly) {
+      const maxUid = await loadMaxFolderUid(supabase, account.id, "JUNK");
+      missing = missing.filter((uid) => {
+        const n = Number(uid);
+        return Number.isFinite(n) && n > maxUid;
+      });
+    }
+    const picked = pickMissingBatch(
+      missing,
+      existingSet,
+      options.mode,
+      options.batchLimit
+    );
+    const importedRes = await importInboxUidList(
+      supabase,
+      account,
+      client,
+      picked.list,
+      blacklist,
+      { folder: "JUNK", asSpam: true }
+    );
+    return {
+      imported: importedRes.imported,
+      importedIds: importedRes.importedIds,
+      skipped: all.length - missing.length,
+      pending: picked.pending,
+    };
+  } finally {
+    lock.release();
+  }
+}
+
 /**
  * Sync IMAP in batch. Con sync_since storico non importa tutto in un colpo
  * (evita timeout Vercel / schermata bianca): rilanciare sync per continuare.
@@ -540,13 +716,15 @@ export async function syncWebmailAccount(
 
   try {
     await client.connect();
+    const since = resolveWebmailSyncSince(account.sync_since);
+    const blacklist = await loadAccountBlacklist(supabase, account.id);
+    let all: string[] = [];
+    let pending = 0;
+
     const lock = await client.getMailboxLock("INBOX");
     try {
-      const since = resolveWebmailSyncSince(account.sync_since);
       const uids = await client.search({ since }, { uid: true });
-      const all = (uids || []).map((u) => String(u));
-
-      const blacklist = await loadAccountBlacklist(supabase, account.id);
+      all = (uids || []).map((u) => String(u));
 
       const existingSet = await loadExistingUids(supabase, account.id, all);
       let missing = all.filter((uid) => !existingSet.has(uid));
@@ -560,7 +738,7 @@ export async function syncWebmailAccount(
       skipped = all.length - missing.length;
       const picked = pickMissingBatch(missing, existingSet, mode, batchLimit);
       const list = picked.list;
-      const pending = picked.pending;
+      pending = picked.pending;
 
       const importedRes = await importInboxUidList(
         supabase,
@@ -571,33 +749,51 @@ export async function syncWebmailAccount(
       );
       imported = importedRes.imported;
       importedIds.push(...importedRes.importedIds);
-
-      await supabase
-        .from("webmail_accounts")
-        .update({
-          last_sync_at: new Date().toISOString(),
-          last_sync_error: null,
-        })
-        .eq("id", account.id);
-
-      await logElaborazione(supabase, {
-        accountId: account.id,
-        action: "sync",
-        summary: `Sync INBOX: ${imported} nuovi, ${pending} ancora da importare (dal ${since.toISOString().slice(0, 10)})`,
-        payload: {
-          imported,
-          drafted,
-          skipped,
-          pending,
-          since: since.toISOString().slice(0, 10),
-          totalMatched: all.length,
-        },
-      });
-
-      return { imported, drafted, skipped, pending, importedIds };
     } finally {
       lock.release();
     }
+
+    const spamRes = await importSpamMailbox(
+      supabase,
+      account,
+      client,
+      blacklist,
+      { batchLimit, mode, newMailOnly }
+    );
+    imported += spamRes.imported;
+    importedIds.push(...spamRes.importedIds);
+    skipped += spamRes.skipped;
+
+    await supabase
+      .from("webmail_accounts")
+      .update({
+        last_sync_at: new Date().toISOString(),
+        last_sync_error: null,
+      })
+      .eq("id", account.id);
+
+    await logElaborazione(supabase, {
+      accountId: account.id,
+      action: "sync",
+      summary: `Sync INBOX+Spam: ${imported} nuovi (dal ${since.toISOString().slice(0, 10)})`,
+      payload: {
+        imported,
+        drafted,
+        skipped,
+        pending: pending + spamRes.pending,
+        since: since.toISOString().slice(0, 10),
+        totalMatched: all.length,
+        spamImported: spamRes.imported,
+      },
+    });
+
+    return {
+      imported,
+      drafted,
+      skipped,
+      pending: pending + spamRes.pending,
+      importedIds,
+    };
   } catch (e) {
     const message = formatImapSyncError(e, account);
     await supabase
@@ -994,6 +1190,61 @@ const TRASH_CANDIDATES = [
   "Cestino",
   "[Gmail]/Trash",
 ];
+
+/**
+ * Best effort: sposta un UID verso una delle cartelle candidate (Spam / INBOX).
+ */
+export async function moveImapMessageBestEffort(input: {
+  account: AccountRow;
+  folder: string;
+  messageUid: string;
+  targets: string[];
+}): Promise<{ ok: boolean; detail: string }> {
+  const uidNum = Number(input.messageUid);
+  if (!Number.isFinite(uidNum) || uidNum <= 0) {
+    return { ok: false, detail: "UID IMAP non valido." };
+  }
+  const password = decryptWebmailSecret(input.account.password_encrypted);
+  const client = new ImapFlow({
+    host: input.account.imap_host,
+    port: input.account.imap_port,
+    secure: input.account.imap_secure,
+    auth: { user: input.account.username, pass: password },
+    logger: false,
+  });
+
+  try {
+    await client.connect();
+    const folder = input.folder || "INBOX";
+    const lock = await client.getMailboxLock(folder);
+    try {
+      for (const dest of input.targets) {
+        try {
+          const moved = await client.messageMove(String(uidNum), dest, {
+            uid: true,
+          });
+          if (moved) {
+            return { ok: true, detail: `Spostata in ${dest}` };
+          }
+        } catch {
+          // prova cartella successiva
+        }
+      }
+      return { ok: false, detail: "Nessuna cartella IMAP di destinazione." };
+    } finally {
+      lock.release();
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Errore IMAP";
+    return { ok: false, detail: msg };
+  } finally {
+    try {
+      await client.logout();
+    } catch {
+      // ignore
+    }
+  }
+}
 
 /**
  * Best effort: sposta in Trash o marca \\Deleted sul server IMAP.
