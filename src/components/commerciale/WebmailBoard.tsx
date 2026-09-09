@@ -570,7 +570,6 @@ export function WebmailBoard({
   function onHeaderSelectClick() {
     if (!selectMode) {
       setSelectMode(true);
-      setSelectScopeOpen(true);
       return;
     }
     if (headerChecked) {
@@ -980,10 +979,7 @@ export function WebmailBoard({
               />
               <button
                 type="button"
-                onClick={() => {
-                  setSelectMode(true);
-                  setSelectScopeOpen(true);
-                }}
+                onClick={onHeaderSelectClick}
                 className="text-xs font-semibold uppercase tracking-wide text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
               >
                 Seleziona
