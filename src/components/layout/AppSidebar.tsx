@@ -61,6 +61,7 @@ import {
   isNavPathVisible,
   toneForAreaAccess,
   toneForNavPath,
+  toneForSubtreeAccess,
   WEB_AREA_ACCESS_KEY,
   type AccessTone,
   type PageAccessMap,
@@ -292,6 +293,7 @@ function BranchButton({
   nested,
   badge,
   tone = null,
+  areaAccess = null,
   onToggle,
 }: {
   label: string;
@@ -300,19 +302,25 @@ function BranchButton({
   nested?: boolean;
   badge?: NavBadge;
   tone?: AccessTone | null;
+  areaAccess?: { areaKey: string; tone: AccessTone } | null;
   onToggle: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-expanded={open}
-      className={itemClass(active, nested, false, tone)}
-    >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {badge ? <NavBadgeDot badge={badge} /> : null}
-      <Chevron open={open} />
-    </button>
+    <div className="flex items-center gap-1">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone)}`}
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {badge ? <NavBadgeDot badge={badge} /> : null}
+        <Chevron open={open} />
+      </button>
+      {areaAccess ? (
+        <MenuAreaAccessToggle areaKey={areaAccess.areaKey} tone={areaAccess.tone} />
+      ) : null}
+    </div>
   );
 }
 
@@ -323,6 +331,7 @@ function NavTree({
   toggle,
   pageAccess,
   colorMenu,
+  branchToggle = false,
 }: {
   sections: readonly NavItem[];
   pathname: string;
@@ -330,6 +339,7 @@ function NavTree({
   toggle: (...keys: string[]) => void;
   pageAccess?: PageAccessMap;
   colorMenu?: boolean;
+  branchToggle?: boolean;
 }) {
   return (
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
@@ -340,6 +350,13 @@ function NavTree({
         if (isNavBranch(item)) {
           const open = openKeys.has(item.path) || openKeys.has(item.slug);
           const active = pathMatches(pathname, item.path);
+          const access =
+            branchToggle && pageAccess
+              ? {
+                  areaKey: item.path,
+                  tone: toneForSubtreeAccess(item.path, pageAccess),
+                }
+              : null;
           return (
             <li key={item.path}>
               <BranchButton
@@ -349,6 +366,7 @@ function NavTree({
                 nested
                 badge={item.badge}
                 tone={tone}
+                areaAccess={access}
                 onToggle={() => toggle(item.path, item.slug)}
               />
               {open && (
@@ -359,6 +377,7 @@ function NavTree({
                   toggle={toggle}
                   pageAccess={pageAccess}
                   colorMenu={colorMenu}
+                  branchToggle={branchToggle}
                 />
               )}
             </li>
@@ -665,6 +684,7 @@ export function AppSidebar({
                       toggle={toggle}
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
+                      branchToggle={canToggleAreas}
                     />
                   ) : null}
                 </li>
@@ -728,6 +748,7 @@ export function AppSidebar({
                       toggle={toggle}
                       pageAccess={pageAccess}
                       colorMenu={testMenuMode}
+                      branchToggle={canToggleAreas}
                     />
                   )}
                 </li>

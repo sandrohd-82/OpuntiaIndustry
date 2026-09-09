@@ -35,7 +35,7 @@ export function MenuAreaAccessToggle({ areaKey, tone }: Props) {
     >
       <div
         className="inline-flex overflow-hidden rounded border border-slate-600 text-[9px] font-bold uppercase leading-none"
-        title={`Area ${areaKey}: ${tone === "unset" ? "non impostata" : tone}`}
+        title={`Voce ${areaKey}: ${tone === "unset" ? "non impostata" : tone}`}
       >
         <button
           type="button"

@@ -50,6 +50,48 @@ export function isChildPageKeyOfArea(pageKey: string, areaKey: string): boolean 
   return key.startsWith(`${areaKey}/`);
 }
 
+/** Figlie di un ramo di menu (area di primo livello o sottocategoria). */
+export function isChildPageKeyOfSubtree(pageKey: string, rootKey: string): boolean {
+  const root = String(rootKey ?? "").trim();
+  if (isAreaAccessKey(root)) return isChildPageKeyOfArea(pageKey, root);
+  const key = String(pageKey ?? "").trim();
+  if (!key || !root || key === root) return false;
+  return key.startsWith(`${root}/`);
+}
+
+function pathPrefixes(pathname: string): string[] {
+  const raw = normalizeAppPath(pathname);
+  const parts = raw.split("/").filter(Boolean);
+  const out: string[] = [];
+  let acc = "";
+  for (const part of parts) {
+    acc += `/${part}`;
+    if (acc === "/app") continue;
+    out.push(acc);
+  }
+  return out;
+}
+
+export function isAccessOffAlongPath(path: string, map: PageAccessMap): boolean {
+  const areaKey = resolveAreaAccessKey(path);
+  if (map[areaKey] === false) return true;
+  for (const prefix of pathPrefixes(path)) {
+    const key = resolvePageKey(prefix);
+    if (map[key] === false || map[prefix] === false) return true;
+  }
+  return false;
+}
+
+export function isAccessOnAlongPath(path: string, map: PageAccessMap): boolean {
+  const areaKey = resolveAreaAccessKey(path);
+  if (map[areaKey] === true) return true;
+  for (const prefix of pathPrefixes(path)) {
+    const key = resolvePageKey(prefix);
+    if (map[key] === true || map[prefix] === true) return true;
+  }
+  return false;
+}
+
 export function normalizeAppPath(pathname: string): string {
   const raw = (pathname.split("?")[0] ?? "").trim();
   if (!raw) return "/app/dashboard";
@@ -95,6 +137,17 @@ export function toneForAreaAccess(
   return "unset";
 }
 
+/** Stato On/Off della sola voce (senza ereditare dal padre). */
+export function toneForSubtreeAccess(
+  path: string,
+  map: PageAccessMap
+): AccessTone {
+  const key = resolvePageKey(path);
+  if (key in map) return map[key] ? "on" : "off";
+  if (path in map) return map[path] ? "on" : "off";
+  return "unset";
+}
+
 export function toneForNavPath(
   path: string,
   map: PageAccessMap
@@ -103,6 +156,7 @@ export function toneForNavPath(
   const areaKey = resolveAreaAccessKey(path);
   if (key in map) return map[key] ? "on" : "off";
   if (path in map) return map[path] ? "on" : "off";
+  if (isAccessOffAlongPath(path, map)) return "off";
   if (areaKey in map) return map[areaKey] ? "on" : "off";
 
   const childHits = Object.entries(map).filter(([k]) => {
@@ -114,7 +168,7 @@ export function toneForNavPath(
   return "unset";
 }
 
-/** Operativo: area Off nasconde tutto; area On mostra salvo pagina Off. */
+/** Operativo: area/ramo Off nasconde tutto; On mostra salvo pagina Off. */
 export function isNavPathVisible(
   path: string,
   map: PageAccessMap,
@@ -122,13 +176,13 @@ export function isNavPathVisible(
 ): boolean {
   const key = resolvePageKey(path);
   const areaKey = resolveAreaAccessKey(path);
-  if (map[areaKey] === false) return false;
-  if (map[key] === false || map[path] === false) return false;
+  if (isAccessOffAlongPath(path, map)) return false;
   if (
     map[areaKey] === true ||
     map[key] === true ||
     map[path] === true ||
-    ancestorOn
+    ancestorOn ||
+    isAccessOnAlongPath(path, map)
   ) {
     return true;
   }
@@ -149,10 +203,11 @@ export function filterNavByPageAccess(
 ): NavItem[] {
   const out: NavItem[] = [];
   for (const item of items) {
-    if (map[resolveAreaAccessKey(item.path)] === false) continue;
+    if (isAccessOffAlongPath(item.path, map)) continue;
     const own = map[item.path] ?? map[resolvePageKey(item.path)];
     if (own === false) continue;
-    const on = own === true || ancestorOn;
+    const on =
+      own === true || ancestorOn || isAccessOnAlongPath(item.path, map);
     if (isNavBranch(item)) {
       const children = filterNavByPageAccess(item.children, map, on);
       if (on || children.length > 0) {

@@ -5,8 +5,7 @@ import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile } from "@/lib/auth/session";
 import {
-  isAreaAccessKey,
-  isChildPageKeyOfArea,
+  isChildPageKeyOfSubtree,
   resolvePageKey,
   type PageAccessMap,
 } from "@/lib/auth/page-access";
@@ -134,9 +133,9 @@ export async function setAreaAccessAction(
     };
   }
 
-  const areaKey = String(areaKeyRaw ?? "").trim();
-  if (!isAreaAccessKey(areaKey)) {
-    return { success: false, error: "Area non valida." };
+  const areaKey = resolvePageKey(String(areaKeyRaw ?? "").trim());
+  if (!areaKey.startsWith("/app") || areaKey === "/app") {
+    return { success: false, error: "Voce di menu non valida." };
   }
 
   const service = createServiceClient();
@@ -177,7 +176,7 @@ export async function setAreaAccessAction(
     .is("deleted_at", null);
 
   const childIds = (siblings ?? [])
-    .filter((row) => isChildPageKeyOfArea(String(row.page_key ?? ""), areaKey))
+    .filter((row) => isChildPageKeyOfSubtree(String(row.page_key ?? ""), areaKey))
     .map((row) => row.id);
 
   if (childIds.length > 0) {
@@ -197,7 +196,7 @@ export async function setAreaAccessAction(
     entity_id: targetId,
     action: visibile ? "area_on" : "area_off",
     actor_id: gate.actorUserId,
-    summary: `Area ${areaKey} ${visibile ? "On" : "Off"} (intera area)`,
+    summary: `Menu ${areaKey} ${visibile ? "On" : "Off"} (voce e sottocategorie)`,
     payload: {
       page_key: areaKey,
       visibile,
