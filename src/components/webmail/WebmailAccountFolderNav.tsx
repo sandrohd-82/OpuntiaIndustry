@@ -207,7 +207,11 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
             />
             <span className="truncate">In Arrivo</span>
           </span>
-          <UnreadPill count={counts.inbox} />
+          <CategoryCountPill
+            unread={counts.inbox}
+            total={counts.inboxTotal}
+            color="#10b981"
+          />
         </Link>
 
         <div className="px-2 pb-1 pt-3">
