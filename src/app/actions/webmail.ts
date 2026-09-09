@@ -2294,7 +2294,7 @@ export async function lookupWebmailAnagraficaByEmailAction(
   }
   if (possEmail.error) return { success: false, error: possEmail.error.message };
   if (possPec.error) return { success: false, error: possPec.error.message };
-  if (rubricaRes.error) return { success: false, error: rubricaRes.error.message };
+  // Rubrica è opzionale nel lookup: un GRANT mancante non deve bloccare il form.
 
   const clientiRows = [...(clientiEmail.data ?? []), ...(clientiPec.data ?? [])];
   const possRows = [...(possEmail.data ?? []), ...(possPec.data ?? [])];
