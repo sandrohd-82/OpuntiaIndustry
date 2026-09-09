@@ -61,7 +61,7 @@ export function WebmailSidebarNav() {
 
   useEffect(() => {
     window.addEventListener(WEBMAIL_UNREAD_NAV_EVENT, load);
-    const poll = window.setInterval(load, 8000);
+    const poll = window.setInterval(load, 30000);
     return () => {
       window.removeEventListener(WEBMAIL_UNREAD_NAV_EVENT, load);
       window.clearInterval(poll);

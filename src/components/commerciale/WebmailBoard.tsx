@@ -51,6 +51,7 @@ import {
   WebmailSyncModal,
   type WebmailSyncChoice,
 } from "@/components/webmail/WebmailSyncModal";
+import { BusyBanner, BusySpinner } from "@/components/ui/BusyIndicator";
 import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
@@ -160,6 +161,12 @@ export function WebmailBoard({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [listLoading, setListLoading] = useState(true);
+  const [busyLabel, setBusyLabel] = useState("Caricamento elenco…");
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  const filterKeyRef = useRef("");
+  const totalCountRef = useRef(0);
+  const reloadGenRef = useRef(0);
   const [catTargetIds, setCatTargetIds] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -234,46 +241,66 @@ export function WebmailBoard({
     return m;
   }, [categorie]);
 
-  const reload = useCallback(async () => {
-    setError(null);
-    const effectiveView = view;
-    const [a, c, m] = await Promise.all([
+  const listFilterKey = [
+    accountFilter,
+    view,
+    categoriaId ?? "",
+    categoriaFilter,
+    onlyDraft ? "1" : "0",
+  ].join("|");
+
+  const reloadMeta = useCallback(async () => {
+    const [a, c] = await Promise.all([
       listWebmailAccountsAction(),
       listWebmailCategorieAction(),
-      listWebmailMessaggiAction({
+    ]);
+    if (a.success) setAccounts(a.accounts);
+    else setError(a.error);
+    if (c.success) setCategorie(c.items);
+    else setError(c.error);
+  }, []);
+
+  const reload = useCallback(async () => {
+    const gen = ++reloadGenRef.current;
+    setError(null);
+    setListLoading(true);
+    const sameFilters = filterKeyRef.current === listFilterKey;
+    const skipCount = sameFilters && totalCountRef.current > 0;
+    try {
+      const m = await listWebmailMessaggiAction({
         accountId: accountFilter || null,
         categoriaId:
-          effectiveView === "categoria"
+          view === "categoria"
             ? categoriaId || categoriaFilter || null
-            : effectiveView === "all"
+            : view === "all"
               ? categoriaFilter || null
               : null,
-        onlyAiDraft: effectiveView === "bozze" ? true : onlyDraft,
-        view: effectiveView,
+        onlyAiDraft: view === "bozze" ? true : onlyDraft,
+        view,
         page,
         sortKey,
         sortDir,
-      }),
-    ]);
-    if (!a.success) {
-      setError(a.error);
-      return;
-    }
-    if (!c.success) {
-      setError(c.error);
-      return;
-    }
-    if (!m.success) {
-      setError(m.error);
-      return;
-    }
-    setAccounts(a.accounts);
-    setCategorie(c.items);
-    setMessaggi(m.messaggi);
-    setTotalCount(m.total);
-    notifyWebmailUnreadNav(accountFilter || null);
-    if (m.messaggi.length === 0 && m.page > 0 && m.total > 0) {
-      setPage(m.page - 1);
+        skipCount,
+      });
+      if (!m.success) {
+        if (reloadGenRef.current === gen) setError(m.error);
+        return;
+      }
+      if (reloadGenRef.current !== gen) return;
+      setMessaggi(m.messaggi);
+      if (m.total >= 0) {
+        setTotalCount(m.total);
+        totalCountRef.current = m.total;
+      }
+      filterKeyRef.current = listFilterKey;
+      if (m.messaggi.length === 0 && m.page > 0 && (m.total > 0 || totalCountRef.current > 0)) {
+        setPage(m.page - 1);
+      }
+    } finally {
+      if (reloadGenRef.current === gen) {
+        setListLoading(false);
+        setBusyLabel("Caricamento elenco…");
+      }
     }
   }, [
     accountFilter,
@@ -284,6 +311,7 @@ export function WebmailBoard({
     page,
     sortKey,
     sortDir,
+    listFilterKey,
   ]);
 
   const reloadRef = useRef(reload);
@@ -395,6 +423,8 @@ export function WebmailBoard({
   }
 
   useEffect(() => {
+    setBusyLabel("Apertura casella…");
+    setListLoading(true);
     setAccountFilter(initialAccountId ?? "");
     setSelectedId(null);
     setPage(0);
@@ -402,6 +432,8 @@ export function WebmailBoard({
   }, [initialAccountId]);
 
   useEffect(() => {
+    setBusyLabel("Apertura categoria…");
+    setListLoading(true);
     setCategoriaFilter(categoriaId ?? "");
     setSelectedId(null);
     setPage(0);
@@ -409,6 +441,8 @@ export function WebmailBoard({
   }, [categoriaId]);
 
   useEffect(() => {
+    setBusyLabel("Apertura cartella…");
+    setListLoading(true);
     setOnlyDraft(view === "bozze");
     setPage(0);
     resetSelection();
@@ -420,6 +454,10 @@ export function WebmailBoard({
   }, [accountFilter, categoriaFilter, onlyDraft]);
 
   useEffect(() => {
+    void reloadMeta();
+  }, [reloadMeta]);
+
+  useEffect(() => {
     void reload();
   }, [reload]);
 
@@ -428,24 +466,32 @@ export function WebmailBoard({
       setBozza(null);
       setSidePanel(null);
       setPreviewAllegato(null);
+      setOpeningId(null);
       return;
     }
+    setOpeningId(selectedId);
     setSidePanel(null);
     setPreviewAllegato(null);
     void (async () => {
       const seen = await markWebmailMessaggioSeenAction(selectedId);
       if (seen.success) {
-        patchMessaggio(seen.messaggio);
+        setMessaggi((prev) =>
+          prev.map((x) =>
+            x.id === seen.messaggio.id ? { ...x, isSeen: true } : x
+          )
+        );
         notifyWebmailUnreadNav(seen.messaggio.accountId);
       }
       const res = await getWebmailBozzaForMessaggioAction(selectedId);
       if (!res.success) {
         setError(res.error);
+        setOpeningId(null);
         return;
       }
       setBozza(res.bozza);
       setDraftSubject(res.bozza?.subject ?? "");
       setDraftBody(res.bozza?.bodyText ?? "");
+      setOpeningId(null);
     })();
   }, [selectedId]);
 
@@ -463,7 +509,18 @@ export function WebmailBoard({
   }, [selected?.id, selected?.fromAddress, selected?.accountId]);
 
   function patchMessaggio(m: WebmailMessaggio) {
-    setMessaggi((prev) => prev.map((x) => (x.id === m.id ? m : x)));
+    setMessaggi((prev) =>
+      prev.map((x) =>
+        x.id === m.id
+          ? {
+              ...x,
+              ...m,
+              bodyText: m.bodyText || x.bodyText,
+              bodyHtml: m.bodyHtml || x.bodyHtml,
+            }
+          : x
+      )
+    );
   }
 
   function syncNow() {
@@ -529,6 +586,7 @@ export function WebmailBoard({
   }
 
   function chooseSelectAll() {
+    setBusyLabel("Selezione in corso…");
     startTransition(async () => {
       const res = await listWebmailMessaggioIdsAction(currentListFilter());
       if (!res.success) {
@@ -894,6 +952,19 @@ export function WebmailBoard({
           {info}
         </p>
       ) : null}
+      {listLoading || pending || openingId ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2">
+          <BusyBanner
+            label={
+              pending
+                ? "Operazione in corso…"
+                : openingId
+                  ? "Apertura mail…"
+                  : busyLabel
+            }
+          />
+        </div>
+      ) : null}
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
@@ -935,13 +1006,16 @@ export function WebmailBoard({
                 <span className="sr-only">Ordina per</span>
                 <select
                   value={sortKey}
+                  disabled={listLoading}
                   onChange={(e) => {
                     const next = e.target.value as WebmailSortKey;
+                    setBusyLabel("Ordinamento in corso…");
+                    setListLoading(true);
                     setSortKey(next);
                     setSortDir(next === "is_seen" ? "asc" : "desc");
                     setPage(0);
                   }}
-                  className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700"
+                  className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 disabled:opacity-60"
                   aria-label="Ordina per"
                 >
                   {(
@@ -955,11 +1029,14 @@ export function WebmailBoard({
               </label>
               <button
                 type="button"
+                disabled={listLoading}
                 onClick={() => {
+                  setBusyLabel("Ordinamento in corso…");
+                  setListLoading(true);
                   setSortDir((d) => (d === "asc" ? "desc" : "asc"));
                   setPage(0);
                 }}
-                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-white"
+                className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-white disabled:opacity-60"
                 aria-label={
                   sortDir === "asc"
                     ? "Ordine crescente. Clicca per decrescente"
@@ -983,6 +1060,7 @@ export function WebmailBoard({
                     ? "Crescente ↑"
                     : "Decrescente ↓"}
               </button>
+              {listLoading ? <BusySpinner /> : null}
               <span>
                 {totalCount === 0
                   ? "0-0 di 0 mail"
@@ -993,8 +1071,12 @@ export function WebmailBoard({
               </span>
               <button
                 type="button"
-                disabled={page <= 0}
-                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={listLoading || page <= 0}
+                onClick={() => {
+                  setBusyLabel("Caricamento pagina…");
+                  setListLoading(true);
+                  setPage((p) => Math.max(0, p - 1));
+                }}
                 className="rounded border border-slate-200 px-1.5 py-0.5 disabled:opacity-30"
                 aria-label="Pagina precedente"
               >
@@ -1002,8 +1084,14 @@ export function WebmailBoard({
               </button>
               <button
                 type="button"
-                disabled={(page + 1) * WEBMAIL_PAGE_SIZE >= totalCount}
-                onClick={() => setPage((p) => p + 1)}
+                disabled={
+                  listLoading || (page + 1) * WEBMAIL_PAGE_SIZE >= totalCount
+                }
+                onClick={() => {
+                  setBusyLabel("Caricamento pagina…");
+                  setListLoading(true);
+                  setPage((p) => p + 1);
+                }}
                 className="rounded border border-slate-200 px-1.5 py-0.5 disabled:opacity-30"
                 aria-label="Pagina successiva"
               >
@@ -1097,10 +1185,22 @@ export function WebmailBoard({
             </div>
           ) : null}
         </div>
-        <ul className="max-h-[min(78vh,52rem)] divide-y divide-slate-100 overflow-y-auto">
-          {messaggi.length === 0 ? (
+        <ul
+          className="relative max-h-[min(78vh,52rem)] divide-y divide-slate-100 overflow-y-auto"
+          aria-busy={listLoading || pending}
+        >
+          {listLoading ? (
+            <li className="sticky top-0 z-10 border-b border-sky-100 bg-sky-50/95 px-4 py-2">
+              <BusyBanner label={busyLabel} />
+            </li>
+          ) : null}
+          {messaggi.length === 0 && !listLoading ? (
             <li className="p-8 text-center text-sm text-[var(--muted)]">
               Nessun messaggio in questa vista. Sincronizza o cambia cartella.
+            </li>
+          ) : messaggi.length === 0 && listLoading ? (
+            <li className="p-10 text-center">
+              <BusyBanner label={busyLabel} />
             </li>
           ) : (
             messaggi.map((m) => {
@@ -1138,12 +1238,16 @@ export function WebmailBoard({
                         m.isSeen ? "hover:bg-slate-50" : "hover:bg-amber-100/80"
                       }`}
                     >
+                    {openingId === m.id ? (
+                      <BusySpinner className="mt-1" />
+                    ) : (
                     <FaChevronDown
                       size={12}
                       className={`mt-1 shrink-0 text-slate-400 transition ${
                         expanded ? "rotate-180 text-sky-600" : ""
                       }`}
                     />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <p

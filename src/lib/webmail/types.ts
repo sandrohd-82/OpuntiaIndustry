@@ -310,6 +310,8 @@ export type WebmailListFilter = {
   page?: number;
   sortKey?: WebmailSortKey;
   sortDir?: WebmailSortDir;
+  /** Se true, non ricalcola il totale (ordinamento/pagina: il filtro non cambia). */
+  skipCount?: boolean;
 };
 
 export const bulkWebmailMessaggiSchema = z.object({

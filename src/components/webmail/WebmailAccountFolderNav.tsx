@@ -22,6 +22,7 @@ import {
 import type { WebmailCategoria } from "@/lib/webmail/types";
 import { contrastingInkOn, contrastingInkOnWhite } from "@/lib/webmail/contrast";
 import { WEBMAIL_UNREAD_NAV_EVENT } from "@/lib/webmail/unread-nav";
+import { BusySpinner } from "@/components/ui/BusyIndicator";
 
 type Props = {
   accountId: string;
@@ -111,6 +112,7 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   const router = useRouter();
   const base = `/app/webmail/caselle/${accountId}`;
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
+  const [navLoading, setNavLoading] = useState(true);
   const [counts, setCounts] = useState<WebmailUnreadCounts>({
     inbox: 0,
     spam: 0,
@@ -120,38 +122,49 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
     byCategoriaTotal: {},
   });
 
-  const reload = useCallback(() => {
-    void listWebmailCategorieAction().then((res) => {
-      if (res.success) setCategorie(res.items);
-    });
-    void listWebmailUnreadCountsAction(accountId).then((res) => {
+  const reloadCounts = useCallback(() => {
+    return listWebmailUnreadCountsAction(accountId).then((res) => {
       if (res.success) setCounts(res.counts);
     });
   }, [accountId]);
+
+  const reload = useCallback(() => {
+    setNavLoading(true);
+    void Promise.all([
+      listWebmailCategorieAction().then((res) => {
+        if (res.success) setCategorie(res.items);
+      }),
+      reloadCounts(),
+    ]).finally(() => setNavLoading(false));
+  }, [accountId, reloadCounts]);
 
   useEffect(() => {
     reload();
   }, [reload]);
 
   useEffect(() => {
-    const t = window.setTimeout(reload, 400);
+    const t = window.setTimeout(() => {
+      void reloadCounts();
+    }, 400);
     return () => window.clearTimeout(t);
-  }, [pathname, reload]);
+  }, [pathname, reloadCounts]);
 
   useEffect(() => {
     function onUnread(ev: Event) {
       const id = (ev as CustomEvent<{ accountId?: string | null }>).detail
         ?.accountId;
       if (id && id !== accountId) return;
-      reload();
+      void reloadCounts();
     }
     window.addEventListener(WEBMAIL_UNREAD_NAV_EVENT, onUnread);
-    const poll = window.setInterval(reload, 8000);
+    const poll = window.setInterval(() => {
+      void reloadCounts();
+    }, 30000);
     return () => {
       window.removeEventListener(WEBMAIL_UNREAD_NAV_EVENT, onUnread);
       window.clearInterval(poll);
     };
-  }, [accountId, reload]);
+  }, [accountId, reloadCounts]);
 
   return (
     <aside className="flex max-h-[min(78vh,52rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white shadow-sm">
@@ -201,6 +214,7 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
           <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
             <FaFolderOpen size={10} />
             Categorie
+            {navLoading ? <BusySpinner className="h-3 w-3" /> : null}
           </p>
         </div>
         {categorie.length === 0 ? (

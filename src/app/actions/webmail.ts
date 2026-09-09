@@ -121,6 +121,10 @@ function mapMessaggio(r: Record<string, unknown>): WebmailMessaggio {
 const MESSAGGIO_SELECT =
   "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, cc_addresses, subject, body_text, body_html, received_at, sent_at, message_id_header, message_uid, folder, created_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato, categoria_suggest_id, categoria_suggest_mode, categoria_auto_pending, categoria_auto_applied_at, categoria_auto_notified";
 
+/** Elenco: niente body (HTML/testo pesanti). Il corpo si carica all’apertura. */
+const MESSAGGIO_LIST_SELECT =
+  "id, account_id, categoria_id, direction, from_address, from_name, to_addresses, cc_addresses, subject, received_at, sent_at, message_id_header, message_uid, folder, created_at, is_seen, ai_intent, ai_confidence, has_ai_draft, azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato, categoria_suggest_id, categoria_suggest_mode, categoria_auto_pending, categoria_auto_applied_at, categoria_auto_notified";
+
 export async function listWebmailCategorieAction(): Promise<
   | { success: true; items: WebmailCategoria[] }
   | { success: false; error: string }
@@ -317,7 +321,7 @@ export async function markWebmailMessaggioSeenAction(
   const supabase = await createClient();
   const { data: existing, error: exErr } = await supabase
     .from("webmail_messaggi")
-    .select(MESSAGGIO_SELECT)
+    .select(MESSAGGIO_LIST_SELECT)
     .eq("id", parsed.data)
     .is("deleted_at", null)
     .maybeSingle();
@@ -337,7 +341,7 @@ export async function markWebmailMessaggioSeenAction(
     })
     .eq("id", parsed.data)
     .is("deleted_at", null)
-    .select(MESSAGGIO_SELECT)
+    .select(MESSAGGIO_LIST_SELECT)
     .single();
   if (error || !data) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito." };
@@ -872,10 +876,11 @@ export async function listWebmailMessaggiAction(input?: WebmailListFilter): Prom
   const page = Math.max(0, Math.floor(input?.page ?? 0));
   const from = page * WEBMAIL_PAGE_SIZE;
   const to = from + WEBMAIL_PAGE_SIZE - 1;
+  const wantCount = input?.skipCount !== true;
 
   let q = supabase
     .from("webmail_messaggi")
-    .select(MESSAGGIO_SELECT, { count: "exact" });
+    .select(MESSAGGIO_LIST_SELECT, wantCount ? { count: "exact" } : undefined);
   q = applyWebmailMessaggiFilters(q, input);
   q = applyWebmailMessaggiSort(q, input);
   q = q.range(from, to);
@@ -887,7 +892,7 @@ export async function listWebmailMessaggiAction(input?: WebmailListFilter): Prom
     messaggi: (data ?? []).map((r) =>
       mapMessaggio(r as Record<string, unknown>)
     ),
-    total: count ?? 0,
+    total: wantCount ? (count ?? 0) : -1,
     page,
   };
 }
