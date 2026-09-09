@@ -9,10 +9,42 @@ import {
   lookupWebmailAnagraficaByEmailAction,
   type WebmailAnagraficaHit,
 } from "@/app/actions/webmail";
+import { validateClienteFiscali } from "@/lib/amministrazione/clienti";
 import type { WebmailAnagraficaExtract } from "@/lib/webmail/ai";
 import type { WebmailMessaggio } from "@/lib/webmail/types";
 
 type Step = "lookup" | "confirm" | "link-all" | "create";
+
+type CreateField = "ragioneSociale" | "partitaIva" | "codiceFiscale";
+
+function createFieldErrors(
+  form: Pick<
+    WebmailAnagraficaExtract,
+    "ragioneSociale" | "partitaIva" | "codiceFiscale" | "isPrivato"
+  >
+): Partial<Record<CreateField, string>> {
+  const errors: Partial<Record<CreateField, string>> = {};
+  if (!form.ragioneSociale.trim()) {
+    errors.ragioneSociale = "Obbligatoria.";
+  }
+  if (!form.isPrivato) {
+    if (!form.partitaIva.trim()) {
+      errors.partitaIva = "Obbligatoria per un’azienda.";
+    }
+    if (!form.codiceFiscale.trim()) {
+      errors.codiceFiscale = "Obbligatorio per un’azienda.";
+    }
+  }
+  return errors;
+}
+
+function fieldClass(invalid: boolean): string {
+  return `w-full rounded-lg border px-3 py-2 text-sm ${
+    invalid
+      ? "border-red-400 bg-red-50 outline-none ring-1 ring-red-300"
+      : "border-[var(--border)]"
+  }`;
+}
 
 type Props = {
   open: boolean;
@@ -64,6 +96,9 @@ export function WebmailCollegaAziendaFlow({
     "existing"
   );
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<CreateField, string>>
+  >({});
   const [pending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -76,6 +111,7 @@ export function WebmailCollegaAziendaFlow({
     setIncludeReferente(false);
     setLinkSource("existing");
     setError(null);
+    setFieldErrors({});
     startTransition(async () => {
       const res = await lookupWebmailAnagraficaByEmailAction(
         messaggio.fromAddress
@@ -109,6 +145,56 @@ export function WebmailCollegaAziendaFlow({
     value: WebmailAnagraficaExtract[K]
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (
+      key === "ragioneSociale" ||
+      key === "partitaIva" ||
+      key === "codiceFiscale" ||
+      key === "isPrivato"
+    ) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        if (key === "isPrivato") {
+          delete next.partitaIva;
+          delete next.codiceFiscale;
+        } else if (key === "ragioneSociale") {
+          delete next.ragioneSociale;
+        } else if (key === "partitaIva") {
+          delete next.partitaIva;
+        } else if (key === "codiceFiscale") {
+          delete next.codiceFiscale;
+        }
+        return next;
+      });
+      setError(null);
+    }
+  }
+
+  function validateCreateForm(): boolean {
+    const fiscalErr = validateClienteFiscali({
+      ragioneSociale: form.ragioneSociale,
+      partitaIva: form.partitaIva,
+      codiceFiscale: form.codiceFiscale,
+      isPrivato: form.isPrivato,
+    });
+    const next = createFieldErrors(form);
+    setFieldErrors(next);
+    if (fiscalErr) {
+      setError(fiscalErr);
+      return false;
+    }
+    setError(null);
+    return true;
+  }
+
+  function goToLinkAllFromCreate() {
+    if (!validateCreateForm()) return;
+    setLinkSource("create");
+    setStep("link-all");
+  }
+
+  function backFromLinkAll() {
+    setError(null);
+    setStep(linkSource === "create" ? "create" : "confirm");
   }
 
   function confirmHit() {
@@ -135,6 +221,7 @@ export function WebmailCollegaAziendaFlow({
       });
       if (!res.success) {
         setError(res.error);
+        setStep("confirm");
         return;
       }
       onDone(
@@ -183,6 +270,8 @@ export function WebmailCollegaAziendaFlow({
       });
       if (!res.success) {
         setError(res.error);
+        setFieldErrors(createFieldErrors(form));
+        setStep("create");
         return;
       }
       onDone(
@@ -360,6 +449,14 @@ export function WebmailCollegaAziendaFlow({
                   >
                     Solo questa mail
                   </button>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    onClick={backFromLinkAll}
+                    className="rounded-lg px-3 py-2 text-sm text-[var(--muted)] underline-offset-2 hover:underline"
+                  >
+                    Indietro
+                  </button>
                 </div>
               </div>
             ) : null}
@@ -404,86 +501,120 @@ export function WebmailCollegaAziendaFlow({
                       checked={form.isPrivato}
                       onChange={(e) => patch("isPrivato", e.target.checked)}
                     />
-                    Privato (senza P.IVA obbligatoria)
+                    Privato (senza P.IVA e CF obbligatori)
                   </label>
-                  <input
-                    value={form.ragioneSociale}
-                    onChange={(e) => patch("ragioneSociale", e.target.value)}
-                    placeholder="Ragione sociale / intestazione"
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                  />
+                  <div>
+                    <input
+                      value={form.ragioneSociale}
+                      onChange={(e) => patch("ragioneSociale", e.target.value)}
+                      placeholder="Ragione sociale / intestazione *"
+                      aria-invalid={Boolean(fieldErrors.ragioneSociale)}
+                      className={fieldClass(Boolean(fieldErrors.ragioneSociale))}
+                    />
+                    {fieldErrors.ragioneSociale ? (
+                      <p className="mt-1 text-[11px] text-red-700">
+                        {fieldErrors.ragioneSociale}
+                      </p>
+                    ) : null}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <input
-                      value={form.partitaIva}
-                      onChange={(e) => patch("partitaIva", e.target.value)}
-                      placeholder="Partita IVA"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    />
-                    <input
-                      value={form.codiceFiscale}
-                      onChange={(e) => patch("codiceFiscale", e.target.value)}
-                      placeholder="Codice fiscale"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                    />
+                    <div>
+                      <input
+                        value={form.partitaIva}
+                        onChange={(e) => patch("partitaIva", e.target.value)}
+                        placeholder={
+                          form.isPrivato ? "Partita IVA" : "Partita IVA *"
+                        }
+                        aria-invalid={Boolean(fieldErrors.partitaIva)}
+                        className={fieldClass(Boolean(fieldErrors.partitaIva))}
+                      />
+                      {fieldErrors.partitaIva ? (
+                        <p className="mt-1 text-[11px] text-red-700">
+                          {fieldErrors.partitaIva}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div>
+                      <input
+                        value={form.codiceFiscale}
+                        onChange={(e) =>
+                          patch("codiceFiscale", e.target.value)
+                        }
+                        placeholder={
+                          form.isPrivato
+                            ? "Codice fiscale"
+                            : "Codice fiscale *"
+                        }
+                        aria-invalid={Boolean(fieldErrors.codiceFiscale)}
+                        className={fieldClass(
+                          Boolean(fieldErrors.codiceFiscale)
+                        )}
+                      />
+                      {fieldErrors.codiceFiscale ? (
+                        <p className="mt-1 text-[11px] text-red-700">
+                          {fieldErrors.codiceFiscale}
+                        </p>
+                      ) : null}
+                    </div>
                     <input
                       value={form.email}
                       onChange={(e) => patch("email", e.target.value)}
                       placeholder="Email"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.pec}
                       onChange={(e) => patch("pec", e.target.value)}
                       placeholder="PEC"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.telefono}
                       onChange={(e) => patch("telefono", e.target.value)}
                       placeholder="Telefono"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.sdiCode}
                       onChange={(e) => patch("sdiCode", e.target.value)}
                       placeholder="Codice SDI"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.sitoWeb}
                       onChange={(e) => patch("sitoWeb", e.target.value)}
                       placeholder="Sito web"
-                      className="sm:col-span-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={`sm:col-span-2 ${fieldClass(false)}`}
                     />
                     <input
                       value={form.indirizzo}
                       onChange={(e) => patch("indirizzo", e.target.value)}
                       placeholder="Indirizzo"
-                      className="sm:col-span-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={`sm:col-span-2 ${fieldClass(false)}`}
                     />
                     <input
                       value={form.cap}
                       onChange={(e) => patch("cap", e.target.value)}
                       placeholder="CAP"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.citta}
                       onChange={(e) => patch("citta", e.target.value)}
                       placeholder="Città"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.provincia}
                       onChange={(e) => patch("provincia", e.target.value)}
                       placeholder="Provincia"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                     <input
                       value={form.nazione}
                       onChange={(e) => patch("nazione", e.target.value)}
                       placeholder="Nazione"
-                      className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                      className={fieldClass(false)}
                     />
                   </div>
                 </div>
@@ -547,16 +678,26 @@ export function WebmailCollegaAziendaFlow({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={pending || !form.ragioneSociale.trim()}
-                    onClick={() => {
-                      setError(null);
-                      setLinkSource("create");
-                      setStep("link-all");
-                    }}
+                    disabled={pending}
+                    onClick={goToLinkAllFromCreate}
                     className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                   >
                     Crea e collega
                   </button>
+                  {hits.length > 0 ? (
+                    <button
+                      type="button"
+                      disabled={pending}
+                      onClick={() => {
+                        setError(null);
+                        setFieldErrors({});
+                        setStep("confirm");
+                      }}
+                      className="rounded-lg px-3 py-2 text-sm text-[var(--muted)] underline-offset-2 hover:underline"
+                    >
+                      Indietro
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
