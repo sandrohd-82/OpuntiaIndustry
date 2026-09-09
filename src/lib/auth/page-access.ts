@@ -13,23 +13,46 @@ function ownAccess(
   return undefined;
 }
 
-/** Figlie esplicite On/Off sotto un ramo (primo o secondo livello). */
-export function subtreeChildFlags(
-  rootKey: string,
-  map: PageAccessMap
-): { hasOn: boolean; hasOff: boolean } {
-  let hasOn = false;
-  let hasOff = false;
-  const root = resolvePageKey(rootKey);
-  for (const [k, v] of Object.entries(map)) {
-    if (!isChildPageKeyOfSubtree(k, root) && !isChildPageKeyOfSubtree(k, rootKey)) {
-      continue;
-    }
-    if (v) hasOn = true;
-    else hasOff = true;
-    if (hasOn && hasOff) break;
+function hasNavChildren(
+  item: NavItem
+): item is NavItem & { children: readonly NavItem[] } {
+  return isNavBranch(item) && item.children.length > 0;
+}
+
+/** Ramo/foglia impostato: chiave propria, eredità dal padre, o tutte le figlie impostate. */
+export function subtreeFullySet(
+  item: NavItem,
+  map: PageAccessMap,
+  inherited: boolean | undefined
+): boolean {
+  const own = ownAccess(item.path, map);
+  const eff = own !== undefined ? own : inherited;
+  if (eff !== undefined) return true;
+  if (hasNavChildren(item)) {
+    return item.children.every((child) =>
+      subtreeFullySet(child, map, undefined)
+    );
   }
-  return { hasOn, hasOff };
+  return false;
+}
+
+function collectLeafFlags(
+  items: readonly NavItem[],
+  map: PageAccessMap,
+  inherited: boolean | undefined,
+  acc: { hasOn: boolean; hasOff: boolean }
+) {
+  for (const item of items) {
+    const own = ownAccess(item.path, map);
+    const eff = own !== undefined ? own : inherited;
+    if (hasNavChildren(item)) {
+      collectLeafFlags(item.children, map, eff, acc);
+    } else if (eff === true) {
+      acc.hasOn = true;
+    } else if (eff === false) {
+      acc.hasOff = true;
+    }
+  }
 }
 
 function composeAccessTone(
@@ -172,47 +195,60 @@ export function resolvePageKey(pathname: string): string {
   return raw;
 }
 
-export function toneForAreaAccess(
-  areaKey: string,
-  map: PageAccessMap
-): AccessTone {
-  return composeAccessTone(
-    ownAccess(areaKey, map),
-    false,
-    false,
-    subtreeChildFlags(areaKey, map)
-  );
-}
-
 /**
- * Stato On/Off della voce.
- * Impostazione propria vince; altrimenti eredita dal ramo padre.
- * Se sotto ci sono sia On sia Off → mixed (verde+rosso).
+ * Grigio finché le sottocategorie non sono tutte impostate.
+ * Poi: tutte On → verde, tutte Off → rosso, miste → verde+rosso.
  */
-export function toneForSubtreeAccess(
+export function toneForGroup(
   path: string,
-  map: PageAccessMap
+  map: PageAccessMap,
+  childItems: readonly NavItem[] = []
 ): AccessTone {
   const own = ownAccess(path, map);
-  return composeAccessTone(
-    own,
-    own === undefined && isAccessOnAlongPath(path, map),
-    own === undefined && isAccessOffAlongPath(path, map),
-    subtreeChildFlags(path, map)
-  );
+  const inheritedOn = own === undefined && isAccessOnAlongPath(path, map);
+  const inheritedOff = own === undefined && isAccessOffAlongPath(path, map);
+  const inherited = inheritedOn ? true : inheritedOff ? false : undefined;
+  const childrenComplete =
+    childItems.length > 0 &&
+    childItems.every((child) => subtreeFullySet(child, map, inherited));
+  const fullySet =
+    own !== undefined || inherited !== undefined || childrenComplete;
+  if (!fullySet) return "unset";
+
+  const flags = { hasOn: false, hasOff: false };
+  if (childItems.length > 0) {
+    collectLeafFlags(
+      childItems,
+      map,
+      own !== undefined ? own : inherited,
+      flags
+    );
+  }
+  return composeAccessTone(own, inheritedOn, inheritedOff, flags);
+}
+
+export function toneForAreaAccess(
+  areaKey: string,
+  map: PageAccessMap,
+  childItems: readonly NavItem[] = []
+): AccessTone {
+  return toneForGroup(areaKey, map, childItems);
+}
+
+export function toneForSubtreeAccess(
+  path: string,
+  map: PageAccessMap,
+  childItems: readonly NavItem[] = []
+): AccessTone {
+  return toneForGroup(path, map, childItems);
 }
 
 export function toneForNavPath(
   path: string,
-  map: PageAccessMap
+  map: PageAccessMap,
+  childItems: readonly NavItem[] = []
 ): AccessTone {
-  const own = ownAccess(path, map);
-  return composeAccessTone(
-    own,
-    own === undefined && isAccessOnAlongPath(path, map),
-    own === undefined && isAccessOffAlongPath(path, map),
-    subtreeChildFlags(path, map)
-  );
+  return toneForGroup(path, map, childItems);
 }
 
 /** Operativo: area/ramo Off nasconde tutto; On mostra salvo pagina Off. */

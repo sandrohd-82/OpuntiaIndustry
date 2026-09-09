@@ -22,6 +22,8 @@ import {
   FaTruck,
 } from "react-icons/fa6";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
+import { CHAT_SECTIONS } from "@/lib/areas/chat";
+import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
 import {
@@ -244,7 +246,8 @@ function itemClass(
   rail = false,
   tone: AccessTone | null = null
 ) {
-  const toneCls = toneTextClass(tone);
+  const rowTone = tone === "mixed" ? null : tone;
+  const toneCls = toneTextClass(rowTone);
   return `flex w-full items-center gap-2 rounded-lg text-left text-sm transition-colors ${
     rail ? "justify-center px-2 py-2.5" : "px-3 py-2"
   } ${nested ? "py-1.5" : ""} ${
@@ -254,6 +257,10 @@ function itemClass(
           toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
         }`
   }`;
+}
+
+function labelClass(tone: AccessTone | null): string {
+  return tone === "mixed" ? toneTextClass("mixed") : "";
 }
 
 function pathMatches(pathname: string, path: string) {
@@ -291,7 +298,9 @@ function FirstLevelButton({
         className={`min-w-0 flex-1 ${itemClass(active, false, rail, tone)}`}
       >
         <AreaIcon slug={slug} />
-        {rail ? null : <span className="truncate">{label}</span>}
+        {rail ? null : (
+          <span className={`truncate ${labelClass(tone)}`}>{label}</span>
+        )}
         {rail || tone !== "mixed" ? null : <MixedToneMark />}
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
       </button>
@@ -330,7 +339,9 @@ function BranchButton({
         aria-expanded={open}
         className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone)}`}
       >
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <span className={`min-w-0 flex-1 truncate ${labelClass(tone)}`}>
+          {label}
+        </span>
         {tone === "mixed" ? <MixedToneMark /> : null}
         {badge ? <NavBadgeDot badge={badge} /> : null}
         <Chevron open={open} />
@@ -362,8 +373,9 @@ function NavTree({
   return (
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
       {sections.map((item) => {
+        const childItems = isNavBranch(item) ? item.children : [];
         const tone = colorMenu && pageAccess
-          ? toneForNavPath(item.path, pageAccess)
+          ? toneForNavPath(item.path, pageAccess, childItems)
           : null;
         if (isNavBranch(item)) {
           const open = openKeys.has(item.path) || openKeys.has(item.slug);
@@ -372,7 +384,7 @@ function NavTree({
             branchToggle && pageAccess
               ? {
                   areaKey: item.path,
-                  tone: toneForSubtreeAccess(item.path, pageAccess),
+                  tone: toneForSubtreeAccess(item.path, pageAccess, childItems),
                 }
               : null;
           return (
@@ -609,9 +621,21 @@ export function AppSidebar({
     webSections.length > 0 &&
     (!applyPageFilter || isNavPathVisible(WEB_AREA_ACCESS_KEY, pageAccess));
 
-  function areaToggle(areaKey: string) {
+  function areaToggle(
+    areaKey: string,
+    childItems: readonly NavItem[] = []
+  ) {
     if (!canToggleAreas) return null;
-    return { areaKey, tone: toneForAreaAccess(areaKey, pageAccess) };
+    return {
+      areaKey,
+      tone: toneForAreaAccess(areaKey, pageAccess, childItems),
+    };
+  }
+
+  function toneChildrenForArea(slug: AreaSlug): readonly NavItem[] {
+    if (slug === "chat") return CHAT_SECTIONS;
+    if (slug === "webmail") return WEBMAIL_SECTIONS;
+    return sectionsForArea(slug, produzioneNav, archivioNav) ?? [];
   }
 
   return (
@@ -701,8 +725,16 @@ export function AppSidebar({
                     label="Web"
                     active={active}
                     rail={collapsed}
-                    tone={testMenuMode ? toneForAreaAccess(WEB_AREA_ACCESS_KEY, pageAccess) : null}
-                    areaAccess={areaToggle(WEB_AREA_ACCESS_KEY)}
+                    tone={
+                      testMenuMode
+                        ? toneForAreaAccess(
+                            WEB_AREA_ACCESS_KEY,
+                            pageAccess,
+                            webSections
+                          )
+                        : null
+                    }
+                    areaAccess={areaToggle(WEB_AREA_ACCESS_KEY, webSections)}
                     onToggle={() => openFirstLevel("web")}
                   />
                   {!collapsed && open ? (
@@ -739,10 +771,11 @@ export function AppSidebar({
               applyPageFilter && treeSectionsRaw
                 ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
                 : treeSectionsRaw;
+            const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
-              ? toneForAreaAccess(href, pageAccess)
+              ? toneForAreaAccess(href, pageAccess, toneChildren)
               : null;
-            const areaAccess = areaToggle(href);
+            const areaAccess = areaToggle(href, toneChildren);
 
             const extra =
               area.slug === "chat" ? (
@@ -843,7 +876,11 @@ export function AppSidebar({
                     className={`min-w-0 flex-1 ${itemClass(active, false, collapsed, areaTone)}`}
                   >
                     <AreaIcon slug={area.slug} />
-                    {collapsed ? null : <span className="truncate">{area.name}</span>}
+                    {collapsed ? null : (
+                      <span className={`truncate ${labelClass(areaTone)}`}>
+                        {area.name}
+                      </span>
+                    )}
                   </Link>
                   {areaAccess ? (
                     <MenuAreaAccessToggle

@@ -19,12 +19,21 @@ import {
 } from "@/lib/chat/topics";
 import type { ConversationListItem } from "@/lib/chat/types";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
+import { CHAT_SECTIONS } from "@/lib/areas/chat";
+import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 import {
   toneForNavPath,
   toneForSubtreeAccess,
   type AccessTone,
   type PageAccessMap,
 } from "@/lib/auth/page-access";
+
+const CHAT_ARGOMENTI = CHAT_SECTIONS.find((s) => s.slug === "argomenti");
+const CHAT_DIRETTE = CHAT_SECTIONS.find((s) => s.slug === "dirette");
+const CHAT_ARGOMENTI_CHILDREN =
+  CHAT_ARGOMENTI && isNavBranch(CHAT_ARGOMENTI) ? CHAT_ARGOMENTI.children : [];
+const CHAT_DIRETTE_CHILDREN =
+  CHAT_DIRETTE && isNavBranch(CHAT_DIRETTE) ? CHAT_DIRETTE.children : [];
 
 function MixedToneMark() {
   return (
@@ -57,7 +66,8 @@ function itemClass(
   if (isNew && !active) {
     return "flex w-full items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-left text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-500/25";
   }
-  const toneCls = toneTextClass(tone);
+  const rowTone = tone === "mixed" ? null : tone;
+  const toneCls = toneTextClass(rowTone);
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
       ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
@@ -65,6 +75,10 @@ function itemClass(
           toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
         }`
   }`;
+}
+
+function labelClass(tone: AccessTone | null): string {
+  return tone === "mixed" ? toneTextClass("mixed") : "";
 }
 
 function Chevron({ open }: { open: boolean }) {
@@ -212,24 +226,31 @@ export function ChatSidebarNav({
     });
   }, [pathname]);
 
-  function toneOf(path: string): AccessTone | null {
+  function toneOf(
+    path: string,
+    childItems: readonly NavItem[] = []
+  ): AccessTone | null {
     if (!colorMenu || !pageAccess) return null;
-    return toneForNavPath(path, pageAccess);
+    return toneForNavPath(path, pageAccess, childItems);
   }
 
-  function accessOf(path: string) {
+  function accessOf(
+    path: string,
+    childItems: readonly NavItem[] = []
+  ) {
     if (!branchToggle || !pageAccess) return null;
     return {
       areaKey: path,
-      tone: toneForSubtreeAccess(path, pageAccess),
+      tone: toneForSubtreeAccess(path, pageAccess, childItems),
     };
   }
 
   function withToggle(
     path: string,
-    node: ReactNode
+    node: ReactNode,
+    childItems: readonly NavItem[] = []
   ) {
-    const access = accessOf(path);
+    const access = accessOf(path, childItems);
     if (!access) return node;
     return (
       <div className="flex items-center gap-1">
@@ -239,10 +260,10 @@ export function ChatSidebarNav({
     );
   }
 
-  const toneArgomenti = toneOf("/app/chat/argomenti");
+  const toneArgomenti = toneOf("/app/chat/argomenti", CHAT_ARGOMENTI_CHILDREN);
   const toneNuovoArg = toneOf("/app/chat/argomenti/nuovo");
   const toneElencoArg = toneOf("/app/chat/argomenti/elenco");
-  const toneDirette = toneOf("/app/chat/dirette");
+  const toneDirette = toneOf("/app/chat/dirette", CHAT_DIRETTE_CHILDREN);
   const toneNuovaChat = toneOf("/app/chat/dirette/nuova");
   const toneElencoChat = toneOf("/app/chat/dirette/elenco");
 
@@ -263,9 +284,12 @@ export function ChatSidebarNav({
             )}
           >
             <Chevron open={open.has("argomenti")} />
-            <span className="truncate">Per argomento</span>
+            <span className={`truncate ${labelClass(toneArgomenti)}`}>
+              Per argomento
+            </span>
             {toneArgomenti === "mixed" ? <MixedToneMark /> : null}
-          </button>
+          </button>,
+          CHAT_ARGOMENTI_CHILDREN
         )}
         {open.has("argomenti") ? (
           <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
@@ -353,9 +377,12 @@ export function ChatSidebarNav({
             )}
           >
             <Chevron open={open.has("dirette")} />
-            <span className="truncate">Fra utenti</span>
+            <span className={`truncate ${labelClass(toneDirette)}`}>
+              Fra utenti
+            </span>
             {toneDirette === "mixed" ? <MixedToneMark /> : null}
-          </button>
+          </button>,
+          CHAT_DIRETTE_CHILDREN
         )}
         {open.has("dirette") ? (
           <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
