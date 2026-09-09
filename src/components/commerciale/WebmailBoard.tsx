@@ -2124,6 +2124,14 @@ export function WebmailBoard({
         open={catTargetIds.length > 0}
         messaggioIds={catTargetIds}
         categorie={categorie}
+        accountId={
+          (catTargetIds[0]
+            ? messaggi.find((x) => x.id === catTargetIds[0])?.accountId
+            : null) ??
+          selected?.accountId ??
+          accountFilter ??
+          null
+        }
         fromAddresses={catTargetIds.flatMap((id) => {
           const m =
             messaggi.find((x) => x.id === id) ??

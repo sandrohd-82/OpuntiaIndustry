@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FaXmark } from "react-icons/fa6";
 import {
   bulkSetWebmailMessaggiCategoriaAction,
+  countWebmailFromAddressAction,
   createWebmailCategoriaAction,
   setWebmailMessaggioCategoriaAction,
 } from "@/app/actions/webmail";
@@ -16,6 +17,7 @@ type Props = {
   categorie: WebmailCategoria[];
   currentCategoriaId: string | null;
   fromAddresses: string[];
+  accountId: string | null;
   onClose: () => void;
   onDone: (categoriaId: string, learnMode: string) => void;
   onCategoriaCreated: (c: WebmailCategoria) => void;
@@ -27,6 +29,7 @@ export function WebmailCategoriaModal({
   categorie,
   currentCategoriaId,
   fromAddresses,
+  accountId,
   onClose,
   onDone,
   onCategoriaCreated,
@@ -38,6 +41,10 @@ export function WebmailCategoriaModal({
   const [autoMoveNew, setAutoMoveNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [fromCount, setFromCount] = useState<{
+    total: number;
+    unread: number;
+  } | null>(null);
 
   const uniqueAddresses = [
     ...new Set(
@@ -46,6 +53,7 @@ export function WebmailCategoriaModal({
         .filter((a) => a.includes("@"))
     ),
   ];
+  const addressKey = uniqueAddresses.join("|");
   const addressLabel =
     uniqueAddresses.length === 1
       ? uniqueAddresses[0]
@@ -61,8 +69,26 @@ export function WebmailCategoriaModal({
       setAutoMoveNew(false);
       setError(null);
       setPending(false);
+      setFromCount(null);
     }
   }, [open, currentCategoriaId]);
+
+  useEffect(() => {
+    if (!open || !accountId || uniqueAddresses.length !== 1 || !uniqueAddresses[0]) {
+      return;
+    }
+    let cancelled = false;
+    void countWebmailFromAddressAction({
+      accountId,
+      fromAddress: uniqueAddresses[0],
+    }).then((res) => {
+      if (cancelled || !res.success) return;
+      setFromCount({ total: res.total, unread: res.unread });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, accountId, addressKey]);
 
   if (!open) return null;
 
@@ -169,12 +195,24 @@ export function WebmailCategoriaModal({
           </button>
         </div>
         {addressLabel ? (
-          <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-            Indirizzo:{" "}
-            <span className="font-semibold break-all text-slate-900">
-              {addressLabel}
-            </span>
-          </p>
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            <p>
+              Indirizzo:{" "}
+              <span className="font-semibold break-all text-slate-900">
+                {addressLabel}
+              </span>
+            </p>
+            <p className="mt-1 text-slate-600">
+              {fromCount
+                ? fromCount.total === 1
+                  ? "1 mail già presente da questo indirizzo"
+                  : `${fromCount.total} mail già presenti da questo indirizzo`
+                : "Conteggio mail in corso…"}
+              {fromCount && fromCount.unread > 0
+                ? ` (${fromCount.unread} da leggere)`
+                : null}
+            </p>
+          </div>
         ) : (
           <p className="mb-3 text-xs text-slate-500">
             Indirizzo mittente non disponibile.
@@ -210,8 +248,9 @@ export function WebmailCategoriaModal({
                 className="mt-0.5"
               />
               <span>
-                Sposta tutte le mail già presenti con questo indirizzo in questa
-                categoria
+                {fromCount
+                  ? `Sposta tutte le ${fromCount.total} mail già presenti con questo indirizzo in questa categoria`
+                  : "Sposta tutte le mail già presenti con questo indirizzo in questa categoria"}
               </span>
             </label>
             <label className="flex items-start gap-2 text-xs text-slate-700">

@@ -156,6 +156,7 @@ export type WebmailUnreadCounts = {
 
 /**
  * Conteggio mail (non lette + totale) per In arrivo, spam e categorie, per casella.
+ * Usa aggregazione SQL: niente tetto 8000 (le mail nuove restavano fuori).
  */
 export async function listWebmailUnreadCountsAction(
   accountId: string
@@ -169,15 +170,9 @@ export async function listWebmailUnreadCountsAction(
     return { success: false, error: "Casella non valida." };
   }
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("webmail_messaggi")
-    .select("id, categoria_id, spam_at, folder, is_seen")
-    .eq("account_id", parsed.data)
-    .eq("direction", "inbound")
-    .is("deleted_at", null)
-    .is("archived_at", null)
-    .neq("folder", "TRASH")
-    .limit(8000);
+  const { data, error } = await supabase.rpc("webmail_account_folder_counts", {
+    p_account_id: parsed.data,
+  });
   if (error) return { success: false, error: error.message };
 
   let inbox = 0;
@@ -187,23 +182,23 @@ export async function listWebmailUnreadCountsAction(
   const byCategoriaId: Record<string, number> = {};
   const byCategoriaTotal: Record<string, number> = {};
   for (const r of data ?? []) {
-    const isSpam =
-      Boolean(r.spam_at) ||
-      String(r.folder ?? "").toUpperCase() === "JUNK";
-    const unread = r.is_seen !== true;
-    if (isSpam) {
-      spamTotal += 1;
-      if (unread) spam += 1;
+    const unread = Number(r.unread ?? 0);
+    const total = Number(r.total ?? 0);
+    const bucket = String(r.bucket ?? "");
+    if (bucket === "spam") {
+      spam += unread;
+      spamTotal += total;
       continue;
     }
-    const cat = r.categoria_id ? String(r.categoria_id) : null;
-    if (!cat) {
-      inboxTotal += 1;
-      if (unread) inbox += 1;
-    } else {
-      byCategoriaTotal[cat] = (byCategoriaTotal[cat] ?? 0) + 1;
-      if (unread) byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + 1;
+    if (bucket === "inbox") {
+      inbox += unread;
+      inboxTotal += total;
+      continue;
     }
+    const cat = r.categoria_id ? String(r.categoria_id) : "";
+    if (!cat) continue;
+    byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + unread;
+    byCategoriaTotal[cat] = (byCategoriaTotal[cat] ?? 0) + total;
   }
   return {
     success: true,
@@ -215,6 +210,63 @@ export async function listWebmailUnreadCountsAction(
       spamTotal,
       byCategoriaTotal,
     },
+  };
+}
+
+export async function countWebmailFromAddressAction(raw: unknown): Promise<
+  | { success: true; total: number; unread: number }
+  | { success: false; error: string }
+> {
+  await requireWebmailAccess();
+  const parsed = z
+    .object({
+      accountId: z.string().uuid(),
+      fromAddress: z.string().trim().min(3),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati non validi." };
+  }
+  const { normalizeSenderEmail } = await import("@/lib/webmail/category-learn");
+  const email = normalizeSenderEmail(parsed.data.fromAddress);
+  if (!email.includes("@")) {
+    return { success: false, error: "Indirizzo non valido." };
+  }
+
+  const supabase = await createClient();
+  const senderOr = `from_address.ilike."${email}",from_address.ilike."%<${email}>%"`;
+  const { count: total, error } = await supabase
+    .from("webmail_messaggi")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", parsed.data.accountId)
+    .eq("direction", "inbound")
+    .is("deleted_at", null)
+    .is("purged_at", null)
+    .is("archived_at", null)
+    .is("spam_at", null)
+    .neq("folder", "TRASH")
+    .neq("folder", "JUNK")
+    .or(senderOr);
+  if (error) return { success: false, error: error.message };
+
+  const { count: unread, error: unreadErr } = await supabase
+    .from("webmail_messaggi")
+    .select("id", { count: "exact", head: true })
+    .eq("account_id", parsed.data.accountId)
+    .eq("direction", "inbound")
+    .is("deleted_at", null)
+    .is("purged_at", null)
+    .is("archived_at", null)
+    .is("spam_at", null)
+    .neq("folder", "TRASH")
+    .neq("folder", "JUNK")
+    .eq("is_seen", false)
+    .or(senderOr);
+
+  return {
+    success: true,
+    total: total ?? 0,
+    unread: unread ?? 0,
   };
 }
 
