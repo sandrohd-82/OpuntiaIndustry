@@ -11,7 +11,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-type AccountRow = {
+export type AccountRow = {
   id: string;
   email_address: string;
   provider?: string;
@@ -171,19 +171,6 @@ function normalizeMessageUid(value: unknown): string {
   return String(value ?? "").trim();
 }
 
-function imapFlagsHasSeen(flags: unknown): boolean {
-  if (!flags) return false;
-  const items =
-    flags instanceof Set
-      ? [...flags]
-      : Array.isArray(flags)
-        ? flags
-        : typeof flags === "object"
-          ? Object.values(flags as Record<string, unknown>)
-          : [flags];
-  return items.some((f) => String(f).toLowerCase() === "\\seen");
-}
-
 async function loadExistingUids(
   supabase: Service,
   accountId: string,
@@ -301,26 +288,6 @@ async function markExistingSpamByMessageId(
   return true;
 }
 
-async function loadImapSeenByUid(
-  client: ImapFlow,
-  uids: string[]
-): Promise<Map<string, boolean>> {
-  const seenByUid = new Map<string, boolean>();
-  if (uids.length === 0) return seenByUid;
-  try {
-    for await (const msg of client.fetch(uids.join(","), { flags: true }, { uid: true })) {
-      if (!msg.uid) continue;
-      seenByUid.set(String(msg.uid), imapFlagsHasSeen(msg.flags));
-    }
-  } catch (e) {
-    console.error(
-      "[webmail sync flags]",
-      e instanceof Error ? e.message : e
-    );
-  }
-  return seenByUid;
-}
-
 async function loadAccountBlacklist(
   supabase: Service,
   accountId: string
@@ -395,7 +362,6 @@ async function importInboxUidList(
 ): Promise<{ imported: number; importedIds: string[] }> {
   let imported = 0;
   const importedIds: string[] = [];
-  const seenByUid = await loadImapSeenByUid(client, list);
 
   for (const uidStr of list) {
     const uid = Number(uidStr);
@@ -486,7 +452,7 @@ async function importInboxUidList(
         body_html: bodyHtml,
         received_at: receivedAt,
         sent_at: receivedAt,
-        is_seen: seenByUid.get(uidStr) === true,
+        is_seen: false,
         categoria_id: learned.categoriaId,
         categoria_suggest_id: learned.categoriaId
           ? null
@@ -1242,6 +1208,91 @@ export async function moveImapMessageBestEffort(input: {
       // ignore
     }
   }
+}
+
+/**
+ * Best effort: allinea \\Seen sulla casella allo stato del gestionale.
+ * Lo stato gestionale non viene mai letto da IMAP.
+ */
+export async function setImapSeenManyBestEffort(input: {
+  items: Array<{
+    account: AccountRow;
+    folder: string;
+    messageUid: string;
+  }>;
+  seen: boolean;
+}): Promise<{ ok: number; failed: number }> {
+  let ok = 0;
+  let failed = 0;
+  const byAccount = new Map<string, { account: AccountRow; items: typeof input.items }>();
+  for (const item of input.items) {
+    const uidNum = Number(item.messageUid);
+    if (!Number.isFinite(uidNum) || uidNum <= 0 || !item.account?.id) {
+      failed += 1;
+      continue;
+    }
+    const cur = byAccount.get(item.account.id) ?? {
+      account: item.account,
+      items: [],
+    };
+    cur.items.push(item);
+    byAccount.set(item.account.id, cur);
+  }
+
+  for (const { account, items } of byAccount.values()) {
+    let password: string;
+    try {
+      password = decryptWebmailSecret(account.password_encrypted);
+    } catch {
+      failed += items.length;
+      continue;
+    }
+    const client = new ImapFlow({
+      host: account.imap_host,
+      port: account.imap_port,
+      secure: account.imap_secure,
+      auth: { user: account.username, pass: password },
+      logger: false,
+    });
+    try {
+      await client.connect();
+      const byFolder = new Map<string, string[]>();
+      for (const item of items) {
+        const folder = item.folder || "INBOX";
+        const list = byFolder.get(folder) ?? [];
+        list.push(item.messageUid);
+        byFolder.set(folder, list);
+      }
+      for (const [folder, uids] of byFolder) {
+        try {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            const range = uids.join(",");
+            if (input.seen) {
+              await client.messageFlagsAdd(range, ["\\Seen"], { uid: true });
+            } else {
+              await client.messageFlagsRemove(range, ["\\Seen"], { uid: true });
+            }
+            ok += uids.length;
+          } finally {
+            lock.release();
+          }
+        } catch {
+          failed += uids.length;
+        }
+      }
+    } catch {
+      failed += items.length;
+    } finally {
+      try {
+        await client.logout();
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return { ok, failed };
 }
 
 /**

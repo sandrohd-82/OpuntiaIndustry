@@ -513,6 +513,7 @@ export function WebmailBoard({
   function onHeaderSelectClick() {
     if (!selectMode) {
       setSelectMode(true);
+      setSelectScopeOpen(true);
       return;
     }
     if (headerChecked) {
@@ -556,6 +557,7 @@ export function WebmailBoard({
           : `${res.updated} mail segnalate come da leggere.`
       );
       resetSelection();
+      notifyWebmailUnreadNav(accountFilter || null);
       await reload();
     });
   }
@@ -585,6 +587,7 @@ export function WebmailBoard({
           ids.includes(m.id) ? { ...m, isSeen: choice === "read" } : m
         )
       );
+      notifyWebmailUnreadNav(accountFilter || null);
       await reload();
     });
   }
@@ -904,6 +907,16 @@ export function WebmailBoard({
                 aria-checked={headerChecked}
                 className="h-4 w-4"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectMode(true);
+                  setSelectScopeOpen(true);
+                }}
+                className="text-xs font-semibold uppercase tracking-wide text-slate-700 underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+              >
+                Seleziona
+              </button>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Messaggi
               </p>
@@ -2233,6 +2246,7 @@ export function WebmailBoard({
         pageCount={messaggi.length}
         totalCount={totalCount}
         pending={pending}
+        variant={view === "categoria" ? "categoria" : "elenco"}
         onClose={() => setSelectScopeOpen(false)}
         onChoosePage={chooseSelectPage}
         onChooseAll={chooseSelectAll}

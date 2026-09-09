@@ -5,6 +5,7 @@ type Props = {
   pageCount: number;
   totalCount: number;
   pending: boolean;
+  variant?: "elenco" | "categoria";
   onClose: () => void;
   onChoosePage: () => void;
   onChooseAll: () => void;
@@ -15,6 +16,7 @@ export function WebmailSelectScopeModal({
   pageCount,
   totalCount,
   pending,
+  variant = "elenco",
   onClose,
   onChoosePage,
   onChooseAll,
@@ -36,8 +38,9 @@ export function WebmailSelectScopeModal({
       >
         <h2 className="text-sm font-semibold">Seleziona mail</h2>
         <p className="mt-2 text-sm">
-          Vuoi selezionare solo le {pageCount} mail di questa pagina o tutte le{" "}
-          {totalCount} mail presenti?
+          {variant === "categoria"
+            ? `Vuoi selezionare solo le ${pageCount} mail di questa pagina o tutta la categoria (${totalCount})?`
+            : `Vuoi selezionare solo le ${pageCount} mail di questa pagina o tutte le ${totalCount} mail presenti?`}
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row">
           <button
@@ -46,7 +49,7 @@ export function WebmailSelectScopeModal({
             onClick={onChoosePage}
             className="flex-1 rounded-lg border border-[var(--border)] px-3 py-2.5 text-sm font-medium disabled:opacity-50"
           >
-            Solo questa pagina ({pageCount})
+            Solo le {pageCount} di questa pagina
           </button>
           <button
             type="button"
@@ -54,7 +57,9 @@ export function WebmailSelectScopeModal({
             onClick={onChooseAll}
             className="flex-1 rounded-lg bg-[var(--primary)] px-3 py-2.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            Tutte ({totalCount})
+            {variant === "categoria"
+              ? `Tutta la categoria (${totalCount})`
+              : `Tutte (${totalCount})`}
           </button>
         </div>
       </div>

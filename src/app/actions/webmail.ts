@@ -12,6 +12,8 @@ import {
   moveImapMessageBestEffort,
   previewWebmailAccounts,
   reloadMessaggioBodyAndAttachments,
+  setImapSeenManyBestEffort,
+  type AccountRow,
   sendMailViaAccount,
   syncAllWebmailAccounts,
   syncWebmailAccount,
@@ -340,10 +342,61 @@ export async function markWebmailMessaggioSeenAction(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito." };
   }
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: String(data.id),
+    action: "update",
+    actor_id: auth.userId,
+    summary: "Mail impostata come letta nel gestionale",
+    payload: { is_seen: true },
+  });
+  void pushGestionaleSeenToImap(
+    [
+      {
+        account_id: String(data.account_id),
+        folder: String(data.folder ?? "INBOX"),
+        message_uid: String(data.message_uid ?? ""),
+      },
+    ],
+    true
+  );
+
   return {
     success: true,
     messaggio: mapMessaggio(data as Record<string, unknown>),
   };
+}
+
+async function pushGestionaleSeenToImap(
+  rows: Array<{ account_id: string; folder: string; message_uid: string }>,
+  seen: boolean
+): Promise<void> {
+  const accountIds = [...new Set(rows.map((r) => r.account_id).filter(Boolean))];
+  if (accountIds.length === 0) return;
+  const service = createServiceClient();
+  const { data: accounts } = await service
+    .from("webmail_accounts")
+    .select(
+      "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+    )
+    .in("id", accountIds);
+  const byId = new Map(
+    (accounts ?? []).map((a) => [String(a.id), a as AccountRow])
+  );
+  const items = rows
+    .map((r) => {
+      const account = byId.get(r.account_id);
+      if (!account) return null;
+      return {
+        account,
+        folder: r.folder || "INBOX",
+        messageUid: r.message_uid,
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  if (items.length === 0) return;
+  await setImapSeenManyBestEffort({ items, seen });
 }
 
 export async function listWebmailAccountsAction(): Promise<
@@ -1424,6 +1477,11 @@ export async function setWebmailImportedSeenAction(raw: {
 
   const supabase = await createClient();
   let updated = 0;
+  const imapRows: Array<{
+    account_id: string;
+    folder: string;
+    message_uid: string;
+  }> = [];
   const chunkSize = 200;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
@@ -1435,10 +1493,19 @@ export async function setWebmailImportedSeenAction(raw: {
       })
       .in("id", chunk)
       .is("purged_at", null)
-      .select("id");
+      .select("id, account_id, folder, message_uid");
     if (error) return { success: false, error: error.message };
     updated += data?.length ?? 0;
+    imapRows.push(
+      ...(data ?? []).map((r) => ({
+        account_id: String(r.account_id ?? ""),
+        folder: String(r.folder ?? "INBOX"),
+        message_uid: String(r.message_uid ?? ""),
+      }))
+    );
   }
+
+  void pushGestionaleSeenToImap(imapRows, parsed.data.seen);
 
   void writeAuditLog({
     entity_type: "webmail_messaggi",
