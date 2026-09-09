@@ -23,6 +23,8 @@ export type AziendaTimelineItem = {
   notaId?: string;
   notaBody?: string;
   notaBodyRich?: string;
+  /** Data/ora evento (due_at); se assente si usa created_at. */
+  notaDueAt?: string | null;
   notaCreatedAt?: string;
   notaAllegati?: Array<{
     id: string;

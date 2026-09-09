@@ -35,8 +35,32 @@ import type {
   PnNotaBozza,
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
+import { combineDateAndTime } from "@/components/promemorie-e-note/NotaFormExtras";
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
 import { FaPen } from "react-icons/fa6";
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function splitLocalDateTime(iso: string | null | undefined): {
+  date: string;
+  time: string;
+} {
+  if (!iso) return { date: "", time: "" };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { date: "", time: "" };
+  return {
+    date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+    time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}`,
+  };
+}
+
+/** Data obbligatoria per lo storico; ora facoltativa (mezzanotte locale se vuota). */
+function eventoDueAt(date: string, time: string): string | null {
+  if (!date.trim() && !time.trim()) return null;
+  return combineDateAndTime(date.trim(), time.trim() || "00:00");
+}
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   webmail: "WebMail",
@@ -229,6 +253,8 @@ export function AziendaTimelineModal({
   const [editingNotaCreatedAt, setEditingNotaCreatedAt] = useState<
     string | null
   >(null);
+  const [notaEventoDate, setNotaEventoDate] = useState("");
+  const [notaEventoTime, setNotaEventoTime] = useState("");
   const notaBodyRef = useRef<HTMLTextAreaElement>(null);
   const cursorRef = useRef<{ start: number; end: number }>({
     start: 0,
@@ -333,6 +359,8 @@ export function AziendaTimelineModal({
     setBozzaEditMode("placeholders");
     setEditingNotaId(null);
     setEditingNotaCreatedAt(null);
+    setNotaEventoDate("");
+    setNotaEventoTime("");
   }
 
   function openCreateNotaForCampionatura() {
@@ -342,6 +370,8 @@ export function AziendaTimelineModal({
       setNotaBody(
         `Data richiesta: ${pickMode.dataRichiesta}\nConversazione (argomenti principali, inclusa la richiesta di campionatura):\n`
       );
+      setNotaEventoDate(pickMode.dataRichiesta.slice(0, 10));
+      setNotaEventoTime("");
     }
     setPanel("nota");
   }
@@ -368,6 +398,7 @@ export function AziendaTimelineModal({
           titolo: notaTitolo,
           body: richToPlain(bodyRich) || bodyRich,
           bodyRich,
+          dueAt: eventoDueAt(notaEventoDate, notaEventoTime),
           allegati: notaAllegati,
         });
         if (!res.success) {
@@ -376,20 +407,17 @@ export function AziendaTimelineModal({
         }
         resetNotaForm();
         setPanel("none");
-        setInfo("Nota aggiornata (data di creazione invariata).");
+        setInfo("Nota aggiornata. La posizione segue la data evento.");
         await reload();
         return;
       }
 
-      const dueAt =
-        pickMode?.purpose === "campionatura-nota" && pickMode.dataRichiesta
-          ? `${pickMode.dataRichiesta}T12:00:00`
-          : undefined;
+      const dueAt = eventoDueAt(notaEventoDate, notaEventoTime);
       const res = await createNotaPnAction({
         titolo: notaTitolo,
         body: richToPlain(bodyRich) || bodyRich,
         bodyRich,
-        dueAt: dueAt || undefined,
+        dueAt: dueAt,
         entityType: aziendaTipo,
         entityId: aziendaId,
         entityLabel: aziendaLabel,
@@ -438,6 +466,9 @@ export function AziendaTimelineModal({
     setNotaBozzaId(null);
     setEditingNotaId(item.notaId);
     setEditingNotaCreatedAt(item.notaCreatedAt ?? item.occurredAt);
+    const when = splitLocalDateTime(item.notaDueAt || item.occurredAt);
+    setNotaEventoDate(when.date);
+    setNotaEventoTime(when.time === "00:00" ? "" : when.time);
     setNotaTitolo(item.title === "Nota" ? "" : item.title);
     setNotaBody(item.notaBodyRich || item.notaBody || "");
     setNotaAllegati(
@@ -575,9 +606,9 @@ export function AziendaTimelineModal({
               </p>
               {editingNotaId && editingNotaCreatedAt ? (
                 <p className="text-[11px] text-amber-900/80">
-                  Creata il{" "}
-                  {new Date(editingNotaCreatedAt).toLocaleString("it-IT")} —
-                  non cambia al salvataggio
+                  Inserita il{" "}
+                  {new Date(editingNotaCreatedAt).toLocaleString("it-IT")}{" "}
+                  (audit). La posizione in elenco segue la data evento.
                 </p>
               ) : null}
             </div>
@@ -588,6 +619,35 @@ export function AziendaTimelineModal({
                 placeholder="Titolo (opzionale)"
                 className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
               />
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs text-amber-950/80">
+                    Data evento (anche passata)
+                  </span>
+                  <input
+                    type="date"
+                    value={notaEventoDate}
+                    onChange={(e) => setNotaEventoDate(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-xs text-amber-950/80">
+                    Ora (facoltativa)
+                  </span>
+                  <input
+                    type="time"
+                    value={notaEventoTime}
+                    onChange={(e) => setNotaEventoTime(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+              <p className="text-[11px] text-amber-900/75">
+                Compila la data per lo storico: la nota si posiziona in
+                ordine cronologico insieme a mail e altre attività, non per
+                momento di inserimento. Senza data vale «adesso».
+              </p>
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"

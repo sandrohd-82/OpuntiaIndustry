@@ -210,7 +210,9 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     for (const r of data ?? []) {
       const createdAt = r.created_at as string | null;
       if (!createdAt) continue;
-      // Posizione timeline = data creazione (immutabile alle modifiche)
+      const dueAt = (r.due_at as string | null) ?? null;
+      // Posizione = data evento (due_at), altrimenti inserimento. created_at resta audit.
+      const occurredAt = dueAt || createdAt;
       const body = String(r.body ?? "");
       const bodyRich = String(r.body_rich ?? body);
       const allegati = Array.isArray(r.allegati)
@@ -225,13 +227,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       pushSorted(items, {
         id: `nota:${r.id}`,
         kind: "nota",
-        occurredAt: createdAt,
+        occurredAt,
         title: String(r.titolo || "Nota").trim() || "Nota",
         subtitle: body.slice(0, 120),
         href: "/app/promemorie-e-note",
         notaId: String(r.id),
         notaBody: body,
         notaBodyRich: bodyRich,
+        notaDueAt: dueAt,
         notaCreatedAt: createdAt,
         notaAllegati: allegati,
       });
@@ -336,10 +339,12 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  items.sort(
-    (a, b) =>
-      new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime()
-  );
+  items.sort((a, b) => {
+    const ta = new Date(a.occurredAt).getTime();
+    const tb = new Date(b.occurredAt).getTime();
+    if (ta !== tb) return ta - tb;
+    return a.id.localeCompare(b.id);
+  });
 
   return { success: true, items };
 }
