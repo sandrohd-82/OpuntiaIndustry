@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { FaChevronDown } from "react-icons/fa6";
 import {
   listImpersonationTargetsAction,
   startImpersonationAction,
@@ -10,33 +11,42 @@ import {
 
 type Props = {
   impersonating: boolean;
-  currentLabel: string;
-  currentRole: string;
   actorLabel: string;
-  compact?: boolean;
 };
 
-export function ImpersonationSwitcher({
-  impersonating,
-  currentLabel,
-  currentRole,
-  actorLabel,
-  compact = false,
-}: Props) {
+export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
+  const [open, setOpen] = useState(false);
   const [targets, setTargets] = useState<ImpersonationTarget[]>([]);
-  const [selected, setSelected] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!open) return;
     void listImpersonationTargetsAction().then((res) => {
       if (res.success) setTargets(res.targets);
     });
-  }, []);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(ev: MouseEvent) {
+      if (!rootRef.current?.contains(ev.target as Node)) setOpen(false);
+    }
+    function onKey(ev: KeyboardEvent) {
+      if (ev.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   function switchTo(id: string) {
-    if (!id) return;
     setError(null);
+    setOpen(false);
     startTransition(async () => {
       const res = await startImpersonationAction(id);
       if (res && !res.success) setError(res.error);
@@ -45,86 +55,80 @@ export function ImpersonationSwitcher({
 
   function stop() {
     setError(null);
+    setOpen(false);
     startTransition(async () => {
       const res = await stopImpersonationAction();
       if (res && !res.success) setError(res.error);
     });
   }
 
-  if (compact) {
-    return (
-      <div className="mt-2 space-y-1.5">
-        <label className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--sidebar-muted)]">
-          Switch profilo
-        </label>
-        <select
-          value={selected}
-          disabled={pending}
-          onChange={(e) => {
-            const id = e.target.value;
-            setSelected(id);
-            switchTo(id);
-          }}
-          className="w-full rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-white disabled:opacity-50"
-          aria-label="Entra nel profilo di un operatore"
-        >
-          <option value="">
-            {impersonating ? "Cambia operatore…" : "Entra come operatore…"}
-          </option>
-          {targets.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.label} · {t.roleName}
-            </option>
-          ))}
-        </select>
-        {impersonating ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={stop}
-            className="w-full rounded-md bg-amber-500 px-2 py-1.5 text-xs font-semibold text-slate-900 disabled:opacity-50"
-          >
-            Torna a {actorLabel}
-          </button>
-        ) : null}
-        {error ? <p className="text-[10px] text-red-300">{error}</p> : null}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <p className="text-sm font-medium text-amber-950">
-        Stai operando come <strong>{currentLabel}</strong>
-        <span className="font-normal text-amber-900"> · {currentRole}</span>
-      </p>
-      <select
-        value={selected}
-        disabled={pending}
-        onChange={(e) => {
-          const id = e.target.value;
-          setSelected(id);
-          switchTo(id);
-        }}
-        className="rounded-lg border border-amber-300 bg-white px-2 py-1.5 text-xs text-slate-800 disabled:opacity-50"
-        aria-label="Switch a un altro operatore"
-      >
-        <option value="">Switch a un altro operatore…</option>
-        {targets.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.label} · {t.roleName}
-          </option>
-        ))}
-      </select>
+    <div ref={rootRef} className="relative inline-flex shrink-0">
       <button
         type="button"
         disabled={pending}
-        onClick={stop}
-        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Entra come operatore"
+        title="Entra come…"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--sidebar-muted)] hover:bg-slate-700 hover:text-white disabled:opacity-50"
       >
-        Torna al tuo profilo
+        <FaChevronDown
+          size={11}
+          className={`transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </button>
-      {error ? <p className="w-full text-xs text-red-800">{error}</p> : null}
+      {open ? (
+        <div
+          role="menu"
+          className="absolute left-0 top-full z-50 mt-1 min-w-[14rem] overflow-hidden rounded-lg border border-slate-600 bg-slate-900 py-1 shadow-xl"
+        >
+          <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Entra come…
+          </p>
+          <div className="max-h-64 overflow-y-auto">
+            {targets.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-slate-400">
+                Nessun operatore disponibile
+              </p>
+            ) : (
+              targets.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="menuitem"
+                  disabled={pending}
+                  onClick={() => switchTo(t.id)}
+                  className="flex w-full flex-col px-3 py-1.5 text-left text-xs text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  <span className="truncate font-medium">{t.label}</span>
+                  <span className="truncate text-[10px] text-slate-400">
+                    {t.roleName}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+          {impersonating ? (
+            <>
+              <div className="my-1 border-t border-slate-700" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={pending}
+                onClick={stop}
+                className="w-full px-3 py-2 text-left text-xs font-medium text-amber-300 hover:bg-slate-700 disabled:opacity-50"
+              >
+                Torna a {actorLabel}
+              </button>
+            </>
+          ) : null}
+          {error ? (
+            <p className="px-3 py-1.5 text-[10px] text-red-300">{error}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

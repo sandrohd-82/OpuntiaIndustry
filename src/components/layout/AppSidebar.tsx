@@ -503,9 +503,7 @@ export function AppSidebar({
       }`}
     >
       <div
-        className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"} ${
-          impersonating ? "bg-amber-950/40" : ""
-        }`}
+        className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"}`}
       >
         <div className={`flex items-center ${collapsed ? "justify-center" : "gap-2"}`}>
           {collapsed ? null : (
@@ -513,19 +511,18 @@ export function AppSidebar({
               <p className="text-xs uppercase tracking-wider text-[var(--sidebar-muted)]">
                 Industry
               </p>
-              <p className="mt-1 truncate font-medium">{userName}</p>
+              <div className="mt-1 flex min-w-0 items-center gap-0.5">
+                <p className="truncate font-medium">{userName}</p>
+                {canImpersonate ? (
+                  <ImpersonationSwitcher
+                    impersonating={impersonating}
+                    actorLabel={actorName}
+                  />
+                ) : null}
+              </div>
               <p className="truncate text-xs text-[var(--sidebar-muted)]">
                 {roleName}
               </p>
-              {canImpersonate ? (
-                <ImpersonationSwitcher
-                  compact
-                  impersonating={impersonating}
-                  currentLabel={userName}
-                  currentRole={roleName}
-                  actorLabel={actorName}
-                />
-              ) : null}
             </div>
           )}
           <button
