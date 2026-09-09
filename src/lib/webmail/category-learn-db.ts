@@ -137,6 +137,8 @@ export async function reinforceCategoriaLearning(
     userId: string;
     /** Quanti punti aggiungere (default 1). */
     delta?: number;
+    /** Aggiorna anche la regola di dominio (più query). Default false. */
+    includeDomain?: boolean;
   }
 ): Promise<WebmailCategoriaRegola> {
   const email = normalizeSenderEmail(input.fromAddress);
@@ -205,7 +207,7 @@ export async function reinforceCategoriaLearning(
   }
 
   const emailRule = await upsertOne("email", email);
-  if (domain) {
+  if (domain && (input.includeDomain ?? false)) {
     // Dominio cresce più lentamente (solo se stessa categoria già presente o nuovo)
     const { data: domExisting } = await supabase
       .from("webmail_categoria_regole")

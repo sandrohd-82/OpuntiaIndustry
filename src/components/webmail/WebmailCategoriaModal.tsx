@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { FaXmark } from "react-icons/fa6";
 import {
   bulkSetWebmailMessaggiCategoriaAction,
@@ -37,7 +37,7 @@ export function WebmailCategoriaModal({
   const [moveAllFromAddress, setMoveAllFromAddress] = useState(false);
   const [autoMoveNew, setAutoMoveNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
   const uniqueAddresses = [
     ...new Set(
@@ -60,6 +60,7 @@ export function WebmailCategoriaModal({
       setMoveAllFromAddress(false);
       setAutoMoveNew(false);
       setError(null);
+      setPending(false);
     }
   }, [open, currentCategoriaId]);
 
@@ -70,7 +71,7 @@ export function WebmailCategoriaModal({
     autoMoveNew,
   };
 
-  function saveExisting() {
+  async function saveExisting() {
     if (messaggioIds.length === 0) {
       setError("Nessuna mail selezionata.");
       return;
@@ -79,15 +80,21 @@ export function WebmailCategoriaModal({
       setError("Seleziona una categoria.");
       return;
     }
-    startTransition(async () => {
+    setPending(true);
+    setError(null);
+    try {
       const res = await assignCategoria(selected);
       if (!res.success) {
         setError(res.error);
+        setPending(false);
         return;
       }
       onDone(selected, res.learnMode);
       onClose();
-    });
+    } catch {
+      setError("Spostamento non riuscito.");
+      setPending(false);
+    }
   }
 
   async function assignCategoria(
@@ -113,29 +120,36 @@ export function WebmailCategoriaModal({
     return { success: true, learnMode: res.learnMode };
   }
 
-  function createAndAssign() {
+  async function createAndAssign() {
     if (newName.trim().length < 2) {
       setError("Nome categoria troppo corto.");
       return;
     }
-    startTransition(async () => {
+    setPending(true);
+    setError(null);
+    try {
       const created = await createWebmailCategoriaAction({
         nome: newName.trim(),
         colore: newColor,
       });
       if (!created.success) {
         setError(created.error);
+        setPending(false);
         return;
       }
       onCategoriaCreated(created.item);
       const res = await assignCategoria(created.item.id);
       if (!res.success) {
         setError(res.error);
+        setPending(false);
         return;
       }
       onDone(created.item.id, res.learnMode);
       onClose();
-    });
+    } catch {
+      setError("Creazione categoria non riuscita.");
+      setPending(false);
+    }
   }
 
   return (
@@ -216,11 +230,11 @@ export function WebmailCategoriaModal({
         ) : null}
         <button
           type="button"
-          disabled={pending}
-          onClick={saveExisting}
+          disabled={pending || !selected}
+          onClick={() => void saveExisting()}
           className="mt-3 w-full rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
         >
-          Sposta qui
+          {pending ? "Spostamento…" : "Sposta qui"}
         </button>
         <div className="my-4 border-t border-[var(--border)] pt-3">
           <p className="mb-2 text-xs font-medium text-slate-700">
@@ -243,7 +257,7 @@ export function WebmailCategoriaModal({
           <button
             type="button"
             disabled={pending}
-            onClick={createAndAssign}
+            onClick={() => void createAndAssign()}
             className="mt-2 w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium disabled:opacity-50"
           >
             Crea e sposta

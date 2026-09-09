@@ -1346,7 +1346,13 @@ export function WebmailBoard({
                               setError(res.error);
                               return;
                             }
-                            patchMessaggio(res.messaggio);
+                            patchMessaggio({
+                              ...selected,
+                              categoriaId: res.categoriaId,
+                              categoriaSuggestId: null,
+                              categoriaSuggestMode: null,
+                              categoriaAutoPending: false,
+                            });
                             setInfo(
                               `Confermato. Apprendimento: ${res.learnMode}.`
                             );
@@ -1407,7 +1413,13 @@ export function WebmailBoard({
                               setError(res.error);
                               return;
                             }
-                            patchMessaggio(res.messaggio);
+                            patchMessaggio({
+                              ...selected,
+                              categoriaId: res.categoriaId,
+                              categoriaSuggestId: null,
+                              categoriaSuggestMode: null,
+                              categoriaAutoPending: false,
+                            });
                             setInfo(
                               `Categoria applicata. Apprendimento: ${res.learnMode}.`
                             );

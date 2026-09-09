@@ -1732,7 +1732,8 @@ export async function createWebmailCategoriaAction(raw: unknown): Promise<
 export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
   | {
       success: true;
-      messaggio: WebmailMessaggio;
+      messaggioId: string;
+      categoriaId: string;
       learnMode: string;
       movedFromAddress: number;
     }
@@ -1760,7 +1761,7 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
     return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
   }
 
-  const { data: updated, error } = await supabase
+  const { error } = await supabase
     .from("webmail_messaggi")
     .update({
       categoria_id: parsed.data.categoriaId,
@@ -1769,45 +1770,45 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
       categoria_auto_pending: false,
       updated_by: auth.userId,
     })
-    .eq("id", msg.id)
-    .select(MESSAGGIO_SELECT)
-    .single();
-  if (error || !updated) {
-    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+    .eq("id", msg.id);
+  if (error) {
+    return { success: false, error: error.message };
   }
 
   let learnMode = "none";
   let movedFromAddress = 0;
   const fromAddress = String(msg.from_address ?? "");
   const accountId = String(msg.account_id);
-  const learn = await import("@/lib/webmail/category-learn-db");
 
   try {
-    if (parsed.data.moveAllFromAddress) {
-      movedFromAddress = await learn.moveAllMessagesFromAddress(supabase, {
-        accountId,
-        fromAddress,
-        categoriaId: parsed.data.categoriaId,
-        userId: auth.userId,
-      });
-    }
+    if (parsed.data.moveAllFromAddress || parsed.data.autoMoveNew || parsed.data.reinforce) {
+      const learn = await import("@/lib/webmail/category-learn-db");
+      if (parsed.data.moveAllFromAddress) {
+        movedFromAddress = await learn.moveAllMessagesFromAddress(supabase, {
+          accountId,
+          fromAddress,
+          categoriaId: parsed.data.categoriaId,
+          userId: auth.userId,
+        });
+      }
 
-    if (parsed.data.autoMoveNew) {
-      const rule = await learn.forceAutoCategoriaRule(supabase, {
-        accountId,
-        fromAddress,
-        categoriaId: parsed.data.categoriaId,
-        userId: auth.userId,
-      });
-      learnMode = rule.mode;
-    } else if (parsed.data.reinforce) {
-      const rule = await learn.reinforceCategoriaLearning(supabase, {
-        accountId,
-        fromAddress,
-        categoriaId: parsed.data.categoriaId,
-        userId: auth.userId,
-      });
-      learnMode = rule.mode;
+      if (parsed.data.autoMoveNew) {
+        const rule = await learn.forceAutoCategoriaRule(supabase, {
+          accountId,
+          fromAddress,
+          categoriaId: parsed.data.categoriaId,
+          userId: auth.userId,
+        });
+        learnMode = rule.mode;
+      } else if (parsed.data.reinforce) {
+        const rule = await learn.reinforceCategoriaLearning(supabase, {
+          accountId,
+          fromAddress,
+          categoriaId: parsed.data.categoriaId,
+          userId: auth.userId,
+        });
+        learnMode = rule.mode;
+      }
     }
   } catch (e) {
     return {
@@ -1816,7 +1817,7 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
     };
   }
 
-  await writeAuditLog({
+  void writeAuditLog({
     entity_type: "webmail_messaggi",
     entity_id: String(msg.id),
     action: "set_categoria",
@@ -1834,7 +1835,8 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
 
   return {
     success: true,
-    messaggio: mapMessaggio(updated as Record<string, unknown>),
+    messaggioId: String(msg.id),
+    categoriaId: parsed.data.categoriaId,
     learnMode,
     movedFromAddress,
   };
@@ -1843,7 +1845,12 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
 export async function confirmWebmailCategoriaSuggestionAction(
   messaggioId: string
 ): Promise<
-  | { success: true; messaggio: WebmailMessaggio; learnMode: string }
+  | {
+      success: true;
+      messaggioId: string;
+      categoriaId: string;
+      learnMode: string;
+    }
   | { success: false; error: string }
 > {
   await requireWebmailAccess();
