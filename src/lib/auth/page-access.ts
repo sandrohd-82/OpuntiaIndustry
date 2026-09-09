@@ -1,7 +1,50 @@
 import { isWebHubPath } from "@/lib/areas/web";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 
-export type AccessTone = "on" | "off" | "unset";
+export type AccessTone = "on" | "off" | "unset" | "mixed";
+
+function ownAccess(
+  path: string,
+  map: PageAccessMap
+): boolean | undefined {
+  const key = resolvePageKey(path);
+  if (key in map) return map[key];
+  if (path in map) return map[path];
+  return undefined;
+}
+
+/** Figlie esplicite On/Off sotto un ramo (primo o secondo livello). */
+export function subtreeChildFlags(
+  rootKey: string,
+  map: PageAccessMap
+): { hasOn: boolean; hasOff: boolean } {
+  let hasOn = false;
+  let hasOff = false;
+  const root = resolvePageKey(rootKey);
+  for (const [k, v] of Object.entries(map)) {
+    if (!isChildPageKeyOfSubtree(k, root) && !isChildPageKeyOfSubtree(k, rootKey)) {
+      continue;
+    }
+    if (v) hasOn = true;
+    else hasOff = true;
+    if (hasOn && hasOff) break;
+  }
+  return { hasOn, hasOff };
+}
+
+function composeAccessTone(
+  own: boolean | undefined,
+  inheritedOn: boolean,
+  inheritedOff: boolean,
+  children: { hasOn: boolean; hasOff: boolean }
+): AccessTone {
+  const hasOn = own === true || inheritedOn || children.hasOn;
+  const hasOff = own === false || inheritedOff || children.hasOff;
+  if (hasOn && hasOff) return "mixed";
+  if (hasOn) return "on";
+  if (hasOff) return "off";
+  return "unset";
+}
 
 /** page_key → visibile. Chiave assente = non impostato (grigio). */
 export type PageAccessMap = Record<string, boolean>;
@@ -133,45 +176,43 @@ export function toneForAreaAccess(
   areaKey: string,
   map: PageAccessMap
 ): AccessTone {
-  if (areaKey in map) return map[areaKey] ? "on" : "off";
-  return "unset";
+  return composeAccessTone(
+    ownAccess(areaKey, map),
+    false,
+    false,
+    subtreeChildFlags(areaKey, map)
+  );
 }
 
 /**
  * Stato On/Off della voce.
- * Impostazione propria vince; altrimenti eredita dal ramo padre
- * (es. «Elenco Clienti» On → elenco e possibili On).
+ * Impostazione propria vince; altrimenti eredita dal ramo padre.
+ * Se sotto ci sono sia On sia Off → mixed (verde+rosso).
  */
 export function toneForSubtreeAccess(
   path: string,
   map: PageAccessMap
 ): AccessTone {
-  const key = resolvePageKey(path);
-  if (key in map) return map[key] ? "on" : "off";
-  if (path in map) return map[path] ? "on" : "off";
-  if (isAccessOffAlongPath(path, map)) return "off";
-  if (isAccessOnAlongPath(path, map)) return "on";
-  return "unset";
+  const own = ownAccess(path, map);
+  return composeAccessTone(
+    own,
+    own === undefined && isAccessOnAlongPath(path, map),
+    own === undefined && isAccessOffAlongPath(path, map),
+    subtreeChildFlags(path, map)
+  );
 }
 
 export function toneForNavPath(
   path: string,
   map: PageAccessMap
 ): AccessTone {
-  const key = resolvePageKey(path);
-  const areaKey = resolveAreaAccessKey(path);
-  if (key in map) return map[key] ? "on" : "off";
-  if (path in map) return map[path] ? "on" : "off";
-  if (isAccessOffAlongPath(path, map)) return "off";
-  if (isAccessOnAlongPath(path, map)) return "on";
-
-  const childHits = Object.entries(map).filter(([k]) => {
-    if (resolveAreaAccessKey(k) !== areaKey) return false;
-    return k.startsWith(`${key}/`) || k.startsWith(`${path}/`);
-  });
-  if (childHits.some(([, v]) => v)) return "on";
-  if (childHits.length > 0 && childHits.every(([, v]) => !v)) return "off";
-  return "unset";
+  const own = ownAccess(path, map);
+  return composeAccessTone(
+    own,
+    own === undefined && isAccessOnAlongPath(path, map),
+    own === undefined && isAccessOffAlongPath(path, map),
+    subtreeChildFlags(path, map)
+  );
 }
 
 /** Operativo: area/ramo Off nasconde tutto; On mostra salvo pagina Off. */

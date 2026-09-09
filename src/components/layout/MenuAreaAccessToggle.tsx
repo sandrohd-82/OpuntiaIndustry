@@ -35,14 +35,20 @@ export function MenuAreaAccessToggle({ areaKey, tone }: Props) {
     >
       <div
         className="inline-flex overflow-hidden rounded border border-slate-600 text-[9px] font-bold uppercase leading-none"
-        title={`Voce ${areaKey}: ${tone === "unset" ? "non impostata" : tone}`}
+        title={
+          tone === "unset"
+            ? `Voce ${areaKey}: non impostata`
+            : tone === "mixed"
+              ? `Voce ${areaKey}: parziale (alcune On, altre Off)`
+              : `Voce ${areaKey}: ${tone}`
+        }
       >
         <button
           type="button"
           disabled={pending}
           onClick={() => setVisibile(true)}
           className={`px-1.5 py-1 ${
-            tone === "on"
+            tone === "on" || tone === "mixed"
               ? "bg-emerald-500 text-white"
               : "text-slate-400 hover:bg-emerald-900/40 hover:text-emerald-300"
           } disabled:opacity-50`}
@@ -54,7 +60,7 @@ export function MenuAreaAccessToggle({ areaKey, tone }: Props) {
           disabled={pending}
           onClick={() => setVisibile(false)}
           className={`px-1.5 py-1 ${
-            tone === "off"
+            tone === "off" || tone === "mixed"
               ? "bg-red-500 text-white"
               : "text-slate-400 hover:bg-red-900/40 hover:text-red-300"
           } disabled:opacity-50`}

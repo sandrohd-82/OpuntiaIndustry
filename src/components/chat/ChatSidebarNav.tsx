@@ -26,9 +26,25 @@ import {
   type PageAccessMap,
 } from "@/lib/auth/page-access";
 
+function MixedToneMark() {
+  return (
+    <span
+      className="inline-flex shrink-0 overflow-hidden rounded-full"
+      title="Parziale: alcune voci On, altre Off"
+      aria-hidden
+    >
+      <span className="h-2 w-2 bg-emerald-400" />
+      <span className="h-2 w-2 bg-red-400" />
+    </span>
+  );
+}
+
 function toneTextClass(tone: AccessTone | null) {
   if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
   if (tone === "off") return "text-red-400 hover:text-red-300";
+  if (tone === "mixed") {
+    return "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+  }
   if (tone === "unset") return "text-slate-400 hover:text-slate-300";
   return "";
 }
@@ -248,6 +264,7 @@ export function ChatSidebarNav({
           >
             <Chevron open={open.has("argomenti")} />
             <span className="truncate">Per argomento</span>
+            {toneArgomenti === "mixed" ? <MixedToneMark /> : null}
           </button>
         )}
         {open.has("argomenti") ? (
@@ -282,6 +299,7 @@ export function ChatSidebarNav({
                   <Chevron open={open.has("elenco-argomenti")} />
                   <FaFolderOpen size={11} className="shrink-0 opacity-70" />
                   <span className="truncate">Elenco Argomenti</span>
+                  {toneElencoArg === "mixed" ? <MixedToneMark /> : null}
                 </button>
               )}
               {open.has("elenco-argomenti") ? (
@@ -336,6 +354,7 @@ export function ChatSidebarNav({
           >
             <Chevron open={open.has("dirette")} />
             <span className="truncate">Fra utenti</span>
+            {toneDirette === "mixed" ? <MixedToneMark /> : null}
           </button>
         )}
         {open.has("dirette") ? (
@@ -370,6 +389,7 @@ export function ChatSidebarNav({
                   <Chevron open={open.has("elenco-dirette")} />
                   <FaComments size={11} className="shrink-0 opacity-70" />
                   <span className="truncate">Elenco chat</span>
+                  {toneElencoChat === "mixed" ? <MixedToneMark /> : null}
                 </button>
               )}
               {open.has("elenco-dirette") ? (

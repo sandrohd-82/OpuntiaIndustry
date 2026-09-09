@@ -20,7 +20,8 @@ export function PageAccessToggle({ pageAccess }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const isOn = tone === "on";
+  const isOn = tone === "on" || tone === "mixed";
+  const isOff = tone === "off" || tone === "mixed";
 
   function setVisibile(next: boolean) {
     setError(null);
@@ -57,7 +58,7 @@ export function PageAccessToggle({ pageAccess }: Props) {
           disabled={pending}
           onClick={() => setVisibile(false)}
           className={`px-3 py-1.5 ${
-            tone === "off"
+            isOff
               ? "bg-red-500 text-white"
               : "text-slate-500 hover:bg-red-50 hover:text-red-700"
           } disabled:opacity-50`}
@@ -68,6 +69,11 @@ export function PageAccessToggle({ pageAccess }: Props) {
       {tone === "unset" ? (
         <span className="text-[10px] uppercase tracking-wide text-slate-400">
           Non impostata
+        </span>
+      ) : null}
+      {tone === "mixed" ? (
+        <span className="text-[10px] uppercase tracking-wide text-amber-700">
+          Parziale
         </span>
       ) : null}
       {error ? (

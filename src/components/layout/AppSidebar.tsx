@@ -215,9 +215,25 @@ function NavBadgeDot({ badge }: { badge: NavBadge }) {
   );
 }
 
+function MixedToneMark() {
+  return (
+    <span
+      className="inline-flex shrink-0 overflow-hidden rounded-full"
+      title="Parziale: alcune voci On, altre Off"
+      aria-hidden
+    >
+      <span className="h-2 w-2 bg-emerald-400" />
+      <span className="h-2 w-2 bg-red-400" />
+    </span>
+  );
+}
+
 function toneTextClass(tone: AccessTone | null) {
   if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
   if (tone === "off") return "text-red-400 hover:text-red-300";
+  if (tone === "mixed") {
+    return "bg-gradient-to-r from-emerald-400 to-red-400 bg-clip-text text-transparent hover:from-emerald-300 hover:to-red-300";
+  }
   if (tone === "unset") return "text-slate-400 hover:text-slate-300";
   return "";
 }
@@ -276,6 +292,7 @@ function FirstLevelButton({
       >
         <AreaIcon slug={slug} />
         {rail ? null : <span className="truncate">{label}</span>}
+        {rail || tone !== "mixed" ? null : <MixedToneMark />}
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
       </button>
       {rail || !areaAccess ? null : (
@@ -314,6 +331,7 @@ function BranchButton({
         className={`min-w-0 flex-1 ${itemClass(active, nested, false, tone)}`}
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
+        {tone === "mixed" ? <MixedToneMark /> : null}
         {badge ? <NavBadgeDot badge={badge} /> : null}
         <Chevron open={open} />
       </button>
