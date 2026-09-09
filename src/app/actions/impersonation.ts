@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { isSuperadminProfile } from "@/lib/auth/roles";
@@ -130,7 +129,9 @@ async function endActiveSessions(
 
 export async function startImpersonationAction(
   targetUserId: string
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<
+  { success: true; redirectTo: string } | { success: false; error: string }
+> {
   const gate = await requireCanSwitch();
   if (!gate.ok) return { success: false, error: gate.error };
 
@@ -184,14 +185,12 @@ export async function startImpersonationAction(
   });
   if (error) return { success: false, error: error.message };
 
-  revalidatePath("/", "layout");
   const areas = await getUserAreas(parsed.data);
-  const dest = firstAreaPath(areas) ?? "/app/dashboard";
-  redirect(dest);
+  return { success: true, redirectTo: firstAreaPath(areas) ?? "/app/dashboard" };
 }
 
 export async function stopImpersonationAction(): Promise<
-  { success: true } | { success: false; error: string }
+  { success: true; redirectTo: string } | { success: false; error: string }
 > {
   const gate = await requireCanSwitch();
   if (!gate.ok) return { success: false, error: gate.error };
@@ -210,8 +209,7 @@ export async function stopImpersonationAction(): Promise<
     payload: { actor_user_id: gate.actorUserId },
   });
 
-  revalidatePath("/", "layout");
-  redirect("/app/dashboard");
+  return { success: true, redirectTo: "/app/dashboard" };
 }
 
 export async function endImpersonationOnLogout(

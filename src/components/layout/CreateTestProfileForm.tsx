@@ -17,12 +17,17 @@ export function CreateTestProfileForm({ onDone }: { onDone?: () => void }) {
   function onSubmit(formData: FormData) {
     setError(null);
     startTransition(async () => {
-      const res = await createTestProfileAction(formData);
-      if (res && !res.success) {
-        setError(res.error);
-        return;
+      try {
+        const res = await createTestProfileAction(formData);
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        onDone?.();
+        window.location.assign(res.redirectTo);
+      } catch {
+        setError("Impossibile creare il profilo.");
       }
-      onDone?.();
     });
   }
 

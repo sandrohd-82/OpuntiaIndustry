@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
@@ -54,7 +53,9 @@ function formReparti(formData: FormData): string[] {
 
 export async function createTestProfileAction(
   formData: FormData
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<
+  { success: true; redirectTo: string } | { success: false; error: string }
+> {
   const gate = await requireRealSuperadmin();
   if (!gate.ok) return { success: false, error: gate.error };
 
@@ -138,9 +139,8 @@ export async function createTestProfileAction(
   });
   if (impErr) return { success: false, error: impErr.message };
 
-  revalidatePath("/", "layout");
-  const areas = await getUserAreas(gate.actorUserId);
-  redirect(firstAreaPath(areas) ?? "/app/dashboard");
+  const areas = await getUserAreas(result.userId);
+  return { success: true, redirectTo: firstAreaPath(areas) ?? "/app/dashboard" };
 }
 
 export async function createOrganigrammaProfileAction(

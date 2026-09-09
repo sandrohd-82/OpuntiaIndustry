@@ -53,12 +53,24 @@ export function ImpersonationSwitcher({
     };
   }, [open]);
 
+  function go(url: string) {
+    window.location.assign(url);
+  }
+
   function switchTo(id: string) {
     setError(null);
     setOpen(false);
     startTransition(async () => {
-      const res = await startImpersonationAction(id);
-      if (res && !res.success) setError(res.error);
+      try {
+        const res = await startImpersonationAction(id);
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        go(res.redirectTo);
+      } catch {
+        setError("Impossibile entrare nel profilo.");
+      }
     });
   }
 
@@ -66,8 +78,16 @@ export function ImpersonationSwitcher({
     setError(null);
     setOpen(false);
     startTransition(async () => {
-      const res = await stopImpersonationAction();
-      if (res && !res.success) setError(res.error);
+      try {
+        const res = await stopImpersonationAction();
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        go(res.redirectTo);
+      } catch {
+        setError("Impossibile tornare al Super Admin.");
+      }
     });
   }
 
@@ -113,7 +133,8 @@ export function ImpersonationSwitcher({
                 >
                   <span className="truncate font-medium">{t.label}</span>
                   <span className="truncate text-[10px] text-slate-400">
-                    {t.roleName} · {PROFILE_STATO_LABELS[t.stato]}
+                    {t.roleName} ·{" "}
+                    {PROFILE_STATO_LABELS[t.stato] ?? t.stato}
                   </span>
                 </button>
               ))
