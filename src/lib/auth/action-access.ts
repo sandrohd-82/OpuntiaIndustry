@@ -69,7 +69,12 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
   item("Area fiscale", "/app/area-fiscale/fatture/ricevute", "registra-fattura", "Registra fattura"),
   item("Area fiscale", "/app/area-fiscale/note-di-credito/emesse", "registra-nota-di-credito", "Registra nota di credito"),
   item("Area fiscale", "/app/area-fiscale/dati-e-calcoli/iva-e-imposte", "aggiungi-adempimento", "Aggiungi adempimento"),
-  item("Area fiscale", "/app/area-fiscale", "elabora-contabilita", "Elabora contabilità"),
+  item(
+    "Area fiscale",
+    "/app/area-fiscale",
+    "elabora-contabilita",
+    "Elabora contabilità (commercialista / Super Admin)"
+  ),
 
   item("WebMail", "/app/webmail/impostazioni", "nuova-casella", "Nuova casella"),
 ] as const;
@@ -147,24 +152,6 @@ export const AZ = {
   nuovaCasella: "action:/app/webmail/impostazioni/nuova-casella",
 } as const;
 
-/** Solo On esplicito. Unset/Off = negato (commercialista / Super Admin). */
-export function isPrivilegedActionAllowed(
-  map: PageAccessMap,
-  actionKey: string
-): boolean {
-  return map[actionKey] === true;
-}
-
-export function canElaboraContabilitaAccess(opts: {
-  isSuperadminSelf: boolean;
-  isCommercialista: boolean;
-  actionAccess: PageAccessMap;
-}): boolean {
-  if (opts.isSuperadminSelf) return true;
-  if (opts.isCommercialista) return true;
-  return isPrivilegedActionAllowed(opts.actionAccess, AZ.elaboraContabilita);
-}
-
 export function findActionItem(key: string): ActionAccessItem | undefined {
   return ACTION_ACCESS_CATALOG.find((row) => row.key === key);
 }
@@ -175,6 +162,17 @@ export function isActionAllowed(
   actionKey: string
 ): boolean {
   return map[actionKey] !== false;
+}
+
+/** Deny-by-default: solo commercialista, Super Admin reale, o On esplicito. */
+export function canElaboraContabilitaAccess(opts: {
+  isSuperadminSelf: boolean;
+  isCommercialista: boolean;
+  actionAccess: PageAccessMap;
+}): boolean {
+  if (opts.isSuperadminSelf) return true;
+  if (opts.isCommercialista) return true;
+  return opts.actionAccess[AZ.elaboraContabilita] === true;
 }
 
 export function toneForAction(

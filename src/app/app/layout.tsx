@@ -102,16 +102,17 @@ export default async function AppLayout({
     auth.actorProfile.full_name ?? auth.actorProfile.email ?? "Super Admin";
   const canImpersonate = actorCanSwitchProfiles(auth.actorProfile);
   const canCreateProfiles = isSuperadminProfile(auth.actorProfile);
+  const canElaboraContabilita = canElaboraContabilitaAccess({
+    isSuperadminSelf:
+      isSuperadminProfile(auth.profile) && !auth.impersonating,
+    isCommercialista: authSettings.isCommercialista,
+    actionAccess,
+  });
 
   return (
     <SensitiveAuthProvider
       settings={authSettings}
-      canElaboraContabilita={canElaboraContabilitaAccess({
-        isSuperadminSelf:
-          isSuperadminProfile(auth.profile) && !auth.impersonating,
-        isCommercialista: authSettings.isCommercialista,
-        actionAccess,
-      })}
+      canElaboraContabilita={canElaboraContabilita}
     >
     <div className="flex min-h-screen">
       <AppSidebar

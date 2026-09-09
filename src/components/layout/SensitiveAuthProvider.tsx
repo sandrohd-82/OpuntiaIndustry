@@ -11,12 +11,12 @@ export type SensitiveAuthValue = ProfileAuthSettings & {
   canElaboraContabilita: boolean;
 };
 
-const EMPTY: SensitiveAuthValue = {
+const EMPTY_VALUE: SensitiveAuthValue = {
   ...EMPTY_AUTH_SETTINGS,
   canElaboraContabilita: false,
 };
 
-const Ctx = createContext<SensitiveAuthValue>(EMPTY);
+const Ctx = createContext<SensitiveAuthValue>(EMPTY_VALUE);
 
 export function SensitiveAuthProvider({
   settings,

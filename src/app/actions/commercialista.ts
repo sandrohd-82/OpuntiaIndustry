@@ -34,6 +34,7 @@ import {
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { assertElaboraContabilita } from "@/lib/auth/elabora-contabilita";
 import { createClient } from "@/lib/supabase/server";
 import type {
   ElaborazioneContabileInsert,
@@ -611,6 +612,8 @@ export async function applySequenzaCommercialistaAction(input: {
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("area-fiscale");
+  const elabGate = await assertElaboraContabilita();
+  if (!elabGate.ok) return { success: false, error: elabGate.error };
   const parsed = commercialistaSummarySchema.safeParse({
     anno: input.anno,
     trimestre: input.trimestre,

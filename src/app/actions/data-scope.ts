@@ -19,20 +19,6 @@ import { AZ } from "@/lib/auth/action-access";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { upsertProfilePageKey } from "@/app/actions/page-access";
 
-async function setElaboraContabilitaGrant(
-  service: ReturnType<typeof createServiceClient>,
-  profileId: string,
-  actorUserId: string,
-  visibile: boolean
-) {
-  return upsertProfilePageKey(service, {
-    profileId,
-    actorUserId,
-    pageKey: AZ.elaboraContabilita,
-    visibile,
-  });
-}
-
 async function requireRealSuperadmin() {
   const user = await getAuthUser();
   if (!user) {
@@ -334,6 +320,13 @@ export async function unlockLockedAreaAction(input: {
       });
       if (!pageRes.ok) return { success: false, error: pageRes.error };
     }
+    const elabOn = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey: AZ.elaboraContabilita,
+      visibile: true,
+    });
+    if (!elabOn.ok) return { success: false, error: elabOn.error };
     for (const view of FISCALE_VIEW_SCOPES) {
       const existing = await service
         .from("profile_data_scopes")
@@ -357,13 +350,6 @@ export async function unlockLockedAreaAction(input: {
         });
       }
     }
-    const elabRes = await setElaboraContabilitaGrant(
-      service,
-      targetId,
-      gate.actorUserId,
-      true
-    );
-    if (!elabRes.ok) return { success: false, error: elabRes.error };
   } else {
     const cleared = await clearFiscalePageKeys(
       service,
@@ -380,13 +366,13 @@ export async function unlockLockedAreaAction(input: {
       });
       if (!offRes.ok) return { success: false, error: offRes.error };
     }
-    const elabRes = await setElaboraContabilitaGrant(
-      service,
-      targetId,
-      gate.actorUserId,
-      false
-    );
-    if (!elabRes.ok) return { success: false, error: elabRes.error };
+    const elabOff = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey: AZ.elaboraContabilita,
+      visibile: false,
+    });
+    if (!elabOff.ok) return { success: false, error: elabOff.error };
   }
 
   await writeAudit(
@@ -451,13 +437,13 @@ export async function lockLockedAreaAction(area: "fiscale" | "rs"): Promise<
       visibile: false,
     });
     if (!pageRes.ok) return { success: false, error: pageRes.error };
-    const elabRes = await setElaboraContabilitaGrant(
-      service,
-      targetId,
-      gate.actorUserId,
-      false
-    );
-    if (!elabRes.ok) return { success: false, error: elabRes.error };
+    const elabOff = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey: AZ.elaboraContabilita,
+      visibile: false,
+    });
+    if (!elabOff.ok) return { success: false, error: elabOff.error };
     await writeAudit(
       service,
       targetId,
@@ -514,12 +500,12 @@ export async function setCommercialistaAction(
       });
       if (!pageRes.ok) return { success: false, error: pageRes.error };
     }
-    const elabOn = await setElaboraContabilitaGrant(
-      service,
-      targetId,
-      gate.actorUserId,
-      true
-    );
+    const elabOn = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey: AZ.elaboraContabilita,
+      visibile: true,
+    });
     if (!elabOn.ok) return { success: false, error: elabOn.error };
   } else {
     const cleared = await clearFiscalePageKeys(
@@ -537,12 +523,12 @@ export async function setCommercialistaAction(
       });
       if (!offRes.ok) return { success: false, error: offRes.error };
     }
-    const elabOff = await setElaboraContabilitaGrant(
-      service,
-      targetId,
-      gate.actorUserId,
-      false
-    );
+    const elabOff = await upsertProfilePageKey(service, {
+      profileId: targetId,
+      actorUserId: gate.actorUserId,
+      pageKey: AZ.elaboraContabilita,
+      visibile: false,
+    });
     if (!elabOff.ok) return { success: false, error: elabOff.error };
   }
 

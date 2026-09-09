@@ -29,6 +29,7 @@ import {
   labelTrimestre,
   type TrimestreNumero,
 } from "@/lib/amministrazione/trimestre-commerciale";
+import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
 import type { ElaborazioneContabileKind } from "@/types/database";
 
 const TRIMESTRI: TrimestreNumero[] = [1, 2, 3, 4];
@@ -108,6 +109,7 @@ function ColonnaCommercialista({
   const [seqPending, startSeq] = useTransition();
   const [elaboraOpen, setElaboraOpen] = useState(false);
   const [stampaOpen, setStampaOpen] = useState(false);
+  const { canElaboraContabilita } = useSensitiveAuth();
 
   function applySequenza() {
     setSeqMsg(null);
@@ -171,19 +173,26 @@ function ColonnaCommercialista({
           />
         </div>
 
-        <button
-          type="button"
-          disabled={seqPending || colonna.conteggioDocumenti === 0}
-          onClick={applySequenza}
-          className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
-        >
-          Aggiungi sequenza numerica alle fatture
-        </button>
+        {canElaboraContabilita ? (
+          <button
+            type="button"
+            disabled={seqPending || colonna.conteggioDocumenti === 0}
+            onClick={applySequenza}
+            className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Aggiungi sequenza numerica alle fatture
+          </button>
+        ) : null}
         {seqMsg ? (
           <p className="text-xs text-slate-600">{seqMsg}</p>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-2">
+        <div
+          className={
+            canElaboraContabilita ? "grid grid-cols-2 gap-2" : "grid gap-2"
+          }
+        >
+          {canElaboraContabilita ? (
           <button
             type="button"
             disabled={colonna.conteggioDocumenti === 0}
@@ -192,6 +201,7 @@ function ColonnaCommercialista({
           >
             Elabora fatture
           </button>
+          ) : null}
           <button
             type="button"
             disabled={colonna.conteggioDocumenti === 0}
