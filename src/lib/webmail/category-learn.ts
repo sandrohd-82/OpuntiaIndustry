@@ -37,7 +37,9 @@ export function modeFromConfirmCount(count: number): WebmailLearnMode {
 }
 
 export function normalizeSenderEmail(raw: string): string {
-  return raw.trim().toLowerCase();
+  const t = raw.trim().toLowerCase();
+  const angled = t.match(/<([^>]+)>/);
+  return (angled?.[1] ?? t).trim();
 }
 
 export function domainFromEmail(email: string): string | null {

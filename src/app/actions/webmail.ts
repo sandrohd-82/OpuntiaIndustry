@@ -149,10 +149,13 @@ export type WebmailUnreadCounts = {
   inbox: number;
   spam: number;
   byCategoriaId: Record<string, number>;
+  inboxTotal: number;
+  spamTotal: number;
+  byCategoriaTotal: Record<string, number>;
 };
 
 /**
- * Conteggio mail non aperte (is_seen=false) per In arrivo e per categoria, per casella.
+ * Conteggio mail (non lette + totale) per In arrivo, spam e categorie, per casella.
  */
 export async function listWebmailUnreadCountsAction(
   accountId: string
@@ -168,35 +171,51 @@ export async function listWebmailUnreadCountsAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_messaggi")
-    .select("id, categoria_id, spam_at, folder")
+    .select("id, categoria_id, spam_at, folder, is_seen")
     .eq("account_id", parsed.data)
     .eq("direction", "inbound")
-    .eq("is_seen", false)
     .is("deleted_at", null)
     .is("archived_at", null)
     .neq("folder", "TRASH")
-    .limit(5000);
+    .limit(8000);
   if (error) return { success: false, error: error.message };
 
   let inbox = 0;
+  let inboxTotal = 0;
   let spam = 0;
+  let spamTotal = 0;
   const byCategoriaId: Record<string, number> = {};
+  const byCategoriaTotal: Record<string, number> = {};
   for (const r of data ?? []) {
     const isSpam =
       Boolean(r.spam_at) ||
       String(r.folder ?? "").toUpperCase() === "JUNK";
+    const unread = r.is_seen !== true;
     if (isSpam) {
-      spam += 1;
+      spamTotal += 1;
+      if (unread) spam += 1;
       continue;
     }
     const cat = r.categoria_id ? String(r.categoria_id) : null;
     if (!cat) {
-      inbox += 1;
+      inboxTotal += 1;
+      if (unread) inbox += 1;
     } else {
-      byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + 1;
+      byCategoriaTotal[cat] = (byCategoriaTotal[cat] ?? 0) + 1;
+      if (unread) byCategoriaId[cat] = (byCategoriaId[cat] ?? 0) + 1;
     }
   }
-  return { success: true, counts: { inbox, spam, byCategoriaId } };
+  return {
+    success: true,
+    counts: {
+      inbox,
+      spam,
+      byCategoriaId,
+      inboxTotal,
+      spamTotal,
+      byCategoriaTotal,
+    },
+  };
 }
 
 /**
@@ -800,7 +819,8 @@ export async function listWebmailMessaggioIdsAction(
 }
 
 export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promise<
-  { success: true; updated: number } | { success: false; error: string }
+  | { success: true; updated: number; learnMode: string; movedFromAddress: number }
+  | { success: false; error: string }
 > {
   const { auth } = await requireWebmailAccess();
   const parsed = bulkWebmailCategoriaSchema.safeParse(raw);
@@ -834,6 +854,58 @@ export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promi
     updated += data?.length ?? 0;
   }
 
+  let movedFromAddress = 0;
+  let learnMode = "bulk";
+  const { data: senders } = await supabase
+    .from("webmail_messaggi")
+    .select("account_id, from_address")
+    .in("id", ids)
+    .limit(ids.length);
+
+  const uniqueSenders = new Map<string, { accountId: string; fromAddress: string }>();
+  for (const row of senders ?? []) {
+    const fromAddress = String(row.from_address ?? "").trim();
+    const accountId = String(row.account_id ?? "");
+    if (!fromAddress || !accountId) continue;
+    uniqueSenders.set(`${accountId}:${fromAddress.toLowerCase()}`, {
+      accountId,
+      fromAddress,
+    });
+  }
+
+  if (parsed.data.moveAllFromAddress || parsed.data.autoMoveNew) {
+    try {
+      const {
+        forceAutoCategoriaRule,
+        moveAllMessagesFromAddress,
+      } = await import("@/lib/webmail/category-learn-db");
+      for (const sender of uniqueSenders.values()) {
+        if (parsed.data.moveAllFromAddress) {
+          movedFromAddress += await moveAllMessagesFromAddress(supabase, {
+            accountId: sender.accountId,
+            fromAddress: sender.fromAddress,
+            categoriaId: parsed.data.categoriaId,
+            userId: auth.userId,
+          });
+        }
+        if (parsed.data.autoMoveNew) {
+          await forceAutoCategoriaRule(supabase, {
+            accountId: sender.accountId,
+            fromAddress: sender.fromAddress,
+            categoriaId: parsed.data.categoriaId,
+            userId: auth.userId,
+          });
+          learnMode = "auto_silent";
+        }
+      }
+    } catch (e) {
+      return {
+        success: false,
+        error: e instanceof Error ? e.message : "Regola mittente non aggiornata.",
+      };
+    }
+  }
+
   void writeAuditLog({
     entity_type: "webmail_messaggi",
     entity_id: ids[0]!,
@@ -844,10 +916,13 @@ export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promi
       categoriaId: parsed.data.categoriaId,
       requested: ids.length,
       updated,
+      moveAllFromAddress: Boolean(parsed.data.moveAllFromAddress),
+      autoMoveNew: Boolean(parsed.data.autoMoveNew),
+      movedFromAddress,
     },
   });
 
-  return { success: true, updated };
+  return { success: true, updated, learnMode, movedFromAddress };
 }
 
 export async function bulkDeleteWebmailMessaggiAction(raw: unknown): Promise<
@@ -1655,7 +1730,12 @@ export async function createWebmailCategoriaAction(raw: unknown): Promise<
 }
 
 export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
-  | { success: true; messaggio: WebmailMessaggio; learnMode: string }
+  | {
+      success: true;
+      messaggio: WebmailMessaggio;
+      learnMode: string;
+      movedFromAddress: number;
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireWebmailAccess();
@@ -1663,6 +1743,8 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
     messaggioId: z.string().uuid(),
     categoriaId: z.string().uuid(),
     reinforce: z.boolean().optional().default(true),
+    moveAllFromAddress: z.boolean().optional().default(false),
+    autoMoveNew: z.boolean().optional().default(false),
   });
   const parsed = schema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Dati non validi." };
@@ -1695,17 +1777,43 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
   }
 
   let learnMode = "none";
-  if (parsed.data.reinforce) {
-    const { reinforceCategoriaLearning } = await import(
-      "@/lib/webmail/category-learn-db"
-    );
-    const rule = await reinforceCategoriaLearning(supabase, {
-      accountId: String(msg.account_id),
-      fromAddress: String(msg.from_address ?? ""),
-      categoriaId: parsed.data.categoriaId,
-      userId: auth.userId,
-    });
-    learnMode = rule.mode;
+  let movedFromAddress = 0;
+  const fromAddress = String(msg.from_address ?? "");
+  const accountId = String(msg.account_id);
+  const learn = await import("@/lib/webmail/category-learn-db");
+
+  try {
+    if (parsed.data.moveAllFromAddress) {
+      movedFromAddress = await learn.moveAllMessagesFromAddress(supabase, {
+        accountId,
+        fromAddress,
+        categoriaId: parsed.data.categoriaId,
+        userId: auth.userId,
+      });
+    }
+
+    if (parsed.data.autoMoveNew) {
+      const rule = await learn.forceAutoCategoriaRule(supabase, {
+        accountId,
+        fromAddress,
+        categoriaId: parsed.data.categoriaId,
+        userId: auth.userId,
+      });
+      learnMode = rule.mode;
+    } else if (parsed.data.reinforce) {
+      const rule = await learn.reinforceCategoriaLearning(supabase, {
+        accountId,
+        fromAddress,
+        categoriaId: parsed.data.categoriaId,
+        userId: auth.userId,
+      });
+      learnMode = rule.mode;
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Regola mittente non aggiornata.",
+    };
   }
 
   await writeAuditLog({
@@ -1717,6 +1825,10 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
     payload: {
       categoriaId: parsed.data.categoriaId,
       learnMode,
+      moveAllFromAddress: parsed.data.moveAllFromAddress,
+      autoMoveNew: parsed.data.autoMoveNew,
+      movedFromAddress,
+      fromAddress,
     },
   });
 
@@ -1724,6 +1836,7 @@ export async function setWebmailMessaggioCategoriaAction(raw: unknown): Promise<
     success: true,
     messaggio: mapMessaggio(updated as Record<string, unknown>),
     learnMode,
+    movedFromAddress,
   };
 }
 

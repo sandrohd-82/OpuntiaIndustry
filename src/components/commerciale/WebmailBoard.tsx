@@ -2112,10 +2112,19 @@ export function WebmailBoard({
         open={catTargetIds.length > 0}
         messaggioIds={catTargetIds}
         categorie={categorie}
+        fromAddresses={catTargetIds.flatMap((id) => {
+          const m =
+            messaggi.find((x) => x.id === id) ??
+            (selected?.id === id ? selected : null);
+          return m?.fromAddress ? [m.fromAddress] : [];
+        })}
         currentCategoriaId={
           catTargetIds.length === 1
             ? (messaggi.find((m) => m.id === catTargetIds[0])?.categoriaId ??
-              null)
+                (selected?.id === catTargetIds[0]
+                  ? selected.categoriaId
+                  : null) ??
+                null)
             : null
         }
         onClose={() => setCatTargetIds([])}

@@ -323,4 +323,6 @@ export const bulkWebmailDeleteSchema = bulkWebmailMessaggiSchema.extend({
 
 export const bulkWebmailCategoriaSchema = bulkWebmailMessaggiSchema.extend({
   categoriaId: z.string().uuid(),
+  moveAllFromAddress: z.boolean().optional(),
+  autoMoveNew: z.boolean().optional(),
 });

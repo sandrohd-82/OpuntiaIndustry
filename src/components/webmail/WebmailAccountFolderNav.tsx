@@ -17,6 +17,7 @@ import {
   type WebmailUnreadCounts,
 } from "@/app/actions/webmail";
 import type { WebmailCategoria } from "@/lib/webmail/types";
+import { contrastingInkOn, contrastingInkOnWhite } from "@/lib/webmail/contrast";
 import { WEBMAIL_UNREAD_NAV_EVENT } from "@/lib/webmail/unread-nav";
 
 type Props = {
@@ -24,32 +25,57 @@ type Props = {
   accountLabel: string;
 };
 
-function UnreadPill({
-  count,
-  color,
-}: {
-  count: number;
-  /** Colore categoria per bordo/testo del badge */
-  color?: string;
-}) {
+function UnreadPill({ count }: { count: number }) {
   if (count <= 0) return null;
-  if (color) {
-    return (
-      <span
-        className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border bg-white px-1.5 text-[10px] font-bold"
-        style={{ color, borderColor: color }}
-        title={`${count} non aperte`}
-      >
-        {count}
-      </span>
-    );
-  }
   return (
     <span
       className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white"
       title={`${count} non aperte`}
     >
       {count}
+    </span>
+  );
+}
+
+/** Cerchio categoria: pieno + numero grosso se ci sono non lette; contorno + numero fine = totale. */
+function CategoryCountPill({
+  unread,
+  total,
+  color,
+}: {
+  unread: number;
+  total: number;
+  color: string;
+}) {
+  if (total <= 0 && unread <= 0) return null;
+  const hasUnread = unread > 0;
+  const value = hasUnread ? unread : total;
+  const ink = hasUnread ? contrastingInkOn(color) : contrastingInkOnWhite(color);
+  return (
+    <span
+      className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full border px-1.5 text-[10px] ${
+        hasUnread ? "font-extrabold" : "font-light"
+      }`}
+      style={
+        hasUnread
+          ? {
+              backgroundColor: color,
+              borderColor: color,
+              color: ink,
+            }
+          : {
+              backgroundColor: "#ffffff",
+              borderColor: color,
+              color: ink,
+            }
+      }
+      title={
+        hasUnread
+          ? `${unread} da leggere su ${total}`
+          : `${total} mail`
+      }
+    >
+      {value}
     </span>
   );
 }
@@ -85,6 +111,9 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
     inbox: 0,
     spam: 0,
     byCategoriaId: {},
+    inboxTotal: 0,
+    spamTotal: 0,
+    byCategoriaTotal: {},
   });
 
   const reload = useCallback(() => {
@@ -177,6 +206,7 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
             const href = `${base}/categoria/${cat.id}`;
             const active = pathname === href;
             const unread = counts.byCategoriaId[cat.id] ?? 0;
+            const total = counts.byCategoriaTotal[cat.id] ?? unread;
             const color = cat.colore || "#64748b";
             return (
               <Link
@@ -193,7 +223,11 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
                 title={cat.nome}
               >
                 <span className="min-w-0 flex-1 truncate">{cat.nome}</span>
-                <UnreadPill count={unread} color={color} />
+                <CategoryCountPill
+                  unread={unread}
+                  total={total}
+                  color={color}
+                />
               </Link>
             );
           })

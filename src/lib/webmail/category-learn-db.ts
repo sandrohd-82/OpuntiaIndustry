@@ -3,6 +3,7 @@ import {
   domainFromEmail,
   modeFromConfirmCount,
   normalizeSenderEmail,
+  WEBMAIL_LEARN_AUTO_SILENT_AT,
   type WebmailCategoriaRegola,
   type WebmailLearnMode,
 } from "@/lib/webmail/category-learn";
@@ -226,4 +227,141 @@ export async function reinforceCategoriaLearning(
     throw new Error("Impossibile aggiornare regola apprendimento.");
   }
   return emailRule;
+}
+
+/** Imposta subito lo spostamento automatico per questo indirizzo (solo email, non dominio). */
+export async function forceAutoCategoriaRule(
+  supabase: Db,
+  input: {
+    accountId: string;
+    fromAddress: string;
+    categoriaId: string;
+    userId: string;
+  }
+): Promise<WebmailCategoriaRegola> {
+  const email = normalizeSenderEmail(input.fromAddress);
+  if (!email || !email.includes("@")) {
+    throw new Error("Indirizzo mittente non valido.");
+  }
+  const confirmCount = Math.max(WEBMAIL_LEARN_AUTO_SILENT_AT, 1);
+  const now = new Date().toISOString();
+
+  const { data: existing } = await supabase
+    .from("webmail_categoria_regole")
+    .select(
+      "id, account_id, match_type, match_key, categoria_id, confirm_count, mode"
+    )
+    .eq("account_id", input.accountId)
+    .eq("match_type", "email")
+    .ilike("match_key", email)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (existing) {
+    const { data: updated, error } = await supabase
+      .from("webmail_categoria_regole")
+      .update({
+        categoria_id: input.categoriaId,
+        confirm_count: Math.max(Number(existing.confirm_count) || 0, confirmCount),
+        mode: "auto_silent",
+        updated_by: input.userId,
+        last_matched_at: now,
+      })
+      .eq("id", existing.id)
+      .select(
+        "id, account_id, match_type, match_key, categoria_id, confirm_count, mode"
+      )
+      .single();
+    if (error || !updated) {
+      throw new Error(error?.message ?? "Impossibile aggiornare la regola.");
+    }
+    return mapRegola(updated as Record<string, unknown>);
+  }
+
+  const { data: inserted, error } = await supabase
+    .from("webmail_categoria_regole")
+    .insert({
+      account_id: input.accountId,
+      match_type: "email",
+      match_key: email,
+      categoria_id: input.categoriaId,
+      confirm_count: confirmCount,
+      mode: "auto_silent",
+      created_by: input.userId,
+      updated_by: input.userId,
+      last_matched_at: now,
+    })
+    .select(
+      "id, account_id, match_type, match_key, categoria_id, confirm_count, mode"
+    )
+    .single();
+  if (error || !inserted) {
+    throw new Error(error?.message ?? "Impossibile creare la regola.");
+  }
+  return mapRegola(inserted as Record<string, unknown>);
+}
+
+/** Sposta le mail inbound già presenti (stessa casella + stesso mittente) nella categoria. */
+export async function moveAllMessagesFromAddress(
+  supabase: Db,
+  input: {
+    accountId: string;
+    fromAddress: string;
+    categoriaId: string;
+    userId: string;
+  }
+): Promise<number> {
+  const email = normalizeSenderEmail(input.fromAddress);
+  if (!email) return 0;
+
+  const safeLike = email.replace(/[%_]/g, "");
+  let moved = 0;
+  let offset = 0;
+  const page = 400;
+
+  for (;;) {
+    const { data, error } = await supabase
+      .from("webmail_messaggi")
+      .select("id, from_address")
+      .eq("account_id", input.accountId)
+      .eq("direction", "inbound")
+      .is("deleted_at", null)
+      .is("purged_at", null)
+      .is("archived_at", null)
+      .is("spam_at", null)
+      .neq("folder", "TRASH")
+      .neq("folder", "JUNK")
+      .ilike("from_address", `%${safeLike}%`)
+      .range(offset, offset + page - 1);
+    if (error) throw new Error(error.message);
+
+    const rows = data ?? [];
+    const ids = rows
+      .filter(
+        (r) => normalizeSenderEmail(String(r.from_address ?? "")) === email
+      )
+      .map((r) => String(r.id));
+
+    if (ids.length > 0) {
+      const { data: upd, error: uErr } = await supabase
+        .from("webmail_messaggi")
+        .update({
+          categoria_id: input.categoriaId,
+          categoria_suggest_id: null,
+          categoria_suggest_mode: null,
+          categoria_auto_pending: false,
+          updated_by: input.userId,
+        })
+        .in("id", ids)
+        .select("id");
+      if (uErr) throw new Error(uErr.message);
+      moved += upd?.length ?? 0;
+    }
+
+    if (rows.length < page) break;
+    offset += page;
+    if (offset > 20000) break;
+  }
+
+  return moved;
 }
