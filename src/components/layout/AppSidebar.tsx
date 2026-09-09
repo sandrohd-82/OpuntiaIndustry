@@ -54,10 +54,14 @@ import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
+import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
 import {
   filterNavByPageAccess,
+  isNavPathVisible,
+  toneForAreaAccess,
   toneForNavPath,
+  WEB_AREA_ACCESS_KEY,
   type AccessTone,
   type PageAccessMap,
 } from "@/lib/auth/page-access";
@@ -247,6 +251,7 @@ function FirstLevelButton({
   badge,
   extra,
   tone = null,
+  areaAccess = null,
   onToggle,
 }: {
   slug: string;
@@ -256,6 +261,7 @@ function FirstLevelButton({
   badge?: NavBadge;
   extra?: ReactNode;
   tone?: AccessTone | null;
+  areaAccess?: { areaKey: string; tone: AccessTone } | null;
   onToggle: () => void;
 }) {
   return (
@@ -271,6 +277,9 @@ function FirstLevelButton({
         {rail ? null : <span className="truncate">{label}</span>}
         {rail ? null : badge ? <NavBadgeDot badge={badge} /> : null}
       </button>
+      {rail || !areaAccess ? null : (
+        <MenuAreaAccessToggle areaKey={areaAccess.areaKey} tone={areaAccess.tone} />
+      )}
       {rail ? null : extra}
     </div>
   );
@@ -542,6 +551,17 @@ export function AppSidebar({
     toggle(slug);
   }
 
+  const canToggleAreas = testMenuMode && canCreateProfiles && !collapsed;
+  const showWebRow =
+    showWeb &&
+    webSections.length > 0 &&
+    (!applyPageFilter || isNavPathVisible(WEB_AREA_ACCESS_KEY, pageAccess));
+
+  function areaToggle(areaKey: string) {
+    if (!canToggleAreas) return null;
+    return { areaKey, tone: toneForAreaAccess(areaKey, pageAccess) };
+  }
+
   return (
     <aside
       data-app-sidebar
@@ -605,12 +625,12 @@ export function AppSidebar({
             let webDone = false;
             for (const area of sortedAreas) {
               rows.push({ type: "area", area });
-              if (area.slug === "ricerca-sviluppo" && showWeb && webSections.length) {
+              if (area.slug === "ricerca-sviluppo" && showWebRow) {
                 rows.push({ type: "web" });
                 webDone = true;
               }
             }
-            if (showWeb && webSections.length && !webDone) {
+            if (showWebRow && !webDone) {
               const afterAdmin = rows.findIndex(
                 (r) => r.type === "area" && r.area.slug === "amministrazione"
               );
@@ -629,7 +649,8 @@ export function AppSidebar({
                     label="Web"
                     active={active}
                     rail={collapsed}
-                    tone={testMenuMode ? toneForNavPath("/app/amministrazione", pageAccess) : null}
+                    tone={testMenuMode ? toneForAreaAccess(WEB_AREA_ACCESS_KEY, pageAccess) : null}
+                    areaAccess={areaToggle(WEB_AREA_ACCESS_KEY)}
                     onToggle={() => openFirstLevel("web")}
                   />
                   {!collapsed && open ? (
@@ -666,8 +687,9 @@ export function AppSidebar({
                 ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
                 : treeSectionsRaw;
             const areaTone = testMenuMode
-              ? toneForNavPath(href, pageAccess)
+              ? toneForAreaAccess(href, pageAccess)
               : null;
+            const areaAccess = areaToggle(href);
 
             const extra =
               area.slug === "chat" ? (
@@ -695,6 +717,7 @@ export function AppSidebar({
                     rail={collapsed}
                     extra={extra}
                     tone={areaTone}
+                    areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open && (
@@ -722,6 +745,7 @@ export function AppSidebar({
                     rail={collapsed}
                     extra={extra}
                     tone={areaTone}
+                    areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open ? <ChatSidebarNav userId={userId} /> : null}
@@ -740,6 +764,7 @@ export function AppSidebar({
                     rail={collapsed}
                     extra={extra}
                     tone={areaTone}
+                    areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open ? <WebmailSidebarNav /> : null}
@@ -749,15 +774,23 @@ export function AppSidebar({
 
             return (
               <li key={area.area_id}>
-                <Link
-                  href={href}
-                  title={area.name}
-                  aria-label={area.name}
-                  className={itemClass(active, false, collapsed, areaTone)}
-                >
-                  <AreaIcon slug={area.slug} />
-                  {collapsed ? null : <span className="truncate">{area.name}</span>}
-                </Link>
+                <div className="flex items-center gap-1">
+                  <Link
+                    href={href}
+                    title={area.name}
+                    aria-label={area.name}
+                    className={`min-w-0 flex-1 ${itemClass(active, false, collapsed, areaTone)}`}
+                  >
+                    <AreaIcon slug={area.slug} />
+                    {collapsed ? null : <span className="truncate">{area.name}</span>}
+                  </Link>
+                  {areaAccess ? (
+                    <MenuAreaAccessToggle
+                      areaKey={areaAccess.areaKey}
+                      tone={areaAccess.tone}
+                    />
+                  ) : null}
+                </div>
               </li>
             );
           })}

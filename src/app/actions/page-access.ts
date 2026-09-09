@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile } from "@/lib/auth/session";
-import { resolvePageKey, type PageAccessMap } from "@/lib/auth/page-access";
+import {
+  isAreaAccessKey,
+  isChildPageKeyOfArea,
+  resolvePageKey,
+  type PageAccessMap,
+} from "@/lib/auth/page-access";
 import { createServiceClient } from "@/lib/supabase/server";
 
 async function requireRealSuperadmin() {
@@ -112,6 +117,97 @@ export async function setPageAccessAction(
 
   revalidatePath("/", "layout");
   return { success: true, pageKey };
+}
+
+export async function setAreaAccessAction(
+  areaKeyRaw: string,
+  visibile: boolean
+): Promise<{ success: true; areaKey: string } | { success: false; error: string }> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const targetId = await activeTargetId(gate.actorUserId);
+  if (!targetId) {
+    return {
+      success: false,
+      error: "Entra nel profilo con lo switch per impostare le aree.",
+    };
+  }
+
+  const areaKey = String(areaKeyRaw ?? "").trim();
+  if (!isAreaAccessKey(areaKey)) {
+    return { success: false, error: "Area non valida." };
+  }
+
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+
+  const { data: existing } = await service
+    .from("profile_page_access")
+    .select("id")
+    .eq("profile_id", targetId)
+    .eq("page_key", areaKey)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await service
+      .from("profile_page_access")
+      .update({
+        visibile,
+        updated_by: gate.actorUserId,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await service.from("profile_page_access").insert({
+      profile_id: targetId,
+      page_key: areaKey,
+      visibile,
+      created_by: gate.actorUserId,
+      updated_by: gate.actorUserId,
+    });
+    if (error) return { success: false, error: error.message };
+  }
+
+  const { data: siblings } = await service
+    .from("profile_page_access")
+    .select("id, page_key")
+    .eq("profile_id", targetId)
+    .is("deleted_at", null);
+
+  const childIds = (siblings ?? [])
+    .filter((row) => isChildPageKeyOfArea(String(row.page_key ?? ""), areaKey))
+    .map((row) => row.id);
+
+  if (childIds.length > 0) {
+    const { error: clearErr } = await service
+      .from("profile_page_access")
+      .update({
+        deleted_at: now,
+        deleted_by: gate.actorUserId,
+        updated_by: gate.actorUserId,
+      })
+      .in("id", childIds);
+    if (clearErr) return { success: false, error: clearErr.message };
+  }
+
+  await service.from("audit_log").insert({
+    entity_type: "profile_page_access",
+    entity_id: targetId,
+    action: visibile ? "area_on" : "area_off",
+    actor_id: gate.actorUserId,
+    summary: `Area ${areaKey} ${visibile ? "On" : "Off"} (intera area)`,
+    payload: {
+      page_key: areaKey,
+      visibile,
+      target_user_id: targetId,
+      cleared_child_keys: childIds.length,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true, areaKey };
 }
 
 export async function clearPageAccessKeyAction(
