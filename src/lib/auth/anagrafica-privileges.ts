@@ -1,11 +1,8 @@
-import { loadAccessMaps } from "@/app/actions/page-access";
 import {
   AZ,
   isPrivilegedActionOn,
   type AnagraficaPrivilegeKind,
 } from "@/lib/auth/action-access";
-import { isSuperadminProfile } from "@/lib/auth/roles";
-import { getAuthContext } from "@/lib/auth/session";
 import type { PageAccessMap } from "@/lib/auth/page-access";
 
 export const ANAGRAFICA_ACTION_KEYS: Record<
@@ -60,27 +57,6 @@ export function canDeleteAnagraficaRecord(opts: {
   if (!opts.canDelete) return false;
   if (opts.createdBy && opts.createdBy === opts.userId) return true;
   return opts.editOthers;
-}
-
-export async function assertAnagraficaPrivilege(opts: {
-  kind: AnagraficaPrivilegeKind;
-  op: "timeline" | "update" | "delete";
-  createdBy?: string | null;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const auth = await getAuthContext();
-  if (!auth) return { ok: false, error: "Non autenticato." };
-  const bypass =
-    isSuperadminProfile(auth.profile) && !auth.impersonating;
-  if (bypass) return { ok: true };
-
-  const { actionAccess } = await loadAccessMaps(auth.userId);
-  return evaluateAnagraficaPrivilege({
-    actionAccess,
-    userId: auth.userId,
-    kind: opts.kind,
-    op: opts.op,
-    createdBy: opts.createdBy,
-  });
 }
 
 export function evaluateAnagraficaPrivilege(opts: {

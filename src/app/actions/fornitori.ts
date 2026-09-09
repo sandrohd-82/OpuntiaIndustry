@@ -16,7 +16,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeCompanyNameKey, normalizeVatKey, companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
 

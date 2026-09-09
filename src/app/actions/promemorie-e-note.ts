@@ -3,7 +3,7 @@
 import { notFound, redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
-import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";

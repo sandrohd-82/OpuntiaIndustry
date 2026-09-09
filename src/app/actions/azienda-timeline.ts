@@ -7,7 +7,7 @@ import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
 import {
   assertAnagraficaPrivilege,
   kindFromAziendaTipo,
-} from "@/lib/auth/anagrafica-privileges";
+} from "@/lib/auth/anagrafica-privileges-server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";

@@ -15,7 +15,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
-import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
