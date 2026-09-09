@@ -4,11 +4,16 @@ import { createClient } from "@/lib/supabase/server";
 import type { Profile, UserArea } from "@/types/database";
 
 export interface AuthContext {
+  /** Identità con cui opera il gestionale (operatore se in switch). */
   userId: string;
   email: string;
   profile: Profile;
   areas: UserArea[];
   isSecondFactorVerified: boolean;
+  /** Login reale (Super Admin anche durante lo switch). */
+  actorUserId: string;
+  actorProfile: Profile;
+  impersonating: boolean;
 }
 
 export async function getAuthUser() {
@@ -67,24 +72,49 @@ export async function getUserAreas(userId: string): Promise<UserArea[]> {
   return data as UserArea[];
 }
 
+async function getActiveImpersonationTargetId(
+  actorUserId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("impersonation_sessions")
+    .select("target_user_id")
+    .eq("actor_user_id", actorUserId)
+    .is("ended_at", null)
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.target_user_id ? String(data.target_user_id) : null;
+}
+
 export async function getAuthContext(): Promise<AuthContext | null> {
   const user = await getAuthUser();
   if (!user?.email) return null;
 
-  const profile = await getProfile(user.id);
+  const actorProfile = await getProfile(user.id);
+  if (!actorProfile) return null;
+
+  const targetId = await getActiveImpersonationTargetId(user.id);
+  const effectiveId = targetId || user.id;
+  const profile =
+    effectiveId === user.id ? actorProfile : await getProfile(effectiveId);
   if (!profile) return null;
 
   const [areas, secondFactorOk] = await Promise.all([
-    getUserAreas(user.id),
+    getUserAreas(effectiveId),
     isSecondFactorVerified(),
   ]);
 
   return {
-    userId: user.id,
-    email: user.email,
+    userId: effectiveId,
+    email: profile.email || user.email,
     profile,
     areas,
     isSecondFactorVerified: secondFactorOk,
+    actorUserId: user.id,
+    actorProfile,
+    impersonating: Boolean(targetId),
   };
 }
 

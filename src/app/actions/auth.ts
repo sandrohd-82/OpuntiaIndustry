@@ -20,6 +20,7 @@ import {
 } from "@/lib/auth/two-factor";
 import { sendOtpEmail } from "@/lib/email/smtp";
 import { recordAccesso } from "@/lib/auth/record-accesso";
+import { endImpersonationOnLogout } from "@/app/actions/impersonation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
   AuthSession2faInsert,
@@ -423,6 +424,7 @@ export async function signOut(): Promise<void> {
   } = await supabase.auth.getUser();
 
   if (user) {
+    await endImpersonationOnLogout(user.id);
     await recordAccesso({
       userId: user.id,
       email: user.email ?? "",

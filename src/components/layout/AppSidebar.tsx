@@ -53,6 +53,7 @@ import { listWebmailAccountsAction } from "@/app/actions/webmail";
 import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
+import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 const SIDEBAR_COLLAPSED_KEY = "opuntia.sidebar.collapsed";
@@ -63,6 +64,9 @@ type Props = {
   roleName: string;
   userId: string;
   isSuperadmin?: boolean;
+  canImpersonate?: boolean;
+  impersonating?: boolean;
+  actorName?: string;
 };
 
 function sortAreasForSidebar(areas: UserArea[]) {
@@ -332,6 +336,9 @@ export function AppSidebar({
   roleName,
   userId,
   isSuperadmin = false,
+  canImpersonate = false,
+  impersonating = false,
+  actorName = "Super Admin",
 }: Props) {
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
@@ -496,7 +503,9 @@ export function AppSidebar({
       }`}
     >
       <div
-        className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"}`}
+        className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"} ${
+          impersonating ? "bg-amber-950/40" : ""
+        }`}
       >
         <div className={`flex items-center ${collapsed ? "justify-center" : "gap-2"}`}>
           {collapsed ? null : (
@@ -508,6 +517,15 @@ export function AppSidebar({
               <p className="truncate text-xs text-[var(--sidebar-muted)]">
                 {roleName}
               </p>
+              {canImpersonate ? (
+                <ImpersonationSwitcher
+                  compact
+                  impersonating={impersonating}
+                  currentLabel={userName}
+                  currentRole={roleName}
+                  actorLabel={actorName}
+                />
+              ) : null}
             </div>
           )}
           <button

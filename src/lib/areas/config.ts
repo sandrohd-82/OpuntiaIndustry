@@ -1,4 +1,4 @@
-import type { AreaSlug } from "@/types/database";
+import type { AreaSlug, UserArea } from "@/types/database";
 
 /** Metadati UI per le aree (routing e navigazione) */
 export const AREA_ROUTES: Record<
@@ -115,6 +115,17 @@ export const SIDEBAR_HIDDEN_AREAS: ReadonlySet<AreaSlug> = new Set([
 
 export function areaPathFromSlug(slug: AreaSlug): string {
   return AREA_ROUTES[slug].path;
+}
+
+/** Prima area visibile nel menu per l’utente (dopo switch profilo). */
+export function firstAreaPath(areas: UserArea[]): string | null {
+  const slugs = new Set(areas.map((a) => a.slug));
+  for (const slug of SIDEBAR_AREA_ORDER) {
+    if (SIDEBAR_HIDDEN_AREAS.has(slug)) continue;
+    if (slugs.has(slug)) return AREA_ROUTES[slug].path;
+  }
+  const fallback = areas[0]?.slug;
+  return fallback ? AREA_ROUTES[fallback]?.path ?? null : null;
 }
 
 export function slugFromPath(pathname: string): AreaSlug | null {
