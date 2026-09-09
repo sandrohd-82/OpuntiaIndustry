@@ -66,7 +66,7 @@ export type OrganigrammaReparto = {
 export type OrganigrammaProfiloLink = {
   id: string;
   email: string;
-  stato: "test" | "operativo" | "sospeso" | "bloccato";
+  stato: "test" | "pre_operativo" | "operativo" | "sospeso" | "bloccato";
   gerarchia: string;
   potere: string;
 };

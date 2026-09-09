@@ -6,7 +6,10 @@ import {
 } from "@/lib/auth/roles";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
-import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import {
+  isConfigStato,
+  parseProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 import type { AreaSlug } from "@/types/database";
 
 export function isTestImpersonation(auth: {
@@ -15,7 +18,7 @@ export function isTestImpersonation(auth: {
 }): boolean {
   return (
     auth.impersonating &&
-    parseProfileStatoOperativo(auth.profile.stato_operativo) === "test"
+    isConfigStato(parseProfileStatoOperativo(auth.profile.stato_operativo))
   );
 }
 

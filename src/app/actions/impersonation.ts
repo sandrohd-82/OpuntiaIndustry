@@ -17,6 +17,7 @@ import { generateSessionToken, hashSessionToken } from "@/lib/auth/two-factor";
 import { primoAccessoUrl } from "@/lib/auth/app-url";
 import { sendPrimoAccessoEmail } from "@/lib/email/primo-accesso";
 import {
+  PROFILE_STATI_OPERATIVI,
   parseProfileStatoOperativo,
   type ProfileStatoOperativo,
 } from "@/lib/auth/stato-operativo";
@@ -228,9 +229,7 @@ export async function setProfileStatoOperativoAction(
   const gate = await requireRealSuperadmin();
   if (!gate.ok) return { success: false, error: gate.error };
 
-  const parsed = z
-    .enum(["test", "operativo", "sospeso", "bloccato"])
-    .safeParse(stato);
+  const parsed = z.enum(PROFILE_STATI_OPERATIVI).safeParse(stato);
   if (!parsed.success) {
     return { success: false, error: "Stato non valido." };
   }
@@ -258,7 +257,7 @@ export async function setProfileStatoOperativoAction(
   const { data: target, error: tErr } = await service
     .from("profiles")
     .select(
-      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, potere, app_roles(code)"
+      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, attivato_at, potere, app_roles(code)"
     )
     .eq("id", targetId)
     .maybeSingle();
@@ -273,8 +272,11 @@ export async function setProfileStatoOperativoAction(
 
   const previous = parseProfileStatoOperativo(target.stato_operativo);
   const now = new Date().toISOString();
+  const activating =
+    parsed.data === "operativo" &&
+    (previous === "test" || previous === "pre_operativo");
 
-  if (parsed.data === "operativo" && previous === "test") {
+  if (activating) {
     const alreadyHasPassword = Boolean(target.password_impostata_at);
     let link = "";
     if (!alreadyHasPassword) {
@@ -311,7 +313,7 @@ export async function setProfileStatoOperativoAction(
       return {
         success: false,
         error:
-          "Impossibile inviare la mail di attivazione. Lo stato resta in Test. Verifica SMTP.",
+          "Impossibile inviare la mail di attivazione. Lo stato non è stato cambiato. Verifica SMTP.",
       };
     }
   }
@@ -321,7 +323,7 @@ export async function setProfileStatoOperativoAction(
     stato_operativo_at: now,
     stato_operativo_by: gate.actorUserId,
   };
-  if (parsed.data === "operativo" && previous === "test") {
+  if (activating) {
     updatePayload.attivato_at = now;
     updatePayload.attivato_by = gate.actorUserId;
     if (parseProfilePotere(target.potere) === "superadmin") {

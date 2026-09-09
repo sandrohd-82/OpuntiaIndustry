@@ -376,6 +376,7 @@ export function OrganigrammaElencoBoard() {
 
 const STATO_DOT: Record<string, string> = {
   test: "bg-slate-400",
+  pre_operativo: "bg-teal-400",
   operativo: "bg-emerald-400",
   sospeso: "bg-amber-400",
   bloccato: "bg-red-500",

@@ -21,6 +21,7 @@ import {
 import { sendOtpEmail } from "@/lib/email/smtp";
 import { recordAccesso } from "@/lib/auth/record-accesso";
 import {
+  isOperatorSelfLoginAllowed,
   parseProfileStatoOperativo,
   profileStatoLoginMessage,
 } from "@/lib/auth/stato-operativo";
@@ -90,7 +91,7 @@ export async function signInWithPassword(
       .eq("id", user.id)
       .maybeSingle();
     const statoLogin = parseProfileStatoOperativo(statoRow?.stato_operativo);
-    if (statoLogin !== "operativo") {
+    if (!isOperatorSelfLoginAllowed(statoLogin)) {
       await supabase.auth.signOut();
       await recordAccesso({
         userId: user.id,

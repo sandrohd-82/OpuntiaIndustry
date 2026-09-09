@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { LoginForm } from "@/components/auth/LoginForm";
 import {
+  isOperatorSelfLoginAllowed,
   parseProfileStatoOperativo,
   profileStatoLoginMessage,
 } from "@/lib/auth/stato-operativo";
@@ -15,7 +16,7 @@ export default async function LoginPage({ searchParams }: Props) {
     ? parseProfileStatoOperativo(params.motivo)
     : null;
   const locked =
-    motivo && motivo !== "operativo"
+    motivo && !isOperatorSelfLoginAllowed(motivo)
       ? profileStatoLoginMessage(motivo)
       : null;
 

@@ -10,6 +10,7 @@ import {
 
 const LED_CLASS: Record<ProfileStatoOperativo, string> = {
   test: "bg-slate-400 shadow-[0_0_6px_rgba(148,163,184,0.85)]",
+  pre_operativo: "bg-teal-400 shadow-[0_0_6px_rgba(45,212,191,0.85)]",
   operativo: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.85)]",
   sospeso: "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.85)]",
   bloccato: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.85)]",
@@ -49,8 +50,17 @@ export function ProfileStatusLed({ stato, canChange }: Props) {
       return;
     }
     if (
+      next === "pre_operativo" &&
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Passare a Pre-operativo? Vedrai il gestionale come in operativo per controllare le impostazioni. L’operatore non viene abilitato e non riceve alcuna email."
+      )
+    ) {
+      return;
+    }
+    if (
       next === "operativo" &&
-      stato === "test" &&
+      (stato === "test" || stato === "pre_operativo") &&
       typeof window !== "undefined" &&
       !window.confirm(
         "Passare a Operativo? Verrà inviata una email all'operatore con il link per il primo accesso."

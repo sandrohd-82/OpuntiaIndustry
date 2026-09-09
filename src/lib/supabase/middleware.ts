@@ -1,6 +1,9 @@
 import { createServerClient, type SetAllCookies } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import {
+  isOperatorSelfLoginAllowed,
+  parseProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 import type { ProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 
 export async function updateSession(request: NextRequest) {
@@ -43,7 +46,7 @@ export async function updateSession(request: NextRequest) {
       .eq("id", user.id)
       .maybeSingle();
     statoOperativo = parseProfileStatoOperativo(data?.stato_operativo);
-    if (statoOperativo !== "operativo") {
+    if (!isOperatorSelfLoginAllowed(statoOperativo)) {
       await supabase.auth.signOut();
       return { supabaseResponse, user: null, statoOperativo };
     }

@@ -51,7 +51,7 @@ export interface Profile {
   job_title?: string;
   role_id: string;
   is_active: boolean;
-  stato_operativo?: "test" | "operativo" | "sospeso" | "bloccato";
+  stato_operativo?: "test" | "pre_operativo" | "operativo" | "sospeso" | "bloccato";
   password_impostata_at?: string | null;
   welcome_visto_at?: string | null;
   primo_accesso_token_hash?: string | null;
