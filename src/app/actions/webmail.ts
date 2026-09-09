@@ -48,7 +48,6 @@ import {
   type WebmailListFilter,
   type WebmailBozzaAi,
   type WebmailCategoria,
-  type WebmailMailboxView,
   type WebmailMessaggio,
   type WebmailProvider,
 } from "@/lib/webmail/types";
@@ -973,7 +972,7 @@ export async function listWebmailStoricoAction(raw: unknown): Promise<
   const needle =
     parsed.data.mode === "email" ? email : `@${domain}`;
   const safe = needle.replace(/[%_,()]/g, " ").trim();
-  let q = supabase
+  const q = supabase
     .from("webmail_messaggi")
     .select(MESSAGGIO_LIST_SELECT)
     .eq("account_id", parsed.data.accountId)
