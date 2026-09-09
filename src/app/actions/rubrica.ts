@@ -11,6 +11,7 @@ import {
   type RubricaTimelineItem,
 } from "@/lib/rubrica/types";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
 import { createClient } from "@/lib/supabase/server";
 
 async function guard() {
@@ -312,14 +313,18 @@ export async function listWebmailMessagesLiteAction(input?: {
   | { success: true; items: { id: string; label: string }[] }
   | { success: false; error: string }
 > {
-  await guard();
+  const { auth } = await guard();
+  const vis = await resolveWebmailAccountVisibility(auth);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, items: [] };
+  }
   const supabase = await createClient();
-  // Best-effort: tabella webmail_messages se presente
   let q = supabase
     .from("webmail_messaggi")
     .select("id, subject, from_address, received_at")
     .order("received_at", { ascending: false })
     .limit(40);
+  if (vis.mode === "granted") q = q.in("account_id", vis.ids);
   const query = input?.query?.trim();
   if (query) {
     q = q.or(`subject.ilike.%${query}%,from_address.ilike.%${query}%`);

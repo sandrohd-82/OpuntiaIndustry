@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import {
@@ -10,9 +10,20 @@ import {
   requireWebmailAccess,
 } from "@/lib/areas/guard";
 import { toneForGrantSelection, type AccessTone } from "@/lib/auth/page-access";
-import { getAuthContext, getAuthUser, getProfile } from "@/lib/auth/session";
+import {
+  getAuthContext,
+  getAuthUser,
+  getProfile,
+  type AuthContext,
+} from "@/lib/auth/session";
 import { setAreaAccessAction } from "@/app/actions/page-access";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  assertWebmailAccountAccess,
+  isWebmailGrantAssignMode,
+  resolveWebmailAccountVisibility,
+  seesAllWebmailAccounts,
+} from "@/lib/webmail/account-access";
 import { encryptWebmailSecret } from "@/lib/webmail/crypto";
 import {
   deleteImapMessageBestEffort,
@@ -177,11 +188,13 @@ export async function listWebmailUnreadCountsAction(
   | { success: true; counts: WebmailUnreadCounts }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
   const parsed = z.string().uuid().safeParse(accountId);
   if (!parsed.success) {
     return { success: false, error: "Casella non valida." };
   }
+  const gate = await assertWebmailAccountAccess(auth, parsed.data);
+  if (!gate.ok) return { success: false, error: gate.error };
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("webmail_account_folder_counts", {
     p_account_id: parsed.data,
@@ -230,7 +243,7 @@ export async function countWebmailFromAddressAction(raw: unknown): Promise<
   | { success: true; total: number; unread: number }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
   const parsed = z
     .object({
       accountId: z.string().uuid(),
@@ -240,6 +253,8 @@ export async function countWebmailFromAddressAction(raw: unknown): Promise<
   if (!parsed.success) {
     return { success: false, error: "Dati non validi." };
   }
+  const gate = await assertWebmailAccountAccess(auth, parsed.data.accountId);
+  if (!gate.ok) return { success: false, error: gate.error };
   const { normalizeSenderEmail } = await import("@/lib/webmail/category-learn");
   const email = normalizeSenderEmail(parsed.data.fromAddress);
   if (!email.includes("@")) {
@@ -290,9 +305,13 @@ export async function listWebmailUnreadInboxByAccountAction(): Promise<
   | { success: true; byAccountId: Record<string, number> }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
+  const vis = await resolveWebmailAccountVisibility(auth);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, byAccountId: {} };
+  }
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let q = supabase
     .from("webmail_messaggi")
     .select("account_id")
     .eq("direction", "inbound")
@@ -304,11 +323,16 @@ export async function listWebmailUnreadInboxByAccountAction(): Promise<
     .neq("folder", "TRASH")
     .neq("folder", "JUNK")
     .limit(8000);
+  if (vis.mode === "granted") q = q.in("account_id", vis.ids);
+  const { data, error } = await q;
   if (error) return { success: false, error: error.message };
+  const allowed =
+    vis.mode === "granted" ? new Set(vis.ids) : null;
   const byAccountId: Record<string, number> = {};
   for (const r of data ?? []) {
     const id = String(r.account_id ?? "");
     if (!id) continue;
+    if (allowed && !allowed.has(id)) continue;
     byAccountId[id] = (byAccountId[id] ?? 0) + 1;
   }
   return { success: true, byAccountId };
@@ -419,9 +443,7 @@ export async function listWebmailAccountsAction(): Promise<
   | { success: false; error: string }
 > {
   const { auth } = await requireWebmailAccess();
-  const canManageAccounts =
-    isAdminLikeProfile(auth.profile) ||
-    auth.areas.some((a) => a.slug === "amministrazione");
+  const canManageAccounts = seesAllWebmailAccounts(auth);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("webmail_accounts")
@@ -431,9 +453,14 @@ export async function listWebmailAccountsAction(): Promise<
     .is("deleted_at", null)
     .order("created_at", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const allowed = vis.mode === "granted" ? new Set(vis.ids) : null;
+  const accounts = (data ?? [])
+    .map((r) => mapAccount(r as Record<string, unknown>))
+    .filter((a) => !allowed || allowed.has(a.id));
   return {
     success: true,
-    accounts: (data ?? []).map((r) => mapAccount(r as Record<string, unknown>)),
+    accounts,
     canManageAccounts,
   };
 }
@@ -888,8 +915,7 @@ export async function listWebmailMenuAccountsAction(): Promise<
     return { success: false, error: "Accesso non verificato." };
   }
 
-  const assignMode =
-    isSuperadminProfile(auth.actorProfile) && isTestImpersonation(auth);
+  const assignMode = isWebmailGrantAssignMode(auth);
 
   if (!assignMode) {
     const res = await listWebmailAccountsAction();
@@ -1041,6 +1067,26 @@ export async function setImpersonatedWebmailAreaAccessAction(
   return setImpersonatedWebmailAllAccountsAccessAction(granted);
 }
 
+async function resolveMessaggiAccountScope(
+  auth: AuthContext,
+  accountId?: string | null
+): Promise<
+  | { ok: true; empty: true; accountIds?: undefined }
+  | { ok: true; empty: false; accountIds: string[] | null }
+  | { ok: false; error: string }
+> {
+  const vis = await resolveWebmailAccountVisibility(auth);
+  if (accountId) {
+    if (vis.mode === "granted" && !vis.ids.includes(accountId)) {
+      return { ok: false, error: "Casella non autorizzata per questo operatore." };
+    }
+    return { ok: true, empty: false, accountIds: null };
+  }
+  if (vis.mode === "all") return { ok: true, empty: false, accountIds: null };
+  if (vis.ids.length === 0) return { ok: true, empty: true };
+  return { ok: true, empty: false, accountIds: vis.ids };
+}
+
 function applyWebmailMessaggiFilters<T>(
   q: T,
   input?: WebmailListFilter
@@ -1137,7 +1183,12 @@ export async function listWebmailMessaggiAction(input?: WebmailListFilter): Prom
   | { success: true; messaggi: WebmailMessaggio[]; total: number; page: number }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
+  const scope = await resolveMessaggiAccountScope(auth, input?.accountId);
+  if (!scope.ok) return { success: false, error: scope.error };
+  if (scope.empty) {
+    return { success: true, messaggi: [], total: 0, page: Math.max(0, Math.floor(input?.page ?? 0)) };
+  }
   const supabase = await createClient();
   const page = Math.max(0, Math.floor(input?.page ?? 0));
   const from = page * WEBMAIL_PAGE_SIZE;
@@ -1148,6 +1199,7 @@ export async function listWebmailMessaggiAction(input?: WebmailListFilter): Prom
     .from("webmail_messaggi")
     .select(MESSAGGIO_LIST_SELECT, wantCount ? { count: "exact" } : undefined);
   q = applyWebmailMessaggiFilters(q, input);
+  if (scope.accountIds) q = q.in("account_id", scope.accountIds);
   q = applyWebmailMessaggiSort(q, input);
   q = q.range(from, to);
 
@@ -1168,7 +1220,10 @@ export async function listWebmailMessaggioIdsAction(
 ): Promise<
   { success: true; ids: string[]; total: number } | { success: false; error: string }
 > {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
+  const scope = await resolveMessaggiAccountScope(auth, input?.accountId);
+  if (!scope.ok) return { success: false, error: scope.error };
+  if (scope.empty) return { success: true, ids: [], total: 0 };
   const supabase = await createClient();
   const ids: string[] = [];
   const pageSize = 1000;
@@ -1181,6 +1236,7 @@ export async function listWebmailMessaggioIdsAction(
       .select("id", { count: offset === 0 ? "exact" : undefined })
       .range(offset, offset + pageSize - 1);
     q = applyWebmailMessaggiFilters(q, input);
+    if (scope.accountIds) q = q.in("account_id", scope.accountIds);
     q = applyWebmailMessaggiSort(q, input);
     const { data, error, count } = await q;
     if (error) return { success: false, error: error.message };
@@ -1226,6 +1282,8 @@ export async function listWebmailStoricoAction(raw: unknown): Promise<
   if (!parsed.success) {
     return { success: false, error: "Dati storico non validi." };
   }
+  const gate = await assertWebmailAccountAccess(auth, parsed.data.accountId);
+  if (!gate.ok) return { success: false, error: gate.error };
   const { normalizeSenderEmail, domainFromEmail } = await import(
     "@/lib/webmail/category-learn"
   );
@@ -3409,6 +3467,8 @@ export async function sendWebmailNuovaMailAction(
     };
   }
   const d = parsed.data;
+  const gate = await assertWebmailAccountAccess(auth, d.accountId);
+  if (!gate.ok) return { success: false, error: gate.error };
   const toList = d.to
     .split(/[,;]/)
     .map((s) => s.trim())

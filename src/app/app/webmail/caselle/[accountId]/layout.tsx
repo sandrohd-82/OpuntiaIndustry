@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
 import { requireWebmailAccess } from "@/lib/areas/guard";
+import { canUseWebmailAccount } from "@/lib/webmail/account-access";
 import { isWebmailUuid } from "@/lib/webmail/casella-path";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,9 +11,10 @@ type Props = {
 };
 
 export default async function WebmailCasellaLayout({ children, params }: Props) {
-  await requireWebmailAccess();
+  const { auth } = await requireWebmailAccess();
   const { accountId } = await params;
   if (!isWebmailUuid(accountId)) notFound();
+  if (!(await canUseWebmailAccount(auth, accountId))) notFound();
 
   const supabase = await createClient();
   const { data: account, error } = await supabase

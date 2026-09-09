@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess, requireWebmailAccess } from "@/lib/areas/guard";
+import { resolveWebmailAccountVisibility } from "@/lib/webmail/account-access";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
 import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";
@@ -122,7 +123,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   | { success: true; items: AziendaTimelineItem[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   const parsed = inputSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: "Azienda non valida." };
@@ -130,9 +131,11 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   const { aziendaTipo, aziendaId } = parsed.data;
   const service = createServiceClient();
   const items: AziendaTimelineItem[] = [];
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const grantedIds = vis.mode === "granted" ? vis.ids : null;
 
-  {
-    const { data } = await service
+  if (!grantedIds || grantedIds.length > 0) {
+    let mailQ = service
       .from("webmail_messaggi")
       .select("id, subject, from_address, from_name, received_at")
       .eq("azienda_tipo", aziendaTipo)
@@ -140,6 +143,8 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       .is("deleted_at", null)
       .order("received_at", { ascending: true })
       .limit(300);
+    if (grantedIds) mailQ = mailQ.in("account_id", grantedIds);
+    const { data } = await mailQ;
     for (const r of data ?? []) {
       const when = (r.received_at as string | null) ?? null;
       if (!when) continue;
@@ -398,13 +403,16 @@ export async function searchWebmailForAziendaTimelineAction(
   | { success: true; items: AziendaTimelineMailHit[]; domains: string[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  const { auth } = await requireAreaAccess("amministrazione");
   await requireWebmailAccess();
   const parsed = searchSchema.safeParse(raw);
   if (!parsed.success) return { success: false, error: "Ricerca non valida." };
-
+  const vis = await resolveWebmailAccountVisibility(auth);
   const { aziendaTipo, aziendaId, emailQuery } = parsed.data;
   const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+  if (vis.mode === "granted" && vis.ids.length === 0) {
+    return { success: true, items: [], domains: hints.domains };
+  }
   const manual = normalizeEmail(emailQuery);
 
   const orParts: string[] = [];
@@ -424,7 +432,7 @@ export async function searchWebmailForAziendaTimelineAction(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let mailQ = supabase
     .from("webmail_messaggi")
     .select(
       "id, subject, from_address, from_name, received_at, azienda_tipo, azienda_id"
@@ -433,6 +441,8 @@ export async function searchWebmailForAziendaTimelineAction(
     .or(orParts.join(","))
     .order("received_at", { ascending: false })
     .limit(60);
+  if (vis.mode === "granted") mailQ = mailQ.in("account_id", vis.ids);
+  const { data, error } = await mailQ;
 
   if (error) return { success: false, error: error.message };
 
