@@ -96,6 +96,29 @@ export async function resolveStatsDateFloor(): Promise<string | null> {
   return resolved.mode === "da_oggi" ? todayRomeDate() : null;
 }
 
+/**
+ * Filtro aziende per statistiche.
+ * `ids === null` = nessuna restrizione extra (oltre a un eventuale cliente scelto in UI).
+ */
+export async function resolveStatsClienteIds(
+  supabase: UserClient,
+  requestedClienteId?: string | null
+): Promise<{ empty: boolean; ids: string[] | null }> {
+  const resolved = await resolveScopeMode("statistiche_aziende");
+  const requested = requestedClienteId?.trim() || null;
+  if (!resolved || resolved.skip || resolved.mode !== "aziende_proprie") {
+    return { empty: false, ids: requested ? [requested] : null };
+  }
+  const owned = await loadOwnedAziendaIds(supabase, resolved.userId, "clienti");
+  if (owned.length === 0) return { empty: true, ids: [] };
+  if (requested) {
+    return owned.includes(requested)
+      ? { empty: false, ids: [requested] }
+      : { empty: true, ids: [] };
+  }
+  return { empty: false, ids: owned };
+}
+
 export async function loadOwnedAziendaIds(
   supabase: UserClient,
   userId: string,

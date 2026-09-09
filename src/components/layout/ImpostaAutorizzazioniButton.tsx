@@ -20,7 +20,22 @@ import {
   type DataScopeMap,
   type DataScopeMode,
   type ProfileAuthSettings,
+  type SensitiveScopeGroup,
 } from "@/lib/auth/data-scope";
+
+function groupSensitiveScopes(groups: readonly SensitiveScopeGroup[]) {
+  const blocks: { title: string; groups: SensitiveScopeGroup[] }[] = [];
+  for (const group of groups) {
+    const title = group.section ?? group.title;
+    const last = blocks[blocks.length - 1];
+    if (last && group.section && last.title === group.section) {
+      last.groups.push(group);
+    } else {
+      blocks.push({ title, groups: [group] });
+    }
+  }
+  return blocks;
+}
 import type { AccessTone, PageAccessMap } from "@/lib/auth/page-access";
 
 type Props = {
@@ -267,27 +282,51 @@ export function ImpostaAutorizzazioniButton({
                   {missingMandatory.length > 0 ? (
                     <div className="rounded-lg border-2 border-red-400 bg-red-50 px-3 py-2 text-sm text-red-800">
                       <strong>Scelte obbligatorie mancanti:</strong>{" "}
-                      {missingMandatory.map((g) => g.title).join(" · ")}
+                      {missingMandatory
+                        .map((g) =>
+                          g.section ? `${g.section} — ${g.title}` : g.title
+                        )
+                        .join(" · ")}
                     </div>
                   ) : null}
 
-                  {SENSITIVE_SCOPE_GROUPS.map((group) => (
+                  {groupSensitiveScopes(SENSITIVE_SCOPE_GROUPS).map((block) => (
                     <section
-                      key={group.key}
+                      key={block.title}
                       className="rounded-xl border-2 border-amber-300 bg-amber-50/60 p-4"
                     >
                       <h3 className="text-sm font-bold uppercase tracking-wide text-amber-900">
-                        {group.title}
+                        {block.title}
                       </h3>
-                      <p className="mt-1 text-xs text-amber-800">{group.hint}</p>
-                      <ScopeRadios
-                        name={`scope-${group.key}`}
-                        modes={group.modes}
-                        value={scopes[group.key]}
-                        required={group.required}
-                        pending={pending && pendingKey === `scope:${group.key}`}
-                        onChange={(mode) => setScope(group.key, mode)}
-                      />
+                      {block.groups.map((group) => (
+                        <div
+                          key={group.key}
+                          className={
+                            block.groups.length > 1
+                              ? "mt-3 border-t border-amber-200 pt-3 first:mt-0 first:border-t-0 first:pt-0"
+                              : ""
+                          }
+                        >
+                          {block.groups.length > 1 ? (
+                            <h4 className="text-sm font-semibold text-amber-950">
+                              {group.title}
+                            </h4>
+                          ) : null}
+                          <p className="mt-1 text-xs text-amber-800">
+                            {group.hint}
+                          </p>
+                          <ScopeRadios
+                            name={`scope-${group.key}`}
+                            modes={group.modes}
+                            value={scopes[group.key]}
+                            required={group.required}
+                            pending={
+                              pending && pendingKey === `scope:${group.key}`
+                            }
+                            onChange={(mode) => setScope(group.key, mode)}
+                          />
+                        </div>
+                      ))}
                     </section>
                   ))}
 

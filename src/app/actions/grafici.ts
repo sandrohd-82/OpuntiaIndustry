@@ -1,6 +1,9 @@
 "use server";
 
-import { resolveStatsDateFloor } from "@/lib/auth/data-scope-enforce";
+import {
+  resolveStatsClienteIds,
+  resolveStatsDateFloor,
+} from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 import { includeInContabilitaFatturaEmessa } from "@/lib/amministrazione/fatture";
 import {
@@ -41,6 +44,32 @@ type DateFilterQuery = {
 };
 
 /** Applica filtro data solo se non è “Intera vita”. */
+function applyClienteIds<T>(query: T, ids: string[] | null): T {
+  if (!ids || ids.length === 0) return query;
+  return (query as { in: (column: string, value: string[]) => T }).in(
+    "cliente_id",
+    ids
+  );
+}
+
+function emptyKpi(anno: number): GraficiKpi {
+  return isInteraVita(anno) ? emptySerieInteraVita() : emptySerieAnno(anno);
+}
+
+function emptyDettaglio(anno: number): GraficiIncassiDettaglio {
+  const vita = isInteraVita(anno);
+  return {
+    anno,
+    granularita: vita ? "anno" : "mese",
+    totale: 0,
+    aziende: [],
+    mesi: [],
+    andamentoAziende: [],
+    periodiLabels: vita ? [] : [...MESI_IT],
+    prodotti: [],
+  };
+}
+
 function applyDateRange<T extends DateFilterQuery>(
   query: T,
   column: string,
@@ -129,6 +158,10 @@ async function loadIncassiAnno(
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
   const range = dateRangeForYear(anno);
   const floor = await resolveStatsDateFloor();
+  const aziende = await resolveStatsClienteIds(supabase, clienteId);
+  if (aziende.empty) {
+    return { ok: true, data: emptyKpi(anno) };
+  }
   const rows: { dateStr: string; amount: number }[] = [];
 
   if (fonte === "fatture" || fonte === "entrambi") {
@@ -139,7 +172,7 @@ async function loadIncassiAnno(
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range, floor);
-    if (clienteId) q = q.eq("cliente_id", clienteId);
+    q = applyClienteIds(q, aziende.ids);
     const { data, error } = await q;
     if (error) {
       return {
@@ -176,7 +209,7 @@ async function loadIncassiAnno(
       .is("deleted_at", null)
       .eq("pagato", true);
     q = applyDateRange(q, "data_ordine", range, floor);
-    if (clienteId) q = q.eq("cliente_id", clienteId);
+    q = applyClienteIds(q, aziende.ids);
     const { data, error } = await q;
     if (error) {
       return { ok: false, error: `Incassi da ordini: ${error.message}` };
@@ -204,6 +237,10 @@ async function loadIncassiDettaglioAnno(
 > {
   const range = dateRangeForYear(anno);
   const floor = await resolveStatsDateFloor();
+  const aziende = await resolveStatsClienteIds(supabase, clienteId);
+  if (aziende.empty) {
+    return { ok: true, data: emptyDettaglio(anno) };
+  }
   type Row = {
     dateStr: string;
     amount: number;
@@ -222,7 +259,7 @@ async function loadIncassiDettaglioAnno(
       )
       .is("deleted_at", null);
     q = applyDateRange(q, "data_emissione", range, floor);
-    if (clienteId) q = q.eq("cliente_id", clienteId);
+    q = applyClienteIds(q, aziende.ids);
     const { data, error } = await q;
     if (error) {
       return { ok: false, error: `Incassi da fatture: ${error.message}` };
@@ -257,7 +294,7 @@ async function loadIncassiDettaglioAnno(
       .is("deleted_at", null)
       .eq("pagato", true);
     q = applyDateRange(q, "data_ordine", range, floor);
-    if (clienteId) q = q.eq("cliente_id", clienteId);
+    q = applyClienteIds(q, aziende.ids);
     const { data, error } = await q;
     if (error) {
       return { ok: false, error: `Incassi da ordini: ${error.message}` };
@@ -421,7 +458,7 @@ async function loadIncassiDettaglioAnno(
       .is("deleted_at", null)
       .eq("pagato", true);
     ordiniQ = applyDateRange(ordiniQ, "data_ordine", range, floor);
-    if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
+    ordiniQ = applyClienteIds(ordiniQ, aziende.ids);
     const { data: ordini, error: oErr } = await ordiniQ;
     if (oErr) {
       return { ok: false, error: `Ordini prodotti: ${oErr.message}` };
@@ -490,13 +527,17 @@ async function loadOrdiniQtyAnno(
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
   const range = dateRangeForYear(anno);
   const floor = await resolveStatsDateFloor();
+  const aziende = await resolveStatsClienteIds(supabase, clienteId);
+  if (aziende.empty) {
+    return { ok: true, data: emptyKpi(anno) };
+  }
 
   let ordiniQ = supabase
     .from("ordini")
     .select("id, data_ordine, cliente_id")
     .is("deleted_at", null);
   ordiniQ = applyDateRange(ordiniQ, "data_ordine", range, floor);
-  if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
+  ordiniQ = applyClienteIds(ordiniQ, aziende.ids);
 
   const { data: ordini, error: ordiniErr } = await ordiniQ;
   if (ordiniErr) {

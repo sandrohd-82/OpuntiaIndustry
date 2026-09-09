@@ -38,6 +38,8 @@ export const EMPTY_AUTH_SETTINGS: ProfileAuthSettings = {
 
 export type SensitiveScopeGroup = {
   key: string;
+  /** Se presente, più voci stanno nello stesso riquadro. */
+  section?: string;
   title: string;
   hint: string;
   required: boolean;
@@ -77,12 +79,27 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
   },
   {
     key: "statistiche",
-    title: "Statistiche",
+    section: "Statistiche",
+    title: "Periodo",
     hint: "Obbligatoria. Storico completo oppure solo da oggi in poi.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
       { value: "da_oggi", label: "Da oggi in poi" },
+    ],
+  },
+  {
+    key: "statistiche_aziende",
+    section: "Statistiche",
+    title: "Aziende",
+    hint: "Obbligatoria. Tutte le aziende oppure solo quelle inserite da lui.",
+    required: true,
+    modes: [
+      { value: "tutte", label: "Tutte" },
+      {
+        value: "aziende_proprie",
+        label: "Solo collegate ad aziende inserite da lui",
+      },
     ],
   },
 ];
@@ -267,6 +284,7 @@ export function defaultModeForScope(
   settings: ProfileAuthSettings
 ): DataScopeMode {
   if (scopeKey === "statistiche") return "da_oggi";
+  if (scopeKey === "statistiche_aziende") return "aziende_proprie";
   if (scopeKey.startsWith("fiscale.")) {
     return settings.isCommercialista ? "tutte" : "aziende_proprie";
   }
