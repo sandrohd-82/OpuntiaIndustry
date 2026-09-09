@@ -167,6 +167,8 @@ export function WebmailBoard({
   const filterKeyRef = useRef("");
   const totalCountRef = useRef(0);
   const reloadGenRef = useRef(0);
+  const listBoxRef = useRef<HTMLDivElement | null>(null);
+  const listScrollRef = useRef<HTMLUListElement | null>(null);
   const [catTargetIds, setCatTargetIds] = useState<string[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -460,6 +462,11 @@ export function WebmailBoard({
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    listScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    listBoxRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [page]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -969,7 +976,10 @@ export function WebmailBoard({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div
+        ref={listBoxRef}
+        className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      >
         <div className="border-b border-slate-100 bg-slate-50/80 px-4 py-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -1186,6 +1196,7 @@ export function WebmailBoard({
           ) : null}
         </div>
         <ul
+          ref={listScrollRef}
           className="relative max-h-[min(78vh,52rem)] divide-y divide-slate-100 overflow-y-auto"
           aria-busy={listLoading || pending}
         >
