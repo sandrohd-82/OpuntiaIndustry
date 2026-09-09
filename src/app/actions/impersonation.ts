@@ -8,12 +8,20 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
+import { generateSessionToken, hashSessionToken } from "@/lib/auth/two-factor";
+import { primoAccessoUrl } from "@/lib/auth/app-url";
+import { sendPrimoAccessoEmail } from "@/lib/email/primo-accesso";
+import {
+  parseProfileStatoOperativo,
+  type ProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 
 export type ImpersonationTarget = {
   id: string;
   email: string;
   label: string;
   roleName: string;
+  stato: ProfileStatoOperativo;
 };
 
 function profileLabel(p: {
@@ -51,7 +59,7 @@ export async function listImpersonationTargetsAction(): Promise<
   const service = createServiceClient();
   const { data, error } = await service
     .from("profiles")
-    .select("id, email, full_name, first_name, last_name, app_roles(code, name)")
+    .select("id, email, full_name, first_name, last_name, stato_operativo, app_roles(code, name)")
     .eq("is_active", true)
     .order("full_name", { ascending: true });
   if (error) return { success: false, error: error.message };
@@ -70,6 +78,7 @@ export async function listImpersonationTargetsAction(): Promise<
       email: String(row.email ?? ""),
       label: profileLabel(row),
       roleName: String(roleObj?.name ?? "Operatore"),
+      stato: parseProfileStatoOperativo(row.stato_operativo),
     });
   }
   targets.sort((a, b) => a.label.localeCompare(b.label, "it"));
@@ -195,7 +204,7 @@ export async function setProfileStatoOperativoAction(
   if (!gate.ok) return { success: false, error: gate.error };
 
   const parsed = z
-    .enum(["operativo", "sospeso", "bloccato"])
+    .enum(["test", "operativo", "sospeso", "bloccato"])
     .safeParse(stato);
   if (!parsed.success) {
     return { success: false, error: "Stato non valido." };
@@ -223,7 +232,9 @@ export async function setProfileStatoOperativoAction(
 
   const { data: target, error: tErr } = await service
     .from("profiles")
-    .select("id, email, full_name, app_roles(code)")
+    .select(
+      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, app_roles(code)"
+    )
     .eq("id", targetId)
     .maybeSingle();
   if (tErr || !target) {
@@ -235,14 +246,64 @@ export async function setProfileStatoOperativoAction(
     return { success: false, error: "Non puoi modificare lo stato di un Super Admin." };
   }
 
+  const previous = parseProfileStatoOperativo(target.stato_operativo);
   const now = new Date().toISOString();
+
+  if (parsed.data === "operativo" && previous === "test") {
+    const alreadyHasPassword = Boolean(target.password_impostata_at);
+    let link = "";
+    if (!alreadyHasPassword) {
+      const token = generateSessionToken();
+      const expires = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: tokErr } = await service
+        .from("profiles")
+        .update({
+          primo_accesso_token_hash: hashSessionToken(token),
+          primo_accesso_expires_at: expires,
+        })
+        .eq("id", targetId);
+      if (tokErr) return { success: false, error: tokErr.message };
+      link = primoAccessoUrl(token);
+    }
+
+    try {
+      await sendPrimoAccessoEmail({
+        to: String(target.email ?? ""),
+        fullName: profileLabel(target),
+        loginEmail: String(target.email ?? ""),
+        link,
+        alreadyHasPassword,
+      });
+    } catch (mailError) {
+      console.error("sendPrimoAccessoEmail failed:", mailError);
+      await service
+        .from("profiles")
+        .update({
+          primo_accesso_token_hash: null,
+          primo_accesso_expires_at: null,
+        })
+        .eq("id", targetId);
+      return {
+        success: false,
+        error:
+          "Impossibile inviare la mail di attivazione. Lo stato resta in Test. Verifica SMTP.",
+      };
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {
+    stato_operativo: parsed.data,
+    stato_operativo_at: now,
+    stato_operativo_by: gate.actorUserId,
+  };
+  if (parsed.data === "operativo" && previous === "test") {
+    updatePayload.attivato_at = now;
+    updatePayload.attivato_by = gate.actorUserId;
+  }
+
   const { error } = await service
     .from("profiles")
-    .update({
-      stato_operativo: parsed.data,
-      stato_operativo_at: now,
-      stato_operativo_by: gate.actorUserId,
-    })
+    .update(updatePayload)
     .eq("id", targetId);
   if (error) return { success: false, error: error.message };
 
@@ -255,6 +316,7 @@ export async function setProfileStatoOperativoAction(
     payload: {
       target_user_id: targetId,
       stato_operativo: parsed.data,
+      previous,
     },
   });
 

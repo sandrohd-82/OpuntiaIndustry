@@ -5,12 +5,25 @@ import {
   isSuperadminProfile,
 } from "@/lib/auth/roles";
 import { AREA_ROUTES } from "@/lib/areas/config";
+import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import type { AreaSlug } from "@/types/database";
+
+export function isTestImpersonation(auth: {
+  impersonating: boolean;
+  profile: { stato_operativo?: string | null };
+}): boolean {
+  return (
+    auth.impersonating &&
+    parseProfileStatoOperativo(auth.profile.stato_operativo) === "test"
+  );
+}
 
 export async function requireAnyAreaAccess(slugs: AreaSlug[]) {
   const auth = await getAuthContext();
   if (!auth) redirect("/login");
+  if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
+  if (isTestImpersonation(auth)) return { auth };
   if (!slugs.some((s) => userCanAccessArea(auth.areas, s))) {
     notFound();
   }
@@ -20,7 +33,12 @@ export async function requireAnyAreaAccess(slugs: AreaSlug[]) {
 export async function requireAreaAccess(slug: AreaSlug) {
   const auth = await getAuthContext();
   if (!auth) redirect("/login");
+  if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
+
+  if (isTestImpersonation(auth)) {
+    return { auth, meta: AREA_ROUTES[slug] };
+  }
 
   if (!userCanAccessArea(auth.areas, slug)) {
     notFound();
@@ -35,7 +53,11 @@ export async function requireAreaAccess(slug: AreaSlug) {
 export async function requireWebmailAccess() {
   const auth = await getAuthContext();
   if (!auth) redirect("/login");
+  if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
+  if (isTestImpersonation(auth)) {
+    return { auth, meta: AREA_ROUTES.webmail };
+  }
 
   const ok =
     isAdminLikeProfile(auth.profile) ||
@@ -75,6 +97,7 @@ export async function requireArchivioSource(
 export async function requireSuperadmin() {
   const auth = await getAuthContext();
   if (!auth) redirect("/login");
+  if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
   if (!isSuperadminProfile(auth.profile)) notFound();
   return { auth };

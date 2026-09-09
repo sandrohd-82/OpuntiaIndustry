@@ -1,4 +1,8 @@
 import type { AreaSlug, UserArea } from "@/types/database";
+import {
+  isNavPathVisible,
+  type PageAccessMap,
+} from "@/lib/auth/page-access";
 
 /** Metadati UI per le aree (routing e navigazione) */
 export const AREA_ROUTES: Record<
@@ -118,11 +122,23 @@ export function areaPathFromSlug(slug: AreaSlug): string {
 }
 
 /** Prima area visibile nel menu per l’utente (dopo switch profilo). */
-export function firstAreaPath(areas: UserArea[]): string | null {
+export function firstAreaPath(
+  areas: UserArea[],
+  opts?: { pageAccess?: PageAccessMap; applyPageFilter?: boolean }
+): string | null {
   const slugs = new Set(areas.map((a) => a.slug));
   for (const slug of SIDEBAR_AREA_ORDER) {
     if (SIDEBAR_HIDDEN_AREAS.has(slug)) continue;
-    if (slugs.has(slug)) return AREA_ROUTES[slug].path;
+    if (!slugs.has(slug)) continue;
+    const path = AREA_ROUTES[slug].path;
+    if (
+      opts?.applyPageFilter &&
+      opts.pageAccess &&
+      !isNavPathVisible(path, opts.pageAccess)
+    ) {
+      continue;
+    }
+    return path;
   }
   const fallback = areas[0]?.slug;
   return fallback ? AREA_ROUTES[fallback]?.path ?? null : null;

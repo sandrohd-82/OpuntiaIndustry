@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
+import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, UserArea } from "@/types/database";
 
@@ -14,6 +15,10 @@ export interface AuthContext {
   actorUserId: string;
   actorProfile: Profile;
   impersonating: boolean;
+  /** Login reale: deve ancora iscrivere Google Authenticator (primo accesso). */
+  mustEnrollTotp: boolean;
+  /** Login reale: messaggio di benvenuto non ancora visto. */
+  welcomePending: boolean;
 }
 
 export async function getAuthUser() {
@@ -101,10 +106,35 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     effectiveId === user.id ? actorProfile : await getProfile(effectiveId);
   if (!profile) return null;
 
-  const [areas, secondFactorOk] = await Promise.all([
+  const impersonating = Boolean(targetId);
+  const [areas, secondFactorOk, factor] = await Promise.all([
     getUserAreas(effectiveId),
     isSecondFactorVerified(),
+    (async () => {
+      const supabase = await createClient();
+      const { data } = await supabase
+        .from("user_second_factor")
+        .select("method, totp_secret_encrypted")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      return data;
+    })(),
   ]);
+
+  const totpReady =
+    factor?.method === "app" && Boolean(factor.totp_secret_encrypted);
+  const actorStato = parseProfileStatoOperativo(actorProfile.stato_operativo);
+  const mustEnrollTotp =
+    !impersonating &&
+    actorStato === "operativo" &&
+    Boolean(actorProfile.password_impostata_at) &&
+    !totpReady;
+  const welcomePending =
+    !impersonating &&
+    actorStato === "operativo" &&
+    Boolean(actorProfile.password_impostata_at) &&
+    totpReady &&
+    !actorProfile.welcome_visto_at;
 
   return {
     userId: effectiveId,
@@ -114,7 +144,9 @@ export async function getAuthContext(): Promise<AuthContext | null> {
     isSecondFactorVerified: secondFactorOk,
     actorUserId: user.id,
     actorProfile,
-    impersonating: Boolean(targetId),
+    impersonating,
+    mustEnrollTotp,
+    welcomePending,
   };
 }
 

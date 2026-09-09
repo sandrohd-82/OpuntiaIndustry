@@ -13,6 +13,11 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = AUTH_PATHS.includes(pathname);
   const isVerifyPage = pathname === VERIFY_PATH;
   const isAppArea = pathname.startsWith("/app");
+  const isPrimoAccesso = pathname.startsWith("/primo-accesso");
+
+  if (isPrimoAccesso) {
+    return supabaseResponse;
+  }
 
   if (!user) {
     if (isAppArea || isVerifyPage) {

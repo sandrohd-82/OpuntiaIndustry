@@ -8,6 +8,9 @@ import {
   stopImpersonationAction,
   type ImpersonationTarget,
 } from "@/app/actions/impersonation";
+import { resetImpersonatedProfileToTestAction } from "@/app/actions/profiles";
+import { CreateTestProfileForm } from "@/components/layout/CreateTestProfileForm";
+import { PROFILE_STATO_LABELS } from "@/lib/auth/stato-operativo";
 
 type Props = {
   impersonating: boolean;
@@ -16,6 +19,7 @@ type Props = {
 
 export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
   const [open, setOpen] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [targets, setTargets] = useState<ImpersonationTarget[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -82,7 +86,7 @@ export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
       {open ? (
         <div
           role="menu"
-          className="absolute left-0 top-full z-50 mt-1 min-w-[14rem] overflow-hidden rounded-lg border border-slate-600 bg-slate-900 py-1 shadow-xl"
+          className="absolute left-0 top-full z-50 mt-1 min-w-[16rem] overflow-hidden rounded-lg border border-slate-600 bg-slate-900 py-1 shadow-xl"
         >
           <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
             Entra come…
@@ -104,7 +108,7 @@ export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
                 >
                   <span className="truncate font-medium">{t.label}</span>
                   <span className="truncate text-[10px] text-slate-400">
-                    {t.roleName}
+                    {t.roleName} · {PROFILE_STATO_LABELS[t.stato]}
                   </span>
                 </button>
               ))
@@ -117,12 +121,40 @@ export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
                 type="button"
                 role="menuitem"
                 disabled={pending}
+                onClick={() => {
+                  setError(null);
+                  startTransition(async () => {
+                    const res = await resetImpersonatedProfileToTestAction();
+                    if (res && !res.success) setError(res.error);
+                  });
+                }}
+                className="w-full px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+              >
+                Reimposta in fase test
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={pending}
                 onClick={stop}
                 className="w-full px-3 py-2 text-left text-xs font-medium text-amber-300 hover:bg-slate-700 disabled:opacity-50"
               >
                 Torna a {actorLabel}
               </button>
             </>
+          ) : null}
+          <div className="my-1 border-t border-slate-700" />
+          <button
+            type="button"
+            role="menuitem"
+            disabled={pending}
+            onClick={() => setShowCreate((v) => !v)}
+            className="w-full px-3 py-2 text-left text-xs text-emerald-300 hover:bg-slate-700 disabled:opacity-50"
+          >
+            {showCreate ? "Chiudi creazione" : "Nuovo profilo in test…"}
+          </button>
+          {showCreate ? (
+            <CreateTestProfileForm onDone={() => setOpen(false)} />
           ) : null}
           {error ? (
             <p className="px-3 py-1.5 text-[10px] text-red-300">{error}</p>

@@ -55,6 +55,13 @@ import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
 import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
+import {
+  filterNavByPageAccess,
+  toneForNavPath,
+  type AccessTone,
+  type PageAccessMap,
+} from "@/lib/auth/page-access";
+import type { ProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 const SIDEBAR_COLLAPSED_KEY = "opuntia.sidebar.collapsed";
@@ -68,7 +75,10 @@ type Props = {
   canImpersonate?: boolean;
   impersonating?: boolean;
   actorName?: string;
-  statoOperativo?: "operativo" | "sospeso" | "bloccato";
+  statoOperativo?: ProfileStatoOperativo;
+  pageAccess?: PageAccessMap;
+  testMenuMode?: boolean;
+  applyPageFilter?: boolean;
 };
 
 function sortAreasForSidebar(areas: UserArea[]) {
@@ -199,13 +209,28 @@ function NavBadgeDot({ badge }: { badge: NavBadge }) {
   );
 }
 
-function itemClass(active: boolean, nested = false, rail = false) {
+function toneTextClass(tone: AccessTone | null) {
+  if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
+  if (tone === "off") return "text-red-400 hover:text-red-300";
+  if (tone === "unset") return "text-slate-400 hover:text-slate-300";
+  return "";
+}
+
+function itemClass(
+  active: boolean,
+  nested = false,
+  rail = false,
+  tone: AccessTone | null = null
+) {
+  const toneCls = toneTextClass(tone);
   return `flex w-full items-center gap-2 rounded-lg text-left text-sm transition-colors ${
     rail ? "justify-center px-2 py-2.5" : "px-3 py-2"
   } ${nested ? "py-1.5" : ""} ${
     active
-      ? "bg-[var(--sidebar-active)] font-medium text-[var(--sidebar-foreground)]"
-      : "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-foreground)]"
+      ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
+      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-[var(--sidebar-active)] ${
+          toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
+        }`
   }`;
 }
 
@@ -220,6 +245,7 @@ function FirstLevelButton({
   rail,
   badge,
   extra,
+  tone = null,
   onToggle,
 }: {
   slug: string;
@@ -228,6 +254,7 @@ function FirstLevelButton({
   rail: boolean;
   badge?: NavBadge;
   extra?: ReactNode;
+  tone?: AccessTone | null;
   onToggle: () => void;
 }) {
   return (
@@ -237,7 +264,7 @@ function FirstLevelButton({
         onClick={onToggle}
         title={label}
         aria-label={label}
-        className={`min-w-0 flex-1 ${itemClass(active, false, rail)}`}
+        className={`min-w-0 flex-1 ${itemClass(active, false, rail, tone)}`}
       >
         <AreaIcon slug={slug} />
         {rail ? null : <span className="truncate">{label}</span>}
@@ -254,6 +281,7 @@ function BranchButton({
   active,
   nested,
   badge,
+  tone = null,
   onToggle,
 }: {
   label: string;
@@ -261,6 +289,7 @@ function BranchButton({
   active: boolean;
   nested?: boolean;
   badge?: NavBadge;
+  tone?: AccessTone | null;
   onToggle: () => void;
 }) {
   return (
@@ -268,7 +297,7 @@ function BranchButton({
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className={itemClass(active, nested)}
+      className={itemClass(active, nested, false, tone)}
     >
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {badge ? <NavBadgeDot badge={badge} /> : null}
@@ -282,15 +311,22 @@ function NavTree({
   pathname,
   openKeys,
   toggle,
+  pageAccess,
+  colorMenu,
 }: {
   sections: readonly NavItem[];
   pathname: string;
   openKeys: Set<string>;
   toggle: (...keys: string[]) => void;
+  pageAccess?: PageAccessMap;
+  colorMenu?: boolean;
 }) {
   return (
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
       {sections.map((item) => {
+        const tone = colorMenu && pageAccess
+          ? toneForNavPath(item.path, pageAccess)
+          : null;
         if (isNavBranch(item)) {
           const open = openKeys.has(item.path) || openKeys.has(item.slug);
           const active = pathMatches(pathname, item.path);
@@ -302,6 +338,7 @@ function NavTree({
                 active={active}
                 nested
                 badge={item.badge}
+                tone={tone}
                 onToggle={() => toggle(item.path, item.slug)}
               />
               {open && (
@@ -310,6 +347,8 @@ function NavTree({
                   pathname={pathname}
                   openKeys={openKeys}
                   toggle={toggle}
+                  pageAccess={pageAccess}
+                  colorMenu={colorMenu}
                 />
               )}
             </li>
@@ -320,7 +359,7 @@ function NavTree({
           <li key={item.path}>
             <Link
               href={item.path}
-              className={itemClass(pathname === item.path, true)}
+              className={itemClass(pathname === item.path, true, false, tone)}
             >
               <span className="truncate">{item.label}</span>
               {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
@@ -342,6 +381,9 @@ export function AppSidebar({
   impersonating = false,
   actorName = "Super Admin",
   statoOperativo = "operativo",
+  pageAccess = {},
+  testMenuMode = false,
+  applyPageFilter = false,
 }: Props) {
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
@@ -584,14 +626,21 @@ export function AppSidebar({
                     label="Web"
                     active={active}
                     rail={collapsed}
+                    tone={testMenuMode ? toneForNavPath("/app/amministrazione", pageAccess) : null}
                     onToggle={() => openFirstLevel("web")}
                   />
                   {!collapsed && open ? (
                     <NavTree
-                      sections={webSections}
+                      sections={
+                        applyPageFilter
+                          ? filterNavByPageAccess(webSections, pageAccess)
+                          : webSections
+                      }
                       pathname={pathname}
                       openKeys={openKeys}
                       toggle={toggle}
+                      pageAccess={pageAccess}
+                      colorMenu={testMenuMode}
                     />
                   ) : null}
                 </li>
@@ -604,11 +653,18 @@ export function AppSidebar({
               area.slug === "amministrazione"
                 ? pathMatches(pathname, href) && !isWebHubPath(pathname)
                 : pathMatches(pathname, href);
-            const treeSections = sectionsForArea(
+            const treeSectionsRaw = sectionsForArea(
               area.slug,
               produzioneNav,
               archivioNav
             );
+            const treeSections =
+              applyPageFilter && treeSectionsRaw
+                ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
+                : treeSectionsRaw;
+            const areaTone = testMenuMode
+              ? toneForNavPath(href, pageAccess)
+              : null;
 
             const extra =
               area.slug === "chat" ? (
@@ -635,6 +691,7 @@ export function AppSidebar({
                     active={active}
                     rail={collapsed}
                     extra={extra}
+                    tone={areaTone}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open && (
@@ -643,6 +700,8 @@ export function AppSidebar({
                       pathname={pathname}
                       openKeys={openKeys}
                       toggle={toggle}
+                      pageAccess={pageAccess}
+                      colorMenu={testMenuMode}
                     />
                   )}
                 </li>
@@ -659,6 +718,7 @@ export function AppSidebar({
                     active={active}
                     rail={collapsed}
                     extra={extra}
+                    tone={areaTone}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open ? <ChatSidebarNav userId={userId} /> : null}
@@ -676,6 +736,7 @@ export function AppSidebar({
                     active={active}
                     rail={collapsed}
                     extra={extra}
+                    tone={areaTone}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
                   {!collapsed && open ? <WebmailSidebarNav /> : null}
@@ -689,7 +750,7 @@ export function AppSidebar({
                   href={href}
                   title={area.name}
                   aria-label={area.name}
-                  className={itemClass(active, false, collapsed)}
+                  className={itemClass(active, false, collapsed, areaTone)}
                 >
                   <AreaIcon slug={area.slug} />
                   {collapsed ? null : <span className="truncate">{area.name}</span>}

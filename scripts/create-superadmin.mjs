@@ -128,6 +128,7 @@ async function promoteToSuperadmin(userId) {
       full_name: fullName,
       role_id: role.id,
       is_active: true,
+      stato_operativo: "operativo",
     },
     { onConflict: "id" }
   );

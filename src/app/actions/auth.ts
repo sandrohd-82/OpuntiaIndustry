@@ -86,7 +86,7 @@ export async function signInWithPassword(
     const gateService = createServiceClient();
     const { data: statoRow } = await gateService
       .from("profiles")
-      .select("stato_operativo")
+      .select("stato_operativo, password_impostata_at")
       .eq("id", user.id)
       .maybeSingle();
     const statoLogin = parseProfileStatoOperativo(statoRow?.stato_operativo);
@@ -123,6 +123,14 @@ export async function signInWithPassword(
       factor?.method === "app" && factor.totp_secret_encrypted
         ? "app"
         : "email";
+
+    if (statoRow?.password_impostata_at && method !== "app") {
+      return {
+        success: true,
+        redirectTo: "/primo-accesso/2fa",
+        secondFactorMethod: "email",
+      };
+    }
 
     if (method === "app") {
       return {
