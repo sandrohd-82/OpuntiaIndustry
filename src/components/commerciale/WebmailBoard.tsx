@@ -576,6 +576,10 @@ export function WebmailBoard({
       setSelectedIds([]);
       return;
     }
+    if (totalCount <= WEBMAIL_PAGE_SIZE) {
+      setSelectedIds(messaggi.map((m) => m.id));
+      return;
+    }
     setSelectScopeOpen(true);
   }
 
