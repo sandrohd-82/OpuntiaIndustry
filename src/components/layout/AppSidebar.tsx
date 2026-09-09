@@ -73,6 +73,7 @@ type Props = {
   userId: string;
   isSuperadmin?: boolean;
   canImpersonate?: boolean;
+  canCreateProfiles?: boolean;
   impersonating?: boolean;
   actorName?: string;
   statoOperativo?: ProfileStatoOperativo;
@@ -378,6 +379,7 @@ export function AppSidebar({
   userId,
   isSuperadmin = false,
   canImpersonate = false,
+  canCreateProfiles = false,
   impersonating = false,
   actorName = "Super Admin",
   statoOperativo = "operativo",
@@ -555,7 +557,7 @@ export function AppSidebar({
             <div className="flex flex-col items-center gap-2">
               <ProfileStatusLed
                 stato={statoOperativo}
-                canChange={canImpersonate && impersonating}
+                canChange={canCreateProfiles && impersonating}
               />
             </div>
           ) : (
@@ -567,12 +569,13 @@ export function AppSidebar({
                 <p className="truncate font-medium">{userName}</p>
                 <ProfileStatusLed
                   stato={statoOperativo}
-                  canChange={canImpersonate && impersonating}
+                  canChange={canCreateProfiles && impersonating}
                 />
                 {canImpersonate ? (
                   <ImpersonationSwitcher
                     impersonating={impersonating}
                     actorLabel={actorName}
+                    canCreateProfiles={canCreateProfiles}
                   />
                 ) : null}
               </div>

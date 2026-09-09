@@ -15,9 +15,14 @@ import { PROFILE_STATO_LABELS } from "@/lib/auth/stato-operativo";
 type Props = {
   impersonating: boolean;
   actorLabel: string;
+  canCreateProfiles?: boolean;
 };
 
-export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
+export function ImpersonationSwitcher({
+  impersonating,
+  actorLabel,
+  canCreateProfiles = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [targets, setTargets] = useState<ImpersonationTarget[]>([]);
@@ -117,21 +122,23 @@ export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
           {impersonating ? (
             <>
               <div className="my-1 border-t border-slate-700" />
-              <button
-                type="button"
-                role="menuitem"
-                disabled={pending}
-                onClick={() => {
-                  setError(null);
-                  startTransition(async () => {
-                    const res = await resetImpersonatedProfileToTestAction();
-                    if (res && !res.success) setError(res.error);
-                  });
-                }}
-                className="w-full px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-              >
-                Reimposta in fase test
-              </button>
+              {canCreateProfiles ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={pending}
+                  onClick={() => {
+                    setError(null);
+                    startTransition(async () => {
+                      const res = await resetImpersonatedProfileToTestAction();
+                      if (res && !res.success) setError(res.error);
+                    });
+                  }}
+                  className="w-full px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+                >
+                  Reimposta in fase test
+                </button>
+              ) : null}
               <button
                 type="button"
                 role="menuitem"
@@ -143,18 +150,22 @@ export function ImpersonationSwitcher({ impersonating, actorLabel }: Props) {
               </button>
             </>
           ) : null}
-          <div className="my-1 border-t border-slate-700" />
-          <button
-            type="button"
-            role="menuitem"
-            disabled={pending}
-            onClick={() => setShowCreate((v) => !v)}
-            className="w-full px-3 py-2 text-left text-xs text-emerald-300 hover:bg-slate-700 disabled:opacity-50"
-          >
-            {showCreate ? "Chiudi creazione" : "Nuovo profilo in test…"}
-          </button>
-          {showCreate ? (
-            <CreateTestProfileForm onDone={() => setOpen(false)} />
+          {canCreateProfiles ? (
+            <>
+              <div className="my-1 border-t border-slate-700" />
+              <button
+                type="button"
+                role="menuitem"
+                disabled={pending}
+                onClick={() => setShowCreate((v) => !v)}
+                className="w-full px-3 py-2 text-left text-xs text-emerald-300 hover:bg-slate-700 disabled:opacity-50"
+              >
+                {showCreate ? "Chiudi creazione" : "Nuovo profilo in test…"}
+              </button>
+              {showCreate ? (
+                <CreateTestProfileForm onDone={() => setOpen(false)} />
+              ) : null}
+            </>
           ) : null}
           {error ? (
             <p className="px-3 py-1.5 text-[10px] text-red-300">{error}</p>

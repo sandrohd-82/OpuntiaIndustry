@@ -2,6 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { createTestProfileAction } from "@/app/actions/profiles";
+import {
+  PROFILE_GERARCHIE,
+  PROFILE_GERARCHIA_LABELS,
+  PROFILE_POTERE_LABELS,
+  PROFILE_REPARTI_OPERATIVI,
+  PROFILE_REPARTO_LABELS,
+} from "@/lib/auth/gerarchia";
 
 export function CreateTestProfileForm({ onDone }: { onDone?: () => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -53,15 +60,35 @@ export function CreateTestProfileForm({ onDone }: { onDone?: () => void }) {
         />
       </div>
       <select
-        name="roleCode"
-        defaultValue="manager"
+        name="potere"
+        defaultValue="operatore"
         className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-white outline-none"
       >
-        <option value="manager">Responsabile</option>
-        <option value="operator">Operatore</option>
-        <option value="admin">Amministratore</option>
-        <option value="viewer">Consultazione</option>
+        <option value="operatore">{PROFILE_POTERE_LABELS.operatore}</option>
+        <option value="superadmin">{PROFILE_POTERE_LABELS.superadmin}</option>
       </select>
+      <select
+        name="gerarchia"
+        defaultValue="operatore"
+        className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-white outline-none"
+      >
+        {PROFILE_GERARCHIE.map((g) => (
+          <option key={g} value={g}>
+            {PROFILE_GERARCHIA_LABELS[g]}
+          </option>
+        ))}
+      </select>
+      <div className="grid grid-cols-2 gap-1">
+        {PROFILE_REPARTI_OPERATIVI.map((codice) => (
+          <label
+            key={codice}
+            className="flex items-center gap-1 text-[10px] text-slate-300"
+          >
+            <input type="checkbox" name="reparti" value={codice} />
+            {PROFILE_REPARTO_LABELS[codice]}
+          </label>
+        ))}
+      </div>
       <p className="text-[10px] leading-4 text-slate-500">
         Nessuna mail, nessun 2FA, nessun login. Accesso solo dallo switch.
       </p>

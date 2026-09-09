@@ -63,6 +63,14 @@ export type OrganigrammaReparto = {
   descrizione: string;
 };
 
+export type OrganigrammaProfiloLink = {
+  id: string;
+  email: string;
+  stato: "test" | "operativo" | "sospeso" | "bloccato";
+  gerarchia: string;
+  potere: string;
+};
+
 export type OrganigrammaPersona = {
   id: string;
   nome: string;
@@ -70,6 +78,7 @@ export type OrganigrammaPersona = {
   codiceFiscale: string;
   cartaIdentita: string;
   userId: string | null;
+  profilo: OrganigrammaProfiloLink | null;
   parentId: string | null;
   superioreIds: string[];
   sortOrder: number;

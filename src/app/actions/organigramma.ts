@@ -38,13 +38,15 @@ import {
   type OrganigrammaMansione,
   type OrganigrammaPermesso,
   type OrganigrammaPersona,
+  type OrganigrammaProfiloLink,
   type OrganigrammaReparto,
   type PersonaMinima,
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
 } from "@/lib/amministrazione/organigramma";
 import { eventoLineaLabel } from "@/lib/produzione/macchinari";
-import { createClient } from "@/lib/supabase/server";
+import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
@@ -116,6 +118,7 @@ function mapPersona(
     codiceFiscale: row.codice_fiscale ?? "",
     cartaIdentita: row.carta_identita ?? "",
     userId: row.user_id,
+    profilo: null,
     parentId: row.parent_id,
     superioreIds: [
       ...new Set(
@@ -248,6 +251,28 @@ async function resolveCertificatoCatalogo(input: {
       validitaAnniDefault: row.validita_anni_default,
     },
   };
+}
+
+async function loadProfiliFor(
+  userIds: string[]
+): Promise<Map<string, OrganigrammaProfiloLink>> {
+  const map = new Map<string, OrganigrammaProfiloLink>();
+  if (userIds.length === 0) return map;
+  const service = createServiceClient();
+  const { data } = await service
+    .from("profiles")
+    .select("id, email, stato_operativo, gerarchia, potere")
+    .in("id", userIds);
+  for (const row of data ?? []) {
+    map.set(String(row.id), {
+      id: String(row.id),
+      email: String(row.email ?? ""),
+      stato: parseProfileStatoOperativo(row.stato_operativo),
+      gerarchia: String(row.gerarchia ?? "operatore"),
+      potere: String(row.potere ?? "operatore"),
+    });
+  }
+  return map;
 }
 
 async function loadRepartiById(): Promise<Map<string, OrganigrammaReparto>> {
@@ -773,7 +798,12 @@ export async function listCertificatiInScadenzaAction(): Promise<
 }
 
 export async function listPersoneAction(): Promise<
-  | { success: true; items: OrganigrammaPersona[]; isAdmin: boolean }
+  | {
+      success: true;
+      items: OrganigrammaPersona[];
+      isAdmin: boolean;
+      isSuperadmin: boolean;
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("amministrazione");
@@ -785,22 +815,26 @@ export async function listPersoneAction(): Promise<
     .order("cognome", { ascending: true });
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as PersonaRow[];
-  const [mansioni, reparti, fotoMap] = await Promise.all([
+  const [mansioni, reparti, fotoMap, profili] = await Promise.all([
     loadMansioniFor(rows.map((r) => r.id)),
     loadRepartiById(),
     signedUrls(rows.map((r) => r.foto_path)),
+    loadProfiliFor(rows.map((r) => r.user_id).filter((id): id is string => Boolean(id))),
   ]);
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
-    items: rows.map((r) =>
-      mapPersona(
+    isSuperadmin: isSuperadminProfile(auth.actorProfile),
+    items: rows.map((r) => {
+      const item = mapPersona(
         r,
         mansioni.get(r.id) ?? [],
         r.foto_path ? (fotoMap.get(r.foto_path) ?? null) : null,
         r.reparto_id ? (reparti.get(r.reparto_id)?.nome ?? "") : ""
-      )
-    ),
+      );
+      item.profilo = r.user_id ? (profili.get(r.user_id) ?? null) : null;
+      return item;
+    }),
   };
 }
 
@@ -870,19 +904,22 @@ export async function getPersonaAction(
     return { success: false, error: error?.message ?? "Operatore non trovato." };
   }
   const row = data as PersonaRow;
-  const [mansioni, reparti] = await Promise.all([
+  const [mansioni, reparti, profili] = await Promise.all([
     loadMansioniFor([row.id]),
     loadRepartiById(),
+    loadProfiliFor(row.user_id ? [row.user_id] : []),
   ]);
+  const item = mapPersona(
+    row,
+    mansioni.get(row.id) ?? [],
+    await signedUrl(row.foto_path),
+    row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+  );
+  item.profilo = row.user_id ? (profili.get(row.user_id) ?? null) : null;
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
-    item: mapPersona(
-      row,
-      mansioni.get(row.id) ?? [],
-      await signedUrl(row.foto_path),
-      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
-    ),
+    item,
   };
 }
 

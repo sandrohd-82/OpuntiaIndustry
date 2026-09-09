@@ -20,7 +20,16 @@ import {
   uploadPersonaDocumentoAction,
 } from "@/app/actions/organigramma";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import { CreateGestionaleProfileModal } from "@/components/amministrazione/organigramma/CreateGestionaleProfileModal";
 import { ValiditaDocumentoBadge } from "@/components/amministrazione/organigramma/ValiditaDocumentoBadge";
+import {
+  PROFILE_GERARCHIA_LABELS,
+  parseProfileGerarchia,
+} from "@/lib/auth/gerarchia";
+import {
+  PROFILE_STATO_LABELS,
+  parseProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
   certificatoAlertLabel,
@@ -43,12 +52,15 @@ export function OrganigrammaElencoBoard() {
   const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
   const [alerts, setAlerts] = useState<CertificatoScadenzaAlert[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showMansione, setShowMansione] = useState(false);
   const [showReparto, setShowReparto] = useState(false);
   const [deleting, setDeleting] = useState<OrganigrammaPersona | null>(null);
+  const [creatingProfile, setCreatingProfile] =
+    useState<OrganigrammaPersona | null>(null);
 
   function reload() {
     start(async () => {
@@ -73,6 +85,7 @@ export function OrganigrammaElencoBoard() {
       setError(null);
       setItems(p.items);
       setIsAdmin(p.isAdmin);
+      setIsSuperadmin(p.isSuperadmin);
       setMansioni(m.items);
       setReparti(r.items);
       if (a.success) setAlerts(a.items);
@@ -90,7 +103,7 @@ export function OrganigrammaElencoBoard() {
     return items.filter((p) => {
       const hay = `${p.cognome} ${p.nome} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
         .map((x) => x.nome)
-        .join(" ")}`.toLowerCase();
+        .join(" ")} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""}`.toLowerCase();
       return hay.includes(n);
     });
   }, [items, q]);
@@ -212,6 +225,7 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">In azienda</th>
+              <th className="px-4 py-2.5">Profilo gestionale</th>
               <th className="px-4 py-2.5">Certificati</th>
               <th className="px-4 py-2.5" />
             </tr>
@@ -219,7 +233,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={9} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -239,6 +253,21 @@ export function OrganigrammaElencoBoard() {
                   </td>
                   <td className="px-4 py-2.5">
                     {p.inForza ? "In forza" : "Non lavora più"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {p.profilo ? (
+                      <ProfiloGestionaleCell profilo={p.profilo} />
+                    ) : isSuperadmin ? (
+                      <button
+                        type="button"
+                        onClick={() => setCreatingProfile(p)}
+                        className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+                      >
+                        Crea Profilo
+                      </button>
+                    ) : (
+                      <span className="text-[var(--muted)]">Non creato</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     {alerts.some(
@@ -308,6 +337,16 @@ export function OrganigrammaElencoBoard() {
           onChanged={reload}
         />
       ) : null}
+      {creatingProfile ? (
+        <CreateGestionaleProfileModal
+          persona={creatingProfile}
+          onClose={() => setCreatingProfile(null)}
+          onCreated={() => {
+            setCreatingProfile(null);
+            reload();
+          }}
+        />
+      ) : null}
       {deleting ? (
         <SoftDeleteConfirmModal
           entityLabel={personaLabel(deleting)}
@@ -321,6 +360,36 @@ export function OrganigrammaElencoBoard() {
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+const STATO_DOT: Record<string, string> = {
+  test: "bg-slate-400",
+  operativo: "bg-emerald-400",
+  sospeso: "bg-amber-400",
+  bloccato: "bg-red-500",
+};
+
+function ProfiloGestionaleCell({
+  profilo,
+}: {
+  profilo: NonNullable<OrganigrammaPersona["profilo"]>;
+}) {
+  const stato = parseProfileStatoOperativo(profilo.stato);
+  const gerarchia = parseProfileGerarchia(profilo.gerarchia);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="inline-flex items-center gap-1.5 font-medium">
+        <span
+          className={`inline-block h-2 w-2 rounded-full ${STATO_DOT[stato]}`}
+          aria-hidden
+        />
+        {PROFILE_STATO_LABELS[stato]}
+      </span>
+      <span className="text-xs text-[var(--muted)]">
+        {PROFILE_GERARCHIA_LABELS[gerarchia]}
+      </span>
     </div>
   );
 }

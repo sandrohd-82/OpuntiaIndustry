@@ -8,8 +8,17 @@ import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
 import {
-  CREATABLE_ROLE_CODES,
+  PROFILE_GERARCHIE,
+  PROFILE_POTERI,
+  PROFILE_REPARTI_OPERATIVI,
+  parseProfileReparto,
+  roleCodeFromPotereGerarchia,
+  type ProfileGerarchia,
+  type ProfilePotere,
+} from "@/lib/auth/gerarchia";
+import {
   provisionTestProfile,
+  replaceProfileReparti,
   resetProfileToTestState,
 } from "@/lib/auth/provision-test-profile";
 
@@ -30,8 +39,18 @@ const createSchema = z.object({
   fullName: z.string().trim().min(2, "Nome obbligatorio"),
   firstName: z.string().trim().optional(),
   lastName: z.string().trim().optional(),
-  roleCode: z.enum(CREATABLE_ROLE_CODES),
+  gerarchia: z.enum(PROFILE_GERARCHIE),
+  potere: z.enum(PROFILE_POTERI),
+  reparti: z.array(z.enum(PROFILE_REPARTI_OPERATIVI)).min(1, "Seleziona almeno un reparto."),
+  personaId: z.string().uuid().optional(),
 });
+
+function formReparti(formData: FormData): string[] {
+  return formData
+    .getAll("reparti")
+    .map((v) => parseProfileReparto(String(v)))
+    .filter((v): v is NonNullable<typeof v> => Boolean(v));
+}
 
 export async function createTestProfileAction(
   formData: FormData
@@ -44,7 +63,9 @@ export async function createTestProfileAction(
     fullName: String(formData.get("fullName") ?? "").trim(),
     firstName: String(formData.get("firstName") ?? "").trim() || undefined,
     lastName: String(formData.get("lastName") ?? "").trim() || undefined,
-    roleCode: String(formData.get("roleCode") ?? "manager"),
+    gerarchia: String(formData.get("gerarchia") ?? "operatore"),
+    potere: String(formData.get("potere") ?? "operatore"),
+    reparti: formReparti(formData),
   });
   if (!parsed.success) {
     return {
@@ -54,18 +75,33 @@ export async function createTestProfileAction(
   }
 
   const service = createServiceClient();
+  const roleCode = roleCodeFromPotereGerarchia(
+    parsed.data.potere,
+    parsed.data.gerarchia
+  );
   const result = await provisionTestProfile(service, {
     email: parsed.data.email,
     fullName: parsed.data.fullName,
     firstName: parsed.data.firstName,
     lastName: parsed.data.lastName,
-    roleCode: parsed.data.roleCode,
+    jobTitle: parsed.data.gerarchia,
+    roleCode,
+    gerarchia: parsed.data.gerarchia,
+    potere: parsed.data.potere,
     actorId: gate.actorUserId,
     resetExisting: false,
   });
   if ("error" in result) {
     return { success: false, error: result.error };
   }
+
+  const rep = await replaceProfileReparti(
+    service,
+    result.userId,
+    parsed.data.reparti,
+    gate.actorUserId
+  );
+  if (rep.error) return { success: false, error: rep.error };
 
   await service.from("audit_log").insert({
     entity_type: "profiles",
@@ -75,7 +111,9 @@ export async function createTestProfileAction(
     summary: `Profilo ${parsed.data.fullName} (${parsed.data.email}) creato in fase Test`,
     payload: {
       email: parsed.data.email,
-      role: parsed.data.roleCode,
+      gerarchia: parsed.data.gerarchia,
+      potere: parsed.data.potere,
+      reparti: parsed.data.reparti,
       created: result.created,
     },
   });
@@ -103,6 +141,109 @@ export async function createTestProfileAction(
   revalidatePath("/", "layout");
   const areas = await getUserAreas(gate.actorUserId);
   redirect(firstAreaPath(areas) ?? "/app/dashboard");
+}
+
+export async function createOrganigrammaProfileAction(
+  formData: FormData
+): Promise<{ success: true; userId: string } | { success: false; error: string }> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const parsed = createSchema.safeParse({
+    email: String(formData.get("email") ?? "").trim(),
+    fullName: String(formData.get("fullName") ?? "").trim(),
+    firstName: String(formData.get("firstName") ?? "").trim() || undefined,
+    lastName: String(formData.get("lastName") ?? "").trim() || undefined,
+    gerarchia: String(formData.get("gerarchia") ?? "operatore") as ProfileGerarchia,
+    potere: String(formData.get("potere") ?? "operatore") as ProfilePotere,
+    reparti: formReparti(formData),
+    personaId: String(formData.get("personaId") ?? "").trim() || undefined,
+  });
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  if (!parsed.data.personaId) {
+    return { success: false, error: "Persona organigramma mancante." };
+  }
+
+  const service = createServiceClient();
+  const { data: persona, error: pErr } = await service
+    .from("organigramma_persone")
+    .select("id, nome, cognome, user_id, deleted_at")
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pErr || !persona) {
+    return { success: false, error: pErr?.message ?? "Operatore non trovato." };
+  }
+  if (persona.user_id) {
+    return {
+      success: false,
+      error: "Questa persona ha già un profilo gestionale.",
+    };
+  }
+
+  const roleCode = roleCodeFromPotereGerarchia(
+    parsed.data.potere,
+    parsed.data.gerarchia
+  );
+  const result = await provisionTestProfile(service, {
+    email: parsed.data.email,
+    fullName: parsed.data.fullName,
+    firstName: parsed.data.firstName || String(persona.nome ?? ""),
+    lastName: parsed.data.lastName || String(persona.cognome ?? ""),
+    jobTitle: parsed.data.gerarchia,
+    roleCode,
+    gerarchia: parsed.data.gerarchia,
+    potere: parsed.data.potere,
+    actorId: gate.actorUserId,
+    resetExisting: false,
+  });
+  if ("error" in result) {
+    return { success: false, error: result.error };
+  }
+
+  const { error: linkErr } = await service
+    .from("organigramma_persone")
+    .update({
+      user_id: result.userId,
+      updated_by: gate.actorUserId,
+    })
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null);
+  if (linkErr) {
+    return { success: false, error: linkErr.message };
+  }
+
+  const rep = await replaceProfileReparti(
+    service,
+    result.userId,
+    parsed.data.reparti,
+    gate.actorUserId
+  );
+  if (rep.error) return { success: false, error: rep.error };
+
+  await service.from("audit_log").insert({
+    entity_type: "profiles",
+    entity_id: result.userId,
+    action: "profile_create_test",
+    actor_id: gate.actorUserId,
+    summary: `Profilo ${parsed.data.fullName} (${parsed.data.email}) creato in Test da organigramma`,
+    payload: {
+      email: parsed.data.email,
+      gerarchia: parsed.data.gerarchia,
+      potere: parsed.data.potere,
+      reparti: parsed.data.reparti,
+      persona_id: parsed.data.personaId,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  revalidatePath("/app/amministrazione/organigramma/elenco-e-mansioni");
+  return { success: true, userId: result.userId };
 }
 
 export async function resetImpersonatedProfileToTestAction(): Promise<

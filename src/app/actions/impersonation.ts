@@ -5,7 +5,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { isSuperadminProfile } from "@/lib/auth/roles";
+import {
+  actorCanSwitchProfiles,
+  isProtectedSuperadminTarget,
+  listAllowedImpersonationIds,
+} from "@/lib/auth/impersonation-scope";
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
+import { parseProfilePotere } from "@/lib/auth/gerarchia";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
 import { generateSessionToken, hashSessionToken } from "@/lib/auth/two-factor";
@@ -49,17 +55,33 @@ async function requireRealSuperadmin() {
   return { ok: true as const, actorUserId: user.id, actor };
 }
 
+async function requireCanSwitch() {
+  const user = await getAuthUser();
+  if (!user) {
+    return { ok: false as const, error: "Non autenticato." };
+  }
+  const actor = await getProfile(user.id);
+  if (!actor || !actorCanSwitchProfiles(actor)) {
+    return {
+      ok: false as const,
+      error: "Non puoi entrare nei profili di altri operatori.",
+    };
+  }
+  return { ok: true as const, actorUserId: user.id, actor };
+}
+
 export async function listImpersonationTargetsAction(): Promise<
   | { success: true; targets: ImpersonationTarget[] }
   | { success: false; error: string }
 > {
-  const gate = await requireRealSuperadmin();
+  const gate = await requireCanSwitch();
   if (!gate.ok) return { success: false, error: gate.error };
 
   const service = createServiceClient();
+  const allowed = await listAllowedImpersonationIds(service, gate.actor);
   const { data, error } = await service
     .from("profiles")
-    .select("id, email, full_name, first_name, last_name, stato_operativo, app_roles(code, name)")
+    .select("id, email, full_name, first_name, last_name, stato_operativo, potere, gerarchia, app_roles(code, name)")
     .eq("is_active", true)
     .order("full_name", { ascending: true });
   if (error) return { success: false, error: error.message };
@@ -71,8 +93,9 @@ export async function listImpersonationTargetsAction(): Promise<
       | { code?: string; name?: string }[]
       | null;
     const roleObj = Array.isArray(role) ? role[0] : role;
-    if (roleObj?.code === "superadmin") continue;
     if (String(row.id) === gate.actorUserId) continue;
+    if (isProtectedSuperadminTarget(row)) continue;
+    if (allowed !== "all" && !allowed.has(String(row.id))) continue;
     targets.push({
       id: String(row.id),
       email: String(row.email ?? ""),
@@ -108,7 +131,7 @@ async function endActiveSessions(
 export async function startImpersonationAction(
   targetUserId: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const gate = await requireRealSuperadmin();
+  const gate = await requireCanSwitch();
   if (!gate.ok) return { success: false, error: gate.error };
 
   const parsed = z.string().uuid().safeParse(targetUserId);
@@ -130,8 +153,12 @@ export async function startImpersonationAction(
     return { success: false, error: "Operatore non trovato o non attivo." };
   }
   const target = targetRow as Awaited<ReturnType<typeof getProfile>>;
-  if (!target || isSuperadminProfile(target)) {
+  if (!target || isProtectedSuperadminTarget(target)) {
     return { success: false, error: "Non puoi entrare nel profilo di un altro Super Admin." };
+  }
+  const allowed = await listAllowedImpersonationIds(serviceLookup, gate.actor);
+  if (allowed !== "all" && !allowed.has(parsed.data)) {
+    return { success: false, error: "Puoi entrare solo nei profili dei tuoi subalterni." };
   }
 
   await writeAuditLog({
@@ -139,7 +166,7 @@ export async function startImpersonationAction(
     entity_id: parsed.data,
     action: "impersonate_start",
     actor_id: gate.actorUserId,
-    summary: `Super Admin opera come ${profileLabel(target)} (${target.email})`,
+    summary: `Switch profilo: opera come ${profileLabel(target)} (${target.email})`,
     payload: {
       actor_user_id: gate.actorUserId,
       target_user_id: parsed.data,
@@ -166,7 +193,7 @@ export async function startImpersonationAction(
 export async function stopImpersonationAction(): Promise<
   { success: true } | { success: false; error: string }
 > {
-  const gate = await requireRealSuperadmin();
+  const gate = await requireCanSwitch();
   if (!gate.ok) return { success: false, error: gate.error };
 
   const closed = await endActiveSessions(gate.actorUserId, gate.actorUserId);
@@ -179,7 +206,7 @@ export async function stopImpersonationAction(): Promise<
     entity_id: gate.actorUserId,
     action: "impersonate_stop",
     actor_id: gate.actorUserId,
-    summary: "Super Admin è tornato al proprio profilo",
+    summary: "Ritorno al proprio profilo dopo lo switch",
     payload: { actor_user_id: gate.actorUserId },
   });
 
@@ -233,7 +260,7 @@ export async function setProfileStatoOperativoAction(
   const { data: target, error: tErr } = await service
     .from("profiles")
     .select(
-      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, app_roles(code)"
+      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, potere, app_roles(code)"
     )
     .eq("id", targetId)
     .maybeSingle();
@@ -299,6 +326,14 @@ export async function setProfileStatoOperativoAction(
   if (parsed.data === "operativo" && previous === "test") {
     updatePayload.attivato_at = now;
     updatePayload.attivato_by = gate.actorUserId;
+    if (parseProfilePotere(target.potere) === "superadmin") {
+      const { data: saRole } = await service
+        .from("app_roles")
+        .select("id")
+        .eq("code", "superadmin")
+        .maybeSingle();
+      if (saRole?.id) updatePayload.role_id = saRole.id;
+    }
   }
 
   const { error } = await service

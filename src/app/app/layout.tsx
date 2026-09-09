@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { actorCanSwitchProfiles } from "@/lib/auth/impersonation-scope";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
@@ -76,7 +77,8 @@ export default async function AppLayout({
   const userName = auth.profile.full_name ?? auth.email;
   const actorName =
     auth.actorProfile.full_name ?? auth.actorProfile.email ?? "Super Admin";
-  const canImpersonate = isSuperadminProfile(auth.actorProfile);
+  const canImpersonate = actorCanSwitchProfiles(auth.actorProfile);
+  const canCreateProfiles = isSuperadminProfile(auth.actorProfile);
 
   return (
     <div className="flex min-h-screen">
@@ -87,6 +89,7 @@ export default async function AppLayout({
         userId={auth.userId}
         isSuperadmin={isSuperadminProfile(auth.profile)}
         canImpersonate={canImpersonate}
+        canCreateProfiles={canCreateProfiles}
         impersonating={auth.impersonating}
         actorName={actorName}
         statoOperativo={stato}
@@ -96,7 +99,7 @@ export default async function AppLayout({
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {testMenuMode ? (
+        {testMenuMode && canCreateProfiles ? (
           <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
             <PageAccessToggle
               pathname={pathname}

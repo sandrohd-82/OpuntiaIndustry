@@ -1,5 +1,11 @@
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  parseProfileGerarchia,
+  parseProfilePotere,
+  type ProfileGerarchia,
+  type ProfilePotere,
+} from "@/lib/auth/gerarchia";
 
 export const CREATABLE_ROLE_CODES = [
   "manager",
@@ -96,6 +102,8 @@ export async function provisionTestProfile(
     lastName?: string;
     jobTitle?: string;
     roleCode: CreatableRoleCode;
+    gerarchia?: ProfileGerarchia;
+    potere?: ProfilePotere;
     actorId: string;
     /** Se il profilo esiste: torna in fase test (niente mail, niente 2FA). */
     resetExisting?: boolean;
@@ -149,6 +157,8 @@ export async function provisionTestProfile(
         last_name: input.lastName?.trim() || "",
         job_title: input.jobTitle?.trim() || "",
         role_id: role.id,
+        gerarchia: parseProfileGerarchia(input.gerarchia),
+        potere: parseProfilePotere(input.potere),
         is_active: true,
         stato_operativo_at: now,
         stato_operativo_by: input.actorId,
@@ -186,6 +196,8 @@ export async function provisionTestProfile(
     last_name: input.lastName?.trim() || "",
     job_title: input.jobTitle?.trim() || "",
     role_id: role.id,
+    gerarchia: parseProfileGerarchia(input.gerarchia),
+    potere: parseProfilePotere(input.potere),
     is_active: true,
     stato_operativo: "test",
     stato_operativo_at: now,
@@ -222,4 +234,37 @@ export async function provisionTestProfile(
 
 export function isCreatableRole(value: string): value is CreatableRoleCode {
   return (CREATABLE_ROLE_CODES as readonly string[]).includes(value);
+}
+
+export async function replaceProfileReparti(
+  service: SupabaseClient,
+  profileId: string,
+  codici: string[],
+  actorId: string
+): Promise<{ error?: string }> {
+  const now = new Date().toISOString();
+  const { error: delErr } = await service
+    .from("profile_reparti")
+    .update({
+      deleted_at: now,
+      deleted_by: actorId,
+      updated_by: actorId,
+    })
+    .eq("profile_id", profileId)
+    .is("deleted_at", null);
+  if (delErr) return { error: delErr.message };
+
+  const unique = [...new Set(codici.filter(Boolean))];
+  if (unique.length === 0) return {};
+
+  const { error: insErr } = await service.from("profile_reparti").insert(
+    unique.map((codice) => ({
+      profile_id: profileId,
+      codice,
+      created_by: actorId,
+      updated_by: actorId,
+    }))
+  );
+  if (insErr) return { error: insErr.message };
+  return {};
 }

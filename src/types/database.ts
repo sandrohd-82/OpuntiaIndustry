@@ -57,6 +57,8 @@ export interface Profile {
   primo_accesso_token_hash?: string | null;
   primo_accesso_expires_at?: string | null;
   attivato_at?: string | null;
+  gerarchia?: "amministratore" | "segnor" | "capo_area" | "responsabile" | "operatore";
+  potere?: "superadmin" | "operatore";
   chat_status?: "available" | "away" | "offline";
   chat_rubrica_banned_at?: string | null;
   avatar_url?: string | null;
