@@ -41,6 +41,7 @@ import {
 import { WebmailBulkDeleteModal } from "@/components/webmail/WebmailBulkDeleteModal";
 import { WebmailCategoriaModal } from "@/components/webmail/WebmailCategoriaModal";
 import { WebmailSelectScopeModal } from "@/components/webmail/WebmailSelectScopeModal";
+import { WebmailStoricoModal } from "@/components/webmail/WebmailStoricoModal";
 import { WebmailCollegaAziendaFlow } from "@/components/webmail/WebmailCollegaAziendaFlow";
 import { WebmailDeleteConfirmModal } from "@/components/webmail/WebmailDeleteConfirmModal";
 import {
@@ -67,6 +68,10 @@ import {
 } from "@/lib/webmail/types";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 import { notifyWebmailUnreadNav } from "@/lib/webmail/unread-nav";
+import {
+  domainFromEmail,
+  normalizeSenderEmail,
+} from "@/lib/webmail/category-learn";
 
 function formatWhen(iso: string | null) {
   if (!iso) return "—";
@@ -126,6 +131,8 @@ const MAIL_INFO = {
   inviaBozza: "Invia la bozza AI come email di risposta.",
   live:
     "Ascolta la casella in tempo reale (IMAP IDLE): le nuove mail compaiono appena arrivano sul server. Resta attivo finché questa pagina è aperta. Spegni il pulsante per interrompere.",
+  storico:
+    "Apre lo storico delle mail dello stesso mittente o dello stesso dominio (testo dopo la @), raggruppate per indirizzo.",
 };
 
 export function WebmailBoard({
@@ -173,6 +180,7 @@ export function WebmailBoard({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectScopeOpen, setSelectScopeOpen] = useState(false);
+  const [storicoOpen, setStoricoOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [aziendaModalOpen, setAziendaModalOpen] = useState(false);
   const [senderBlacklisted, setSenderBlacklisted] = useState(false);
@@ -235,6 +243,7 @@ export function WebmailBoard({
     setShowPlainText(false);
     setHtmlReloadToken(0);
     setDeleteConfirmOpen(false);
+    setStoricoOpen(false);
   }, [selectedId]);
 
   const catById = useMemo(() => {
@@ -1594,6 +1603,15 @@ export function WebmailBoard({
                 ) : null}
 
                 <div className="mt-3 flex flex-wrap gap-2">
+                      <WithInfoNuvola info={MAIL_INFO.storico}>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-900"
+                        onClick={() => setStoricoOpen(true)}
+                      >
+                        Storico
+                      </button>
+                      </WithInfoNuvola>
                       <WithInfoNuvola info={MAIL_INFO.collega}>
                       <button
                         type="button"
@@ -2291,6 +2309,26 @@ export function WebmailBoard({
 
       {selected ? (
         <>
+          <WebmailStoricoModal
+            open={storicoOpen}
+            accountId={selected.accountId}
+            fromAddress={selected.fromAddress}
+            fromName={selected.fromName}
+            domain={domainFromEmail(selected.fromAddress) ?? ""}
+            email={normalizeSenderEmail(selected.fromAddress)}
+            onClose={() => setStoricoOpen(false)}
+            onOpenMessaggio={(m) => {
+              setMessaggi((prev) =>
+                prev.some((x) => x.id === m.id) ? prev : [m, ...prev]
+              );
+              setSelectedId(m.id);
+              setStoricoOpen(false);
+              listBoxRef.current?.scrollIntoView({
+                block: "start",
+                behavior: "auto",
+              });
+            }}
+          />
           <WebmailCollegaAziendaFlow
             open={aziendaModalOpen}
             messaggio={selected}

@@ -928,6 +928,126 @@ export async function listWebmailMessaggioIdsAction(
   return { success: true, ids: ids.slice(0, 8000), total };
 }
 
+const STORICO_MAX = 2000;
+
+export type WebmailStoricoGroup = {
+  fromAddress: string;
+  fromName: string;
+  unread: number;
+  messaggi: WebmailMessaggio[];
+};
+
+export async function listWebmailStoricoAction(raw: unknown): Promise<
+  | {
+      success: true;
+      mode: "email" | "domain";
+      email: string;
+      domain: string;
+      total: number;
+      truncated: boolean;
+      groups: WebmailStoricoGroup[];
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireWebmailAccess();
+  const parsed = z
+    .object({
+      accountId: z.string().uuid(),
+      fromAddress: z.string().trim().min(3).max(300),
+      mode: z.enum(["email", "domain"]),
+    })
+    .safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati storico non validi." };
+  }
+  const { normalizeSenderEmail, domainFromEmail } = await import(
+    "@/lib/webmail/category-learn"
+  );
+  const email = normalizeSenderEmail(parsed.data.fromAddress);
+  const domain = domainFromEmail(email);
+  if (!email.includes("@") || !domain) {
+    return { success: false, error: "Indirizzo mittente non valido." };
+  }
+
+  const supabase = await createClient();
+  const needle =
+    parsed.data.mode === "email" ? email : `@${domain}`;
+  const safe = needle.replace(/[%_,()]/g, " ").trim();
+  let q = supabase
+    .from("webmail_messaggi")
+    .select(MESSAGGIO_LIST_SELECT)
+    .eq("account_id", parsed.data.accountId)
+    .eq("direction", "inbound")
+    .is("deleted_at", null)
+    .is("purged_at", null)
+    .neq("folder", "TRASH")
+    .ilike("from_address", `%${safe}%`)
+    .order("received_at", { ascending: false, nullsFirst: false })
+    .limit(STORICO_MAX);
+
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+
+  const rows = (data ?? [])
+    .map((r) => mapMessaggio(r as Record<string, unknown>))
+    .filter((m) => {
+      const from = normalizeSenderEmail(m.fromAddress);
+      if (parsed.data.mode === "email") return from === email;
+      return domainFromEmail(from) === domain;
+    });
+
+  const byFrom = new Map<string, WebmailStoricoGroup>();
+  for (const m of rows) {
+    const key = normalizeSenderEmail(m.fromAddress) || m.fromAddress;
+    const cur = byFrom.get(key);
+    if (!cur) {
+      byFrom.set(key, {
+        fromAddress: key,
+        fromName: m.fromName,
+        unread: m.isSeen ? 0 : 1,
+        messaggi: [m],
+      });
+    } else {
+      if (!m.isSeen) cur.unread += 1;
+      if (!cur.fromName && m.fromName) cur.fromName = m.fromName;
+      cur.messaggi.push(m);
+    }
+  }
+
+  const groups = [...byFrom.values()].sort((a, b) => {
+    const da = a.messaggi[0]?.receivedAt ?? "";
+    const db = b.messaggi[0]?.receivedAt ?? "";
+    return db.localeCompare(da);
+  });
+
+  void writeAuditLog({
+    entity_type: "webmail_messaggi",
+    entity_id: parsed.data.accountId,
+    action: "read",
+    actor_id: auth.userId,
+    summary:
+      parsed.data.mode === "email"
+        ? `Storico mail da ${email}`
+        : `Storico mail dominio ${domain}`,
+    payload: {
+      mode: parsed.data.mode,
+      email,
+      domain,
+      found: rows.length,
+    },
+  });
+
+  return {
+    success: true,
+    mode: parsed.data.mode,
+    email,
+    domain,
+    total: rows.length,
+    truncated: (data ?? []).length >= STORICO_MAX,
+    groups,
+  };
+}
+
 export async function bulkSetWebmailMessaggiCategoriaAction(raw: unknown): Promise<
   | { success: true; updated: number; learnMode: string; movedFromAddress: number }
   | { success: false; error: string }
