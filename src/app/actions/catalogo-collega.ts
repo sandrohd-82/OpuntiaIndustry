@@ -25,6 +25,10 @@ import {
 } from "@/lib/amministrazione/fatture";
 import { tokenizeInvoiceLine } from "@/lib/sku-generator";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  isFiscaleDocAllowed,
+  resolveFiscaleDocScope,
+} from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 import type {
   FatturaRicevutaDilazioneRow,
@@ -747,6 +751,10 @@ export async function listFattureDaAggiornareCatalogoAction(): Promise<
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const ricevuteScope = await resolveFiscaleDocScope(
+    supabase,
+    "fiscale.fatture_ricevute"
+  );
   const { data, error } = await supabase
     .from("fatture_ricevute")
     .select("*")
@@ -755,7 +763,12 @@ export async function listFattureDaAggiornareCatalogoAction(): Promise<
     .order("data_emissione", { ascending: false });
   if (error) return { success: false, error: error.message };
 
-  const rows = (data ?? []) as FatturaRicevutaRow[];
+  const rows = ((data ?? []) as FatturaRicevutaRow[]).filter((row) =>
+    isFiscaleDocAllowed(ricevuteScope, {
+      aziendaId: row.fornitore_id ?? null,
+      date: row.data_emissione ?? null,
+    })
+  );
   const fatture: Fattura[] = [];
   for (const row of rows) {
     const { data: righe } = await supabase

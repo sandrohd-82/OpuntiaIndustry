@@ -20,6 +20,11 @@ import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
+  isFiscaleDocAllowed,
+  resolveFiscaleDocScope,
+  type FiscaleDocScope,
+} from "@/lib/auth/data-scope-enforce";
+import {
   enrichReceivedDocument,
   fetchIssuedCreditNotes,
   fetchIssuedInvoices,
@@ -101,6 +106,26 @@ export type FattureSyncStartResult =
     }
   | { success: false; error: string };
 
+function findClienteIdByVat(
+  doc: FicDocumentNormalized,
+  byVat: Map<string, ClienteRow>
+): string | null {
+  const vat = normalizeVatKey(doc.entityVat);
+  if (!vat) return null;
+  return byVat.get(vat)?.id ?? null;
+}
+
+function docInFiscaleScope(
+  scope: FiscaleDocScope,
+  aziendaId: string | null,
+  date: string | null | undefined
+): boolean {
+  return isFiscaleDocAllowed(scope, {
+    aziendaId,
+    date: date ?? null,
+  });
+}
+
 function resolveClienteForDoc(
   doc: FicDocumentNormalized,
   byVat: Map<string, ClienteRow>,
@@ -177,6 +202,10 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     if (key) byVat.set(key, c);
   }
   const clienteById = new Map(clienti.map((c) => [c.id, c]));
+  const [emesseScope, ncScope] = await Promise.all([
+    resolveFiscaleDocScope(supabase, "fiscale.fatture_emesse"),
+    resolveFiscaleDocScope(supabase, "fiscale.note_credito_emesse"),
+  ]);
 
   const registeredHints: RegisteredFatturaHint[] = registeredRows.map((r) => {
     const cliente = clienteById.get(String(r.cliente_id));
@@ -201,10 +230,22 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
     (r) => r.tipoDocumento !== "nota_credito"
   );
 
-  let pendingInvoices = invoices.filter((d) => !registeredFicIds.has(d.ficId));
-  let pendingCredits = creditNotes.filter(
-    (d) => !registeredFicIds.has(d.ficId)
-  );
+  let pendingInvoices = invoices.filter((d) => {
+    if (registeredFicIds.has(d.ficId)) return false;
+    return docInFiscaleScope(
+      emesseScope,
+      findClienteIdByVat(d, byVat),
+      d.date
+    );
+  });
+  let pendingCredits = creditNotes.filter((d) => {
+    if (registeredFicIds.has(d.ficId)) return false;
+    return docInFiscaleScope(
+      ncScope,
+      findClienteIdByVat(d, byVat),
+      d.date
+    );
+  });
 
   /** Auto-link match forti (manuale senza fic_id ↔ FiC). */
   let autoLinkedCount = 0;
@@ -218,6 +259,12 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
   ): Promise<"linked" | "weak" | "none"> {
     const match = matchFicDocToRegisteredFattura(doc, kind, registeredHints);
     if (!match) return "none";
+    const linkScope = kind === "nota_credito" ? ncScope : emesseScope;
+    if (
+      !docInFiscaleScope(linkScope, match.fattura.clienteId || null, doc.date)
+    ) {
+      return "none";
+    }
     if (match.strength === "strong") {
       const { error } = await supabase
         .from("fatture_emesse")
@@ -438,6 +485,10 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   }
 
   const fornitori = (fornitoriRes.data ?? []) as FornitoreRow[];
+  const ricevuteScope = await resolveFiscaleDocScope(
+    supabase,
+    "fiscale.fatture_ricevute"
+  );
   const byVat = new Map<string, FornitoreRow>();
   const fornitoreById = new Map(fornitori.map((f) => [f.id, f]));
   for (const f of fornitori) {
@@ -470,7 +521,11 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
       .filter((n) => Number.isFinite(n) && n > 0)
   );
 
-  let pending = docs.filter((d) => !registeredFicIds.has(d.ficId));
+  let pending = docs.filter((d) => {
+    if (registeredFicIds.has(d.ficId)) return false;
+    const existing = resolveFornitoreForDoc(d, byVat, fornitori);
+    return docInFiscaleScope(ricevuteScope, existing?.id ?? null, d.date);
+  });
   const stillPending: FicDocumentNormalized[] = [];
   const weakDupByFicId = new Map<number, FatturaSyncDuplicateCandidate>();
 
@@ -497,6 +552,15 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
       registeredHints
     );
     if (!match) return { doc, outcome: "none" as const };
+    if (
+      !docInFiscaleScope(
+        ricevuteScope,
+        match.fattura.clienteId || null,
+        doc.date
+      )
+    ) {
+      return { doc, outcome: "none" as const };
+    }
     if (match.strength === "strong") {
       return {
         doc,
@@ -585,6 +649,9 @@ export async function startFattureRicevuteSyncAction(): Promise<FattureSyncStart
   const items: FatturaSyncQueueItem[] = [];
   for (const doc of pending) {
     const existing = resolveFornitoreForDoc(doc, byVat, fornitori);
+    if (!docInFiscaleScope(ricevuteScope, existing?.id ?? null, doc.date)) {
+      continue;
+    }
     let proposedTarga = existing?.codice_targa ?? "";
     if (!existing) {
       proposedTarga = nextSequentialCodiceTarga("F", [...usedTarghe]);
@@ -701,6 +768,23 @@ export async function hydrateFatturaSyncQueueItemAction(
   | { success: false; error: string }
 > {
   await requireAreaAccess("amministrazione");
+  const supabase = await createClient();
+  const hydrateScope = await resolveFiscaleDocScope(
+    supabase,
+    slim.kind === "ricevuta"
+      ? "fiscale.fatture_ricevute"
+      : slim.kind === "nota_credito"
+        ? "fiscale.note_credito_emesse"
+        : "fiscale.fatture_emesse"
+  );
+  if (
+    !docInFiscaleScope(hydrateScope, slim.existingId, slim.dataEmissione)
+  ) {
+    return {
+      success: false,
+      error: "Documento fuori dal tuo ambito di autorizzazione.",
+    };
+  }
   if (!slim.needsHydration) {
     return { success: true, item: { ...slim, needsHydration: false } };
   }
@@ -719,8 +803,6 @@ export async function hydrateFatturaSyncQueueItemAction(
           : "Configurazione Fatture in Cloud mancante.",
     };
   }
-
-  const supabase = await createClient();
   const { data, error } = await supabase
     .from("fornitori")
     .select("*")
@@ -805,6 +887,16 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   if (!cliente) {
     return { success: false, error: "Cliente non trovato." };
   }
+  const pendingScope = await resolveFiscaleDocScope(
+    supabase,
+    "fiscale.fatture_emesse"
+  );
+  if (
+    pendingScope.ownedIds &&
+    !pendingScope.ownedIds.has(cliente.id)
+  ) {
+    return { success: true, items: [] };
+  }
 
   const registeredFicIds = new Set(
     (registeredRes.data ?? [])
@@ -820,6 +912,7 @@ export async function listPendingFicInvoicesForClienteAction(input: {
   const pending = invoices.filter((d) => {
     if (registeredFicIds.has(d.ficId)) return false;
     if (excluded.has(d.ficId)) return false;
+    if (!docInFiscaleScope(pendingScope, cliente.id, d.date)) return false;
     const docVat = normalizeVatKey(d.entityVat);
     if (vat && docVat) return docVat === vat;
     // Fallback: nome ragione sociale (normalizzato) se manca P.IVA
@@ -866,6 +959,32 @@ export async function linkFicIdToFatturaEmessaAction(input: {
     return { success: false, error: "Dati collegamento non validi." };
   }
   const supabase = await createClient();
+
+  const { data: targetFat } = await supabase
+    .from("fatture_emesse")
+    .select("id, cliente_id, data_emissione")
+    .eq("id", input.fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!targetFat) {
+    return { success: false, error: "Fattura non trovata." };
+  }
+  const linkScope = await resolveFiscaleDocScope(
+    supabase,
+    "fiscale.fatture_emesse"
+  );
+  if (
+    !docInFiscaleScope(
+      linkScope,
+      String(targetFat.cliente_id ?? "") || null,
+      String(targetFat.data_emissione ?? "")
+    )
+  ) {
+    return {
+      success: false,
+      error: "Fattura fuori dal tuo ambito di autorizzazione.",
+    };
+  }
 
   const { data: clash } = await supabase
     .from("fatture_emesse")
@@ -931,6 +1050,32 @@ export async function linkFicIdToFatturaRicevutaAction(input: {
     return { success: false, error: "Dati collegamento non validi." };
   }
   const supabase = await createClient();
+
+  const { data: targetFat } = await supabase
+    .from("fatture_ricevute")
+    .select("id, fornitore_id, data_emissione")
+    .eq("id", input.fatturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!targetFat) {
+    return { success: false, error: "Fattura non trovata." };
+  }
+  const linkScope = await resolveFiscaleDocScope(
+    supabase,
+    "fiscale.fatture_ricevute"
+  );
+  if (
+    !docInFiscaleScope(
+      linkScope,
+      String(targetFat.fornitore_id ?? "") || null,
+      String(targetFat.data_emissione ?? "")
+    )
+  ) {
+    return {
+      success: false,
+      error: "Fattura fuori dal tuo ambito di autorizzazione.",
+    };
+  }
 
   const { data: clash } = await supabase
     .from("fatture_ricevute")

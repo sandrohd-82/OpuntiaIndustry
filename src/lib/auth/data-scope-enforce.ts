@@ -119,6 +119,55 @@ export async function resolveStatsClienteIds(
   return { empty: false, ids: owned };
 }
 
+export type FiscaleDocScope = {
+  skip: boolean;
+  dateFloor: string | null;
+  ownedIds: Set<string> | null;
+};
+
+function fiscaleScopeUsesFornitori(scopeKey: string): boolean {
+  return (
+    scopeKey.includes("ricevut") ||
+    scopeKey.endsWith("ddt_ricevuti") ||
+    scopeKey.includes("fatture_ricevute")
+  );
+}
+
+export async function resolveFiscaleDocScope(
+  supabase: UserClient,
+  scopeKey: string
+): Promise<FiscaleDocScope> {
+  const resolved = await resolveScopeMode(scopeKey);
+  if (!resolved || resolved.skip) {
+    return { skip: true, dateFloor: null, ownedIds: null };
+  }
+  const dateFloor = resolved.mode === "da_oggi" ? todayRomeDate() : null;
+  if (resolved.mode !== "aziende_proprie") {
+    return { skip: false, dateFloor, ownedIds: null };
+  }
+  const ids = await loadOwnedAziendaIds(
+    supabase,
+    resolved.userId,
+    fiscaleScopeUsesFornitori(scopeKey) ? "fornitori" : "clienti"
+  );
+  return { skip: false, dateFloor, ownedIds: new Set(ids) };
+}
+
+export function isFiscaleDocAllowed(
+  scope: FiscaleDocScope,
+  opts: { aziendaId: string | null; date?: string | null }
+): boolean {
+  if (scope.skip) return true;
+  const date = String(opts.date ?? "").slice(0, 10);
+  if (scope.dateFloor) {
+    if (!date || date < scope.dateFloor) return false;
+  }
+  if (scope.ownedIds) {
+    if (!opts.aziendaId || !scope.ownedIds.has(opts.aziendaId)) return false;
+  }
+  return true;
+}
+
 export async function loadOwnedAziendaIds(
   supabase: UserClient,
   userId: string,
