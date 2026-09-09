@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { FaComments, FaFolderOpen } from "react-icons/fa6";
 import {
@@ -18,15 +18,36 @@ import {
   type ChatTopicCreatedDetail,
 } from "@/lib/chat/topics";
 import type { ConversationListItem } from "@/lib/chat/types";
+import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
+import {
+  toneForNavPath,
+  toneForSubtreeAccess,
+  type AccessTone,
+  type PageAccessMap,
+} from "@/lib/auth/page-access";
 
-function itemClass(active: boolean, isNew = false) {
+function toneTextClass(tone: AccessTone | null) {
+  if (tone === "on") return "text-emerald-400 hover:text-emerald-300";
+  if (tone === "off") return "text-red-400 hover:text-red-300";
+  if (tone === "unset") return "text-slate-400 hover:text-slate-300";
+  return "";
+}
+
+function itemClass(
+  active: boolean,
+  isNew = false,
+  tone: AccessTone | null = null
+) {
   if (isNew && !active) {
     return "flex w-full items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-left text-sm font-semibold text-emerald-100 transition-colors hover:bg-emerald-500/25";
   }
+  const toneCls = toneTextClass(tone);
   return `flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-left text-sm transition-colors ${
     active
-      ? "bg-[var(--sidebar-active)] font-medium text-[var(--sidebar-foreground)]"
-      : "text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-foreground)]"
+      ? `bg-[var(--sidebar-active)] font-medium ${toneCls || "text-[var(--sidebar-foreground)]"}`
+      : `${toneCls || "text-[var(--sidebar-muted)]"} hover:bg-[var(--sidebar-active)] ${
+          toneCls ? "" : "hover:text-[var(--sidebar-foreground)]"
+        }`
   }`;
 }
 
@@ -47,10 +68,20 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-type Props = { userId: string };
+type Props = {
+  userId: string;
+  pageAccess?: PageAccessMap;
+  colorMenu?: boolean;
+  branchToggle?: boolean;
+};
 
 /** Menu Chat: Per argomento + Fra utenti con elenchi dinamici. */
-export function ChatSidebarNav({ userId }: Props) {
+export function ChatSidebarNav({
+  userId,
+  pageAccess,
+  colorMenu = false,
+  branchToggle = false,
+}: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(["argomenti", "dirette", "elenco-argomenti", "elenco-dirette"])
@@ -165,41 +196,94 @@ export function ChatSidebarNav({ userId }: Props) {
     });
   }, [pathname]);
 
+  function toneOf(path: string): AccessTone | null {
+    if (!colorMenu || !pageAccess) return null;
+    return toneForNavPath(path, pageAccess);
+  }
+
+  function accessOf(path: string) {
+    if (!branchToggle || !pageAccess) return null;
+    return {
+      areaKey: path,
+      tone: toneForSubtreeAccess(path, pageAccess),
+    };
+  }
+
+  function withToggle(
+    path: string,
+    node: ReactNode
+  ) {
+    const access = accessOf(path);
+    if (!access) return node;
+    return (
+      <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">{node}</div>
+        <MenuAreaAccessToggle areaKey={access.areaKey} tone={access.tone} />
+      </div>
+    );
+  }
+
+  const toneArgomenti = toneOf("/app/chat/argomenti");
+  const toneNuovoArg = toneOf("/app/chat/argomenti/nuovo");
+  const toneElencoArg = toneOf("/app/chat/argomenti/elenco");
+  const toneDirette = toneOf("/app/chat/dirette");
+  const toneNuovaChat = toneOf("/app/chat/dirette/nuova");
+  const toneElencoChat = toneOf("/app/chat/dirette/elenco");
+
   return (
     <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
       {/* Per argomento */}
       <li>
-        <button
-          type="button"
-          onClick={() => toggle("argomenti")}
-          className={itemClass(
-            pathname.startsWith("/app/chat/argomenti") ||
-              pathname.startsWith("/app/chat/argomento")
-          )}
-        >
-          <Chevron open={open.has("argomenti")} />
-          <span className="truncate">Per argomento</span>
-        </button>
+        {withToggle(
+          "/app/chat/argomenti",
+          <button
+            type="button"
+            onClick={() => toggle("argomenti")}
+            className={itemClass(
+              pathname.startsWith("/app/chat/argomenti") ||
+                pathname.startsWith("/app/chat/argomento"),
+              false,
+              toneArgomenti
+            )}
+          >
+            <Chevron open={open.has("argomenti")} />
+            <span className="truncate">Per argomento</span>
+          </button>
+        )}
         {open.has("argomenti") ? (
           <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
             <li>
-              <Link
-                href="/app/chat/argomenti/nuovo"
-                className={itemClass(pathname === "/app/chat/argomenti/nuovo")}
-              >
-                <span className="truncate">+ Nuovo Argomento</span>
-              </Link>
+              {withToggle(
+                "/app/chat/argomenti/nuovo",
+                <Link
+                  href="/app/chat/argomenti/nuovo"
+                  className={itemClass(
+                    pathname === "/app/chat/argomenti/nuovo",
+                    false,
+                    toneNuovoArg
+                  )}
+                >
+                  <span className="truncate">+ Nuovo Argomento</span>
+                </Link>
+              )}
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => toggle("elenco-argomenti")}
-                className={itemClass(pathname === "/app/chat/argomenti/elenco")}
-              >
-                <Chevron open={open.has("elenco-argomenti")} />
-                <FaFolderOpen size={11} className="shrink-0 opacity-70" />
-                <span className="truncate">Elenco Argomenti</span>
-              </button>
+              {withToggle(
+                "/app/chat/argomenti/elenco",
+                <button
+                  type="button"
+                  onClick={() => toggle("elenco-argomenti")}
+                  className={itemClass(
+                    pathname === "/app/chat/argomenti/elenco",
+                    false,
+                    toneElencoArg
+                  )}
+                >
+                  <Chevron open={open.has("elenco-argomenti")} />
+                  <FaFolderOpen size={11} className="shrink-0 opacity-70" />
+                  <span className="truncate">Elenco Argomenti</span>
+                </button>
+              )}
               {open.has("elenco-argomenti") ? (
                 <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
                   {topics.length === 0 ? (
@@ -215,7 +299,7 @@ export function ChatSidebarNav({ userId }: Props) {
                         <li key={t.id}>
                           <Link
                             href={`/app/chat/argomento/${t.id}`}
-                            className={itemClass(active, isNew)}
+                            className={itemClass(active, isNew, toneElencoArg)}
                             title={t.titolo}
                           >
                             <span className="truncate">{t.titolo}</span>
@@ -238,37 +322,56 @@ export function ChatSidebarNav({ userId }: Props) {
 
       {/* Fra utenti */}
       <li>
-        <button
-          type="button"
-          onClick={() => toggle("dirette")}
-          className={itemClass(
-            pathname.startsWith("/app/chat/dirette") ||
-              pathname.startsWith("/app/chat/thread")
-          )}
-        >
-          <Chevron open={open.has("dirette")} />
-          <span className="truncate">Fra utenti</span>
-        </button>
+        {withToggle(
+          "/app/chat/dirette",
+          <button
+            type="button"
+            onClick={() => toggle("dirette")}
+            className={itemClass(
+              pathname.startsWith("/app/chat/dirette") ||
+                pathname.startsWith("/app/chat/thread"),
+              false,
+              toneDirette
+            )}
+          >
+            <Chevron open={open.has("dirette")} />
+            <span className="truncate">Fra utenti</span>
+          </button>
+        )}
         {open.has("dirette") ? (
           <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
             <li>
-              <Link
-                href="/app/chat/dirette/nuova"
-                className={itemClass(pathname === "/app/chat/dirette/nuova")}
-              >
-                <span className="truncate">+ Nuova chat</span>
-              </Link>
+              {withToggle(
+                "/app/chat/dirette/nuova",
+                <Link
+                  href="/app/chat/dirette/nuova"
+                  className={itemClass(
+                    pathname === "/app/chat/dirette/nuova",
+                    false,
+                    toneNuovaChat
+                  )}
+                >
+                  <span className="truncate">+ Nuova chat</span>
+                </Link>
+              )}
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => toggle("elenco-dirette")}
-                className={itemClass(pathname === "/app/chat/dirette/elenco")}
-              >
-                <Chevron open={open.has("elenco-dirette")} />
-                <FaComments size={11} className="shrink-0 opacity-70" />
-                <span className="truncate">Elenco chat</span>
-              </button>
+              {withToggle(
+                "/app/chat/dirette/elenco",
+                <button
+                  type="button"
+                  onClick={() => toggle("elenco-dirette")}
+                  className={itemClass(
+                    pathname === "/app/chat/dirette/elenco",
+                    false,
+                    toneElencoChat
+                  )}
+                >
+                  <Chevron open={open.has("elenco-dirette")} />
+                  <FaComments size={11} className="shrink-0 opacity-70" />
+                  <span className="truncate">Elenco chat</span>
+                </button>
+              )}
               {open.has("elenco-dirette") ? (
                 <ul className="mt-0.5 space-y-0.5 border-l border-slate-700 ml-3 pl-2">
                   {directs.length === 0 ? (
@@ -281,7 +384,9 @@ export function ChatSidebarNav({ userId }: Props) {
                         <Link
                           href={`/app/chat/thread/${c.id}`}
                           className={itemClass(
-                            pathname === `/app/chat/thread/${c.id}`
+                            pathname === `/app/chat/thread/${c.id}`,
+                            false,
+                            toneElencoChat
                           )}
                           title={c.peerName}
                         >

@@ -784,7 +784,14 @@ export function AppSidebar({
                     areaAccess={areaAccess}
                     onToggle={() => openFirstLevel(area.slug)}
                   />
-                  {!collapsed && open ? <ChatSidebarNav userId={userId} /> : null}
+                  {!collapsed && open ? (
+                    <ChatSidebarNav
+                      userId={userId}
+                      pageAccess={pageAccess}
+                      colorMenu={testMenuMode}
+                      branchToggle={canToggleAreas}
+                    />
+                  ) : null}
                 </li>
               );
             }
