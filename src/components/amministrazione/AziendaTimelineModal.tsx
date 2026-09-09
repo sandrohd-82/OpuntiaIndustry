@@ -35,7 +35,12 @@ import type {
   PnNotaBozza,
 } from "@/lib/promemorie-e-note/types";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
-import { combineDateAndTime } from "@/components/promemorie-e-note/NotaFormExtras";
+import {
+  combineDateAndTime,
+  TimeAdessoInput,
+  todayLocalDate,
+  nowLocalTime,
+} from "@/components/promemorie-e-note/NotaFormExtras";
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
 import { FaPen } from "react-icons/fa6";
 
@@ -56,10 +61,12 @@ function splitLocalDateTime(iso: string | null | undefined): {
   };
 }
 
-/** Data obbligatoria per lo storico; ora facoltativa (mezzanotte locale se vuota). */
+/** Data odierna di default; ora vuota = adesso (ora attuale). */
 function eventoDueAt(date: string, time: string): string | null {
-  if (!date.trim() && !time.trim()) return null;
-  return combineDateAndTime(date.trim(), time.trim() || "00:00");
+  return combineDateAndTime(
+    date.trim() || todayLocalDate(),
+    time.trim() || nowLocalTime()
+  );
 }
 
 const KIND_LABEL: Record<AziendaTimelineKind, string> = {
@@ -253,7 +260,7 @@ export function AziendaTimelineModal({
   const [editingNotaCreatedAt, setEditingNotaCreatedAt] = useState<
     string | null
   >(null);
-  const [notaEventoDate, setNotaEventoDate] = useState("");
+  const [notaEventoDate, setNotaEventoDate] = useState(todayLocalDate);
   const [notaEventoTime, setNotaEventoTime] = useState("");
   const notaBodyRef = useRef<HTMLTextAreaElement>(null);
   const cursorRef = useRef<{ start: number; end: number }>({
@@ -359,7 +366,7 @@ export function AziendaTimelineModal({
     setBozzaEditMode("placeholders");
     setEditingNotaId(null);
     setEditingNotaCreatedAt(null);
-    setNotaEventoDate("");
+    setNotaEventoDate(todayLocalDate());
     setNotaEventoTime("");
   }
 
@@ -627,26 +634,28 @@ export function AziendaTimelineModal({
                   <input
                     type="date"
                     value={notaEventoDate}
-                    onChange={(e) => setNotaEventoDate(e.target.value)}
+                    onChange={(e) => {
+                      setNotaEventoDate(e.target.value);
+                      setNotaEventoTime("");
+                    }}
                     className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
                   />
                 </label>
                 <label className="block text-sm">
                   <span className="mb-1 block text-xs text-amber-950/80">
-                    Ora (facoltativa)
+                    Ora {notaEventoTime ? "" : "· adesso"}
                   </span>
-                  <input
-                    type="time"
+                  <TimeAdessoInput
                     value={notaEventoTime}
-                    onChange={(e) => setNotaEventoTime(e.target.value)}
+                    onChange={setNotaEventoTime}
                     className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
                   />
                 </label>
               </div>
               <p className="text-[11px] text-amber-900/75">
-                Compila la data per lo storico: la nota si posiziona in
-                ordine cronologico insieme a mail e altre attività, non per
-                momento di inserimento. Senza data vale «adesso».
+                La data parte da oggi. L’ora è «adesso» (--:--) finché non la
+                imposti; se cambi la data, l’ora torna adesso. La posizione in
+                elenco segue data e ora evento.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <button

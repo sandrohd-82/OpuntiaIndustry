@@ -12,8 +12,10 @@ import {
 } from "@/app/actions/promemorie-e-note";
 import { listPeerCandidates } from "@/lib/chat/queries";
 import {
+  combineDateAndTime,
   EMPTY_NOTA_EXTRAS,
   NotaFormExtras,
+  todayLocalDate,
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
 import { NotaCard } from "@/components/promemorie-e-note/NotaCard";
@@ -143,7 +145,9 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           titolo,
           body,
           colore,
-          dueAt: notaExtras.dueAt,
+          dueAt:
+            notaExtras.dueAt ||
+            combineDateAndTime(todayLocalDate(), ""),
           createPromemoria: notaExtras.createPromemoria,
           createAttivita: notaExtras.createAttivita,
           linkedPromemoriaId: notaExtras.linkedPromemoriaId,
@@ -154,7 +158,10 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           return;
         }
         setOk("Nota creata.");
-        setNotaExtras(EMPTY_NOTA_EXTRAS);
+        setNotaExtras({
+          ...EMPTY_NOTA_EXTRAS,
+          dueAt: combineDateAndTime(todayLocalDate(), ""),
+        });
       }
       setError(null);
       setTitolo("");
