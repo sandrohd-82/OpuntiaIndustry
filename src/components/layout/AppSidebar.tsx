@@ -384,15 +384,30 @@ function NavTree({
           );
         }
 
+        const leafAccess =
+          branchToggle && pageAccess
+            ? {
+                areaKey: item.path,
+                tone: toneForSubtreeAccess(item.path, pageAccess),
+              }
+            : null;
         return (
           <li key={item.path}>
-            <Link
-              href={item.path}
-              className={itemClass(pathname === item.path, true, false, tone)}
-            >
-              <span className="truncate">{item.label}</span>
-              {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
-            </Link>
+            <div className="flex items-center gap-1">
+              <Link
+                href={item.path}
+                className={`min-w-0 flex-1 ${itemClass(pathname === item.path, true, false, tone)}`}
+              >
+                <span className="truncate">{item.label}</span>
+                {item.badge ? <NavBadgeDot badge={item.badge} /> : null}
+              </Link>
+              {leafAccess ? (
+                <MenuAreaAccessToggle
+                  areaKey={leafAccess.areaKey}
+                  tone={leafAccess.tone}
+                />
+              ) : null}
+            </div>
           </li>
         );
       })}

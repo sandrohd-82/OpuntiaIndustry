@@ -137,7 +137,11 @@ export function toneForAreaAccess(
   return "unset";
 }
 
-/** Stato On/Off della sola voce (senza ereditare dal padre). */
+/**
+ * Stato On/Off della voce.
+ * Impostazione propria vince; altrimenti eredita dal ramo padre
+ * (es. «Elenco Clienti» On → elenco e possibili On).
+ */
 export function toneForSubtreeAccess(
   path: string,
   map: PageAccessMap
@@ -145,6 +149,8 @@ export function toneForSubtreeAccess(
   const key = resolvePageKey(path);
   if (key in map) return map[key] ? "on" : "off";
   if (path in map) return map[path] ? "on" : "off";
+  if (isAccessOffAlongPath(path, map)) return "off";
+  if (isAccessOnAlongPath(path, map)) return "on";
   return "unset";
 }
 
@@ -157,7 +163,7 @@ export function toneForNavPath(
   if (key in map) return map[key] ? "on" : "off";
   if (path in map) return map[path] ? "on" : "off";
   if (isAccessOffAlongPath(path, map)) return "off";
-  if (areaKey in map) return map[areaKey] ? "on" : "off";
+  if (isAccessOnAlongPath(path, map)) return "on";
 
   const childHits = Object.entries(map).filter(([k]) => {
     if (resolveAreaAccessKey(k) !== areaKey) return false;
