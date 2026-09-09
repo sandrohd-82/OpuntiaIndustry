@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { requireWebmailAccess } from "@/lib/areas/guard";
+import { isWebmailUuid } from "@/lib/webmail/casella-path";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
@@ -11,9 +12,7 @@ export default async function WebmailCasellaRedirectPage({ params }: Props) {
   await requireWebmailAccess();
   const { accountId } = await params;
 
-  const uuidRe =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRe.test(accountId)) notFound();
+  if (!isWebmailUuid(accountId)) notFound();
 
   const supabase = await createClient();
   const { data: account, error } = await supabase

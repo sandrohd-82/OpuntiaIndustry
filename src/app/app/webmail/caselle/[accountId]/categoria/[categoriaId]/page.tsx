@@ -1,8 +1,6 @@
-import { notFound } from "next/navigation";
-import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
-import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
+import { isWebmailUuid } from "@/lib/webmail/casella-path";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
@@ -13,48 +11,28 @@ export default async function WebmailCategoriaPage({ params }: Props) {
   await requireWebmailAccess();
   const { accountId, categoriaId } = await params;
 
-  const uuidRe =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRe.test(accountId) || !uuidRe.test(categoriaId)) notFound();
-
   const supabase = await createClient();
-  const [{ data: account, error: accErr }, { data: cat, error: catErr }] =
-    await Promise.all([
-      supabase
-        .from("webmail_accounts")
-        .select("id, label, email_address")
-        .eq("id", accountId)
-        .is("deleted_at", null)
-        .maybeSingle(),
-      supabase
-        .from("webmail_categorie")
-        .select("id, nome, colore")
-        .eq("id", categoriaId)
-        .is("deleted_at", null)
-        .maybeSingle(),
-    ]);
+  const [{ data: account }, { data: cat }] = await Promise.all([
+    isWebmailUuid(accountId)
+      ? supabase
+          .from("webmail_accounts")
+          .select("id, label, email_address")
+          .eq("id", accountId)
+          .is("deleted_at", null)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    isWebmailUuid(categoriaId)
+      ? supabase
+          .from("webmail_categorie")
+          .select("id, nome")
+          .eq("id", categoriaId)
+          .is("deleted_at", null)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
 
-  if (accErr || !account || catErr || !cat) notFound();
+  const title = `${account?.label ?? "Casella"} · ${cat?.nome ?? "Categoria"}`;
+  const subtitle = `${account?.email_address ?? ""} · categoria`.trim();
 
-  return (
-    <>
-      <AppHeader
-        title={`${account.label} · ${cat.nome}`}
-        subtitle={`${account.email_address} · categoria`}
-      />
-      <div className="p-6">
-        <WebmailCasellaShell
-          accountId={account.id}
-          accountLabel={account.label}
-        >
-          <WebmailBoard
-            initialAccountId={account.id}
-            view="categoria"
-            categoriaId={cat.id}
-            hideTopFilters
-          />
-        </WebmailCasellaShell>
-      </div>
-    </>
-  );
+  return <AppHeader title={title} subtitle={subtitle} />;
 }

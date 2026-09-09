@@ -1,14 +1,15 @@
 import { notFound } from "next/navigation";
-import { AppHeader } from "@/components/layout/AppHeader";
+import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
 import { requireWebmailAccess } from "@/lib/areas/guard";
 import { isWebmailUuid } from "@/lib/webmail/casella-path";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
+  children: React.ReactNode;
   params: Promise<{ accountId: string }>;
 };
 
-export default async function WebmailBozzePage({ params }: Props) {
+export default async function WebmailCasellaLayout({ children, params }: Props) {
   await requireWebmailAccess();
   const { accountId } = await params;
   if (!isWebmailUuid(accountId)) notFound();
@@ -24,9 +25,15 @@ export default async function WebmailBozzePage({ params }: Props) {
   if (error || !account) notFound();
 
   return (
-    <AppHeader
-      title={`${account.label} · Bozze`}
-      subtitle={`${account.email_address} · bozze AI da revisionare`}
-    />
+    <>
+      {children}
+      <div className="p-6">
+        <WebmailCasellaShell
+          accountId={account.id}
+          accountLabel={account.label}
+          accountEmail={account.email_address}
+        />
+      </div>
+    </>
   );
 }

@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
-import { WebmailCasellaShell } from "@/components/webmail/WebmailAccountFolderNav";
-import { WebmailComposeForm } from "@/components/webmail/WebmailComposeForm";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireWebmailAccess } from "@/lib/areas/guard";
+import { isWebmailUuid } from "@/lib/webmail/casella-path";
 import { createClient } from "@/lib/supabase/server";
 
 type Props = {
@@ -12,10 +11,7 @@ type Props = {
 export default async function WebmailNuovaMailPage({ params }: Props) {
   await requireWebmailAccess();
   const { accountId } = await params;
-
-  const uuidRe =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRe.test(accountId)) notFound();
+  if (!isWebmailUuid(accountId)) notFound();
 
   const supabase = await createClient();
   const { data: account, error } = await supabase
@@ -28,25 +24,9 @@ export default async function WebmailNuovaMailPage({ params }: Props) {
   if (error || !account) notFound();
 
   return (
-    <>
-      <AppHeader
-        title={`${account.label} · Nuova Mail`}
-        subtitle={`Composizione da ${account.email_address}`}
-      />
-      <div className="p-6">
-        <WebmailCasellaShell
-          accountId={account.id}
-          accountLabel={account.label}
-        >
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-            <WebmailComposeForm
-              accountId={account.id}
-              accountLabel={account.label}
-              fromAddress={account.email_address}
-            />
-          </div>
-        </WebmailCasellaShell>
-      </div>
-    </>
+    <AppHeader
+      title={`${account.label} · Nuova Mail`}
+      subtitle={`Composizione da ${account.email_address}`}
+    />
   );
 }

@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
+import { WebmailComposeForm } from "@/components/webmail/WebmailComposeForm";
+import { parseWebmailCasellaFolder } from "@/lib/webmail/casella-path";
 import {
   FaInbox,
   FaPaperPlane,
@@ -105,6 +108,7 @@ function navItemClass(active: boolean) {
  */
 export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   const pathname = usePathname();
+  const router = useRouter();
   const base = `/app/webmail/caselle/${accountId}`;
   const [categorie, setCategorie] = useState<WebmailCategoria[]>([]);
   const [counts, setCounts] = useState<WebmailUnreadCounts>({
@@ -212,6 +216,20 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
               <Link
                 key={cat.id}
                 href={href}
+                prefetch={false}
+                onClick={(e) => {
+                  if (
+                    e.metaKey ||
+                    e.ctrlKey ||
+                    e.shiftKey ||
+                    e.altKey ||
+                    e.button !== 0
+                  ) {
+                    return;
+                  }
+                  e.preventDefault();
+                  router.push(href);
+                }}
                 className="flex w-full items-center gap-2 rounded-xl border-2 bg-white px-3 py-2 text-left text-sm font-semibold transition hover:bg-slate-50"
                 style={{
                   color,
@@ -282,21 +300,54 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
 type ShellProps = {
   accountId: string;
   accountLabel: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
+  accountEmail?: string;
 };
 
+/**
+ * Elenco cartelle + contenuto. La vista (In arrivo / categoria / …)
+ * segue il pathname, così il click su una categoria apre subito le mail
+ * anche se la pagina server è lenta o non trova la riga categoria.
+ */
 export function WebmailCasellaShell({
   accountId,
   accountLabel,
   children,
+  accountEmail,
 }: ShellProps) {
+  const pathname = usePathname() || "";
+  const folder = parseWebmailCasellaFolder(pathname, accountId);
+
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(14rem,17rem)_minmax(0,1fr)]">
       <WebmailAccountFolderNav
         accountId={accountId}
         accountLabel={accountLabel}
       />
-      <div className="min-w-0">{children}</div>
+      <div className="min-w-0">
+        {folder.kind === "nuova" ? (
+          children ??
+          (accountEmail ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+              <WebmailComposeForm
+                accountId={accountId}
+                accountLabel={accountLabel}
+                fromAddress={accountEmail}
+              />
+            </div>
+          ) : null)
+        ) : folder.view ? (
+          <WebmailBoard
+            key={`${folder.view}-${folder.categoriaId ?? ""}`}
+            initialAccountId={accountId}
+            view={folder.view}
+            categoriaId={folder.categoriaId}
+            hideTopFilters
+          />
+        ) : (
+          children
+        )}
+      </div>
     </div>
   );
 }
