@@ -187,3 +187,77 @@ export async function endImpersonationOnLogout(
     // il logout non deve fallire
   }
 }
+
+export async function setProfileStatoOperativoAction(
+  stato: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const parsed = z
+    .enum(["operativo", "sospeso", "bloccato"])
+    .safeParse(stato);
+  if (!parsed.success) {
+    return { success: false, error: "Stato non valido." };
+  }
+
+  const service = createServiceClient();
+  const { data: session } = await service
+    .from("impersonation_sessions")
+    .select("target_user_id")
+    .eq("actor_user_id", gate.actorUserId)
+    .is("ended_at", null)
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const targetId = session?.target_user_id
+    ? String(session.target_user_id)
+    : "";
+  if (!targetId) {
+    return {
+      success: false,
+      error: "Entra nel profilo con lo switch per cambiare lo stato.",
+    };
+  }
+
+  const { data: target, error: tErr } = await service
+    .from("profiles")
+    .select("id, email, full_name, app_roles(code)")
+    .eq("id", targetId)
+    .maybeSingle();
+  if (tErr || !target) {
+    return { success: false, error: tErr?.message ?? "Profilo non trovato." };
+  }
+  const role = target.app_roles as { code?: string } | { code?: string }[] | null;
+  const roleCode = Array.isArray(role) ? role[0]?.code : role?.code;
+  if (roleCode === "superadmin") {
+    return { success: false, error: "Non puoi modificare lo stato di un Super Admin." };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await service
+    .from("profiles")
+    .update({
+      stato_operativo: parsed.data,
+      stato_operativo_at: now,
+      stato_operativo_by: gate.actorUserId,
+    })
+    .eq("id", targetId);
+  if (error) return { success: false, error: error.message };
+
+  await service.from("audit_log").insert({
+    entity_type: "profiles",
+    entity_id: targetId,
+    action: "stato_operativo",
+    actor_id: gate.actorUserId,
+    summary: `Stato profilo ${profileLabel(target)} impostato a ${parsed.data}`,
+    payload: {
+      target_user_id: targetId,
+      stato_operativo: parsed.data,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true };
+}

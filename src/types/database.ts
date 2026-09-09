@@ -51,6 +51,7 @@ export interface Profile {
   job_title?: string;
   role_id: string;
   is_active: boolean;
+  stato_operativo?: "operativo" | "sospeso" | "bloccato";
   chat_status?: "available" | "away" | "offline";
   chat_rubrica_banned_at?: string | null;
   avatar_url?: string | null;

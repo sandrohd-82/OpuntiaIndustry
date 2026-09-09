@@ -54,6 +54,7 @@ import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
+import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
 import type { AreaSlug, UserArea } from "@/types/database";
 
 const SIDEBAR_COLLAPSED_KEY = "opuntia.sidebar.collapsed";
@@ -67,6 +68,7 @@ type Props = {
   canImpersonate?: boolean;
   impersonating?: boolean;
   actorName?: string;
+  statoOperativo?: "operativo" | "sospeso" | "bloccato";
 };
 
 function sortAreasForSidebar(areas: UserArea[]) {
@@ -339,6 +341,7 @@ export function AppSidebar({
   canImpersonate = false,
   impersonating = false,
   actorName = "Super Admin",
+  statoOperativo = "operativo",
 }: Props) {
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
@@ -506,13 +509,24 @@ export function AppSidebar({
         className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"}`}
       >
         <div className={`flex items-center ${collapsed ? "justify-center" : "gap-2"}`}>
-          {collapsed ? null : (
+          {collapsed ? (
+            <div className="flex flex-col items-center gap-2">
+              <ProfileStatusLed
+                stato={statoOperativo}
+                canChange={canImpersonate && impersonating}
+              />
+            </div>
+          ) : (
             <div className="min-w-0 flex-1">
               <p className="text-xs uppercase tracking-wider text-[var(--sidebar-muted)]">
                 Industry
               </p>
-              <div className="mt-1 flex min-w-0 items-center gap-0.5">
+              <div className="mt-1 flex min-w-0 items-center gap-1.5">
                 <p className="truncate font-medium">{userName}</p>
+                <ProfileStatusLed
+                  stato={statoOperativo}
+                  canChange={canImpersonate && impersonating}
+                />
                 {canImpersonate ? (
                   <ImpersonationSwitcher
                     impersonating={impersonating}

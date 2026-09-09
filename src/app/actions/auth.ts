@@ -20,6 +20,10 @@ import {
 } from "@/lib/auth/two-factor";
 import { sendOtpEmail } from "@/lib/email/smtp";
 import { recordAccesso } from "@/lib/auth/record-accesso";
+import {
+  parseProfileStatoOperativo,
+  profileStatoLoginMessage,
+} from "@/lib/auth/stato-operativo";
 import { endImpersonationOnLogout } from "@/app/actions/impersonation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
@@ -77,6 +81,28 @@ export async function signInWithPassword(
 
     if (!user) {
       return { success: false, error: "Sessione non valida dopo il login." };
+    }
+
+    const gateService = createServiceClient();
+    const { data: statoRow } = await gateService
+      .from("profiles")
+      .select("stato_operativo")
+      .eq("id", user.id)
+      .maybeSingle();
+    const statoLogin = parseProfileStatoOperativo(statoRow?.stato_operativo);
+    if (statoLogin !== "operativo") {
+      await supabase.auth.signOut();
+      await recordAccesso({
+        userId: user.id,
+        email: user.email ?? email,
+        evento: "login_fallito",
+        esito: "fallito",
+        note: `stato ${statoLogin}`,
+      });
+      return {
+        success: false,
+        error: profileStatoLoginMessage(statoLogin),
+      };
     }
 
     await recordAccesso({

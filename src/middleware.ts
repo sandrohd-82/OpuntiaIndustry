@@ -7,7 +7,8 @@ const VERIFY_PATH = "/verify-email";
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const { supabaseResponse, user } = await updateSession(request);
+  const { supabaseResponse, user, statoOperativo } =
+    await updateSession(request);
 
   const isAuthPage = AUTH_PATHS.includes(pathname);
   const isVerifyPage = pathname === VERIFY_PATH;
@@ -18,7 +19,14 @@ export async function middleware(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(url);
+      if (statoOperativo !== "operativo") {
+        url.searchParams.set("motivo", statoOperativo);
+      }
+      const res = NextResponse.redirect(url);
+      supabaseResponse.cookies.getAll().forEach((c) => {
+        res.cookies.set(c);
+      });
+      return res;
     }
     return supabaseResponse;
   }

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
+import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { getAuthContext } from "@/lib/auth/session";
 
 export default async function AppLayout({
@@ -36,6 +37,9 @@ export default async function AppLayout({
         canImpersonate={canImpersonate}
         impersonating={auth.impersonating}
         actorName={actorName}
+        statoOperativo={parseProfileStatoOperativo(
+          auth.profile.stato_operativo
+        )}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
