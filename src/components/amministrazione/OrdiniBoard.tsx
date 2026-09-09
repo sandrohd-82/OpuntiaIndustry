@@ -13,6 +13,8 @@ import {
   getOrdineAllegatoSignedUrlAction,
   purgeOrdiniTestAction,
 } from "@/app/actions/ordini";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { CampionaturaFormModal } from "@/components/amministrazione/CampionaturaFormModal";
 import { CampionatureBoard } from "@/components/amministrazione/CampionatureBoard";
 import { OrdineDettaglioPanel } from "@/components/amministrazione/OrdineDettaglioPanel";
@@ -317,6 +319,7 @@ export function OrdiniBoard({
           ) : null}
           {dualCreateActions ? (
             <>
+              <ActionGate actionKey={AZ.creaOrdine}>
               <button
                 type="button"
                 onClick={() => {
@@ -328,6 +331,8 @@ export function OrdiniBoard({
                 <FaPlus size={14} />
                 Crea ordine
               </button>
+              </ActionGate>
+              <ActionGate actionKey={AZ.invioCampionatura}>
               <button
                 type="button"
                 onClick={() => {
@@ -338,8 +343,16 @@ export function OrdiniBoard({
               >
                 Invio campionatura
               </button>
+              </ActionGate>
             </>
           ) : (
+            <ActionGate
+              actionKey={
+                createLabel.toLowerCase().includes("storico")
+                  ? AZ.aggiungiOrdineStorico
+                  : AZ.creaOrdine
+              }
+            >
             <button
               type="button"
               onClick={() => {
@@ -351,6 +364,7 @@ export function OrdiniBoard({
               <FaPlus size={14} />
               {createLabel}
             </button>
+            </ActionGate>
           )}
         </div>
       </div>
@@ -374,6 +388,7 @@ export function OrdiniBoard({
           ) : null}
           {dualCreateActions ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <ActionGate actionKey={AZ.creaOrdine}>
               <button
                 type="button"
                 onClick={() => setCreating("ordine")}
@@ -382,6 +397,8 @@ export function OrdiniBoard({
                 <FaPlus size={14} />
                 Crea ordine
               </button>
+              </ActionGate>
+              <ActionGate actionKey={AZ.invioCampionatura}>
               <button
                 type="button"
                 onClick={() => setCreating("campionatura")}
@@ -389,6 +406,7 @@ export function OrdiniBoard({
               >
                 Invio campionatura
               </button>
+              </ActionGate>
             </div>
           ) : (
             <button

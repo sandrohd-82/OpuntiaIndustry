@@ -11,6 +11,8 @@ import {
   softDeleteProcessoAttivitaAction,
   updateProcessoAttivitaAction,
 } from "@/app/actions/produzione-processi";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
@@ -205,6 +207,7 @@ export function ProcessiAttivitaBoard({
           (es. Spaccapale nell’area Taglio) oppure non legato ad area.
           Componile nei processi dall’elenco processi.
         </p>
+        <ActionGate actionKey={AZ.nuovaAttivita}>
         <button
           type="button"
           onClick={openCreate}
@@ -213,6 +216,7 @@ export function ProcessiAttivitaBoard({
           <FaPlus size={12} />
           Nuova attività
         </button>
+        </ActionGate>
       </div>
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">

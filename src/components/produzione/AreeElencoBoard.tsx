@@ -7,6 +7,8 @@ import {
   createProduzioneAreaAction,
   listProduzioneAreeAction,
 } from "@/app/actions/produzione-aree";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
 import { slugArea, type ProduzioneArea } from "@/lib/produzione/aree-posti";
 import { labelDocumentoStato } from "@/lib/produzione/processi";
@@ -114,6 +116,7 @@ export function AreeElencoBoard() {
           Catalogo aree produttive. Da qui aggiungi una nuova area: comparirà
           nel menu Gestione Aree.
         </p>
+        <ActionGate actionKey={AZ.nuovaArea}>
         <button
           type="button"
           onClick={openCreate}
@@ -122,6 +125,7 @@ export function AreeElencoBoard() {
           <FaPlus size={12} />
           Nuova area
         </button>
+        </ActionGate>
       </div>
 
       {error && !open ? (

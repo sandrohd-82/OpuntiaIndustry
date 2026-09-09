@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { FaPlus } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
 import { useFornitori } from "@/hooks/useFornitori";
 import type { Fornitore } from "@/lib/amministrazione/fornitori";
@@ -63,6 +65,7 @@ export function FornitoreSelectField({
             </option>
           ))}
         </select>
+        <ActionGate actionKey={AZ.nuovoFornitore}>
         <button
           type="button"
           onClick={() => {
@@ -75,6 +78,7 @@ export function FornitoreSelectField({
           <FaPlus size={12} />
           Nuovo
         </button>
+        </ActionGate>
       </div>
 
       {(error || saveError) && (

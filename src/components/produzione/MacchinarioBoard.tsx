@@ -3,6 +3,8 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   disableIotDeviceAction,
@@ -713,6 +715,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
             </>
           ) : null}
         </div>
+        <ActionGate actionKey={AZ.aggiungiRicambio}>
         <button
           type="button"
           disabled={pending || !articolo.trim() || !dettaglio.trim()}
@@ -748,6 +751,7 @@ export function MacchinarioBoard({ areaCodice, macchinaCodice }: Props) {
         >
           Aggiungi ricambio
         </button>
+        </ActionGate>
 
         <div className="mt-4 overflow-x-auto">
           <table className="min-w-full text-left text-sm">

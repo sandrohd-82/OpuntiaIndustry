@@ -10,6 +10,8 @@ import {
   FaTrash,
   FaXmark,
 } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import {
   createProcessoAction,
@@ -327,6 +329,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
           Clicca un processo per aprirne il dettaglio. Per aggiungere,
           togliere o modificare qualsiasi cosa usa <strong>Modifica</strong>.
         </p>
+        <ActionGate actionKey={AZ.nuovoProcesso}>
         <button
           type="button"
           onClick={openCreate}
@@ -335,6 +338,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
           <FaPlus size={12} />
           Nuovo processo
         </button>
+        </ActionGate>
       </div>
 
       {error ? (
@@ -471,6 +475,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                     <h4 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
                       Composizione attività
                     </h4>
+                    <ActionGate actionKey={AZ.nuovaAttivitaInProcesso}>
                     <button
                       type="button"
                       onClick={() => setCreateAttivitaOpen(true)}
@@ -479,6 +484,7 @@ export function ProcessiBoard({ startCreate = false }: ProcessiBoardProps) {
                       <FaPlus size={11} />
                       Nuova attività
                     </button>
+                    </ActionGate>
                   </div>
                   {draftPassi.length === 0 ? (
                     <p className="mb-3 text-sm text-[var(--muted)]">

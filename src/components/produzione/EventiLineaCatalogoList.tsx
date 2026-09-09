@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
   createEventoLineaCatalogoAction,
@@ -227,6 +229,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
           </div>
         </div>
         {isAdmin ? (
+          <ActionGate actionKey={AZ.aggiungiEvento}>
           <button
             type="button"
             onClick={() => setFormOpen((v) => !v)}
@@ -234,6 +237,7 @@ export function EventiLineaCatalogoList({ areaId, macchinari }: Props) {
           >
             {formOpen ? "Annulla" : "Aggiungi evento"}
           </button>
+          </ActionGate>
         ) : null}
       </div>
 

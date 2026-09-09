@@ -9,6 +9,8 @@ import {
   listWebmailMessagesLiteAction,
 } from "@/app/actions/rubrica";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   AZIENDA_TIPO_LABELS,
   MODALITA_LABELS,
@@ -111,7 +113,8 @@ export function RubricaBoard() {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
+          <ActionGate actionKey={AZ.nuovoContatto}>
+          <button
           type="button"
           onClick={() => setShowCreate(true)}
           className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
@@ -119,6 +122,7 @@ export function RubricaBoard() {
           <FaPlus size={12} />
           Nuovo contatto
         </button>
+          </ActionGate>
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}

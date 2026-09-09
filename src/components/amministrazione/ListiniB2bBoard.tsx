@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { listImballaggiVociAction } from "@/app/actions/imballaggi-spedizioni";
 import {
   approvaListinoInUsoAction,
@@ -609,6 +611,7 @@ export function ListiniB2bBoard() {
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
+              <ActionGate actionKey={AZ.creaBozzaListino}>
               <button
                 type="button"
                 disabled={pending || !codiceSlug || createNazioneIds.length < 1}
@@ -635,6 +638,7 @@ export function ListiniB2bBoard() {
               >
                 Crea bozza
               </button>
+              </ActionGate>
               {items.length > 0 ? (
                 <button
                   type="button"
@@ -666,6 +670,7 @@ export function ListiniB2bBoard() {
                     ))}
                   </select>
                 </label>
+                <ActionGate actionKey={AZ.creaBozzaListinoModello}>
                 <button
                   type="button"
                   disabled={pending || !modelloId || !codiceSlug}
@@ -693,6 +698,7 @@ export function ListiniB2bBoard() {
                 >
                   Crea bozza dal modello
                 </button>
+                </ActionGate>
               </div>
             ) : null}
           </div>

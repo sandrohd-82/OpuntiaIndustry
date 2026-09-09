@@ -7,6 +7,8 @@ import {
   listClientiPossibiliAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
@@ -45,6 +47,7 @@ export function PossibiliClientiBoard() {
       ) : null}
 
       <div className="flex flex-wrap gap-2">
+        <ActionGate actionKey={AZ.nuovoPossibileCliente}>
         <button
           type="button"
           onClick={() => setShowLeadForm(true)}
@@ -53,6 +56,7 @@ export function PossibiliClientiBoard() {
           <FaPlus size={12} />
           Nuovo possibile cliente
         </button>
+        </ActionGate>
       </div>
 
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">

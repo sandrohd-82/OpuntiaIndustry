@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile } from "@/lib/auth/session";
+import { ACTION_ACCESS_KEY_SET } from "@/lib/auth/action-access";
 import {
+  isActionAccessKey,
   isChildPageKeyOfSubtree,
   resolvePageKey,
   type PageAccessMap,
@@ -37,23 +39,40 @@ async function activeTargetId(actorUserId: string): Promise<string | null> {
   return data?.target_user_id ? String(data.target_user_id) : null;
 }
 
-export async function loadPageAccessMap(
-  profileId: string
-): Promise<PageAccessMap> {
+export async function loadAccessMaps(profileId: string): Promise<{
+  pageAccess: PageAccessMap;
+  actionAccess: PageAccessMap;
+}> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("profile_page_access")
     .select("page_key, visibile")
     .eq("profile_id", profileId)
     .is("deleted_at", null);
-  if (error || !data) return {};
-  const map: PageAccessMap = {};
+  const pageAccess: PageAccessMap = {};
+  const actionAccess: PageAccessMap = {};
+  if (error || !data) return { pageAccess, actionAccess };
   for (const row of data) {
     const key = String(row.page_key ?? "").trim();
     if (!key) continue;
-    map[key] = Boolean(row.visibile);
+    if (isActionAccessKey(key)) actionAccess[key] = Boolean(row.visibile);
+    else pageAccess[key] = Boolean(row.visibile);
   }
-  return map;
+  return { pageAccess, actionAccess };
+}
+
+export async function loadPageAccessMap(
+  profileId: string
+): Promise<PageAccessMap> {
+  const { pageAccess } = await loadAccessMaps(profileId);
+  return pageAccess;
+}
+
+export async function loadActionAccessMap(
+  profileId: string
+): Promise<PageAccessMap> {
+  const { actionAccess } = await loadAccessMaps(profileId);
+  return actionAccess;
 }
 
 export async function setPageAccessAction(
@@ -239,4 +258,66 @@ export async function clearPageAccessKeyAction(
 
   revalidatePath("/", "layout");
   return { success: true };
+}
+
+export async function setActionAccessAction(
+  actionKeyRaw: string,
+  visibile: boolean
+): Promise<{ success: true; actionKey: string } | { success: false; error: string }> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const targetId = await activeTargetId(gate.actorUserId);
+  if (!targetId) {
+    return {
+      success: false,
+      error: "Entra nel profilo con lo switch per impostare le autorizzazioni.",
+    };
+  }
+
+  const actionKey = String(actionKeyRaw ?? "").trim();
+  if (!ACTION_ACCESS_KEY_SET.has(actionKey)) {
+    return { success: false, error: "Azione non valida." };
+  }
+
+  const service = createServiceClient();
+  const { data: existing } = await service
+    .from("profile_page_access")
+    .select("id")
+    .eq("profile_id", targetId)
+    .eq("page_key", actionKey)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await service
+      .from("profile_page_access")
+      .update({
+        visibile,
+        updated_by: gate.actorUserId,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await service.from("profile_page_access").insert({
+      profile_id: targetId,
+      page_key: actionKey,
+      visibile,
+      created_by: gate.actorUserId,
+      updated_by: gate.actorUserId,
+    });
+    if (error) return { success: false, error: error.message };
+  }
+
+  await service.from("audit_log").insert({
+    entity_type: "profile_page_access",
+    entity_id: targetId,
+    action: visibile ? "action_on" : "action_off",
+    actor_id: gate.actorUserId,
+    summary: `Azione ${actionKey} ${visibile ? "On" : "Off"}`,
+    payload: { page_key: actionKey, visibile, target_user_id: targetId },
+  });
+
+  revalidatePath("/", "layout");
+  return { success: true, actionKey };
 }

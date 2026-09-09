@@ -8,6 +8,8 @@ import {
   type KeyboardEvent,
 } from "react";
 import { FaPlus } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { useClienti } from "@/hooks/useClienti";
 import type { Cliente } from "@/lib/amministrazione/clienti";
@@ -197,6 +199,7 @@ export function ClienteSelectField({
             </ul>
           ) : null}
         </div>
+        <ActionGate actionKey={AZ.nuovoCliente}>
         <button
           type="button"
           onClick={() => {
@@ -209,6 +212,7 @@ export function ClienteSelectField({
           <FaPlus size={12} />
           Nuovo
         </button>
+        </ActionGate>
       </div>
 
       {(error || saveError) && (

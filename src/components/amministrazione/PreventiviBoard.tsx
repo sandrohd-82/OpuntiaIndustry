@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { FaPlus } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   listPreventiviAction,
   setPreventivoStatoAction,
@@ -70,6 +72,7 @@ export function PreventiviBoard() {
           Preventivi inviati e in bozza. Solo quelli accettati si collegano a un
           ordine.
         </p>
+        <ActionGate actionKey={AZ.creaPreventivo}>
         <button
           type="button"
           onClick={() => setCreating(true)}
@@ -78,6 +81,7 @@ export function PreventiviBoard() {
           <FaPlus size={14} />
           Crea nuovo
         </button>
+        </ActionGate>
       </div>
 
       {error ? (
@@ -89,6 +93,7 @@ export function PreventiviBoard() {
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-10 text-center">
           <p className="text-sm font-medium">Nessun preventivo</p>
+          <ActionGate actionKey={AZ.creaPreventivo}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -97,6 +102,7 @@ export function PreventiviBoard() {
             <FaPlus size={14} />
             Crea nuovo
           </button>
+          </ActionGate>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">

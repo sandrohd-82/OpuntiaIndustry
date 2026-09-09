@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { FaShareNodes, FaMagnifyingGlass, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -23,6 +25,10 @@ import {
 } from "@/lib/amministrazione/materie-prime";
 
 export function MateriePrimeBoard() {
+  const pathname = usePathname();
+  const nuovaMateriaKey = pathname.startsWith("/app/magazzino")
+    ? AZ.nuovaMateriaPrimaMag
+    : AZ.nuovaMateriaPrima;
   const searchParams = useSearchParams();
   const {
     materie,
@@ -91,6 +97,7 @@ export function MateriePrimeBoard() {
               ) : null}
             </button>
           )}
+          <ActionGate actionKey={nuovaMateriaKey}>
           <button
             type="button"
             onClick={() => {
@@ -102,6 +109,7 @@ export function MateriePrimeBoard() {
             <FaPlus size={14} />
             Nuova materia prima
           </button>
+          </ActionGate>
         </div>
       </div>
 
@@ -132,6 +140,7 @@ export function MateriePrimeBoard() {
           <p className="mt-1 text-xs text-[var(--muted)]">
             Aggiungi il primo codice interno per usarlo nei fornitori.
           </p>
+          <ActionGate actionKey={nuovaMateriaKey}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -139,6 +148,7 @@ export function MateriePrimeBoard() {
           >
             Nuova materia prima
           </button>
+          </ActionGate>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">

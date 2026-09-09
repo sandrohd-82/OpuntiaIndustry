@@ -16,6 +16,8 @@ import {
 import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -464,6 +466,7 @@ export function ClientiBoard() {
             <FaArrowsRotate size={14} className={syncPending ? "animate-spin" : ""} />
             {syncPending ? "Preparazione sync…" : "Sincronizza"}
           </button>
+          <ActionGate actionKey={AZ.nuovoCliente}>
           <button
             type="button"
             onClick={() => {
@@ -475,6 +478,7 @@ export function ClientiBoard() {
             <FaPlus size={14} />
             Nuovo cliente
           </button>
+          </ActionGate>
         </div>
       </div>
 
@@ -546,6 +550,7 @@ export function ClientiBoard() {
           <p className="mt-1 text-xs text-[var(--muted)]">
             Inserisci il primo cliente per iniziare.
           </p>
+          <ActionGate actionKey={AZ.nuovoCliente}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -553,6 +558,7 @@ export function ClientiBoard() {
           >
             Nuovo cliente
           </button>
+          </ActionGate>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">

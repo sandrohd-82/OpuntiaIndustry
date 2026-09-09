@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { useEffect, useMemo, useState } from "react";
 import {
   getDashboardFiscaleScadenzarioAction,
@@ -301,6 +303,7 @@ export function DashboardFiscaleBoard() {
               placeholder="Nuovo adempimento…"
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
             />
+            <ActionGate actionKey={AZ.aggiungiAdempimento}>
             <button
               type="button"
               onClick={async () => {
@@ -320,6 +323,7 @@ export function DashboardFiscaleBoard() {
             >
               Aggiungi
             </button>
+            </ActionGate>
           </div>
         </div>
         <ul className="space-y-2">

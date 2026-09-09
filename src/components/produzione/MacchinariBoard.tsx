@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { createMacchinarioAction } from "@/app/actions/produzione-macchinari";
 import { IotStatusDot } from "@/components/produzione/IotStatusDot";
@@ -114,6 +116,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
       </p>
 
       {isAdmin ? (
+        <ActionGate actionKey={AZ.aggiungiMacchinario}>
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           <h3 className="text-sm font-semibold">Aggiungi macchinario</h3>
           <p className="mt-1 text-xs text-[var(--muted)]">
@@ -206,6 +209,7 @@ export function MacchinariBoard({ areaCodice }: Props) {
             </button>
           </div>
         </div>
+        </ActionGate>
       ) : (
         <p className="text-xs text-[var(--muted)]">
           Solo l’amministratore può aggiungere macchinari.

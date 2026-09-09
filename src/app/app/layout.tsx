@@ -11,7 +11,9 @@ import {
 } from "@/lib/auth/gerarchia";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { getAuthContext, getUserAreas } from "@/lib/auth/session";
-import { loadPageAccessMap } from "@/app/actions/page-access";
+import { loadAccessMaps } from "@/app/actions/page-access";
+import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
+import { ImpostaAutorizzazioniButton } from "@/components/layout/ImpostaAutorizzazioniButton";
 import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
 import { AREA_ROUTES, SIDEBAR_AREA_ORDER } from "@/lib/areas/config";
 import { isTestImpersonation } from "@/lib/areas/guard";
@@ -51,7 +53,7 @@ export default async function AppLayout({
   const testMenuMode = isTestImpersonation(auth);
   const applyPageFilter =
     !isSuperadminProfile(auth.profile) || auth.impersonating;
-  const pageAccess = await loadPageAccessMap(auth.userId);
+  const { pageAccess, actionAccess } = await loadAccessMaps(auth.userId);
 
   const headerList = await headers();
   const pathname = headerList.get("x-pathname") || "/app/dashboard";
@@ -102,12 +104,18 @@ export default async function AppLayout({
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {testMenuMode && canCreateProfiles ? (
-          <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
-            <PageAccessToggle pageAccess={pageAccess} />
-          </div>
-        ) : null}
-        {children}
+        <ActionAccessProvider
+          actionAccess={actionAccess}
+          testMenuMode={testMenuMode}
+        >
+          {testMenuMode && canCreateProfiles ? (
+            <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
+              <ImpostaAutorizzazioniButton actionAccess={actionAccess} />
+              <PageAccessToggle pageAccess={pageAccess} />
+            </div>
+          ) : null}
+          {children}
+        </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={userName} /> : null}
     </div>

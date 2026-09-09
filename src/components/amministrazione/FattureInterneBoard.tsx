@@ -8,6 +8,8 @@ import {
   useTransition,
 } from "react";
 import { FaArrowsRotate, FaCalculator, FaPlus } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   getFatturaByIdAction,
   listFattureAction,
@@ -102,6 +104,12 @@ function sortValue(f: Fattura, key: SortKey): string | number {
 }
 
 export function FattureInterneBoard({ kind }: Props) {
+  const registraKey =
+    kind === "nota_credito"
+      ? AZ.registraNotaCredito
+      : kind === "ricevuta"
+        ? AZ.registraFatturaRicevuta
+        : AZ.registraFatturaEmessa;
   const [fatture, setFatture] = useState<Fattura[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -320,6 +328,7 @@ export function FattureInterneBoard({ kind }: Props) {
             />
             {syncPending ? "Preparazione sync…" : "Sincronizza"}
           </button>
+          <ActionGate actionKey={registraKey}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -330,6 +339,7 @@ export function FattureInterneBoard({ kind }: Props) {
               ? "Registra nota di credito"
               : "Registra fattura"}
           </button>
+          </ActionGate>
         </div>
       </div>
 

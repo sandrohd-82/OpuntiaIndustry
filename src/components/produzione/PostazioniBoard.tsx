@@ -7,6 +7,8 @@ import {
   listProduzioneAreeAction,
   softDeletePostoLavoroAction,
 } from "@/app/actions/produzione-aree";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { PericolositaBandiera } from "@/components/produzione/PericolositaBandiera";
 import { WorkcenterCameraBar } from "@/components/produzione/WorkcenterCameraBar";
 import { PRODUZIONE_AREE_NAV_EVENT } from "@/lib/areas/produzione";
@@ -107,6 +109,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Elenco Postazioni</h3>
+        <ActionGate actionKey={AZ.aggiungiPostazioni}>
         <button
           type="button"
           onClick={() => setAdding((v) => !v)}
@@ -114,6 +117,7 @@ export function PostazioniBoard({ areaCodice }: Props) {
         >
           {adding ? "Annulla" : "Aggiungi postazioni"}
         </button>
+        </ActionGate>
       </div>
 
       {adding ? (

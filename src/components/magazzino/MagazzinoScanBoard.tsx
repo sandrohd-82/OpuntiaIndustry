@@ -8,6 +8,8 @@ import {
   lookupBarcodeAction,
   movimentoScanAction,
 } from "@/app/actions/magazzino-barcode";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import type { BarcodeLookupHit } from "@/lib/magazzino/barcode";
 import {
   CATEGORIA_UTILIZZO_OPTIONS,
@@ -308,6 +310,7 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
                 >
                   Associa a prodotto esistente
                 </button>
+                <ActionGate actionKey={AZ.creaNuovoProdottoScan}>
                 <button
                   type="button"
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-semibold"
@@ -315,6 +318,7 @@ export function MagazzinoScanBoard({ mode }: { mode: Mode }) {
                 >
                   Crea nuovo prodotto
                 </button>
+                </ActionGate>
                 <button
                   type="button"
                   className="w-full text-sm text-[var(--muted)]"

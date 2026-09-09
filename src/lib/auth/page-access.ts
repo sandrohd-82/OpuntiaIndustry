@@ -3,6 +3,13 @@ import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 
 export type AccessTone = "on" | "off" | "unset" | "mixed";
 
+/** Chiavi On/Off delle azioni (stessa tabella di page access, prefisso dedicato). */
+export const ACTION_ACCESS_KEY_PREFIX = "action:";
+
+export function isActionAccessKey(value: string): boolean {
+  return String(value ?? "").startsWith(ACTION_ACCESS_KEY_PREFIX);
+}
+
 function ownAccess(
   path: string,
   map: PageAccessMap
@@ -282,11 +289,15 @@ export function isNavPathVisible(
   }
   if (key === areaKey || path === areaKey) {
     return Object.entries(map).some(
-      ([k, v]) => v && resolveAreaAccessKey(k) === areaKey
+      ([k, v]) =>
+        v && !isActionAccessKey(k) && resolveAreaAccessKey(k) === areaKey
     );
   }
   return Object.entries(map).some(
-    ([k, v]) => v && (k.startsWith(`${key}/`) || k.startsWith(`${path}/`))
+    ([k, v]) =>
+      v &&
+      !isActionAccessKey(k) &&
+      (k.startsWith(`${key}/`) || k.startsWith(`${path}/`))
   );
 }
 

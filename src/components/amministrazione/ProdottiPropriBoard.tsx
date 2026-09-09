@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   FaFilePdf,
   FaMagnifyingGlass,
@@ -24,6 +26,10 @@ import {
 import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-pdf";
 
 export function ProdottiPropriBoard() {
+  const pathname = usePathname();
+  const nuovoProprioKey = pathname.startsWith("/app/magazzino")
+    ? AZ.nuovoProdottoProprioMag
+    : AZ.nuovoProdottoProprio;
   const searchParams = useSearchParams();
   const {
     prodotti,
@@ -110,6 +116,7 @@ export function ProdottiPropriBoard() {
               ) : null}
             </button>
           )}
+          <ActionGate actionKey={nuovoProprioKey}>
           <button
             type="button"
             onClick={() => {
@@ -121,6 +128,7 @@ export function ProdottiPropriBoard() {
             <FaPlus size={14} />
             Nuovo prodotto proprio
           </button>
+          </ActionGate>
         </div>
       </div>
 
@@ -146,6 +154,7 @@ export function ProdottiPropriBoard() {
           <p className="mt-1 text-xs text-[var(--muted)]">
             Aggiungi il primo codice interno per usarlo nei fornitori.
           </p>
+          <ActionGate actionKey={nuovoProprioKey}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -153,6 +162,7 @@ export function ProdottiPropriBoard() {
           >
             Nuovo prodotto proprio
           </button>
+          </ActionGate>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">

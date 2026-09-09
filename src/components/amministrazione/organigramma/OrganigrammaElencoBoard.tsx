@@ -19,6 +19,8 @@ import {
   updateRepartoAction,
   uploadPersonaDocumentoAction,
 } from "@/app/actions/organigramma";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { CreateGestionaleProfileModal } from "@/components/amministrazione/organigramma/CreateGestionaleProfileModal";
 import { ValiditaDocumentoBadge } from "@/components/amministrazione/organigramma/ValiditaDocumentoBadge";
@@ -137,6 +139,7 @@ export function OrganigrammaElencoBoard() {
         </label>
         {isAdmin ? (
           <>
+            <ActionGate actionKey={AZ.nuovoOperatore}>
             <button
               type="button"
               onClick={() => setShowForm(true)}
@@ -144,6 +147,8 @@ export function OrganigrammaElencoBoard() {
             >
               Nuovo operatore
             </button>
+            </ActionGate>
+            <ActionGate actionKey={AZ.nuovaMansione}>
             <button
               type="button"
               onClick={() => setShowMansione(true)}
@@ -151,6 +156,8 @@ export function OrganigrammaElencoBoard() {
             >
               Nuova mansione
             </button>
+            </ActionGate>
+            <ActionGate actionKey={AZ.nuovoReparto}>
             <button
               type="button"
               onClick={() => setShowReparto(true)}
@@ -158,6 +165,7 @@ export function OrganigrammaElencoBoard() {
             >
               Nuovo reparto
             </button>
+            </ActionGate>
             <button
               type="button"
               disabled={pending}
@@ -258,6 +266,7 @@ export function OrganigrammaElencoBoard() {
                     {p.profilo ? (
                       <ProfiloGestionaleCell profilo={p.profilo} />
                     ) : isSuperadmin ? (
+                      <ActionGate actionKey={AZ.creaProfilo}>
                       <button
                         type="button"
                         onClick={() => setCreatingProfile(p)}
@@ -265,6 +274,7 @@ export function OrganigrammaElencoBoard() {
                       >
                         Crea Profilo
                       </button>
+                      </ActionGate>
                     ) : (
                       <span className="text-[var(--muted)]">Non creato</span>
                     )}

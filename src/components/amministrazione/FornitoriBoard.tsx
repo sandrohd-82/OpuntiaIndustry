@@ -15,6 +15,8 @@ import {
 import { rinumeraTutteFattureRicevuteAction } from "@/app/actions/fatture";
 import { startFattureRicevuteSyncAction } from "@/app/actions/fatture-sync";
 import { listMateriePrimeAction } from "@/app/actions/materie-prime";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FatturaSyncQueueModal } from "@/components/amministrazione/FatturaSyncQueueModal";
@@ -212,6 +214,8 @@ type FornitoriBoardProps = {
 };
 
 export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
+  const nuovoFornitoreKey =
+    bioMode === "bio" ? AZ.nuovoFornitoreBio : AZ.nuovoFornitore;
   const {
     fornitori,
     ready,
@@ -421,6 +425,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
             <FaArrowsRotate size={14} className={syncPending ? "animate-spin" : ""} />
             {syncPending ? "Preparazione sync…" : "Sincronizza"}
           </button>
+          <ActionGate actionKey={nuovoFornitoreKey}>
           <button
             type="button"
             onClick={() => {
@@ -432,6 +437,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
             <FaPlus size={14} />
             Nuovo fornitore
           </button>
+          </ActionGate>
         </div>
       </div>
 
@@ -534,6 +540,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
           <p className="mt-1 text-xs text-[var(--muted)]">
             Inserisci il primo fornitore per iniziare.
           </p>
+          <ActionGate actionKey={nuovoFornitoreKey}>
           <button
             type="button"
             onClick={() => setCreating(true)}
@@ -541,6 +548,7 @@ export function FornitoriBoard({ bioMode = "all" }: FornitoriBoardProps) {
           >
             Nuovo fornitore
           </button>
+          </ActionGate>
         </div>
       ) : filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FaCheck, FaPen, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   createCorriereAction,
   createImballaggioVoceAction,
@@ -477,6 +479,7 @@ export function ImballaggiSpedizioniBoard() {
         ) : null}
       </div>
 
+      <ActionGate actionKey={AZ.aggiungiImballaggio}>
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <p className="mb-3 text-sm font-medium">Aggiungi</p>
         <div className="flex flex-wrap items-end gap-2">
@@ -621,6 +624,7 @@ export function ImballaggiSpedizioniBoard() {
           </button>
         </div>
       </div>
+      </ActionGate>
 
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">

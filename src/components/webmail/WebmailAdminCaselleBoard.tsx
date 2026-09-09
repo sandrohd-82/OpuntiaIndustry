@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { FaPlus, FaArrowsRotate, FaTrash } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   listWebmailAccountGrantsAction,
   listWebmailAccountsAction,
@@ -335,6 +337,7 @@ export function WebmailAdminCaselleBoard() {
             <FaArrowsRotate size={12} />
             Sincronizza tutte
           </button>
+          <ActionGate actionKey={AZ.nuovaCasella}>
           <button
             type="button"
             onClick={openNew}
@@ -343,6 +346,7 @@ export function WebmailAdminCaselleBoard() {
             <FaPlus size={12} />
             Nuova casella
           </button>
+          </ActionGate>
           <Link
             href="/app/webmail/caselle"
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"

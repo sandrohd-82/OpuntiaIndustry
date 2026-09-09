@@ -11,6 +11,9 @@ import {
   softDeleteCatalogoProdottoFornitoreAction,
   softDeleteCatalogoServizioAction,
 } from "@/app/actions/catalogo-offerta";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
+import { usePathname } from "next/navigation";
 import { ArticoloCollegatiManageModal } from "@/components/amministrazione/ArticoloCollegatiManageModal";
 import { CatalogoOffertaFormModal } from "@/components/amministrazione/CatalogoOffertaFormModal";
 import { CodificaArticoloRevisioneModal } from "@/components/amministrazione/CodificaArticoloRevisioneModal";
@@ -34,6 +37,13 @@ type Props = {
 };
 
 export function CatalogoOffertaBoard({ kind, onlyDeleted = false }: Props) {
+  const pathname = usePathname();
+  const nuovoCatalogoKey =
+    kind === "servizio"
+      ? AZ.nuovoServizio
+      : pathname.startsWith("/app/magazzino")
+        ? AZ.nuovoProdottoMag
+        : AZ.nuovoProdotto;
   const [items, setItems] = useState<CatalogoOffertaItem[]>([]);
   const [ready, setReady] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -151,6 +161,7 @@ export function CatalogoOffertaBoard({ kind, onlyDeleted = false }: Props) {
             : `Catalogo ${title.toLowerCase()} con targa ${prefix}. Modifica aggiorna fatture e schede collegate; eliminazione richiede documenti aggiornati.`}
         </p>
         {onlyDeleted ? null : (
+        <ActionGate actionKey={nuovoCatalogoKey}>
         <button
           type="button"
           onClick={() => {
@@ -162,6 +173,7 @@ export function CatalogoOffertaBoard({ kind, onlyDeleted = false }: Props) {
           <FaPlus size={14} />
           Nuovo {entityLabel}
         </button>
+        </ActionGate>
         )}
       </div>
 
