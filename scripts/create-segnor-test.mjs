@@ -12,7 +12,7 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const email = (process.env.SEGNOR_EMAIL ?? "seleniarcurella@gmail.com")
   .trim()
   .toLowerCase();
-const fullName = (process.env.SEGNOR_FULL_NAME ?? "Segnor").trim();
+const fullName = (process.env.SEGNOR_FULL_NAME ?? "Selenia Rita Curella").trim();
 
 function fail(message) {
   console.error(`\n[create-segnor-test] ${message}\n`);
@@ -84,11 +84,13 @@ const { error: upErr } = await admin.from("profiles").upsert(
     id: userId,
     email,
     full_name: fullName,
-    first_name: fullName,
-    last_name: "",
-    job_title: "Responsabile",
+    first_name: "Selenia Rita",
+    last_name: "Curella",
+    job_title: "Segnor",
     role_id: role.id,
     is_active: true,
+    gerarchia: "segnor",
+    potere: "operatore",
     stato_operativo: "test",
     stato_operativo_at: now,
     primo_accesso_token_hash: null,

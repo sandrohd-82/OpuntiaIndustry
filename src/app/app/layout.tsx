@@ -5,14 +5,14 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
+import {
+  PROFILE_GERARCHIA_LABELS,
+  parseProfileGerarchia,
+} from "@/lib/auth/gerarchia";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { getAuthContext, getUserAreas } from "@/lib/auth/session";
 import { loadPageAccessMap } from "@/app/actions/page-access";
-import {
-  isNavPathVisible,
-  resolvePageKey,
-  toneForNavPath,
-} from "@/lib/auth/page-access";
+import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
 import { AREA_ROUTES, SIDEBAR_AREA_ORDER } from "@/lib/areas/config";
 import { isTestImpersonation } from "@/lib/areas/guard";
 import type { UserArea } from "@/types/database";
@@ -73,7 +73,10 @@ export default async function AppLayout({
       ? filterAreasByPageAccess(auth.areas, pageAccess)
       : auth.areas;
 
-  const roleName = auth.profile.app_roles?.name ?? "Utente";
+  const roleName =
+    PROFILE_GERARCHIA_LABELS[parseProfileGerarchia(auth.profile.gerarchia)] ??
+    auth.profile.app_roles?.name ??
+    "Utente";
   const userName = auth.profile.full_name ?? auth.email;
   const actorName =
     auth.actorProfile.full_name ?? auth.actorProfile.email ?? "Super Admin";
@@ -101,10 +104,7 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         {testMenuMode && canCreateProfiles ? (
           <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
-            <PageAccessToggle
-              pathname={pathname}
-              tone={toneForNavPath(pageKey, pageAccess)}
-            />
+            <PageAccessToggle pageAccess={pageAccess} />
           </div>
         ) : null}
         {children}

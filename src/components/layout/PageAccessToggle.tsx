@@ -1,16 +1,22 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { setPageAccessAction } from "@/app/actions/page-access";
-import type { AccessTone } from "@/lib/auth/page-access";
+import {
+  resolvePageKey,
+  toneForNavPath,
+  type PageAccessMap,
+} from "@/lib/auth/page-access";
 
 type Props = {
-  pathname: string;
-  tone: AccessTone;
+  pageAccess: PageAccessMap;
 };
 
-export function PageAccessToggle({ pathname, tone }: Props) {
+export function PageAccessToggle({ pageAccess }: Props) {
+  const pathname = usePathname() || "/app/dashboard";
+  const pageKey = resolvePageKey(pathname);
+  const tone = toneForNavPath(pageKey, pageAccess);
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -29,9 +35,9 @@ export function PageAccessToggle({ pathname, tone }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="hidden text-[11px] text-slate-500 sm:inline">
-        Visibilità pagina
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="hidden max-w-[22rem] truncate text-[11px] text-slate-500 sm:inline" title={pageKey}>
+        Visibilità: <span className="font-medium text-slate-700">{pageKey}</span>
       </span>
       <div className="inline-flex overflow-hidden rounded-lg border border-slate-200 bg-white text-xs font-semibold shadow-sm">
         <button
