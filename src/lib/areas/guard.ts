@@ -5,6 +5,7 @@ import {
   isSuperadminProfile,
 } from "@/lib/auth/roles";
 import { AREA_ROUTES } from "@/lib/areas/config";
+import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import type { AreaSlug } from "@/types/database";
 
@@ -24,6 +25,18 @@ export async function requireAnyAreaAccess(slugs: AreaSlug[]) {
   if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
   if (isTestImpersonation(auth)) return { auth };
+  if (
+    slugs.length > 0 &&
+    slugs.every((s) => s === "area-fiscale" || s === "ricerca-sviluppo")
+  ) {
+    const { settings } = await loadProfileAuthBundle(auth.userId);
+    if (slugs.includes("area-fiscale") && !settings.fiscaleUnlocked) {
+      notFound();
+    }
+    if (slugs.includes("ricerca-sviluppo") && !settings.rsUnlocked) {
+      notFound();
+    }
+  }
   if (!slugs.some((s) => userCanAccessArea(auth.areas, s))) {
     notFound();
   }
@@ -38,6 +51,16 @@ export async function requireAreaAccess(slug: AreaSlug) {
 
   if (isTestImpersonation(auth)) {
     return { auth, meta: AREA_ROUTES[slug] };
+  }
+
+  if (slug === "area-fiscale" || slug === "ricerca-sviluppo") {
+    const { settings } = await loadProfileAuthBundle(auth.userId);
+    if (slug === "area-fiscale" && !settings.fiscaleUnlocked) {
+      notFound();
+    }
+    if (slug === "ricerca-sviluppo" && !settings.rsUnlocked) {
+      notFound();
+    }
   }
 
   if (!userCanAccessArea(auth.areas, slug)) {

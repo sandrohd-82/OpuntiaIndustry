@@ -8,6 +8,8 @@ import {
   mapContratto,
   type ContrattoFiscale,
 } from "@/lib/amministrazione/contratti-fiscali";
+import { todayRomeDate } from "@/lib/auth/data-scope";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 
 async function guard() {
@@ -22,11 +24,22 @@ export async function listContrattiFiscaliAction(input: {
 > {
   await guard();
   const supabase = await createClient();
+  const scope = await resolveScopeMode("fiscale.contratti");
   let q = supabase
     .from("contratti_fiscali")
     .select(CONTRATTO_SELECT)
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
+    .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "da_oggi") {
+    q = q.gte("data_inizio", todayRomeDate());
+  }
+  if (
+    scope &&
+    !scope.skip &&
+    (scope.mode === "aziende_proprie" || scope.mode === "proprie")
+  ) {
+    q = q.eq("created_by", scope.userId);
+  }
+  q = q.order("updated_at", { ascending: false });
 
   if (input.archivio) {
     q = q.in("stato", ["archiviato", "scaduto"]);

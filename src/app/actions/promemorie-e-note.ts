@@ -3,6 +3,7 @@
 import { notFound, redirect } from "next/navigation";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   consegneToDb,
@@ -731,12 +732,16 @@ export async function listClientiPossibiliAction(): Promise<
 > {
   await guardAdmin();
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const scope = await resolveScopeMode("anagrafiche_clienti");
+  let q = supabase
     .from("clienti_possibili")
     .select(CLIENTI_POSSIBILI_SELECT)
     .is("deleted_at", null)
-    .neq("stato", "scartato")
-    .order("updated_at", { ascending: false });
+    .neq("stato", "scartato");
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    q = q.eq("created_by", scope.userId);
+  }
+  const { data, error } = await q.order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };
   const items = (data ?? []).map((r) =>
     mapClientePossibileRow(r as Record<string, unknown>)

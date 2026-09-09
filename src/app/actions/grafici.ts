@@ -1,5 +1,6 @@
 "use server";
 
+import { resolveStatsDateFloor } from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 import { includeInContabilitaFatturaEmessa } from "@/lib/amministrazione/fatture";
 import {
@@ -43,10 +44,17 @@ type DateFilterQuery = {
 function applyDateRange<T extends DateFilterQuery>(
   query: T,
   column: string,
-  range: { from: string; to: string } | null
+  range: { from: string; to: string } | null,
+  floor: string | null = null
 ): T {
-  if (!range) return query;
-  return query.gte(column, range.from).lte(column, range.to) as T;
+  let q = query;
+  if (range) {
+    q = q.gte(column, range.from).lte(column, range.to) as T;
+  }
+  if (floor) {
+    q = q.gte(column, floor) as T;
+  }
+  return q;
 }
 
 function roundMoney(v: number): number {
@@ -120,6 +128,7 @@ async function loadIncassiAnno(
   fonte: GraficiFonteIncassi
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
   const range = dateRangeForYear(anno);
+  const floor = await resolveStatsDateFloor();
   const rows: { dateStr: string; amount: number }[] = [];
 
   if (fonte === "fatture" || fonte === "entrambi") {
@@ -129,7 +138,7 @@ async function loadIncassiAnno(
         "data_emissione, totale, cliente_id, tipo_documento, stato_pagamento, fattura_collegata_id, spedizione, spedizione_iva_applicata, spedizione_sottrai_incassi, iva_percentuale"
       )
       .is("deleted_at", null);
-    q = applyDateRange(q, "data_emissione", range);
+    q = applyDateRange(q, "data_emissione", range, floor);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -166,7 +175,7 @@ async function loadIncassiAnno(
       .select("data_ordine, importo_euro, cliente_id, pagato")
       .is("deleted_at", null)
       .eq("pagato", true);
-    q = applyDateRange(q, "data_ordine", range);
+    q = applyDateRange(q, "data_ordine", range, floor);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -194,6 +203,7 @@ async function loadIncassiDettaglioAnno(
   | { ok: false; error: string }
 > {
   const range = dateRangeForYear(anno);
+  const floor = await resolveStatsDateFloor();
   type Row = {
     dateStr: string;
     amount: number;
@@ -211,7 +221,7 @@ async function loadIncassiDettaglioAnno(
         "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
       )
       .is("deleted_at", null);
-    q = applyDateRange(q, "data_emissione", range);
+    q = applyDateRange(q, "data_emissione", range, floor);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -246,7 +256,7 @@ async function loadIncassiDettaglioAnno(
       )
       .is("deleted_at", null)
       .eq("pagato", true);
-    q = applyDateRange(q, "data_ordine", range);
+    q = applyDateRange(q, "data_ordine", range, floor);
     if (clienteId) q = q.eq("cliente_id", clienteId);
     const { data, error } = await q;
     if (error) {
@@ -410,7 +420,7 @@ async function loadIncassiDettaglioAnno(
       .select("id")
       .is("deleted_at", null)
       .eq("pagato", true);
-    ordiniQ = applyDateRange(ordiniQ, "data_ordine", range);
+    ordiniQ = applyDateRange(ordiniQ, "data_ordine", range, floor);
     if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
     const { data: ordini, error: oErr } = await ordiniQ;
     if (oErr) {
@@ -479,12 +489,13 @@ async function loadOrdiniQtyAnno(
   clienteId: string | null | undefined
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
   const range = dateRangeForYear(anno);
+  const floor = await resolveStatsDateFloor();
 
   let ordiniQ = supabase
     .from("ordini")
     .select("id, data_ordine, cliente_id")
     .is("deleted_at", null);
-  ordiniQ = applyDateRange(ordiniQ, "data_ordine", range);
+  ordiniQ = applyDateRange(ordiniQ, "data_ordine", range, floor);
   if (clienteId) ordiniQ = ordiniQ.eq("cliente_id", clienteId);
 
   const { data: ordini, error: ordiniErr } = await ordiniQ;

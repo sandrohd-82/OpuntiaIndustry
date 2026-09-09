@@ -27,6 +27,7 @@ import {
   valutaListinoPerContratto,
 } from "@/lib/ecosystem/listino-vigente";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
   AuditLogInsert,
   AuditLogRow,
@@ -182,11 +183,15 @@ export async function listOrdiniAction(
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
+  const scope = await resolveScopeMode("ordini");
 
   let q = supabase
     .from("ordini")
     .select("*")
     .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    q = q.eq("created_by", scope.userId);
+  }
   q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
   const { data, error } = await q.order(
     stati.includes("storico") ? "data_consegna" : "data_ordine",

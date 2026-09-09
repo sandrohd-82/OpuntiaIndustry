@@ -15,6 +15,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
 export type ClientiActionResult =
@@ -144,12 +145,16 @@ export async function listClientiAction(): Promise<
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const scope = await resolveScopeMode("anagrafiche_clienti");
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("clienti")
     .select("*")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    q = q.eq("created_by", scope.userId);
+  }
+  const { data, error } = await q.order("created_at", { ascending: false });
 
   if (error) {
     return { success: false, error: error.message };

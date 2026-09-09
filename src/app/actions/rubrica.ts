@@ -10,6 +10,7 @@ import {
   type RubricaModalita,
   type RubricaTimelineItem,
 } from "@/lib/rubrica/types";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 
 async function guard() {
@@ -69,10 +70,15 @@ export async function listRubricaContattiAction(input?: {
 > {
   await guard();
   const supabase = await createClient();
+  const scope = await resolveScopeMode("anagrafiche_clienti");
   let q = supabase
     .from("rubrica_contatti")
     .select(CONTATTO_SELECT)
-    .is("deleted_at", null)
+    .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    q = q.eq("created_by", scope.userId);
+  }
+  q = q
     .order("cognome", { ascending: true })
     .order("nome", { ascending: true })
     .limit(500);

@@ -11,7 +11,57 @@ import {
   resolvePageKey,
   type PageAccessMap,
 } from "@/lib/auth/page-access";
+import {
+  AREA_FISCALE_PATH,
+  RICERCA_SVILUPPO_PATH,
+  isAreaUnlocked,
+  isSensitiveLockedPath,
+  lockedAreaKind,
+} from "@/lib/auth/data-scope";
+import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { createServiceClient } from "@/lib/supabase/server";
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+
+export async function upsertProfilePageKey(
+  service: ServiceClient,
+  params: {
+    profileId: string;
+    actorUserId: string;
+    pageKey: string;
+    visibile: boolean;
+  }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: existing } = await service
+    .from("profile_page_access")
+    .select("id")
+    .eq("profile_id", params.profileId)
+    .eq("page_key", params.pageKey)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (existing?.id) {
+    const { error } = await service
+      .from("profile_page_access")
+      .update({
+        visibile: params.visibile,
+        updated_by: params.actorUserId,
+      })
+      .eq("id", existing.id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }
+
+  const { error } = await service.from("profile_page_access").insert({
+    profile_id: params.profileId,
+    page_key: params.pageKey,
+    visibile: params.visibile,
+    created_by: params.actorUserId,
+    updated_by: params.actorUserId,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
 
 async function requireRealSuperadmin() {
   const user = await getAuthUser();
@@ -95,34 +145,25 @@ export async function setPageAccessAction(
     return { success: false, error: "Pagina non valida." };
   }
 
-  const service = createServiceClient();
-  const { data: existing } = await service
-    .from("profile_page_access")
-    .select("id")
-    .eq("profile_id", targetId)
-    .eq("page_key", pageKey)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (existing?.id) {
-    const { error } = await service
-      .from("profile_page_access")
-      .update({
-        visibile,
-        updated_by: gate.actorUserId,
-      })
-      .eq("id", existing.id);
-    if (error) return { success: false, error: error.message };
-  } else {
-    const { error } = await service.from("profile_page_access").insert({
-      profile_id: targetId,
-      page_key: pageKey,
-      visibile,
-      created_by: gate.actorUserId,
-      updated_by: gate.actorUserId,
-    });
-    if (error) return { success: false, error: error.message };
+  if (visibile && isSensitiveLockedPath(pageKey)) {
+    const bundle = await loadProfileAuthBundle(targetId);
+    if (!isAreaUnlocked(pageKey, bundle.settings)) {
+      return {
+        success: false,
+        error:
+          "Area blindata: sbloccala da Imposta autorizzazioni (doppia conferma).",
+      };
+    }
   }
+
+  const service = createServiceClient();
+  const upserted = await upsertProfilePageKey(service, {
+    profileId: targetId,
+    actorUserId: gate.actorUserId,
+    pageKey,
+    visibile,
+  });
+  if (!upserted.ok) return { success: false, error: upserted.error };
 
   await service.from("audit_log").insert({
     entity_type: "profile_page_access",
@@ -157,36 +198,60 @@ export async function setAreaAccessAction(
     return { success: false, error: "Voce di menu non valida." };
   }
 
+  if (visibile && isSensitiveLockedPath(areaKey)) {
+    const bundle = await loadProfileAuthBundle(targetId);
+    if (!isAreaUnlocked(areaKey, bundle.settings)) {
+      return {
+        success: false,
+        error:
+          "Area blindata: sbloccala da Imposta autorizzazioni (doppia conferma).",
+      };
+    }
+  }
+
   const service = createServiceClient();
   const now = new Date().toISOString();
 
-  const { data: existing } = await service
-    .from("profile_page_access")
-    .select("id")
-    .eq("profile_id", targetId)
-    .eq("page_key", areaKey)
-    .is("deleted_at", null)
-    .maybeSingle();
-
-  if (existing?.id) {
-    const { error } = await service
-      .from("profile_page_access")
-      .update({
-        visibile,
-        updated_by: gate.actorUserId,
-      })
-      .eq("id", existing.id);
-    if (error) return { success: false, error: error.message };
-  } else {
-    const { error } = await service.from("profile_page_access").insert({
-      profile_id: targetId,
-      page_key: areaKey,
-      visibile,
-      created_by: gate.actorUserId,
-      updated_by: gate.actorUserId,
-    });
-    if (error) return { success: false, error: error.message };
+  if (
+    !visibile &&
+    (areaKey === AREA_FISCALE_PATH || areaKey === RICERCA_SVILUPPO_PATH)
+  ) {
+    const kind = lockedAreaKind(areaKey);
+    const patch =
+      kind === "fiscale"
+        ? {
+            fiscale_unlocked_at: null,
+            fiscale_unlocked_by: null,
+            is_commercialista: false,
+            updated_by: gate.actorUserId,
+          }
+        : {
+            rs_unlocked_at: null,
+            rs_unlocked_by: null,
+            updated_by: gate.actorUserId,
+          };
+    const { data: settingsRow } = await service
+      .from("profile_auth_settings")
+      .select("profile_id")
+      .eq("profile_id", targetId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (settingsRow?.profile_id) {
+      await service
+        .from("profile_auth_settings")
+        .update(patch)
+        .eq("profile_id", targetId)
+        .is("deleted_at", null);
+    }
   }
+
+  const upserted = await upsertProfilePageKey(service, {
+    profileId: targetId,
+    actorUserId: gate.actorUserId,
+    pageKey: areaKey,
+    visibile,
+  });
+  if (!upserted.ok) return { success: false, error: upserted.error };
 
   const { data: siblings } = await service
     .from("profile_page_access")

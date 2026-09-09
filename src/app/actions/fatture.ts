@@ -30,6 +30,11 @@ import {
   type FatturaRinumeraRow,
 } from "@/lib/amministrazione/fatture-rinumerazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { todayRomeDate } from "@/lib/auth/data-scope";
+import {
+  loadOwnedAziendaIds,
+  resolveScopeMode,
+} from "@/lib/auth/data-scope-enforce";
 import { createClient } from "@/lib/supabase/server";
 import type {
   FatturaEmessaDilazioneInsert,
@@ -850,13 +855,30 @@ export async function listFattureAction(
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const scopeKey =
+    kind === "nota_credito"
+      ? "fiscale.note_credito_emesse"
+      : kind === "emessa"
+        ? "fiscale.fatture_emesse"
+        : "fiscale.fatture_ricevute";
+  const scope = await resolveScopeMode(scopeKey);
 
   if (kind === "emessa" || kind === "nota_credito") {
     let q = supabase
       .from("fatture_emesse")
       .select("*")
-      .is("deleted_at", null)
-      .order("data_emissione", { ascending: false });
+      .is("deleted_at", null);
+    if (scope && !scope.skip && scope.mode === "da_oggi") {
+      q = q.gte("data_emissione", todayRomeDate());
+    }
+    if (scope && !scope.skip && scope.mode === "aziende_proprie") {
+      const owned = await loadOwnedAziendaIds(supabase, scope.userId, "clienti");
+      if (owned.length === 0) {
+        return { success: true, fatture: [] };
+      }
+      q = q.in("cliente_id", owned);
+    }
+    q = q.order("data_emissione", { ascending: false });
     if (kind === "nota_credito") {
       q = q.eq("tipo_documento", "nota_credito");
     } else {
@@ -903,11 +925,23 @@ export async function listFattureAction(
     };
   }
 
-  const { data, error } = await supabase
+  let ricevuteQ = supabase
     .from("fatture_ricevute")
     .select("*")
-    .is("deleted_at", null)
-    .order("data_emissione", { ascending: false });
+    .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "da_oggi") {
+    ricevuteQ = ricevuteQ.gte("data_emissione", todayRomeDate());
+  }
+  if (scope && !scope.skip && scope.mode === "aziende_proprie") {
+    const owned = await loadOwnedAziendaIds(supabase, scope.userId, "fornitori");
+    if (owned.length === 0) {
+      return { success: true, fatture: [] };
+    }
+    ricevuteQ = ricevuteQ.in("fornitore_id", owned);
+  }
+  const { data, error } = await ricevuteQ.order("data_emissione", {
+    ascending: false,
+  });
   if (error) return { success: false, error: error.message };
 
   const rows = (data ?? []) as FatturaRicevutaRow[];

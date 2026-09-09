@@ -16,6 +16,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { normalizeCompanyNameKey, normalizeVatKey, companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { FornitoreInsert, FornitoreRow } from "@/types/database";
 
 export type FornitoriActionResult =
@@ -184,12 +185,16 @@ export async function listFornitoriAction(): Promise<
 > {
   await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const scope = await resolveScopeMode("fornitori");
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("fornitori")
     .select("*")
-    .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .is("deleted_at", null);
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    q = q.eq("created_by", scope.userId);
+  }
+  const { data, error } = await q.order("created_at", { ascending: false });
 
   if (error) {
     return { success: false, error: error.message };

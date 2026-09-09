@@ -14,6 +14,9 @@ import { getAuthContext, getUserAreas } from "@/lib/auth/session";
 import { loadAccessMaps } from "@/app/actions/page-access";
 import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
 import { ImpostaAutorizzazioniButton } from "@/components/layout/ImpostaAutorizzazioniButton";
+import { SensitiveAuthProvider } from "@/components/layout/SensitiveAuthProvider";
+import { applySensitiveLocks, isFiscalePath, isRicercaSviluppoPath } from "@/lib/auth/data-scope";
+import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
 import { AREA_ROUTES, SIDEBAR_AREA_ORDER } from "@/lib/areas/config";
 import { isTestImpersonation } from "@/lib/areas/guard";
@@ -53,11 +56,25 @@ export default async function AppLayout({
   const testMenuMode = isTestImpersonation(auth);
   const applyPageFilter =
     !isSuperadminProfile(auth.profile) || auth.impersonating;
-  const { pageAccess, actionAccess } = await loadAccessMaps(auth.userId);
+  const { pageAccess: rawPageAccess, actionAccess } = await loadAccessMaps(
+    auth.userId
+  );
+  const { settings: authSettings, scopes: dataScopes } =
+    await loadProfileAuthBundle(auth.userId);
+  const pageAccess = applySensitiveLocks(rawPageAccess, authSettings);
 
   const headerList = await headers();
   const pathname = headerList.get("x-pathname") || "/app/dashboard";
   const pageKey = resolvePageKey(pathname);
+
+  if (
+    applyPageFilter &&
+    !testMenuMode &&
+    ((isFiscalePath(pageKey) && !authSettings.fiscaleUnlocked) ||
+      (isRicercaSviluppoPath(pageKey) && !authSettings.rsUnlocked))
+  ) {
+    notFound();
+  }
 
   if (applyPageFilter && !testMenuMode && !isNavPathVisible(pageKey, pageAccess)) {
     const firstOn = SIDEBAR_AREA_ORDER.map((slug) => AREA_ROUTES[slug].path).find(
@@ -86,6 +103,7 @@ export default async function AppLayout({
   const canCreateProfiles = isSuperadminProfile(auth.actorProfile);
 
   return (
+    <SensitiveAuthProvider settings={authSettings}>
     <div className="flex min-h-screen">
       <AppSidebar
         areas={menuAreas}
@@ -110,7 +128,11 @@ export default async function AppLayout({
         >
           {testMenuMode && canCreateProfiles ? (
             <div className="sticky top-0 z-30 flex items-center justify-end gap-3 border-b border-slate-200 bg-white/95 px-4 py-2 print:hidden">
-              <ImpostaAutorizzazioniButton actionAccess={actionAccess} />
+              <ImpostaAutorizzazioniButton
+                actionAccess={actionAccess}
+                dataScopes={dataScopes}
+                authSettings={authSettings}
+              />
               <PageAccessToggle pageAccess={pageAccess} />
             </div>
           ) : null}
@@ -119,5 +141,6 @@ export default async function AppLayout({
       </div>
       {auth.welcomePending ? <WelcomeModal name={userName} /> : null}
     </div>
+    </SensitiveAuthProvider>
   );
 }
