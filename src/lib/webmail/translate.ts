@@ -16,6 +16,36 @@ export function webmailGeminiModel(): string {
   return process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash";
 }
 
+function webmailGeminiModelChain(): string[] {
+  const primary = webmailGeminiModel();
+  const extra = (process.env.GEMINI_MODEL_FALLBACKS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const defaults = [
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+  ];
+  return [...new Set([primary, ...extra, ...defaults])];
+}
+
+function isGeminiBusyError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /503|429|404|high demand|unavailable|overloaded|try again later|resource.?exhausted|not found|not supported/i.test(
+    msg
+  );
+}
+
+function friendlyGeminiError(e: unknown): Error {
+  if (isGeminiBusyError(e)) {
+    return new Error(
+      "Il servizio di traduzione è momentaneamente saturo. Riprova tra poco."
+    );
+  }
+  return e instanceof Error ? e : new Error("Traduzione fallita.");
+}
+
 const translateResultSchema = z.object({
   subject: z.string().nullable().optional(),
   body: z.string().min(1),
@@ -48,16 +78,7 @@ export async function translateMailWithGemini(input: {
     WEBMAIL_TRANSLATE_LANG_NAMES[input.targetLang] ||
     input.targetLang.trim() ||
     "Italiano";
-  const modelName = webmailGeminiModel();
   const genAI = new GoogleGenerativeAI(requireGeminiKey());
-  const model = genAI.getGenerativeModel({
-    model: modelName,
-    generationConfig: {
-      temperature: 0.2,
-      responseMimeType: "application/json",
-    },
-  });
-
   const body = input.bodyText.slice(0, 80_000);
   const subject = (input.subject ?? "").slice(0, 500);
 
@@ -76,27 +97,47 @@ ${subject || "(vuoto)"}
 CORPO:
 ${body}`;
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-  });
-  const raw = result.response.text();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(extractJsonText(raw));
-  } catch {
-    throw new Error("Risposta Gemini non valida (JSON traduzione).");
-  }
-  const validated = translateResultSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new Error("Traduzione Gemini incompleta o non valida.");
-  }
+  const models = webmailGeminiModelChain();
+  let lastBusy: unknown = null;
+  for (const modelName of models) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: "application/json",
+        },
+      });
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      });
+      const raw = result.response.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(extractJsonText(raw));
+      } catch {
+        throw new Error("Risposta Gemini non valida (JSON traduzione).");
+      }
+      const validated = translateResultSchema.safeParse(parsed);
+      if (!validated.success) {
+        throw new Error("Traduzione Gemini incompleta o non valida.");
+      }
 
-  return {
-    subject: validated.data.subject?.trim() || null,
-    bodyText: validated.data.body.trim(),
-    model: modelName,
-    targetLangLabel: target,
-  };
+      return {
+        subject: validated.data.subject?.trim() || null,
+        bodyText: validated.data.body.trim(),
+        model: modelName,
+        targetLangLabel: target,
+      };
+    } catch (e) {
+      if (isGeminiBusyError(e)) {
+        lastBusy = e;
+        continue;
+      }
+      throw friendlyGeminiError(e);
+    }
+  }
+  throw friendlyGeminiError(lastBusy);
 }
 
 export {
