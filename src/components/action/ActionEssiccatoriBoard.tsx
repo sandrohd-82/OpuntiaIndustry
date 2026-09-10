@@ -1,5 +1,6 @@
 "use client";
 
+import { FaBolt, FaClock, FaDiagramProject } from "react-icons/fa6";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
 import {
   ACTION_ESSICCATORI,
@@ -7,6 +8,40 @@ import {
   formatCapacitaKg,
   type ActionEssiccatore,
 } from "@/lib/action/essiccatori";
+
+const iconBtn =
+  "inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+
+function EssiccatoreCommandIcons({ nome }: { nome: string }) {
+  return (
+    <div className="flex justify-end gap-1 px-3 py-2">
+      <button
+        type="button"
+        className={iconBtn}
+        title="Azione — comando immediato"
+        aria-label={`Azione immediata su ${nome}`}
+      >
+        <FaBolt size={16} />
+      </button>
+      <button
+        type="button"
+        className={iconBtn}
+        title="Programma — esegui fra X oppure alle ore X"
+        aria-label={`Programma su ${nome}`}
+      >
+        <FaClock size={16} />
+      </button>
+      <button
+        type="button"
+        className={iconBtn}
+        title="Processo — serie di azioni in sequenza, in parallelo o su evento"
+        aria-label={`Processo su ${nome}`}
+      >
+        <FaDiagramProject size={16} />
+      </button>
+    </div>
+  );
+}
 
 function EssiccatoreBox({ item }: { item: ActionEssiccatore }) {
   return (
@@ -18,7 +53,8 @@ function EssiccatoreBox({ item }: { item: ActionEssiccatore }) {
           className="h-full w-full object-contain"
         />
       </div>
-      <div className="flex flex-1 flex-col p-5">
+      <EssiccatoreCommandIcons nome={item.nome} />
+      <div className="flex flex-1 flex-col px-5 pb-5">
         <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
           {item.codice}
         </p>
