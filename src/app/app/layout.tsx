@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { actorCanSwitchProfiles } from "@/lib/auth/impersonation-scope";
-import { isSuperadminProfile } from "@/lib/auth/roles";
+import { isSuperadminProfile, isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
@@ -17,7 +17,12 @@ import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
 import { ImpostaAutorizzazioniButton } from "@/components/layout/ImpostaAutorizzazioniButton";
 import { SensitiveAuthProvider } from "@/components/layout/SensitiveAuthProvider";
 import { canElaboraContabilitaAccess } from "@/lib/auth/action-access";
-import { applySensitiveLocks, isFiscalePath, isRicercaSviluppoPath } from "@/lib/auth/data-scope";
+import {
+  applySensitiveLocks,
+  isFiscalePath,
+  isRicercaSviluppoPath,
+  unrestrictedAuthSettings,
+} from "@/lib/auth/data-scope";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
 import {
@@ -60,13 +65,16 @@ export default async function AppLayout({
 
   const stato = parseProfileStatoOperativo(auth.profile.stato_operativo);
   const testMenuMode = isTestImpersonation(auth);
-  const applyPageFilter =
-    !isSuperadminProfile(auth.profile) || auth.impersonating;
+  const unrestricted = isUnrestrictedSuperadmin(auth);
+  const applyPageFilter = !unrestricted;
   const { pageAccess: rawPageAccess, actionAccess } = await loadAccessMaps(
     auth.userId
   );
-  const { settings: authSettings, scopes: dataScopes } =
+  const { settings: rawAuthSettings, scopes: dataScopes } =
     await loadProfileAuthBundle(auth.userId);
+  const authSettings = unrestricted
+    ? unrestrictedAuthSettings(rawAuthSettings)
+    : rawAuthSettings;
   const pageAccess = applySensitiveLocks(
     withRoleAreaPageDefaults(rawPageAccess, auth.areas),
     authSettings

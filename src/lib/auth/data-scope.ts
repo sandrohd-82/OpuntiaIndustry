@@ -36,6 +36,17 @@ export const EMPTY_AUTH_SETTINGS: ProfileAuthSettings = {
   rsUnlocked: false,
 };
 
+/** Super Admin reale: Area fiscale e R&S sempre sbloccate. */
+export function unrestrictedAuthSettings(
+  settings?: ProfileAuthSettings | null
+): ProfileAuthSettings {
+  return {
+    isCommercialista: Boolean(settings?.isCommercialista),
+    fiscaleUnlocked: true,
+    rsUnlocked: true,
+  };
+}
+
 export type SensitiveScopeGroup = {
   key: string;
   /** Se presente, più voci stanno nello stesso riquadro. */

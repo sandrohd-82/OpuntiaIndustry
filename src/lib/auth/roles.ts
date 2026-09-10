@@ -1,3 +1,4 @@
+import { parseProfilePotere } from "@/lib/auth/gerarchia";
 import type { AppRoleCode, Profile } from "@/types/database";
 
 export function getProfileRoleCode(profile: Profile): AppRoleCode | null {
@@ -5,7 +6,18 @@ export function getProfileRoleCode(profile: Profile): AppRoleCode | null {
 }
 
 export function isSuperadminProfile(profile: Profile): boolean {
-  return getProfileRoleCode(profile) === "superadmin";
+  return (
+    getProfileRoleCode(profile) === "superadmin" ||
+    parseProfilePotere(profile.potere) === "superadmin"
+  );
+}
+
+/** Super Admin sul proprio profilo: nessun filtro pagine, aree o lucchetti. */
+export function isUnrestrictedSuperadmin(auth: {
+  profile: Profile;
+  impersonating: boolean;
+}): boolean {
+  return isSuperadminProfile(auth.profile) && !auth.impersonating;
 }
 
 /**

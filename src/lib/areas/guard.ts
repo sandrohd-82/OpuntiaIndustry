@@ -3,6 +3,7 @@ import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
   isAdminLikeProfile,
   isSuperadminProfile,
+  isUnrestrictedSuperadmin,
 } from "@/lib/auth/roles";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
@@ -28,6 +29,7 @@ export async function requireAnyAreaAccess(slugs: AreaSlug[]) {
   if (auth.mustEnrollTotp) redirect("/primo-accesso/2fa");
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
   if (isTestImpersonation(auth)) return { auth };
+  if (isUnrestrictedSuperadmin(auth)) return { auth };
   if (
     slugs.length > 0 &&
     slugs.every((s) => s === "area-fiscale" || s === "ricerca-sviluppo")
@@ -53,6 +55,9 @@ export async function requireAreaAccess(slug: AreaSlug) {
   if (!auth.isSecondFactorVerified) redirect("/verify-email");
 
   if (isTestImpersonation(auth)) {
+    return { auth, meta: AREA_ROUTES[slug] };
+  }
+  if (isUnrestrictedSuperadmin(auth)) {
     return { auth, meta: AREA_ROUTES[slug] };
   }
 
@@ -84,6 +89,9 @@ export async function requireWebmailAccess() {
   if (isTestImpersonation(auth)) {
     return { auth, meta: AREA_ROUTES.webmail };
   }
+  if (isUnrestrictedSuperadmin(auth)) {
+    return { auth, meta: AREA_ROUTES.webmail };
+  }
 
   const ok =
     isAdminLikeProfile(auth.profile) ||
@@ -102,6 +110,9 @@ export async function requireArchivioSource(
   source: AreaSlug | "webmail"
 ) {
   const { auth } = await requireAreaAccess("archivio");
+  if (isUnrestrictedSuperadmin(auth)) {
+    return { auth };
+  }
 
   if (source === "webmail") {
     const ok =

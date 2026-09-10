@@ -1,8 +1,10 @@
 import { cookies } from "next/headers";
+import { AREA_ROUTES } from "@/lib/areas/config";
 import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile, UserArea } from "@/types/database";
+import type { AreaSlug, Profile, UserArea } from "@/types/database";
 
 export interface AuthContext {
   /** Identità con cui opera il gestionale (operatore se in switch). */
@@ -77,6 +79,34 @@ export async function getUserAreas(userId: string): Promise<UserArea[]> {
   return data as UserArea[];
 }
 
+/** Tutte le aree attive: Super Admin le vede tutte, anche senza riga RBAC. */
+export async function getAllActiveAreas(): Promise<UserArea[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("areas")
+    .select("id, slug, name, description, icon, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+  if (!error && data && data.length > 0) {
+    return data.map((row) => ({
+      area_id: String(row.id),
+      slug: row.slug as AreaSlug,
+      name: String(row.name ?? row.slug),
+      description: row.description ? String(row.description) : null,
+      icon: row.icon ? String(row.icon) : null,
+      sort_order: Number(row.sort_order ?? 0),
+    }));
+  }
+  return Object.entries(AREA_ROUTES).map(([slug, meta], i) => ({
+    area_id: slug,
+    slug: slug as AreaSlug,
+    name: meta.label,
+    description: meta.description,
+    icon: null,
+    sort_order: i,
+  }));
+}
+
 async function getActiveImpersonationTargetId(
   actorUserId: string
 ): Promise<string | null> {
@@ -107,8 +137,12 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   if (!profile) return null;
 
   const impersonating = Boolean(targetId);
+  const unrestricted = isUnrestrictedSuperadmin({
+    profile,
+    impersonating,
+  });
   const [areas, secondFactorOk] = await Promise.all([
-    getUserAreas(effectiveId),
+    unrestricted ? getAllActiveAreas() : getUserAreas(effectiveId),
     isSecondFactorVerified(),
   ]);
 
