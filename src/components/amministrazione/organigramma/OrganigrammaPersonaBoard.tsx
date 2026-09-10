@@ -46,6 +46,7 @@ import {
   COMMERCIALE_GRADO_LABELS,
   isRepartoCommerciale,
 } from "@/lib/auth/commerciale";
+import { formatIbanDisplay } from "@/lib/iban";
 import {
   OPERATIVE_AZIONI,
   ORGANIGRAMMA_CONTRATTO_STATI,
@@ -262,6 +263,11 @@ function AnagraficaCard({
       ? String(item.commercialeProvvigionePct)
       : ""
   );
+  const [bancaIban, setBancaIban] = useState(formatIbanDisplay(item.bancaIban));
+  const [bancaBic, setBancaBic] = useState(item.bancaBic ?? "");
+  const [bancaIntestatario, setBancaIntestatario] = useState(
+    item.bancaIntestatario ?? ""
+  );
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
@@ -281,6 +287,9 @@ function AnagraficaCard({
         ? String(item.commercialeProvvigionePct)
         : ""
     );
+    setBancaIban(formatIbanDisplay(item.bancaIban));
+    setBancaBic(item.bancaBic ?? "");
+    setBancaIntestatario(item.bancaIntestatario ?? "");
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
 
@@ -300,6 +309,9 @@ function AnagraficaCard({
         (commercialeGrado as "senior" | "professional" | "executive") ||
         null,
       commercialeProvvigionePct: commercialeProvvigionePct || null,
+      bancaIban,
+      bancaBic,
+      bancaIntestatario,
     });
     if (!res.success) {
       setBusy(false);
@@ -423,6 +435,41 @@ function AnagraficaCard({
                 disabled={!isAdmin}
                 onChange={(e) => setCi(e.target.value)}
                 className={inputCls}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              IBAN
+              <input
+                value={bancaIban}
+                disabled={!isAdmin}
+                onChange={(e) => setBancaIban(e.target.value)}
+                onBlur={() => setBancaIban(formatIbanDisplay(bancaIban))}
+                className={inputCls}
+                placeholder="Opzionale"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              BIC / SWIFT
+              <input
+                value={bancaBic}
+                disabled={!isAdmin}
+                onChange={(e) => setBancaBic(e.target.value)}
+                className={inputCls}
+                placeholder="Opzionale"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Intestatario conto
+              <input
+                value={bancaIntestatario}
+                disabled={!isAdmin}
+                onChange={(e) => setBancaIntestatario(e.target.value)}
+                className={inputCls}
+                placeholder="Se diverso da nome e cognome"
               />
             </label>
             <label className="text-xs text-[var(--muted)] sm:col-span-2">

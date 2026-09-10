@@ -35,6 +35,7 @@ import {
   formatProvvigionePct,
   isRepartoCommerciale,
 } from "@/lib/auth/commerciale";
+import { formatIbanDisplay } from "@/lib/iban";
 import {
   PROFILE_STATO_LABELS,
   parseProfileStatoOperativo,
@@ -451,6 +452,9 @@ function OperatoreCreateModal({
   const [commercialeGrado, setCommercialeGrado] = useState("");
   const [commercialeProvvigionePct, setCommercialeProvvigionePct] =
     useState("");
+  const [bancaIban, setBancaIban] = useState("");
+  const [bancaBic, setBancaBic] = useState("");
+  const [bancaIntestatario, setBancaIntestatario] = useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
   const [docs, setDocs] = useState<Partial<Record<OrganigrammaDocTipo, File>>>(
@@ -474,6 +478,9 @@ function OperatoreCreateModal({
         (commercialeGrado as "senior" | "professional" | "executive") ||
         null,
       commercialeProvvigionePct: commercialeProvvigionePct || null,
+      bancaIban,
+      bancaBic,
+      bancaIntestatario,
     });
     if (!res.success) {
       setBusy(false);
@@ -539,6 +546,38 @@ function OperatoreCreateModal({
               value={cartaIdentita}
               onChange={(e) => setCi(e.target.value)}
               className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            IBAN
+            <input
+              value={bancaIban}
+              onChange={(e) => setBancaIban(e.target.value)}
+              onBlur={() => setBancaIban(formatIbanDisplay(bancaIban))}
+              className={inputCls}
+              placeholder="Opzionale"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            BIC / SWIFT
+            <input
+              value={bancaBic}
+              onChange={(e) => setBancaBic(e.target.value)}
+              className={inputCls}
+              placeholder="Opzionale"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Intestatario conto
+            <input
+              value={bancaIntestatario}
+              onChange={(e) => setBancaIntestatario(e.target.value)}
+              className={inputCls}
+              placeholder="Se diverso da nome e cognome"
             />
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">

@@ -153,6 +153,7 @@ export function CreateGestionaleProfileModal({
                 </option>
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
+                    {p.isSuperadmin ? `${p.potereLabel} · ` : ""}
                     {p.label}
                     {p.email ? ` · ${p.email}` : ""}
                     {` · ${p.gerarchiaLabel} · ${p.statoLabel}`}
@@ -161,8 +162,9 @@ export function CreateGestionaleProfileModal({
               </select>
             </label>
             <p className="mt-2 text-[11px] text-[var(--muted)]">
-              Un profilo può essere collegato a un solo operatore. Chi è già
-              collegato non compare in elenco.
+              Un profilo può essere collegato a un solo operatore. In elenco
+              ci sono anche i Super Admin liberi. Chi è già collegato non
+              compare.
             </p>
             {error ? (
               <p className="mt-3 text-sm text-red-700" role="alert">

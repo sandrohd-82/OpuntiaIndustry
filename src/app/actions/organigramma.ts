@@ -48,13 +48,14 @@ import {
   isRepartoCommerciale,
   parseProvvigionePctInput,
 } from "@/lib/auth/commerciale";
+import { parseBicInput, parseIbanInput } from "@/lib/iban";
 import { eventoLineaLabel } from "@/lib/produzione/macchinari";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_intestatario, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -75,6 +76,9 @@ type PersonaRow = {
   reparto_id?: string | null;
   commerciale_grado?: string | null;
   commerciale_provvigione_pct?: number | string | null;
+  banca_iban?: string | null;
+  banca_bic?: string | null;
+  banca_intestatario?: string | null;
   in_forza?: boolean;
   cessato_at?: string | null;
 };
@@ -151,6 +155,9 @@ function mapPersona(
       const parsed = parseProvvigionePctInput(row.commerciale_provvigione_pct);
       return parsed.ok ? parsed.value : null;
     })(),
+    bancaIban: row.banca_iban?.trim() || null,
+    bancaBic: row.banca_bic?.trim() || null,
+    bancaIntestatario: row.banca_intestatario?.trim() ?? "",
     inForza: row.in_forza !== false,
     cessatoAt: row.cessato_at ?? null,
     mansioni,
@@ -1145,6 +1152,25 @@ async function resolveCampiCommerciale(v: {
   return { ok: true, grado, provvigionePct: pct.value };
 }
 
+function resolveCampiBancari(v: {
+  bancaIban?: string | null;
+  bancaBic?: string | null;
+  bancaIntestatario?: string;
+}):
+  | { ok: true; iban: string | null; bic: string | null; intestatario: string }
+  | { ok: false; error: string } {
+  const iban = parseIbanInput(v.bancaIban);
+  if (!iban.ok) return iban;
+  const bic = parseBicInput(v.bancaBic);
+  if (!bic.ok) return bic;
+  return {
+    ok: true,
+    iban: iban.value,
+    bic: bic.value,
+    intestatario: (v.bancaIntestatario ?? "").trim(),
+  };
+}
+
 export async function createPersonaAction(
   raw: unknown
 ): Promise<
@@ -1162,6 +1188,8 @@ export async function createPersonaAction(
   const supabase = await createClient();
   const comm = await resolveCampiCommerciale(v);
   if (!comm.ok) return { success: false, error: comm.error };
+  const banca = resolveCampiBancari(v);
+  if (!banca.ok) return { success: false, error: banca.error };
   const { data, error } = await supabase
     .from("organigramma_persone")
     .insert({
@@ -1174,6 +1202,9 @@ export async function createPersonaAction(
       reparto_id: v.repartoId ?? null,
       commerciale_grado: comm.grado,
       commerciale_provvigione_pct: comm.provvigionePct,
+      banca_iban: banca.iban,
+      banca_bic: banca.bic,
+      banca_intestatario: banca.intestatario || null,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -1211,6 +1242,16 @@ export async function createPersonaAction(
       payload: { percentuale: comm.provvigionePct },
     });
   }
+  if (banca.iban) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: row.id,
+      action: "operatore_iban_set",
+      actor_id: auth.userId,
+      summary: "Impostato IBAN operatore",
+      payload: { iban: banca.iban },
+    });
+  }
   const [mansioni, reparti] = await Promise.all([
     loadMansioniFor([row.id]),
     loadRepartiById(),
@@ -1246,13 +1287,20 @@ export async function updatePersonaAction(
   const supabase = await createClient();
   const comm = await resolveCampiCommerciale(v);
   if (!comm.ok) return { success: false, error: comm.error };
+  const banca = resolveCampiBancari(v);
+  if (!banca.ok) return { success: false, error: banca.error };
   const { data: prev } = await supabase
     .from("organigramma_persone")
-    .select("commerciale_provvigione_pct")
+    .select("commerciale_provvigione_pct, banca_iban")
     .eq("id", v.id)
     .is("deleted_at", null)
     .maybeSingle();
   const prevPct = parseProvvigionePctInput(prev?.commerciale_provvigione_pct);
+  const prevIban = String(
+    (prev as { banca_iban?: string | null } | null)?.banca_iban ?? ""
+  )
+    .replace(/\s+/g, "")
+    .toUpperCase() || null;
   const { data, error } = await supabase
     .from("organigramma_persone")
     .update({
@@ -1264,6 +1312,9 @@ export async function updatePersonaAction(
       reparto_id: v.repartoId ?? null,
       commerciale_grado: comm.grado,
       commerciale_provvigione_pct: comm.provvigionePct,
+      banca_iban: banca.iban,
+      banca_bic: banca.bic,
+      banca_intestatario: banca.intestatario || null,
       updated_by: auth.userId,
     })
     .eq("id", v.id)
@@ -1313,6 +1364,20 @@ export async function updatePersonaAction(
         da: prevValue,
         a: comm.provvigionePct,
       },
+    });
+  }
+  if (prevIban !== banca.iban) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: v.id,
+      action: "operatore_iban_set",
+      actor_id: auth.userId,
+      summary: banca.iban
+        ? prevIban
+          ? "Aggiornato IBAN operatore"
+          : "Impostato IBAN operatore"
+        : "Rimosso IBAN operatore",
+      payload: { da: prevIban, a: banca.iban },
     });
   }
   const [mansioni, reparti] = await Promise.all([

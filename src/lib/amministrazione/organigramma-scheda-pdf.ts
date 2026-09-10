@@ -156,6 +156,16 @@ function writeAnagrafica(
     [t("Nome"), t(`${p.cognome} ${p.nome}`)],
     [t("Codice fiscale"), t(p.codiceFiscale || "—")],
     [t("Carta d'identità"), t(p.cartaIdentita || "—")],
+    [
+      t("IBAN"),
+      t(
+        p.bancaIban
+          ? p.bancaIban.replace(/(.{4})/g, "$1 ").trim()
+          : "—"
+      ),
+    ],
+    [t("BIC / SWIFT"), t(p.bancaBic || "—")],
+    [t("Intestatario"), t(p.bancaIntestatario || "—")],
     [t("Reparto"), t(p.repartoNome || "—")],
     [t("Mansioni"), t(p.mansioni.map((m) => m.nome).join(", ") || "—")],
     [t("In forza"), t(p.inForza ? "Sì" : "No")],

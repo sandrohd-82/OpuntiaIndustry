@@ -91,6 +91,9 @@ export type OrganigrammaPersona = {
   repartoCodice: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
   commercialeProvvigionePct: number | null;
+  bancaIban: string | null;
+  bancaBic: string | null;
+  bancaIntestatario: string;
   inForza: boolean;
   cessatoAt: string | null;
   mansioni: OrganigrammaMansione[];
@@ -325,6 +328,9 @@ export const personaInputSchema = z.object({
   commercialeProvvigionePct: z
     .union([z.number(), z.string(), z.null()])
     .optional(),
+  bancaIban: z.string().optional().nullable(),
+  bancaBic: z.string().optional().nullable(),
+  bancaIntestatario: z.string().trim().max(120).optional().default(""),
 });
 
 export const personaUpdateSchema = personaInputSchema.extend({

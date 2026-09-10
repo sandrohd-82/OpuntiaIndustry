@@ -10,13 +10,14 @@ import {
   parseCommercialeGrado,
   parseProvvigionePctInput,
 } from "@/lib/auth/commerciale";
-import { isProtectedSuperadminTarget } from "@/lib/auth/impersonation-scope";
 import {
   PROFILE_GERARCHIA_LABELS,
   PROFILE_GERARCHIE,
+  PROFILE_POTERE_LABELS,
   PROFILE_POTERI,
   PROFILE_REPARTI_OPERATIVI,
   parseProfileGerarchia,
+  parseProfilePotere,
   parseProfileReparto,
   roleCodeFromPotereGerarchia,
   type ProfileGerarchia,
@@ -306,6 +307,8 @@ export type GestionaleProfileOption = {
   email: string;
   gerarchiaLabel: string;
   statoLabel: string;
+  potereLabel: string;
+  isSuperadmin: boolean;
 };
 
 export async function listUnlinkedGestionaleProfilesAction(): Promise<
@@ -338,7 +341,6 @@ export async function listUnlinkedGestionaleProfilesAction(): Promise<
   for (const row of data ?? []) {
     const id = String((row as { id: string }).id);
     if (taken.has(id)) continue;
-    if (isProtectedSuperadminTarget(row)) continue;
     const email = String((row as { email?: string | null }).email ?? "");
     const full = String((row as { full_name?: string | null }).full_name ?? "").trim();
     const composed = `${(row as { first_name?: string | null }).first_name ?? ""} ${
@@ -350,15 +352,29 @@ export async function listUnlinkedGestionaleProfilesAction(): Promise<
     const stato = parseProfileStatoOperativo(
       (row as { stato_operativo?: string | null }).stato_operativo
     );
+    const ruolo = (row as { app_roles?: { code?: string } | { code?: string }[] | null })
+      .app_roles;
+    const ruoloCode = String(
+      (Array.isArray(ruolo) ? ruolo[0]?.code : ruolo?.code) ?? ""
+    );
+    const potere = parseProfilePotere((row as { potere?: string | null }).potere);
+    const isSuperadmin = potere === "superadmin" || ruoloCode === "superadmin";
     profiles.push({
       id,
       label: full || composed || email || "Profilo",
       email,
       gerarchiaLabel: PROFILE_GERARCHIA_LABELS[gerarchia],
       statoLabel: PROFILE_STATO_LABELS[stato],
+      potereLabel: isSuperadmin
+        ? PROFILE_POTERE_LABELS.superadmin
+        : PROFILE_POTERE_LABELS[potere],
+      isSuperadmin,
     });
   }
-  profiles.sort((a, b) => a.label.localeCompare(b.label, "it"));
+  profiles.sort((a, b) => {
+    if (a.isSuperadmin !== b.isSuperadmin) return a.isSuperadmin ? -1 : 1;
+    return a.label.localeCompare(b.label, "it");
+  });
   return { success: true, profiles };
 }
 
@@ -399,9 +415,6 @@ export async function linkOrganigrammaProfileAction(input: {
     .maybeSingle();
   if (prErr || !profile || !profile.is_active) {
     return { success: false, error: "Profilo gestionale non trovato o non attivo." };
-  }
-  if (isProtectedSuperadminTarget(profile)) {
-    return { success: false, error: "Non puoi collegare il Super Admin operativo." };
   }
 
   const { data: other } = await service
