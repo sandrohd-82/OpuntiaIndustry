@@ -7,10 +7,10 @@ import {
 /** Menu Action — IoT (placeholder; moduli in costruzione). */
 export const ACTION_SECTIONS: readonly NavItem[] = [
   {
-    slug: "dispositivi",
-    label: "Dispositivi",
-    description: "Motori, essiccatori, macchine e impianti collegati",
-    path: "/app/action/dispositivi",
+    slug: "aree",
+    label: "Aree",
+    description: "Aree operative di motori, essiccatori, macchine e impianti",
+    path: "/app/action/aree",
   },
   {
     slug: "sensori",
