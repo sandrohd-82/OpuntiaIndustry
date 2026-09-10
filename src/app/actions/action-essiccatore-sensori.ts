@@ -3,6 +3,8 @@
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
+  ACTION_SENSORE_CATALOGO,
+  catalogoSensoriPerEssiccatori,
   createSensoreInputSchema,
   moveSensoreInputSchema,
   renameSensoreInputSchema,
@@ -63,6 +65,36 @@ export async function listActionEssiccatoreSensoriAction(): Promise<
   { success: true; items: ActionEssiccatoreSensore[] } | { success: false; error: string }
 > {
   await requireAreaAccess("action");
+  const service = createServiceClient();
+  const needed = catalogoSensoriPerEssiccatori();
+  const { data: existing } = await service
+    .from("action_essiccatore_sensori")
+    .select("essiccatore_id, codice")
+    .in(
+      "essiccatore_id",
+      needed.map((n) => n.essiccatoreId)
+    );
+  const have = new Set(
+    ((existing ?? []) as Array<{ essiccatore_id: string; codice: string }>).map(
+      (r) => `${r.essiccatore_id}:${r.codice}`
+    )
+  );
+  const missing = needed.filter(
+    (n) => !have.has(`${n.essiccatoreId}:${n.codice}`)
+  );
+  if (missing.length > 0) {
+    await service.from("action_essiccatore_sensori").insert(
+      missing.map((n) => ({
+        essiccatore_id: n.essiccatoreId,
+        codice: n.codice,
+        nome: n.nome,
+        unita: n.unita,
+        x_pct: n.xPct,
+        y_pct: n.yPct,
+      }))
+    );
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("action_essiccatore_sensori")
@@ -70,7 +102,17 @@ export async function listActionEssiccatoreSensoriAction(): Promise<
     .is("deleted_at", null)
     .order("codice", { ascending: true });
   if (error) return { success: false, error: error.message };
-  return { success: true, items: ((data ?? []) as Row[]).map(mapRow) };
+  const rank = new Map<string, number>(
+    ACTION_SENSORE_CATALOGO.map((s) => [s.codice, s.sort])
+  );
+  const items = ((data ?? []) as Row[])
+    .map(mapRow)
+    .sort(
+      (a, b) =>
+        (rank.get(a.codice) ?? 99) - (rank.get(b.codice) ?? 99) ||
+        a.nome.localeCompare(b.nome, "it")
+    );
+  return { success: true, items };
 }
 
 export async function createActionEssiccatoreSensoreAction(

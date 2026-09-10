@@ -13,7 +13,7 @@ type Props = {
   onMove: (id: string, xPct: number, yPct: number) => void;
   onCommit: (id: string, xPct: number, yPct: number) => void;
   onRename: (id: string, nome: string) => void;
-  onDelete: (sensor: ActionEssiccatoreSensore) => void;
+  onDelete?: (sensor: ActionEssiccatoreSensore) => void;
 };
 
 function clampPct(n: number): number {
@@ -120,7 +120,7 @@ export function ActionEssiccatoreSensorFlags({
                   </span>
                 </button>
               )}
-              {setting ? (
+              {setting && onDelete ? (
                 <button
                   type="button"
                   title="Rimuovi bandiera"

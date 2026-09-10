@@ -1,5 +1,67 @@
 import { z } from "zod";
-import { ACTION_ESSICCATORE_IDS } from "@/lib/action/essiccatori";
+import {
+  ACTION_ESSICCATORE_IDS,
+  ACTION_ESSICCATORI,
+} from "@/lib/action/essiccatori";
+
+export const ACTION_SENSORE_CATALOGO = [
+  {
+    codice: "TEMP-AMB",
+    nome: "Temperatura Ambientale",
+    unita: "°C",
+    xPct: 18,
+    yPct: 22,
+    sort: 1,
+  },
+  {
+    codice: "TEMP-BRUC",
+    nome: "Temperatura Uscita Bruciatore",
+    unita: "°C",
+    xPct: 82,
+    yPct: 22,
+    sort: 2,
+  },
+  {
+    codice: "PRESS-SOFF",
+    nome: "Sensore di pressione Piano Soffiante",
+    unita: "mbar",
+    xPct: 18,
+    yPct: 78,
+    sort: 3,
+  },
+  {
+    codice: "PESO",
+    nome: "Peso prodotto",
+    unita: "kg",
+    xPct: 82,
+    yPct: 78,
+    sort: 4,
+  },
+] as const;
+
+export const ACTION_SENSORE_CATALOGO_CODICI = new Set(
+  ACTION_SENSORE_CATALOGO.map((s) => s.codice)
+);
+
+export function catalogoSensoriPerEssiccatori(): Array<{
+  essiccatoreId: string;
+  codice: string;
+  nome: string;
+  unita: string;
+  xPct: number;
+  yPct: number;
+}> {
+  return ACTION_ESSICCATORI.flatMap((e) =>
+    ACTION_SENSORE_CATALOGO.map((s) => ({
+      essiccatoreId: e.id,
+      codice: s.codice,
+      nome: s.nome,
+      unita: s.unita,
+      xPct: s.xPct,
+      yPct: s.yPct,
+    }))
+  );
+}
 
 export type ActionEssiccatoreSensore = {
   id: string;

@@ -1,17 +1,14 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { FaBolt, FaClock, FaDiagramProject, FaFlag, FaPlus } from "react-icons/fa6";
+import { FaBolt, FaClock, FaDiagramProject, FaFlag } from "react-icons/fa6";
 import {
-  createActionEssiccatoreSensoreAction,
   listActionEssiccatoreSensoriAction,
   moveActionEssiccatoreSensoreAction,
   renameActionEssiccatoreSensoreAction,
-  softDeleteActionEssiccatoreSensoreAction,
 } from "@/app/actions/action-essiccatore-sensori";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
-import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
   ACTION_ESSICCATORI,
   CARICO_TIPO_LABELS,
@@ -58,20 +55,16 @@ function EssiccatoreBox({
   item,
   sensors,
   setting,
-  onAdd,
   onMove,
   onCommit,
   onRename,
-  onDelete,
 }: {
   item: ActionEssiccatore;
   sensors: ActionEssiccatoreSensore[];
   setting: boolean;
-  onAdd: (essiccatoreId: string) => void;
   onMove: (id: string, xPct: number, yPct: number) => void;
   onCommit: (id: string, xPct: number, yPct: number) => void;
   onRename: (id: string, nome: string) => void;
-  onDelete: (sensor: ActionEssiccatoreSensore) => void;
 }) {
   return (
     <article className="flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
@@ -87,22 +80,9 @@ function EssiccatoreBox({
           onMove={onMove}
           onCommit={onCommit}
           onRename={onRename}
-          onDelete={onDelete}
         />
       </div>
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        {setting ? (
-          <button
-            type="button"
-            onClick={() => onAdd(item.id)}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-          >
-            <FaPlus size={10} />
-            Bandiera
-          </button>
-        ) : (
-          <span />
-        )}
+      <div className="flex items-center justify-end px-3 py-2">
         <EssiccatoreCommandIcons nome={item.nome} />
       </div>
       <div className="flex flex-1 flex-col px-5 pb-5">
@@ -142,9 +122,6 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
   const [sensors, setSensors] = useState<ActionEssiccatoreSensore[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [deleting, setDeleting] = useState<ActionEssiccatoreSensore | null>(
-    null
-  );
 
   useEffect(() => {
     void listActionEssiccatoreSensoriAction().then((res) => {
@@ -174,21 +151,6 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
     });
   }
 
-  function addFlag(essiccatoreId: string) {
-    startTransition(async () => {
-      const res = await createActionEssiccatoreSensoreAction({
-        essiccatoreId,
-        nome: "Nuovo sensore",
-      });
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setSensors((prev) => [...prev, res.item]);
-      setError(null);
-    });
-  }
-
   function rename(id: string, nome: string) {
     startTransition(async () => {
       const res = await renameActionEssiccatoreSensoreAction({ id, nome });
@@ -206,7 +168,7 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-[var(--muted)]">
             {setting
-              ? "Setting attivo: trascina le bandiere sul disegno. Doppio clic per rinominare."
+              ? "Setting attivo: trascina le 4 bandiere catalogo sul disegno. Doppio clic per rinominare."
               : "Attiva il setting per posizionare le bandiere dei sensori."}
           </p>
           <button
@@ -239,30 +201,12 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
             item={item}
             sensors={sensors.filter((s) => s.essiccatoreId === item.id)}
             setting={setting && canPosition}
-            onAdd={addFlag}
             onMove={patchLocal}
             onCommit={commitMove}
             onRename={rename}
-            onDelete={setDeleting}
           />
         ))}
       </div>
-      {deleting ? (
-        <SoftDeleteConfirmModal
-          entityLabel={`bandiera ${deleting.nome}`}
-          confirmCode={deleting.codice}
-          onClose={() => setDeleting(null)}
-          onConfirm={async (confermaTestuale) => {
-            const res = await softDeleteActionEssiccatoreSensoreAction({
-              id: deleting.id,
-              confermaTestuale,
-            });
-            if (!res.success) throw new Error(res.error);
-            setSensors((prev) => prev.filter((s) => s.id !== deleting.id));
-            setDeleting(null);
-          }}
-        />
-      ) : null}
     </div>
   );
 }
