@@ -6,7 +6,6 @@ import {
   FaChevronDown,
   FaChevronUp,
   FaClockRotateLeft,
-  FaFileInvoice,
   FaFilePdf,
   FaMagnifyingGlass,
   FaPen,
@@ -23,7 +22,6 @@ import {
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
-import { AziendaFattureModal } from "@/components/amministrazione/AziendaFattureModal";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
@@ -73,7 +71,6 @@ function ClienteRow({
   onEdit,
   onDelete,
   onTimeline,
-  onFatture,
   prodottiByCode,
   selectMode,
   selected,
@@ -84,7 +81,6 @@ function ClienteRow({
   onEdit: (cliente: Cliente) => void;
   onDelete: (cliente: Cliente) => void;
   onTimeline: (cliente: Cliente) => void;
-  onFatture: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
   selected: boolean;
@@ -182,17 +178,6 @@ function ClienteRow({
             >
               <FaClockRotateLeft size={11} />
               Timeline
-            </button>
-            ) : null}
-            {canTimeline ? (
-            <button
-              type="button"
-              onClick={() => onFatture(cliente)}
-              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              title="Fatture emesse di questa azienda"
-            >
-              <FaFileInvoice size={11} />
-              Fatture
             </button>
             ) : null}
             {canEdit ? (
@@ -320,7 +305,6 @@ export function ClientiBoard() {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
-  const [fattureFor, setFattureFor] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState<Cliente | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prodottiByCode, setProdottiByCode] = useState<
@@ -686,7 +670,6 @@ export function ClientiBoard() {
                     setEditing(item);
                   }}
                   onTimeline={(item) => setTimelineFor(item)}
-                  onFatture={(item) => setFattureFor(item)}
                   onDelete={(item) => {
                     setSaveError(null);
                     setDeleting(item);
@@ -742,18 +725,6 @@ export function ClientiBoard() {
           aziendaId={timelineFor.id}
           aziendaLabel={timelineFor.ragioneSociale}
           onClose={() => setTimelineFor(null)}
-        />
-      ) : null}
-
-      {fattureFor ? (
-        <AziendaFattureModal
-          clienteId={fattureFor.id}
-          clienteLabel={fattureFor.ragioneSociale}
-          onClose={() => setFattureFor(null)}
-          onOpenTimeline={() => {
-            setTimelineFor(fattureFor);
-            setFattureFor(null);
-          }}
         />
       ) : null}
 

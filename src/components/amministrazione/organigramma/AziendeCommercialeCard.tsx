@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FaClockRotateLeft, FaFileInvoice, FaPen } from "react-icons/fa6";
+import { FaClockRotateLeft, FaPen } from "react-icons/fa6";
 import {
   listAziendeCommercialePersonaAction,
   type AziendaCommercialePortfolio,
 } from "@/app/actions/commerciale-anagrafica";
 import { updateClienteAction } from "@/app/actions/clienti";
-import { AziendaFattureModal } from "@/components/amministrazione/AziendaFattureModal";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { useAnagraficaPrivileges } from "@/components/layout/ActionAccessProvider";
@@ -33,8 +32,6 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
     null
   );
   const [timelineFor, setTimelineFor] =
-    useState<AziendaCommercialePortfolio | null>(null);
-  const [fattureFor, setFattureFor] =
     useState<AziendaCommercialePortfolio | null>(null);
   const [refresh, setRefresh] = useState(0);
 
@@ -77,8 +74,9 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
       <h2 className="text-base font-semibold">Aziende del commerciale</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Stesso perimetro delle aziende caricate da lui: modifica, timeline e
-        fatture anche per le schede solo collegate.
+        Stesso perimetro delle aziende caricate da lui: modifica e timeline
+        anche per le schede solo collegate. Le fatture restano in timeline e
+        in Area fiscale.
       </p>
       {error ? (
         <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
@@ -125,16 +123,6 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
                       Timeline
                     </button>
                   ) : null}
-                  {canTl ? (
-                    <button
-                      type="button"
-                      onClick={() => setFattureFor(az)}
-                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      <FaFileInvoice size={11} />
-                      Fatture
-                    </button>
-                  ) : null}
                   {canEdit ? (
                     <button
                       type="button"
@@ -173,18 +161,6 @@ export function AziendeCommercialeCard({ persona, lineageIds }: Props) {
           aziendaId={timelineFor.id}
           aziendaLabel={timelineFor.ragioneSociale}
           onClose={() => setTimelineFor(null)}
-        />
-      ) : null}
-
-      {fattureFor ? (
-        <AziendaFattureModal
-          clienteId={fattureFor.id}
-          clienteLabel={fattureFor.ragioneSociale}
-          onClose={() => setFattureFor(null)}
-          onOpenTimeline={() => {
-            setTimelineFor(fattureFor);
-            setFattureFor(null);
-          }}
         />
       ) : null}
     </section>
