@@ -7,6 +7,7 @@ import {
   movePersonaTreeAction,
   movePersoneTreeBatchAction,
   reorderPersoneAction,
+  setAlberoLayoutAction,
 } from "@/app/actions/organigramma";
 import {
   collegamentoCreaCiclo,
@@ -30,6 +31,13 @@ function wouldCycle(
 
 function initials(p: OrganigrammaPersona): string {
   return `${p.nome.slice(0, 1)}${p.cognome.slice(0, 1)}`.toUpperCase();
+}
+
+const GAP_UNIT_PX = 96;
+
+function strisciaTesto(p: OrganigrammaPersona | null | undefined): string {
+  if (!p) return "";
+  return p.alberoEtichetta.trim() || p.repartoNome.trim();
 }
 
 export function OrganigrammaAlberoBoard() {
@@ -61,6 +69,14 @@ export function OrganigrammaAlberoBoard() {
 
   const tree = useMemo(() => nestAlbero(items), [items]);
   const byId = useMemo(() => new Map(items.map((p) => [p.id, p])), [items]);
+  const etichetteSuggerite = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of items) {
+      if (p.repartoNome.trim()) set.add(p.repartoNome.trim());
+      if (p.alberoEtichetta.trim()) set.add(p.alberoEtichetta.trim());
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "it"));
+  }, [items]);
   const gerarchia = useMemo(
     () =>
       gerarchiaIds
@@ -240,12 +256,37 @@ export function OrganigrammaAlberoBoard() {
     setOverId(null);
   }
 
+  function patchLayout(id: string, etichetta: string, gapDopo: number) {
+    setItems((cur) =>
+      cur.map((p) =>
+        p.id === id ? { ...p, alberoEtichetta: etichetta, alberoGapDopo: gapDopo } : p
+      )
+    );
+  }
+
+  async function saveLayout(
+    personaId: string,
+    patch: { etichetta?: string; gapDelta?: number; gapDopo?: number }
+  ) {
+    if (!isAdmin || busy) return;
+    setBusy(true);
+    const res = await setAlberoLayoutAction({ personaId, ...patch });
+    setBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      await reload();
+      return;
+    }
+    setError(null);
+    patchLayout(personaId, res.etichetta, res.gapDopo);
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
         Organigramma a cascata.{" "}
         {isAdmin
-          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi: vanno sotto tutti i selezionati, collegati da una linea. Indietro torna alla selezione precedente, Annulla chiude tutto. Trascina una scheda solo per lo spostamento a sinistra/destra nello stesso livello."
+          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi: vanno sotto tutti i selezionati, collegati da una linea. Sulla striscia orizzontale puoi scrivere una targhetta (es. Produzione, Area commerciale). Crea distanza allarga lo spazio a destra: così un parigrado che opera in un’altra area, con i suoi sottoposti, sta staccato. Trascina una scheda per spostarli a sinistra/destra nello stesso livello."
           : "Clicca il nome per aprire la scheda operatore."}
       </p>
       {isAdmin && gerarchia.length ? (
@@ -300,6 +341,26 @@ export function OrganigrammaAlberoBoard() {
                 Porta a primo livello
               </button>
             ) : null}
+            {gerarchia.length === 1 ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy || (gerarchia[0].alberoGapDopo ?? 0) >= 8}
+                  className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
+                  onClick={() => void saveLayout(gerarchia[0].id, { gapDelta: 1 })}
+                >
+                  Crea distanza
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || (gerarchia[0].alberoGapDopo ?? 0) <= 0}
+                  className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
+                  onClick={() => void saveLayout(gerarchia[0].id, { gapDelta: -1 })}
+                >
+                  Riduci distanza
+                </button>
+              </>
+            ) : null}
             <button
               type="button"
               disabled={busy}
@@ -335,39 +396,36 @@ export function OrganigrammaAlberoBoard() {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-gradient-to-b from-slate-50 to-white px-6 py-8">
-          <div className="flex min-w-max items-start justify-center gap-8">
-            {tree.map((n) => (
-              <AlberoBranch
-                key={n.id}
-                node={n}
-                ingresso={false}
-                isAdmin={isAdmin}
-                dragId={dragId}
-                overId={overId}
-                gerarchiaIds={gerarchiaIds}
-                daInserireIds={daInserireIds}
-                setDragId={setDragId}
-                setOverId={setOverId}
-                onDrop={onDropCard}
-                onDropEnd={onDropEnd}
-                onPhotoClick={onPhotoClick}
-              />
-            ))}
-            <EndSlot
-              parentId={null}
-              isAdmin={isAdmin}
-              dragId={dragId}
-              overId={overId}
-              siblingCount={tree.length}
-              setOverId={setOverId}
-              onDropEnd={onDropEnd}
-            />
-          </div>
+          <SiblingRow
+            nodi={tree}
+            parentId={null}
+            showIngresso
+            isAdmin={isAdmin}
+            dragId={dragId}
+            overId={overId}
+            gerarchiaIds={gerarchiaIds}
+            daInserireIds={daInserireIds}
+            etichetteSuggerite={etichetteSuggerite}
+            setDragId={setDragId}
+            setOverId={setOverId}
+            onDrop={onDropCard}
+            onDropEnd={onDropEnd}
+            onPhotoClick={onPhotoClick}
+            onSaveLayout={saveLayout}
+          />
         </div>
       )}
     </div>
   );
 }
+
+type LayoutHandlers = {
+  etichetteSuggerite: string[];
+  onSaveLayout: (
+    personaId: string,
+    patch: { etichetta?: string; gapDelta?: number; gapDopo?: number }
+  ) => void;
+};
 
 type BranchProps = {
   node: AlberoNodo;
@@ -382,20 +440,91 @@ type BranchProps = {
   onDrop: (id: string) => void;
   onDropEnd: (parentId: string | null) => void;
   onPhotoClick: (id: string) => void;
-};
+} & LayoutHandlers;
 
-function TBar({
-  index,
-  total,
-}: {
-  index: number;
-  total: number;
+function SiblingRow({
+  nodi,
+  parentId,
+  showIngresso,
+  isAdmin,
+  dragId,
+  overId,
+  gerarchiaIds,
+  daInserireIds,
+  etichetteSuggerite,
+  setDragId,
+  setOverId,
+  onDrop,
+  onDropEnd,
+  onPhotoClick,
+  onSaveLayout,
+}: Omit<BranchProps, "node" | "ingresso"> & {
+  nodi: AlberoNodo[];
+  parentId: string | null;
+  showIngresso: boolean;
 }) {
-  if (total < 2) return <div className="h-px w-full" />;
+  if (!nodi.length) return null;
   return (
-    <div className="flex h-px w-full">
-      <div className={`h-px flex-1 ${index === 0 ? "bg-transparent" : "bg-slate-300"}`} />
-      <div className={`h-px flex-1 ${index === total - 1 ? "bg-transparent" : "bg-slate-300"}`} />
+    <div className="flex items-start justify-center">
+      {nodi.map((n, i) => {
+        const persona = n.membri[0] ?? null;
+        const gapOwner = n.membri[n.membri.length - 1] ?? persona;
+        const gap = gapOwner?.alberoGapDopo ?? 0;
+        return (
+          <div key={n.id} className="flex items-start">
+            <div className="flex flex-col items-center px-4">
+              {showIngresso && n.kind !== "gruppo" ? (
+                <div className="flex w-44 flex-col items-center">
+                  <StrisciaOrizzontale
+                    index={i}
+                    total={nodi.length}
+                    persona={persona}
+                    isAdmin={isAdmin}
+                    suggestions={etichetteSuggerite}
+                    onSaveEtichetta={(text) => {
+                      if (persona) onSaveLayout(persona.id, { etichetta: text });
+                    }}
+                  />
+                  <div className="h-6 w-px bg-slate-300" />
+                </div>
+              ) : null}
+              <AlberoBranch
+                node={n}
+                ingresso={n.kind === "gruppo"}
+                isAdmin={isAdmin}
+                dragId={dragId}
+                overId={overId}
+                gerarchiaIds={gerarchiaIds}
+                daInserireIds={daInserireIds}
+                etichetteSuggerite={etichetteSuggerite}
+                setDragId={setDragId}
+                setOverId={setOverId}
+                onDrop={onDrop}
+                onDropEnd={onDropEnd}
+                onPhotoClick={onPhotoClick}
+                onSaveLayout={onSaveLayout}
+              />
+            </div>
+            <DistanzaCoda
+              persona={gapOwner}
+              gap={gap}
+              isAdmin={isAdmin}
+              onGapDelta={(delta) => {
+                if (gapOwner) onSaveLayout(gapOwner.id, { gapDelta: delta });
+              }}
+            />
+          </div>
+        );
+      })}
+      <EndSlot
+        parentId={parentId}
+        isAdmin={isAdmin}
+        dragId={dragId}
+        overId={overId}
+        siblingCount={nodi.length}
+        setOverId={setOverId}
+        onDropEnd={onDropEnd}
+      />
     </div>
   );
 }
@@ -408,69 +537,35 @@ function FigliRow({
   overId,
   gerarchiaIds,
   daInserireIds,
+  etichetteSuggerite,
   setDragId,
   setOverId,
   onDrop,
   onDropEnd,
   onPhotoClick,
+  onSaveLayout,
 }: Omit<BranchProps, "node"> & { figli: AlberoNodo[]; parentId: string | null }) {
   if (!figli.length) return null;
   return (
     <div className="flex flex-col items-center">
       <div className="h-6 w-px bg-slate-300" />
-      <div className="flex items-start justify-center">
-        {figli.map((c, i) => (
-          <div key={c.id} className="flex flex-col items-center px-4">
-            {c.kind === "gruppo" ? (
-              <AlberoBranch
-                node={c}
-                ingresso
-                isAdmin={isAdmin}
-                dragId={dragId}
-                overId={overId}
-                gerarchiaIds={gerarchiaIds}
-                daInserireIds={daInserireIds}
-                setDragId={setDragId}
-                setOverId={setOverId}
-                onDrop={onDrop}
-                onDropEnd={onDropEnd}
-                onPhotoClick={onPhotoClick}
-              />
-            ) : (
-              <>
-                <div className="flex w-44 flex-col items-center">
-                  <TBar index={i} total={figli.length} />
-                  <div className="h-6 w-px bg-slate-300" />
-                </div>
-                <AlberoBranch
-                  node={c}
-                  isAdmin={isAdmin}
-                  dragId={dragId}
-                  overId={overId}
-                  gerarchiaIds={gerarchiaIds}
-                  daInserireIds={daInserireIds}
-                  setDragId={setDragId}
-                  setOverId={setOverId}
-                  onDrop={onDrop}
-                  onDropEnd={onDropEnd}
-                  onPhotoClick={onPhotoClick}
-                />
-              </>
-            )}
-          </div>
-        ))}
-        {dragId ? (
-          <EndSlot
-            parentId={parentId}
-            isAdmin={isAdmin}
-            dragId={dragId}
-            overId={overId}
-            siblingCount={figli.length}
-            setOverId={setOverId}
-            onDropEnd={onDropEnd}
-          />
-        ) : null}
-      </div>
+      <SiblingRow
+        nodi={figli}
+        parentId={parentId}
+        showIngresso
+        isAdmin={isAdmin}
+        dragId={dragId}
+        overId={overId}
+        gerarchiaIds={gerarchiaIds}
+        daInserireIds={daInserireIds}
+        etichetteSuggerite={etichetteSuggerite}
+        setDragId={setDragId}
+        setOverId={setOverId}
+        onDrop={onDrop}
+        onDropEnd={onDropEnd}
+        onPhotoClick={onPhotoClick}
+        onSaveLayout={onSaveLayout}
+      />
     </div>
   );
 }
@@ -518,40 +613,65 @@ function OrgGruppo(props: BranchProps) {
         {membri.map((m, i) => {
           const dropping = props.overId === m.id && props.dragId && props.overId !== props.dragId;
           const exclusive = node.membriFigli[i] ?? [];
+          const innerGap = i < membri.length - 1 ? m.alberoGapDopo : 0;
           return (
-            <div key={m.id} className="flex flex-col items-center px-4">
-              {ingresso ? (
-                <div className="flex w-44 flex-col items-center">
-                  <TBar index={i} total={membri.length} />
-                  <div className="h-6 w-px bg-slate-300" />
-                </div>
-              ) : null}
-              <PersonaCard
-                node={m}
+            <div key={m.id} className="flex items-start">
+              <div className="flex flex-col items-center px-4">
+                {ingresso ? (
+                  <div className="flex w-44 flex-col items-center">
+                    <StrisciaOrizzontale
+                      index={i}
+                      total={membri.length}
+                      persona={m}
+                      isAdmin={props.isAdmin}
+                      suggestions={props.etichetteSuggerite}
+                      onSaveEtichetta={(text) =>
+                        props.onSaveLayout(m.id, { etichetta: text })
+                      }
+                    />
+                    <div className="h-6 w-px bg-slate-300" />
+                  </div>
+                ) : null}
+                <PersonaCard
+                  node={m}
+                  isAdmin={props.isAdmin}
+                  dragging={props.dragId === m.id}
+                  dropping={Boolean(dropping)}
+                  role={
+                    props.gerarchiaIds.includes(m.id)
+                      ? "gerarchia"
+                      : props.daInserireIds.includes(m.id)
+                        ? "inserire"
+                        : null
+                  }
+                  setDragId={props.setDragId}
+                  setOverId={props.setOverId}
+                  onDrop={props.onDrop}
+                  onPhotoClick={props.onPhotoClick}
+                />
+                {exclusive.length ? (
+                  <FigliRow {...props} figli={exclusive} parentId={m.id} />
+                ) : null}
+                {condivisi.length ? (
+                  <div className="mt-auto flex w-44 flex-col items-center">
+                    <div className="h-6 w-px bg-slate-300" />
+                    <StrisciaOrizzontale
+                      index={i}
+                      total={membri.length}
+                      persona={null}
+                      isAdmin={false}
+                      suggestions={[]}
+                      onSaveEtichetta={() => undefined}
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <DistanzaCoda
+                persona={m}
+                gap={innerGap}
                 isAdmin={props.isAdmin}
-                dragging={props.dragId === m.id}
-                dropping={Boolean(dropping)}
-                role={
-                  props.gerarchiaIds.includes(m.id)
-                    ? "gerarchia"
-                    : props.daInserireIds.includes(m.id)
-                      ? "inserire"
-                      : null
-                }
-                setDragId={props.setDragId}
-                setOverId={props.setOverId}
-                onDrop={props.onDrop}
-                onPhotoClick={props.onPhotoClick}
+                onGapDelta={(delta) => props.onSaveLayout(m.id, { gapDelta: delta })}
               />
-              {exclusive.length ? (
-                <FigliRow {...props} figli={exclusive} parentId={m.id} />
-              ) : null}
-              {condivisi.length ? (
-                <div className="mt-auto flex w-44 flex-col items-center">
-                  <div className="h-6 w-px bg-slate-300" />
-                  <TBar index={i} total={membri.length} />
-                </div>
-              ) : null}
             </div>
           );
         })}
@@ -561,6 +681,153 @@ function OrgGruppo(props: BranchProps) {
         figli={condivisi}
         parentId={membri[0]?.id ?? null}
       />
+    </div>
+  );
+}
+
+function StrisciaOrizzontale({
+  index,
+  total,
+  persona,
+  isAdmin,
+  suggestions,
+  onSaveEtichetta,
+}: {
+  index: number;
+  total: number;
+  persona: OrganigrammaPersona | null;
+  isAdmin: boolean;
+  suggestions: string[];
+  onSaveEtichetta: (text: string) => void;
+}) {
+  const saved = persona?.alberoEtichetta ?? "";
+  const shown = strisciaTesto(persona);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(saved);
+  const listId = persona ? `albero-etichetta-${persona.id}` : undefined;
+
+  useEffect(() => {
+    if (!editing) setDraft(saved);
+  }, [saved, editing]);
+
+  function commit() {
+    setEditing(false);
+    const next = draft.trim();
+    if (next === saved.trim()) return;
+    onSaveEtichetta(next);
+  }
+
+  const leftOn = index > 0;
+  const rightOn = index < total - 1;
+
+  return (
+    <div className="relative flex h-7 w-44 flex-col justify-center">
+      <div className="flex h-px w-full">
+        <div className={`h-px flex-1 ${leftOn ? "bg-slate-300" : "bg-transparent"}`} />
+        <div className={`h-px flex-1 ${rightOn ? "bg-slate-300" : "bg-transparent"}`} />
+      </div>
+      {isAdmin && persona ? (
+        editing ? (
+          <form
+            className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              commit();
+            }}
+          >
+            <input
+              autoFocus
+              value={draft}
+              list={listId}
+              maxLength={80}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setDraft(saved);
+                  setEditing(false);
+                }
+              }}
+              placeholder="Es. Area commerciale"
+              className="w-full rounded border border-sky-300 bg-white px-1 py-0.5 text-center text-[10px] font-semibold text-slate-800 shadow-sm outline-none"
+            />
+            {listId && suggestions.length ? (
+              <datalist id={listId}>
+                {suggestions.map((s) => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            ) : null}
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setDraft(saved);
+              setEditing(true);
+            }}
+            className={`absolute left-1/2 top-1/2 z-10 max-w-[10.5rem] -translate-x-1/2 -translate-y-1/2 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${
+              shown
+                ? "bg-white text-slate-700 ring-1 ring-slate-200"
+                : "bg-white/90 text-slate-400 ring-1 ring-dashed ring-slate-300"
+            }`}
+            title="Clicca per scrivere la targhetta sulla striscia"
+          >
+            {shown || "Targhetta…"}
+          </button>
+        )
+      ) : shown ? (
+        <span className="absolute left-1/2 top-1/2 z-10 max-w-[10.5rem] -translate-x-1/2 -translate-y-1/2 truncate rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200">
+          {shown}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DistanzaCoda({
+  persona,
+  gap,
+  isAdmin,
+  onGapDelta,
+}: {
+  persona: OrganigrammaPersona | null;
+  gap: number;
+  isAdmin: boolean;
+  onGapDelta: (delta: number) => void;
+}) {
+  if (!persona) return null;
+  if (gap <= 0 && !isAdmin) return null;
+  return (
+    <div
+      className="relative mt-[13px] flex shrink-0 flex-col items-center"
+      style={{ width: Math.max(gap, isAdmin ? 0.35 : 0) * GAP_UNIT_PX }}
+    >
+      {gap > 0 ? <div className="h-px w-full bg-slate-300" /> : null}
+      {isAdmin ? (
+        <div className="mt-1 flex items-center gap-0.5">
+          <button
+            type="button"
+            className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            disabled={gap >= 8}
+            title="Crea distanza a destra"
+            onClick={() => onGapDelta(1)}
+          >
+            +
+          </button>
+          {gap > 0 ? (
+            <button
+              type="button"
+              className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+              title="Riduci distanza"
+              onClick={() => onGapDelta(-1)}
+            >
+              −
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

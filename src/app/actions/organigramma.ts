@@ -16,6 +16,7 @@ import {
   repartoUpdateSchema,
   treeMoveSchema,
   treeMoveManySchema,
+  alberoLayoutSchema,
   collegamentoCreaCiclo,
   treeReorderSchema,
   calcolaScadenzaCertificato,
@@ -55,7 +56,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_intestatario, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -79,6 +80,8 @@ type PersonaRow = {
   banca_iban?: string | null;
   banca_bic?: string | null;
   banca_intestatario?: string | null;
+  albero_etichetta?: string | null;
+  albero_gap_dopo?: number | null;
   in_forza?: boolean;
   cessato_at?: string | null;
 };
@@ -158,6 +161,11 @@ function mapPersona(
     bancaIban: row.banca_iban?.trim() || null,
     bancaBic: row.banca_bic?.trim() || null,
     bancaIntestatario: row.banca_intestatario?.trim() ?? "",
+    alberoEtichetta: row.albero_etichetta?.trim() ?? "",
+    alberoGapDopo: Math.max(
+      0,
+      Math.min(8, Math.round(Number(row.albero_gap_dopo) || 0))
+    ),
     inForza: row.in_forza !== false,
     cessatoAt: row.cessato_at ?? null,
     mansioni,
@@ -1777,6 +1785,76 @@ export async function reorderPersoneAction(
     note: "Riordinata la posizione nello stesso livello dell’albero",
   });
   return { success: true };
+}
+
+export async function setAlberoLayoutAction(
+  raw: unknown
+): Promise<
+  | { success: true; etichetta: string; gapDopo: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: false, error: "Solo l’amministratore può modificare le strisce." };
+  }
+  const parsed = alberoLayoutSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
+  }
+  const supabase = await createClient();
+  const { data: prev, error: prevErr } = await supabase
+    .from("organigramma_persone")
+    .select("id, nome, cognome, albero_etichetta, albero_gap_dopo")
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Operatore non trovato." };
+  }
+  const nextEtichetta =
+    parsed.data.etichetta !== undefined
+      ? parsed.data.etichetta.trim()
+      : String((prev as { albero_etichetta?: string | null }).albero_etichetta ?? "").trim();
+  const currentGap = Math.max(
+    0,
+    Math.min(8, Math.round(Number((prev as { albero_gap_dopo?: number }).albero_gap_dopo) || 0))
+  );
+  let nextGap = currentGap;
+  if (parsed.data.gapDopo !== undefined) nextGap = parsed.data.gapDopo;
+  if (parsed.data.gapDelta !== undefined) {
+    nextGap = Math.max(0, Math.min(8, currentGap + parsed.data.gapDelta));
+  }
+  const { error } = await supabase
+    .from("organigramma_persone")
+    .update({
+      albero_etichetta: nextEtichetta || null,
+      albero_gap_dopo: nextGap,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  await writeAuditLog({
+    entity_type: "organigramma_persone",
+    entity_id: parsed.data.personaId,
+    action: "albero_layout_set",
+    actor_id: auth.userId,
+    summary: `Layout albero: ${nextEtichetta || "senza targhetta"}, distanza ${nextGap}`,
+    payload: {
+      etichetta: nextEtichetta || null,
+      gap_dopo: nextGap,
+    },
+  });
+  await recordAttivita({
+    personaId: parsed.data.personaId,
+    azione: "albero",
+    actorId: auth.userId,
+    actorNome: actorNome(auth.profile),
+    note: nextEtichetta
+      ? `Targhetta “${nextEtichetta}”, distanza ${nextGap}`
+      : `Distanza albero ${nextGap}`,
+  });
+  return { success: true, etichetta: nextEtichetta, gapDopo: nextGap };
 }
 
 export async function uploadPersonaFotoAction(

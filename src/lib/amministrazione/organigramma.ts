@@ -94,6 +94,8 @@ export type OrganigrammaPersona = {
   bancaIban: string | null;
   bancaBic: string | null;
   bancaIntestatario: string;
+  alberoEtichetta: string;
+  alberoGapDopo: number;
   inForza: boolean;
   cessatoAt: string | null;
   mansioni: OrganigrammaMansione[];
@@ -374,6 +376,21 @@ export const treeReorderSchema = z.object({
   parentId: z.string().uuid().nullable(),
   orderedIds: z.array(z.string().uuid()).min(2).max(200),
 });
+
+export const alberoLayoutSchema = z
+  .object({
+    personaId: z.string().uuid(),
+    etichetta: z.string().trim().max(80).optional(),
+    gapDopo: z.number().int().min(0).max(8).optional(),
+    gapDelta: z.number().int().min(-8).max(8).optional(),
+  })
+  .refine(
+    (v) =>
+      v.etichetta !== undefined ||
+      v.gapDopo !== undefined ||
+      v.gapDelta !== undefined,
+    { message: "Indica targhetta o distanza." }
+  );
 
 export const treeMoveManySchema = z.object({
   parentIds: z.array(z.string().uuid()).min(1).max(20),
