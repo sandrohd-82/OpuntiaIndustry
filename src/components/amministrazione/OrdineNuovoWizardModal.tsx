@@ -399,6 +399,7 @@ export function OrdineNuovoWizardModal({
       prodottoNome: prodotto?.nome ?? "",
       quantita: quantitaInserita,
       unitaMisura: umEffettiva,
+      lottoCodice: "",
       prezzoUnitario: prezzoKg,
       ivaPercentuale: IVA_PCT,
     };

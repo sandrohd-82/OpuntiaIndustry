@@ -276,6 +276,11 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                   </td>
                   <td className="px-3 py-2 tabular-nums">
                     {r.quantita} {r.unitaMisura}
+                    {r.lottoCodice?.trim() ? (
+                      <div className="font-mono text-[10px] text-[var(--muted)]">
+                        Lotto {r.lottoCodice.trim()}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 tabular-nums">
                     {formatEuro(r.prezzoUnitario)}

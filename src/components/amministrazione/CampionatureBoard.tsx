@@ -303,7 +303,9 @@ function CampionaturaTableRow({
                     <td className="py-1 pr-3 tabular-nums">
                       {r.quantita} {r.unitaMisura}
                     </td>
-                    <td className="py-1 pr-3 font-mono">{r.lottoCodice}</td>
+                    <td className="py-1 pr-3 font-mono">
+                      {r.lottoCodice.trim() || "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

@@ -431,6 +431,23 @@ export function OrdineDettaglioFields({
                     </div>
                   </label>
 
+                  {tipoDocumento === "campionatura" ? (
+                    <label className="block text-sm">
+                      <span className="mb-1 block text-xs font-medium">
+                        Lotto
+                      </span>
+                      <input
+                        type="text"
+                        value={riga.lottoCodice}
+                        onChange={(e) =>
+                          patchRiga(riga.id, { lottoCodice: e.target.value })
+                        }
+                        placeholder="Facoltativo"
+                        className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
+                      />
+                    </label>
+                  ) : null}
+
                   <label className="block text-sm">
                     <span className="mb-1 block text-xs font-medium">
                       Prezzo (€)

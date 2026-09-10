@@ -183,6 +183,7 @@ async function replaceRighe(
     prodotto_nome: r.prodottoNome,
     quantita: r.quantita,
     unita_misura: r.unitaMisura ?? "kg",
+    lotto_codice: r.lottoCodice?.trim() ?? "",
     prezzo_unitario: r.prezzoUnitario,
     iva_percentuale: r.ivaPercentuale,
     sort_order: i,
@@ -364,6 +365,7 @@ export async function createOrdineAction(
       prodottoNome: r.prodottoNome,
       quantita: r.quantita,
       unitaMisura: r.unitaMisura ?? "kg",
+      lottoCodice: r.lottoCodice ?? "",
       prezzoUnitario: r.prezzoUnitario,
       ivaPercentuale: r.ivaPercentuale,
     }));
@@ -527,6 +529,7 @@ export async function updateOrdineAction(
       unitaMisura: r.unitaMisura,
       prodottoCodice: r.prodottoCodice,
     }),
+    lottoCodice: r.lottoCodice ?? "",
     prezzoUnitario: campionaturaGratis ? 0 : r.prezzoUnitario,
     ivaPercentuale: campionaturaGratis ? 0 : r.ivaPercentuale,
   }));
@@ -850,6 +853,7 @@ export async function createOrdineWizardAction(
       prodottoNome: input.prodottoNome,
       quantita: input.quantita,
       unitaMisura,
+      lottoCodice: input.lottoCodice ?? "",
       prezzoUnitario,
       ivaPercentuale,
     },
@@ -973,6 +977,7 @@ export async function createOrdineWizardAction(
         prodottoNome: input.prodottoNome,
         quantita: input.quantita,
         unitaMisura,
+        lottoCodice: input.lottoCodice ?? "",
         prezzoUnitario,
         ivaPercentuale,
       },
@@ -1253,6 +1258,26 @@ export async function processOrdineInScalettaAction(
 
   if (error) return { success: false, error: error.message };
 
+  const lottoCodice = (input.lottoCodice ?? "").trim();
+  if (
+    existing.tipo === "campionatura" &&
+    riga.id &&
+    !riga.id.startsWith("riga-") &&
+    !riga.id.startsWith("tmp-")
+  ) {
+    const { error: lottoErr } = await supabase
+      .from("ordini_righe")
+      .update({
+        lotto_codice: lottoCodice,
+        updated_at: nowIso,
+      })
+      .eq("id", riga.id)
+      .eq("ordine_id", existing.id);
+    if (lottoErr) {
+      return { success: false, error: lottoErr.message };
+    }
+  }
+
   const impErr = await writeImpegniScaletta({
     supabase,
     userId: auth.userId,
@@ -1279,6 +1304,7 @@ export async function processOrdineInScalettaAction(
       stato_a: "in_scaletta",
       giorni_produzione: giorniProduzione,
       data_consegna: input.dataConsegnaCalendario,
+      lotto_codice: lottoCodice || null,
     },
   });
   await writeAudit({

@@ -1251,6 +1251,7 @@ export interface OrdineRigaRow {
   prodotto_nome: string;
   quantita: number;
   unita_misura?: string;
+  lotto_codice?: string;
   prezzo_unitario: number;
   iva_percentuale: number;
   sort_order: number;
@@ -1266,6 +1267,7 @@ export interface OrdineRigaInsert {
   prodotto_nome?: string;
   quantita?: number;
   unita_misura?: string;
+  lotto_codice?: string;
   prezzo_unitario?: number;
   iva_percentuale?: number;
   sort_order?: number;

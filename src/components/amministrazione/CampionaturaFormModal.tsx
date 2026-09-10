@@ -515,12 +515,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                     </span>
                     <input
                       type="text"
-                      required
                       value={riga.lottoCodice}
                       onChange={(e) =>
                         updateRiga(index, { lottoCodice: e.target.value })
                       }
-                      placeholder="Codice lotto"
+                      placeholder="Facoltativo"
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 font-mono text-sm outline-none focus:border-[var(--primary)]"
                     />
                   </label>

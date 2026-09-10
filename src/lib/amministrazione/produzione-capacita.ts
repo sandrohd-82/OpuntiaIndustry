@@ -110,6 +110,7 @@ export const ordineWizardInputSchema = z
     prodottoNome: z.string().trim().min(1),
     quantita: z.number().positive(),
     unitaMisura: z.enum(ORDINE_UNITA_MISURA).optional().default("kg"),
+    lottoCodice: z.string().trim().max(80).optional().default(""),
     prezzoUnitario: z.number().min(0),
     ivaPercentuale: z.number().min(0).default(22),
     consegnaTipo: z.enum(["asap", "data"]),
@@ -265,6 +266,7 @@ export const ordineProcessaScalettaSchema = z.object({
   urgente: z.boolean().optional(),
   usaMagazzino: z.boolean().optional(),
   usaSabato: z.boolean().optional(),
+  lottoCodice: z.string().trim().max(80).optional().default(""),
   resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
   capacitaIngressoKgPerEssiccatoreOverride: z
     .number()

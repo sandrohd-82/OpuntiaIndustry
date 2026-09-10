@@ -29,6 +29,7 @@ export function ProcessaOrdineScalettaModal({
 }: Props) {
   const titleId = useId();
   const riga = ordine.righe[0];
+  const [lottoCodice, setLottoCodice] = useState(riga?.lottoCodice ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [calcolo, setCalcolo] = useState<CapacitaCalcoloResult | null>(null);
@@ -116,6 +117,7 @@ export function ProcessaOrdineScalettaModal({
       urgente,
       usaMagazzino,
       usaSabato,
+      lottoCodice: lottoCodice.trim(),
     });
     setSaving(false);
     if (!result.success) {
@@ -142,6 +144,7 @@ export function ProcessaOrdineScalettaModal({
       urgente,
       usaMagazzino,
       usaSabato,
+      lottoCodice: lottoCodice.trim(),
     });
     setSaving(false);
     if (!result.success) {
@@ -177,6 +180,22 @@ export function ProcessaOrdineScalettaModal({
         ) : (
           <p className="mt-2 text-sm text-red-700">Nessuna riga prodotto.</p>
         )}
+
+        {ordine.tipo === "campionatura" ? (
+          <label className="mt-4 block text-sm">
+            <span className="mb-1 block font-medium">Numero di lotto</span>
+            <input
+              type="text"
+              value={lottoCodice}
+              onChange={(e) => setLottoCodice(e.target.value)}
+              placeholder="Facoltativo — se già assegnato"
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
+            />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Non obbligatorio in creazione: si indica qui in processazione.
+            </span>
+          </label>
+        ) : null}
 
         <div className="mt-4 space-y-2 text-sm">
           <label className="flex items-center gap-2">
