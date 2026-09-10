@@ -9,6 +9,7 @@ import {
   PROFILE_GERARCHIA_LABELS,
   parseProfileGerarchia,
 } from "@/lib/auth/gerarchia";
+import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { getAuthContext, getUserAreas } from "@/lib/auth/session";
 import { loadAccessMaps } from "@/app/actions/page-access";
@@ -97,7 +98,13 @@ export default async function AppLayout({
     PROFILE_GERARCHIA_LABELS[parseProfileGerarchia(auth.profile.gerarchia)] ??
     auth.profile.app_roles?.name ??
     "Utente";
-  const userName = auth.profile.full_name ?? auth.email;
+  const userName = formatOperatorShortName({
+    first_name: auth.profile.first_name,
+    last_name: auth.profile.last_name,
+    full_name: auth.profile.full_name,
+    email: auth.email,
+  });
+  const welcomeName = auth.profile.full_name ?? auth.email;
   const actorName =
     auth.actorProfile.full_name ?? auth.actorProfile.email ?? "Super Admin";
   const canImpersonate = actorCanSwitchProfiles(auth.actorProfile);
@@ -153,7 +160,7 @@ export default async function AppLayout({
           {children}
         </ActionAccessProvider>
       </div>
-      {auth.welcomePending ? <WelcomeModal name={userName} /> : null}
+      {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
     </div>
     </SensitiveAuthProvider>
   );

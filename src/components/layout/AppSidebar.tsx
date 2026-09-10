@@ -696,7 +696,7 @@ export function AppSidebar({
         title={collapsed ? "Espandi menu" : "Comprimi menu"}
         aria-label={collapsed ? "Espandi menu" : "Comprimi menu"}
         aria-expanded={!collapsed}
-        className="absolute top-3 right-0 z-40 flex h-10 w-7 translate-x-full items-center justify-center rounded-r-md bg-[var(--sidebar)] text-[var(--sidebar-muted)] hover:text-white"
+        className="absolute top-3 right-0 z-40 flex h-10 w-10 translate-x-full items-center justify-center rounded-r-md bg-[var(--sidebar)] text-[var(--sidebar-muted)] hover:text-white"
       >
         <FaBars className="h-4 w-4" />
       </button>
@@ -714,25 +714,29 @@ export function AppSidebar({
         ) : (
           <div className="flex min-w-0 items-end gap-2">
             <BrandLogoOnDark size="menu" priority className="shrink-0" />
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <p className="truncate font-medium">{userName}</p>
-                <ProfileStatusLed
-                  stato={statoOperativo}
-                  canChange={canCreateProfiles && impersonating}
-                />
-                {canImpersonate ? (
-                  <ImpersonationSwitcher
-                    impersonating={impersonating}
-                    actorLabel={actorName}
-                    canCreateProfiles={canCreateProfiles}
+            <div className="flex h-20 min-w-0 flex-1 flex-col justify-between overflow-visible">
+              <div>
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="truncate text-sm font-medium leading-tight">
+                    {userName}
+                  </p>
+                  <ProfileStatusLed
+                    stato={statoOperativo}
+                    canChange={canCreateProfiles && impersonating}
                   />
-                ) : null}
+                  {canImpersonate ? (
+                    <ImpersonationSwitcher
+                      impersonating={impersonating}
+                      actorLabel={actorName}
+                      canCreateProfiles={canCreateProfiles}
+                    />
+                  ) : null}
+                </div>
+                <p className="truncate text-xs leading-tight text-[var(--sidebar-muted)]">
+                  {roleName}
+                </p>
               </div>
-              <p className="truncate text-xs text-[var(--sidebar-muted)]">
-                {roleName}
-              </p>
-              <p className="truncate text-sm font-semibold leading-none tracking-wide">
+              <p className="relative left-[-30%] w-[130%] text-2xl font-bold leading-none tracking-wide">
                 Industry
               </p>
             </div>

@@ -10,7 +10,7 @@ type Props = {
 
 export function AppHeader({ title, subtitle, actions }: Props) {
   return (
-    <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] px-6 py-4">
+    <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card)] py-4 pr-6 pl-16">
       <div>
         <h1 className="text-xl font-semibold">{title}</h1>
         {subtitle && (
