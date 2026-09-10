@@ -11,6 +11,7 @@ import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaF
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptyConsegnaAltraAzienda,
@@ -144,6 +145,10 @@ export function ClienteFormModal({
     initial?.prodottiAcquistati ?? []
   );
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
+  const [commercialeId, setCommercialeId] = useState<string | null>(
+    initial?.commercialeId ?? null
+  );
+  const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -257,6 +262,7 @@ export function ClienteFormModal({
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
       archivioId: isPossibile ? null : archivioId,
+      ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
     };
   }
 
@@ -479,6 +485,13 @@ export function ClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            {isEdit ? (
+              <CommercialeAssignField
+                value={commercialeId}
+                onChange={setCommercialeId}
+                onCanAssign={setCanAssignCommerciale}
+              />
+            ) : null}
             <label className="flex items-center gap-2 text-sm sm:col-span-2">
               <input
                 type="checkbox"

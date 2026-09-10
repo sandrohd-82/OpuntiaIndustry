@@ -10,6 +10,7 @@ import {
   loadCommercialeLabels,
 } from "@/lib/auth/commerciale-lineage";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
@@ -1027,6 +1028,37 @@ export async function updateClientePossibileAction(
       })
       .in("id", referenteIds)
       .is("deleted_at", null);
+  }
+
+  const sync = await syncCommercialeOnSchedaUpdate({
+    aziendaTipo: "cliente_possibile",
+    aziendaId: id,
+    commercialeId: asCliente.commercialeId,
+    currentId: existingLead?.commerciale_id
+      ? String(existingLead.commerciale_id)
+      : null,
+  });
+  if (!sync.ok) return { success: false, error: sync.error };
+
+  if (asCliente.commercialeId !== undefined) {
+    const { data: fresh } = await supabase
+      .from("clienti_possibili")
+      .select(CLIENTI_POSSIBILI_SELECT)
+      .eq("id", id)
+      .maybeSingle();
+    if (fresh) {
+      const next = mapClientePossibileRow(fresh as Record<string, unknown>);
+      Object.assign(item, next);
+    }
+  }
+  if (item.commercialeId) {
+    const labels = await loadCommercialeLabels([item.commercialeId]);
+    const label = labels.get(item.commercialeId);
+    item.commercialeNome = label?.nome ?? "";
+    item.commercialeGrado = label?.grado ?? null;
+  } else {
+    item.commercialeNome = "";
+    item.commercialeGrado = null;
   }
 
   await writeAuditLog({

@@ -6,6 +6,7 @@ import { FaChevronDown, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
 import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
 import {
   emptyConsegnaAltraAzienda,
   emptySede,
@@ -132,6 +133,10 @@ export function PossibileClienteFormModal({
       : []
   );
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
+  const [commercialeId, setCommercialeId] = useState<string | null>(
+    initial?.commercialeId ?? null
+  );
+  const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -195,6 +200,7 @@ export function PossibileClienteFormModal({
       consegneAltraAzienda: consegneOpen ? consegne : [],
       prodottiAcquistati: [],
       referenteIds: referenti.map((r) => r.id),
+      ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
     };
   }
 
@@ -251,6 +257,13 @@ export function PossibileClienteFormModal({
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
               />
             </label>
+            {isEdit ? (
+              <CommercialeAssignField
+                value={commercialeId}
+                onChange={setCommercialeId}
+                onCanAssign={setCanAssignCommerciale}
+              />
+            ) : null}
             <p className="sm:col-span-2 text-xs text-[var(--muted)]">
               Cliente privato: <strong>NO</strong>
             </p>

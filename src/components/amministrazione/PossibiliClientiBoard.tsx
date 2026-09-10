@@ -9,10 +9,9 @@ import {
   softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
-import { CollegaCommercialeControl } from "@/components/amministrazione/CollegaCommercialeControl";
 import {
+  formatCommercialeAssegnazione,
   isCommercialOwnRecord,
-  type CommercialeAssegnabile,
 } from "@/lib/auth/commerciale";
 import {
   ActionGate,
@@ -34,8 +33,6 @@ export function PossibiliClientiBoard() {
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
   const priv = useAnagraficaPrivileges("cliente_possibile");
   const [lineageIds, setLineageIds] = useState<string[]>([]);
-  const [canAssign, setCanAssign] = useState(false);
-  const [commerciali, setCommerciali] = useState<CommercialeAssegnabile[]>([]);
 
   function reload() {
     startTransition(async () => {
@@ -53,8 +50,6 @@ export function PossibiliClientiBoard() {
     reload();
     void getCommercialeAnagraficaContextAction().then((ctx) => {
       setLineageIds(ctx.lineageIds);
-      setCanAssign(ctx.canAssign);
-      setCommerciali(ctx.commerciali);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -97,19 +92,9 @@ export function PossibiliClientiBoard() {
                 {lead.telefono ? ` · ${lead.telefono}` : ""}
                 {lead.email ? ` · ${lead.email}` : ""}
               </p>
-              <div className="mt-1">
-                <CollegaCommercialeControl
-                  aziendaTipo="cliente_possibile"
-                  aziendaId={lead.id}
-                  commercialeId={lead.commercialeId}
-                  commercialeNome={lead.commercialeNome}
-                  commercialeGrado={lead.commercialeGrado}
-                  canAssign={canAssign}
-                  commerciali={commerciali}
-                  onAssigned={() => reload()}
-                  onError={setError}
-                />
-              </div>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Commerciale: {formatCommercialeAssegnazione(lead)}
+              </p>
             </div>
             {priv.canTimeline ? (
             <button

@@ -125,6 +125,28 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
   return { canAssign, lineageIds, commerciali };
 }
 
+/** In modifica scheda: applica il collegamento solo se Super Admin e il valore è cambiato. */
+export async function syncCommercialeOnSchedaUpdate(opts: {
+  aziendaTipo: "cliente" | "cliente_possibile";
+  aziendaId: string;
+  commercialeId: string | null | undefined;
+  currentId: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (opts.commercialeId === undefined) return { ok: true };
+  if ((opts.commercialeId ?? null) === (opts.currentId ?? null)) {
+    return { ok: true };
+  }
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!canAssignCommerciale(auth)) return { ok: true };
+  const res = await assignCommercialeAnagraficaAction({
+    aziendaTipo: opts.aziendaTipo,
+    aziendaId: opts.aziendaId,
+    commercialeId: opts.commercialeId,
+  });
+  if (!res.success) return { ok: false, error: res.error };
+  return { ok: true };
+}
+
 export async function assignCommercialeAnagraficaAction(
   raw: unknown
 ): Promise<

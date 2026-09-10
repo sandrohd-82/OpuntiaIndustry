@@ -55,6 +55,8 @@ export type ClienteInput = {
   prodottiAcquistati: string[];
   /** Se ripescata da archivio: id riga clienti_archivio da chiudere al salvataggio. */
   archivioId?: string | null;
+  /** Solo in modifica Super Admin: null = azienda, uuid = commerciale. */
+  commercialeId?: string | null;
 };
 
 export { emptySede, formatSedeBreve };
@@ -114,6 +116,7 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
       .map((p) => p.trim())
       .filter(Boolean),
     archivioId: input.archivioId,
+    commercialeId: input.commercialeId,
   };
 }
 

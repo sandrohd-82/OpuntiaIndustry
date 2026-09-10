@@ -47,6 +47,19 @@ export function commercialeGradoLabel(
   return grado ? COMMERCIALE_GRADO_LABELS[grado] : "—";
 }
 
+/** Testo in elenco: senza assegnazione l’azienda resta dell’azienda. */
+export function formatCommercialeAssegnazione(opts: {
+  commercialeId: string | null | undefined;
+  commercialeNome?: string | null;
+  commercialeGrado?: CommercialeGrado | null;
+}): string {
+  if (!opts.commercialeId) return "Azienda";
+  const nome = String(opts.commercialeNome ?? "").trim() || "Commerciale";
+  return opts.commercialeGrado
+    ? `${nome} · ${COMMERCIALE_GRADO_LABELS[opts.commercialeGrado]}`
+    : nome;
+}
+
 export type CommercialeAssegnabile = {
   id: string;
   nome: string;

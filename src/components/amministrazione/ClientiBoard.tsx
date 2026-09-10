@@ -23,7 +23,6 @@ import {
 import { AZ } from "@/lib/auth/action-access";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
-import { CollegaCommercialeControl } from "@/components/amministrazione/CollegaCommercialeControl";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -32,8 +31,10 @@ import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDeta
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useClienti } from "@/hooks/useClienti";
-import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
-import type { CommercialeAssegnabile } from "@/lib/auth/commerciale";
+import {
+  formatCommercialeAssegnazione,
+  isCommercialOwnRecord,
+} from "@/lib/auth/commerciale";
 import {
   emptyClientiFilters,
   filterClienti,
@@ -75,10 +76,6 @@ function ClienteRow({
   selected,
   onToggleSelect,
   lineageIds,
-  canAssign,
-  commerciali,
-  onCommercialeChange,
-  onAssignError,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
@@ -89,17 +86,6 @@ function ClienteRow({
   selected: boolean;
   onToggleSelect: (id: string) => void;
   lineageIds: string[];
-  canAssign: boolean;
-  commerciali: CommercialeAssegnabile[];
-  onCommercialeChange: (
-    id: string,
-    next: {
-      commercialeId: string | null;
-      commercialeNome: string;
-      commercialeGrado: Cliente["commercialeGrado"];
-    }
-  ) => void;
-  onAssignError: (msg: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente");
@@ -161,18 +147,8 @@ function ClienteRow({
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(cliente.sedeMagazzino)}
         </td>
-        <td className="px-4 py-3">
-          <CollegaCommercialeControl
-            aziendaTipo="cliente"
-            aziendaId={cliente.id}
-            commercialeId={cliente.commercialeId}
-            commercialeNome={cliente.commercialeNome}
-            commercialeGrado={cliente.commercialeGrado}
-            canAssign={canAssign}
-            commerciali={commerciali}
-            onAssigned={(next) => onCommercialeChange(cliente.id, next)}
-            onError={onAssignError}
-          />
+        <td className="px-4 py-3 text-[var(--muted)]">
+          {formatCommercialeAssegnazione(cliente)}
         </td>
         <td className="max-w-[240px] px-4 py-3">
           {cliente.prodottiAcquistati.length === 0 ? (
@@ -344,8 +320,6 @@ export function ClientiBoard() {
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
   const [lineageIds, setLineageIds] = useState<string[]>([]);
-  const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
-  const [commerciali, setCommerciali] = useState<CommercialeAssegnabile[]>([]);
 
   const filtersActive = hasActiveClientiFilters(filters);
 
@@ -394,8 +368,6 @@ export function ClientiBoard() {
   useEffect(() => {
     void getCommercialeAnagraficaContextAction().then((ctx) => {
       setLineageIds(ctx.lineageIds);
-      setCanAssignCommerciale(ctx.canAssign);
-      setCommerciali(ctx.commerciali);
     });
   }, []);
 
@@ -702,12 +674,6 @@ export function ClientiBoard() {
                     setDeleting(item);
                   }}
                   lineageIds={lineageIds}
-                  canAssign={canAssignCommerciale}
-                  commerciali={commerciali}
-                  onCommercialeChange={() => {
-                    void refresh();
-                  }}
-                  onAssignError={setSaveError}
                 />
               ))}
             </tbody>

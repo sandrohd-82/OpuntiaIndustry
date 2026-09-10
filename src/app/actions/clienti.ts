@@ -22,6 +22,7 @@ import {
   loadCommercialeLabels,
 } from "@/lib/auth/commerciale-lineage";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
 export type ClientiActionResult =
@@ -389,7 +390,26 @@ export async function updateClienteAction(
     };
   }
 
-  const row = data as ClienteRow;
+  const sync = await syncCommercialeOnSchedaUpdate({
+    aziendaTipo: "cliente",
+    aziendaId: id,
+    commercialeId: input.commercialeId,
+    currentId: existingCliente?.commerciale_id
+      ? String(existingCliente.commerciale_id)
+      : null,
+  });
+  if (!sync.ok) return { success: false, error: sync.error };
+
+  let row = data as ClienteRow;
+  if (input.commercialeId !== undefined) {
+    const { data: fresh } = await supabase
+      .from("clienti")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+    if (fresh) row = fresh as ClienteRow;
+  }
+
   await writeAuditLog({
     entity_type: "clienti",
     entity_id: id,
@@ -402,9 +422,15 @@ export async function updateClienteAction(
     },
   });
 
+  const labels = row.commerciale_id
+    ? await loadCommercialeLabels([String(row.commerciale_id)])
+    : new Map();
   return {
     success: true,
-    cliente: mapClienteRow(row),
+    cliente: mapClienteRow(
+      row,
+      row.commerciale_id ? labels.get(String(row.commerciale_id)) : undefined
+    ),
   };
 }
 
