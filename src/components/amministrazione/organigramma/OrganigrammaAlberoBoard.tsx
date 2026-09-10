@@ -34,11 +34,7 @@ function initials(p: OrganigrammaPersona): string {
 }
 
 const GAP_UNIT_PX = 96;
-
-function strisciaTesto(p: OrganigrammaPersona | null | undefined): string {
-  if (!p) return "";
-  return p.alberoEtichetta.trim() || p.repartoNome.trim();
-}
+const LINE = "border-slate-400";
 
 export function OrganigrammaAlberoBoard() {
   const [items, setItems] = useState<OrganigrammaPersona[]>([]);
@@ -51,6 +47,7 @@ export function OrganigrammaAlberoBoard() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQ, setPickerQ] = useState("");
   const [busy, setBusy] = useState(false);
+  const [impostazioni, setImpostazioni] = useState(false);
 
   async function reload() {
     const res = await listPersoneAction();
@@ -72,7 +69,6 @@ export function OrganigrammaAlberoBoard() {
   const etichetteSuggerite = useMemo(() => {
     const set = new Set<string>();
     for (const p of items) {
-      if (p.repartoNome.trim()) set.add(p.repartoNome.trim());
       if (p.alberoEtichetta.trim()) set.add(p.alberoEtichetta.trim());
     }
     return [...set].sort((a, b) => a.localeCompare(b, "it"));
@@ -97,6 +93,19 @@ export function OrganigrammaAlberoBoard() {
     setPickerOpen(false);
     setPickerQ("");
     setError(null);
+  }
+
+  function entraImpostazioni() {
+    clearSelezione();
+    setDragId(null);
+    setOverId(null);
+    setImpostazioni(true);
+  }
+
+  function esciImpostazioni() {
+    setDragId(null);
+    setOverId(null);
+    setImpostazioni(false);
   }
 
   function tornaIndietro() {
@@ -199,7 +208,7 @@ export function OrganigrammaAlberoBoard() {
     const target = byId.get(targetId);
     if (!drag || !target || drag.parentId !== target.parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona gli operatori, poi Seleziona Operatore/i da inserire sotto Gerarchia."
+        "In impostazioni puoi solo riordinare le schede nello stesso livello. Per la gerarchia esci dalle impostazioni e seleziona gli operatori."
       );
       return;
     }
@@ -218,7 +227,7 @@ export function OrganigrammaAlberoBoard() {
     const drag = byId.get(dragPersonaId);
     if (!drag || drag.parentId !== parentId) {
       setError(
-        "Il trascinamento cambia solo la posizione. Per la gerarchia: seleziona gli operatori, poi Seleziona Operatore/i da inserire sotto Gerarchia."
+        "In impostazioni puoi solo riordinare le schede nello stesso livello. Per la gerarchia esci dalle impostazioni e seleziona gli operatori."
       );
       return;
     }
@@ -232,7 +241,7 @@ export function OrganigrammaAlberoBoard() {
   }
 
   function onPhotoClick(id: string) {
-    if (!isAdmin || busy) return;
+    if (!isAdmin || busy || impostazioni) return;
     setError(null);
     if (pickerOpen) {
       if (gerarchiaIds.includes(id)) return;
@@ -243,14 +252,16 @@ export function OrganigrammaAlberoBoard() {
   }
 
   function onDropCard(targetId: string) {
-    if (!dragId || !isAdmin || busy || dragId === targetId) return;
+    if (!dragId || !isAdmin || !impostazioni || busy || dragId === targetId) {
+      return;
+    }
     void reorderBefore(dragId, targetId);
     setDragId(null);
     setOverId(null);
   }
 
   function onDropEnd(parentId: string | null) {
-    if (!dragId || !isAdmin || busy) return;
+    if (!dragId || !isAdmin || !impostazioni || busy) return;
     void reorderAtEnd(dragId, parentId);
     setDragId(null);
     setOverId(null);
@@ -281,15 +292,41 @@ export function OrganigrammaAlberoBoard() {
     patchLayout(personaId, res.etichetta, res.gapDopo);
   }
 
+  const layoutEdit = isAdmin && impostazioni;
+
   return (
     <div className="space-y-4">
-      <p className="text-sm text-[var(--muted)]">
-        Organigramma a cascata.{" "}
-        {isAdmin
-          ? "Seleziona un operatore e, se vuoi, altri a scelta. Poi Seleziona Operatore/i da inserire sotto Gerarchia, scegli chi inserire e clicca Concludi: vanno sotto tutti i selezionati, collegati da una linea. Sulla striscia orizzontale puoi scrivere una targhetta (es. Produzione, Area commerciale). Crea distanza allarga lo spazio a destra: così un parigrado che opera in un’altra area, con i suoi sottoposti, sta staccato. Trascina una scheda per spostarli a sinistra/destra nello stesso livello."
-          : "Clicca il nome per aprire la scheda operatore."}
-      </p>
-      {isAdmin && gerarchia.length ? (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-3xl text-sm text-[var(--muted)]">
+          {layoutEdit
+            ? "Impostazioni layout: trascina le schede per riordinarle nello stesso livello. Sulla linea puoi aggiungere solo le targhette che servono (vuoto = nessuna scritta). Usa +/− per le distanze tra parigrado."
+            : isAdmin
+              ? "Seleziona un operatore (foto) e, se vuoi, altri a scelta. Poi inserisci operatori sotto gerarchia. Per spostare le schede e le targhette entra in Impostazioni."
+              : "Clicca il nome per aprire la scheda operatore."}
+        </p>
+        {isAdmin ? (
+          layoutEdit ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={esciImpostazioni}
+              className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              Chiudi impostazioni
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={entraImpostazioni}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Impostazioni
+            </button>
+          )
+        ) : null}
+      </div>
+      {isAdmin && !layoutEdit && gerarchia.length ? (
         <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950">
           <p>
             Selezionati: <strong>{gerarchia.map(personaLabel).join(", ")}</strong>
@@ -341,26 +378,6 @@ export function OrganigrammaAlberoBoard() {
                 Porta a primo livello
               </button>
             ) : null}
-            {gerarchia.length === 1 ? (
-              <>
-                <button
-                  type="button"
-                  disabled={busy || (gerarchia[0].alberoGapDopo ?? 0) >= 8}
-                  className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
-                  onClick={() => void saveLayout(gerarchia[0].id, { gapDelta: 1 })}
-                >
-                  Crea distanza
-                </button>
-                <button
-                  type="button"
-                  disabled={busy || (gerarchia[0].alberoGapDopo ?? 0) <= 0}
-                  className="rounded-md border border-sky-300 bg-white px-2 py-1 text-xs font-medium disabled:opacity-50"
-                  onClick={() => void saveLayout(gerarchia[0].id, { gapDelta: -1 })}
-                >
-                  Riduci distanza
-                </button>
-              </>
-            ) : null}
             <button
               type="button"
               disabled={busy}
@@ -395,12 +412,19 @@ export function OrganigrammaAlberoBoard() {
           Nessun operatore. Aggiungili da Elenco e mansioni, poi collega le foto.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-[var(--border)] bg-gradient-to-b from-slate-50 to-white px-6 py-8">
+        <div
+          className={`overflow-x-auto rounded-2xl border px-6 py-8 ${
+            layoutEdit
+              ? "border-amber-300 bg-amber-50/40"
+              : "border-[var(--border)] bg-gradient-to-b from-slate-50 to-white"
+          }`}
+        >
           <SiblingRow
             nodi={tree}
             parentId={null}
             showIngresso
             isAdmin={isAdmin}
+            layoutEdit={layoutEdit}
             dragId={dragId}
             overId={overId}
             gerarchiaIds={gerarchiaIds}
@@ -421,6 +445,7 @@ export function OrganigrammaAlberoBoard() {
 
 type LayoutHandlers = {
   etichetteSuggerite: string[];
+  layoutEdit: boolean;
   onSaveLayout: (
     personaId: string,
     patch: { etichetta?: string; gapDelta?: number; gapDopo?: number }
@@ -447,6 +472,7 @@ function SiblingRow({
   parentId,
   showIngresso,
   isAdmin,
+  layoutEdit,
   dragId,
   overId,
   gerarchiaIds,
@@ -472,26 +498,26 @@ function SiblingRow({
         const gap = gapOwner?.alberoGapDopo ?? 0;
         return (
           <div key={n.id} className="flex items-start">
-            <div className="flex flex-col items-center px-4">
-              {showIngresso && n.kind !== "gruppo" ? (
-                <div className="flex w-44 flex-col items-center">
-                  <StrisciaOrizzontale
-                    index={i}
-                    total={nodi.length}
-                    persona={persona}
-                    isAdmin={isAdmin}
-                    suggestions={etichetteSuggerite}
-                    onSaveEtichetta={(text) => {
-                      if (persona) onSaveLayout(persona.id, { etichetta: text });
-                    }}
-                  />
-                  <div className="h-6 w-px bg-slate-300" />
-                </div>
+            <div className="flex min-w-44 flex-col items-center">
+              {showIngresso ? (
+                <ConnectorCap
+                  index={i}
+                  total={nodi.length}
+                  persona={n.kind === "gruppo" ? null : persona}
+                  layoutEdit={layoutEdit && n.kind !== "gruppo"}
+                  suggestions={etichetteSuggerite}
+                  onSaveEtichetta={(text) => {
+                    if (persona && n.kind !== "gruppo") {
+                      onSaveLayout(persona.id, { etichetta: text });
+                    }
+                  }}
+                />
               ) : null}
               <AlberoBranch
                 node={n}
                 ingresso={n.kind === "gruppo"}
                 isAdmin={isAdmin}
+                layoutEdit={layoutEdit}
                 dragId={dragId}
                 overId={overId}
                 gerarchiaIds={gerarchiaIds}
@@ -508,7 +534,7 @@ function SiblingRow({
             <DistanzaCoda
               persona={gapOwner}
               gap={gap}
-              isAdmin={isAdmin}
+              layoutEdit={layoutEdit}
               onGapDelta={(delta) => {
                 if (gapOwner) onSaveLayout(gapOwner.id, { gapDelta: delta });
               }}
@@ -518,7 +544,7 @@ function SiblingRow({
       })}
       <EndSlot
         parentId={parentId}
-        isAdmin={isAdmin}
+        layoutEdit={layoutEdit}
         dragId={dragId}
         overId={overId}
         siblingCount={nodi.length}
@@ -533,6 +559,7 @@ function FigliRow({
   figli,
   parentId,
   isAdmin,
+  layoutEdit,
   dragId,
   overId,
   gerarchiaIds,
@@ -547,13 +574,16 @@ function FigliRow({
 }: Omit<BranchProps, "node"> & { figli: AlberoNodo[]; parentId: string | null }) {
   if (!figli.length) return null;
   return (
-    <div className="flex flex-col items-center">
-      <div className="h-6 w-px bg-slate-300" />
+    <div className="flex w-full flex-col items-stretch">
+      <div className="flex justify-center">
+        <div className={`h-6 w-0 border-l-2 ${LINE}`} />
+      </div>
       <SiblingRow
         nodi={figli}
         parentId={parentId}
         showIngresso
         isAdmin={isAdmin}
+        layoutEdit={layoutEdit}
         dragId={dragId}
         overId={overId}
         gerarchiaIds={gerarchiaIds}
@@ -579,10 +609,11 @@ function AlberoBranch(props: BranchProps) {
   if (!persona) return null;
   const dropping = props.overId === persona.id && props.dragId && props.overId !== props.dragId;
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex w-full flex-col items-center">
       <PersonaCard
         node={persona}
         isAdmin={props.isAdmin}
+        layoutEdit={props.layoutEdit}
         dragging={props.dragId === persona.id}
         dropping={Boolean(dropping)}
         role={
@@ -608,33 +639,31 @@ function OrgGruppo(props: BranchProps) {
   const condivisi = node.figli ?? [];
   const ingresso = Boolean(props.ingresso);
   return (
-    <div className="flex flex-col items-center">
-      <div className="flex items-stretch justify-center">
+    <div className="flex w-full flex-col items-stretch">
+      <div className="flex items-start justify-center">
         {membri.map((m, i) => {
           const dropping = props.overId === m.id && props.dragId && props.overId !== props.dragId;
           const exclusive = node.membriFigli[i] ?? [];
           const innerGap = i < membri.length - 1 ? m.alberoGapDopo : 0;
           return (
             <div key={m.id} className="flex items-start">
-              <div className="flex flex-col items-center px-4">
+              <div className="flex min-w-44 flex-col items-center">
                 {ingresso ? (
-                  <div className="flex w-44 flex-col items-center">
-                    <StrisciaOrizzontale
-                      index={i}
-                      total={membri.length}
-                      persona={m}
-                      isAdmin={props.isAdmin}
-                      suggestions={props.etichetteSuggerite}
-                      onSaveEtichetta={(text) =>
-                        props.onSaveLayout(m.id, { etichetta: text })
-                      }
-                    />
-                    <div className="h-6 w-px bg-slate-300" />
-                  </div>
+                  <ConnectorCap
+                    index={i}
+                    total={membri.length}
+                    persona={m}
+                    layoutEdit={props.layoutEdit}
+                    suggestions={props.etichetteSuggerite}
+                    onSaveEtichetta={(text) =>
+                      props.onSaveLayout(m.id, { etichetta: text })
+                    }
+                  />
                 ) : null}
                 <PersonaCard
                   node={m}
                   isAdmin={props.isAdmin}
+                  layoutEdit={props.layoutEdit}
                   dragging={props.dragId === m.id}
                   dropping={Boolean(dropping)}
                   role={
@@ -652,24 +681,11 @@ function OrgGruppo(props: BranchProps) {
                 {exclusive.length ? (
                   <FigliRow {...props} figli={exclusive} parentId={m.id} />
                 ) : null}
-                {condivisi.length ? (
-                  <div className="mt-auto flex w-44 flex-col items-center">
-                    <div className="h-6 w-px bg-slate-300" />
-                    <StrisciaOrizzontale
-                      index={i}
-                      total={membri.length}
-                      persona={null}
-                      isAdmin={false}
-                      suggestions={[]}
-                      onSaveEtichetta={() => undefined}
-                    />
-                  </div>
-                ) : null}
               </div>
               <DistanzaCoda
                 persona={m}
                 gap={innerGap}
-                isAdmin={props.isAdmin}
+                layoutEdit={props.layoutEdit}
                 onGapDelta={(delta) => props.onSaveLayout(m.id, { gapDelta: delta })}
               />
             </div>
@@ -685,51 +701,59 @@ function OrgGruppo(props: BranchProps) {
   );
 }
 
-function StrisciaOrizzontale({
+function ConnectorCap({
   index,
   total,
   persona,
-  isAdmin,
+  layoutEdit,
   suggestions,
   onSaveEtichetta,
 }: {
   index: number;
   total: number;
   persona: OrganigrammaPersona | null;
-  isAdmin: boolean;
+  layoutEdit: boolean;
   suggestions: string[];
   onSaveEtichetta: (text: string) => void;
 }) {
-  const saved = persona?.alberoEtichetta ?? "";
-  const shown = strisciaTesto(persona);
+  const saved = persona?.alberoEtichetta.trim() ?? "";
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(saved);
   const listId = persona ? `albero-etichetta-${persona.id}` : undefined;
+  const only = total <= 1;
+  const first = index === 0;
+  const last = index === total - 1;
 
   useEffect(() => {
     if (!editing) setDraft(saved);
   }, [saved, editing]);
 
+  if (only && !saved && !layoutEdit) {
+    return null;
+  }
+
   function commit() {
     setEditing(false);
     const next = draft.trim();
-    if (next === saved.trim()) return;
+    if (next === saved) return;
     onSaveEtichetta(next);
   }
 
-  const leftOn = index > 0;
-  const rightOn = index < total - 1;
-
   return (
-    <div className="relative flex h-7 w-44 flex-col justify-center">
-      <div className="flex h-px w-full">
-        <div className={`h-px flex-1 ${leftOn ? "bg-slate-300" : "bg-transparent"}`} />
-        <div className={`h-px flex-1 ${rightOn ? "bg-slate-300" : "bg-transparent"}`} />
-      </div>
-      {isAdmin && persona ? (
+    <div className="relative h-7 w-full shrink-0">
+      {!only && !first ? (
+        <div className={`absolute left-0 right-1/2 top-0 border-t-2 ${LINE}`} />
+      ) : null}
+      {!only && !last ? (
+        <div className={`absolute left-1/2 right-0 top-0 border-t-2 ${LINE}`} />
+      ) : null}
+      <div
+        className={`absolute left-1/2 top-0 h-7 w-0 -translate-x-px border-l-2 ${LINE}`}
+      />
+      {layoutEdit && persona ? (
         editing ? (
           <form
-            className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-1"
+            className="absolute inset-x-0 top-1/2 z-10 -translate-y-1/2 px-2"
             onSubmit={(e) => {
               e.preventDefault();
               commit();
@@ -748,7 +772,7 @@ function StrisciaOrizzontale({
                   setEditing(false);
                 }
               }}
-              placeholder="Es. Area commerciale"
+              placeholder="Targhetta (vuoto = nessuna)"
               className="w-full rounded border border-sky-300 bg-white px-1 py-0.5 text-center text-[10px] font-semibold text-slate-800 shadow-sm outline-none"
             />
             {listId && suggestions.length ? (
@@ -768,18 +792,18 @@ function StrisciaOrizzontale({
               setEditing(true);
             }}
             className={`absolute left-1/2 top-1/2 z-10 max-w-[10.5rem] -translate-x-1/2 -translate-y-1/2 truncate rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${
-              shown
+              saved
                 ? "bg-white text-slate-700 ring-1 ring-slate-200"
-                : "bg-white/90 text-slate-400 ring-1 ring-dashed ring-slate-300"
+                : "bg-white/95 text-slate-400 ring-1 ring-dashed ring-slate-300"
             }`}
-            title="Clicca per scrivere la targhetta sulla striscia"
+            title="Aggiungi o modifica la targhetta. Lascia vuoto per non mostrarla."
           >
-            {shown || "Targhetta…"}
+            {saved || "Aggiungi targhetta"}
           </button>
         )
-      ) : shown ? (
+      ) : saved ? (
         <span className="absolute left-1/2 top-1/2 z-10 max-w-[10.5rem] -translate-x-1/2 -translate-y-1/2 truncate rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 ring-1 ring-slate-200">
-          {shown}
+          {saved}
         </span>
       ) : null}
     </div>
@@ -789,43 +813,56 @@ function StrisciaOrizzontale({
 function DistanzaCoda({
   persona,
   gap,
-  isAdmin,
+  layoutEdit,
   onGapDelta,
 }: {
   persona: OrganigrammaPersona | null;
   gap: number;
-  isAdmin: boolean;
+  layoutEdit: boolean;
   onGapDelta: (delta: number) => void;
 }) {
   if (!persona) return null;
-  if (gap <= 0 && !isAdmin) return null;
+  if (gap <= 0 && !layoutEdit) return null;
+  if (gap <= 0) {
+    return (
+      <div className="relative w-0 shrink-0">
+        <button
+          type="button"
+          className="absolute left-0 top-0 z-10 -translate-x-1/2 rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+          disabled={gap >= 8}
+          title="Crea distanza a destra"
+          onClick={() => onGapDelta(1)}
+        >
+          +
+        </button>
+      </div>
+    );
+  }
   return (
     <div
-      className="relative mt-[13px] flex shrink-0 flex-col items-center"
-      style={{ width: Math.max(gap, isAdmin ? 0.35 : 0) * GAP_UNIT_PX }}
+      className="relative shrink-0"
+      style={{ width: gap * GAP_UNIT_PX }}
     >
-      {gap > 0 ? <div className="h-px w-full bg-slate-300" /> : null}
-      {isAdmin ? (
-        <div className="mt-1 flex items-center gap-0.5">
+      <div className={`absolute left-0 right-0 top-0 border-t-2 ${LINE}`} />
+      {layoutEdit ? (
+        <div className="absolute left-1/2 top-2 flex -translate-x-1/2 items-center gap-0.5">
           <button
             type="button"
             className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
             disabled={gap >= 8}
-            title="Crea distanza a destra"
+            title="Aumenta distanza"
             onClick={() => onGapDelta(1)}
           >
             +
           </button>
-          {gap > 0 ? (
-            <button
-              type="button"
-              className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
-              title="Riduci distanza"
-              onClick={() => onGapDelta(-1)}
-            >
-              −
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className="rounded border border-slate-200 bg-white px-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+            title="Riduci distanza"
+            onClick={() => onGapDelta(-1)}
+          >
+            −
+          </button>
         </div>
       ) : null}
     </div>
@@ -834,7 +871,7 @@ function DistanzaCoda({
 
 function EndSlot({
   parentId,
-  isAdmin,
+  layoutEdit,
   dragId,
   overId,
   siblingCount,
@@ -842,14 +879,14 @@ function EndSlot({
   onDropEnd,
 }: {
   parentId: string | null;
-  isAdmin: boolean;
+  layoutEdit: boolean;
   dragId: string | null;
   overId: string | null;
   siblingCount: number;
   setOverId: (id: string | null) => void;
   onDropEnd: (parentId: string | null) => void;
 }) {
-  if (!isAdmin || siblingCount < 2) return null;
+  if (!layoutEdit || siblingCount < 2) return null;
   const slotId = `end:${parentId ?? "root"}`;
   const active = Boolean(dragId) && overId === slotId;
   return (
@@ -881,6 +918,7 @@ function EndSlot({
 function PersonaCard({
   node,
   isAdmin,
+  layoutEdit,
   dragging,
   dropping,
   role,
@@ -891,6 +929,7 @@ function PersonaCard({
 }: {
   node: OrganigrammaPersona;
   isAdmin: boolean;
+  layoutEdit: boolean;
   dragging: boolean;
   dropping: boolean;
   role: "gerarchia" | "inserire" | null;
@@ -903,12 +942,13 @@ function PersonaCard({
     [node.repartoNome, node.mansioni.map((m) => m.nome).join(", ")]
       .filter(Boolean)
       .join(" · ") || "Senza mansione";
+  const canDrag = isAdmin && layoutEdit;
 
   return (
     <div
-      draggable={isAdmin}
+      draggable={canDrag}
       onDragStart={(e) => {
-        if (!isAdmin) return;
+        if (!canDrag) return;
         const target = e.target as HTMLElement;
         if (target.closest("[data-link-photo]")) {
           e.preventDefault();
@@ -923,11 +963,13 @@ function PersonaCard({
         setOverId(null);
       }}
       onDragOver={(e) => {
+        if (!canDrag) return;
         e.preventDefault();
         e.stopPropagation();
         setOverId(node.id);
       }}
       onDrop={(e) => {
+        if (!canDrag) return;
         e.preventDefault();
         e.stopPropagation();
         onDrop(node.id);
@@ -941,22 +983,24 @@ function PersonaCard({
               ? "border-amber-400 bg-amber-50 shadow-md"
               : "border-slate-200"
       } ${dragging ? "opacity-40" : ""} ${
-        isAdmin ? "cursor-grab active:cursor-grabbing" : ""
+        canDrag ? "cursor-grab active:cursor-grabbing" : ""
       } ${node.inForza ? "" : "opacity-70"}`}
     >
       <button
         type="button"
         data-link-photo
-        disabled={!isAdmin}
+        disabled={!isAdmin || layoutEdit}
         onClick={(e) => {
           e.stopPropagation();
           onPhotoClick(node.id);
         }}
-        className="mx-auto block cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="mx-auto block rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 disabled:cursor-default"
         title={
-          isAdmin
-            ? "Clicca per selezionare l’operatore (poi altri a scelta)"
-            : personaLabel(node)
+          layoutEdit
+            ? "In impostazioni trascina la scheda per spostarla"
+            : isAdmin
+              ? "Clicca per selezionare l’operatore (poi altri a scelta)"
+              : personaLabel(node)
         }
       >
         {node.fotoUrl ? (
