@@ -199,6 +199,9 @@ create policy "listini_righe_select_amm"
   );
 
 drop policy if exists "imballaggi_voci_prodotti_all" on public.imballaggi_voci_prodotti;
+drop policy if exists "imballaggi_voci_prodotti_select" on public.imballaggi_voci_prodotti;
+drop policy if exists "imballaggi_voci_prodotti_write" on public.imballaggi_voci_prodotti;
+drop policy if exists "imballaggi_voci_prodotti_update" on public.imballaggi_voci_prodotti;
 create policy "imballaggi_voci_prodotti_select"
   on public.imballaggi_voci_prodotti for select
   to authenticated
@@ -224,6 +227,9 @@ create policy "imballaggi_voci_prodotti_update"
   );
 
 drop policy if exists "imballaggi_voci_all" on public.imballaggi_voci;
+drop policy if exists "imballaggi_voci_select" on public.imballaggi_voci;
+drop policy if exists "imballaggi_voci_write" on public.imballaggi_voci;
+drop policy if exists "imballaggi_voci_update" on public.imballaggi_voci;
 create policy "imballaggi_voci_select"
   on public.imballaggi_voci for select
   to authenticated
@@ -249,6 +255,9 @@ create policy "imballaggi_voci_update"
   );
 
 drop policy if exists "corrieri_all" on public.corrieri;
+drop policy if exists "corrieri_select" on public.corrieri;
+drop policy if exists "corrieri_write" on public.corrieri;
+drop policy if exists "corrieri_update" on public.corrieri;
 create policy "corrieri_select"
   on public.corrieri for select
   to authenticated
