@@ -119,7 +119,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
       {
         slug: "crea-nuovo",
         label: "Crea nuovo",
-        description: "Crea e gestisci nuovi ordini ricevuti",
+        description: "Crea ordini di vendita o campionatura in attesa di processazione",
         path: "/app/amministrazione/ordini/crea-nuovo",
       },
       {
@@ -133,7 +133,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         slug: "processati",
         label: "Processati",
         description:
-          "Ordini/processi già registrati, programmati o in esecuzione",
+          "Coda da processare e ordini già inseriti in scaletta produzione",
         path: "/app/amministrazione/ordini/processati",
       },
     ],

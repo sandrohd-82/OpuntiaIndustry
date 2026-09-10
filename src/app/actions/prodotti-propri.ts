@@ -12,6 +12,7 @@ import {
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineSupportReadAccess } from "@/lib/auth/ordini-access";
 import type {
   ProdottoProprioInsert,
   ProdottoProprioRow,
@@ -61,7 +62,7 @@ export async function listProdottiPropriAction(): Promise<
   | { success: true; prodotti: ProdottoProprio[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineSupportReadAccess();
   const supabase = await createClient();
 
   const { data, error } = await supabase

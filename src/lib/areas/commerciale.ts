@@ -42,6 +42,21 @@ export const COMMERCIALE_SECTIONS: readonly NavItem[] = [
       },
     ],
   },
+  {
+    slug: "ordini",
+    label: "Ordini",
+    description: "Crea ordini di vendita o campionatura da produrre",
+    path: "/app/commerciale/ordini",
+    children: [
+      {
+        slug: "crea-nuovo",
+        label: "Crea nuovo",
+        description:
+          "Crea ordini in attesa: vendita o campionatura da produrre",
+        path: "/app/commerciale/ordini/crea-nuovo",
+      },
+    ],
+  },
 ] as const;
 
 export function getFirstCommercialePath(): string {

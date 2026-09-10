@@ -17,7 +17,6 @@ import {
   listCorrieriAction,
   listImballaggiVociAction,
 } from "@/app/actions/imballaggi-spedizioni";
-import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
 import { listPreventiviAccettatiAction } from "@/app/actions/preventivi";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { linkEntityReferenteAction } from "@/app/actions/rubrica";
@@ -173,6 +172,9 @@ export function OrdineNuovoWizardModal({
   const [timelineMailOpen, setTimelineMailOpen] = useState(false);
   const [tipoPagamento, setTipoPagamento] =
     useState<OrdineTipoPagamento>("alla_consegna");
+  const [tipoOrdine, setTipoOrdine] = useState<"vendita" | "campionatura">(
+    variant === "campionatura" ? "campionatura" : "vendita"
+  );
 
   const [consegnaTipo, setConsegnaTipo] = useState<"asap" | "data">("asap");
   const [dataRichiesta, setDataRichiesta] = useState("");
@@ -384,23 +386,6 @@ export function OrdineNuovoWizardModal({
   }
 
   useEffect(() => {
-    if (step !== 4 || !prodotto || ordineSospeso) return;
-    void runCalcolo();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    step,
-    prodotto?.id,
-    quantitaKg,
-    consegnaTipo,
-    dataRichiesta,
-    urgente,
-    usaMagazzino,
-    usaSabato,
-    resaOverride,
-    kgEssiccatore,
-  ]);
-
-  useEffect(() => {
     setPreventivoId("");
     setMailAccettazione(null);
     setReferenteAccettazione(null);
@@ -408,7 +393,7 @@ export function OrdineNuovoWizardModal({
   }, [clienteId]);
 
   useEffect(() => {
-    if (variant === "campionatura" || !clienteId || step !== 3) return;
+    if (tipoOrdine === "campionatura" || !clienteId || step !== 3) return;
     let cancelled = false;
     void listPreventiviAccettatiAction({
       clienteId,
@@ -420,31 +405,14 @@ export function OrdineNuovoWizardModal({
     return () => {
       cancelled = true;
     };
-  }, [variant, clienteId, prodotto?.id, step]);
+  }, [tipoOrdine, clienteId, prodotto?.id, step]);
 
   useEffect(() => {
-    if (!prodotto?.id) {
-      setAttivitaDrafts([]);
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      const res = await listAttivitaByProdottoAction(prodotto.id);
-      if (cancelled) return;
-      if (!res.success) {
-        setAttivitaDrafts([]);
-        return;
-      }
-      setAttivitaDrafts(res.attivita.map(attivitaToOrdineDraft));
-      // Reset selezione calendario se cambia prodotto
-      setGiorniProduzione([]);
-      setGiorniAttivita([]);
-      setAttivitaSnapshot([]);
-      setDataConsegnaCalendario(null);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    setAttivitaDrafts([]);
+    setGiorniProduzione([]);
+    setGiorniAttivita([]);
+    setAttivitaSnapshot([]);
+    setDataConsegnaCalendario(null);
   }, [prodotto?.id]);
 
   function canNext(): boolean {
@@ -459,7 +427,7 @@ export function OrdineNuovoWizardModal({
       if (!(quantitaKg > 0 && numberOrZero(prezzoUnitario) > 0)) return false;
       if (ordineSospeso && !dataDisponibilitaPresunta) return false;
       if (
-        variant !== "campionatura" &&
+        tipoOrdine !== "campionatura" &&
         preventivoId &&
         (!mailAccettazione || !referenteAccettazione)
       ) {
@@ -469,14 +437,8 @@ export function OrdineNuovoWizardModal({
     }
     if (step === 4) {
       if (ordineSospeso) return Boolean(dataDisponibilitaPresunta);
-      if (!calcolo || calcolo.giorniLavorativiNecessari <= 0) {
-        return Boolean(calcolo?.dataConsegnaStimata);
-      }
-      // Operatore deve fissare i giorni sul calendario (verde + eventuali attività)
-      return (
-        giorniProduzione.length === calcolo.giorniLavorativiNecessari &&
-        Boolean(dataConsegnaCalendario)
-      );
+      if (consegnaTipo === "data") return Boolean(dataRichiesta);
+      return true;
     }
     if (step === 5) {
       if (!corriereDopo && !corriereId) return false;
@@ -560,6 +522,7 @@ export function OrdineNuovoWizardModal({
       dataConsegnaCalendario,
       confezionamento: confNorm,
       tipoPagamento,
+      tipo: tipoOrdine,
       preventivoId: preventivoId || null,
       webmailAccettazioneId: mailAccettazione?.id ?? null,
       referenteAccettazioneId: referenteAccettazione?.id ?? null,
@@ -739,17 +702,18 @@ export function OrdineNuovoWizardModal({
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          {variant === "campionatura"
-            ? "Invio campionatura"
-            : "Crea ordine"}
+          {tipoOrdine === "campionatura"
+            ? "Crea campionatura da produrre"
+            : "Crea ordine di vendita"}
         </h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          {variant === "campionatura"
-            ? "Seleziona l’azienda digitando il nome: l’elenco si filtra subito."
-            : "Seleziona l’azienda digitando il nome: l’elenco sotto si filtra mentre scrivi."}
+          Seleziona l’azienda digitando il nome: l’elenco sotto si filtra mentre
+          scrivi.
         </p>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Wizard con capacità, spedizione corriere e confezionamento a stadi.
+          L’ordine resta in attesa: amministrazione o produzione lo inseriranno
+          in scaletta. «Invio campionatura» resta il documento del campione già
+          spedito.
         </p>
 
         <ol className="mt-4 flex flex-wrap gap-2">
@@ -795,6 +759,31 @@ export function OrdineNuovoWizardModal({
                   className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                 />
               </label>
+              <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+                <legend className="px-1 text-sm font-medium">Tipo documento</legend>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="tipo-ordine"
+                    checked={tipoOrdine === "vendita"}
+                    onChange={() => setTipoOrdine("vendita")}
+                  />
+                  Vendita
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="tipo-ordine"
+                    checked={tipoOrdine === "campionatura"}
+                    onChange={() => setTipoOrdine("campionatura")}
+                  />
+                  Campionatura da produrre
+                </label>
+                <p className="text-xs text-[var(--muted)]">
+                  La campionatura-ordine entra in coda come un ordine. L’invio
+                  del campione già spedito è un documento separato.
+                </p>
+              </fieldset>
               {numeroInterno ? (
                 <p className="text-sm text-[var(--muted)]">
                   N. interno previsto:{" "}
@@ -1056,7 +1045,7 @@ export function OrdineNuovoWizardModal({
                     checked={consegnaTipo === "asap"}
                     onChange={() => setConsegnaTipo("asap")}
                   />
-                  Prima possibile (calcolo capacità)
+                  Prima possibile
                 </label>
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -1087,6 +1076,13 @@ export function OrdineNuovoWizardModal({
                 Ordine urgente
               </label>
 
+              <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+                L’ordine verrà salvato in attesa di processazione. I giorni in
+                scaletta li assegna amministrazione o produzione dalla pagina
+                Processati.
+              </p>
+
+              <div className="hidden">
               <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-3 text-sm">
                 <p className="font-medium">
                   Giacenza magazzino: {giacenzaKg.toLocaleString("it-IT")} kg
@@ -1243,6 +1239,7 @@ export function OrdineNuovoWizardModal({
                     : `Apri calendario · ${calcolo.giorniLavorativiNecessari} lavorazione + prep.`}
                 </button>
               ) : null}
+              </div>
             </div>
           )}
 

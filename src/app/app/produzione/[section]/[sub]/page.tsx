@@ -7,6 +7,7 @@ import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
 import { ProcessiBoard } from "@/components/produzione/ProcessiBoard";
+import { OrdiniProcessatiBoard } from "@/components/amministrazione/OrdiniProcessatiBoard";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { resolveProduzioneDynamic } from "../../_resolve";
 
@@ -75,6 +76,17 @@ export default async function ProduzioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FogliInEsecuzioneBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "scaletta") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <OrdiniProcessatiBoard />
         </div>
       </>
     );

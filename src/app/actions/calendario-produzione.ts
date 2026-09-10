@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import type { CalendarioImpegno } from "@/lib/amministrazione/calendario-produzione";
 import type { ProduzioneCalendarioImpegnoRow } from "@/types/database";
 
@@ -12,7 +13,7 @@ export async function listCalendarioImpegniAction(input: {
   | { success: true; impegni: CalendarioImpegno[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineProcessAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_calendario_impegni")
@@ -40,7 +41,7 @@ export async function spostaImpegnoCalendarioAction(input: {
   nuovaData: string;
   sostituisciSeOccupato?: boolean;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireOrdineProcessAccess();
   const supabase = await createClient();
   const now = new Date().toISOString();
 

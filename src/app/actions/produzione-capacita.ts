@@ -12,7 +12,7 @@ import {
   type ResaBaseline,
   type StagioneProduzione,
 } from "@/lib/amministrazione/produzione-capacita";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 
 async function loadLinee(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -131,7 +131,7 @@ export async function getGiacenzaProdottoAction(
   | { success: true; quantitaKg: number }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineProcessAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("magazzino_giacenze")
@@ -152,7 +152,7 @@ export async function calcolaConsegnaOrdineAction(
   | { success: true; calcolo: CapacitaCalcoloResult; giacenzaKg: number }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineProcessAccess();
   const parsed = calcoloConsegnaInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {

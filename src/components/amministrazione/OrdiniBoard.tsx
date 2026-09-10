@@ -23,8 +23,12 @@ import { OrdineFormModal } from "@/components/amministrazione/OrdineFormModal";
 import { OrdineNuovoWizardModal } from "@/components/amministrazione/OrdineNuovoWizardModal";
 import { SortableTh } from "@/components/ui/SortableTh";
 import { useOrdini } from "@/hooks/useOrdini";
+import { ProcessaOrdineScalettaModal } from "@/components/amministrazione/ProcessaOrdineScalettaModal";
 import {
   fraseConfermaEliminazione,
+  isOrdineDaProcessare,
+  labelStatoOrdine,
+  labelTipoOrdine,
   labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
@@ -94,27 +98,42 @@ function AllegatoIcon({
 function OrdineTableRow({
   ordine,
   open,
+  processMode,
   onToggle,
   onEdit,
   onDelete,
+  onProcess,
 }: {
   ordine: Ordine;
   open: boolean;
+  processMode: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onProcess: () => void;
 }) {
   return (
     <>
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-semibold tabular-nums">
           {ordine.numeroInterno}
+          <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
+            {labelTipoOrdine(ordine.tipo)}
+          </span>
           {ordine.stato === "sospeso" ? (
             <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
               Sospeso
               {ordine.dataDisponibilitaPresunta
                 ? ` · presunta ${formatDate(ordine.dataDisponibilitaPresunta)}`
                 : ""}
+            </span>
+          ) : ordine.stato === "in_scaletta" || ordine.stato === "evaso" ? (
+            <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+              {labelStatoOrdine(ordine.stato)}
+            </span>
+          ) : isOrdineDaProcessare(ordine.stato) ? (
+            <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-900">
+              {labelStatoOrdine(ordine.stato)}
             </span>
           ) : null}
         </td>
@@ -166,6 +185,18 @@ function OrdineTableRow({
         </td>
         <td className="px-4 py-3">
           <div className="flex justify-end gap-1">
+            {processMode && isOrdineDaProcessare(ordine.stato) ? (
+              <ActionGate actionKey={AZ.processaOrdine}>
+                <button
+                  type="button"
+                  title="Processa e metti in scaletta"
+                  onClick={onProcess}
+                  className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                >
+                  Processa
+                </button>
+              </ActionGate>
+            ) : null}
             <button
               type="button"
               title={open ? "Chiudi dettaglio" : "Espandi dettaglio"}
@@ -176,6 +207,8 @@ function OrdineTableRow({
               {open ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
               Dettaglio
             </button>
+            {processMode ? null : (
+              <>
             <button
               type="button"
               title="Modifica"
@@ -192,6 +225,8 @@ function OrdineTableRow({
             >
               <FaTrash size={14} />
             </button>
+              </>
+            )}
           </div>
         </td>
       </tr>
@@ -207,9 +242,7 @@ function OrdineTableRow({
 }
 
 type Props = {
-  stato:
-    | Extract<OrdineStato, "storico" | "ricevuto" | "sospeso">
-    | Array<Extract<OrdineStato, "storico" | "ricevuto" | "sospeso">>;
+  stato: OrdineStato | OrdineStato[];
   description: string;
   createLabel: string;
   emptyTitle: string;
@@ -221,6 +254,8 @@ type Props = {
   dualCreateActions?: boolean;
   /** Pulsante soft-purge dati is_test */
   showPurgeTest?: boolean;
+  /** Coda processazione: nasconde crea, mostra Processa */
+  processMode?: boolean;
 };
 
 export function OrdiniBoard({
@@ -233,10 +268,13 @@ export function OrdiniBoard({
   useWizardCreate = false,
   dualCreateActions = false,
   showPurgeTest = false,
+  processMode = false,
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
     useOrdini(stato);
-  const statoForm: OrdineStato = Array.isArray(stato) ? "ricevuto" : stato;
+  const statoForm: OrdineStato = Array.isArray(stato)
+    ? (stato[0] ?? "in_attesa")
+    : stato;
   const [creating, setCreating] = useState<"ordine" | "campionatura" | false>(
     false
   );
@@ -246,6 +284,7 @@ export function OrdiniBoard({
   const [actionError, setActionError] = useState<string | null>(null);
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<Ordine | null>(null);
   const [campionaturaTick, setCampionaturaTick] = useState(0);
   const [sort, setSort] = useState<SortState<OrdineSortKey> | null>({
     key: "dataOrdine",
@@ -253,8 +292,15 @@ export function OrdiniBoard({
   });
 
   const ordiniSorted = useMemo(() => {
-    if (!sort) return ordini;
-    return [...ordini].sort((a, b) => {
+    const ranked = processMode
+      ? [...ordini].sort((a, b) => {
+          const rank = (s: typeof a.stato) =>
+            isOrdineDaProcessare(s) ? 0 : s === "sospeso" ? 2 : 1;
+          return rank(a.stato) - rank(b.stato);
+        })
+      : ordini;
+    if (!sort) return ranked;
+    return [...ranked].sort((a, b) => {
       const av =
         sort.key === "pagato"
           ? a.pagato
@@ -273,7 +319,7 @@ export function OrdiniBoard({
             : (b[sort.key] ?? "");
       return compareSortValues(av, bv, sort.dir);
     });
-  }, [ordini, sort]);
+  }, [ordini, sort, processMode]);
 
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">{loadingLabel}</p>;
@@ -284,7 +330,7 @@ export function OrdiniBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">{description}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {showPurgeTest ? (
+          {processMode ? null : showPurgeTest ? (
             <button
               type="button"
               disabled={purgeBusy}
@@ -317,7 +363,7 @@ export function OrdiniBoard({
               {purgeBusy ? "Pulizia…" : "Pulisci dati test"}
             </button>
           ) : null}
-          {dualCreateActions ? (
+          {processMode ? null : dualCreateActions ? (
             <>
               <ActionGate actionKey={AZ.creaOrdine}>
               <button
@@ -386,7 +432,7 @@ export function OrdiniBoard({
           {emptyHint ? (
             <p className="mt-1 text-xs text-[var(--muted)]">{emptyHint}</p>
           ) : null}
-          {dualCreateActions ? (
+          {processMode ? null : dualCreateActions ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <ActionGate actionKey={AZ.creaOrdine}>
               <button
@@ -496,6 +542,7 @@ export function OrdiniBoard({
                   key={ordine.id}
                   ordine={ordine}
                   open={expandedId === ordine.id}
+                  processMode={processMode}
                   onToggle={() =>
                     setExpandedId((prev) =>
                       prev === ordine.id ? null : ordine.id
@@ -508,6 +555,10 @@ export function OrdiniBoard({
                   onDelete={() => {
                     setActionError(null);
                     setDeleting(ordine);
+                  }}
+                  onProcess={() => {
+                    setActionError(null);
+                    setProcessing(ordine);
                   }}
                 />
               ))}
@@ -551,8 +602,20 @@ export function OrdiniBoard({
         />
       )}
 
-      {dualCreateActions ? (
+      {dualCreateActions && !processMode ? (
         <CampionatureBoard refreshToken={campionaturaTick} />
+      ) : null}
+
+      {processing ? (
+        <ProcessaOrdineScalettaModal
+          ordine={processing}
+          onClose={() => setProcessing(null)}
+          onSaved={(ordine) => {
+            upsertLocal(ordine);
+            setProcessing(null);
+            setExpandedId(ordine.id);
+          }}
+        />
       ) : null}
 
       {editing && (

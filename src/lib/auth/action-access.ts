@@ -116,6 +116,7 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
   item("Amministrazione", "/app/amministrazione/schede/listini-b2b", "crea-bozza-dal-modello", "Crea bozza dal modello"),
   item("Amministrazione", "/app/amministrazione/ordini/crea-nuovo", "crea-ordine", "Crea ordine"),
   item("Amministrazione", "/app/amministrazione/ordini/crea-nuovo", "invio-campionatura", "Invio campionatura"),
+  item("Amministrazione", "/app/amministrazione/ordini/processati", "processa-ordine", "Processa ordine"),
   item("Amministrazione", "/app/amministrazione/ordini/preventivi", "crea-nuovo", "Crea nuovo"),
   item("Amministrazione", "/app/archivio/amministrazione/ordini/storico", "aggiungi-ordine-storico", "Aggiungi ordine Storico"),
   item("Amministrazione", "/app/amministrazione/organigramma/elenco-e-mansioni", "nuovo-operatore", "Nuovo operatore"),
@@ -194,6 +195,8 @@ export const AZ = {
   creaOrdine: "action:/app/amministrazione/ordini/crea-nuovo/crea-ordine",
   invioCampionatura:
     "action:/app/amministrazione/ordini/crea-nuovo/invio-campionatura",
+  processaOrdine:
+    "action:/app/amministrazione/ordini/processati/processa-ordine",
   creaPreventivo: "action:/app/amministrazione/ordini/preventivi/crea-nuovo",
   aggiungiOrdineStorico:
     "action:/app/archivio/amministrazione/ordini/storico/aggiungi-ordine-storico",

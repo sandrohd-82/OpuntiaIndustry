@@ -175,6 +175,7 @@ export const ordineWizardInputSchema = z
     tipoPagamento: z
       .enum(["anticipato", "alla_consegna", "posticipato", "dilazionato"])
       .default("alla_consegna"),
+    tipo: z.enum(["vendita", "campionatura"]).default("vendita"),
   })
   .superRefine((val, ctx) => {
     if (val.consegnaTipo === "data" && !val.dataRichiesta) {
@@ -234,6 +235,45 @@ export const ordineWizardInputSchema = z
   });
 
 export type OrdineWizardInput = z.infer<typeof ordineWizardInputSchema>;
+
+export const ordineProcessaScalettaSchema = z.object({
+  ordineId: z.string().uuid(),
+  giorniProduzione: z
+    .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+    .default([]),
+  giorniAttivita: z
+    .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
+    .optional(),
+  attivitaSnapshot: z
+    .array(
+      z.object({
+        attivitaId: z.string(),
+        codice: z.string(),
+        titolo: z.string(),
+        dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)),
+        modalitaTempo: z.enum(["throughput", "durata_fissa"]).optional(),
+        kgPerOra: z.number().optional(),
+        oreGiorno: z.number().optional(),
+        oreCiclo: z.number().nullable().optional(),
+        giorniOverride: z.number().nullable().optional(),
+      })
+    )
+    .optional(),
+  dataConsegnaCalendario: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  urgente: z.boolean().optional(),
+  usaMagazzino: z.boolean().optional(),
+  usaSabato: z.boolean().optional(),
+  resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),
+  capacitaIngressoKgPerEssiccatoreOverride: z
+    .number()
+    .positive()
+    .nullable()
+    .optional(),
+});
+
+export type OrdineProcessaScalettaInput = z.infer<
+  typeof ordineProcessaScalettaSchema
+>;
 
 export function stagioneFromDate(isoDate: string): StagioneProduzione {
   const m = Number(isoDate.slice(5, 7));

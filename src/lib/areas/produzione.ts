@@ -45,6 +45,21 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "ordini",
+    label: "Ordini",
+    description: "Processazione ordini e inserimento in scaletta",
+    path: "/app/produzione/ordini",
+    children: [
+      {
+        slug: "scaletta",
+        label: "Metti in scaletta",
+        description:
+          "Processa gli ordini in attesa e inseriscili in scaletta produzione",
+        path: "/app/produzione/ordini/scaletta",
+      },
+    ],
+  },
+  {
     slug: "processi-e-attivita",
     label: "Processi e attività",
     description: "Processi produttivi e attività di esecuzione",

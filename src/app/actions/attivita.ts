@@ -18,6 +18,7 @@ import {
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
 import type {
   AttivitaInsert,
   AttivitaRow,
@@ -153,7 +154,7 @@ export async function listAttivitaByProdottoAction(
   | { success: true; attivita: AttivitaLinked[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineProcessAccess();
   if (!prodottoId) return { success: true, attivita: [] };
   const supabase = await createClient();
   const { data: links, error: linkErr } = await supabase

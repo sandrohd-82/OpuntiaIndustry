@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineSupportReadAccess } from "@/lib/auth/ordini-access";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import {
   GEO_CONTINENTE_LABEL,
@@ -2067,7 +2068,7 @@ export async function getListinoVoceVigenteAction(
   | { success: true; voce: ListinoVoceVigente | null }
   | { success: false; error: string }
 > {
-  await guardAmm();
+  await requireOrdineSupportReadAccess();
   const res = await queryListinoVoceVigente(prodottoId);
   if (res.error) return { success: false, error: res.error };
   return { success: true, voce: res.voce };

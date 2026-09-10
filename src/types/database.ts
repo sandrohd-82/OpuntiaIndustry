@@ -868,7 +868,15 @@ export interface ProdottoProprioAttivitaRow {
   deleted_by: string | null;
 }
 
-export type OrdineStato = "ricevuto" | "sospeso" | "evaso" | "storico";
+export type OrdineStato =
+  | "in_attesa"
+  | "sospeso"
+  | "in_scaletta"
+  | "storico"
+  | "ricevuto"
+  | "evaso";
+
+export type OrdineTipoDocumento = "vendita" | "campionatura";
 export type OrdineOrigineStorico = "manuale" | "chiusura";
 export type OrdineDocumentoStato =
   | "bozza"
@@ -920,6 +928,9 @@ export interface OrdineRow {
   data_disponibilita_presunta: string | null;
   capacita_snapshot: Record<string, unknown>;
   is_test: boolean;
+  tipo?: OrdineTipoDocumento;
+  processed_at?: string | null;
+  processed_by?: string | null;
   spedizione_mezzo: "corriere";
   corriere_id: string | null;
   corriere_da_compilare: boolean;
@@ -978,6 +989,9 @@ export interface OrdineInsert {
   data_disponibilita_presunta?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
+  tipo?: OrdineTipoDocumento;
+  processed_at?: string | null;
+  processed_by?: string | null;
   spedizione_mezzo?: "corriere";
   corriere_id?: string | null;
   corriere_da_compilare?: boolean;
@@ -1026,6 +1040,9 @@ export interface OrdineUpdate {
   data_disponibilita_presunta?: string | null;
   capacita_snapshot?: Record<string, unknown>;
   is_test?: boolean;
+  tipo?: OrdineTipoDocumento;
+  processed_at?: string | null;
+  processed_by?: string | null;
   spedizione_mezzo?: "corriere";
   corriere_id?: string | null;
   corriere_da_compilare?: boolean;

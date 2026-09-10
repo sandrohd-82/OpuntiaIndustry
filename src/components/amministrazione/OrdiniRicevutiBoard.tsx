@@ -5,11 +5,11 @@ import { OrdiniBoard } from "@/components/amministrazione/OrdiniBoard";
 export function OrdiniRicevutiBoard() {
   return (
     <OrdiniBoard
-      stato={["ricevuto", "sospeso"]}
-      description="Ordini ricevuti e sospesi (prodotto al momento non disponibile: restano fuori produzione fino alla data presunta). «Invio campionatura» è un documento distinto. Soft-delete e «Pulisci dati test» sugli ordini di prova."
+      stato={["in_attesa", "sospeso", "ricevuto"]}
+      description="Ordini in attesa di processazione e sospesi (prodotto non disponibile). Non sono ancora in scaletta. «Invio campionatura» è il documento del campione già spedito. Soft-delete e «Pulisci dati test» sugli ordini di prova."
       createLabel="Crea ordine"
-      emptyTitle="Nessun ordine ricevuto"
-      emptyHint="Scegli Crea ordine o Invio campionatura."
+      emptyTitle="Nessun ordine in attesa"
+      emptyHint="Scegli Crea ordine (vendita o campionatura da produrre) o Invio campionatura."
       loadingLabel="Caricamento ordini…"
       useWizardCreate
       dualCreateActions

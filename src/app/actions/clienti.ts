@@ -150,7 +150,7 @@ export async function listClientiAction(): Promise<
   | { success: true; clienti: Cliente[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
   const scope = await resolveScopeMode("anagrafiche_clienti");
 

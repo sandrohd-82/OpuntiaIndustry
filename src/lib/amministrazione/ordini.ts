@@ -3,6 +3,7 @@ import type {
   OrdineRigaRow,
   OrdineRow,
   OrdineStato,
+  OrdineTipoDocumento,
 } from "@/types/database";
 
 export type OrdineAllegatoMeta = {
@@ -68,6 +69,10 @@ export type Ordine = {
   dataConsegna: string | null;
   dataDisponibilitaPresunta: string | null;
   stato: OrdineStato;
+  tipo: OrdineTipoDocumento;
+  processedAt: string | null;
+  processedBy: string | null;
+  processedByLabel: string | null;
   origineStorico: OrdineOrigineStorico | null;
   sourceOrdineId: string | null;
   trasporto: OrdineTrasporto;
@@ -196,7 +201,14 @@ export const ordineInputSchema = z
       .optional(),
     numeroInterno: z.string().trim().min(3).optional(),
     numeroCliente: z.string().optional(),
-    stato: z.enum(["ricevuto", "sospeso", "evaso", "storico"]),
+    stato: z.enum([
+      "in_attesa",
+      "sospeso",
+      "in_scaletta",
+      "storico",
+      "ricevuto",
+      "evaso",
+    ]),
     origineStorico: z.enum(["manuale", "chiusura"]).nullable().optional(),
     note: z.string().optional(),
     tipoPagamento: z.enum([
@@ -269,6 +281,12 @@ export function mapOrdineRow(
     dataConsegna: row.data_consegna,
     dataDisponibilitaPresunta: row.data_disponibilita_presunta ?? null,
     stato: row.stato,
+    tipo: row.tipo === "campionatura" ? "campionatura" : "vendita",
+    processedAt: row.processed_at ?? null,
+    processedBy: row.processed_by ?? null,
+    processedByLabel: row.processed_by
+      ? (operatorLabels.get(row.processed_by) ?? null)
+      : null,
     origineStorico: row.origine_storico,
     sourceOrdineId: row.source_ordine_id,
     trasporto: {
@@ -352,6 +370,33 @@ export function formatOperatoreQuando(
   return `${who} · ${when}`;
 }
 
+export function labelStatoOrdine(stato: OrdineStato): string {
+  switch (stato) {
+    case "in_attesa":
+      return "In attesa";
+    case "sospeso":
+      return "Sospeso";
+    case "in_scaletta":
+      return "In scaletta";
+    case "storico":
+      return "Storico";
+    case "ricevuto":
+      return "In attesa";
+    case "evaso":
+      return "In scaletta";
+    default:
+      return stato;
+  }
+}
+
+export function labelTipoOrdine(tipo: OrdineTipoDocumento): string {
+  return tipo === "campionatura" ? "Campionatura" : "Vendita";
+}
+
+export function isOrdineDaProcessare(stato: OrdineStato): boolean {
+  return stato === "in_attesa" || stato === "ricevuto";
+}
+
 export function labelDocumentoStato(stato: OrdineDocumentoStato): string {
   switch (stato) {
     case "bozza":
@@ -395,6 +440,10 @@ export function labelAuditAction(action: string): string {
       return "Allegato rimosso";
     case "purge_test_ordini":
       return "Pulizia dati test ordini";
+    case "ordine_processa":
+      return "Processazione ordine";
+    case "ordine_inserisci_scaletta":
+      return "Inserimento in scaletta";
     default:
       return action;
   }

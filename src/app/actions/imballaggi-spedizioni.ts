@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdineCreateAccess } from "@/lib/auth/ordini-access";
 import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import {
@@ -172,7 +173,7 @@ async function copyProdottiLinks(
 export async function listImballaggiVociAction(
   stadio?: ImballaggioStadio
 ): Promise<ListVociResult> {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineCreateAccess();
   const supabase = await createClient();
   let q = supabase
     .from("imballaggi_voci")
@@ -561,7 +562,7 @@ export async function softDeleteImballaggiVociBulkAction(input: {
 }
 
 export async function listCorrieriAction(): Promise<ListCorrieriResult> {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineCreateAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("corrieri")

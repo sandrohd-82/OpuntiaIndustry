@@ -8,6 +8,8 @@ import {
   formatOperatoreQuando,
   imponibileRiga,
   labelDocumentoStato,
+  labelStatoOrdine,
+  labelTipoOrdine,
   labelTipoPagamento,
   totaleRiga,
   totaleTrasporto,
@@ -97,12 +99,27 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
 
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
         <span className="font-semibold text-slate-800">
-          V{ordine.versione} {labelDocumentoStato(ordine.documentoStato)}
+          {labelTipoOrdine(ordine.tipo)} · {labelStatoOrdine(ordine.stato)} · V
+          {ordine.versione} {labelDocumentoStato(ordine.documentoStato)}
         </span>
         <span className="text-[var(--muted)]" aria-hidden>
           ·
         </span>
         <span className="text-[var(--muted)]">Creato da: {creatoLine}</span>
+        {ordine.processedAt ? (
+          <>
+            <span className="text-[var(--muted)]" aria-hidden>
+              ·
+            </span>
+            <span className="text-[var(--muted)]">
+              Processato da:{" "}
+              {formatOperatoreQuando(
+                ordine.processedByLabel,
+                ordine.processedAt
+              )}
+            </span>
+          </>
+        ) : null}
         <button
           type="button"
           onClick={() => setAuditOpen(true)}

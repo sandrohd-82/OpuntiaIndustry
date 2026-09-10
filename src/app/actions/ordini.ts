@@ -7,6 +7,7 @@ import {
   emptyTrasporto,
   formatOperatoreShort,
   fraseConfermaEliminazione,
+  isOrdineDaProcessare,
   labelAuditAction,
   mapOrdineRow,
   ordineInputSchema,
@@ -20,13 +21,21 @@ import {
   normalizeConfezionamentoDraft,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { ordineWizardInputSchema } from "@/lib/amministrazione/produzione-capacita";
+import {
+  ordineProcessaScalettaSchema,
+  ordineWizardInputSchema,
+} from "@/lib/amministrazione/produzione-capacita";
 import { queryListinoVoceVigente } from "@/lib/ecosystem/listino-vigente-query";
 import {
   LISTINO_CONTRATTO_MSG,
   valutaListinoPerContratto,
 } from "@/lib/ecosystem/listino-vigente";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  requireOrdineCreateAccess,
+  requireOrdineProcessAccess,
+  requireOrdineReadAccess,
+} from "@/lib/auth/ordini-access";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
   AuditLogInsert,
@@ -101,6 +110,7 @@ async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
   const labels = await resolveOperatorLabels([
     typed.created_by,
     typed.updated_by,
+    typed.processed_by,
   ]);
   return mapOrdineRow(typed, (righe ?? []) as OrdineRigaRow[], labels);
 }
@@ -180,7 +190,7 @@ async function replaceRighe(
 export async function listOrdiniAction(
   stato: OrdineStato | OrdineStato[]
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineReadAccess();
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
   const scope = await resolveScopeMode("ordini");
@@ -216,7 +226,7 @@ export async function listOrdiniAction(
 
   const rows = (data ?? []) as OrdineRow[];
   const labels = await resolveOperatorLabels(
-    rows.flatMap((r) => [r.created_by, r.updated_by])
+    rows.flatMap((r) => [r.created_by, r.updated_by, r.processed_by])
   );
 
   return {
@@ -230,7 +240,7 @@ export async function listOrdiniAction(
 export async function getOrdineAction(
   id: string
 ): Promise<OrdiniActionResult> {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineReadAccess();
   const ordine = await loadOrdineWithRighe(id);
   if (!ordine || ordine.deletedAt) {
     return { success: false, error: "Ordine non trovato." };
@@ -245,7 +255,7 @@ export async function previewNumeroInternoOrdineAction(input: {
 }): Promise<
   { success: true; numeroInterno: string } | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineCreateAccess();
   try {
     const seq = await nextSeqForCliente(
       input.clienteId,
@@ -371,6 +381,7 @@ export async function createOrdineAction(
       note_rateizzazione: input.noteRateizzazione?.trim() ?? "",
       documento_stato: "registrato",
       versione: 1,
+      tipo: "vendita",
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -648,7 +659,7 @@ export async function getOrdineAllegatoSignedUrlAction(
 ): Promise<
   { success: true; url: string } | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineReadAccess();
   if (!storagePath.trim()) {
     return { success: false, error: "Allegato assente." };
   }
@@ -668,7 +679,7 @@ export async function listOrdineAuditLogAction(
   | { success: true; entries: OrdineAuditEntry[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireOrdineReadAccess();
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -725,13 +736,13 @@ export async function listOrdineAuditLogAction(
 }
 
 /**
- * Wizard Ordini Ricevuti: crea ordine con calcolo capacità / consegna.
- * Marca is_test=true (dati eliminabili con purge).
+ * Wizard: crea ordine vendita/campionatura in attesa di processazione.
+ * Non inserisce giorni in scaletta. Marca is_test=true (purge).
  */
 export async function createOrdineWizardAction(
   raw: unknown
 ): Promise<OrdiniActionResult> {
-  const { auth } = await requireAreaAccess("amministrazione");
+  const { auth } = await requireOrdineCreateAccess();
   const parsed = ordineWizardInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -759,47 +770,11 @@ export async function createOrdineWizardAction(
     };
   }
 
-  const calcRes = ordineSospeso
-    ? null
-    : await calcolaConsegnaOrdineAction({
-    prodottoId: input.prodottoId,
-    prodottoCodice: input.prodottoCodice,
-    quantitaKg: input.quantita,
-    consegnaTipo: input.consegnaTipo,
-    dataRichiesta: input.dataRichiesta ?? null,
-    urgente: input.urgente,
-    usaMagazzino: input.usaMagazzino,
-    usaSabato: input.usaSabato,
-    resaPercentualeOverride: input.resaPercentualeOverride ?? null,
-    capacitaIngressoKgPerEssiccatoreOverride:
-      input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
-  });
-  if (calcRes && !calcRes.success) {
-    return { success: false, error: calcRes.error };
-  }
-
   const dataConsegna = ordineSospeso
     ? (input.dataDisponibilitaPresunta ?? input.dataRichiesta ?? null)
-    : (input.dataConsegnaCalendario ??
-      calcRes?.calcolo.dataConsegnaStimata ??
-      input.dataRichiesta ??
-      null);
-  if (!dataConsegna) {
-    return {
-      success: false,
-      error: ordineSospeso
-        ? "Indica la data presunta di disponibilità."
-        : "Impossibile determinare la data di consegna.",
-    };
-  }
-  const giorniProduzione = ordineSospeso ? [] : (input.giorniProduzione ?? []);
-  const giorniAttivita = ordineSospeso
-    ? []
-    : (input.giorniAttivita ?? input.giorniPreparazione ?? []);
-  const attivitaSnapshot = ordineSospeso ? [] : (input.attivitaSnapshot ?? []);
-  const giorniCalendarioImpegno = ordineSospeso
-    ? []
-    : [...giorniProduzione, ...giorniAttivita];
+    : input.consegnaTipo === "data"
+      ? (input.dataRichiesta ?? null)
+      : null;
 
   const trasporto = emptyTrasporto();
   const righeCalc = [
@@ -860,7 +835,8 @@ export async function createOrdineWizardAction(
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_ordine: input.dataOrdine,
       data_consegna: dataConsegna,
-      stato: ordineSospeso ? "sospeso" : "ricevuto",
+      stato: ordineSospeso ? "sospeso" : "in_attesa",
+      tipo: input.tipo ?? "vendita",
       data_disponibilita_presunta: ordineSospeso
         ? (input.dataDisponibilitaPresunta ?? null)
         : null,
@@ -888,13 +864,11 @@ export async function createOrdineWizardAction(
             data_disponibilita_presunta: input.dataDisponibilitaPresunta,
           }
         : {
-            ...calcRes!.calcolo.snapshot,
-            giorni_produzione: giorniProduzione,
-            giorni_attivita: giorniAttivita,
-            attivita: attivitaSnapshot,
-            data_consegna_calendario: dataConsegna,
+            in_attesa: true,
+            consegna_tipo: input.consegnaTipo,
+            data_consegna_richiesta: dataConsegna,
           },
-      giorni_produzione: giorniProduzione,
+      giorni_produzione: [],
       is_test: true,
       spedizione_mezzo: "corriere",
       corriere_id: input.corriereDaCompilare
@@ -933,62 +907,6 @@ export async function createOrdineWizardAction(
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };
-
-    if (giorniCalendarioImpegno.length > 0) {
-      const etichettaProd = `${numeroInterno} · ${input.prodottoCodice}`;
-      const linea =
-        typeof calcRes?.calcolo.snapshot.linea === "string"
-          ? calcRes.calcolo.snapshot.linea
-          : null;
-      const nowIso = new Date().toISOString();
-      await supabase
-        .from("produzione_calendario_impegni")
-        .update({
-          deleted_at: nowIso,
-          deleted_by: auth.userId,
-          updated_by: auth.userId,
-        })
-        .in("data_giorno", giorniCalendarioImpegno)
-        .is("deleted_at", null);
-
-      const dateToAttLabel = new Map<string, string>();
-      for (const seg of attivitaSnapshot) {
-        for (const d of seg.dates) {
-          dateToAttLabel.set(d, `${numeroInterno} · ${seg.codice}`);
-        }
-      }
-
-      const rowsImpegno = [
-        ...giorniProduzione.map((d) => ({
-          data_giorno: d,
-          ordine_id: row.id,
-          linea_codice: linea,
-          etichetta: etichettaProd,
-          note: "lavorazione",
-          created_by: auth.userId,
-          updated_by: auth.userId,
-        })),
-        ...giorniAttivita.map((d) => ({
-          data_giorno: d,
-          ordine_id: row.id,
-          linea_codice: linea,
-          etichetta: dateToAttLabel.get(d) ?? `${numeroInterno} · Attività`,
-          note: "attivita",
-          created_by: auth.userId,
-          updated_by: auth.userId,
-        })),
-      ];
-
-      const { error: impErr } = await supabase
-        .from("produzione_calendario_impegni")
-        .insert(rowsImpegno);
-      if (impErr) {
-        return {
-          success: false,
-          error: `Ordine creato ma calendario: ${impErr.message}`,
-        };
-      }
-    }
 
     if (input.confezionamento) {
       const conf = normalizeConfezionamentoDraft(input.confezionamento);
@@ -1069,13 +987,14 @@ export async function createOrdineWizardAction(
       action: "create",
       actor_id: auth.userId,
       summary: input.preventivoId
-        ? `Creato ordine wizard ${numeroInterno} da preventivo accettato`
-        : `Creato ordine wizard ${numeroInterno} (consegna ${dataConsegna})`,
+        ? `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} da preventivo (in attesa)`
+        : `Creato ordine ${input.tipo ?? "vendita"} ${numeroInterno} in attesa di processazione`,
       payload: {
         wizard: true,
         is_test: true,
+        tipo: input.tipo ?? "vendita",
+        stato: ordineSospeso ? "sospeso" : "in_attesa",
         consegna_tipo: input.consegnaTipo,
-        capacita: calcRes?.calcolo.snapshot ?? { sospeso: ordineSospeso },
         spedizione_a_carico: input.spedizioneACarico,
         preventivo_id: input.preventivoId ?? null,
       },
@@ -1093,6 +1012,222 @@ export async function createOrdineWizardAction(
       error: e instanceof Error ? e.message : "Errore creazione ordine.",
     };
   }
+}
+
+async function writeImpegniScaletta(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  ordineId: string;
+  numeroInterno: string;
+  prodottoCodice: string;
+  linea: string | null;
+  giorniProduzione: string[];
+  giorniAttivita: string[];
+  attivitaSnapshot: Array<{ codice: string; dates: string[] }>;
+}): Promise<string | null> {
+  const giorniCalendario = [
+    ...input.giorniProduzione,
+    ...input.giorniAttivita,
+  ];
+  if (giorniCalendario.length === 0) return null;
+
+  const nowIso = new Date().toISOString();
+  await input.supabase
+    .from("produzione_calendario_impegni")
+    .update({
+      deleted_at: nowIso,
+      deleted_by: input.userId,
+      updated_by: input.userId,
+    })
+    .in("data_giorno", giorniCalendario)
+    .is("deleted_at", null);
+
+  const dateToAttLabel = new Map<string, string>();
+  for (const seg of input.attivitaSnapshot) {
+    for (const d of seg.dates) {
+      dateToAttLabel.set(d, `${input.numeroInterno} · ${seg.codice}`);
+    }
+  }
+
+  const etichettaProd = `${input.numeroInterno} · ${input.prodottoCodice}`;
+  const rowsImpegno = [
+    ...input.giorniProduzione.map((d) => ({
+      data_giorno: d,
+      ordine_id: input.ordineId,
+      linea_codice: input.linea,
+      etichetta: etichettaProd,
+      note: "lavorazione",
+      created_by: input.userId,
+      updated_by: input.userId,
+    })),
+    ...input.giorniAttivita.map((d) => ({
+      data_giorno: d,
+      ordine_id: input.ordineId,
+      linea_codice: input.linea,
+      etichetta: dateToAttLabel.get(d) ?? `${input.numeroInterno} · Attività`,
+      note: "attivita",
+      created_by: input.userId,
+      updated_by: input.userId,
+    })),
+  ];
+
+  const { error: impErr } = await input.supabase
+    .from("produzione_calendario_impegni")
+    .insert(rowsImpegno);
+  return impErr?.message ?? null;
+}
+
+/**
+ * Processa un ordine in attesa e lo inserisce in scaletta produzione.
+ */
+export async function processOrdineInScalettaAction(
+  raw: unknown
+): Promise<OrdiniActionResult> {
+  const { auth } = await requireOrdineProcessAccess();
+  const parsed = ordineProcessaScalettaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati processazione non validi.",
+    };
+  }
+  const input = parsed.data;
+
+  const existing = await loadOrdineWithRighe(input.ordineId);
+  if (!existing || existing.deletedAt) {
+    return { success: false, error: "Ordine non trovato." };
+  }
+  if (existing.stato === "sospeso") {
+    return {
+      success: false,
+      error:
+        "Ordine sospeso: il prodotto non è disponibile. Non si può inserire in scaletta.",
+    };
+  }
+  if (!isOrdineDaProcessare(existing.stato)) {
+    return {
+      success: false,
+      error: "Questo ordine è già stato processato o non è in coda.",
+    };
+  }
+
+  const riga = existing.righe[0];
+  if (!riga?.prodottoId) {
+    return { success: false, error: "Ordine senza riga prodotto." };
+  }
+
+  const giorniProduzione = input.giorniProduzione ?? [];
+  const giorniAttivita = input.giorniAttivita ?? [];
+  const attivitaSnapshot = input.attivitaSnapshot ?? [];
+
+  const calcRes = await calcolaConsegnaOrdineAction({
+    prodottoId: riga.prodottoId,
+    prodottoCodice: riga.prodottoCodice,
+    quantitaKg: riga.quantita,
+    consegnaTipo: existing.consegnaTipo === "data" ? "data" : "asap",
+    dataRichiesta:
+      existing.consegnaTipo === "data" ? existing.dataConsegna : null,
+    urgente: input.urgente ?? existing.urgente,
+    usaMagazzino: input.usaMagazzino ?? existing.usaMagazzino,
+    usaSabato: input.usaSabato ?? existing.usaSabato,
+    resaPercentualeOverride: input.resaPercentualeOverride ?? null,
+    capacitaIngressoKgPerEssiccatoreOverride:
+      input.capacitaIngressoKgPerEssiccatoreOverride ?? null,
+  });
+  if (!calcRes.success) {
+    return { success: false, error: calcRes.error };
+  }
+  if (
+    calcRes.calcolo.giorniLavorativiNecessari > 0 &&
+    giorniProduzione.length === 0
+  ) {
+    return {
+      success: false,
+      error: "Seleziona i giorni di lavorazione sul calendario.",
+    };
+  }
+
+  const supabase = await createClient();
+  const nowIso = new Date().toISOString();
+  const linea =
+    typeof calcRes.calcolo.snapshot.linea === "string"
+      ? calcRes.calcolo.snapshot.linea
+      : null;
+
+  const { error } = await supabase
+    .from("ordini")
+    .update({
+      stato: "in_scaletta",
+      documento_stato: "approvato",
+      processed_at: nowIso,
+      processed_by: auth.userId,
+      data_consegna: input.dataConsegnaCalendario,
+      data_consegna_stimata: input.dataConsegnaCalendario,
+      urgente: input.urgente ?? existing.urgente,
+      usa_magazzino: input.usaMagazzino ?? existing.usaMagazzino,
+      usa_sabato: input.usaSabato ?? existing.usaSabato,
+      giorni_produzione: giorniProduzione,
+      capacita_snapshot: {
+        ...calcRes.calcolo.snapshot,
+        giorni_produzione: giorniProduzione,
+        giorni_attivita: giorniAttivita,
+        attivita: attivitaSnapshot,
+        data_consegna_calendario: input.dataConsegnaCalendario,
+      },
+      versione: existing.versione + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", existing.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  const impErr = await writeImpegniScaletta({
+    supabase,
+    userId: auth.userId,
+    ordineId: existing.id,
+    numeroInterno: existing.numeroInterno,
+    prodottoCodice: riga.prodottoCodice,
+    linea,
+    giorniProduzione,
+    giorniAttivita,
+    attivitaSnapshot,
+  });
+  if (impErr) {
+    return { success: false, error: `Processato ma calendario: ${impErr}` };
+  }
+
+  await writeAudit({
+    entity_type: "ordini",
+    entity_id: existing.id,
+    action: "ordine_processa",
+    actor_id: auth.userId,
+    summary: `Processato ordine ${existing.numeroInterno} — inserito in scaletta`,
+    payload: {
+      stato_da: existing.stato,
+      stato_a: "in_scaletta",
+      giorni_produzione: giorniProduzione,
+      data_consegna: input.dataConsegnaCalendario,
+    },
+  });
+  await writeAudit({
+    entity_type: "ordini",
+    entity_id: existing.id,
+    action: "ordine_inserisci_scaletta",
+    actor_id: auth.userId,
+    summary: `Scaletta produzione per ${existing.numeroInterno}`,
+    payload: {
+      giorni_produzione: giorniProduzione,
+      giorni_attivita: giorniAttivita,
+      linea,
+    },
+  });
+
+  const ordine = await loadOrdineWithRighe(existing.id);
+  if (!ordine) {
+    return { success: false, error: "Ordine processato ma non leggibile." };
+  }
+  return { success: true, ordine };
 }
 
 /**
