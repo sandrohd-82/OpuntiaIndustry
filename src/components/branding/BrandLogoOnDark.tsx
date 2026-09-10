@@ -16,8 +16,8 @@ type Props = {
 };
 
 const sizeClass: Record<Size, string> = {
-  menu: "h-10 w-auto max-w-[7rem]",
-  menuCollapsed: "h-8 w-8",
+  menu: "h-20 w-auto max-w-[5.5rem]",
+  menuCollapsed: "h-12 w-12",
   home: "h-28 w-auto max-w-[18rem] sm:h-36 sm:max-w-[22rem]",
 };
 

@@ -703,25 +703,30 @@ export function AppSidebar({
           {collapsed ? (
             <BrandLogoOnDark size="menuCollapsed" priority />
           ) : (
-            <div className="min-w-0 flex-1">
-              <BrandLogoOnDark size="menu" priority className="mb-1" />
-              <div className="mt-1 flex min-w-0 items-center gap-1.5">
-                <p className="truncate font-medium">{userName}</p>
-                <ProfileStatusLed
-                  stato={statoOperativo}
-                  canChange={canCreateProfiles && impersonating}
-                />
-                {canImpersonate ? (
-                  <ImpersonationSwitcher
-                    impersonating={impersonating}
-                    actorLabel={actorName}
-                    canCreateProfiles={canCreateProfiles}
+            <div className="flex min-w-0 flex-1 items-end gap-2">
+              <BrandLogoOnDark size="menu" priority className="shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <p className="truncate font-medium">{userName}</p>
+                  <ProfileStatusLed
+                    stato={statoOperativo}
+                    canChange={canCreateProfiles && impersonating}
                   />
-                ) : null}
+                  {canImpersonate ? (
+                    <ImpersonationSwitcher
+                      impersonating={impersonating}
+                      actorLabel={actorName}
+                      canCreateProfiles={canCreateProfiles}
+                    />
+                  ) : null}
+                </div>
+                <p className="truncate text-xs text-[var(--sidebar-muted)]">
+                  {roleName}
+                </p>
+                <p className="truncate text-sm font-semibold leading-none tracking-wide">
+                  Industry
+                </p>
               </div>
-              <p className="truncate text-xs text-[var(--sidebar-muted)]">
-                {roleName}
-              </p>
             </div>
           )}
           <div className={collapsed ? "flex items-center gap-1" : undefined}>
