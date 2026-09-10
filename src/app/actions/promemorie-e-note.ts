@@ -742,7 +742,7 @@ export async function listClientiPossibiliAction(): Promise<
   | { success: true; items: ClientePossibile[]; noteCounts: Record<string, number> }
   | { success: false; error: string }
 > {
-  await guardAdmin();
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
   const scope = await resolveScopeMode("anagrafiche_clienti");
   let q = supabase

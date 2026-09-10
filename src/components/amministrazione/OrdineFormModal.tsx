@@ -6,7 +6,9 @@ import {
   previewNumeroInternoOrdineAction,
   updateOrdineAction,
 } from "@/app/actions/ordini";
+import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import {
   OrdineDettaglioFields,
   useOrdineDettaglioState,
@@ -44,7 +46,10 @@ export function OrdineFormModal({
 }: Props) {
   const titleId = useId();
   const dettaglio = useOrdineDettaglioState();
+  const [anagraficaFonte, setAnagraficaFonte] =
+    useState<AnagraficaOrdineFonte>("cliente");
   const [clienteId, setClienteId] = useState(initial?.clienteId ?? "");
+  const [possibileClienteId, setPossibileClienteId] = useState("");
   const [clienteNome, setClienteNome] = useState(initial?.cliente ?? "");
   const [clienteTarga, setClienteTarga] = useState(
     initial?.clienteCodiceTarga ?? ""
@@ -132,7 +137,12 @@ export function OrdineFormModal({
     if (document.querySelector("[data-cliente-modal-root='true']")) return;
     setFormError(null);
 
-    if (!clienteId || !clienteNome.trim() || !clienteTarga) {
+    if (mode === "create" && anagraficaFonte === "possibile") {
+      if (!possibileClienteId || !clienteNome.trim()) {
+        setFormError("Seleziona un possibile cliente.");
+        return;
+      }
+    } else if (!clienteId || !clienteNome.trim() || !clienteTarga) {
       setFormError("Seleziona un cliente dall’anagrafica.");
       return;
     }
@@ -160,9 +170,11 @@ export function OrdineFormModal({
     }
 
     const payload = {
-      clienteId,
+      anagraficaFonte: mode === "create" ? anagraficaFonte : "cliente",
+      possibileClienteId: possibileClienteId || null,
+      clienteId: clienteId || undefined,
       cliente: clienteNome.trim(),
-      codiceTargaCliente: clienteTarga,
+      codiceTargaCliente: clienteTarga || "C000",
       dataOrdine,
       dataConsegna: requireConsegna ? dataConsegna : null,
       numeroInterno:
@@ -242,15 +254,35 @@ export function OrdineFormModal({
         <form onSubmit={submit} className="mt-5 space-y-5">
           <div className="block text-sm">
             <span className="mb-1 block font-medium">Cliente</span>
-            <ClienteSelectField
-              value={clienteId}
-              autoFocus={mode === "create"}
-              onChange={(cliente) => {
-                setClienteId(cliente?.id ?? "");
-                setClienteNome(cliente?.ragioneSociale ?? "");
-                setClienteTarga(cliente?.codiceTarga ?? "");
-              }}
-            />
+            {mode === "create" ? (
+              <AziendaOrdineSelect
+                fonte={anagraficaFonte}
+                clienteId={clienteId}
+                possibileClienteId={possibileClienteId}
+                autoFocus
+                onFonteChange={setAnagraficaFonte}
+                onChange={(sel) => {
+                  setAnagraficaFonte(sel.fonte);
+                  setPossibileClienteId(sel.possibile?.id ?? "");
+                  setClienteId(sel.cliente?.id ?? "");
+                  setClienteNome(
+                    sel.cliente?.ragioneSociale ??
+                      sel.possibile?.ragioneSociale ??
+                      ""
+                  );
+                  setClienteTarga(sel.cliente?.codiceTarga ?? "");
+                }}
+              />
+            ) : (
+              <ClienteSelectField
+                value={clienteId}
+                onChange={(cliente) => {
+                  setClienteId(cliente?.id ?? "");
+                  setClienteNome(cliente?.ragioneSociale ?? "");
+                  setClienteTarga(cliente?.codiceTarga ?? "");
+                }}
+              />
+            )}
           </div>
 
           <div

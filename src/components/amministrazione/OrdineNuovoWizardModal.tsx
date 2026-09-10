@@ -20,8 +20,9 @@ import {
 import { listPreventiviAccettatiAction } from "@/app/actions/preventivi";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { linkEntityReferenteAction } from "@/app/actions/rubrica";
+import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
-import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
+import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
@@ -34,7 +35,12 @@ import {
   attivitaToOrdineDraft,
   type AttivitaOrdineDraft,
 } from "@/lib/amministrazione/attivita";
-import type { Ordine, OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
+import {
+  buildNumeroInternoOrdine,
+  type Ordine,
+  type OrdineTipoPagamento,
+} from "@/lib/amministrazione/ordini";
+import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import type { Preventivo } from "@/lib/amministrazione/preventivi";
 import type { RubricaContatto } from "@/lib/rubrica/types";
 import {
@@ -83,7 +89,7 @@ function formatDateIt(iso: string | null) {
 }
 
 const STEPS: { n: Step; label: string }[] = [
-  { n: 1, label: "Cliente" },
+  { n: 1, label: "Azienda" },
   { n: 2, label: "Prodotto" },
   { n: 3, label: "Quantità" },
   { n: 4, label: "Consegna" },
@@ -142,7 +148,10 @@ export function OrdineNuovoWizardModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [anagraficaFonte, setAnagraficaFonte] =
+    useState<AnagraficaOrdineFonte>("cliente");
   const [clienteId, setClienteId] = useState("");
+  const [possibileClienteId, setPossibileClienteId] = useState("");
   const [clienteNome, setClienteNome] = useState("");
   const [clienteTarga, setClienteTarga] = useState("");
   const [dataOrdine, setDataOrdine] = useState(todayInputValue());
@@ -234,24 +243,53 @@ export function OrdineNuovoWizardModal({
   }, []);
 
   useEffect(() => {
-    if (!clienteId || !clienteTarga || !dataOrdine) {
+    if (!dataOrdine) {
       setNumeroInterno("");
       return;
     }
-    let cancelled = false;
-    void (async () => {
-      const result = await previewNumeroInternoOrdineAction({
-        clienteId,
-        codiceTargaCliente: clienteTarga,
-        dataOrdine,
-      });
-      if (cancelled) return;
-      if (result.success) setNumeroInterno(result.numeroInterno);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [clienteId, clienteTarga, dataOrdine]);
+    if (clienteId && clienteTarga) {
+      let cancelled = false;
+      void (async () => {
+        const result = await previewNumeroInternoOrdineAction({
+          clienteId,
+          codiceTargaCliente: clienteTarga,
+          dataOrdine,
+        });
+        if (cancelled) return;
+        if (result.success) setNumeroInterno(result.numeroInterno);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (anagraficaFonte === "possibile" && possibileClienteId) {
+      let cancelled = false;
+      void (async () => {
+        const result = await previewNextCodiceTargaClienteAction();
+        if (cancelled) return;
+        if (result.success) {
+          setNumeroInterno(
+            buildNumeroInternoOrdine({
+              dataOrdine,
+              codiceTargaCliente: result.codiceTarga,
+              seq: 1,
+            })
+          );
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+    setNumeroInterno("");
+    return undefined;
+  }, [
+    anagraficaFonte,
+    clienteId,
+    clienteTarga,
+    dataOrdine,
+    possibileClienteId,
+  ]);
 
   useEffect(() => {
     void (async () => {
@@ -416,7 +454,12 @@ export function OrdineNuovoWizardModal({
   }, [prodotto?.id]);
 
   function canNext(): boolean {
-    if (step === 1) return Boolean(clienteId && clienteNome && clienteTarga);
+    if (step === 1) {
+      if (anagraficaFonte === "possibile") {
+        return Boolean(possibileClienteId && clienteNome);
+      }
+      return Boolean(clienteId && clienteNome && clienteTarga);
+    }
     if (step === 2) {
       if (!prodotto || voceListinoLoading) return false;
       return (
@@ -477,7 +520,9 @@ export function OrdineNuovoWizardModal({
   }
 
   async function submit() {
-    if (!prodotto || !clienteId) return;
+    if (!prodotto) return;
+    if (anagraficaFonte === "possibile" && !possibileClienteId) return;
+    if (anagraficaFonte === "cliente" && !clienteId) return;
     if (Math.abs(kgDelta) > 0.001 && conf.nodi.length > 0 && !conf.coerenzaIgnorata) {
       setFormError(
         kgDelta > 0
@@ -490,9 +535,11 @@ export function OrdineNuovoWizardModal({
     setFormError(null);
     const confNorm = normalizeConfezionamentoDraft(conf);
     const result = await createOrdineWizardAction({
-      clienteId,
+      anagraficaFonte,
+      possibileClienteId: possibileClienteId || null,
+      clienteId: clienteId || undefined,
       cliente: clienteNome,
-      codiceTargaCliente: clienteTarga,
+      codiceTargaCliente: clienteTarga || "C000",
       dataOrdine,
       prodottoId: prodotto.id,
       prodottoCodice: prodotto.codice,
@@ -740,13 +787,22 @@ export function OrdineNuovoWizardModal({
                 <span className="mb-1 block font-medium">
                   Azienda / cliente
                 </span>
-                <ClienteSelectField
-                  value={clienteId}
+                <AziendaOrdineSelect
+                  fonte={anagraficaFonte}
+                  clienteId={clienteId}
+                  possibileClienteId={possibileClienteId}
                   autoFocus
-                  onChange={(c) => {
-                    setClienteId(c?.id ?? "");
-                    setClienteNome(c?.ragioneSociale ?? "");
-                    setClienteTarga(c?.codiceTarga ?? "");
+                  onFonteChange={setAnagraficaFonte}
+                  onChange={(sel) => {
+                    setAnagraficaFonte(sel.fonte);
+                    setPossibileClienteId(sel.possibile?.id ?? "");
+                    setClienteId(sel.cliente?.id ?? "");
+                    setClienteNome(
+                      sel.cliente?.ragioneSociale ??
+                        sel.possibile?.ragioneSociale ??
+                        ""
+                    );
+                    setClienteTarga(sel.cliente?.codiceTarga ?? "");
                   }}
                 />
               </div>

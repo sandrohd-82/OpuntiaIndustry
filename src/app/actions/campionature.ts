@@ -1,5 +1,6 @@
 "use server";
 
+import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { writeAuditLog } from "@/lib/audit";
 import {
   createCampionaturaSchema,
@@ -200,7 +201,14 @@ export async function createCampionaturaAction(
 > {
   const gate = await requireCampionaturaAccess("write");
   if (!gate.ok) return { success: false, error: gate.error };
-  const parsed = createCampionaturaSchema.safeParse(raw);
+  const resolved = await resolveClientePerOrdineFromRawAction(raw);
+  if (!resolved.success) return resolved;
+  const parsed = createCampionaturaSchema.safeParse({
+    ...(raw && typeof raw === "object" ? raw : {}),
+    clienteId: resolved.cliente.id,
+    cliente: resolved.cliente.ragioneSociale,
+    codiceTargaCliente: resolved.cliente.codiceTarga,
+  });
   if (!parsed.success) {
     return {
       success: false,
@@ -226,14 +234,30 @@ export async function createCampionaturaAction(
   if (notaErr || !notaCheck) {
     return { success: false, error: "Nota timeline non trovata" };
   }
-  if (
-    notaCheck.entity_type !== "cliente" ||
-    notaCheck.entity_id !== input.clienteId
-  ) {
+  const notaSuCliente =
+    notaCheck.entity_type === "cliente" &&
+    notaCheck.entity_id === input.clienteId;
+  const notaSuLead =
+    notaCheck.entity_type === "cliente_possibile" &&
+    Boolean(resolved.possibileClienteId) &&
+    notaCheck.entity_id === resolved.possibileClienteId;
+  if (!notaSuCliente && !notaSuLead) {
     return {
       success: false,
       error: "La nota deve appartenere all’azienda selezionata",
     };
+  }
+  if (notaSuLead) {
+    await supabase
+      .from("pn_note")
+      .update({
+        entity_type: "cliente",
+        entity_id: input.clienteId,
+        entity_label: input.cliente,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", notaCheck.id)
+      .is("deleted_at", null);
   }
 
   const { data, error } = await supabase

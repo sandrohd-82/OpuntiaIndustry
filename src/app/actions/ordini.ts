@@ -30,6 +30,7 @@ import {
   LISTINO_CONTRATTO_MSG,
   valutaListinoPerContratto,
 } from "@/lib/ecosystem/listino-vigente";
+import { resolveClientePerOrdineFromRawAction } from "@/app/actions/clienti";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   requireOrdineCreateAccess,
@@ -290,7 +291,14 @@ export async function createOrdineAction(
     return { success: false, error: "Dati ordine non validi." };
   }
 
-  const parsed = ordineInputSchema.safeParse(payload);
+  const resolved = await resolveClientePerOrdineFromRawAction(payload);
+  if (!resolved.success) return resolved;
+  const parsed = ordineInputSchema.safeParse({
+    ...(payload && typeof payload === "object" ? payload : {}),
+    clienteId: resolved.cliente.id,
+    cliente: resolved.cliente.ragioneSociale,
+    codiceTargaCliente: resolved.cliente.codiceTarga,
+  });
   if (!parsed.success) {
     return {
       success: false,
@@ -743,7 +751,14 @@ export async function createOrdineWizardAction(
   raw: unknown
 ): Promise<OrdiniActionResult> {
   const { auth } = await requireOrdineCreateAccess();
-  const parsed = ordineWizardInputSchema.safeParse(raw);
+  const resolved = await resolveClientePerOrdineFromRawAction(raw);
+  if (!resolved.success) return resolved;
+  const parsed = ordineWizardInputSchema.safeParse({
+    ...(raw && typeof raw === "object" ? raw : {}),
+    clienteId: resolved.cliente.id,
+    cliente: resolved.cliente.ragioneSociale,
+    codiceTargaCliente: resolved.cliente.codiceTarga,
+  });
   if (!parsed.success) {
     return {
       success: false,

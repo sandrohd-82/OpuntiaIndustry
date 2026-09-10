@@ -220,7 +220,8 @@ export function PossibileClienteFormModal({
 
   const dialog = (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10"
+      data-cliente-modal-root="true"
+      className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10"
       role="presentation"
     >
       <div

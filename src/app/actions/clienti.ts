@@ -17,6 +17,10 @@ import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
+  parseAnagraficaOrdineFromRaw,
+  type AnagraficaOrdineFonte,
+} from "@/lib/amministrazione/ordine-anagrafica";
+import {
   anagraficaLineageOrFilter,
   loadCommercialLineageUserIds,
   loadCommercialeLabels,
@@ -24,6 +28,7 @@ import {
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
+import { z } from "zod";
 
 export type ClientiActionResult =
   | { success: true; cliente: Cliente }
@@ -131,7 +136,7 @@ export async function previewNextCodiceTargaClienteAction(): Promise<
   | { success: true; codiceTarga: string }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("amministrazione");
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   try {
     const used = await loadUsedCodiciTarga();
     return {
@@ -245,6 +250,7 @@ export async function createClienteAction(
     sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
     prodotti_acquistati: normalized.prodottiAcquistati,
     consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
+    commerciale_id: normalized.commercialeId ?? null,
     created_by: auth.userId,
     updated_by: auth.userId,
   };
@@ -543,4 +549,302 @@ export async function softDeleteClienteAction(input: {
   });
 
   return { success: true, mode: "soft_deleted" };
+}
+
+async function mapClienteWithLabel(
+  row: ClienteRow
+): Promise<Cliente> {
+  const labels = row.commerciale_id
+    ? await loadCommercialeLabels([row.commerciale_id])
+    : new Map();
+  const label = row.commerciale_id
+    ? labels.get(row.commerciale_id)
+    : undefined;
+  return mapClienteRow(row, label);
+}
+
+async function findClienteByFiscali(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  partitaIva: string,
+  codiceFiscale: string
+): Promise<ClienteRow | null> {
+  const vat = normalizeVatKey(partitaIva);
+  const cf = normalizeVatKey(codiceFiscale);
+  if (!vat && !cf) return null;
+  const { data, error } = await supabase
+    .from("clienti")
+    .select("*")
+    .is("deleted_at", null);
+  if (error) return null;
+  const rows = (data ?? []) as ClienteRow[];
+  if (vat) {
+    const hit = rows.find((r) => normalizeVatKey(r.partita_iva) === vat);
+    if (hit) return hit;
+  }
+  if (cf) {
+    const hit = rows.find((r) => normalizeVatKey(r.codice_fiscale) === cf);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function loadClienteById(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  id: string
+): Promise<Cliente | null> {
+  const { data } = await supabase
+    .from("clienti")
+    .select("*")
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!data) return null;
+  return mapClienteWithLabel(data as ClienteRow);
+}
+
+async function markLeadConvertito(opts: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  leadId: string;
+  clienteId: string;
+  ragioneSociale: string;
+  actorId: string;
+  linkedExisting: boolean;
+}): Promise<void> {
+  await opts.supabase
+    .from("clienti_possibili")
+    .update({
+      stato: "convertito",
+      cliente_id: opts.clienteId,
+      updated_by: opts.actorId,
+    })
+    .eq("id", opts.leadId)
+    .is("deleted_at", null);
+
+  await writeAuditLog({
+    entity_type: "clienti_possibili",
+    entity_id: opts.leadId,
+    action: "update",
+    actor_id: opts.actorId,
+    summary: opts.linkedExisting
+      ? `Possibile cliente collegato a cliente esistente: ${opts.ragioneSociale}`
+      : `Possibile cliente convertito in cliente: ${opts.ragioneSociale}`,
+    payload: {
+      cliente_id: opts.clienteId,
+      linked_existing: opts.linkedExisting,
+    },
+  });
+}
+
+export async function convertClientePossibileAdClienteAction(
+  possibileClienteId: string
+): Promise<ClientiActionResult> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+  ]);
+  if (!z.string().uuid().safeParse(possibileClienteId).success) {
+    return { success: false, error: "Possibile cliente non valido." };
+  }
+
+  const supabase = await createClient();
+  const { data: leadRow, error: leadErr } = await supabase
+    .from("clienti_possibili")
+    .select("*")
+    .eq("id", possibileClienteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (leadErr || !leadRow) {
+    return {
+      success: false,
+      error: leadErr?.message ?? "Possibile cliente non trovato.",
+    };
+  }
+
+  const gate = await assertAnagraficaPrivilege({
+    kind: "cliente_possibile",
+    op: "update",
+    createdBy: leadRow.created_by ? String(leadRow.created_by) : null,
+    commercialeId: leadRow.commerciale_id
+      ? String(leadRow.commerciale_id)
+      : null,
+  });
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const stato = String(leadRow.stato ?? "");
+  if (stato === "scartato") {
+    return {
+      success: false,
+      error: "Il possibile cliente è scartato: non si può usare per un ordine.",
+    };
+  }
+
+  const existingLinkedId = leadRow.cliente_id
+    ? String(leadRow.cliente_id)
+    : "";
+  if (existingLinkedId) {
+    const linked = await loadClienteById(supabase, existingLinkedId);
+    if (linked) {
+      if (stato !== "convertito") {
+        await markLeadConvertito({
+          supabase,
+          leadId: String(leadRow.id),
+          clienteId: linked.id,
+          ragioneSociale: linked.ragioneSociale,
+          actorId: auth.userId,
+          linkedExisting: true,
+        });
+      }
+      return { success: true, cliente: linked };
+    }
+  }
+
+  const input: ClienteInput = {
+    ragioneSociale: String(leadRow.ragione_sociale ?? ""),
+    partitaIva: String(leadRow.partita_iva ?? ""),
+    codiceFiscale: String(leadRow.codice_fiscale ?? ""),
+    isPrivato: Boolean(leadRow.is_privato),
+    email: String(leadRow.email ?? ""),
+    pec: String(leadRow.pec ?? ""),
+    sdiCode: String(leadRow.sdi_code ?? ""),
+    telefono: String(leadRow.telefono ?? ""),
+    sitoWeb: String(leadRow.sito_web ?? ""),
+    sedeAmministrativa: {
+      nazione: String(leadRow.sede_amm_nazione ?? ""),
+      provincia: String(leadRow.sede_amm_provincia ?? ""),
+      citta: String(leadRow.sede_amm_citta ?? ""),
+      cap: String(leadRow.sede_amm_cap ?? ""),
+      indirizzo: String(leadRow.sede_amm_indirizzo ?? ""),
+    },
+    sedeMagazzino: {
+      nazione: String(leadRow.sede_mag_nazione ?? ""),
+      provincia: String(leadRow.sede_mag_provincia ?? ""),
+      citta: String(leadRow.sede_mag_citta ?? ""),
+      cap: String(leadRow.sede_mag_cap ?? ""),
+      indirizzo: String(leadRow.sede_mag_indirizzo ?? ""),
+    },
+    consegneAltraAzienda: Array.isArray(leadRow.consegne_altra_azienda)
+      ? (leadRow.consegne_altra_azienda as ClienteRow["consegne_altra_azienda"]).map(
+          (c) => ({
+            ragioneSociale: String(c.ragione_sociale ?? ""),
+            nazione: String(c.nazione ?? ""),
+            provincia: String(c.provincia ?? ""),
+            citta: String(c.citta ?? ""),
+            cap: String(c.cap ?? ""),
+            indirizzo: String(c.indirizzo ?? ""),
+          })
+        )
+      : [],
+    prodottiAcquistati: Array.isArray(leadRow.prodotti_interessati)
+      ? (leadRow.prodotti_interessati as string[]).map(String).filter(Boolean)
+      : [],
+    commercialeId: leadRow.commerciale_id
+      ? String(leadRow.commerciale_id)
+      : null,
+  };
+
+  const fiscalErr = validateClienteFiscali(input);
+  if (fiscalErr) {
+    return {
+      success: false,
+      error: `${fiscalErr} Completa il possibile cliente prima di creare l’ordine.`,
+    };
+  }
+
+  const existing = await findClienteByFiscali(
+    supabase,
+    input.partitaIva,
+    input.codiceFiscale
+  );
+  if (existing) {
+    const cliente = await mapClienteWithLabel(existing);
+    await markLeadConvertito({
+      supabase,
+      leadId: String(leadRow.id),
+      clienteId: cliente.id,
+      ragioneSociale: cliente.ragioneSociale,
+      actorId: auth.userId,
+      linkedExisting: true,
+    });
+    return { success: true, cliente };
+  }
+
+  const created = await createClienteAction(input);
+  if (!created.success) return created;
+
+  await markLeadConvertito({
+    supabase,
+    leadId: String(leadRow.id),
+    clienteId: created.cliente.id,
+    ragioneSociale: created.cliente.ragioneSociale,
+    actorId: auth.userId,
+    linkedExisting: false,
+  });
+  return created;
+}
+
+export async function resolveClientePerOrdineAction(input: {
+  fonte?: AnagraficaOrdineFonte | string | null;
+  clienteId?: string | null;
+  possibileClienteId?: string | null;
+}): Promise<
+  | {
+      success: true;
+      cliente: Cliente;
+      possibileClienteId: string | null;
+    }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+    "produzione",
+  ]);
+  const parsed = parseAnagraficaOrdineFromRaw({
+    anagraficaFonte: input.fonte,
+    clienteId: input.clienteId,
+    possibileClienteId: input.possibileClienteId,
+  });
+
+  if (parsed.fonte === "possibile") {
+    if (!parsed.possibileClienteId) {
+      return { success: false, error: "Seleziona un possibile cliente." };
+    }
+    const converted = await convertClientePossibileAdClienteAction(
+      parsed.possibileClienteId
+    );
+    if (!converted.success) return converted;
+    return {
+      success: true,
+      cliente: converted.cliente,
+      possibileClienteId: parsed.possibileClienteId,
+    };
+  }
+
+  if (!parsed.clienteId) {
+    return { success: false, error: "Seleziona un cliente dall’anagrafica." };
+  }
+  const supabase = await createClient();
+  const cliente = await loadClienteById(supabase, parsed.clienteId);
+  if (!cliente) {
+    return { success: false, error: "Cliente non trovato." };
+  }
+  return {
+    success: true,
+    cliente,
+    possibileClienteId: null,
+  };
+}
+
+export async function resolveClientePerOrdineFromRawAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      cliente: Cliente;
+      possibileClienteId: string | null;
+    }
+  | { success: false; error: string }
+> {
+  const parsed = parseAnagraficaOrdineFromRaw(raw);
+  return resolveClientePerOrdineAction(parsed);
 }

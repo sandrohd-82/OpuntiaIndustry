@@ -7,11 +7,13 @@ import {
   previewNumeroCampionaturaAction,
 } from "@/app/actions/campionature";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
-import { ClienteSelectField } from "@/components/amministrazione/ClienteSelectField";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { Cliente } from "@/lib/amministrazione/clienti";
+import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
+import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
 import {
   CAMPIONATURA_MEZZI,
   CAMPIONATURA_MEZZO_LABEL,
@@ -54,6 +56,9 @@ function emptyRiga(): DraftRiga {
 export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   const titleId = useId();
   const { prodotti, ready: prodottiReady } = useProdottiPropri();
+  const [anagraficaFonte, setAnagraficaFonte] =
+    useState<AnagraficaOrdineFonte>("cliente");
+  const [possibileClienteId, setPossibileClienteId] = useState("");
   const [cliente, setCliente] = useState<Cliente | null>(null);
   const [dataInvio, setDataInvio] = useState(todayInputValue);
   const [mezzo, setMezzo] = useState<CampionaturaMezzo | null>(null);
@@ -158,6 +163,14 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (
+      anagraficaFonte === "possibile"
+        ? !possibileClienteId || !cliente
+        : !cliente?.id || !cliente.codiceTarga
+    ) {
+      setFormError("Seleziona un’azienda.");
+      return;
+    }
     if (!cliente) {
       setFormError("Seleziona un’azienda.");
       return;
@@ -189,9 +202,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     setSaving(true);
     setFormError(null);
     const result = await createCampionaturaAction({
-      clienteId: cliente.id,
+      anagraficaFonte,
+      possibileClienteId: possibileClienteId || null,
+      clienteId: cliente.id || undefined,
       cliente: cliente.ragioneSociale,
-      codiceTargaCliente: cliente.codiceTarga,
+      codiceTargaCliente: cliente.codiceTarga || "C000",
       dataInvio,
       mezzo,
       pnNotaId: nota.id,
@@ -248,10 +263,27 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Azienda</span>
-              <ClienteSelectField
-                value={cliente?.id ?? ""}
-                onChange={applyCliente}
+              <AziendaOrdineSelect
+                fonte={anagraficaFonte}
+                clienteId={
+                  anagraficaFonte === "cliente" ? (cliente?.id ?? "") : ""
+                }
+                possibileClienteId={possibileClienteId}
                 autoFocus
+                onFonteChange={setAnagraficaFonte}
+                onChange={(sel) => {
+                  setAnagraficaFonte(sel.fonte);
+                  setPossibileClienteId(sel.possibile?.id ?? "");
+                  if (sel.cliente) {
+                    applyCliente(sel.cliente);
+                    return;
+                  }
+                  if (sel.possibile) {
+                    applyCliente(clienteFromPossibile(sel.possibile));
+                    return;
+                  }
+                  applyCliente(null);
+                }}
               />
             </label>
             <label className="block text-sm">
@@ -606,8 +638,16 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       {timelinePick && cliente ? (
         <AziendaTimelineModal
           elevated
-          aziendaTipo="cliente"
-          aziendaId={cliente.id}
+          aziendaTipo={
+            anagraficaFonte === "possibile" && !cliente.codiceTarga
+              ? "cliente_possibile"
+              : "cliente"
+          }
+          aziendaId={
+            anagraficaFonte === "possibile" && !cliente.codiceTarga
+              ? possibileClienteId
+              : cliente.id
+          }
           aziendaLabel={cliente.ragioneSociale}
           onClose={() => setTimelinePick(null)}
           pickMode={
