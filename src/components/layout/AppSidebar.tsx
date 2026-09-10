@@ -715,7 +715,7 @@ export function AppSidebar({
           <div className="flex min-w-0 items-end gap-2">
             <BrandLogoOnDark size="menu" priority className="shrink-0" />
             <div className="flex h-20 min-w-0 flex-1 flex-col justify-between overflow-visible">
-              <div>
+              <div className="pl-[10px]">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <p className="truncate text-sm font-medium leading-tight">
                     {userName}
@@ -736,7 +736,7 @@ export function AppSidebar({
                   {roleName}
                 </p>
               </div>
-              <p className="relative left-[-30%] w-[130%] text-2xl font-bold leading-none tracking-wide">
+              <p className="relative left-[-15%] w-[115%] text-3xl font-bold leading-none tracking-wide">
                 Industry
               </p>
             </div>
