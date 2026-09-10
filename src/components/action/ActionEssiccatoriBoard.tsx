@@ -1,4 +1,6 @@
-import Image from "next/image";
+"use client";
+
+import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
 import {
   ACTION_ESSICCATORI,
   CARICO_TIPO_LABELS,
@@ -9,13 +11,11 @@ import {
 function EssiccatoreBox({ item }: { item: ActionEssiccatore }) {
   return (
     <article className="flex flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
-      <div className="relative aspect-[16/10] bg-slate-100">
-        <Image
+      <div className="relative aspect-[16/10] bg-slate-50">
+        <PdfFirstPageImage
           src={item.imageSrc}
           alt={item.nome}
-          fill
-          className="object-cover"
-          sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"
+          className="h-full w-full object-contain"
         />
       </div>
       <div className="flex flex-1 flex-col p-5">

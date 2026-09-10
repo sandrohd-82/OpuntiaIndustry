@@ -25,7 +25,7 @@ export const ACTION_ESSICCATORI: readonly ActionEssiccatore[] = [
     capacitaMaxKg: 2300,
     caricoTipo: "fresco",
     note: "",
-    imageSrc: "/essiccatori/essiccatore-1.jpg",
+    imageSrc: "/essiccatori/EssiccatoreA-Hover.pdf",
   },
   {
     id: "ess-b",
@@ -34,7 +34,7 @@ export const ACTION_ESSICCATORI: readonly ActionEssiccatore[] = [
     capacitaMaxKg: 2300,
     caricoTipo: "fresco",
     note: "",
-    imageSrc: "/essiccatori/essiccatore-2.jpg",
+    imageSrc: "/essiccatori/EssiccatoreB-Hover.jpg.pdf",
   },
   {
     id: "ess-ultimo-stadio",
@@ -43,7 +43,7 @@ export const ACTION_ESSICCATORI: readonly ActionEssiccatore[] = [
     capacitaMaxKg: 1500,
     caricoTipo: "semisecco",
     note: "In 3 cestoni da 500 kg impilati",
-    imageSrc: "/essiccatori/essiccatore-mantenimento.jpg",
+    imageSrc: "/essiccatori/EssiccatoreUlSt-Hover.jpg.pdf",
   },
 ];
 
