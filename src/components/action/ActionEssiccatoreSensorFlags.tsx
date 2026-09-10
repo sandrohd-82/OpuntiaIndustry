@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { FaFlag, FaTrash } from "react-icons/fa6";
 import {
   formatSensoreValore,
   type ActionEssiccatoreSensore,
@@ -26,7 +25,6 @@ export function ActionEssiccatoreSensorFlags({
   onMove,
   onCommit,
   onRename,
-  onDelete,
 }: Props) {
   const layerRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -70,73 +68,55 @@ export function ActionEssiccatoreSensorFlags({
       {sensors.map((s) => (
         <div
           key={s.id}
-          className="pointer-events-auto absolute max-w-[9.5rem] -translate-x-1/2 -translate-y-full"
+          className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2"
           style={{ left: `${s.xPct}%`, top: `${s.yPct}%` }}
         >
-          <div className="flex flex-col items-center">
-            <div className="mb-0.5 flex items-center gap-1 rounded-md border border-slate-200 bg-white/95 px-1.5 py-0.5 shadow-sm">
-              {setting && editingId === s.id ? (
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={() => {
-                    const nome = draft.trim();
-                    setEditingId(null);
-                    if (nome && nome !== s.nome) onRename(s.id, nome);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  className="w-24 rounded border border-slate-300 px-1 py-0.5 text-[11px]"
-                />
-              ) : (
-                <button
-                  type="button"
-                  title={
-                    setting
-                      ? "Trascina per posizionare · doppio clic per rinominare"
-                      : `${s.nome}: ${formatSensoreValore(s)}`
-                  }
-                  onDoubleClick={
-                    setting
-                      ? () => {
-                          setEditingId(s.id);
-                          setDraft(s.nome);
-                        }
-                      : undefined
-                  }
-                  onPointerDown={
-                    setting ? (e) => startDrag(e, s.id) : undefined
-                  }
-                  className={`flex max-w-[9rem] items-center gap-1 text-left text-[11px] leading-tight ${
-                    setting ? "cursor-grab active:cursor-grabbing" : ""
-                  }`}
-                >
-                  <span className="truncate font-medium">{s.nome}</span>
-                  <span className="shrink-0 tabular-nums text-[var(--muted)]">
-                    {formatSensoreValore(s)}
-                  </span>
-                </button>
-              )}
-              {setting && onDelete ? (
-                <button
-                  type="button"
-                  title="Rimuovi bandiera"
-                  aria-label={`Rimuovi ${s.nome}`}
-                  className="rounded p-0.5 text-slate-400 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => onDelete(s)}
-                >
-                  <FaTrash size={9} />
-                </button>
-              ) : null}
+          <div className="group relative">
+            {setting && editingId === s.id ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={() => {
+                  const nome = draft.trim();
+                  setEditingId(null);
+                  if (nome && nome !== s.nome) onRename(s.id, nome);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                className="w-28 rounded-full border border-slate-300 px-2 py-0.5 text-[11px]"
+              />
+            ) : (
+              <button
+                type="button"
+                aria-label={s.nome}
+                onDoubleClick={
+                  setting
+                    ? () => {
+                        setEditingId(s.id);
+                        setDraft(s.nome);
+                      }
+                    : undefined
+                }
+                onPointerDown={
+                  setting ? (e) => startDrag(e, s.id) : undefined
+                }
+                className={`rounded-full border border-slate-200 bg-white/95 px-2.5 py-0.5 text-[11px] font-semibold tabular-nums shadow-sm ${
+                  setting ? "cursor-grab active:cursor-grabbing" : ""
+                }`}
+              >
+                {formatSensoreValore(s)}
+              </button>
+            )}
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute bottom-[calc(100%+6px)] left-1/2 z-20 hidden w-max max-w-[12rem] -translate-x-1/2 rounded-lg bg-slate-900 px-2.5 py-1.5 text-center text-[11px] font-medium leading-snug text-white shadow-md group-hover:block"
+            >
+              {s.nome}
+              <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
             </div>
-            <FaFlag
-              size={14}
-              className={setting ? "text-amber-500" : "text-red-600"}
-              aria-hidden
-            />
           </div>
         </div>
       ))}

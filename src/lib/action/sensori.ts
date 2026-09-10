@@ -24,7 +24,7 @@ export const ACTION_SENSORE_CATALOGO = [
   {
     codice: "PRESS-SOFF",
     nome: "Sensore di pressione Piano Soffiante",
-    unita: "mbar",
+    unita: "Bar",
     xPct: 18,
     yPct: 78,
     sort: 3,
@@ -32,7 +32,7 @@ export const ACTION_SENSORE_CATALOGO = [
   {
     codice: "PESO",
     nome: "Peso prodotto",
-    unita: "kg",
+    unita: "Kg",
     xPct: 82,
     yPct: 78,
     sort: 4,
@@ -98,7 +98,6 @@ export const softDeleteSensoreInputSchema = z.object({
 });
 
 export function formatSensoreValore(s: ActionEssiccatoreSensore): string {
-  const v = s.valoreAttuale.trim();
-  if (!v) return "—";
+  const v = s.valoreAttuale.trim() || "—";
   return s.unita ? `${v} ${s.unita}` : v;
 }

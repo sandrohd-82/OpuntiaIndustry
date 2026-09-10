@@ -168,8 +168,8 @@ export function ActionEssiccatoriBoard({ canPosition = false }: Props) {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-[var(--muted)]">
             {setting
-              ? "Setting attivo: trascina le 4 bandiere catalogo sul disegno. Doppio clic per rinominare."
-              : "Attiva il setting per posizionare le bandiere dei sensori."}
+              ? "Setting attivo: trascina i badge sul disegno. Il nome appare al passaggio del mouse."
+              : "Attiva il setting per posizionare i badge dei sensori."}
           </p>
           <button
             type="button"
