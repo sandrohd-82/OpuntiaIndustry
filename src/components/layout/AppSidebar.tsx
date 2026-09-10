@@ -686,68 +686,58 @@ export function AppSidebar({
   return (
     <aside
       data-app-sidebar
-      className={`flex shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-[width] duration-200 print:hidden ${
+      className={`relative z-20 flex shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-[width] duration-200 print:hidden ${
         collapsed ? "w-16" : "w-64"
       }`}
     >
+      <button
+        type="button"
+        onClick={() => setRail(!collapsed)}
+        title={collapsed ? "Espandi menu" : "Comprimi menu"}
+        aria-label={collapsed ? "Espandi menu" : "Comprimi menu"}
+        aria-expanded={!collapsed}
+        className="absolute top-3 right-0 z-40 flex h-10 w-7 translate-x-full items-center justify-center rounded-r-md bg-[var(--sidebar)] text-[var(--sidebar-muted)] hover:text-white"
+      >
+        <FaBars className="h-4 w-4" />
+      </button>
       <div
         className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"}`}
       >
-        <div
-          className={
-            collapsed
-              ? "flex flex-col items-center gap-2"
-              : "flex items-center gap-2"
-          }
-        >
-          {collapsed ? (
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
             <BrandLogoOnDark size="menuCollapsed" priority />
-          ) : (
-            <div className="flex min-w-0 flex-1 items-end gap-2">
-              <BrandLogoOnDark size="menu" priority className="shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <p className="truncate font-medium">{userName}</p>
-                  <ProfileStatusLed
-                    stato={statoOperativo}
-                    canChange={canCreateProfiles && impersonating}
-                  />
-                  {canImpersonate ? (
-                    <ImpersonationSwitcher
-                      impersonating={impersonating}
-                      actorLabel={actorName}
-                      canCreateProfiles={canCreateProfiles}
-                    />
-                  ) : null}
-                </div>
-                <p className="truncate text-xs text-[var(--sidebar-muted)]">
-                  {roleName}
-                </p>
-                <p className="truncate text-sm font-semibold leading-none tracking-wide">
-                  Industry
-                </p>
-              </div>
-            </div>
-          )}
-          <div className={collapsed ? "flex items-center gap-1" : undefined}>
-            {collapsed ? (
-              <ProfileStatusLed
-                stato={statoOperativo}
-                canChange={canCreateProfiles && impersonating}
-              />
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setRail(!collapsed)}
-              title={collapsed ? "Espandi menu" : "Comprimi menu"}
-              aria-label={collapsed ? "Espandi menu" : "Comprimi menu"}
-              aria-expanded={!collapsed}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-white"
-            >
-              <FaBars className="h-4 w-4" />
-            </button>
+            <ProfileStatusLed
+              stato={statoOperativo}
+              canChange={canCreateProfiles && impersonating}
+            />
           </div>
-        </div>
+        ) : (
+          <div className="flex min-w-0 items-end gap-2">
+            <BrandLogoOnDark size="menu" priority className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <p className="truncate font-medium">{userName}</p>
+                <ProfileStatusLed
+                  stato={statoOperativo}
+                  canChange={canCreateProfiles && impersonating}
+                />
+                {canImpersonate ? (
+                  <ImpersonationSwitcher
+                    impersonating={impersonating}
+                    actorLabel={actorName}
+                    canCreateProfiles={canCreateProfiles}
+                  />
+                ) : null}
+              </div>
+              <p className="truncate text-xs text-[var(--sidebar-muted)]">
+                {roleName}
+              </p>
+              <p className="truncate text-sm font-semibold leading-none tracking-wide">
+                Industry
+              </p>
+            </div>
+          </div>
+        )}
       </div>
       <nav className={`flex-1 overflow-y-auto ${collapsed ? "p-1.5" : "p-3"}`}>
         <ul className="space-y-0.5">
