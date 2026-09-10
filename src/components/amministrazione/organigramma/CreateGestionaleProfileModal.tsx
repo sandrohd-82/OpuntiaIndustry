@@ -9,6 +9,10 @@ import {
   PROFILE_REPARTI_OPERATIVI,
   PROFILE_REPARTO_LABELS,
 } from "@/lib/auth/gerarchia";
+import {
+  COMMERCIALE_GRADI,
+  COMMERCIALE_GRADO_LABELS,
+} from "@/lib/auth/commerciale";
 import type { OrganigrammaPersona } from "@/lib/amministrazione/organigramma";
 
 const inputCls =
@@ -27,6 +31,10 @@ export function CreateGestionaleProfileModal({
 }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [hasCommerciale, setHasCommerciale] = useState(false);
+  const [commercialeGrado, setCommercialeGrado] = useState(
+    persona.commercialeGrado ?? "senior"
+  );
 
   function submit(formData: FormData) {
     setError(null);
@@ -103,12 +111,42 @@ export function CreateGestionaleProfileModal({
           <div className="mt-1 grid grid-cols-2 gap-1.5">
             {PROFILE_REPARTI_OPERATIVI.map((codice) => (
               <label key={codice} className="flex items-center gap-1.5 text-sm">
-                <input type="checkbox" name="reparti" value={codice} />
+                <input
+                  type="checkbox"
+                  name="reparti"
+                  value={codice}
+                  onChange={(e) => {
+                    if (codice === "commerciale") {
+                      setHasCommerciale(e.target.checked);
+                    }
+                  }}
+                />
                 {PROFILE_REPARTO_LABELS[codice]}
               </label>
             ))}
           </div>
         </fieldset>
+        {hasCommerciale ? (
+          <label className="mt-3 block text-xs text-[var(--muted)]">
+            Grado commerciale
+            <select
+              name="commercialeGrado"
+              value={commercialeGrado}
+              onChange={(e) =>
+                setCommercialeGrado(
+                  e.target.value as "senior" | "professional" | "executive"
+                )
+              }
+              className={inputCls}
+            >
+              {COMMERCIALE_GRADI.map((g) => (
+                <option key={g} value={g}>
+                  {COMMERCIALE_GRADO_LABELS[g]}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         {error ? (
           <p className="mt-3 text-sm text-red-700" role="alert">

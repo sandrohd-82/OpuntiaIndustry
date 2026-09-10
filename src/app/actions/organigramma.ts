@@ -44,13 +44,14 @@ import {
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
 } from "@/lib/amministrazione/organigramma";
+import { isRepartoCommerciale } from "@/lib/auth/commerciale";
 import { eventoLineaLabel } from "@/lib/produzione/macchinari";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -69,6 +70,7 @@ type PersonaRow = {
   documento_stato: OrganigrammaPersona["documentoStato"];
   note: string;
   reparto_id?: string | null;
+  commerciale_grado?: string | null;
   in_forza?: boolean;
   cessato_at?: string | null;
 };
@@ -134,10 +136,26 @@ function mapPersona(
     note: row.note ?? "",
     repartoId: row.reparto_id ?? null,
     repartoNome,
+    repartoCodice: "",
+    commercialeGrado:
+      row.commerciale_grado === "senior" ||
+      row.commerciale_grado === "professional" ||
+      row.commerciale_grado === "executive"
+        ? row.commerciale_grado
+        : null,
     inForza: row.in_forza !== false,
     cessatoAt: row.cessato_at ?? null,
     mansioni,
   };
+}
+
+function applyRepartoMeta(
+  item: OrganigrammaPersona,
+  reparto: OrganigrammaReparto | undefined
+): OrganigrammaPersona {
+  item.repartoNome = reparto?.nome ?? item.repartoNome;
+  item.repartoCodice = reparto?.codice ?? "";
+  return item;
 }
 
 function mapDocumento(row: DocumentoRow): OrganigrammaDocumento {
@@ -826,11 +844,14 @@ export async function listPersoneAction(): Promise<
     isAdmin: isAdminLikeProfile(auth.profile),
     isSuperadmin: isSuperadminProfile(auth.actorProfile),
     items: rows.map((r) => {
-      const item = mapPersona(
-        r,
-        mansioni.get(r.id) ?? [],
-        r.foto_path ? (fotoMap.get(r.foto_path) ?? null) : null,
-        r.reparto_id ? (reparti.get(r.reparto_id)?.nome ?? "") : ""
+      const item = applyRepartoMeta(
+        mapPersona(
+          r,
+          mansioni.get(r.id) ?? [],
+          r.foto_path ? (fotoMap.get(r.foto_path) ?? null) : null,
+          r.reparto_id ? (reparti.get(r.reparto_id)?.nome ?? "") : ""
+        ),
+        r.reparto_id ? reparti.get(r.reparto_id) : undefined
       );
       item.profilo = r.user_id ? (profili.get(r.user_id) ?? null) : null;
       return item;
@@ -909,11 +930,14 @@ export async function getPersonaAction(
     loadRepartiById(),
     loadProfiliFor(row.user_id ? [row.user_id] : []),
   ]);
-  const item = mapPersona(
-    row,
-    mansioni.get(row.id) ?? [],
-    await signedUrl(row.foto_path),
-    row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+  const item = applyRepartoMeta(
+    mapPersona(
+      row,
+      mansioni.get(row.id) ?? [],
+      await signedUrl(row.foto_path),
+      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    ),
+    row.reparto_id ? reparti.get(row.reparto_id) : undefined
   );
   item.profilo = row.user_id ? (profili.get(row.user_id) ?? null) : null;
   return {
@@ -1095,6 +1119,11 @@ export async function createPersonaAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
+  const repartiForGrado = await loadRepartiById();
+  const grado =
+    v.repartoId && isRepartoCommerciale(repartiForGrado.get(v.repartoId))
+      ? (v.commercialeGrado ?? null)
+      : null;
   const { data, error } = await supabase
     .from("organigramma_persone")
     .insert({
@@ -1105,6 +1134,7 @@ export async function createPersonaAction(
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
       reparto_id: v.repartoId ?? null,
+      commerciale_grado: grado,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -1138,11 +1168,14 @@ export async function createPersonaAction(
   ]);
   return {
     success: true,
-    item: mapPersona(
-      row,
-      mansioni.get(row.id) ?? [],
-      null,
-      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    item: applyRepartoMeta(
+      mapPersona(
+        row,
+        mansioni.get(row.id) ?? [],
+        null,
+        row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+      ),
+      row.reparto_id ? reparti.get(row.reparto_id) : undefined
     ),
   };
 }
@@ -1162,6 +1195,11 @@ export async function updatePersonaAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
+  const repartiForGrado = await loadRepartiById();
+  const grado =
+    v.repartoId && isRepartoCommerciale(repartiForGrado.get(v.repartoId))
+      ? (v.commercialeGrado ?? null)
+      : null;
   const { data, error } = await supabase
     .from("organigramma_persone")
     .update({
@@ -1171,6 +1209,7 @@ export async function updatePersonaAction(
       carta_identita: v.cartaIdentita ?? "",
       note: v.note ?? "",
       reparto_id: v.repartoId ?? null,
+      commerciale_grado: grado,
       updated_by: auth.userId,
     })
     .eq("id", v.id)
@@ -1199,19 +1238,44 @@ export async function updatePersonaAction(
     summary: `Aggiornato operatore ${v.cognome} ${v.nome}`,
   });
   const row = data as PersonaRow;
+  await syncProfiloCommercialeGrado(
+    row.user_id,
+    row.commerciale_grado ?? null,
+    auth.userId
+  );
   const [mansioni, reparti] = await Promise.all([
     loadMansioniFor([row.id]),
     loadRepartiById(),
   ]);
   return {
     success: true,
-    item: mapPersona(
-      row,
-      mansioni.get(row.id) ?? [],
-      await signedUrl(row.foto_path),
-      row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+    item: applyRepartoMeta(
+      mapPersona(
+        row,
+        mansioni.get(row.id) ?? [],
+        await signedUrl(row.foto_path),
+        row.reparto_id ? (reparti.get(row.reparto_id)?.nome ?? "") : ""
+      ),
+      row.reparto_id ? reparti.get(row.reparto_id) : undefined
     ),
   };
+}
+
+async function syncProfiloCommercialeGrado(
+  userId: string | null,
+  grado: string | null,
+  actorId: string
+) {
+  if (!userId) return;
+  const service = createServiceClient();
+  await service
+    .from("profiles")
+    .update({
+      commerciale_grado: grado,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", userId);
+  void actorId;
 }
 
 export async function softDeletePersonaAction(

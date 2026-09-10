@@ -88,6 +88,8 @@ export type OrganigrammaPersona = {
   note: string;
   repartoId: string | null;
   repartoNome: string;
+  repartoCodice: string;
+  commercialeGrado: "senior" | "professional" | "executive" | null;
   inForza: boolean;
   cessatoAt: string | null;
   mansioni: OrganigrammaMansione[];
@@ -315,6 +317,10 @@ export const personaInputSchema = z.object({
   mansioneIds: z.array(z.string().uuid()).optional().default([]),
   parentId: z.string().uuid().nullable().optional(),
   repartoId: emptyOr(z.string().uuid()),
+  commercialeGrado: z
+    .enum(["senior", "professional", "executive"])
+    .nullable()
+    .optional(),
 });
 
 export const personaUpdateSchema = personaInputSchema.extend({

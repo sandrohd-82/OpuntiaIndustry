@@ -6,6 +6,7 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
+import { parseCommercialeGrado } from "@/lib/auth/commerciale";
 import {
   PROFILE_GERARCHIE,
   PROFILE_POTERI,
@@ -172,7 +173,7 @@ export async function createOrganigrammaProfileAction(
   const service = createServiceClient();
   const { data: persona, error: pErr } = await service
     .from("organigramma_persone")
-    .select("id, nome, cognome, user_id, deleted_at")
+    .select("id, nome, cognome, user_id, commerciale_grado, deleted_at")
     .eq("id", parsed.data.personaId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -226,6 +227,25 @@ export async function createOrganigrammaProfileAction(
   );
   if (rep.error) return { success: false, error: rep.error };
 
+  const grado =
+    parseCommercialeGrado(formData.get("commercialeGrado")) ??
+    parseCommercialeGrado(
+      (persona as { commerciale_grado?: string | null }).commerciale_grado
+    );
+  if (grado) {
+    await service
+      .from("profiles")
+      .update({ commerciale_grado: grado })
+      .eq("id", result.userId);
+    await service
+      .from("organigramma_persone")
+      .update({
+        commerciale_grado: grado,
+        updated_by: gate.actorUserId,
+      })
+      .eq("id", parsed.data.personaId);
+  }
+
   await service.from("audit_log").insert({
     entity_type: "profiles",
     entity_id: result.userId,
@@ -238,6 +258,7 @@ export async function createOrganigrammaProfileAction(
       potere: parsed.data.potere,
       reparti: parsed.data.reparti,
       persona_id: parsed.data.personaId,
+      commerciale_grado: grado,
     },
   });
 

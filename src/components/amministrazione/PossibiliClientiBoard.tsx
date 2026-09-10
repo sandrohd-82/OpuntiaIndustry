@@ -2,12 +2,18 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { FaClockRotateLeft, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import {
   createClientePossibileAction,
   listClientiPossibiliAction,
   softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
+import { CollegaCommercialeControl } from "@/components/amministrazione/CollegaCommercialeControl";
+import {
+  isCommercialOwnRecord,
+  type CommercialeAssegnabile,
+} from "@/lib/auth/commerciale";
 import {
   ActionGate,
   useAnagraficaPrivileges,
@@ -27,6 +33,9 @@ export function PossibiliClientiBoard() {
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
   const priv = useAnagraficaPrivileges("cliente_possibile");
+  const [lineageIds, setLineageIds] = useState<string[]>([]);
+  const [canAssign, setCanAssign] = useState(false);
+  const [commerciali, setCommerciali] = useState<CommercialeAssegnabile[]>([]);
 
   function reload() {
     startTransition(async () => {
@@ -42,6 +51,11 @@ export function PossibiliClientiBoard() {
 
   useEffect(() => {
     reload();
+    void getCommercialeAnagraficaContextAction().then((ctx) => {
+      setLineageIds(ctx.lineageIds);
+      setCanAssign(ctx.canAssign);
+      setCommerciali(ctx.commerciali);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,6 +97,19 @@ export function PossibiliClientiBoard() {
                 {lead.telefono ? ` · ${lead.telefono}` : ""}
                 {lead.email ? ` · ${lead.email}` : ""}
               </p>
+              <div className="mt-1">
+                <CollegaCommercialeControl
+                  aziendaTipo="cliente_possibile"
+                  aziendaId={lead.id}
+                  commercialeId={lead.commercialeId}
+                  commercialeNome={lead.commercialeNome}
+                  commercialeGrado={lead.commercialeGrado}
+                  canAssign={canAssign}
+                  commerciali={commerciali}
+                  onAssigned={() => reload()}
+                  onError={setError}
+                />
+              </div>
             </div>
             {priv.canTimeline ? (
             <button
@@ -95,7 +122,15 @@ export function PossibiliClientiBoard() {
               Timeline
             </button>
             ) : null}
-            {priv.canEdit(lead.createdBy) ? (
+            {priv.canEdit(
+              lead.createdBy,
+              isCommercialOwnRecord({
+                userId: priv.userId,
+                createdBy: lead.createdBy,
+                commercialeId: lead.commercialeId,
+                lineageIds,
+              })
+            ) ? (
             <button
               type="button"
               onClick={() => setEditingLead(lead)}
@@ -105,7 +140,15 @@ export function PossibiliClientiBoard() {
               Modifica
             </button>
             ) : null}
-            {priv.canDelete(lead.createdBy) ? (
+            {priv.canDelete(
+              lead.createdBy,
+              isCommercialOwnRecord({
+                userId: priv.userId,
+                createdBy: lead.createdBy,
+                commercialeId: lead.commercialeId,
+                lineageIds,
+              })
+            ) ? (
             <button
               type="button"
               onClick={() => setDeleting(lead)}

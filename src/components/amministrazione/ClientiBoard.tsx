@@ -21,7 +21,9 @@ import {
   useAnagraficaPrivileges,
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
+import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { CollegaCommercialeControl } from "@/components/amministrazione/CollegaCommercialeControl";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
@@ -30,6 +32,8 @@ import { PdfExportDetailModal } from "@/components/amministrazione/PdfExportDeta
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { useClienti } from "@/hooks/useClienti";
+import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
+import type { CommercialeAssegnabile } from "@/lib/auth/commerciale";
 import {
   emptyClientiFilters,
   filterClienti,
@@ -70,6 +74,11 @@ function ClienteRow({
   selectMode,
   selected,
   onToggleSelect,
+  lineageIds,
+  canAssign,
+  commerciali,
+  onCommercialeChange,
+  onAssignError,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
@@ -79,11 +88,29 @@ function ClienteRow({
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: (id: string) => void;
+  lineageIds: string[];
+  canAssign: boolean;
+  commerciali: CommercialeAssegnabile[];
+  onCommercialeChange: (
+    id: string,
+    next: {
+      commercialeId: string | null;
+      commercialeNome: string;
+      commercialeGrado: Cliente["commercialeGrado"];
+    }
+  ) => void;
+  onAssignError: (msg: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente");
-  const canEdit = priv.canEdit(cliente.createdBy);
-  const canDelete = priv.canDelete(cliente.createdBy);
+  const treatAsOwn = isCommercialOwnRecord({
+    userId: priv.userId,
+    createdBy: cliente.createdBy,
+    commercialeId: cliente.commercialeId,
+    lineageIds,
+  });
+  const canEdit = priv.canEdit(cliente.createdBy, treatAsOwn);
+  const canDelete = priv.canDelete(cliente.createdBy, treatAsOwn);
 
   return (
     <>
@@ -133,6 +160,19 @@ function ClienteRow({
         </td>
         <td className="px-4 py-3 text-[var(--muted)]">
           {formatSedeBreve(cliente.sedeMagazzino)}
+        </td>
+        <td className="px-4 py-3">
+          <CollegaCommercialeControl
+            aziendaTipo="cliente"
+            aziendaId={cliente.id}
+            commercialeId={cliente.commercialeId}
+            commercialeNome={cliente.commercialeNome}
+            commercialeGrado={cliente.commercialeGrado}
+            canAssign={canAssign}
+            commerciali={commerciali}
+            onAssigned={(next) => onCommercialeChange(cliente.id, next)}
+            onError={onAssignError}
+          />
         </td>
         <td className="max-w-[240px] px-4 py-3">
           {cliente.prodottiAcquistati.length === 0 ? (
@@ -197,7 +237,7 @@ function ClienteRow({
       </tr>
       {open && (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={9} className="px-4 py-4">
             {canEdit ? (
             <div className="mb-3 flex justify-end">
               <button
@@ -303,6 +343,9 @@ export function ClientiBoard() {
   );
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
+  const [lineageIds, setLineageIds] = useState<string[]>([]);
+  const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
+  const [commerciali, setCommerciali] = useState<CommercialeAssegnabile[]>([]);
 
   const filtersActive = hasActiveClientiFilters(filters);
 
@@ -347,6 +390,14 @@ export function ClientiBoard() {
       setProdottiByCode(new Map(result.prodotti.map((p) => [p.codice, p])));
     })();
   }, [clienti]);
+
+  useEffect(() => {
+    void getCommercialeAnagraficaContextAction().then((ctx) => {
+      setLineageIds(ctx.lineageIds);
+      setCanAssignCommerciale(ctx.canAssign);
+      setCommerciali(ctx.commerciali);
+    });
+  }, []);
 
   const filtered = useMemo(
     () => filterClienti(clienti, filters),
@@ -627,6 +678,7 @@ export function ClientiBoard() {
                 <th className="px-4 py-3 font-medium">P. IVA / CF</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>
                 <th className="px-4 py-3 font-medium">Sede Mag.</th>
+                <th className="px-4 py-3 font-medium">Commerciale</th>
                 <th className="px-4 py-3 font-medium">Prodotti</th>
                 <th className="px-4 py-3 text-right font-medium" />
               </tr>
@@ -649,6 +701,13 @@ export function ClientiBoard() {
                     setSaveError(null);
                     setDeleting(item);
                   }}
+                  lineageIds={lineageIds}
+                  canAssign={canAssignCommerciale}
+                  commerciali={commerciali}
+                  onCommercialeChange={() => {
+                    void refresh();
+                  }}
+                  onAssignError={setSaveError}
                 />
               ))}
             </tbody>

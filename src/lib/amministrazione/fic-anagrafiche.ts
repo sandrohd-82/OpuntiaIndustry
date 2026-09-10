@@ -321,6 +321,9 @@ export function draftToClientePreview(
     prodottiAcquistati: [],
     createdAt: new Date().toISOString(),
     createdBy: null,
+    commercialeId: null,
+    commercialeNome: "",
+    commercialeGrado: null,
   };
 }
 

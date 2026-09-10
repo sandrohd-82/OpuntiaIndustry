@@ -1,0 +1,74 @@
+export const COMMERCIALE_GRADI = [
+  "senior",
+  "professional",
+  "executive",
+] as const;
+
+export type CommercialeGrado = (typeof COMMERCIALE_GRADI)[number];
+
+export const COMMERCIALE_GRADO_LABELS: Record<CommercialeGrado, string> = {
+  senior: "Senior",
+  professional: "Professional",
+  executive: "Executive",
+};
+
+/** Rank crescente = più in basso (Senior sopra Professional sopra Executive). */
+export const COMMERCIALE_GRADO_RANK: Record<CommercialeGrado, number> = {
+  senior: 1,
+  professional: 2,
+  executive: 3,
+};
+
+export function parseCommercialeGrado(
+  value: unknown
+): CommercialeGrado | null {
+  if (
+    value === "senior" ||
+    value === "professional" ||
+    value === "executive"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+export function isRepartoCommerciale(reparto: {
+  codice?: string | null;
+  nome?: string | null;
+} | null | undefined): boolean {
+  const codice = String(reparto?.codice ?? "").trim().toLowerCase();
+  const nome = String(reparto?.nome ?? "").trim().toLowerCase();
+  return codice === "commerciale" || nome === "commerciale";
+}
+
+export function commercialeGradoLabel(
+  grado: CommercialeGrado | null | undefined
+): string {
+  return grado ? COMMERCIALE_GRADO_LABELS[grado] : "—";
+}
+
+export type CommercialeAssegnabile = {
+  id: string;
+  nome: string;
+  email: string;
+  grado: CommercialeGrado | null;
+};
+
+export function isCommercialOwnRecord(opts: {
+  userId: string;
+  createdBy?: string | null;
+  commercialeId?: string | null;
+  lineageIds: string[];
+}): boolean {
+  const lineage = new Set(opts.lineageIds);
+  if (opts.createdBy && (opts.createdBy === opts.userId || lineage.has(opts.createdBy))) {
+    return true;
+  }
+  if (
+    opts.commercialeId &&
+    (opts.commercialeId === opts.userId || lineage.has(opts.commercialeId))
+  ) {
+    return true;
+  }
+  return false;
+}

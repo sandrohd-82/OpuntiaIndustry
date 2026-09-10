@@ -84,18 +84,26 @@ export function useAnagraficaPrivileges(kind: AnagraficaPrivilegeKind) {
   return {
     userId,
     canTimeline: privilegedAllowed(keys.timeline),
-    canEdit: (createdBy: string | null | undefined) =>
+    canEdit: (
+      createdBy: string | null | undefined,
+      treatAsOwn = false
+    ) =>
       canEditAnagraficaRecord({
         bypass: bypassPrivileges,
         userId,
         createdBy,
+        treatAsOwn,
         editOthers: privilegedAllowed(keys.modificaAltrui),
       }),
-    canDelete: (createdBy: string | null | undefined) =>
+    canDelete: (
+      createdBy: string | null | undefined,
+      treatAsOwn = false
+    ) =>
       canDeleteAnagraficaRecord({
         bypass: bypassPrivileges,
         userId,
         createdBy,
+        treatAsOwn,
         canDelete: privilegedAllowed(keys.elimina),
         editOthers: privilegedAllowed(keys.modificaAltrui),
       }),

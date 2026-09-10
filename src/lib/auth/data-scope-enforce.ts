@@ -1,4 +1,8 @@
 import { cache } from "react";
+import {
+  anagraficaLineageOrFilter,
+  loadCommercialLineageUserIds,
+} from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -176,12 +180,15 @@ export async function loadOwnedAziendaIds(
   const tables: Array<"clienti" | "fornitori"> =
     kind === "entrambi" ? ["clienti", "fornitori"] : [kind];
   const ids: string[] = [];
+  const lineage = await loadCommercialLineageUserIds(userId);
   for (const table of tables) {
-    const { data } = await supabase
-      .from(table)
-      .select("id")
-      .eq("created_by", userId)
-      .is("deleted_at", null);
+    let q = supabase.from(table).select("id").is("deleted_at", null);
+    if (table === "clienti") {
+      q = q.or(anagraficaLineageOrFilter(lineage));
+    } else {
+      q = q.eq("created_by", userId);
+    }
+    const { data } = await q;
     for (const row of data ?? []) {
       const id = String((row as { id?: string }).id ?? "");
       if (id) ids.push(id);

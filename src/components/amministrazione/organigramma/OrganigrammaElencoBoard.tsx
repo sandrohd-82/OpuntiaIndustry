@@ -29,6 +29,12 @@ import {
   parseProfileGerarchia,
 } from "@/lib/auth/gerarchia";
 import {
+  COMMERCIALE_GRADI,
+  COMMERCIALE_GRADO_LABELS,
+  commercialeGradoLabel,
+  isRepartoCommerciale,
+} from "@/lib/auth/commerciale";
+import {
   PROFILE_STATO_LABELS,
   parseProfileStatoOperativo,
 } from "@/lib/auth/stato-operativo";
@@ -230,6 +236,7 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Cognome</th>
               <th className="px-4 py-2.5">Nome</th>
               <th className="px-4 py-2.5">Reparto</th>
+              <th className="px-4 py-2.5">Grado</th>
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">In azienda</th>
@@ -241,7 +248,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={10} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -253,6 +260,12 @@ export function OrganigrammaElencoBoard() {
                   <td className="px-4 py-2.5 font-medium">{p.cognome}</td>
                   <td className="px-4 py-2.5">{p.nome}</td>
                   <td className="px-4 py-2.5">{p.repartoNome || "—"}</td>
+                  <td className="px-4 py-2.5">
+                    {p.repartoCodice === "commerciale" ||
+                    p.repartoNome.toLowerCase() === "commerciale"
+                      ? commercialeGradoLabel(p.commercialeGrado)
+                      : "—"}
+                  </td>
                   <td className="px-4 py-2.5 text-[var(--muted)]">
                     {p.mansioni.map((m) => m.nome).join(", ") || "—"}
                   </td>
@@ -427,6 +440,7 @@ function OperatoreCreateModal({
   const [codiceFiscale, setCf] = useState("");
   const [cartaIdentita, setCi] = useState("");
   const [repartoId, setRepartoId] = useState("");
+  const [commercialeGrado, setCommercialeGrado] = useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
   const [docs, setDocs] = useState<Partial<Record<OrganigrammaDocTipo, File>>>(
@@ -446,6 +460,9 @@ function OperatoreCreateModal({
       note,
       mansioneIds,
       repartoId: repartoId || undefined,
+      commercialeGrado:
+        (commercialeGrado as "senior" | "professional" | "executive") ||
+        null,
     });
     if (!res.success) {
       setBusy(false);
@@ -528,6 +545,23 @@ function OperatoreCreateModal({
               ))}
             </select>
           </label>
+          {isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Grado commerciale
+              <select
+                value={commercialeGrado}
+                onChange={(e) => setCommercialeGrado(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">Seleziona grado</option>
+                {COMMERCIALE_GRADI.map((g) => (
+                  <option key={g} value={g}>
+                    {COMMERCIALE_GRADO_LABELS[g]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
         </div>
         <fieldset className="mt-3">
           <legend className="text-xs text-[var(--muted)]">Mansioni</legend>

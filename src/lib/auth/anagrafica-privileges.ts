@@ -40,8 +40,10 @@ export function canEditAnagraficaRecord(opts: {
   userId: string;
   createdBy: string | null | undefined;
   editOthers: boolean;
+  treatAsOwn?: boolean;
 }): boolean {
   if (opts.bypass) return true;
+  if (opts.treatAsOwn) return true;
   if (opts.createdBy && opts.createdBy === opts.userId) return true;
   return opts.editOthers;
 }
@@ -52,9 +54,11 @@ export function canDeleteAnagraficaRecord(opts: {
   createdBy: string | null | undefined;
   canDelete: boolean;
   editOthers: boolean;
+  treatAsOwn?: boolean;
 }): boolean {
   if (opts.bypass) return true;
   if (!opts.canDelete) return false;
+  if (opts.treatAsOwn) return true;
   if (opts.createdBy && opts.createdBy === opts.userId) return true;
   return opts.editOthers;
 }
@@ -65,6 +69,7 @@ export function evaluateAnagraficaPrivilege(opts: {
   kind: AnagraficaPrivilegeKind;
   op: "timeline" | "update" | "delete";
   createdBy?: string | null;
+  treatAsOwn?: boolean;
 }): { ok: true } | { ok: false; error: string } {
   const keys = ANAGRAFICA_ACTION_KEYS[opts.kind];
   if (opts.op === "timeline") {
@@ -82,6 +87,7 @@ export function evaluateAnagraficaPrivilege(opts: {
         bypass: false,
         userId: opts.userId,
         createdBy: opts.createdBy,
+        treatAsOwn: opts.treatAsOwn,
         editOthers: isPrivilegedActionOn(
           opts.actionAccess,
           keys.modificaAltrui
@@ -100,6 +106,7 @@ export function evaluateAnagraficaPrivilege(opts: {
       bypass: false,
       userId: opts.userId,
       createdBy: opts.createdBy,
+      treatAsOwn: opts.treatAsOwn,
       canDelete: isPrivilegedActionOn(opts.actionAccess, keys.elimina),
       editOthers: isPrivilegedActionOn(opts.actionAccess, keys.modificaAltrui),
     })

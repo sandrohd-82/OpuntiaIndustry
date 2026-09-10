@@ -33,6 +33,9 @@ export type Cliente = {
   prodottiAcquistati: string[];
   createdAt: string;
   createdBy: string | null;
+  commercialeId: string | null;
+  commercialeNome: string;
+  commercialeGrado: "senior" | "professional" | "executive" | null;
 };
 
 export type ClienteInput = {
@@ -160,7 +163,15 @@ function mapConsegnaRow(
   };
 }
 
-export function mapClienteRow(row: ClienteRow): Cliente {
+export function mapClienteRow(
+  row: ClienteRow,
+  commerciale?:
+    | {
+        nome?: string;
+        grado?: "senior" | "professional" | "executive" | null;
+      }
+    | number
+): Cliente {
   const rawConsegne = Array.isArray(row.consegne_altra_azienda)
     ? row.consegne_altra_azienda
     : [];
@@ -195,6 +206,15 @@ export function mapClienteRow(row: ClienteRow): Cliente {
     prodottiAcquistati: row.prodotti_acquistati ?? [],
     createdAt: row.created_at,
     createdBy: row.created_by ?? null,
+    commercialeId: row.commerciale_id ?? null,
+    commercialeNome:
+      typeof commerciale === "object" && commerciale
+        ? (commerciale.nome ?? "")
+        : "",
+    commercialeGrado:
+      typeof commerciale === "object" && commerciale
+        ? (commerciale.grado ?? null)
+        : null,
   };
 }
 

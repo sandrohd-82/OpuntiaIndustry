@@ -37,6 +37,11 @@ import {
 } from "@/components/amministrazione/organigramma/FotoTesseraBox";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
+  COMMERCIALE_GRADI,
+  COMMERCIALE_GRADO_LABELS,
+  isRepartoCommerciale,
+} from "@/lib/auth/commerciale";
+import {
   OPERATIVE_AZIONI,
   ORGANIGRAMMA_CONTRATTO_STATI,
   ORGANIGRAMMA_CONTRATTO_TIPI,
@@ -217,6 +222,9 @@ function AnagraficaCard({
   const [cartaIdentita, setCi] = useState(item.cartaIdentita);
   const [note, setNote] = useState(item.note);
   const [repartoId, setRepartoId] = useState(item.repartoId ?? "");
+  const [commercialeGrado, setCommercialeGrado] = useState(
+    item.commercialeGrado ?? ""
+  );
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
@@ -230,6 +238,7 @@ function AnagraficaCard({
     setCi(item.cartaIdentita);
     setNote(item.note);
     setRepartoId(item.repartoId ?? "");
+    setCommercialeGrado(item.commercialeGrado ?? "");
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
 
@@ -245,6 +254,9 @@ function AnagraficaCard({
       note,
       mansioneIds,
       repartoId: repartoId || undefined,
+      commercialeGrado:
+        (commercialeGrado as "senior" | "professional" | "executive") ||
+        null,
     });
     if (!res.success) {
       setBusy(false);
@@ -366,6 +378,30 @@ function AnagraficaCard({
                 ))}
               </select>
             </label>
+            {isRepartoCommerciale(
+              reparti.find((r) => r.id === repartoId)
+            ) ? (
+              <label className="text-xs text-[var(--muted)] sm:col-span-2">
+                Grado commerciale
+                <select
+                  value={commercialeGrado}
+                  disabled={!isAdmin}
+                  onChange={(e) => setCommercialeGrado(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">Seleziona grado</option>
+                  {COMMERCIALE_GRADI.map((g) => (
+                    <option key={g} value={g}>
+                      {COMMERCIALE_GRADO_LABELS[g]}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px]">
+                  Senior in alto, sotto Professional, sotto Executive. I
+                  subordinati si impostano nell&apos;albero organigramma.
+                </span>
+              </label>
+            ) : null}
           </div>
           <fieldset className="mt-3">
             <legend className="text-xs text-[var(--muted)]">Mansioni</legend>

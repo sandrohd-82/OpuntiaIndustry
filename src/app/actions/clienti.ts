@@ -16,6 +16,11 @@ import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
+import {
+  anagraficaLineageOrFilter,
+  loadCommercialLineageUserIds,
+  loadCommercialeLabels,
+} from "@/lib/auth/commerciale-lineage";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 
@@ -153,7 +158,8 @@ export async function listClientiAction(): Promise<
     .select("*")
     .is("deleted_at", null);
   if (scope && !scope.skip && scope.mode === "proprie") {
-    q = q.eq("created_by", scope.userId);
+    const lineage = await loadCommercialLineageUserIds(scope.userId);
+    q = q.or(anagraficaLineageOrFilter(lineage));
   }
   const { data, error } = await q.order("created_at", { ascending: false });
 
@@ -162,9 +168,17 @@ export async function listClientiAction(): Promise<
   }
 
   const rows = (data ?? []) as ClienteRow[];
+  const labels = await loadCommercialeLabels(
+    rows.map((r) => r.commerciale_id ?? "").filter(Boolean)
+  );
   return {
     success: true,
-    clienti: rows.map(mapClienteRow),
+    clienti: rows.map((row) => {
+      const label = row.commerciale_id
+        ? labels.get(row.commerciale_id)
+        : undefined;
+      return mapClienteRow(row, label);
+    }),
   };
 }
 
@@ -232,6 +246,9 @@ export async function createClienteAction(
     consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
     created_by: auth.userId,
     updated_by: auth.userId,
+    commerciale_id: auth.userId,
+    commerciale_assegnato_at: new Date().toISOString(),
+    commerciale_assegnato_by: auth.userId,
   };
 
   const { data, error } = await supabase
@@ -290,7 +307,7 @@ export async function createClienteAction(
 
   return {
     success: true,
-    cliente: mapClienteRow(row),
+    cliente: mapClienteRow(row, { nome: "", grado: null }),
   };
 }
 
@@ -302,7 +319,7 @@ export async function updateClienteAction(
   const supabase = await createClient();
   const { data: existingCliente } = await supabase
     .from("clienti")
-    .select("created_by")
+    .select("created_by, commerciale_id")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -311,6 +328,9 @@ export async function updateClienteAction(
     op: "update",
     createdBy: existingCliente?.created_by
       ? String(existingCliente.created_by)
+      : null,
+    commercialeId: existingCliente?.commerciale_id
+      ? String(existingCliente.commerciale_id)
       : null,
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
@@ -403,7 +423,7 @@ export async function softDeleteClienteAction(input: {
 
   const { data: existing, error: loadError } = await supabase
     .from("clienti")
-    .select("id, codice_targa, ragione_sociale, created_by, deleted_at")
+    .select("id, codice_targa, ragione_sociale, created_by, commerciale_id, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
 
@@ -415,6 +435,9 @@ export async function softDeleteClienteAction(input: {
     kind: "cliente",
     op: "delete",
     createdBy: existing.created_by ? String(existing.created_by) : null,
+    commercialeId: existing.commerciale_id
+      ? String(existing.commerciale_id)
+      : null,
   });
   if (!delGate.ok) return { success: false, error: delGate.error };
 

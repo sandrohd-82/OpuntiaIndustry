@@ -101,6 +101,9 @@ export type ClientePossibile = {
   createdAt: string;
   updatedAt: string;
   createdBy: string | null;
+  commercialeId: string | null;
+  commercialeNome: string;
+  commercialeGrado: "senior" | "professional" | "executive" | null;
 };
 
 export const createPromemoriaSchema = z.object({
@@ -263,6 +266,9 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     prodottiAcquistati: lead.prodottiInteressati,
     createdAt: "",
     createdBy: null,
+    commercialeId: lead.commercialeId,
+    commercialeNome: lead.commercialeNome,
+    commercialeGrado: lead.commercialeGrado,
   };
 }
 

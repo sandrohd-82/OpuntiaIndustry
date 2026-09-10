@@ -60,6 +60,7 @@ export interface Profile {
   attivato_at?: string | null;
   gerarchia?: "amministratore" | "segnor" | "capo_area" | "responsabile" | "operatore";
   potere?: "superadmin" | "operatore";
+  commerciale_grado?: "senior" | "professional" | "executive" | null;
   chat_status?: "available" | "away" | "offline";
   chat_rubrica_banned_at?: string | null;
   avatar_url?: string | null;
@@ -305,6 +306,9 @@ export interface ClienteRow {
   updated_at: string;
   deleted_at: string | null;
   deleted_by: string | null;
+  commerciale_id?: string | null;
+  commerciale_assegnato_at?: string | null;
+  commerciale_assegnato_by?: string | null;
 }
 
 export interface ClienteInsert {
@@ -337,6 +341,9 @@ export interface ClienteInsert {
   updated_at?: string;
   deleted_at?: string | null;
   deleted_by?: string | null;
+  commerciale_id?: string | null;
+  commerciale_assegnato_at?: string | null;
+  commerciale_assegnato_by?: string | null;
 }
 
 export interface ClienteUpdate {
@@ -369,6 +376,9 @@ export interface ClienteUpdate {
   updated_at?: string;
   deleted_at?: string | null;
   deleted_by?: string | null;
+  commerciale_id?: string | null;
+  commerciale_assegnato_at?: string | null;
+  commerciale_assegnato_by?: string | null;
 }
 
 export interface MateriaPrimaRow {
