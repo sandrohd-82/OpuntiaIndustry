@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { GraficiIncassiBoard } from "@/components/amministrazione/grafici/GraficiIncassiBoard";
+import { GraficiProvvigioniBoard } from "@/components/amministrazione/grafici/GraficiProvvigioniBoard";
 import { GraficiOrdiniBoard } from "@/components/amministrazione/grafici/GraficiOrdiniBoard";
 import { GraficiProduttivitaBoard } from "@/components/amministrazione/grafici/GraficiProduttivitaBoard";
 import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffertaBoard";
@@ -292,6 +293,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <GraficiIncassiBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "statistiche" && sub === "provvigioni") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <GraficiProvvigioniBoard />
         </div>
       </>
     );

@@ -32,6 +32,7 @@ import {
   COMMERCIALE_GRADI,
   COMMERCIALE_GRADO_LABELS,
   commercialeGradoLabel,
+  formatProvvigionePct,
   isRepartoCommerciale,
 } from "@/lib/auth/commerciale";
 import {
@@ -237,6 +238,7 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Nome</th>
               <th className="px-4 py-2.5">Reparto</th>
               <th className="px-4 py-2.5">Grado</th>
+              <th className="px-4 py-2.5">Provvigione</th>
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">In azienda</th>
@@ -248,7 +250,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={11} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -264,6 +266,12 @@ export function OrganigrammaElencoBoard() {
                     {p.repartoCodice === "commerciale" ||
                     p.repartoNome.toLowerCase() === "commerciale"
                       ? commercialeGradoLabel(p.commercialeGrado)
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {p.repartoCodice === "commerciale" ||
+                    p.repartoNome.toLowerCase() === "commerciale"
+                      ? formatProvvigionePct(p.commercialeProvvigionePct)
                       : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-[var(--muted)]">
@@ -441,6 +449,8 @@ function OperatoreCreateModal({
   const [cartaIdentita, setCi] = useState("");
   const [repartoId, setRepartoId] = useState("");
   const [commercialeGrado, setCommercialeGrado] = useState("");
+  const [commercialeProvvigionePct, setCommercialeProvvigionePct] =
+    useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
   const [docs, setDocs] = useState<Partial<Record<OrganigrammaDocTipo, File>>>(
@@ -463,6 +473,7 @@ function OperatoreCreateModal({
       commercialeGrado:
         (commercialeGrado as "senior" | "professional" | "executive") ||
         null,
+      commercialeProvvigionePct: commercialeProvvigionePct || null,
     });
     if (!res.success) {
       setBusy(false);
@@ -560,6 +571,21 @@ function OperatoreCreateModal({
                   </option>
                 ))}
               </select>
+            </label>
+          ) : null}
+          {isRepartoCommerciale(reparti.find((r) => r.id === repartoId)) ? (
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Provvigione %
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                value={commercialeProvvigionePct}
+                onChange={(e) => setCommercialeProvvigionePct(e.target.value)}
+                className={inputCls}
+                placeholder="Es. 5"
+              />
             </label>
           ) : null}
         </div>

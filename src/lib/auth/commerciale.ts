@@ -47,6 +47,42 @@ export function commercialeGradoLabel(
   return grado ? COMMERCIALE_GRADO_LABELS[grado] : "—";
 }
 
+export function parseProvvigionePctInput(
+  value: unknown
+): { ok: true; value: number | null } | { ok: false; error: string } {
+  if (value == null || value === "") return { ok: true, value: null };
+  const raw =
+    typeof value === "number"
+      ? value
+      : Number(String(value).trim().replace(",", "."));
+  if (!Number.isFinite(raw)) {
+    return { ok: false, error: "Provvigione non valida." };
+  }
+  const rounded = Math.round(raw * 100) / 100;
+  if (rounded < 0 || rounded > 100) {
+    return { ok: false, error: "Provvigione: inserisci un valore da 0 a 100." };
+  }
+  return { ok: true, value: rounded };
+}
+
+export function formatProvvigionePct(
+  pct: number | null | undefined
+): string {
+  if (pct == null || !Number.isFinite(pct)) return "—";
+  return `${pct.toLocaleString("it-IT", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} %`;
+}
+
+export function calcolaProvvigione(
+  incasso: number,
+  percentuale: number | null | undefined
+): number {
+  const pct = percentuale == null || !Number.isFinite(percentuale) ? 0 : percentuale;
+  return Math.round(((incasso * pct) / 100 + Number.EPSILON) * 100) / 100;
+}
+
 /** Testo in elenco: senza assegnazione l’azienda resta dell’azienda. */
 export function formatCommercialeAssegnazione(opts: {
   commercialeId: string | null | undefined;

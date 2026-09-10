@@ -90,6 +90,7 @@ export type OrganigrammaPersona = {
   repartoNome: string;
   repartoCodice: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
+  commercialeProvvigionePct: number | null;
   inForza: boolean;
   cessatoAt: string | null;
   mansioni: OrganigrammaMansione[];
@@ -320,6 +321,9 @@ export const personaInputSchema = z.object({
   commercialeGrado: z
     .enum(["senior", "professional", "executive"])
     .nullable()
+    .optional(),
+  commercialeProvvigionePct: z
+    .union([z.number(), z.string(), z.null()])
     .optional(),
 });
 

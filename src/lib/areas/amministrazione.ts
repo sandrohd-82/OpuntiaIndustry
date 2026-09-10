@@ -158,6 +158,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/amministrazione/statistiche/economia",
       },
       {
+        slug: "provvigioni",
+        label: "Provvigioni",
+        description:
+          "Incassi delle aziende collegate e provvigioni del commerciale",
+        path: "/app/amministrazione/statistiche/provvigioni",
+      },
+      {
         slug: "produttivita",
         label: "Produttività",
         description:

@@ -81,6 +81,12 @@ export const graficiIncassiFiltroSchema = graficiPeriodoSchema.extend({
   anniConfronto: z.array(z.number().int().min(2000).max(2100)).optional(),
 });
 
+export const graficiProvvigioniFiltroSchema = graficiPeriodoSchema.extend({
+  clienteId: z.string().uuid().nullable().optional(),
+  commercialeId: z.string().uuid().nullable().optional(),
+  anniConfronto: z.array(z.number().int().min(2000).max(2100)).optional(),
+});
+
 export function isInteraVita(anno: number): boolean {
   return anno === ANNO_INTERA_VITA;
 }
@@ -91,6 +97,9 @@ export function labelPeriodoAnno(anno: number): string {
 
 export type GraficiOrdiniFiltro = z.infer<typeof graficiOrdiniFiltroSchema>;
 export type GraficiIncassiFiltro = z.infer<typeof graficiIncassiFiltroSchema>;
+export type GraficiProvvigioniFiltro = z.infer<
+  typeof graficiProvvigioniFiltroSchema
+>;
 
 export function emptySerieAnno(anno: number): GraficiKpi {
   return {
@@ -257,6 +266,18 @@ export type GraficiIncassiDettaglio = {
   /** Etichette asse X allineate a `andamentoAziende.valori`. */
   periodiLabels: string[];
   prodotti: GraficiProdottoSlice[];
+};
+
+export type GraficiProvvigioniDettaglio = GraficiIncassiDettaglio & {
+  totaleProvvigione: number;
+  mesiProvvigione: GraficiMeseStacked[];
+  andamentoProvvigioni: GraficiIncassiDettaglio["andamentoAziende"];
+  percentualePerAzienda: Record<string, number | null>;
+};
+
+export type GraficiProvvigioniMultiAnno = {
+  incassi: GraficiMultiAnno;
+  provvigioni: GraficiMultiAnno;
 };
 
 export function coloreAziendaByIndex(index: number): string {

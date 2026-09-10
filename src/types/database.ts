@@ -61,6 +61,7 @@ export interface Profile {
   gerarchia?: "amministratore" | "senior" | "capo_area" | "responsabile" | "operatore";
   potere?: "superadmin" | "operatore";
   commerciale_grado?: "senior" | "professional" | "executive" | null;
+  commerciale_provvigione_pct?: number | null;
   chat_status?: "available" | "away" | "offline";
   chat_rubrica_banned_at?: string | null;
   avatar_url?: string | null;

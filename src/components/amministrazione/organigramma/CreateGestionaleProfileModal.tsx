@@ -43,6 +43,11 @@ export function CreateGestionaleProfileModal({
   const [commercialeGrado, setCommercialeGrado] = useState(
     persona.commercialeGrado ?? "senior"
   );
+  const [commercialeProvvigionePct, setCommercialeProvvigionePct] = useState(
+    persona.commercialeProvvigionePct != null
+      ? String(persona.commercialeProvvigionePct)
+      : ""
+  );
   const [profiles, setProfiles] = useState<GestionaleProfileOption[]>([]);
   const [pickedId, setPickedId] = useState("");
   const [loadingList, setLoadingList] = useState(true);
@@ -283,6 +288,22 @@ export function CreateGestionaleProfileModal({
                     </option>
                   ))}
                 </select>
+              </label>
+            ) : null}
+            {hasCommerciale ? (
+              <label className="mt-3 block text-xs text-[var(--muted)]">
+                Provvigione %
+                <input
+                  name="commercialeProvvigionePct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={commercialeProvvigionePct}
+                  onChange={(e) => setCommercialeProvvigionePct(e.target.value)}
+                  className={inputCls}
+                  placeholder="Es. 5"
+                />
               </label>
             ) : null}
 

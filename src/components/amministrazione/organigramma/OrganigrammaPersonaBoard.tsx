@@ -257,6 +257,11 @@ function AnagraficaCard({
   const [commercialeGrado, setCommercialeGrado] = useState(
     item.commercialeGrado ?? ""
   );
+  const [commercialeProvvigionePct, setCommercialeProvvigionePct] = useState(
+    item.commercialeProvvigionePct != null
+      ? String(item.commercialeProvvigionePct)
+      : ""
+  );
   const [mansioneIds, setMansioneIds] = useState(
     item.mansioni.map((m) => m.id)
   );
@@ -271,6 +276,11 @@ function AnagraficaCard({
     setNote(item.note);
     setRepartoId(item.repartoId ?? "");
     setCommercialeGrado(item.commercialeGrado ?? "");
+    setCommercialeProvvigionePct(
+      item.commercialeProvvigionePct != null
+        ? String(item.commercialeProvvigionePct)
+        : ""
+    );
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
 
@@ -289,6 +299,7 @@ function AnagraficaCard({
       commercialeGrado:
         (commercialeGrado as "senior" | "professional" | "executive") ||
         null,
+      commercialeProvvigionePct: commercialeProvvigionePct || null,
     });
     if (!res.success) {
       setBusy(false);
@@ -451,6 +462,28 @@ function AnagraficaCard({
                 <span className="mt-1 block text-[11px]">
                   Senior in alto, sotto Professional, sotto Executive. I
                   subordinati si impostano nell&apos;albero organigramma.
+                </span>
+              </label>
+            ) : null}
+            {isRepartoCommerciale(
+              reparti.find((r) => r.id === repartoId)
+            ) ? (
+              <label className="text-xs text-[var(--muted)] sm:col-span-2">
+                Provvigione %
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step="0.01"
+                  value={commercialeProvvigionePct}
+                  disabled={!isAdmin}
+                  onChange={(e) => setCommercialeProvvigionePct(e.target.value)}
+                  className={inputCls}
+                  placeholder="Es. 5"
+                />
+                <span className="mt-1 block text-[11px]">
+                  Si applica all&apos;incasso delle fatture delle aziende
+                  collegate. Usata nelle statistiche Provvigioni.
                 </span>
               </label>
             ) : null}

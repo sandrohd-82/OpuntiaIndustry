@@ -6,7 +6,10 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
-import { parseCommercialeGrado } from "@/lib/auth/commerciale";
+import {
+  parseCommercialeGrado,
+  parseProvvigionePctInput,
+} from "@/lib/auth/commerciale";
 import { isProtectedSuperadminTarget } from "@/lib/auth/impersonation-scope";
 import {
   PROFILE_GERARCHIA_LABELS,
@@ -183,7 +186,9 @@ export async function createOrganigrammaProfileAction(
   const service = createServiceClient();
   const { data: persona, error: pErr } = await service
     .from("organigramma_persone")
-    .select("id, nome, cognome, user_id, commerciale_grado, deleted_at")
+    .select(
+      "id, nome, cognome, user_id, commerciale_grado, commerciale_provvigione_pct, deleted_at"
+    )
     .eq("id", parsed.data.personaId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -242,15 +247,32 @@ export async function createOrganigrammaProfileAction(
     parseCommercialeGrado(
       (persona as { commerciale_grado?: string | null }).commerciale_grado
     );
-  if (grado) {
+  const pctForm = parseProvvigionePctInput(
+    formData.get("commercialeProvvigionePct")
+  );
+  const pctPersona = parseProvvigionePctInput(
+    (persona as { commerciale_provvigione_pct?: number | null })
+      .commerciale_provvigione_pct
+  );
+  const pct =
+    pctForm.ok && pctForm.value != null
+      ? pctForm.value
+      : pctPersona.ok
+        ? pctPersona.value
+        : null;
+  if (grado || pct != null) {
     await service
       .from("profiles")
-      .update({ commerciale_grado: grado })
+      .update({
+        commerciale_grado: grado,
+        commerciale_provvigione_pct: pct,
+      })
       .eq("id", result.userId);
     await service
       .from("organigramma_persone")
       .update({
         commerciale_grado: grado,
+        commerciale_provvigione_pct: pct,
         updated_by: gate.actorUserId,
       })
       .eq("id", parsed.data.personaId);
@@ -269,6 +291,7 @@ export async function createOrganigrammaProfileAction(
       reparti: parsed.data.reparti,
       persona_id: parsed.data.personaId,
       commerciale_grado: grado,
+      commerciale_provvigione_pct: pct,
     },
   });
 
@@ -355,7 +378,7 @@ export async function linkOrganigrammaProfileAction(input: {
   const service = createServiceClient();
   const { data: persona, error: pErr } = await service
     .from("organigramma_persone")
-    .select("id, nome, cognome, user_id")
+    .select("id, nome, cognome, user_id, commerciale_grado, commerciale_provvigione_pct")
     .eq("id", personaId.data)
     .is("deleted_at", null)
     .maybeSingle();
@@ -403,6 +426,21 @@ export async function linkOrganigrammaProfileAction(input: {
     .eq("id", personaId.data)
     .is("deleted_at", null);
   if (linkErr) return { success: false, error: linkErr.message };
+
+  const gradoLink = parseCommercialeGrado(
+    (persona as { commerciale_grado?: string | null }).commerciale_grado
+  );
+  const pctLink = parseProvvigionePctInput(
+    (persona as { commerciale_provvigione_pct?: number | null })
+      .commerciale_provvigione_pct
+  );
+  await service
+    .from("profiles")
+    .update({
+      commerciale_grado: gradoLink,
+      commerciale_provvigione_pct: pctLink.ok ? pctLink.value : null,
+    })
+    .eq("id", profileId.data);
 
   await service.from("audit_log").insert({
     entity_type: "organigramma_persone",

@@ -44,14 +44,17 @@ import {
   type PostoAutorizzato,
   type PostoOrganigrammaOption,
 } from "@/lib/amministrazione/organigramma";
-import { isRepartoCommerciale } from "@/lib/auth/commerciale";
+import {
+  isRepartoCommerciale,
+  parseProvvigionePctInput,
+} from "@/lib/auth/commerciale";
 import { eventoLineaLabel } from "@/lib/produzione/macchinari";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -71,6 +74,7 @@ type PersonaRow = {
   note: string;
   reparto_id?: string | null;
   commerciale_grado?: string | null;
+  commerciale_provvigione_pct?: number | string | null;
   in_forza?: boolean;
   cessato_at?: string | null;
 };
@@ -143,6 +147,10 @@ function mapPersona(
       row.commerciale_grado === "executive"
         ? row.commerciale_grado
         : null,
+    commercialeProvvigionePct: (() => {
+      const parsed = parseProvvigionePctInput(row.commerciale_provvigione_pct);
+      return parsed.ok ? parsed.value : null;
+    })(),
     inForza: row.in_forza !== false,
     cessatoAt: row.cessato_at ?? null,
     mansioni,
@@ -1110,6 +1118,33 @@ export async function preparePersonaSchedaExportAction(
   };
 }
 
+async function resolveCampiCommerciale(v: {
+  repartoId?: string | null;
+  commercialeGrado?: "senior" | "professional" | "executive" | null;
+  commercialeProvvigionePct?: number | string | null;
+}): Promise<
+  | { ok: true; grado: "senior" | "professional" | "executive" | null; provvigionePct: number | null }
+  | { ok: false; error: string }
+> {
+  const reparti = await loadRepartiById();
+  const isComm = Boolean(
+    v.repartoId && isRepartoCommerciale(reparti.get(v.repartoId))
+  );
+  if (!isComm) {
+    return { ok: true, grado: null, provvigionePct: null };
+  }
+  const grado = v.commercialeGrado ?? null;
+  if (!grado) {
+    return { ok: false, error: "Seleziona il grado commerciale." };
+  }
+  const pct = parseProvvigionePctInput(v.commercialeProvvigionePct);
+  if (!pct.ok) return { ok: false, error: pct.error };
+  if (pct.value == null) {
+    return { ok: false, error: "Indica la percentuale di provvigione." };
+  }
+  return { ok: true, grado, provvigionePct: pct.value };
+}
+
 export async function createPersonaAction(
   raw: unknown
 ): Promise<
@@ -1125,11 +1160,8 @@ export async function createPersonaAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
-  const repartiForGrado = await loadRepartiById();
-  const grado =
-    v.repartoId && isRepartoCommerciale(repartiForGrado.get(v.repartoId))
-      ? (v.commercialeGrado ?? null)
-      : null;
+  const comm = await resolveCampiCommerciale(v);
+  if (!comm.ok) return { success: false, error: comm.error };
   const { data, error } = await supabase
     .from("organigramma_persone")
     .insert({
@@ -1140,7 +1172,8 @@ export async function createPersonaAction(
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
       reparto_id: v.repartoId ?? null,
-      commerciale_grado: grado,
+      commerciale_grado: comm.grado,
+      commerciale_provvigione_pct: comm.provvigionePct,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -1168,6 +1201,16 @@ export async function createPersonaAction(
     actor_id: auth.userId,
     summary: `Creato operatore ${v.cognome} ${v.nome}`,
   });
+  if (comm.grado && comm.provvigionePct != null) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: row.id,
+      action: "commerciale_provvigione_set",
+      actor_id: auth.userId,
+      summary: `Provvigione iniziale ${comm.provvigionePct}%`,
+      payload: { percentuale: comm.provvigionePct },
+    });
+  }
   const [mansioni, reparti] = await Promise.all([
     loadMansioniFor([row.id]),
     loadRepartiById(),
@@ -1201,11 +1244,15 @@ export async function updatePersonaAction(
   }
   const v = parsed.data;
   const supabase = await createClient();
-  const repartiForGrado = await loadRepartiById();
-  const grado =
-    v.repartoId && isRepartoCommerciale(repartiForGrado.get(v.repartoId))
-      ? (v.commercialeGrado ?? null)
-      : null;
+  const comm = await resolveCampiCommerciale(v);
+  if (!comm.ok) return { success: false, error: comm.error };
+  const { data: prev } = await supabase
+    .from("organigramma_persone")
+    .select("commerciale_provvigione_pct")
+    .eq("id", v.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const prevPct = parseProvvigionePctInput(prev?.commerciale_provvigione_pct);
   const { data, error } = await supabase
     .from("organigramma_persone")
     .update({
@@ -1215,7 +1262,8 @@ export async function updatePersonaAction(
       carta_identita: v.cartaIdentita ?? "",
       note: v.note ?? "",
       reparto_id: v.repartoId ?? null,
-      commerciale_grado: grado,
+      commerciale_grado: comm.grado,
+      commerciale_provvigione_pct: comm.provvigionePct,
       updated_by: auth.userId,
     })
     .eq("id", v.id)
@@ -1244,11 +1292,29 @@ export async function updatePersonaAction(
     summary: `Aggiornato operatore ${v.cognome} ${v.nome}`,
   });
   const row = data as PersonaRow;
-  await syncProfiloCommercialeGrado(
+  await syncProfiloCommercialeCampi(
     row.user_id,
-    row.commerciale_grado ?? null,
+    comm.grado,
+    comm.provvigionePct,
     auth.userId
   );
+  const prevValue = prevPct.ok ? prevPct.value : null;
+  if (prevValue !== comm.provvigionePct) {
+    await writeAuditLog({
+      entity_type: "organigramma_persone",
+      entity_id: v.id,
+      action: "commerciale_provvigione_set",
+      actor_id: auth.userId,
+      summary:
+        comm.provvigionePct == null
+          ? "Rimossa percentuale di provvigione"
+          : `Provvigione impostata a ${comm.provvigionePct}%`,
+      payload: {
+        da: prevValue,
+        a: comm.provvigionePct,
+      },
+    });
+  }
   const [mansioni, reparti] = await Promise.all([
     loadMansioniFor([row.id]),
     loadRepartiById(),
@@ -1267,9 +1333,10 @@ export async function updatePersonaAction(
   };
 }
 
-async function syncProfiloCommercialeGrado(
+async function syncProfiloCommercialeCampi(
   userId: string | null,
   grado: string | null,
+  provvigionePct: number | null,
   actorId: string
 ) {
   if (!userId) return;
@@ -1278,6 +1345,7 @@ async function syncProfiloCommercialeGrado(
     .from("profiles")
     .update({
       commerciale_grado: grado,
+      commerciale_provvigione_pct: provvigionePct,
       updated_at: new Date().toISOString(),
     })
     .eq("id", userId);
