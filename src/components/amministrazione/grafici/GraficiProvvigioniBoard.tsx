@@ -171,8 +171,9 @@ export function GraficiProvvigioniBoard() {
     <div className="space-y-5">
       <p className="text-sm text-[var(--muted)]">
         Incasso delle fatture emesse delle aziende <strong>collegate</strong> al
-        commerciale, e provvigione calcolata con la % attuale della scheda.
-        Stessi filtri di Economia: azienda, mese, anno, intera vita.
+        commerciale, e provvigione calcolata con la % attuale della scheda su
+        tutto lo storico del periodo (anno/mese). Lo scope «da oggi» delle
+        altre statistiche non taglia le provvigioni.
       </p>
 
       <GraficiPeriodoFilters

@@ -797,17 +797,20 @@ async function loadPctByCommerciale(
   const ids = [...new Set(commercialeIds.filter(Boolean))];
   if (ids.length === 0) return map;
   const service = createServiceClient();
-  const [{ data: profiles }, { data: persone }] = await Promise.all([
-    service
-      .from("profiles")
-      .select("id, commerciale_provvigione_pct")
-      .in("id", ids),
-    service
-      .from("organigramma_persone")
-      .select("user_id, commerciale_provvigione_pct")
-      .in("user_id", ids)
-      .is("deleted_at", null),
-  ]);
+  const [{ data: profiles, error: pErr }, { data: persone, error: oErr }] =
+    await Promise.all([
+      service
+        .from("profiles")
+        .select("id, commerciale_provvigione_pct")
+        .in("id", ids),
+      service
+        .from("organigramma_persone")
+        .select("user_id, commerciale_provvigione_pct")
+        .in("user_id", ids)
+        .is("deleted_at", null),
+    ]);
+  if (pErr) console.error("[provvigioni] profiles pct", pErr.message);
+  if (oErr) console.error("[provvigioni] organigramma pct", oErr.message);
   for (const p of persone ?? []) {
     const uid = String((p as { user_id?: string }).user_id ?? "");
     const parsed = parseProvvigionePctInput(
@@ -829,7 +832,6 @@ async function loadPctByCommerciale(
 }
 
 async function resolveProvvigioniClienti(opts: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
   clienteId?: string | null;
   commercialeId?: string | null;
 }): Promise<
@@ -837,9 +839,11 @@ async function resolveProvvigioniClienti(opts: {
       empty: boolean;
       ids: string[];
       pctByCliente: Record<string, number | null>;
+      error?: string;
     }
 > {
-  const stats = await resolveStatsClienteIds(opts.supabase, opts.clienteId);
+  const service = createServiceClient();
+  const stats = await resolveStatsClienteIds(service, opts.clienteId);
   if (stats.empty) {
     return { empty: true, ids: [], pctByCliente: {} };
   }
@@ -860,7 +864,7 @@ async function resolveProvvigioniClienti(opts: {
     commercialIds = await loadCommercialLineageUserIds(auth.userId);
   }
 
-  let q = opts.supabase
+  let q = service
     .from("clienti")
     .select("id, commerciale_id")
     .is("deleted_at", null)
@@ -870,7 +874,15 @@ async function resolveProvvigioniClienti(opts: {
   }
   if (stats.ids) q = q.in("id", stats.ids);
   const { data, error } = await q;
-  if (error || !data) {
+  if (error) {
+    return {
+      empty: true,
+      ids: [],
+      pctByCliente: {},
+      error: `Aziende provvigioni: ${error.message}`,
+    };
+  }
+  if (!data) {
     return { empty: true, ids: [], pctByCliente: {} };
   }
 
@@ -890,7 +902,6 @@ async function resolveProvvigioniClienti(opts: {
 }
 
 async function loadProvvigioniDettaglioAnno(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   anno: number,
   mese: number | null | undefined,
   clienteId: string | null | undefined,
@@ -899,13 +910,15 @@ async function loadProvvigioniDettaglioAnno(
   | { ok: true; data: GraficiProvvigioniDettaglio }
   | { ok: false; error: string }
 > {
+  const service = createServiceClient();
   const range = dateRangeForYear(anno);
-  const floor = await resolveStatsDateFloor();
   const aziende = await resolveProvvigioniClienti({
-    supabase,
     clienteId,
     commercialeId,
   });
+  if (aziende.error) {
+    return { ok: false, error: aziende.error };
+  }
   if (aziende.empty) {
     return { ok: true, data: emptyProvvigioniDettaglio(anno) };
   }
@@ -921,13 +934,13 @@ async function loadProvvigioniDettaglioAnno(
   const rows: Row[] = [];
   const fatturaIds: string[] = [];
 
-  let q = supabase
+  let q = service
     .from("fatture_emesse")
     .select(
       "id, data_emissione, totale, cliente_id, cliente_ragione_sociale, cliente_codice_targa, tipo_documento, stato_pagamento, fattura_collegata_id"
     )
     .is("deleted_at", null);
-  q = applyDateRange(q, "data_emissione", range, floor);
+  q = applyDateRange(q, "data_emissione", range, null);
   q = applyClienteIds(q, aziende.ids);
   const { data, error } = await q;
   if (error) {
@@ -1065,7 +1078,7 @@ async function loadProvvigioniDettaglioAnno(
     const chunkSize = 200;
     for (let i = 0; i < fatturaIds.length; i += chunkSize) {
       const chunk = fatturaIds.slice(i, i + chunkSize);
-      const { data: righe } = await supabase
+      const { data: righe } = await service
         .from("fatture_emesse_righe")
         .select("codice, descrizione, importo")
         .in("fattura_id", chunk);
@@ -1119,7 +1132,6 @@ async function loadProvvigioniDettaglioAnno(
 }
 
 async function loadProvvigioniAnno(
-  supabase: Awaited<ReturnType<typeof createClient>>,
   anno: number,
   mese: number | null | undefined,
   clienteId: string | null | undefined,
@@ -1127,7 +1139,6 @@ async function loadProvvigioniAnno(
   kind: "incasso" | "provvigione"
 ): Promise<{ ok: true; data: GraficiKpi } | { ok: false; error: string }> {
   const det = await loadProvvigioniDettaglioAnno(
-    supabase,
     anno,
     mese,
     clienteId,
@@ -1169,9 +1180,7 @@ export async function getGraficiProvvigioniDettaglioAction(
     return { success: false, error: "Filtri non validi." };
   }
   const { anno, mese, clienteId, commercialeId } = parsed.data;
-  const supabase = await createClient();
   const result = await loadProvvigioniDettaglioAnno(
-    supabase,
     anno,
     mese,
     clienteId,
@@ -1214,12 +1223,10 @@ export async function getGraficiProvvigioniMultiAnnoAction(
   if (anni.length > 6) {
     return { success: false, error: "Massimo 6 anni a confronto." };
   }
-  const supabase = await createClient();
   const serieInc: GraficiKpi[] = [];
   const serieProv: GraficiKpi[] = [];
   for (const y of anni) {
     const inc = await loadProvvigioniAnno(
-      supabase,
       y,
       mese,
       clienteId,
@@ -1228,7 +1235,6 @@ export async function getGraficiProvvigioniMultiAnnoAction(
     );
     if (!inc.ok) return { success: false, error: inc.error };
     const prov = await loadProvvigioniAnno(
-      supabase,
       y,
       mese,
       clienteId,
