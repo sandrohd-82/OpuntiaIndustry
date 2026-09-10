@@ -128,6 +128,23 @@ export function areaPathFromSlug(slug: AreaSlug): string {
   return AREA_ROUTES[slug].path;
 }
 
+/**
+ * Profilo operativo mai configurato (nessuna riga On/Off):
+ * le aree del ruolo restano visibili. Evita il 404 su tutto il gestionale.
+ */
+export function withRoleAreaPageDefaults(
+  map: PageAccessMap,
+  areas: UserArea[]
+): PageAccessMap {
+  if (Object.keys(map).length > 0) return map;
+  const next: PageAccessMap = {};
+  for (const area of areas) {
+    const path = AREA_ROUTES[area.slug]?.path ?? `/app/${area.slug}`;
+    next[path] = true;
+  }
+  return next;
+}
+
 /** Prima area visibile nel menu per l’utente (dopo switch profilo). */
 export function firstAreaPath(
   areas: UserArea[],
@@ -147,6 +164,7 @@ export function firstAreaPath(
     }
     return path;
   }
+  if (opts?.applyPageFilter) return null;
   const fallback = areas[0]?.slug;
   return fallback ? AREA_ROUTES[fallback]?.path ?? null : null;
 }

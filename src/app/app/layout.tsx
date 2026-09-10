@@ -20,7 +20,11 @@ import { canElaboraContabilitaAccess } from "@/lib/auth/action-access";
 import { applySensitiveLocks, isFiscalePath, isRicercaSviluppoPath } from "@/lib/auth/data-scope";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
 import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
-import { AREA_ROUTES, SIDEBAR_AREA_ORDER } from "@/lib/areas/config";
+import {
+  AREA_ROUTES,
+  SIDEBAR_AREA_ORDER,
+  withRoleAreaPageDefaults,
+} from "@/lib/areas/config";
 import { isTestImpersonation } from "@/lib/areas/guard";
 import type { UserArea } from "@/types/database";
 
@@ -63,7 +67,10 @@ export default async function AppLayout({
   );
   const { settings: authSettings, scopes: dataScopes } =
     await loadProfileAuthBundle(auth.userId);
-  const pageAccess = applySensitiveLocks(rawPageAccess, authSettings);
+  const pageAccess = applySensitiveLocks(
+    withRoleAreaPageDefaults(rawPageAccess, auth.areas),
+    authSettings
+  );
 
   const headerList = await headers();
   const pathname = headerList.get("x-pathname") || "/app/dashboard";
@@ -75,18 +82,35 @@ export default async function AppLayout({
     ((isFiscalePath(pageKey) && !authSettings.fiscaleUnlocked) ||
       (isRicercaSviluppoPath(pageKey) && !authSettings.rsUnlocked))
   ) {
-    notFound();
-  }
-
-  if (applyPageFilter && !testMenuMode && !isNavPathVisible(pageKey, pageAccess)) {
+    const firstOn = SIDEBAR_AREA_ORDER.map((slug) => AREA_ROUTES[slug].path).find(
+      (path) =>
+        isNavPathVisible(path, pageAccess) &&
+        !isFiscalePath(path) &&
+        !isRicercaSviluppoPath(path)
+    );
+    if (firstOn && firstOn !== pageKey) {
+      redirect(firstOn);
+    }
+    if (!auth.impersonating) notFound();
+  } else if (
+    applyPageFilter &&
+    !testMenuMode &&
+    !isNavPathVisible(pageKey, pageAccess)
+  ) {
     const firstOn = SIDEBAR_AREA_ORDER.map((slug) => AREA_ROUTES[slug].path).find(
       (path) => isNavPathVisible(path, pageAccess)
     );
     if (firstOn && firstOn !== pageKey) {
       redirect(firstOn);
     }
-    notFound();
+    if (!auth.impersonating) notFound();
   }
+
+  const showNoPageAccess =
+    applyPageFilter &&
+    !testMenuMode &&
+    auth.impersonating &&
+    !isNavPathVisible(pageKey, pageAccess);
 
   const menuAreas = testMenuMode
     ? await getUserAreas(auth.actorUserId)
@@ -157,7 +181,20 @@ export default async function AppLayout({
               <PageAccessToggle pageAccess={pageAccess} />
             </div>
           ) : null}
-          {children}
+          {showNoPageAccess ? (
+            <div className="mx-auto max-w-lg p-8 text-sm text-slate-600">
+              <p className="text-base font-semibold text-slate-900">
+                Nessuna pagina abilitata su questo profilo
+              </p>
+              <p className="mt-2 leading-relaxed">
+                Lo switch resta disponibile nel menu a sinistra: torna al Super
+                Admin oppure reimposta il profilo in fase Test per configurare
+                le pagine On/Off.
+              </p>
+            </div>
+          ) : (
+            children
+          )}
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}

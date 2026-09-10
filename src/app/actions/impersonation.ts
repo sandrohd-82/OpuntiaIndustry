@@ -12,7 +12,10 @@ import {
 import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { parseProfilePotere } from "@/lib/auth/gerarchia";
 import { createServiceClient } from "@/lib/supabase/server";
-import { firstAreaPath } from "@/lib/areas/config";
+import { firstAreaPath, withRoleAreaPageDefaults } from "@/lib/areas/config";
+import { applySensitiveLocks } from "@/lib/auth/data-scope";
+import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
+import { loadAccessMaps } from "@/app/actions/page-access";
 import { generateSessionToken, hashSessionToken } from "@/lib/auth/two-factor";
 import { primoAccessoUrl } from "@/lib/auth/app-url";
 import { sendPrimoAccessoEmail } from "@/lib/email/primo-accesso";
@@ -187,7 +190,20 @@ export async function startImpersonationAction(
   if (error) return { success: false, error: error.message };
 
   const areas = await getUserAreas(parsed.data);
-  return { success: true, redirectTo: firstAreaPath(areas) ?? "/app/dashboard" };
+  const [{ pageAccess: rawPageAccess }, { settings }] = await Promise.all([
+    loadAccessMaps(parsed.data),
+    loadProfileAuthBundle(parsed.data),
+  ]);
+  const pageAccess = applySensitiveLocks(
+    withRoleAreaPageDefaults(rawPageAccess, areas),
+    settings
+  );
+  return {
+    success: true,
+    redirectTo:
+      firstAreaPath(areas, { pageAccess, applyPageFilter: true }) ??
+      "/app/dashboard",
+  };
 }
 
 export async function stopImpersonationAction(): Promise<
