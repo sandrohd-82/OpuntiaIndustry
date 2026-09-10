@@ -393,6 +393,13 @@ export function labelTipoOrdine(tipo: OrdineTipoDocumento): string {
   return tipo === "campionatura" ? "Campionatura" : "Vendita";
 }
 
+/** Campionatura-ordine: sempre gratuita, senza listino né importo. */
+export function isCampionaturaGratuita(
+  tipo?: string | null
+): boolean {
+  return tipo === "campionatura";
+}
+
 export function isOrdineDaProcessare(stato: OrdineStato): boolean {
   return stato === "in_attesa" || stato === "ricevuto";
 }

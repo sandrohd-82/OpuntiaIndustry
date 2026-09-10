@@ -8,6 +8,7 @@ import {
   formatOperatoreShort,
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
+  isCampionaturaGratuita,
   labelAuditAction,
   mapOrdineRow,
   ordineInputSchema,
@@ -500,16 +501,19 @@ export async function updateOrdineAction(
     return { success: false, error: "Data consegna obbligatoria nello storico." };
   }
 
+  const campionaturaGratis = isCampionaturaGratuita(existing.tipo);
   const righeCalc = input.righe.map((r, i) => ({
     id: r.id ?? `tmp-${i}`,
     prodottoId: r.prodottoId,
     prodottoCodice: r.prodottoCodice,
     prodottoNome: r.prodottoNome,
     quantita: r.quantita,
-    prezzoUnitario: r.prezzoUnitario,
-    ivaPercentuale: r.ivaPercentuale,
+    prezzoUnitario: campionaturaGratis ? 0 : r.prezzoUnitario,
+    ivaPercentuale: campionaturaGratis ? 0 : r.ivaPercentuale,
   }));
-  const importo = totaleOrdine(righeCalc, input.trasporto);
+  const importo = campionaturaGratis
+    ? 0
+    : totaleOrdine(righeCalc, input.trasporto);
   const removeOfferta = formData.get("removeOfferta") === "1";
   const removeOrdineCliente = formData.get("removeOrdineCliente") === "1";
   const removeRicevuta = formData.get("removeRicevutaPagamento") === "1";
@@ -570,13 +574,17 @@ export async function updateOrdineAction(
         input.stato === "storico"
           ? (input.origineStorico ?? existing.origineStorico ?? "manuale")
           : null,
-      trasporto_azienda: input.trasporto.azienda.trim(),
-      trasporto_imponibile: input.trasporto.imponibile,
-      trasporto_iva_percentuale: input.trasporto.ivaPercentuale,
+      trasporto_azienda: campionaturaGratis
+        ? ""
+        : input.trasporto.azienda.trim(),
+      trasporto_imponibile: campionaturaGratis ? 0 : input.trasporto.imponibile,
+      trasporto_iva_percentuale: campionaturaGratis
+        ? 0
+        : input.trasporto.ivaPercentuale,
       importo_euro: importo,
       note: input.note?.trim() ?? "",
       tipo_pagamento: input.tipoPagamento,
-      pagato: input.pagato,
+      pagato: campionaturaGratis ? false : input.pagato,
       data_pagamento: input.dataPagamento ?? null,
       note_rateizzazione: input.noteRateizzazione?.trim() ?? "",
       ricevuta_pagamento_storage_path: ricevutaPath,
@@ -593,7 +601,16 @@ export async function updateOrdineAction(
 
   if (error) return { success: false, error: error.message };
 
-  const righeErr = await replaceRighe(id, input.righe);
+  const righeErr = await replaceRighe(
+    id,
+    campionaturaGratis
+      ? input.righe.map((r) => ({
+          ...r,
+          prezzoUnitario: 0,
+          ivaPercentuale: 0,
+        }))
+      : input.righe
+  );
   if (righeErr) return { success: false, error: righeErr };
 
   await writeAudit({
@@ -770,10 +787,11 @@ export async function createOrdineWizardAction(
   const voceRes = await queryListinoVoceVigente(input.prodottoId);
   if (voceRes.error) return { success: false, error: voceRes.error };
   const regola = valutaListinoPerContratto(voceRes.voce);
+  const campionaturaGratis = isCampionaturaGratuita(input.tipo);
   if (regola.esito === "fuori_produzione") {
     return { success: false, error: LISTINO_CONTRATTO_MSG.fuori_produzione };
   }
-  if (regola.esito === "senza_prezzo") {
+  if (regola.esito === "senza_prezzo" && !campionaturaGratis) {
     return { success: false, error: LISTINO_CONTRATTO_MSG.senza_prezzo };
   }
   const ordineSospeso = regola.esito === "sospeso";
@@ -792,6 +810,8 @@ export async function createOrdineWizardAction(
       : null;
 
   const trasporto = emptyTrasporto();
+  const prezzoUnitario = campionaturaGratis ? 0 : input.prezzoUnitario;
+  const ivaPercentuale = campionaturaGratis ? 0 : input.ivaPercentuale;
   const righeCalc = [
     {
       id: "wizard-1",
@@ -799,15 +819,15 @@ export async function createOrdineWizardAction(
       prodottoCodice: input.prodottoCodice,
       prodottoNome: input.prodottoNome,
       quantita: input.quantita,
-      prezzoUnitario: input.prezzoUnitario,
-      ivaPercentuale: input.ivaPercentuale,
+      prezzoUnitario,
+      ivaPercentuale,
     },
   ];
-  const importo = totaleOrdine(righeCalc, trasporto);
+  const importo = campionaturaGratis ? 0 : totaleOrdine(righeCalc, trasporto);
 
   try {
     const supabase = await createClient();
-    if (input.preventivoId) {
+    if (input.preventivoId && !campionaturaGratis) {
       const { data: pv, error: pvErr } = await supabase
         .from("preventivi")
         .select("id, stato, cliente_id, deleted_at")
@@ -895,9 +915,13 @@ export async function createOrdineWizardAction(
         input.spedizioneACarico === "diviso"
           ? (input.spedizionePctAgrinsicilia ?? null)
           : null,
-      preventivo_id: input.preventivoId ?? null,
-      webmail_accettazione_id: input.webmailAccettazioneId ?? null,
-      referente_accettazione_id: input.referenteAccettazioneId ?? null,
+      preventivo_id: campionaturaGratis ? null : (input.preventivoId ?? null),
+      webmail_accettazione_id: campionaturaGratis
+        ? null
+        : (input.webmailAccettazioneId ?? null),
+      referente_accettazione_id: campionaturaGratis
+        ? null
+        : (input.referenteAccettazioneId ?? null),
       created_by: auth.userId,
       updated_by: auth.userId,
     };
@@ -917,8 +941,8 @@ export async function createOrdineWizardAction(
         prodottoCodice: input.prodottoCodice,
         prodottoNome: input.prodottoNome,
         quantita: input.quantita,
-        prezzoUnitario: input.prezzoUnitario,
-        ivaPercentuale: input.ivaPercentuale,
+        prezzoUnitario,
+        ivaPercentuale,
       },
     ]);
     if (righeErr) return { success: false, error: righeErr };

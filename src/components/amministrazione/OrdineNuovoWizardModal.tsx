@@ -326,14 +326,16 @@ export function OrdineNuovoWizardModal({
         return;
       }
       setVoceListino(res.voce);
-      if (res.voce && res.voce.prezzo > 0) {
+      if (tipoOrdine === "campionatura") {
+        setPrezzoUnitario(0);
+      } else if (res.voce && res.voce.prezzo > 0) {
         setPrezzoUnitario(res.voce.prezzo);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [prodotto?.id]);
+  }, [prodotto?.id, tipoOrdine]);
 
   const sortedProdotti = useMemo(
     () =>
@@ -462,12 +464,17 @@ export function OrdineNuovoWizardModal({
     }
     if (step === 2) {
       if (!prodotto || voceListinoLoading) return false;
+      if (regolaListino.esito === "fuori_produzione") return false;
+      if (tipoOrdine === "campionatura") return true;
       return (
         regolaListino.esito === "ordinabile" || regolaListino.esito === "sospeso"
       );
     }
     if (step === 3) {
-      if (!(quantitaKg > 0 && numberOrZero(prezzoUnitario) > 0)) return false;
+      if (!(quantitaKg > 0)) return false;
+      if (tipoOrdine !== "campionatura" && !(numberOrZero(prezzoUnitario) > 0)) {
+        return false;
+      }
       if (ordineSospeso && !dataDisponibilitaPresunta) return false;
       if (
         tipoOrdine !== "campionatura" &&
@@ -545,8 +552,8 @@ export function OrdineNuovoWizardModal({
       prodottoCodice: prodotto.codice,
       prodottoNome: prodotto.nome,
       quantita: quantitaKg,
-      prezzoUnitario: numberOrZero(prezzoUnitario),
-      ivaPercentuale: 22,
+      prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
+      ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
       consegnaTipo,
       dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
       urgente,
@@ -822,7 +829,12 @@ export function OrdineNuovoWizardModal({
                     type="radio"
                     name="tipo-ordine"
                     checked={tipoOrdine === "vendita"}
-                    onChange={() => setTipoOrdine("vendita")}
+                    onChange={() => {
+                      setTipoOrdine("vendita");
+                      if (voceListino && voceListino.prezzo > 0) {
+                        setPrezzoUnitario(voceListino.prezzo);
+                      }
+                    }}
                   />
                   Vendita
                 </label>
@@ -831,13 +843,17 @@ export function OrdineNuovoWizardModal({
                     type="radio"
                     name="tipo-ordine"
                     checked={tipoOrdine === "campionatura"}
-                    onChange={() => setTipoOrdine("campionatura")}
+                    onChange={() => {
+                      setTipoOrdine("campionatura");
+                      setPrezzoUnitario(0);
+                    }}
                   />
                   Campionatura da produrre
                 </label>
                 <p className="text-xs text-[var(--muted)]">
-                  La campionatura-ordine entra in coda come un ordine. L’invio
-                  del campione già spedito è un documento separato.
+                  La campionatura-ordine entra in coda come un ordine ed è
+                  sempre gratuita (nessun prezzo di listino). L’invio del
+                  campione già spedito è un documento separato.
                 </p>
               </fieldset>
               {numeroInterno ? (
@@ -895,7 +911,10 @@ export function OrdineNuovoWizardModal({
                   {LISTINO_CONTRATTO_MSG.fuori_produzione}
                 </p>
               ) : null}
-              {prodotto && !voceListinoLoading && regolaListino.esito === "senza_prezzo" ? (
+              {prodotto &&
+              !voceListinoLoading &&
+              regolaListino.esito === "senza_prezzo" &&
+              tipoOrdine !== "campionatura" ? (
                 <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   {LISTINO_CONTRATTO_MSG.senza_prezzo}
                 </p>
@@ -923,6 +942,14 @@ export function OrdineNuovoWizardModal({
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
                   />
                 </label>
+                {tipoOrdine === "campionatura" ? (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+                    <p className="font-medium">Campionatura gratuita</p>
+                    <p className="mt-1 text-xs">
+                      Nessun prezzo di listino e importo € 0,00.
+                    </p>
+                  </div>
+                ) : (
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">
                     Prezzo vendita (€/kg)
@@ -940,6 +967,7 @@ export function OrdineNuovoWizardModal({
                     </p>
                   ) : null}
                 </label>
+                )}
               </div>
               {ordineSospeso ? (
                 <label className="block text-sm">
@@ -963,6 +991,7 @@ export function OrdineNuovoWizardModal({
                 </label>
               ) : null}
 
+              {tipoOrdine === "campionatura" ? null : (
               <div className="rounded-lg border border-[var(--border)] bg-slate-50 px-4 py-3 text-sm">
                 <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
                   Calcolo importi (IVA {IVA_PCT}%)
@@ -997,8 +1026,9 @@ export function OrdineNuovoWizardModal({
                   </div>
                 </dl>
               </div>
+              )}
 
-              {variant !== "campionatura" ? (
+              {tipoOrdine !== "campionatura" ? (
                 <div className="space-y-3 rounded-lg border border-[var(--border)] px-4 py-3">
                   <p className="text-sm font-medium">Preventivo accettato</p>
                   <p className="text-xs text-[var(--muted)]">
