@@ -47,6 +47,10 @@ export const ACTION_ESSICCATORI: readonly ActionEssiccatore[] = [
   },
 ];
 
+export const ACTION_ESSICCATORE_IDS = ACTION_ESSICCATORI.map(
+  (e) => e.id
+) as [string, ...string[]];
+
 export function formatCapacitaKg(kg: number): string {
   return `${kg.toLocaleString("it-IT")} kg`;
 }
