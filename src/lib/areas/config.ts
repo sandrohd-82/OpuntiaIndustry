@@ -24,6 +24,12 @@ export const AREA_ROUTES: Record<
     label: "Produzione",
     description: "Fogli, processi, aree e calendari",
   },
+  action: {
+    path: "/app/action",
+    label: "Action",
+    description:
+      "IoT: motori, essiccatori, macchine, sensori, azioni e programmi",
+  },
   archivio: {
     path: "/app/archivio",
     label: "Archivio",
@@ -99,6 +105,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
+  "action",
   "chat",
   "webmail",
   "magazzino",

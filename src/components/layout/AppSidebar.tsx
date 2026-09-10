@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   FaBars,
+  FaBolt,
   FaBoxesStacked,
   FaBuilding,
   FaCalculator,
@@ -25,6 +26,7 @@ import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
 import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
+import { ACTION_SECTIONS } from "@/lib/areas/action";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
 import {
   SIDEBAR_AREA_ORDER,
@@ -114,6 +116,8 @@ function sectionsForArea(
   switch (slug) {
     case "produzione":
       return produzioneSections;
+    case "action":
+      return ACTION_SECTIONS;
     case "archivio":
       return archivioSections;
     case "ricerca-sviluppo":
@@ -150,6 +154,8 @@ function AreaIcon({ slug }: { slug: string }) {
       return <FaFlask className={cls} />;
     case "produzione":
       return <FaIndustry className={cls} />;
+    case "action":
+      return <FaBolt className={cls} />;
     case "archivio":
       return <FaBoxArchive className={cls} />;
     case "chat":

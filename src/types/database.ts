@@ -11,6 +11,7 @@ export type AreaSlug =
   | "dashboard"
   | "commerciale"
   | "produzione"
+  | "action"
   | "magazzino"
   | "acquisti"
   | "hr"
