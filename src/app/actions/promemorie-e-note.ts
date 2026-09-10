@@ -873,9 +873,6 @@ export async function createClientePossibileAction(
       stato: "da_valutare",
       created_by: auth.userId,
       updated_by: auth.userId,
-      commerciale_id: auth.userId,
-      commerciale_assegnato_at: new Date().toISOString(),
-      commerciale_assegnato_by: auth.userId,
     })
     .select(CLIENTI_POSSIBILI_SELECT)
     .single();

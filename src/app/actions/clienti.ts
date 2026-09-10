@@ -246,9 +246,6 @@ export async function createClienteAction(
     consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
     created_by: auth.userId,
     updated_by: auth.userId,
-    commerciale_id: auth.userId,
-    commerciale_assegnato_at: new Date().toISOString(),
-    commerciale_assegnato_by: auth.userId,
   };
 
   const { data, error } = await supabase

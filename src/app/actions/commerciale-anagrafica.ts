@@ -11,7 +11,7 @@ import {
   type CommercialeGrado,
 } from "@/lib/auth/commerciale";
 import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
-import { isAdminLikeProfile, isSuperadminProfile } from "@/lib/auth/roles";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const assignSchema = z.object({
@@ -27,11 +27,10 @@ export type CommercialeAnagraficaContext = {
 };
 
 function canAssignCommerciale(auth: {
-  profile: Parameters<typeof isAdminLikeProfile>[0];
+  actorProfile: Parameters<typeof isSuperadminProfile>[0];
   impersonating: boolean;
 }): boolean {
-  if (auth.impersonating) return false;
-  return isAdminLikeProfile(auth.profile) || isSuperadminProfile(auth.profile);
+  return !auth.impersonating && isSuperadminProfile(auth.actorProfile);
 }
 
 function displayName(row: {
@@ -141,7 +140,7 @@ export async function assignCommercialeAnagraficaAction(
   if (!canAssignCommerciale(auth)) {
     return {
       success: false,
-      error: "Solo Super Admin o amministratore può collegare il commerciale.",
+      error: "Solo il Super Admin può collegare un’azienda a un commerciale.",
     };
   }
   const parsed = assignSchema.safeParse(raw);
@@ -171,8 +170,10 @@ export async function assignCommercialeAnagraficaAction(
     .update({
       commerciale_id: parsed.data.commercialeId,
       commerciale_assegnato_at: parsed.data.commercialeId ? now : null,
-      commerciale_assegnato_by: parsed.data.commercialeId ? auth.userId : null,
-      updated_by: auth.userId,
+      commerciale_assegnato_by: parsed.data.commercialeId
+        ? auth.actorUserId
+        : null,
+      updated_by: auth.actorUserId,
     })
     .eq("id", parsed.data.aziendaId)
     .is("deleted_at", null)
@@ -214,7 +215,7 @@ export async function assignCommercialeAnagraficaAction(
     action: parsed.data.commercialeId
       ? "commerciale_assegna"
       : "commerciale_revoca",
-    actor_id: auth.userId,
+    actor_id: auth.actorUserId,
     summary: parsed.data.commercialeId
       ? `Collegata a ${commercialeNome} (${commercialeGradoLabel(commercialeGrado)})`
       : "Rimosso collegamento commerciale",

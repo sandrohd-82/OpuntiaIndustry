@@ -45,7 +45,7 @@ export function CollegaCommercialeControl({
     ? `${commercialeNome || "Commerciale"}${
         commercialeGrado ? ` · ${commercialeGradoLabel(commercialeGrado)}` : ""
       }`
-    : "Non collegato";
+    : "Azienda";
 
   return (
     <div className="text-sm">
@@ -67,8 +67,9 @@ export function CollegaCommercialeControl({
           <div className="w-full max-w-md rounded-xl bg-white p-4 shadow-xl">
             <h3 className="text-sm font-semibold">Collega commerciale</h3>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Un solo commerciale per azienda. I subordinati (Professional /
-              Executive) e i superiori nella linea vedono la scheda come propria.
+              Di default l’azienda resta dell’azienda, senza commerciale. Solo
+              il Super Admin può collegarla a un commerciale già in organigramma.
+              Un solo commerciale per azienda.
             </p>
             <select
               className="mt-3 w-full rounded-md border border-[var(--border)] px-2.5 py-2 text-sm"
