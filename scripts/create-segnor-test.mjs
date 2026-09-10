@@ -1,5 +1,5 @@
 /**
- * Crea o reimposta il profilo Segnor in fase Test.
+ * Crea o reimposta il profilo Senior in fase Test.
  * Nessuna mail, nessuna password nota, nessun 2FA.
  *
  *   node --env-file=.env.local scripts/create-segnor-test.mjs
@@ -86,10 +86,10 @@ const { error: upErr } = await admin.from("profiles").upsert(
     full_name: fullName,
     first_name: "Selenia Rita",
     last_name: "Curella",
-    job_title: "Segnor",
+    job_title: "Senior",
     role_id: role.id,
     is_active: true,
-    gerarchia: "segnor",
+    gerarchia: "senior",
     potere: "operatore",
     stato_operativo: "test",
     stato_operativo_at: now,
@@ -130,13 +130,13 @@ await admin.from("audit_log").insert({
   entity_type: "profiles",
   entity_id: userId,
   action: created ? "profile_create_test" : "profile_reset_test",
-  summary: `Profilo Segnor (${email}) ${created ? "creato" : "reimpostato"} in fase Test`,
+  summary: `Profilo Senior (${email}) ${created ? "creato" : "reimpostato"} in fase Test`,
   payload: { email, role: "manager" },
 });
 
 console.log(
   created
-    ? `Profilo Segnor creato in Test: ${email} (${userId})`
-    : `Profilo Segnor reimpostato in Test: ${email} (${userId})`
+    ? `Profilo Senior creato in Test: ${email} (${userId})`
+    : `Profilo Senior reimpostato in Test: ${email} (${userId})`
 );
 console.log("Login diretto disabilitato. Entra dallo switch Super Admin.");

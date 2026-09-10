@@ -1,6 +1,6 @@
 export const PROFILE_GERARCHIE = [
   "amministratore",
-  "segnor",
+  "senior",
   "capo_area",
   "responsabile",
   "operatore",
@@ -13,7 +13,7 @@ export type ProfilePotere = (typeof PROFILE_POTERI)[number];
 
 export const PROFILE_GERARCHIA_LABELS: Record<ProfileGerarchia, string> = {
   amministratore: "Amministratore",
-  segnor: "Segnor",
+  senior: "Senior",
   capo_area: "Capo Area",
   responsabile: "Responsabile",
   operatore: "Operatore",
@@ -27,7 +27,7 @@ export const PROFILE_POTERE_LABELS: Record<ProfilePotere, string> = {
 /** Rank crescente = più in basso nella gerarchia. */
 export const PROFILE_GERARCHIA_RANK: Record<ProfileGerarchia, number> = {
   amministratore: 1,
-  segnor: 2,
+  senior: 2,
   capo_area: 3,
   responsabile: 4,
   operatore: 5,
@@ -56,13 +56,14 @@ export const PROFILE_REPARTO_LABELS: Record<ProfileRepartoOperativo, string> = {
 export function parseProfileGerarchia(value: unknown): ProfileGerarchia {
   if (
     value === "amministratore" ||
-    value === "segnor" ||
+    value === "senior" ||
     value === "capo_area" ||
     value === "responsabile" ||
     value === "operatore"
   ) {
     return value;
   }
+  if (value === "segnor") return "senior";
   return "operatore";
 }
 

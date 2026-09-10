@@ -99,7 +99,7 @@ export function CreateGestionaleProfileModal({
           </select>
         </label>
         <p className="mt-1 text-[11px] text-[var(--muted)]">
-          Amministratore → Segnor → Capo Area → Responsabile → Operatore. Ognuno
+          Amministratore → Senior → Capo Area → Responsabile → Operatore. Ognuno
           può entrare nei profili dei propri subalterni, come il Super Admin su
           tutti.
         </p>
