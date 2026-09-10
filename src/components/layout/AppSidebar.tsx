@@ -62,6 +62,7 @@ import { ChatUnreadBadge } from "@/components/chat/ChatUnreadBadge";
 import { ChatSidebarNav } from "@/components/chat/ChatSidebarNav";
 import { WebmailSidebarNav } from "@/components/webmail/WebmailSidebarNav";
 import { WEBMAIL_GRANT_NAV_EVENT } from "@/lib/webmail/unread-nav";
+import { BrandLogoOnDark } from "@/components/branding/BrandLogoOnDark";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
@@ -692,19 +693,18 @@ export function AppSidebar({
       <div
         className={`border-b border-slate-700 ${collapsed ? "px-2 py-3" : "px-3 py-4"}`}
       >
-        <div className={`flex items-center ${collapsed ? "justify-center" : "gap-2"}`}>
+        <div
+          className={
+            collapsed
+              ? "flex flex-col items-center gap-2"
+              : "flex items-center gap-2"
+          }
+        >
           {collapsed ? (
-            <div className="flex flex-col items-center gap-2">
-              <ProfileStatusLed
-                stato={statoOperativo}
-                canChange={canCreateProfiles && impersonating}
-              />
-            </div>
+            <BrandLogoOnDark size="menuCollapsed" priority />
           ) : (
             <div className="min-w-0 flex-1">
-              <p className="text-xs uppercase tracking-wider text-[var(--sidebar-muted)]">
-                Industry
-              </p>
+              <BrandLogoOnDark size="menu" priority className="mb-1" />
               <div className="mt-1 flex min-w-0 items-center gap-1.5">
                 <p className="truncate font-medium">{userName}</p>
                 <ProfileStatusLed
@@ -724,16 +724,24 @@ export function AppSidebar({
               </p>
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => setRail(!collapsed)}
-            title={collapsed ? "Espandi menu" : "Comprimi menu"}
-            aria-label={collapsed ? "Espandi menu" : "Comprimi menu"}
-            aria-expanded={!collapsed}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-white"
-          >
-            <FaBars className="h-4 w-4" />
-          </button>
+          <div className={collapsed ? "flex items-center gap-1" : undefined}>
+            {collapsed ? (
+              <ProfileStatusLed
+                stato={statoOperativo}
+                canChange={canCreateProfiles && impersonating}
+              />
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setRail(!collapsed)}
+              title={collapsed ? "Espandi menu" : "Comprimi menu"}
+              aria-label={collapsed ? "Espandi menu" : "Comprimi menu"}
+              aria-expanded={!collapsed}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-white"
+            >
+              <FaBars className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
       <nav className={`flex-1 overflow-y-auto ${collapsed ? "p-1.5" : "p-3"}`}>

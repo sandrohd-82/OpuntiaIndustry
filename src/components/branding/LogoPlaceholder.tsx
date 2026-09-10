@@ -1,28 +1,28 @@
+import { BrandLogoOnDark } from "@/components/branding/BrandLogoOnDark";
+
 type Props = {
   size?: "home" | "compact";
 };
 
-const sizes = {
-  home: "h-40 w-40 sm:h-52 sm:w-52",
-  compact: "h-12 w-12",
-};
-
+/** Logo su lastra scura per pagine chiare (home). */
 export function LogoPlaceholder({ size = "home" }: Props) {
+  if (size === "compact") {
+    return (
+      <div
+        className="inline-flex items-center justify-center rounded-xl bg-[var(--sidebar)] px-2 py-1.5"
+        aria-label="Opuntia Industry"
+      >
+        <BrandLogoOnDark size="menuCollapsed" />
+      </div>
+    );
+  }
+
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-2xl border-2 border-dashed border-[var(--border)] bg-[var(--card)] shadow-sm ${sizes[size]}`}
-      role="img"
-      aria-label="Logo Industry — segnaposto"
+      className="flex items-center justify-center rounded-2xl bg-[var(--sidebar)] px-8 py-7 shadow-sm"
+      aria-label="Opuntia Industry"
     >
-      <span
-        className={
-          size === "home"
-            ? "text-lg font-semibold tracking-widest text-[var(--muted)] sm:text-xl"
-            : "text-xs font-semibold text-[var(--muted)]"
-        }
-      >
-        LOGO
-      </span>
+      <BrandLogoOnDark size="home" priority />
     </div>
   );
 }

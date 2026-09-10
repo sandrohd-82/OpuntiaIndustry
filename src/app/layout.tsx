@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { BRAND_FAVICON, BRAND_NAME } from "@/lib/branding/assets";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,8 +14,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Industry — Gestionale aziendale",
+  title: `${BRAND_NAME} — Gestionale aziendale`,
   description: "Piattaforma gestionale con accesso per ruoli e aree",
+  icons: {
+    icon: [{ url: BRAND_FAVICON, type: "image/jpeg" }],
+    shortcut: BRAND_FAVICON,
+    apple: BRAND_FAVICON,
+  },
 };
 
 export default function RootLayout({
