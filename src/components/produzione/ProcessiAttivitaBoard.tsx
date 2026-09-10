@@ -12,7 +12,13 @@ import {
   updateProcessoAttivitaAction,
 } from "@/app/actions/produzione-processi";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { SortableTh } from "@/components/ui/SortableTh";
 import { AZ } from "@/lib/auth/action-access";
+import {
+  compareSortValues,
+  nextSortState,
+  type SortState,
+} from "@/lib/ui/list-sort";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { CopiaDaAttivitaField } from "@/components/produzione/CopiaDaAttivitaField";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
@@ -30,6 +36,30 @@ import {
 type ProcessiAttivitaBoardProps = {
   startCreate?: boolean;
 };
+
+type AttivitaSortKey = "codice" | "nome" | "luogo" | "tempo" | "stato";
+
+function tempoMedioSeconds(a: ProcessoAttivita): number {
+  const v = Number.isFinite(a.tempoMedioValore) ? a.tempoMedioValore : 0;
+  const unit =
+    a.tempoMedioUnita === "min" ? 60 : a.tempoMedioUnita === "ore" ? 3600 : 1;
+  const ogni =
+    Number.isFinite(a.tempoOgniValore) && a.tempoOgniValore > 0
+      ? a.tempoOgniValore
+      : 1;
+  return (v * unit) / ogni;
+}
+
+function sortValue(
+  a: ProcessoAttivita,
+  key: AttivitaSortKey
+): string | number {
+  if (key === "codice") return a.codice;
+  if (key === "nome") return a.nome;
+  if (key === "luogo") return labelLuogoAttivita(a);
+  if (key === "tempo") return tempoMedioSeconds(a);
+  return a.attivo ? 1 : 0;
+}
 
 export function ProcessiAttivitaBoard({
   startCreate = false,
@@ -61,6 +91,14 @@ export function ProcessiAttivitaBoard({
   const [tempoOgniUnita, setTempoOgniUnita] = useState<TempoOgniUnita>("pz");
   const [copiaDaId, setCopiaDaId] = useState("");
   const [codiciOccupati, setCodiciOccupati] = useState<string[]>([]);
+  const [sort, setSort] = useState<SortState<AttivitaSortKey> | null>(null);
+
+  const sortedItems = useMemo(() => {
+    if (!sort) return items;
+    return [...items].sort((a, b) =>
+      compareSortValues(sortValue(a, sort.key), sortValue(b, sort.key), sort.dir)
+    );
+  }, [items, sort]);
 
   const postiDellArea = useMemo(() => {
     const area = aree.find((a) => a.id === areaId);
@@ -360,16 +398,41 @@ export function ProcessiAttivitaBoard({
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
             <tr>
-              <th className="px-4 py-3">Codice</th>
-              <th className="px-4 py-3">Nome</th>
-              <th className="px-4 py-3">Luogo</th>
-              <th className="px-4 py-3">Tempo medio</th>
-              <th className="px-4 py-3">Stato</th>
+              <SortableTh
+                label="Codice"
+                sortKey="codice"
+                sort={sort}
+                onSort={(k) => setSort((s) => nextSortState(s, k))}
+              />
+              <SortableTh
+                label="Nome"
+                sortKey="nome"
+                sort={sort}
+                onSort={(k) => setSort((s) => nextSortState(s, k))}
+              />
+              <SortableTh
+                label="Luogo"
+                sortKey="luogo"
+                sort={sort}
+                onSort={(k) => setSort((s) => nextSortState(s, k))}
+              />
+              <SortableTh
+                label="Tempo medio"
+                sortKey="tempo"
+                sort={sort}
+                onSort={(k) => setSort((s) => nextSortState(s, k))}
+              />
+              <SortableTh
+                label="Stato"
+                sortKey="stato"
+                sort={sort}
+                onSort={(k) => setSort((s) => nextSortState(s, k))}
+              />
               <th className="px-4 py-3 text-right" />
             </tr>
           </thead>
           <tbody>
-            {items.map((a) => (
+            {sortedItems.map((a) => (
               <tr key={a.id} className="border-t border-[var(--border)]">
                 <td className="px-4 py-3 font-mono font-semibold">{a.codice}</td>
                 <td className="px-4 py-3">
