@@ -1,5 +1,4 @@
--- ISO 9001: l’azienda non nasce collegata a un commerciale.
--- Il Super Admin collega in un secondo momento una scheda già presente.
+-- ISO 9001: il registro audit deve accettare le azioni di collegamento commerciale.
 
 alter table public.audit_log drop constraint if exists audit_log_action_check;
 alter table public.audit_log
@@ -23,30 +22,6 @@ alter table public.audit_log
     )
   );
 
-comment on column public.clienti.commerciale_id is
-  'Commerciale assegnato dal Super Admin (un solo profilo). Null = azienda, non collegata. Audit: commerciale_assegnato_at / commerciale_assegnato_by.';
-
-comment on column public.clienti_possibili.commerciale_id is
-  'Commerciale assegnato dal Super Admin al possibile cliente. Null = azienda, non collegata.';
-
-update public.clienti
-set
-  commerciale_id = null,
-  commerciale_assegnato_at = null,
-  commerciale_assegnato_by = null,
-  updated_at = now()
-where deleted_at is null
-  and commerciale_id is not null;
-
-update public.clienti_possibili
-set
-  commerciale_id = null,
-  commerciale_assegnato_at = null,
-  commerciale_assegnato_by = null,
-  updated_at = now()
-where deleted_at is null
-  and commerciale_id is not null;
-
 insert into public.audit_log (
   entity_type,
   entity_id,
@@ -63,5 +38,6 @@ select
 where not exists (
   select 1
   from public.audit_log
-  where summary like 'Revoca collegamenti commerciali automatici%'
+  where action in ('commerciale_revoca_default', 'update')
+    and summary like 'Revoca collegamenti commerciali automatici%'
 );
