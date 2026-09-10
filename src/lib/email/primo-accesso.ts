@@ -1,9 +1,5 @@
 import { sendSmtpMail } from "@/lib/email/smtp";
-import {
-  GOOGLE_AUTHENTICATOR_ANDROID,
-  GOOGLE_AUTHENTICATOR_IOS,
-  getPublicAppUrl,
-} from "@/lib/auth/app-url";
+import { getPublicAppUrl } from "@/lib/auth/app-url";
 
 export async function sendPrimoAccessoEmail(options: {
   to: string;
@@ -27,7 +23,7 @@ export async function sendPrimoAccessoEmail(options: {
         `Per accedere usa questa email: ${options.loginEmail}`,
         `Gestionale: ${appUrl}/login`,
         "",
-        "Usa la password già impostata. Al login ti verrà chiesto il codice di Google Authenticator.",
+        "Usa la password già impostata. Al login ti verrà inviato un codice OTP a 6 cifre su questa email.",
         "",
         "Se non ti aspettavi questo messaggio, contatta il Super Admin.",
       ].join("\n")
@@ -41,10 +37,7 @@ export async function sendPrimoAccessoEmail(options: {
         "Al primo accesso imposta la password da questo link:",
         options.link,
         "",
-        "Dopo aver impostato la password ti verrà chiesto di configurare Google Authenticator.",
-        "Assicurati di aver installato l'app:",
-        `Android: ${GOOGLE_AUTHENTICATOR_ANDROID}`,
-        `iPhone: ${GOOGLE_AUTHENTICATOR_IOS}`,
+        "Dopo la password, ad ogni accesso riceverai un codice OTP a 6 cifre su questa email.",
         "",
         `Gestionale: ${appUrl}/login`,
         "",
@@ -67,7 +60,7 @@ export async function sendPrimoAccessoEmail(options: {
         </a>
       </p>
       <p style="margin:0;color:#64748b;font-size:13px">
-        Usa la password già impostata. Al login ti verrà chiesto il codice di Google Authenticator.
+        Usa la password già impostata. Al login ti verrà inviato un codice OTP a 6 cifre su questa email.
       </p>
     </div>
   `.trim()
@@ -88,13 +81,7 @@ export async function sendPrimoAccessoEmail(options: {
         </a>
       </p>
       <p style="margin:0 0 8px;color:#334155">
-        Dopo la password ti verrà chiesto di configurare <strong>Google Authenticator</strong>.
-        Assicurati di averla installata:
-      </p>
-      <p style="margin:0 0 16px;font-size:13px">
-        <a href="${GOOGLE_AUTHENTICATOR_ANDROID}">Android</a>
-        &nbsp;·&nbsp;
-        <a href="${GOOGLE_AUTHENTICATOR_IOS}">iPhone</a>
+        Dopo la password, ad ogni accesso riceverai un codice OTP a 6 cifre su questa email.
       </p>
       <p style="margin:0;color:#64748b;font-size:13px">
         Link valido 14 giorni. Gestionale:

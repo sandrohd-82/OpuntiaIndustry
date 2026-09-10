@@ -1,25 +1,12 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
-import {
-  generateSessionToken,
-  hashSessionToken,
-  twoFaSessionExpiresAt,
-} from "@/lib/auth/two-factor";
-import {
-  decryptTotpSecret,
-  encryptTotpSecret,
-  generateTotpSecret,
-  totpUri,
-  verifyTotpCode,
-} from "@/lib/auth/totp";
-import { getAuthUser, getProfile } from "@/lib/auth/session";
+import { sendEmailOtp } from "@/app/actions/auth";
+import { hashSessionToken } from "@/lib/auth/two-factor";
+import { getAuthUser } from "@/lib/auth/session";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import type { AuthSession2faInsert, UserSecondFactorUpdate } from "@/types/database";
 
 const passwordSchema = z
   .string()
@@ -124,6 +111,16 @@ export async function setPrimoAccessoPasswordAction(
     payload: { email: profile.email },
   });
 
+  await service.from("user_second_factor").upsert(
+    {
+      user_id: String(profile.id),
+      method: "email",
+      totp_secret_encrypted: null,
+      updated_at: now,
+    },
+    { onConflict: "user_id" }
+  );
+
   const supabase = await createClient();
   const { error: signErr } = await supabase.auth.signInWithPassword({
     email: String(profile.email),
@@ -133,142 +130,21 @@ export async function setPrimoAccessoPasswordAction(
     return {
       success: false,
       error:
-        "Password salvata. Accedi dal login e configura Google Authenticator.",
+        "Password salvata. Accedi dal login: riceverai un codice OTP via email.",
     };
   }
 
-  return { success: true, redirectTo: "/primo-accesso/2fa" };
-}
-
-async function requireFirstAccessTotpUser() {
-  const user = await getAuthUser();
-  if (!user?.email) {
-    return { ok: false as const, error: "Sessione non valida. Accedi di nuovo." };
-  }
-  const profile = await getProfile(user.id);
-  if (!profile) {
-    return { ok: false as const, error: "Profilo non trovato." };
-  }
-  if (parseProfileStatoOperativo(profile.stato_operativo) !== "operativo") {
-    return { ok: false as const, error: "Profilo non operativo." };
-  }
-  if (!profile.password_impostata_at) {
-    return {
-      ok: false as const,
-      error: "Imposta prima la password dal link ricevuto via email.",
-    };
-  }
-  return { ok: true as const, user, profile };
-}
-
-export async function startFirstAccessTotpAction(): Promise<
-  | { success: true; secret: string; otpauthUrl: string }
-  | { success: false; error: string }
-> {
-  const gate = await requireFirstAccessTotpUser();
-  if (!gate.ok) return { success: false, error: gate.error };
-
-  try {
-    const secret = generateTotpSecret();
-    const service = createServiceClient();
-    const { error } = await service.from("user_second_factor").upsert(
-      {
-        user_id: gate.user.id,
-        method: "email",
-        totp_secret_encrypted: encryptTotpSecret(secret),
-        verified_at: null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
-    if (error) return { success: false, error: error.message };
-    return {
-      success: true,
-      secret,
-      otpauthUrl: totpUri(secret, gate.user.email ?? gate.profile.email),
-    };
-  } catch (error) {
-    console.error("startFirstAccessTotpAction", error);
-    return { success: false, error: "Impossibile generare il secret Authenticator." };
-  }
-}
-
-export async function confirmFirstAccessTotpAction(
-  formData: FormData
-): Promise<
-  { success: true; redirectTo: string } | { success: false; error: string }
-> {
-  const gate = await requireFirstAccessTotpUser();
-  if (!gate.ok) return { success: false, error: gate.error };
-
-  const code = String(formData.get("code") ?? "").trim();
-  if (!/^\d{6}$/.test(code)) {
-    return { success: false, error: "Inserisci il codice a 6 cifre dall'app." };
-  }
-
-  const service = createServiceClient();
-  const { data, error } = await service
-    .from("user_second_factor")
-    .select("totp_secret_encrypted")
-    .eq("user_id", gate.user.id)
-    .maybeSingle();
-  if (error || !data?.totp_secret_encrypted) {
+  const otpResult = await sendEmailOtp("accesso");
+  if (!otpResult.success) {
     return {
       success: false,
-      error: "Nessuna configurazione in corso. Genera di nuovo il secret.",
+      error:
+        otpResult.error ??
+        "Password salvata. Accedi dal login per ricevere l'OTP via email.",
     };
   }
 
-  try {
-    const secret = decryptTotpSecret(data.totp_secret_encrypted);
-    if (!verifyTotpCode(secret, code)) {
-      return { success: false, error: "Codice non corretto. Riprova." };
-    }
-  } catch {
-    return { success: false, error: "Secret non valido. Genera di nuovo." };
-  }
-
-  const update: UserSecondFactorUpdate = {
-    method: "app",
-    otp_hash: null,
-    otp_expires_at: null,
-    otp_attempts: 0,
-    verified_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  const { error: updErr } = await service
-    .from("user_second_factor")
-    .update(update)
-    .eq("user_id", gate.user.id);
-  if (updErr) return { success: false, error: updErr.message };
-
-  const sessionToken = generateSessionToken();
-  const expiresAt = twoFaSessionExpiresAt();
-  const sessionInsert: AuthSession2faInsert = {
-    user_id: gate.user.id,
-    session_token_hash: hashSessionToken(sessionToken),
-    expires_at: expiresAt.toISOString(),
-  };
-  await service.from("auth_sessions_2fa").insert(sessionInsert);
-
-  const cookieStore = await cookies();
-  cookieStore.set(TWO_FA_SESSION_COOKIE, sessionToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    expires: expiresAt,
-  });
-
-  await service.from("audit_log").insert({
-    entity_type: "profiles",
-    entity_id: gate.user.id,
-    action: "primo_accesso_totp",
-    actor_id: gate.user.id,
-    summary: "Google Authenticator attivato al primo accesso",
-  });
-
-  return { success: true, redirectTo: "/app/dashboard" };
+  return { success: true, redirectTo: "/verify-email" };
 }
 
 export async function markWelcomeSeenAction(): Promise<

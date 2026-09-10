@@ -1,25 +1,22 @@
 "use server";
 
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { EMAIL_OTP_MAX_ATTEMPTS } from "@/lib/auth/constants";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { getProfile } from "@/lib/auth/session";
-import {
-  decryptTotpSecret,
-  encryptTotpSecret,
-  generateTotpSecret,
-  totpUri,
-  verifyTotpCode,
-} from "@/lib/auth/totp";
+import { hashOtp } from "@/lib/auth/two-factor";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { UserSecondFactorUpdate } from "@/types/database";
 
 export type TotpActionResult = {
   success: boolean;
   error?: string;
-  /** Secret in chiaro solo durante l'enrollment (mai persistito in client storage) */
   secret?: string;
   otpauthUrl?: string;
   enabled?: boolean;
 };
+
+const EMAIL_ONLY_MESSAGE =
+  "Google Authenticator non è più utilizzato. Il secondo fattore è solo il codice OTP inviato via email.";
 
 async function requireAdminLike() {
   const supabase = await createClient();
@@ -34,7 +31,7 @@ async function requireAdminLike() {
   const profile = await getProfile(user.id);
   if (!profile || !isAdminLikeProfile(profile)) {
     return {
-      error: "Solo admin e superadmin possono configurare Google Authenticator." as const,
+      error: "Solo admin e superadmin possono gestire le impostazioni di accesso." as const,
       user: null,
       profile: null,
     };
@@ -48,134 +45,18 @@ export async function getTotpStatus(): Promise<TotpActionResult> {
   if (gate.error || !gate.user) {
     return { success: false, error: gate.error ?? "Accesso negato." };
   }
-
-  const service = createServiceClient();
-  const { data } = await service
-    .from("user_second_factor")
-    .select("method, totp_secret_encrypted, verified_at")
-    .eq("user_id", gate.user.id)
-    .maybeSingle();
-
-  return {
-    success: true,
-    enabled: data?.method === "app" && Boolean(data?.totp_secret_encrypted),
-  };
+  return { success: true, enabled: false };
 }
 
-/** Avvia enrollment: genera secret e lo salva cifrato (metodo resta email fino a conferma) */
 export async function startTotpEnrollment(): Promise<TotpActionResult> {
-  try {
-    const gate = await requireAdminLike();
-    if (gate.error || !gate.user?.email) {
-      return { success: false, error: gate.error ?? "Accesso negato." };
-    }
-
-    const secret = generateTotpSecret();
-    const encrypted = encryptTotpSecret(secret);
-    const service = createServiceClient();
-
-    const update: UserSecondFactorUpdate = {
-      totp_secret_encrypted: encrypted,
-      // Resta email finché non conferma il primo codice
-      method: "email",
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await service
-      .from("user_second_factor")
-      .upsert(
-        {
-          user_id: gate.user.id,
-          ...update,
-        },
-        { onConflict: "user_id" }
-      );
-
-    if (error) {
-      return {
-        success: false,
-        error: `Impossibile avviare la configurazione. (${error.message})`,
-      };
-    }
-
-    return {
-      success: true,
-      secret,
-      otpauthUrl: totpUri(secret, gate.user.email),
-      enabled: false,
-    };
-  } catch (error) {
-    console.error("startTotpEnrollment failed:", error);
-    return {
-      success: false,
-      error: "Errore durante la generazione del secret Authenticator.",
-    };
-  }
+  return { success: false, error: EMAIL_ONLY_MESSAGE };
 }
 
-/** Conferma con un codice dall'app → attiva method = app */
-export async function confirmTotpEnrollment(
-  formData: FormData
-): Promise<TotpActionResult> {
-  try {
-    const gate = await requireAdminLike();
-    if (gate.error || !gate.user) {
-      return { success: false, error: gate.error ?? "Accesso negato." };
-    }
-
-    const code = String(formData.get("code") ?? "").trim();
-    if (!/^\d{6}$/.test(code)) {
-      return { success: false, error: "Inserisci il codice a 6 cifre dall'app." };
-    }
-
-    const service = createServiceClient();
-    const { data, error } = await service
-      .from("user_second_factor")
-      .select("totp_secret_encrypted")
-      .eq("user_id", gate.user.id)
-      .single();
-
-    if (error || !data?.totp_secret_encrypted) {
-      return {
-        success: false,
-        error: "Nessuna configurazione in corso. Avvia di nuovo l'enrollment.",
-      };
-    }
-
-    const secret = decryptTotpSecret(data.totp_secret_encrypted);
-    if (!verifyTotpCode(secret, code)) {
-      return { success: false, error: "Codice non corretto. Riprova." };
-    }
-
-    const update: UserSecondFactorUpdate = {
-      method: "app",
-      otp_hash: null,
-      otp_expires_at: null,
-      otp_attempts: 0,
-      verified_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error: updateError } = await service
-      .from("user_second_factor")
-      .update(update)
-      .eq("user_id", gate.user.id);
-
-    if (updateError) {
-      return {
-        success: false,
-        error: `Attivazione fallita. (${updateError.message})`,
-      };
-    }
-
-    return { success: true, enabled: true };
-  } catch (error) {
-    console.error("confirmTotpEnrollment failed:", error);
-    return { success: false, error: "Errore durante la conferma Authenticator." };
-  }
+export async function confirmTotpEnrollment(): Promise<TotpActionResult> {
+  return { success: false, error: EMAIL_ONLY_MESSAGE };
 }
 
-/** Disattiva Google Authenticator e torna a OTP email */
+/** Forza method = email e cancella eventuali secret TOTP residui. */
 export async function disableTotp(): Promise<TotpActionResult> {
   try {
     const gate = await requireAdminLike();
@@ -187,7 +68,6 @@ export async function disableTotp(): Promise<TotpActionResult> {
     const update: UserSecondFactorUpdate = {
       method: "email",
       totp_secret_encrypted: null,
-      verified_at: null,
       updated_at: new Date().toISOString(),
     };
 
@@ -199,46 +79,78 @@ export async function disableTotp(): Promise<TotpActionResult> {
     if (error) {
       return {
         success: false,
-        error: `Disattivazione fallita. (${error.message})`,
+        error: `Aggiornamento fallito. (${error.message})`,
       };
     }
 
     return { success: true, enabled: false };
   } catch (error) {
     console.error("disableTotp failed:", error);
-    return { success: false, error: "Errore durante la disattivazione." };
+    return { success: false, error: "Errore durante l'allineamento OTP email." };
   }
 }
 
-/** Verifica il codice Authenticator dell’utente corrente (azioni critiche). */
+/** Verifica l’OTP email dell’utente corrente (azioni critiche, es. listini). */
 export async function verifyCurrentUserTotp(
   userId: string,
   code: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const token = String(code ?? "").trim();
   if (!/^\d{6}$/.test(token)) {
-    return { ok: false, error: "Inserisci il codice OTP a 6 cifre." };
+    return { ok: false, error: "Inserisci il codice OTP a 6 cifre ricevuto via email." };
   }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user || user.id !== userId) {
+    return { ok: false, error: "Sessione non valida." };
+  }
+
   const service = createServiceClient();
   const { data, error } = await service
     .from("user_second_factor")
-    .select("method, totp_secret_encrypted, verified_at")
+    .select("otp_hash, otp_expires_at, otp_attempts")
     .eq("user_id", userId)
     .maybeSingle();
-  if (error || !data?.totp_secret_encrypted || data.method !== "app") {
+
+  if (error || !data?.otp_hash || !data.otp_expires_at) {
     return {
       ok: false,
-      error:
-        "Google Authenticator non è attivo sul tuo utente. Configuralo in Impostazioni prima di approvare un listino.",
+      error: "Nessun codice attivo. Richiedi un nuovo OTP via email.",
     };
   }
-  try {
-    const secret = decryptTotpSecret(data.totp_secret_encrypted);
-    if (!verifyTotpCode(secret, token)) {
-      return { ok: false, error: "Codice OTP non corretto." };
-    }
-  } catch {
-    return { ok: false, error: "Impossibile verificare l’OTP." };
+  if ((data.otp_attempts ?? 0) >= EMAIL_OTP_MAX_ATTEMPTS) {
+    return { ok: false, error: "Troppi tentativi. Richiedi un nuovo codice." };
   }
+  if (new Date(String(data.otp_expires_at)) < new Date()) {
+    return { ok: false, error: "Codice scaduto. Richiedine uno nuovo via email." };
+  }
+  if (hashOtp(token) !== data.otp_hash) {
+    await service
+      .from("user_second_factor")
+      .update({
+        otp_attempts: (data.otp_attempts ?? 0) + 1,
+        method: "email",
+        totp_secret_encrypted: null,
+      } satisfies UserSecondFactorUpdate)
+      .eq("user_id", userId);
+    return { ok: false, error: "Codice OTP non corretto." };
+  }
+
+  await service
+    .from("user_second_factor")
+    .update({
+      method: "email",
+      totp_secret_encrypted: null,
+      otp_hash: null,
+      otp_expires_at: null,
+      otp_attempts: 0,
+      verified_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } satisfies UserSecondFactorUpdate)
+    .eq("user_id", userId);
+
   return { ok: true };
 }

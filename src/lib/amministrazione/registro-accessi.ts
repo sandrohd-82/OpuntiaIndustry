@@ -59,7 +59,7 @@ export function esitoAccessoLabel(esito: RegistroAccessoEsito): string {
 
 export function metodo2faLabel(metodo: RegistroAccessoMetodo2fa | null): string {
   if (metodo === "email") return "Codice email";
-  if (metodo === "app") return "Authenticator";
+  if (metodo === "app") return "OTP email (storico)";
   return "—";
 }
 

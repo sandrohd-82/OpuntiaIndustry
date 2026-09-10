@@ -2,7 +2,6 @@ import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { ProfiloFiscaleForm } from "@/components/settings/ProfiloFiscaleForm";
 import { TotpSetupForm } from "@/components/settings/TotpSetupForm";
-import { getTotpStatus } from "@/app/actions/totp";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 
@@ -13,13 +12,11 @@ export default async function ImpostazioniPage() {
     notFound();
   }
 
-  const status = await getTotpStatus();
-
   return (
     <>
       <AppHeader title={meta.label} subtitle={meta.description} />
       <div className="space-y-10 p-6">
-        <TotpSetupForm initiallyEnabled={Boolean(status.enabled)} />
+        <TotpSetupForm />
         <ProfiloFiscaleForm />
       </div>
     </>

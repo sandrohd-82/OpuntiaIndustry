@@ -95,7 +95,7 @@ export const AREA_ROUTES: Record<
     path: "/app/impostazioni",
     label: "Impostazioni",
     description:
-      "Configurazione sistema, Google Authenticator e profilo fiscale aziendale",
+      "Configurazione sistema e profilo fiscale aziendale",
   },
 };
 

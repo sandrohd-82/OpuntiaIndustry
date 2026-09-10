@@ -15,7 +15,7 @@ export interface AuthContext {
   actorUserId: string;
   actorProfile: Profile;
   impersonating: boolean;
-  /** Login reale: deve ancora iscrivere Google Authenticator (primo accesso). */
+  /** Sempre false: il secondo fattore è solo OTP email, senza enrollment Authenticator. */
   mustEnrollTotp: boolean;
   /** Login reale: messaggio di benvenuto non ancora visto. */
   welcomePending: boolean;
@@ -107,33 +107,17 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   if (!profile) return null;
 
   const impersonating = Boolean(targetId);
-  const [areas, secondFactorOk, factor] = await Promise.all([
+  const [areas, secondFactorOk] = await Promise.all([
     getUserAreas(effectiveId),
     isSecondFactorVerified(),
-    (async () => {
-      const supabase = await createClient();
-      const { data } = await supabase
-        .from("user_second_factor")
-        .select("method, totp_secret_encrypted")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return data;
-    })(),
   ]);
 
-  const totpReady =
-    factor?.method === "app" && Boolean(factor.totp_secret_encrypted);
   const actorStato = parseProfileStatoOperativo(actorProfile.stato_operativo);
-  const mustEnrollTotp =
-    !impersonating &&
-    actorStato === "operativo" &&
-    Boolean(actorProfile.password_impostata_at) &&
-    !totpReady;
+  const mustEnrollTotp = false;
   const welcomePending =
     !impersonating &&
     actorStato === "operativo" &&
     Boolean(actorProfile.password_impostata_at) &&
-    totpReady &&
     !actorProfile.welcome_visto_at;
 
   return {

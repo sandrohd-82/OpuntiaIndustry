@@ -7,10 +7,6 @@ import {
   TWO_FA_SESSION_COOKIE,
 } from "@/lib/auth/constants";
 import {
-  decryptTotpSecret,
-  verifyTotpCode,
-} from "@/lib/auth/totp";
-import {
   generateEmailOtp,
   generateSessionToken,
   hashOtp,
@@ -18,7 +14,7 @@ import {
   otpExpiresAt,
   twoFaSessionExpiresAt,
 } from "@/lib/auth/two-factor";
-import { sendOtpEmail } from "@/lib/email/smtp";
+import { sendOtpEmail, type OtpEmailPurpose } from "@/lib/email/smtp";
 import { recordAccesso } from "@/lib/auth/record-accesso";
 import {
   isOperatorSelfLoginAllowed,
@@ -113,35 +109,7 @@ export async function signInWithPassword(
       esito: "successo",
     });
 
-    const service = createServiceClient();
-    const { data: factor } = await service
-      .from("user_second_factor")
-      .select("method, totp_secret_encrypted")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const method: SecondFactorMethod =
-      factor?.method === "app" && factor.totp_secret_encrypted
-        ? "app"
-        : "email";
-
-    if (statoRow?.password_impostata_at && method !== "app") {
-      return {
-        success: true,
-        redirectTo: "/primo-accesso/2fa",
-        secondFactorMethod: "email",
-      };
-    }
-
-    if (method === "app") {
-      return {
-        success: true,
-        redirectTo: "/verify-email",
-        secondFactorMethod: "app",
-      };
-    }
-
-    const otpResult = await sendEmailOtp();
+    const otpResult = await sendEmailOtp("accesso");
     if (!otpResult.success) {
       return otpResult;
     }
@@ -189,7 +157,9 @@ async function issueTwoFaSession(userId: string, redirectRaw: string) {
   return { success: true as const, redirectTo };
 }
 
-export async function sendEmailOtp(): Promise<AuthActionResult> {
+export async function sendEmailOtp(
+  purpose: OtpEmailPurpose = "accesso"
+): Promise<AuthActionResult> {
   try {
     const supabase = await createClient();
     const {
@@ -205,9 +175,10 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
     const expiresAt = otpExpiresAt();
 
     const service = createServiceClient();
-    // Non toccare method/totp_secret: se Authenticator è attivo non si passa da qui
     const otpUpsert: UserSecondFactorInsert = {
       user_id: user.id,
+      method: "email",
+      totp_secret_encrypted: null,
       otp_hash: otpHash,
       otp_expires_at: expiresAt.toISOString(),
       otp_attempts: 0,
@@ -225,7 +196,7 @@ export async function sendEmailOtp(): Promise<AuthActionResult> {
     }
 
     try {
-      await sendOtpEmail(user.email, otp);
+      await sendOtpEmail(user.email, otp, purpose);
     } catch (mailError) {
       console.error("sendOtpEmail failed:", mailError);
       return {
@@ -334,120 +305,14 @@ export async function verifyEmailOtp(
 }
 
 export async function getSecondFactorMethod(): Promise<SecondFactorMethod> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) return "email";
-
-  const service = createServiceClient();
-  const { data } = await service
-    .from("user_second_factor")
-    .select("method, totp_secret_encrypted")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (data?.method === "app" && data.totp_secret_encrypted) {
-    return "app";
-  }
   return "email";
 }
 
+/** Compatibilità: il secondo fattore è solo OTP email. */
 export async function verifyAppTotp(
   formData: FormData
 ): Promise<AuthActionResult> {
-  const otp = String(formData.get("otp") ?? "").trim();
-
-  if (!/^\d{6}$/.test(otp)) {
-    return {
-      success: false,
-      error: "Inserisci il codice a 6 cifre di Google Authenticator.",
-    };
-  }
-
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { success: false, error: "Sessione scaduta. Accedi di nuovo." };
-  }
-
-  const service = createServiceClient();
-  const { data: factor, error: fetchError } = await service
-    .from("user_second_factor")
-    .select("method, totp_secret_encrypted, otp_attempts")
-    .eq("user_id", user.id)
-    .single();
-
-  if (
-    fetchError ||
-    factor?.method !== "app" ||
-    !factor.totp_secret_encrypted
-  ) {
-    return {
-      success: false,
-      error: "Google Authenticator non attivo per questo account.",
-    };
-  }
-
-  if ((factor.otp_attempts ?? 0) >= EMAIL_OTP_MAX_ATTEMPTS) {
-    return {
-      success: false,
-      error: "Troppi tentativi. Riprova più tardi o contatta un amministratore.",
-    };
-  }
-
-  try {
-    const secret = decryptTotpSecret(factor.totp_secret_encrypted);
-    const valid = verifyTotpCode(secret, otp);
-
-    if (!valid) {
-      const attemptUpdate: UserSecondFactorUpdate = {
-        otp_attempts: (factor.otp_attempts ?? 0) + 1,
-      };
-      await service
-        .from("user_second_factor")
-        .update(attemptUpdate)
-        .eq("user_id", user.id);
-      await recordAccesso({
-        userId: user.id,
-        email: user.email ?? "",
-        evento: "2fa_fallito",
-        esito: "fallito",
-        metodo2fa: "app",
-        note: "Codice Authenticator non corretto",
-      });
-      return { success: false, error: "Codice non corretto." };
-    }
-
-    await service
-      .from("user_second_factor")
-      .update({
-        otp_attempts: 0,
-        verified_at: new Date().toISOString(),
-      } satisfies UserSecondFactorUpdate)
-      .eq("user_id", user.id);
-
-    await recordAccesso({
-      userId: user.id,
-      email: user.email ?? "",
-      evento: "2fa_ok",
-      esito: "successo",
-      metodo2fa: "app",
-    });
-
-    const redirectTo = String(formData.get("redirect") ?? "/app/dashboard");
-    return issueTwoFaSession(user.id, redirectTo);
-  } catch (error) {
-    console.error("verifyAppTotp failed:", error);
-    return {
-      success: false,
-      error: "Errore durante la verifica Authenticator.",
-    };
-  }
+  return verifyEmailOtp(formData);
 }
 
 export async function signOut(): Promise<void> {

@@ -151,28 +151,42 @@ export async function sendSmtpMail(options: {
   }
 }
 
-export async function sendOtpEmail(to: string, otp: string): Promise<void> {
-  const subject = "Codice di verifica - Industry Gestionale";
+export type OtpEmailPurpose = "accesso" | "conferma";
+
+export async function sendOtpEmail(
+  to: string,
+  otp: string,
+  purpose: OtpEmailPurpose = "accesso"
+): Promise<void> {
+  const isConferma = purpose === "conferma";
+  const subject = isConferma
+    ? "Codice di conferma - Industry Gestionale"
+    : "Codice di verifica - Industry Gestionale";
+  const intro = isConferma
+    ? "Usa questo codice per confermare l'operazione su Industry Gestionale."
+    : "Usa questo codice per completare l'accesso a Industry Gestionale.";
   const text = [
-    "Il tuo codice di verifica per accedere a Industry Gestionale è:",
+    isConferma
+      ? "Il tuo codice di conferma per Industry Gestionale è:"
+      : "Il tuo codice di verifica per accedere a Industry Gestionale è:",
     "",
     otp,
     "",
     `Il codice scade tra ${EMAIL_OTP_TTL_MINUTES} minuti.`,
-    "Se non hai richiesto tu l'accesso, ignora questa email.",
+    "Se non hai richiesto tu questa operazione, ignora questa email.",
   ].join("\n");
 
   const html = `
     <div style="font-family:Segoe UI,Arial,sans-serif;max-width:480px;margin:0 auto;color:#0f172a">
-      <h2 style="margin:0 0 12px">Codice di verifica</h2>
+      <h2 style="margin:0 0 12px">${isConferma ? "Codice di conferma" : "Codice di verifica"}</h2>
       <p style="margin:0 0 16px;color:#475569">
-        Usa questo codice per completare l'accesso a <strong>Industry Gestionale</strong>.
+        ${intro}
       </p>
       <p style="font-size:32px;letter-spacing:0.35em;font-weight:700;margin:24px 0;text-align:center">
         ${otp}
       </p>
       <p style="margin:0;color:#64748b;font-size:13px">
-        Valido per ${EMAIL_OTP_TTL_MINUTES} minuti. Se non hai richiesto l'accesso, ignora questa email.
+        Valido per ${EMAIL_OTP_TTL_MINUTES} minuti. Se non hai richiesto questa operazione, ignora questa email.
       </p>
     </div>
   `.trim();

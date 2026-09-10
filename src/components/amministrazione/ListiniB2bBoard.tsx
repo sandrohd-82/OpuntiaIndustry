@@ -23,6 +23,7 @@ import {
   exportListinoBuildAction,
   exportListinoXlsxAction,
 } from "@/app/actions/listini";
+import { sendEmailOtp } from "@/app/actions/auth";
 import { downloadListinoPdf } from "@/lib/ecosystem/listino-export-pdf";
 import { filterListinoRigheExport } from "@/lib/ecosystem/listino-export";
 import { listinoExportI18n } from "@/lib/ecosystem/listino-export-i18n";
@@ -362,6 +363,7 @@ export function ListiniB2bBoard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [otpOpen, setOtpOpen] = useState(false);
   const [otp, setOtp] = useState("");
+  const [otpInfo, setOtpInfo] = useState<string | null>(null);
   const [obsoletoOpen, setObsoletoOpen] = useState(false);
   const [righe, setRighe] = useState<ListinoRiga[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -922,7 +924,21 @@ export function ListiniB2bBoard() {
                       className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                       onClick={() => {
                         setOtp("");
+                        setOtpInfo(null);
                         setOtpOpen(true);
+                        startTransition(async () => {
+                          const res = await sendEmailOtp("conferma");
+                          if (!res.success) {
+                            setError(
+                              res.error ??
+                                "Impossibile inviare l'OTP all'email dell'operatore."
+                            );
+                            return;
+                          }
+                          setOtpInfo(
+                            "Codice OTP inviato all'email dell'operatore."
+                          );
+                        });
                       }}
                     >
                       Approva e metti in uso
@@ -1204,9 +1220,13 @@ export function ListiniB2bBoard() {
             <h3 className="text-sm font-semibold">Approva e metti in uso</h3>
             <p className="mt-2 text-sm text-slate-700">
               Confermi che tutte le voci sono state controllate? Inserisci il
-              codice OTP di Google Authenticator. Il listino diventerà In Uso;
-              eventuali listini In Uso precedenti passeranno a Obsoleto.
+              codice OTP inviato all&apos;email dell&apos;operatore. Il listino
+              diventerà In Uso; eventuali listini In Uso precedenti passeranno a
+              Obsoleto.
             </p>
+            {otpInfo ? (
+              <p className="mt-2 text-sm text-emerald-800">{otpInfo}</p>
+            ) : null}
             <input
               className="mt-3 w-full rounded-md border border-[var(--border)] px-3 py-2 font-mono text-sm tracking-widest"
               inputMode="numeric"
@@ -1216,6 +1236,26 @@ export function ListiniB2bBoard() {
               onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
             />
             <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border px-3 py-1.5 text-sm"
+                onClick={() => {
+                  setOtpInfo(null);
+                  startTransition(async () => {
+                    const res = await sendEmailOtp("conferma");
+                    if (!res.success) {
+                      setError(
+                        res.error ??
+                          "Impossibile inviare l'OTP all'email dell'operatore."
+                      );
+                      return;
+                    }
+                    setOtpInfo("Nuovo codice OTP inviato all'email.");
+                  });
+                }}
+              >
+                Invia di nuovo
+              </button>
               <button
                 type="button"
                 className="rounded-md border px-3 py-1.5 text-sm"
