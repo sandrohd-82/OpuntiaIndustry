@@ -1,5 +1,7 @@
 import Image from "next/image";
 import {
+  BRAND_LOGO_MENU,
+  BRAND_LOGO_MENU_SIZE,
   BRAND_LOGO_ON_DARK,
   BRAND_LOGO_ON_DARK_SIZE,
   BRAND_NAME,
@@ -14,8 +16,8 @@ type Props = {
 };
 
 const sizeClass: Record<Size, string> = {
-  menu: "h-8 w-auto max-w-[11rem]",
-  menuCollapsed: "h-7 w-auto max-w-[2.75rem]",
+  menu: "h-10 w-auto max-w-[7rem]",
+  menuCollapsed: "h-8 w-8",
   home: "h-28 w-auto max-w-[18rem] sm:h-36 sm:max-w-[22rem]",
 };
 
@@ -25,14 +27,17 @@ export function BrandLogoOnDark({
   priority = false,
   className = "",
 }: Props) {
+  const menuMark = size === "menu" || size === "menuCollapsed";
+  const src = menuMark ? BRAND_LOGO_MENU : BRAND_LOGO_ON_DARK;
+  const dim = menuMark ? BRAND_LOGO_MENU_SIZE : BRAND_LOGO_ON_DARK_SIZE;
   return (
     <Image
-      src={BRAND_LOGO_ON_DARK}
+      src={src}
       alt={BRAND_NAME}
-      width={BRAND_LOGO_ON_DARK_SIZE.width}
-      height={BRAND_LOGO_ON_DARK_SIZE.height}
+      width={dim.width}
+      height={dim.height}
       priority={priority}
-      className={`object-contain object-left ${sizeClass[size]} ${className}`}
+      className={`object-contain ${menuMark ? "object-center" : "object-left"} ${sizeClass[size]} ${className}`}
     />
   );
 }
