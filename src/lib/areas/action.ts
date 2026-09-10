@@ -11,6 +11,26 @@ export const ACTION_SECTIONS: readonly NavItem[] = [
     label: "Aree",
     description: "Aree operative di motori, essiccatori, macchine e impianti",
     path: "/app/action/aree",
+    children: [
+      {
+        slug: "essiccatori",
+        label: "Essiccatori",
+        description: "Impianti e comandi area essiccatori",
+        path: "/app/action/aree/essiccatori",
+      },
+      {
+        slug: "taglio",
+        label: "Taglio",
+        description: "Impianti e comandi area taglio",
+        path: "/app/action/aree/taglio",
+      },
+      {
+        slug: "triturazione",
+        label: "Triturazione",
+        description: "Impianti e comandi area triturazione",
+        path: "/app/action/aree/triturazione",
+      },
+    ],
   },
   {
     slug: "sensori",
