@@ -910,7 +910,12 @@ export async function listPostiOrganigrammaAction(): Promise<
 export async function getPersonaAction(
   id: string
 ): Promise<
-  | { success: true; item: OrganigrammaPersona; isAdmin: boolean }
+  | {
+      success: true;
+      item: OrganigrammaPersona;
+      isAdmin: boolean;
+      isSuperadmin: boolean;
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("amministrazione");
@@ -943,6 +948,7 @@ export async function getPersonaAction(
   return {
     success: true,
     isAdmin: isAdminLikeProfile(auth.profile),
+    isSuperadmin: isSuperadminProfile(auth.actorProfile),
     item,
   };
 }

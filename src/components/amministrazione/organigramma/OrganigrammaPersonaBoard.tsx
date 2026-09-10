@@ -30,7 +30,10 @@ import {
 } from "@/app/actions/organigramma";
 import { ContrattoElenco } from "@/components/amministrazione/organigramma/ContrattoElenco";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
+import { CreateGestionaleProfileModal } from "@/components/amministrazione/organigramma/CreateGestionaleProfileModal";
 import { EsportaSchedaOperatoreModal } from "@/components/amministrazione/organigramma/EsportaSchedaOperatoreModal";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   FotoTesseraBox,
   type FotoTesseraHandle,
@@ -103,6 +106,8 @@ type Props = { personaId: string };
 export function OrganigrammaPersonaBoard({ personaId }: Props) {
   const [item, setItem] = useState<OrganigrammaPersona | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperadmin, setIsSuperadmin] = useState(false);
+  const [linkingProfile, setLinkingProfile] = useState(false);
   const [mansioni, setMansioni] = useState<OrganigrammaMansione[]>([]);
   const [reparti, setReparti] = useState<OrganigrammaReparto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +127,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
       }
       setItem(p.item);
       setIsAdmin(p.isAdmin);
+      setIsSuperadmin(p.isSuperadmin);
       if (m.success) setMansioni(m.items);
       if (r.success) setReparti(r.items);
     })();
@@ -169,9 +175,21 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         mansioni={mansioni}
         reparti={reparti}
         isAdmin={isAdmin}
+        isSuperadmin={isSuperadmin}
+        onOpenProfilo={() => setLinkingProfile(true)}
         onSaved={() => setRefresh((n) => n + 1)}
         onError={setError}
       />
+      {linkingProfile && !item.userId ? (
+        <CreateGestionaleProfileModal
+          persona={item}
+          onClose={() => setLinkingProfile(false)}
+          onCreated={() => {
+            setLinkingProfile(false);
+            setRefresh((n) => n + 1);
+          }}
+        />
+      ) : null}
       <DocumentiCard
         personaId={item.id}
         isAdmin={isAdmin}
@@ -206,6 +224,8 @@ function AnagraficaCard({
   mansioni,
   reparti,
   isAdmin,
+  isSuperadmin,
+  onOpenProfilo,
   onSaved,
   onError,
 }: {
@@ -213,6 +233,8 @@ function AnagraficaCard({
   mansioni: OrganigrammaMansione[];
   reparti: OrganigrammaReparto[];
   isAdmin: boolean;
+  isSuperadmin: boolean;
+  onOpenProfilo: () => void;
   onSaved: () => void;
   onError: (msg: string | null) => void;
 }) {
@@ -309,6 +331,26 @@ function AnagraficaCard({
             Stato documento: {item.documentoStato}
             {item.userId ? " · Collegato a un login" : ""}
           </p>
+          {item.profilo ? (
+            <p className="mt-1 text-xs text-slate-700">
+              Profilo gestionale: {item.profilo.email || "—"} ·{" "}
+              {item.profilo.gerarchia} · {item.profilo.stato}
+            </p>
+          ) : isSuperadmin ? (
+            <ActionGate actionKey={AZ.creaProfilo}>
+              <button
+                type="button"
+                className="mt-2 rounded-md bg-[var(--primary)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+                onClick={onOpenProfilo}
+              >
+                Collega o crea profilo gestionale
+              </button>
+            </ActionGate>
+          ) : (
+            <p className="mt-1 text-xs text-[var(--muted)]">
+              Nessun profilo gestionale collegato.
+            </p>
+          )}
           {isAdmin ? (
             <button
               type="button"

@@ -285,7 +285,7 @@ export function OrganigrammaElencoBoard() {
                         onClick={() => setCreatingProfile(p)}
                         className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
                       >
-                        Crea Profilo
+                        Collega / Crea
                       </button>
                       </ActionGate>
                     ) : (

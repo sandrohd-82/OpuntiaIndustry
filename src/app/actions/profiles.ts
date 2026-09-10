@@ -7,15 +7,22 @@ import { getAuthUser, getProfile, getUserAreas } from "@/lib/auth/session";
 import { createServiceClient } from "@/lib/supabase/server";
 import { firstAreaPath } from "@/lib/areas/config";
 import { parseCommercialeGrado } from "@/lib/auth/commerciale";
+import { isProtectedSuperadminTarget } from "@/lib/auth/impersonation-scope";
 import {
+  PROFILE_GERARCHIA_LABELS,
   PROFILE_GERARCHIE,
   PROFILE_POTERI,
   PROFILE_REPARTI_OPERATIVI,
+  parseProfileGerarchia,
   parseProfileReparto,
   roleCodeFromPotereGerarchia,
   type ProfileGerarchia,
   type ProfilePotere,
 } from "@/lib/auth/gerarchia";
+import {
+  PROFILE_STATO_LABELS,
+  parseProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 import {
   provisionTestProfile,
   replaceProfileReparti,
@@ -29,7 +36,10 @@ async function requireRealSuperadmin() {
   }
   const actor = await getProfile(user.id);
   if (!actor || !isSuperadminProfile(actor)) {
-    return { ok: false as const, error: "Solo il Super Admin può creare profili." };
+    return {
+      ok: false as const,
+      error: "Solo il Super Admin può collegare o creare profili gestionali.",
+    };
   }
   return { ok: true as const, actorUserId: user.id, actor };
 }
@@ -265,6 +275,154 @@ export async function createOrganigrammaProfileAction(
   revalidatePath("/", "layout");
   revalidatePath("/app/amministrazione/organigramma/elenco-e-mansioni");
   return { success: true, userId: result.userId };
+}
+
+export type GestionaleProfileOption = {
+  id: string;
+  label: string;
+  email: string;
+  gerarchiaLabel: string;
+  statoLabel: string;
+};
+
+export async function listUnlinkedGestionaleProfilesAction(): Promise<
+  | { success: true; profiles: GestionaleProfileOption[] }
+  | { success: false; error: string }
+> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const service = createServiceClient();
+  const { data: linked } = await service
+    .from("organigramma_persone")
+    .select("user_id")
+    .is("deleted_at", null)
+    .not("user_id", "is", null);
+  const taken = new Set(
+    ((linked ?? []) as Array<{ user_id: string }>).map((r) => String(r.user_id))
+  );
+
+  const { data, error } = await service
+    .from("profiles")
+    .select(
+      "id, email, full_name, first_name, last_name, gerarchia, stato_operativo, potere, is_active, app_roles(code)"
+    )
+    .eq("is_active", true)
+    .order("full_name", { ascending: true });
+  if (error) return { success: false, error: error.message };
+
+  const profiles: GestionaleProfileOption[] = [];
+  for (const row of data ?? []) {
+    const id = String((row as { id: string }).id);
+    if (taken.has(id)) continue;
+    if (isProtectedSuperadminTarget(row)) continue;
+    const email = String((row as { email?: string | null }).email ?? "");
+    const full = String((row as { full_name?: string | null }).full_name ?? "").trim();
+    const composed = `${(row as { first_name?: string | null }).first_name ?? ""} ${
+      (row as { last_name?: string | null }).last_name ?? ""
+    }`.trim();
+    const gerarchia = parseProfileGerarchia(
+      (row as { gerarchia?: string | null }).gerarchia
+    );
+    const stato = parseProfileStatoOperativo(
+      (row as { stato_operativo?: string | null }).stato_operativo
+    );
+    profiles.push({
+      id,
+      label: full || composed || email || "Profilo",
+      email,
+      gerarchiaLabel: PROFILE_GERARCHIA_LABELS[gerarchia],
+      statoLabel: PROFILE_STATO_LABELS[stato],
+    });
+  }
+  profiles.sort((a, b) => a.label.localeCompare(b.label, "it"));
+  return { success: true, profiles };
+}
+
+export async function linkOrganigrammaProfileAction(input: {
+  personaId: string;
+  profileId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await requireRealSuperadmin();
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const personaId = z.string().uuid().safeParse(input.personaId);
+  const profileId = z.string().uuid().safeParse(input.profileId);
+  if (!personaId.success || !profileId.success) {
+    return { success: false, error: "Dati collegamento non validi." };
+  }
+
+  const service = createServiceClient();
+  const { data: persona, error: pErr } = await service
+    .from("organigramma_persone")
+    .select("id, nome, cognome, user_id")
+    .eq("id", personaId.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pErr || !persona) {
+    return { success: false, error: pErr?.message ?? "Operatore non trovato." };
+  }
+  if (persona.user_id) {
+    return {
+      success: false,
+      error: "Questa persona ha già un profilo gestionale.",
+    };
+  }
+
+  const { data: profile, error: prErr } = await service
+    .from("profiles")
+    .select("id, email, full_name, is_active, potere, stato_operativo, app_roles(code)")
+    .eq("id", profileId.data)
+    .maybeSingle();
+  if (prErr || !profile || !profile.is_active) {
+    return { success: false, error: "Profilo gestionale non trovato o non attivo." };
+  }
+  if (isProtectedSuperadminTarget(profile)) {
+    return { success: false, error: "Non puoi collegare il Super Admin operativo." };
+  }
+
+  const { data: other } = await service
+    .from("organigramma_persone")
+    .select("id, nome, cognome")
+    .eq("user_id", profileId.data)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (other) {
+    return {
+      success: false,
+      error: `Il profilo è già collegato a ${other.cognome} ${other.nome}.`,
+    };
+  }
+
+  const { error: linkErr } = await service
+    .from("organigramma_persone")
+    .update({
+      user_id: profileId.data,
+      updated_by: gate.actorUserId,
+    })
+    .eq("id", personaId.data)
+    .is("deleted_at", null);
+  if (linkErr) return { success: false, error: linkErr.message };
+
+  await service.from("audit_log").insert({
+    entity_type: "organigramma_persone",
+    entity_id: personaId.data,
+    action: "update",
+    actor_id: gate.actorUserId,
+    summary: `Collegato operatore ${persona.cognome} ${persona.nome} al profilo ${profile.full_name ?? profile.email}`,
+    payload: {
+      persona_id: personaId.data,
+      profile_id: profileId.data,
+      email: profile.email,
+    },
+  });
+
+  revalidatePath("/", "layout");
+  revalidatePath("/app/amministrazione/organigramma/elenco-e-mansioni");
+  revalidatePath(
+    `/app/amministrazione/organigramma/elenco-e-mansioni/${personaId.data}`
+  );
+  return { success: true };
 }
 
 export async function resetImpersonatedProfileToTestAction(): Promise<
