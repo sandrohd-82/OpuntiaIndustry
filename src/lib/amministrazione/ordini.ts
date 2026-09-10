@@ -11,15 +11,91 @@ export type OrdineAllegatoMeta = {
   fileName: string;
 };
 
+export const ORDINE_UNITA_MISURA = ["g", "kg", "ml", "lt"] as const;
+export type OrdineUnitaMisura = (typeof ORDINE_UNITA_MISURA)[number];
+export type OrdineUnitaBase = "kg" | "lt";
+
 export type OrdineRigaProdotto = {
   id: string;
   prodottoId: string;
   prodottoCodice: string;
   prodottoNome: string;
   quantita: number;
+  unitaMisura: OrdineUnitaMisura;
   prezzoUnitario: number;
   ivaPercentuale: number;
 };
+
+export function isOrdineUnitaMisura(value: unknown): value is OrdineUnitaMisura {
+  return value === "g" || value === "kg" || value === "ml" || value === "lt";
+}
+
+export function parseOrdineUnitaMisura(
+  value: unknown
+): OrdineUnitaMisura {
+  return isOrdineUnitaMisura(value) ? value : "kg";
+}
+
+/** Vendita: solo kg/lt. Campionatura: g/kg o ml/lt (default g/ml). */
+export function normalizzaUnitaRigaOrdine(opts: {
+  tipo?: string | null;
+  unitaMisura?: string | null;
+  listinoUm?: string | null;
+  prodottoCodice?: string | null;
+}): OrdineUnitaMisura {
+  const base = unitaBaseProdotto(opts);
+  if (opts.tipo !== "campionatura") return base;
+  const allowed = opzioniUnitaCampionatura(base).map((o) => o.value);
+  if (isOrdineUnitaMisura(opts.unitaMisura) && allowed.includes(opts.unitaMisura)) {
+    return opts.unitaMisura;
+  }
+  return defaultUnitaCampionatura(base);
+}
+
+/** Famiglia del prodotto: listino kg/lt, altrimenti prefisso gel OGL/NGL → lt. */
+export function unitaBaseProdotto(opts: {
+  listinoUm?: string | null;
+  prodottoCodice?: string | null;
+}): OrdineUnitaBase {
+  if (opts.listinoUm === "lt" || opts.listinoUm === "kg") {
+    return opts.listinoUm;
+  }
+  const code = String(opts.prodottoCodice ?? "").toUpperCase();
+  if (code.startsWith("OGL") || code.startsWith("NGL")) return "lt";
+  return "kg";
+}
+
+export function defaultUnitaCampionatura(base: OrdineUnitaBase): OrdineUnitaMisura {
+  return base === "lt" ? "ml" : "g";
+}
+
+export function opzioniUnitaCampionatura(
+  base: OrdineUnitaBase
+): { value: OrdineUnitaMisura; label: string }[] {
+  if (base === "lt") {
+    return [
+      { value: "ml", label: "ml" },
+      { value: "lt", label: "lt" },
+    ];
+  }
+  return [
+    { value: "g", label: "g" },
+    { value: "kg", label: "kg" },
+  ];
+}
+
+/** Quantità nella unità base di produzione (kg o lt). */
+export function quantitaInUnitaBase(
+  quantita: number,
+  um: OrdineUnitaMisura
+): number {
+  if (um === "g" || um === "ml") return quantita / 1000;
+  return quantita;
+}
+
+export function labelUnitaMisura(um: OrdineUnitaMisura): string {
+  return um;
+}
 
 export type OrdineTrasporto = {
   azienda: string;
@@ -118,6 +194,7 @@ export function newRigaProdotto(): OrdineRigaProdotto {
     prodottoCodice: "",
     prodottoNome: "",
     quantita: 1,
+    unitaMisura: "kg",
     prezzoUnitario: 0,
     ivaPercentuale: 22,
   };
@@ -182,6 +259,7 @@ const rigaSchema = z.object({
   prodottoCodice: z.string(),
   prodottoNome: z.string(),
   quantita: z.number().positive("Quantità deve essere > 0"),
+  unitaMisura: z.enum(ORDINE_UNITA_MISURA).optional().default("kg"),
   prezzoUnitario: z.number().min(0),
   ivaPercentuale: z.number().min(0),
 });
@@ -258,6 +336,7 @@ export function mapOrdineRigaRow(row: OrdineRigaRow): OrdineRigaProdotto {
     prodottoCodice: row.prodotto_codice,
     prodottoNome: row.prodotto_nome,
     quantita: Number(row.quantita),
+    unitaMisura: parseOrdineUnitaMisura(row.unita_misura),
     prezzoUnitario: Number(row.prezzo_unitario),
     ivaPercentuale: Number(row.iva_percentuale),
   };

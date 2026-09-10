@@ -17,8 +17,9 @@ import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
 import {
   CAMPIONATURA_MEZZI,
   CAMPIONATURA_MEZZO_LABEL,
-  CAMPIONATURA_UM,
   clienteSpedizioneOptions,
+  defaultUmCampionaturaPerProdotto,
+  opzioniUmCampionaturaPerProdotto,
   type Campionatura,
   type CampionaturaMezzo,
   type CampionaturaUm,
@@ -445,9 +446,23 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                       required
                       value={riga.prodottoId}
                       disabled={!prodottiReady}
-                      onChange={(e) =>
-                        updateRiga(index, { prodottoId: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const prodottoId = e.target.value;
+                        const p = prodotti.find((x) => x.id === prodottoId);
+                        const nextUm = defaultUmCampionaturaPerProdotto(
+                          p?.codice
+                        );
+                        const allowed = opzioniUmCampionaturaPerProdotto(
+                          p?.codice,
+                          riga.unitaMisura
+                        );
+                        updateRiga(index, {
+                          prodottoId,
+                          unitaMisura: allowed.includes(riga.unitaMisura)
+                            ? riga.unitaMisura
+                            : nextUm,
+                        });
+                      }}
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
                     >
                       <option value="">Seleziona…</option>
@@ -484,7 +499,10 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                       }
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2 py-1.5 text-sm outline-none focus:border-[var(--primary)]"
                     >
-                      {CAMPIONATURA_UM.map((um) => (
+                      {opzioniUmCampionaturaPerProdotto(
+                        prodotti.find((p) => p.id === riga.prodottoId)?.codice,
+                        riga.unitaMisura
+                      ).map((um) => (
                         <option key={um} value={um}>
                           {um}
                         </option>

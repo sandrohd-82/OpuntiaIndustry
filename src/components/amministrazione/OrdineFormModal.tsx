@@ -348,6 +348,7 @@ export function OrdineFormModal({
             onRigheChange={dettaglio.setRighe}
             trasporto={dettaglio.trasporto}
             onTrasportoChange={dettaglio.setTrasporto}
+            tipoDocumento={initial?.tipo ?? "vendita"}
           />
 
           <OrdinePagamentoFields

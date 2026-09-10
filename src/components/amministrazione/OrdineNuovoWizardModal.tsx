@@ -37,8 +37,13 @@ import {
 } from "@/lib/amministrazione/attivita";
 import {
   buildNumeroInternoOrdine,
+  defaultUnitaCampionatura,
+  opzioniUnitaCampionatura,
+  quantitaInUnitaBase,
+  unitaBaseProdotto,
   type Ordine,
   type OrdineTipoPagamento,
+  type OrdineUnitaMisura,
 } from "@/lib/amministrazione/ordini";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
 import type { Preventivo } from "@/lib/amministrazione/preventivi";
@@ -167,6 +172,9 @@ export function OrdineNuovoWizardModal({
   const [creatingProdotto, setCreatingProdotto] = useState(false);
 
   const [quantita, setQuantita] = useState<number | "">(100);
+  const [unitaMisura, setUnitaMisura] = useState<OrdineUnitaMisura>(
+    variant === "campionatura" ? "g" : "kg"
+  );
   const [prezzoUnitario, setPrezzoUnitario] = useState<number | "">("");
   const [preventivoId, setPreventivoId] = useState("");
   const [preventiviAccettati, setPreventiviAccettati] = useState<Preventivo[]>(
@@ -307,6 +315,26 @@ export function OrdineNuovoWizardModal({
     [voceListino]
   );
   const ordineSospeso = regolaListino.esito === "sospeso";
+  const unitaBase = unitaBaseProdotto({
+    listinoUm: voceListino?.unitaMisura,
+    prodottoCodice: prodotto?.codice,
+  });
+  const umCampionaturaOptions = opzioniUnitaCampionatura(unitaBase);
+
+  useEffect(() => {
+    const base = unitaBaseProdotto({
+      listinoUm: voceListino?.unitaMisura,
+      prodottoCodice: prodotto?.codice,
+    });
+    if (tipoOrdine === "campionatura") {
+      setUnitaMisura((prev) => {
+        const allowed = opzioniUnitaCampionatura(base).map((o) => o.value);
+        return allowed.includes(prev) ? prev : defaultUnitaCampionatura(base);
+      });
+      return;
+    }
+    setUnitaMisura(base);
+  }, [tipoOrdine, prodotto?.codice, voceListino?.unitaMisura]);
 
   useEffect(() => {
     if (!prodotto?.id) {
@@ -357,7 +385,10 @@ export function OrdineNuovoWizardModal({
     return map;
   }, [catalogo]);
 
-  const quantitaKg = numberOrZero(quantita);
+  const quantitaInserita = numberOrZero(quantita);
+  const umEffettiva: OrdineUnitaMisura =
+    tipoOrdine === "campionatura" ? unitaMisura : unitaBase;
+  const quantitaKg = quantitaInUnitaBase(quantitaInserita, umEffettiva);
   const prezzoKg = numberOrZero(prezzoUnitario);
   const IVA_PCT = 22;
   const rigaImporti = useMemo(() => {
@@ -366,7 +397,8 @@ export function OrdineNuovoWizardModal({
       prodottoId: prodotto?.id ?? "",
       prodottoCodice: prodotto?.codice ?? "",
       prodottoNome: prodotto?.nome ?? "",
-      quantita: quantitaKg,
+      quantita: quantitaInserita,
+      unitaMisura: umEffettiva,
       prezzoUnitario: prezzoKg,
       ivaPercentuale: IVA_PCT,
     };
@@ -375,7 +407,14 @@ export function OrdineNuovoWizardModal({
       iva: ivaRiga(riga),
       totale: totaleRiga(riga),
     };
-  }, [quantitaKg, prezzoKg, prodotto?.id, prodotto?.codice, prodotto?.nome]);
+  }, [
+    quantitaInserita,
+    umEffettiva,
+    prezzoKg,
+    prodotto?.id,
+    prodotto?.codice,
+    prodotto?.nome,
+  ]);
 
   const kgConfezionati = useMemo(
     () => totaleKgConfezionati(conf.nodi),
@@ -426,6 +465,26 @@ export function OrdineNuovoWizardModal({
   }
 
   useEffect(() => {
+    if (step !== 4 || ordineSospeso || !prodotto || quantitaKg <= 0) return;
+    void runCalcolo();
+    // qty già convertita in unità base (g/ml → kg/lt)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step,
+    ordineSospeso,
+    prodotto?.id,
+    prodotto?.codice,
+    quantitaKg,
+    consegnaTipo,
+    dataRichiesta,
+    urgente,
+    usaMagazzino,
+    usaSabato,
+    resaOverride,
+    kgEssiccatore,
+  ]);
+
+  useEffect(() => {
     setPreventivoId("");
     setMailAccettazione(null);
     setReferenteAccettazione(null);
@@ -471,7 +530,7 @@ export function OrdineNuovoWizardModal({
       );
     }
     if (step === 3) {
-      if (!(quantitaKg > 0)) return false;
+      if (!(quantitaInserita > 0)) return false;
       if (tipoOrdine !== "campionatura" && !(numberOrZero(prezzoUnitario) > 0)) {
         return false;
       }
@@ -551,7 +610,8 @@ export function OrdineNuovoWizardModal({
       prodottoId: prodotto.id,
       prodottoCodice: prodotto.codice,
       prodottoNome: prodotto.nome,
-      quantita: quantitaKg,
+      quantita: quantitaInserita,
+      unitaMisura: umEffettiva,
       prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
       ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
       consegnaTipo,
@@ -831,6 +891,7 @@ export function OrdineNuovoWizardModal({
                     checked={tipoOrdine === "vendita"}
                     onChange={() => {
                       setTipoOrdine("vendita");
+                      setUnitaMisura(unitaBase);
                       if (voceListino && voceListino.prezzo > 0) {
                         setPrezzoUnitario(voceListino.prezzo);
                       }
@@ -845,6 +906,7 @@ export function OrdineNuovoWizardModal({
                     checked={tipoOrdine === "campionatura"}
                     onChange={() => {
                       setTipoOrdine("campionatura");
+                      setUnitaMisura(defaultUnitaCampionatura(unitaBase));
                       setPrezzoUnitario(0);
                     }}
                   />
@@ -931,16 +993,44 @@ export function OrdineNuovoWizardModal({
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm">
-                  <span className="mb-1 block font-medium">Quantità (kg)</span>
-                  <ClearableNumberInput
-                    min={0}
-                    value={quantita}
-                    onValueChange={(v) => {
-                      setQuantita(v);
-                      setOverridesSeeded(false);
-                    }}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-                  />
+                  <span className="mb-1 block font-medium">Quantità</span>
+                  <div className="flex gap-2">
+                    <ClearableNumberInput
+                      min={0}
+                      value={quantita}
+                      onValueChange={(v) => {
+                        setQuantita(v);
+                        setOverridesSeeded(false);
+                      }}
+                      className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    />
+                    {tipoOrdine === "campionatura" ? (
+                      <select
+                        value={umEffettiva}
+                        onChange={(e) =>
+                          setUnitaMisura(e.target.value as OrdineUnitaMisura)
+                        }
+                        className="w-20 rounded-lg border border-[var(--border)] bg-white px-2 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                        aria-label="Unità di misura"
+                      >
+                        {umCampionaturaOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="inline-flex items-center rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
+                        {unitaBase}
+                      </span>
+                    )}
+                  </div>
+                  {tipoOrdine === "campionatura" ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Default {defaultUnitaCampionatura(unitaBase)}; puoi
+                      scegliere anche {unitaBase}.
+                    </p>
+                  ) : null}
                 </label>
                 {tipoOrdine === "campionatura" ? (
                   <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
@@ -952,7 +1042,7 @@ export function OrdineNuovoWizardModal({
                 ) : (
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">
-                    Prezzo vendita (€/kg)
+                    Prezzo vendita (€/{unitaBase})
                   </span>
                   <ClearableNumberInput
                     min={0}
@@ -1572,7 +1662,12 @@ export function OrdineNuovoWizardModal({
               >
                 <p>
                   Ordine:{" "}
-                  <strong>{quantitaKg.toLocaleString("it-IT")} kg</strong>
+                  <strong>
+                    {quantitaInserita.toLocaleString("it-IT")} {umEffettiva}
+                    {umEffettiva === "g" || umEffettiva === "ml"
+                      ? ` (= ${quantitaKg.toLocaleString("it-IT")} ${unitaBase})`
+                      : ""}
+                  </strong>
                   {" · "}
                   Confezionati:{" "}
                   <strong>{kgConfezionati.toLocaleString("it-IT")} kg</strong>

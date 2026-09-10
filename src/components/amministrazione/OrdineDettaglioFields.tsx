@@ -7,13 +7,17 @@ import {
   emptyTrasporto,
   imponibileRiga,
   IVA_PERCENTUALI_COMUNI,
+  defaultUnitaCampionatura,
   newRigaProdotto,
+  opzioniUnitaCampionatura,
+  unitaBaseProdotto,
   totaleOrdine,
   totaleRiga,
   totaleTrasporto,
   type OrdineAllegatoMeta,
   type OrdineRigaProdotto,
   type OrdineTrasporto,
+  type OrdineUnitaMisura,
 } from "@/lib/amministrazione/ordini";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
@@ -184,6 +188,7 @@ type Props = {
   onRigheChange: (righe: OrdineRigaProdotto[]) => void;
   trasporto: OrdineTrasporto;
   onTrasportoChange: (trasporto: OrdineTrasporto) => void;
+  tipoDocumento?: "vendita" | "campionatura";
 };
 
 export function OrdineDettaglioFields({
@@ -202,6 +207,7 @@ export function OrdineDettaglioFields({
   onRigheChange,
   trasporto,
   onTrasportoChange,
+  tipoDocumento = "vendita",
 }: Props) {
   const offertaInputId = useId();
   const ordineClienteInputId = useId();
@@ -336,10 +342,17 @@ export function OrdineDettaglioFields({
                         const p = sortedProdotti.find(
                           (x) => x.id === e.target.value
                         );
+                        const base = unitaBaseProdotto({
+                          prodottoCodice: p?.codice,
+                        });
                         patchRiga(riga.id, {
                           prodottoId: p?.id ?? "",
                           prodottoCodice: p?.codice ?? "",
                           prodottoNome: p?.nome ?? "",
+                          unitaMisura:
+                            tipoDocumento === "campionatura"
+                              ? defaultUnitaCampionatura(base)
+                              : base,
                         });
                       }}
                       className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
@@ -361,17 +374,61 @@ export function OrdineDettaglioFields({
                     <span className="mb-1 block text-xs font-medium">
                       Quantità
                     </span>
-                    <ClearableNumberInput
-                      min={0}
-                      required
-                      value={riga.quantita === 0 ? "" : riga.quantita}
-                      onValueChange={(v) =>
-                        patchRiga(riga.id, {
-                          quantita: v === "" ? 0 : v,
-                        })
-                      }
-                      className="w-full rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
-                    />
+                    <div className="flex gap-1.5">
+                      <ClearableNumberInput
+                        min={0}
+                        required
+                        value={riga.quantita === 0 ? "" : riga.quantita}
+                        onValueChange={(v) =>
+                          patchRiga(riga.id, {
+                            quantita: v === "" ? 0 : v,
+                          })
+                        }
+                        className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-white px-2.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                      />
+                      {tipoDocumento === "campionatura" ? (
+                        <select
+                          value={riga.unitaMisura}
+                          onChange={(e) =>
+                            patchRiga(riga.id, {
+                              unitaMisura: e.target
+                                .value as OrdineUnitaMisura,
+                            })
+                          }
+                          className="w-[4.5rem] rounded-lg border border-[var(--border)] bg-white px-1.5 py-2 text-sm outline-none focus:border-[var(--primary)]"
+                          aria-label="Unità di misura"
+                        >
+                          {(() => {
+                            const base = unitaBaseProdotto({
+                              prodottoCodice: riga.prodottoCodice,
+                            });
+                            const opts = opzioniUnitaCampionatura(base);
+                            if (
+                              !opts.some((o) => o.value === riga.unitaMisura)
+                            ) {
+                              return [
+                                ...opts,
+                                {
+                                  value: riga.unitaMisura,
+                                  label: riga.unitaMisura,
+                                },
+                              ];
+                            }
+                            return opts;
+                          })().map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="inline-flex items-center rounded-lg border border-[var(--border)] bg-slate-50 px-2 text-xs font-medium text-slate-700">
+                          {unitaBaseProdotto({
+                            prodottoCodice: riga.prodottoCodice,
+                          })}
+                        </span>
+                      )}
+                    </div>
                   </label>
 
                   <label className="block text-sm">

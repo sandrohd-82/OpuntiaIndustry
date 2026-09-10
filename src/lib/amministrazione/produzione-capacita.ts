@@ -3,6 +3,7 @@ import {
   confezionamentoDraftSchema,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
+import { ORDINE_UNITA_MISURA } from "@/lib/amministrazione/ordini";
 
 /** Linea produttiva: secco (ODR/NDR) vs gel (OGL/NGL). */
 export type LineaProduzioneCodice = "secco" | "gel";
@@ -108,6 +109,7 @@ export const ordineWizardInputSchema = z
     prodottoCodice: z.string().trim().min(1),
     prodottoNome: z.string().trim().min(1),
     quantita: z.number().positive(),
+    unitaMisura: z.enum(ORDINE_UNITA_MISURA).optional().default("kg"),
     prezzoUnitario: z.number().min(0),
     ivaPercentuale: z.number().min(0).default(22),
     consegnaTipo: z.enum(["asap", "data"]),

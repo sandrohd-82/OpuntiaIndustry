@@ -11,8 +11,10 @@ import {
   isCampionaturaGratuita,
   labelAuditAction,
   mapOrdineRow,
+  normalizzaUnitaRigaOrdine,
   ordineInputSchema,
   ORDINI_ALLEGATI_BUCKET,
+  quantitaInUnitaBase,
   totaleOrdine,
   type Ordine,
   type OrdineAuditEntry,
@@ -180,6 +182,7 @@ async function replaceRighe(
     prodotto_codice: r.prodottoCodice,
     prodotto_nome: r.prodottoNome,
     quantita: r.quantita,
+    unita_misura: r.unitaMisura ?? "kg",
     prezzo_unitario: r.prezzoUnitario,
     iva_percentuale: r.ivaPercentuale,
     sort_order: i,
@@ -360,6 +363,7 @@ export async function createOrdineAction(
       prodottoCodice: r.prodottoCodice,
       prodottoNome: r.prodottoNome,
       quantita: r.quantita,
+      unitaMisura: r.unitaMisura ?? "kg",
       prezzoUnitario: r.prezzoUnitario,
       ivaPercentuale: r.ivaPercentuale,
     }));
@@ -404,7 +408,17 @@ export async function createOrdineAction(
       return { success: false, error: error?.message ?? "Creazione fallita." };
     }
 
-    const righeErr = await replaceRighe(row.id, input.righe);
+    const righeErr = await replaceRighe(
+      row.id,
+      input.righe.map((r) => ({
+        ...r,
+        unitaMisura: normalizzaUnitaRigaOrdine({
+          tipo: "vendita",
+          unitaMisura: r.unitaMisura,
+          prodottoCodice: r.prodottoCodice,
+        }),
+      }))
+    );
     if (righeErr) {
       return { success: false, error: righeErr };
     }
@@ -508,6 +522,11 @@ export async function updateOrdineAction(
     prodottoCodice: r.prodottoCodice,
     prodottoNome: r.prodottoNome,
     quantita: r.quantita,
+    unitaMisura: normalizzaUnitaRigaOrdine({
+      tipo: existing.tipo,
+      unitaMisura: r.unitaMisura,
+      prodottoCodice: r.prodottoCodice,
+    }),
     prezzoUnitario: campionaturaGratis ? 0 : r.prezzoUnitario,
     ivaPercentuale: campionaturaGratis ? 0 : r.ivaPercentuale,
   }));
@@ -604,12 +623,16 @@ export async function updateOrdineAction(
   const righeErr = await replaceRighe(
     id,
     campionaturaGratis
-      ? input.righe.map((r) => ({
+      ? input.righe.map((r, i) => ({
           ...r,
+          unitaMisura: righeCalc[i]?.unitaMisura ?? r.unitaMisura,
           prezzoUnitario: 0,
           ivaPercentuale: 0,
         }))
-      : input.righe
+      : input.righe.map((r, i) => ({
+          ...r,
+          unitaMisura: righeCalc[i]?.unitaMisura ?? r.unitaMisura,
+        }))
   );
   if (righeErr) return { success: false, error: righeErr };
 
@@ -812,6 +835,13 @@ export async function createOrdineWizardAction(
   const trasporto = emptyTrasporto();
   const prezzoUnitario = campionaturaGratis ? 0 : input.prezzoUnitario;
   const ivaPercentuale = campionaturaGratis ? 0 : input.ivaPercentuale;
+  const unitaMisura = normalizzaUnitaRigaOrdine({
+    tipo: input.tipo,
+    unitaMisura: input.unitaMisura,
+    listinoUm: voceRes.voce?.unitaMisura,
+    prodottoCodice: input.prodottoCodice,
+  });
+  const quantitaBase = quantitaInUnitaBase(input.quantita, unitaMisura);
   const righeCalc = [
     {
       id: "wizard-1",
@@ -819,6 +849,7 @@ export async function createOrdineWizardAction(
       prodottoCodice: input.prodottoCodice,
       prodottoNome: input.prodottoNome,
       quantita: input.quantita,
+      unitaMisura,
       prezzoUnitario,
       ivaPercentuale,
     },
@@ -941,6 +972,7 @@ export async function createOrdineWizardAction(
         prodottoCodice: input.prodottoCodice,
         prodottoNome: input.prodottoNome,
         quantita: input.quantita,
+        unitaMisura,
         prezzoUnitario,
         ivaPercentuale,
       },
@@ -950,7 +982,7 @@ export async function createOrdineWizardAction(
     if (input.confezionamento) {
       const conf = normalizeConfezionamentoDraft(input.confezionamento);
       const kgConf = totaleKgConfezionati(conf.nodi);
-      const kgDelta = Math.round((input.quantita - kgConf) * 1000) / 1000;
+      const kgDelta = Math.round((quantitaBase - kgConf) * 1000) / 1000;
       const { data: confRow, error: confErr } = await supabase
         .from("ordini_confezionamento")
         .insert({
@@ -958,7 +990,7 @@ export async function createOrdineWizardAction(
           movimentazione_modo: conf.movimentazioneModo,
           pallet_catalogo_id: conf.palletCatalogoId,
           pallet_misure_custom: conf.palletMisureCustom.trim(),
-          kg_ordine: input.quantita,
+          kg_ordine: quantitaBase,
           kg_confezionati: kgConf,
           kg_delta: kgDelta,
           coerenza_ignorata: conf.coerenzaIgnorata,
@@ -1162,7 +1194,7 @@ export async function processOrdineInScalettaAction(
   const calcRes = await calcolaConsegnaOrdineAction({
     prodottoId: riga.prodottoId,
     prodottoCodice: riga.prodottoCodice,
-    quantitaKg: riga.quantita,
+    quantitaKg: quantitaInUnitaBase(riga.quantita, riga.unitaMisura),
     consegnaTipo: existing.consegnaTipo === "data" ? "data" : "asap",
     dataRichiesta:
       existing.consegnaTipo === "data" ? existing.dataConsegna : null,

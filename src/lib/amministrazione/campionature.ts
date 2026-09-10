@@ -1,5 +1,10 @@
 import { z } from "zod";
 import type { Cliente } from "@/lib/amministrazione/clienti";
+import {
+  defaultUnitaCampionatura,
+  opzioniUnitaCampionatura,
+  unitaBaseProdotto,
+} from "@/lib/amministrazione/ordini";
 
 export const CAMPIONATURA_STATI = [
   "bozza",
@@ -8,7 +13,7 @@ export const CAMPIONATURA_STATI = [
   "annullata",
 ] as const;
 
-export const CAMPIONATURA_UM = ["g", "kg", "pz", "ml"] as const;
+export const CAMPIONATURA_UM = ["g", "kg", "pz", "ml", "lt"] as const;
 
 export const CAMPIONATURA_MEZZI = [
   "mail",
@@ -20,6 +25,26 @@ export const CAMPIONATURA_MEZZI = [
 export type CampionaturaStato = (typeof CAMPIONATURA_STATI)[number];
 export type CampionaturaUm = (typeof CAMPIONATURA_UM)[number];
 export type CampionaturaMezzo = (typeof CAMPIONATURA_MEZZI)[number];
+
+export function defaultUmCampionaturaPerProdotto(
+  prodottoCodice?: string | null
+): CampionaturaUm {
+  return defaultUnitaCampionatura(unitaBaseProdotto({ prodottoCodice }));
+}
+
+export function opzioniUmCampionaturaPerProdotto(
+  prodottoCodice?: string | null,
+  current?: CampionaturaUm
+): CampionaturaUm[] {
+  const pair = opzioniUnitaCampionatura(
+    unitaBaseProdotto({ prodottoCodice })
+  ).map((o) => o.value as CampionaturaUm);
+  if (current && !pair.includes(current)) {
+    return [...pair, current];
+  }
+  return pair;
+}
+
 
 export const CAMPIONATURA_MEZZO_LABEL: Record<CampionaturaMezzo, string> = {
   mail: "Mail",

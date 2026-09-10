@@ -11,6 +11,7 @@ import {
 } from "@/lib/amministrazione/attivita";
 import {
   labelTipoOrdine,
+  quantitaInUnitaBase,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
 import type { CapacitaCalcoloResult } from "@/lib/amministrazione/produzione-capacita";
@@ -59,7 +60,7 @@ export function ProcessaOrdineScalettaModal({
     void calcolaConsegnaOrdineAction({
       prodottoId: riga.prodottoId,
       prodottoCodice: riga.prodottoCodice,
-      quantitaKg: riga.quantita,
+      quantitaKg: quantitaInUnitaBase(riga.quantita, riga.unitaMisura),
       consegnaTipo: ordine.consegnaTipo === "data" ? "data" : "asap",
       dataRichiesta:
         ordine.consegnaTipo === "data" ? ordine.dataConsegna : null,
@@ -84,6 +85,7 @@ export function ProcessaOrdineScalettaModal({
     riga?.prodottoId,
     riga?.prodottoCodice,
     riga?.quantita,
+    riga?.unitaMisura,
     ordine.consegnaTipo,
     ordine.dataConsegna,
     urgente,
@@ -170,7 +172,7 @@ export function ProcessaOrdineScalettaModal({
         {riga ? (
           <p className="mt-1 text-sm">
             {riga.prodottoCodice} — {riga.prodottoNome} ·{" "}
-            {riga.quantita.toLocaleString("it-IT")} kg
+            {riga.quantita.toLocaleString("it-IT")} {riga.unitaMisura}
           </p>
         ) : (
           <p className="mt-2 text-sm text-red-700">Nessuna riga prodotto.</p>
@@ -267,7 +269,11 @@ export function ProcessaOrdineScalettaModal({
       {calendarioOpen && calcolo ? (
         <ConsegnaCalendarioModal
           giorniProduzioneNecessari={calcolo.giorniLavorativiNecessari}
-          kgOrdine={riga?.quantita ?? 0}
+          kgOrdine={
+            riga
+              ? quantitaInUnitaBase(riga.quantita, riga.unitaMisura)
+              : 0
+          }
           usaSabato={usaSabato}
           onToggleSabato={setUsaSabato}
           attivitaDrafts={attivitaDrafts}

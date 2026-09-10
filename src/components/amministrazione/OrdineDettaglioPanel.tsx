@@ -274,7 +274,9 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
                   <td className="px-3 py-2">
                     {r.prodottoCodice} — {r.prodottoNome}
                   </td>
-                  <td className="px-3 py-2 tabular-nums">{r.quantita}</td>
+                  <td className="px-3 py-2 tabular-nums">
+                    {r.quantita} {r.unitaMisura}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">
                     {formatEuro(r.prezzoUnitario)}
                   </td>

@@ -1250,6 +1250,7 @@ export interface OrdineRigaRow {
   prodotto_codice: string;
   prodotto_nome: string;
   quantita: number;
+  unita_misura?: string;
   prezzo_unitario: number;
   iva_percentuale: number;
   sort_order: number;
@@ -1264,6 +1265,7 @@ export interface OrdineRigaInsert {
   prodotto_codice?: string;
   prodotto_nome?: string;
   quantita?: number;
+  unita_misura?: string;
   prezzo_unitario?: number;
   iva_percentuale?: number;
   sort_order?: number;
@@ -1313,7 +1315,7 @@ export interface CampionaturaRigaRow {
   prodotto_codice: string;
   prodotto_nome: string;
   quantita: number;
-  unita_misura: "g" | "kg" | "pz" | "ml";
+  unita_misura: "g" | "kg" | "pz" | "ml" | "lt";
   lotto_codice: string;
   note: string;
   sort_order: number;
