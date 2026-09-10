@@ -10,6 +10,7 @@ import {
   ANAGRAFICA_ACTION_KEYS,
   canDeleteAnagraficaRecord,
   canEditAnagraficaRecord,
+  canViewAnagraficaTimeline,
 } from "@/lib/auth/anagrafica-privileges";
 import type { PageAccessMap } from "@/lib/auth/page-access";
 
@@ -84,6 +85,12 @@ export function useAnagraficaPrivileges(kind: AnagraficaPrivilegeKind) {
   return {
     userId,
     canTimeline: privilegedAllowed(keys.timeline),
+    canTimelineRecord: (treatAsOwn = false) =>
+      canViewAnagraficaTimeline({
+        bypass: bypassPrivileges,
+        treatAsOwn,
+        showOthers: privilegedAllowed(keys.timeline),
+      }),
     canEdit: (
       createdBy: string | null | undefined,
       treatAsOwn = false

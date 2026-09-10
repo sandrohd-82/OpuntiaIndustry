@@ -132,16 +132,45 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   if (!parsed.success) {
     return { success: false, error: "Azienda non valida." };
   }
-  const timelineKind = kindFromAziendaTipo(parsed.data.aziendaTipo);
+  const { aziendaTipo, aziendaId } = parsed.data;
+  const service = createServiceClient();
+  const table =
+    aziendaTipo === "cliente"
+      ? "clienti"
+      : aziendaTipo === "fornitore"
+        ? "fornitori"
+        : "clienti_possibili";
+  const { data: azRow } = await service
+    .from(table)
+    .select("created_by")
+    .eq("id", aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!azRow) {
+    return { success: false, error: "Azienda non trovata." };
+  }
+  let commercialeId: string | null = null;
+  if (aziendaTipo !== "fornitore") {
+    const { data: azComm } = await service
+      .from(table)
+      .select("commerciale_id")
+      .eq("id", aziendaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const raw = (azComm as { commerciale_id?: string | null } | null)
+      ?.commerciale_id;
+    commercialeId = raw ? String(raw) : null;
+  }
+  const timelineKind = kindFromAziendaTipo(aziendaTipo);
   if (timelineKind) {
     const tlGate = await assertAnagraficaPrivilege({
       kind: timelineKind,
       op: "timeline",
+      createdBy: azRow.created_by ? String(azRow.created_by) : null,
+      commercialeId,
     });
     if (!tlGate.ok) return { success: false, error: tlGate.error };
   }
-  const { aziendaTipo, aziendaId } = parsed.data;
-  const service = createServiceClient();
   const items: AziendaTimelineItem[] = [];
   const vis = await resolveWebmailAccountVisibility(auth);
   const grantedIds = vis.mode === "granted" ? vis.ids : null;

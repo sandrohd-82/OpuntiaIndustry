@@ -63,6 +63,17 @@ export function canDeleteAnagraficaRecord(opts: {
   return opts.editOthers;
 }
 
+/** Timeline/fatture: sempre sulle proprie (caricate o collegate); azione On = anche le altre. */
+export function canViewAnagraficaTimeline(opts: {
+  bypass: boolean;
+  showOthers: boolean;
+  treatAsOwn?: boolean;
+}): boolean {
+  if (opts.bypass) return true;
+  if (opts.treatAsOwn) return true;
+  return opts.showOthers;
+}
+
 export function evaluateAnagraficaPrivilege(opts: {
   actionAccess: PageAccessMap;
   userId: string;
@@ -73,7 +84,13 @@ export function evaluateAnagraficaPrivilege(opts: {
 }): { ok: true } | { ok: false; error: string } {
   const keys = ANAGRAFICA_ACTION_KEYS[opts.kind];
   if (opts.op === "timeline") {
-    if (isPrivilegedActionOn(opts.actionAccess, keys.timeline)) {
+    if (
+      canViewAnagraficaTimeline({
+        bypass: false,
+        treatAsOwn: opts.treatAsOwn,
+        showOthers: isPrivilegedActionOn(opts.actionAccess, keys.timeline),
+      })
+    ) {
       return { ok: true };
     }
     return {

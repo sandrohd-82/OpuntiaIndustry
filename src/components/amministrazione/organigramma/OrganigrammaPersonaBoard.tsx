@@ -28,6 +28,8 @@ import {
   uploadPersonaFotoAction,
   listPersonaContrattiAction,
 } from "@/app/actions/organigramma";
+import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
+import { AziendeCommercialeCard } from "@/components/amministrazione/organigramma/AziendeCommercialeCard";
 import { ContrattoElenco } from "@/components/amministrazione/organigramma/ContrattoElenco";
 import { DocumentoElenco } from "@/components/amministrazione/organigramma/DocumentoElenco";
 import { CreateGestionaleProfileModal } from "@/components/amministrazione/organigramma/CreateGestionaleProfileModal";
@@ -113,6 +115,13 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [exportOpen, setExportOpen] = useState(false);
+  const [lineageIds, setLineageIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    void getCommercialeAnagraficaContextAction().then((ctx) => {
+      setLineageIds(ctx.lineageIds);
+    });
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -180,6 +189,7 @@ export function OrganigrammaPersonaBoard({ personaId }: Props) {
         onSaved={() => setRefresh((n) => n + 1)}
         onError={setError}
       />
+      <AziendeCommercialeCard persona={item} lineageIds={lineageIds} />
       {linkingProfile && !item.userId ? (
         <CreateGestionaleProfileModal
           persona={item}

@@ -2,15 +2,22 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
+import { mapClienteRow, type Cliente } from "@/lib/amministrazione/clienti";
+import type { ClienteRow } from "@/types/database";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   COMMERCIALE_GRADO_RANK,
+  commercialeAziendaOrigine,
   commercialeGradoLabel,
   parseCommercialeGrado,
   type CommercialeAssegnabile,
+  type CommercialeAziendaOrigine,
   type CommercialeGrado,
 } from "@/lib/auth/commerciale";
-import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
+import {
+  loadCommercialLineageUserIds,
+  loadCommercialeLabels,
+} from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
@@ -253,4 +260,72 @@ export async function assignCommercialeAnagraficaAction(
     commercialeNome,
     commercialeGrado,
   };
+}
+
+export type AziendaCommercialePortfolio = Cliente & {
+  origine: CommercialeAziendaOrigine;
+};
+
+const personaIdSchema = z.object({ personaId: z.string().uuid() });
+
+/** Aziende caricate o collegate al profilo gestionale dell’operatore. */
+export async function listAziendeCommercialePersonaAction(
+  raw: unknown
+): Promise<
+  | { success: true; userId: string | null; aziende: AziendaCommercialePortfolio[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const parsed = personaIdSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Operatore non valido." };
+  }
+
+  const service = createServiceClient();
+  const { data: persona, error: personaError } = await service
+    .from("organigramma_persone")
+    .select("id, user_id")
+    .eq("id", parsed.data.personaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (personaError) return { success: false, error: personaError.message };
+  if (!persona) return { success: false, error: "Operatore non trovato." };
+
+  const userId = persona.user_id ? String(persona.user_id) : null;
+  if (!userId) {
+    return { success: true, userId: null, aziende: [] };
+  }
+
+  const { data: rows, error } = await service
+    .from("clienti")
+    .select("*")
+    .or(`created_by.eq.${userId},commerciale_id.eq.${userId}`)
+    .is("deleted_at", null)
+    .order("ragione_sociale", { ascending: true });
+  if (error) return { success: false, error: error.message };
+
+  const labels = await loadCommercialeLabels(
+    (rows ?? [])
+      .map((r) => String((r as { commerciale_id?: string | null }).commerciale_id ?? ""))
+      .filter(Boolean)
+  );
+
+  const aziende = (rows ?? []).map((row) => {
+    const mapped = mapClienteRow(
+      row as ClienteRow,
+      row.commerciale_id
+        ? labels.get(String(row.commerciale_id))
+        : undefined
+    );
+    return {
+      ...mapped,
+      origine: commercialeAziendaOrigine({
+        userId,
+        createdBy: mapped.createdBy,
+        commercialeId: mapped.commercialeId,
+      }),
+    };
+  });
+
+  return { success: true, userId, aziende };
 }

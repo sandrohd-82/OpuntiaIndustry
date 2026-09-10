@@ -76,7 +76,14 @@ export function PossibiliClientiBoard() {
       </div>
 
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
-        {items.map((lead) => (
+        {items.map((lead) => {
+          const treatAsOwn = isCommercialOwnRecord({
+            userId: priv.userId,
+            createdBy: lead.createdBy,
+            commercialeId: lead.commercialeId,
+            lineageIds,
+          });
+          return (
           <li
             key={lead.id}
             className="flex flex-wrap items-start gap-3 px-4 py-3"
@@ -96,7 +103,7 @@ export function PossibiliClientiBoard() {
                 Commerciale: {formatCommercialeAssegnazione(lead)}
               </p>
             </div>
-            {priv.canTimeline ? (
+            {priv.canTimelineRecord(treatAsOwn) ? (
             <button
               type="button"
               onClick={() => setTimelineFor(lead)}
@@ -109,12 +116,7 @@ export function PossibiliClientiBoard() {
             ) : null}
             {priv.canEdit(
               lead.createdBy,
-              isCommercialOwnRecord({
-                userId: priv.userId,
-                createdBy: lead.createdBy,
-                commercialeId: lead.commercialeId,
-                lineageIds,
-              })
+              treatAsOwn
             ) ? (
             <button
               type="button"
@@ -125,15 +127,7 @@ export function PossibiliClientiBoard() {
               Modifica
             </button>
             ) : null}
-            {priv.canDelete(
-              lead.createdBy,
-              isCommercialOwnRecord({
-                userId: priv.userId,
-                createdBy: lead.createdBy,
-                commercialeId: lead.commercialeId,
-                lineageIds,
-              })
-            ) ? (
+            {priv.canDelete(lead.createdBy, treatAsOwn) ? (
             <button
               type="button"
               onClick={() => setDeleting(lead)}
@@ -144,7 +138,8 @@ export function PossibiliClientiBoard() {
             </button>
             ) : null}
           </li>
-        ))}
+          );
+        })}
         {items.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
             Nessun possibile cliente. Usa «Nuovo possibile cliente».

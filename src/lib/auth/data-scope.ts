@@ -50,11 +50,11 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
   {
     key: "anagrafiche_clienti",
     title: "Clienti, possibili clienti e rubrica",
-    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica. Sotto: timeline, modifica schede altrui, eliminazione.",
+    hint: "Obbligatoria. Vale per elenco clienti, possibili clienti e rubrica. Le schede collegate al commerciale valgono come quelle caricate da lui (timeline e fatture). Sotto: timeline anche delle altre, modifica schede altrui, eliminazione.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
-      { value: "proprie", label: "Solo quelle da lui inserite" },
+      { value: "proprie", label: "Solo quelle da lui inserite o a lui collegate" },
     ],
   },
   {
@@ -92,13 +92,13 @@ export const SENSITIVE_SCOPE_GROUPS: readonly SensitiveScopeGroup[] = [
     key: "statistiche_aziende",
     section: "Statistiche",
     title: "Aziende",
-    hint: "Obbligatoria. Tutte le aziende oppure solo quelle inserite da lui.",
+    hint: "Obbligatoria. Tutte le aziende oppure solo quelle inserite o collegate a lui.",
     required: true,
     modes: [
       { value: "tutte", label: "Tutte" },
       {
         value: "aziende_proprie",
-        label: "Solo collegate ad aziende inserite da lui",
+        label: "Solo collegate ad aziende inserite o assegnate a lui",
       },
     ],
   },
@@ -120,7 +120,7 @@ const DOC_MODES: ReadonlyArray<{ value: DataScopeMode; label: string }> = [
   { value: "da_oggi", label: "Da oggi" },
   {
     value: "aziende_proprie",
-    label: "Solo quelle collegate alle aziende da lui caricate",
+    label: "Solo quelle collegate alle aziende da lui caricate o a lui assegnate",
   },
 ];
 

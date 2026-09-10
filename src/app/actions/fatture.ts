@@ -30,12 +30,13 @@ import {
   type FatturaRinumeraRow,
 } from "@/lib/amministrazione/fatture-rinumerazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import { todayRomeDate } from "@/lib/auth/data-scope";
 import {
   loadOwnedAziendaIds,
   resolveScopeMode,
 } from "@/lib/auth/data-scope-enforce";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type {
   FatturaEmessaDilazioneInsert,
   FatturaEmessaDilazioneRow,
@@ -2412,6 +2413,69 @@ export async function listFattureEmesseClienteAction(input: {
     };
   });
   return { success: true, fatture };
+}
+
+export type AziendaFatturaElencoItem = {
+  id: string;
+  numero: string;
+  dataEmissione: string;
+  totale: number;
+  statoPagamento: string;
+};
+
+/** Fatture emesse di un cliente (portfolio commerciale: caricato o collegato). */
+export async function listFattureClientePortfolioAction(input: {
+  clienteId: string;
+}): Promise<
+  | { success: true; fatture: AziendaFatturaElencoItem[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const clienteId = String(input.clienteId ?? "").trim();
+  if (!clienteId) {
+    return { success: false, error: "Cliente non valido." };
+  }
+  const service = createServiceClient();
+  const { data: cliente, error: clienteError } = await service
+    .from("clienti")
+    .select("id, created_by, commerciale_id")
+    .eq("id", clienteId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (clienteError) return { success: false, error: clienteError.message };
+  if (!cliente) return { success: false, error: "Cliente non trovato." };
+
+  const gate = await assertAnagraficaPrivilege({
+    kind: "cliente",
+    op: "timeline",
+    createdBy: cliente.created_by ? String(cliente.created_by) : null,
+    commercialeId: cliente.commerciale_id
+      ? String(cliente.commerciale_id)
+      : null,
+  });
+  if (!gate.ok) return { success: false, error: gate.error };
+
+  const { data, error } = await service
+    .from("fatture_emesse")
+    .select(
+      "id, numero_interno, numero_fattura, data_emissione, totale, stato_pagamento"
+    )
+    .eq("cliente_id", clienteId)
+    .is("deleted_at", null)
+    .order("data_emissione", { ascending: false })
+    .limit(300);
+  if (error) return { success: false, error: error.message };
+
+  return {
+    success: true,
+    fatture: (data ?? []).map((r) => ({
+      id: String(r.id),
+      numero: String(r.numero_fattura || r.numero_interno || "—"),
+      dataEmissione: String(r.data_emissione ?? ""),
+      totale: Number(r.totale) || 0,
+      statoPagamento: String(r.stato_pagamento ?? "—"),
+    })),
+  };
 }
 
 export type DilazioneFatturaOption = {

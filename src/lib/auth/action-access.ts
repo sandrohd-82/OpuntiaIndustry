@@ -44,7 +44,7 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
     "Amministrazione",
     "/app/amministrazione/clienti/elenco",
     "timeline",
-    "Mostra timeline",
+    "Mostra timeline anche di schede non sue",
     "cliente"
   ),
   item(
@@ -66,7 +66,7 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
     "Amministrazione",
     "/app/amministrazione/clienti/possibili",
     "timeline",
-    "Mostra timeline",
+    "Mostra timeline anche di schede non sue",
     "cliente_possibile"
   ),
   item(

@@ -67,6 +67,30 @@ export type CommercialeAssegnabile = {
   grado: CommercialeGrado | null;
 };
 
+export type CommercialeAziendaOrigine = "caricata" | "collegata" | "entrambe";
+
+export function commercialeAziendaOrigine(opts: {
+  userId: string;
+  createdBy?: string | null;
+  commercialeId?: string | null;
+}): CommercialeAziendaOrigine {
+  const caricata = Boolean(opts.createdBy && opts.createdBy === opts.userId);
+  const collegata = Boolean(
+    opts.commercialeId && opts.commercialeId === opts.userId
+  );
+  if (caricata && collegata) return "entrambe";
+  if (collegata) return "collegata";
+  return "caricata";
+}
+
+export function commercialeAziendaOrigineLabel(
+  origine: CommercialeAziendaOrigine
+): string {
+  if (origine === "collegata") return "Collegata";
+  if (origine === "entrambe") return "Caricata e collegata";
+  return "Caricata da lui";
+}
+
 export function isCommercialOwnRecord(opts: {
   userId: string;
   createdBy?: string | null;
