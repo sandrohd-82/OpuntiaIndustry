@@ -7,10 +7,12 @@ type Props = {
   title: string;
   children: ReactNode;
   wide?: boolean;
+  /** Classi extra sul pulsante «i» (es. angolo card). */
+  buttonClassName?: string;
 };
 
 /** Icona «i»: al click apre la spiegazione (niente tooltip al solo hover). */
-export function InfoHint({ title, children, wide }: Props) {
+export function InfoHint({ title, children, wide, buttonClassName }: Props) {
   const titleId = useId();
   const [open, setOpen] = useState(false);
 
@@ -20,9 +22,12 @@ export function InfoHint({ title, children, wide }: Props) {
         type="button"
         aria-label={`Informazioni: ${title}`}
         onClick={() => setOpen(true)}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-sky-700 hover:bg-sky-50"
+        className={
+          buttonClassName ??
+          "inline-flex h-4 w-4 items-center justify-center rounded-full text-sky-700 hover:bg-sky-50"
+        }
       >
-        <FaCircleInfo size={12} />
+        <FaCircleInfo size={buttonClassName ? 16 : 12} />
       </button>
       {open ? (
         <span

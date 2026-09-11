@@ -9,6 +9,7 @@ import {
 } from "@/app/actions/action-essiccatore-sensori";
 import { ActionEssiccatoreSensorFlags } from "@/components/action/ActionEssiccatoreSensorFlags";
 import { PdfFirstPageImage } from "@/components/action/PdfFirstPageImage";
+import { InfoHint } from "@/components/ui/InfoHint";
 import {
   ACTION_ESSICCATORI,
   CARICO_TIPO_LABELS,
@@ -67,8 +68,44 @@ function EssiccatoreBox({
   onRename: (id: string, nome: string) => void;
 }) {
   return (
-    <article className="flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
-      <div className="relative aspect-[16/10] overflow-hidden rounded-t-xl bg-slate-50">
+    <article className="relative flex flex-col overflow-visible rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-sm">
+      <div className="absolute right-3 top-3 z-10">
+        <InfoHint
+          title={item.nome}
+          wide
+          buttonClassName="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-sky-700 shadow-sm ring-1 ring-slate-200 hover:bg-sky-50"
+        >
+          <dl className="space-y-2">
+            <div>
+              <dt className="text-xs text-slate-500">Targa</dt>
+              <dd className="font-mono font-medium">{item.codice}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-slate-500">Capacità max</dt>
+              <dd className="font-medium tabular-nums">
+                {formatCapacitaKg(item.capacitaMaxKg)}{" "}
+                <span className="font-normal text-slate-500">
+                  ({CARICO_TIPO_LABELS[item.caricoTipo]})
+                </span>
+              </dd>
+            </div>
+            {item.note ? (
+              <div>
+                <dt className="text-xs text-slate-500">Carico</dt>
+                <dd>{item.note}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt className="text-xs text-slate-500">Stato</dt>
+              <dd>Installato in azienda</dd>
+            </div>
+          </dl>
+        </InfoHint>
+      </div>
+      <header className="px-5 pb-2 pt-4 pr-12">
+        <h2 className="text-lg font-semibold leading-tight">{item.nome}</h2>
+      </header>
+      <div className="relative aspect-[16/10] overflow-hidden bg-slate-50">
         <PdfFirstPageImage
           src={item.imageSrc}
           alt={item.nome}
@@ -84,30 +121,6 @@ function EssiccatoreBox({
       </div>
       <div className="flex items-center justify-end px-3 py-2">
         <EssiccatoreCommandIcons nome={item.nome} />
-      </div>
-      <div className="flex flex-1 flex-col px-5 pb-5">
-        <p className="text-xs font-medium uppercase tracking-wider text-[var(--muted)]">
-          {item.codice}
-        </p>
-        <h2 className="mt-1 text-lg font-semibold">{item.nome}</h2>
-        <dl className="mt-4 space-y-2 text-sm">
-          <div>
-            <dt className="text-[var(--muted)]">Capacità max</dt>
-            <dd className="font-medium tabular-nums">
-              {formatCapacitaKg(item.capacitaMaxKg)}{" "}
-              <span className="font-normal text-[var(--muted)]">
-                ({CARICO_TIPO_LABELS[item.caricoTipo]})
-              </span>
-            </dd>
-          </div>
-          {item.note ? (
-            <div>
-              <dt className="text-[var(--muted)]">Carico</dt>
-              <dd>{item.note}</dd>
-            </div>
-          ) : null}
-        </dl>
-        <p className="mt-4 text-xs text-[var(--muted)]">Installato in azienda</p>
       </div>
     </article>
   );
