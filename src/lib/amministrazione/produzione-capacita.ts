@@ -3,7 +3,10 @@ import {
   confezionamentoDraftSchema,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { ORDINE_UNITA_MISURA } from "@/lib/amministrazione/ordini";
+import {
+  ORDINE_UNITA_MISURA,
+  quantitaInUnitaBase,
+} from "@/lib/amministrazione/ordini";
 
 /** Linea produttiva: secco (ODR/NDR) vs gel (OGL/NGL). */
 export type LineaProduzioneCodice = "secco" | "gel";
@@ -223,7 +226,11 @@ export const ordineWizardInputSchema = z
     const conf = val.confezionamento;
     if (conf && conf.nodi.length > 0) {
       const kgConf = totaleKgConfezionati(conf.nodi);
-      const delta = Math.round((val.quantita - kgConf) * 1000) / 1000;
+      const kgOrdine = quantitaInUnitaBase(
+        val.quantita,
+        val.unitaMisura ?? "kg"
+      );
+      const delta = Math.round((kgOrdine - kgConf) * 1000) / 1000;
       if (Math.abs(delta) > 0.001 && !conf.coerenzaIgnorata) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

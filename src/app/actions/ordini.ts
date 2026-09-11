@@ -793,6 +793,22 @@ export async function listOrdineAuditLogAction(
 export async function createOrdineWizardAction(
   raw: unknown
 ): Promise<OrdiniActionResult> {
+  try {
+    return await createOrdineWizardActionInner(raw);
+  } catch (e) {
+    console.error("[createOrdineWizardAction]", e);
+    return {
+      success: false,
+      error: e instanceof Error && !e.message.startsWith("NEXT_")
+        ? e.message
+        : "Errore creazione ordine.",
+    };
+  }
+}
+
+async function createOrdineWizardActionInner(
+  raw: unknown
+): Promise<OrdiniActionResult> {
   const { auth } = await requireOrdineCreateAccess();
   const resolved = await resolveClientePerOrdineFromRawAction(raw);
   if (!resolved.success) return resolved;

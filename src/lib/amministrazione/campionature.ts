@@ -97,7 +97,7 @@ export const campionaturaRigaSchema = z.object({
   prodottoId: z.string().uuid("Seleziona un prodotto"),
   prodottoCodice: z.string().trim().min(1),
   prodottoNome: z.string().trim().min(1),
-  quantita: z.number().positive("Quantità maggiore di zero"),
+  quantita: z.coerce.number().positive("Quantità maggiore di zero"),
   unitaMisura: z.enum(CAMPIONATURA_UM),
   lottoCodice: z.string().trim().max(80).optional().default(""),
   note: z.string().trim().max(500).optional().default(""),

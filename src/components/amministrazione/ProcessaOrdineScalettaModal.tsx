@@ -68,17 +68,27 @@ export function ProcessaOrdineScalettaModal({
       urgente,
       usaMagazzino,
       usaSabato,
-    }).then((res) => {
-      if (cancelled) return;
-      setCalcoloLoading(false);
-      if (!res.success) {
-        setError(res.error);
+    })
+      .then((res) => {
+        if (cancelled) return;
+        if (!res.success) {
+          setError(res.error);
+          setCalcolo(null);
+          return;
+        }
+        setError(null);
+        setCalcolo(res.calcolo);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(
+          err instanceof Error ? err.message : "Calcolo consegna non disponibile."
+        );
         setCalcolo(null);
-        return;
-      }
-      setError(null);
-      setCalcolo(res.calcolo);
-    });
+      })
+      .finally(() => {
+        if (!cancelled) setCalcoloLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -108,24 +118,31 @@ export function ProcessaOrdineScalettaModal({
   }) {
     setSaving(true);
     setError(null);
-    const result = await processOrdineInScalettaAction({
-      ordineId: ordine.id,
-      giorniProduzione: payload.giorniProduzione,
-      giorniAttivita: payload.giorniAttivita,
-      attivitaSnapshot: payload.segmentiAttivita,
-      dataConsegnaCalendario: payload.dataConsegna,
-      urgente,
-      usaMagazzino,
-      usaSabato,
-      lottoCodice: lottoCodice.trim(),
-    });
-    setSaving(false);
-    if (!result.success) {
-      setError(result.error);
-      return;
+    try {
+      const result = await processOrdineInScalettaAction({
+        ordineId: ordine.id,
+        giorniProduzione: payload.giorniProduzione,
+        giorniAttivita: payload.giorniAttivita,
+        attivitaSnapshot: payload.segmentiAttivita,
+        dataConsegnaCalendario: payload.dataConsegna,
+        urgente,
+        usaMagazzino,
+        usaSabato,
+        lottoCodice: lottoCodice.trim(),
+      });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      setAttivitaDrafts(payload.attivitaDrafts);
+      onSaved(result.ordine);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+      );
+    } finally {
+      setSaving(false);
     }
-    setAttivitaDrafts(payload.attivitaDrafts);
-    onSaved(result.ordine);
   }
 
   async function processSenzaGiorni() {
@@ -135,23 +152,30 @@ export function ProcessaOrdineScalettaModal({
     }
     setSaving(true);
     setError(null);
-    const result = await processOrdineInScalettaAction({
-      ordineId: ordine.id,
-      giorniProduzione: [],
-      giorniAttivita: [],
-      attivitaSnapshot: [],
-      dataConsegnaCalendario: calcolo.dataConsegnaStimata,
-      urgente,
-      usaMagazzino,
-      usaSabato,
-      lottoCodice: lottoCodice.trim(),
-    });
-    setSaving(false);
-    if (!result.success) {
-      setError(result.error);
-      return;
+    try {
+      const result = await processOrdineInScalettaAction({
+        ordineId: ordine.id,
+        giorniProduzione: [],
+        giorniAttivita: [],
+        attivitaSnapshot: [],
+        dataConsegnaCalendario: calcolo.dataConsegnaStimata,
+        urgente,
+        usaMagazzino,
+        usaSabato,
+        lottoCodice: lottoCodice.trim(),
+      });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      onSaved(result.ordine);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+      );
+    } finally {
+      setSaving(false);
     }
-    onSaved(result.ordine);
   }
 
   return (

@@ -90,13 +90,15 @@ function mapCampionatura(
   };
 }
 
-async function nextSeq(targa: string): Promise<number> {
+async function nextSeq(
+  targa: string
+): Promise<{ ok: true; seq: number } | { ok: false; error: string }> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("campionature")
     .select("numero_interno")
     .is("deleted_at", null);
-  if (error) throw new Error(error.message);
+  if (error) return { ok: false, error: error.message };
   const code = targa.trim().toUpperCase().replace(/\s+/g, "");
   const re = new RegExp(
     `^Cp-\\d{2}-${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
@@ -107,7 +109,14 @@ async function nextSeq(targa: string): Promise<number> {
     const m = String(row.numero_interno).match(re);
     if (m) max = Math.max(max, Number(m[1]));
   }
-  return max + 1;
+  return { ok: true, seq: max + 1 };
+}
+
+function saveErrorMessage(e: unknown): string {
+  if (e instanceof Error && e.message && !e.message.startsWith("NEXT_")) {
+    return e.message;
+  }
+  return "Salvataggio non riuscito. Riprova.";
 }
 
 export async function listCampionatureAction(): Promise<
@@ -199,6 +208,19 @@ export async function createCampionaturaAction(
 ): Promise<
   { success: true; item: Campionatura } | { success: false; error: string }
 > {
+  try {
+    return await createCampionaturaActionInner(raw);
+  } catch (e) {
+    console.error("[createCampionaturaAction]", e);
+    return { success: false, error: saveErrorMessage(e) };
+  }
+}
+
+async function createCampionaturaActionInner(
+  raw: unknown
+): Promise<
+  { success: true; item: Campionatura } | { success: false; error: string }
+> {
   const gate = await requireCampionaturaAccess("write");
   if (!gate.ok) return { success: false, error: gate.error };
   const resolved = await resolveClientePerOrdineFromRawAction(raw);
@@ -217,7 +239,9 @@ export async function createCampionaturaAction(
   }
   const input = parsed.data;
   const now = new Date().toISOString();
-  const seq = await nextSeq(input.codiceTargaCliente);
+  const seqRes = await nextSeq(input.codiceTargaCliente);
+  if (!seqRes.ok) return { success: false, error: seqRes.error };
+  const seq = seqRes.seq;
   const numero = formatNumeroCampionatura(
     input.dataInvio,
     input.codiceTargaCliente,
@@ -383,22 +407,16 @@ export async function previewNumeroCampionaturaAction(input: {
 > {
   const gate = await requireCampionaturaAccess("read");
   if (!gate.ok) return { success: false, error: gate.error };
-  try {
-    const seq = await nextSeq(input.codiceTargaCliente);
-    return {
-      success: true,
-      numeroInterno: formatNumeroCampionatura(
-        input.dataInvio,
-        input.codiceTargaCliente,
-        seq
-      ),
-    };
-  } catch (e) {
-    return {
-      success: false,
-      error: e instanceof Error ? e.message : "Anteprima numero non disponibile",
-    };
-  }
+  const seqRes = await nextSeq(input.codiceTargaCliente);
+  if (!seqRes.ok) return { success: false, error: seqRes.error };
+  return {
+    success: true,
+    numeroInterno: formatNumeroCampionatura(
+      input.dataInvio,
+      input.codiceTargaCliente,
+      seqRes.seq
+    ),
+  };
 }
 
 export async function softDeleteCampionaturaAction(

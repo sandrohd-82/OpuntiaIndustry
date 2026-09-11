@@ -428,6 +428,7 @@ export function OrdineNuovoWizardModal({
     setCalcoloLoading(true);
     setFormError(null);
     const sab = opts?.usaSabatoOverride ?? usaSabato;
+    try {
     const result = await calcolaConsegnaOrdineAction({
       prodottoId: prodotto.id,
       prodottoCodice: prodotto.codice,
@@ -442,7 +443,6 @@ export function OrdineNuovoWizardModal({
       capacitaIngressoKgPerEssiccatoreOverride:
         kgEssiccatore === "" ? null : Number(kgEssiccatore),
     });
-    setCalcoloLoading(false);
     if (!result.success) {
       setFormError(result.error);
       setCalcolo(null);
@@ -462,6 +462,14 @@ export function OrdineNuovoWizardModal({
     }
     if (result.calcolo.chiedereSabato && !sab) {
       setSabatoProposto(true);
+    }
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Calcolo consegna non disponibile."
+      );
+      setCalcolo(null);
+    } finally {
+      setCalcoloLoading(false);
     }
   }
 
@@ -601,56 +609,63 @@ export function OrdineNuovoWizardModal({
     setSaving(true);
     setFormError(null);
     const confNorm = normalizeConfezionamentoDraft(conf);
-    const result = await createOrdineWizardAction({
-      anagraficaFonte,
-      possibileClienteId: possibileClienteId || null,
-      clienteId: clienteId || undefined,
-      cliente: clienteNome,
-      codiceTargaCliente: clienteTarga || "C000",
-      dataOrdine,
-      prodottoId: prodotto.id,
-      prodottoCodice: prodotto.codice,
-      prodottoNome: prodotto.nome,
-      quantita: quantitaInserita,
-      unitaMisura: umEffettiva,
-      prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
-      ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
-      consegnaTipo,
-      dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
-      urgente,
-      usaMagazzino,
-      usaSabato,
-      resaPercentualeOverride:
-        resaOverride === "" ? null : Number(resaOverride),
-      capacitaIngressoKgPerEssiccatoreOverride:
-        kgEssiccatore === "" ? null : Number(kgEssiccatore),
-      spedizioneMezzo: "corriere",
-      corriereId: corriereDopo ? null : corriereId || null,
-      corriereDaCompilare: corriereDopo,
-      spedizioneACarico: aCarico,
-      spedizionePctAgrinsicilia:
-        aCarico === "diviso" ? Number(pctAgrin) : null,
-      giorniProduzione,
-      giorniAttivita,
-      giorniPreparazione: giorniAttivita,
-      attivitaSnapshot,
-      dataConsegnaCalendario,
-      confezionamento: confNorm,
-      tipoPagamento,
-      tipo: tipoOrdine,
-      preventivoId: preventivoId || null,
-      webmailAccettazioneId: mailAccettazione?.id ?? null,
-      referenteAccettazioneId: referenteAccettazione?.id ?? null,
-      dataDisponibilitaPresunta: ordineSospeso
-        ? dataDisponibilitaPresunta || null
-        : null,
-    });
-    setSaving(false);
-    if (!result.success) {
-      setFormError(result.error);
-      return;
+    try {
+      const result = await createOrdineWizardAction({
+        anagraficaFonte,
+        possibileClienteId: possibileClienteId || null,
+        clienteId: clienteId || undefined,
+        cliente: clienteNome,
+        codiceTargaCliente: clienteTarga || "C000",
+        dataOrdine,
+        prodottoId: prodotto.id,
+        prodottoCodice: prodotto.codice,
+        prodottoNome: prodotto.nome,
+        quantita: quantitaInserita,
+        unitaMisura: umEffettiva,
+        prezzoUnitario: tipoOrdine === "campionatura" ? 0 : numberOrZero(prezzoUnitario),
+        ivaPercentuale: tipoOrdine === "campionatura" ? 0 : 22,
+        consegnaTipo,
+        dataRichiesta: consegnaTipo === "data" ? dataRichiesta || null : null,
+        urgente,
+        usaMagazzino,
+        usaSabato,
+        resaPercentualeOverride:
+          resaOverride === "" ? null : Number(resaOverride),
+        capacitaIngressoKgPerEssiccatoreOverride:
+          kgEssiccatore === "" ? null : Number(kgEssiccatore),
+        spedizioneMezzo: "corriere",
+        corriereId: corriereDopo ? null : corriereId || null,
+        corriereDaCompilare: corriereDopo,
+        spedizioneACarico: aCarico,
+        spedizionePctAgrinsicilia:
+          aCarico === "diviso" ? Number(pctAgrin) : null,
+        giorniProduzione,
+        giorniAttivita,
+        giorniPreparazione: giorniAttivita,
+        attivitaSnapshot,
+        dataConsegnaCalendario,
+        confezionamento: confNorm,
+        tipoPagamento,
+        tipo: tipoOrdine,
+        preventivoId: preventivoId || null,
+        webmailAccettazioneId: mailAccettazione?.id ?? null,
+        referenteAccettazioneId: referenteAccettazione?.id ?? null,
+        dataDisponibilitaPresunta: ordineSospeso
+          ? dataDisponibilitaPresunta || null
+          : null,
+      });
+      if (!result.success) {
+        setFormError(result.error);
+        return;
+      }
+      onSaved(result.ordine);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+      );
+    } finally {
+      setSaving(false);
     }
-    onSaved(result.ordine);
   }
 
   function applyCatalogToNodo(
@@ -1747,7 +1762,12 @@ export function OrdineNuovoWizardModal({
             ) : (
               <button
                 type="button"
-                disabled={saving || calcoloLoading || !calcolo?.dataConsegnaStimata}
+                disabled={
+                  saving ||
+                  calcoloLoading ||
+                  (tipoOrdine !== "campionatura" &&
+                    !calcolo?.dataConsegnaStimata)
+                }
                 onClick={() => void submit()}
                 className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
               >

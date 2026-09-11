@@ -11,7 +11,10 @@ import {
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { CampionaturaAltroPostoModal } from "@/components/amministrazione/CampionaturaAltroPostoModal";
-import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
+import {
+  ClearableNumberInput,
+  numberOrZero,
+} from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagrafica";
@@ -202,7 +205,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         prodottoId: r.prodottoId,
         prodottoCodice: prodotto?.codice ?? "",
         prodottoNome: prodotto?.nome ?? "",
-        quantita: r.quantita === "" ? 0 : r.quantita,
+        quantita: numberOrZero(r.quantita),
         unitaMisura: r.unitaMisura,
         lottoCodice: r.lottoCodice,
         note: r.note,
@@ -210,30 +213,37 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     });
     setSaving(true);
     setFormError(null);
-    const result = await createCampionaturaAction({
-      anagraficaFonte,
-      possibileClienteId: possibileClienteId || null,
-      clienteId: cliente.id || undefined,
-      cliente: cliente.ragioneSociale,
-      codiceTargaCliente: cliente.codiceTarga || "C000",
-      dataInvio,
-      mezzo,
-      pnNotaId: nota?.id ?? null,
-      webmailMessaggioId: mail?.id ?? null,
-      spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
-      spedizionePrivato,
-      referenteRicezioneId: referenteRicezione?.id ?? null,
-      destinatario: destinatario.trim() || cliente.ragioneSociale,
-      indirizzoSpedizione: indirizzo,
-      note,
-      righe: mapped,
-    });
-    setSaving(false);
-    if (!result.success) {
-      setFormError(result.error);
-      return;
+    try {
+      const result = await createCampionaturaAction({
+        anagraficaFonte,
+        possibileClienteId: possibileClienteId || null,
+        clienteId: cliente.id || undefined,
+        cliente: cliente.ragioneSociale,
+        codiceTargaCliente: cliente.codiceTarga || "C000",
+        dataInvio,
+        mezzo,
+        pnNotaId: nota?.id ?? null,
+        webmailMessaggioId: mail?.id ?? null,
+        spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
+        spedizionePrivato,
+        referenteRicezioneId: referenteRicezione?.id ?? null,
+        destinatario: destinatario.trim() || cliente.ragioneSociale,
+        indirizzoSpedizione: indirizzo,
+        note,
+        righe: mapped,
+      });
+      if (!result.success) {
+        setFormError(result.error);
+        return;
+      }
+      onSaved(result.item);
+    } catch (err) {
+      setFormError(
+        err instanceof Error ? err.message : "Salvataggio non riuscito. Riprova."
+      );
+    } finally {
+      setSaving(false);
     }
-    onSaved(result.item);
   }
 
   return (

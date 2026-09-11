@@ -12,7 +12,7 @@ import {
   type ResaBaseline,
   type StagioneProduzione,
 } from "@/lib/amministrazione/produzione-capacita";
-import { requireOrdineProcessAccess } from "@/lib/auth/ordini-access";
+import { requireOrdineReadAccess } from "@/lib/auth/ordini-access";
 
 async function loadLinee(
   supabase: Awaited<ReturnType<typeof createClient>>
@@ -131,7 +131,7 @@ export async function getGiacenzaProdottoAction(
   | { success: true; quantitaKg: number }
   | { success: false; error: string }
 > {
-  await requireOrdineProcessAccess();
+  await requireOrdineReadAccess();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("magazzino_giacenze")
@@ -152,7 +152,27 @@ export async function calcolaConsegnaOrdineAction(
   | { success: true; calcolo: CapacitaCalcoloResult; giacenzaKg: number }
   | { success: false; error: string }
 > {
-  await requireOrdineProcessAccess();
+  try {
+    return await calcolaConsegnaOrdineActionInner(raw);
+  } catch (e) {
+    console.error("[calcolaConsegnaOrdineAction]", e);
+    return {
+      success: false,
+      error:
+        e instanceof Error && !e.message.startsWith("NEXT_")
+          ? e.message
+          : "Calcolo consegna non disponibile.",
+    };
+  }
+}
+
+async function calcolaConsegnaOrdineActionInner(
+  raw: unknown
+): Promise<
+  | { success: true; calcolo: CapacitaCalcoloResult; giacenzaKg: number }
+  | { success: false; error: string }
+> {
+  await requireOrdineReadAccess();
   const parsed = calcoloConsegnaInputSchema.safeParse(raw);
   if (!parsed.success) {
     return {
