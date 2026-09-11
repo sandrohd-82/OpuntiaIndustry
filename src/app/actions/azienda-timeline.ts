@@ -195,6 +195,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         occurredAt: when,
         title: String(r.subject ?? "(senza oggetto)"),
         subtitle: `Mail da ${r.from_name || r.from_address || "—"}`,
+        sourceId: String(r.id),
         href: "/app/webmail/caselle",
       });
     }
@@ -353,6 +354,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         occurredAt: day,
         title: `Fattura emessa ${r.numero_fattura || r.numero_interno || ""}`.trim(),
         subtitle: `Pagamento: ${r.stato_pagamento ?? "—"} · Totale: ${r.totale ?? "—"}`,
+        sourceId: String(r.id),
         href: "/app/amministrazione/fatture",
       });
     }
@@ -380,6 +382,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
           r.numero_documento_esterno || r.numero_interno || ""
         }`.trim(),
         subtitle: `Pagamento: ${r.stato_pagamento ?? "—"} · Totale: ${r.totale ?? "—"}`,
+        sourceId: String(r.id),
         href: "/app/amministrazione/fatture",
       });
     }

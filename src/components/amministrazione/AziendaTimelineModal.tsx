@@ -21,11 +21,19 @@ import { createNotaPnAction, updateNotaPnAction } from "@/app/actions/promemorie
 import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
 import { NotaInserisciSheet } from "@/components/promemorie-e-note/NotaInserisciSheet";
 import { NotaSalvaBozzaModal } from "@/components/promemorie-e-note/NotaSalvaBozzaModal";
-import type {
-  AziendaTimelineItem,
-  AziendaTimelineKind,
-  AziendaTimelineTipo,
+import {
+  emptyTimelineKindFiltersOn,
+  timelineItemVisible,
+  TIMELINE_FILTER_GROUPS,
+  type AziendaTimelineItem,
+  type AziendaTimelineKind,
+  type AziendaTimelineTipo,
+  type TimelineKindFilters,
 } from "@/lib/amministrazione/azienda-timeline";
+import {
+  TimelineVisualizzaModal,
+  type TimelineVisualizzaTarget,
+} from "@/components/amministrazione/TimelineVisualizzaModal";
 import {
   applyPlaceholderValues,
   richToPlain,
@@ -122,16 +130,27 @@ type Props = {
   pickMode?: TimelinePickMode;
 };
 
+function canVisualizza(item: AziendaTimelineItem): boolean {
+  return (
+    (item.kind === "webmail" ||
+      item.kind === "fattura_emessa" ||
+      item.kind === "fattura_ricevuta") &&
+    Boolean(item.sourceId)
+  );
+}
+
 function TimelineCard({
   item,
   align,
   onEditNota,
   onPickNota,
+  onVisualizza,
 }: {
   item: AziendaTimelineItem;
   align: "left" | "right";
   onEditNota?: (item: AziendaTimelineItem) => void;
   onPickNota?: (item: AziendaTimelineItem) => void;
+  onVisualizza?: (item: AziendaTimelineItem) => void;
 }) {
   const isNota = item.kind === "nota";
   return (
@@ -203,6 +222,19 @@ function TimelineCard({
       ) : item.subtitle ? (
         <p className="mt-0.5 text-xs text-[var(--muted)]">{item.subtitle}</p>
       ) : null}
+      {canVisualizza(item) && onVisualizza ? (
+        <div
+          className={`mt-2 ${align === "left" ? "md:text-left" : ""}`}
+        >
+          <button
+            type="button"
+            onClick={() => onVisualizza(item)}
+            className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+          >
+            Visualizza
+          </button>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -223,6 +255,7 @@ function TimelineMailHitRow({
   pickMode,
   onSelect,
   onLink,
+  onVisualizza,
 }: {
   hit: AziendaTimelineMailHit;
   pending: boolean;
@@ -230,6 +263,7 @@ function TimelineMailHitRow({
   pickMode?: boolean;
   onSelect?: () => void;
   onLink?: () => void;
+  onVisualizza?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [bodyText, setBodyText] = useState("");
@@ -280,6 +314,18 @@ function TimelineMailHitRow({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {onVisualizza ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onVisualizza();
+              }}
+              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-800 hover:bg-slate-50"
+            >
+              Visualizza
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={(e) => {
@@ -449,6 +495,12 @@ export function AziendaTimelineModal({
   const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
     null
   );
+  const [kindFilters, setKindFilters] = useState<TimelineKindFilters>(
+    emptyTimelineKindFiltersOn
+  );
+  const [visualizza, setVisualizza] = useState<TimelineVisualizzaTarget | null>(
+    null
+  );
 
   const isMailPick =
     pickMode?.purpose === "campionatura-mail" ||
@@ -502,7 +554,43 @@ export function AziendaTimelineModal({
     setMailDomains(res.domains);
   }
 
-  const displayItems = useMemo(() => [...items].reverse(), [items]);
+  const presentFilterGroups = useMemo(() => {
+    const present = new Set(
+      TIMELINE_FILTER_GROUPS.filter((group) =>
+        items.some((item) =>
+          (group.kinds as readonly AziendaTimelineKind[]).includes(item.kind)
+        )
+      ).map((g) => g.key)
+    );
+    return TIMELINE_FILTER_GROUPS.filter(
+      (group) =>
+        group.key === "webmail" ||
+        group.key === "nota" ||
+        group.key === "fattura" ||
+        present.has(group.key)
+    );
+  }, [items]);
+
+  const displayItems = useMemo(
+    () => items.filter((item) => timelineItemVisible(item.kind, kindFilters)).reverse(),
+    [items, kindFilters]
+  );
+
+  function openVisualizzaItem(item: AziendaTimelineItem) {
+    if (!item.sourceId) return;
+    if (item.kind === "webmail") {
+      setVisualizza({ type: "mail", id: item.sourceId, title: item.title });
+      return;
+    }
+    if (item.kind === "fattura_emessa" || item.kind === "fattura_ricevuta") {
+      setVisualizza({
+        type: "fattura",
+        id: item.sourceId,
+        kind: item.kind === "fattura_emessa" ? "emessa" : "ricevuta",
+        title: item.title,
+      });
+    }
+  }
 
   function resetNotaForm() {
     setNotaTitolo("");
@@ -709,6 +797,7 @@ export function AziendaTimelineModal({
         if (
           inserisciOpen ||
           salvaBozzaOpen ||
+          visualizza ||
           hasNestedModalOpen()
         ) {
           return;
@@ -738,6 +827,39 @@ export function AziendaTimelineModal({
                   ? "Collega la mail WebMail della richiesta di campionatura."
                   : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note o collegare mail WebMail."}
             </p>
+            {presentFilterGroups.length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Mostra
+                </span>
+                {presentFilterGroups.map((group) => {
+                  const on = kindFilters[group.key];
+                  return (
+                    <label
+                      key={group.key}
+                      className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                        on
+                          ? "border-slate-300 bg-white text-slate-800"
+                          : "border-slate-200 bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() =>
+                          setKindFilters((prev) => ({
+                            ...prev,
+                            [group.key]: !prev[group.key],
+                          }))
+                        }
+                        className="rounded border-slate-400"
+                      />
+                      {group.label}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -1011,6 +1133,13 @@ export function AziendaTimelineModal({
                       setSelectedMail(hit);
                     }}
                     onLink={() => linkMail(hit)}
+                    onVisualizza={() =>
+                      setVisualizza({
+                        type: "mail",
+                        id: hit.id,
+                        title: hit.subject,
+                      })
+                    }
                   />
                 ))
               )}
@@ -1050,9 +1179,14 @@ export function AziendaTimelineModal({
             <p className="py-16 text-center text-sm text-[var(--muted)]">
               Caricamento timeline…
             </p>
-          ) : displayItems.length === 0 ? (
+          ) : items.length === 0 ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">
               Nessuna attività. Usa + Nota o + Mail per iniziare.
+            </p>
+          ) : displayItems.length === 0 ? (
+            <p className="py-16 text-center text-sm text-[var(--muted)]">
+              Nessuna attività per le tipologie accese. Riattiva almeno una
+              spunta (Mail, Note, Fatture…).
             </p>
           ) : (
             <div className="relative mx-auto w-full max-w-6xl">
@@ -1063,6 +1197,23 @@ export function AziendaTimelineModal({
               <ol className="relative space-y-8 md:space-y-10">
                 {displayItems.map((item, index) => {
                   const onLeft = index % 2 === 0;
+                  const cardExtra = {
+                    onVisualizza: openVisualizzaItem,
+                    onEditNota:
+                      pickMode?.purpose === "campionatura-nota"
+                        ? undefined
+                        : openEditNota,
+                    onPickNota:
+                      pickMode?.purpose === "campionatura-nota"
+                        ? (n: AziendaTimelineItem) => {
+                            if (!n.notaId) return;
+                            pickMode.onPicked({
+                              id: n.notaId,
+                              titolo: n.title,
+                            });
+                          }
+                        : undefined,
+                  };
                   return (
                     <li
                       key={item.id}
@@ -1078,22 +1229,7 @@ export function AziendaTimelineModal({
                         <TimelineCard
                           item={item}
                           align="right"
-                          onEditNota={
-                            pickMode?.purpose === "campionatura-nota"
-                              ? undefined
-                              : openEditNota
-                          }
-                          onPickNota={
-                            pickMode?.purpose === "campionatura-nota"
-                              ? (n) => {
-                                  if (!n.notaId) return;
-                                  pickMode.onPicked({
-                                    id: n.notaId,
-                                    titolo: n.title,
-                                  });
-                                }
-                              : undefined
-                          }
+                          {...cardExtra}
                         />
                       </div>
                       <div className="hidden md:block">
@@ -1101,22 +1237,7 @@ export function AziendaTimelineModal({
                           <TimelineCard
                             item={item}
                             align="left"
-                            onEditNota={
-                              pickMode?.purpose === "campionatura-nota"
-                                ? undefined
-                                : openEditNota
-                            }
-                            onPickNota={
-                              pickMode?.purpose === "campionatura-nota"
-                                ? (n) => {
-                                    if (!n.notaId) return;
-                                    pickMode.onPicked({
-                                      id: n.notaId,
-                                      titolo: n.title,
-                                    });
-                                  }
-                                : undefined
-                            }
+                            {...cardExtra}
                           />
                         ) : (
                           <div aria-hidden className="h-1" />
@@ -1133,22 +1254,7 @@ export function AziendaTimelineModal({
                           <TimelineCard
                             item={item}
                             align="right"
-                            onEditNota={
-                              pickMode?.purpose === "campionatura-nota"
-                                ? undefined
-                                : openEditNota
-                            }
-                            onPickNota={
-                              pickMode?.purpose === "campionatura-nota"
-                                ? (n) => {
-                                    if (!n.notaId) return;
-                                    pickMode.onPicked({
-                                      id: n.notaId,
-                                      titolo: n.title,
-                                    });
-                                  }
-                                : undefined
-                            }
+                            {...cardExtra}
                           />
                         ) : (
                           <div aria-hidden className="h-1" />
@@ -1194,6 +1300,13 @@ export function AziendaTimelineModal({
           setNotaBozzaId(item.id);
         }}
       />
+
+      {visualizza ? (
+        <TimelineVisualizzaModal
+          target={visualizza}
+          onClose={() => setVisualizza(null)}
+        />
+      ) : null}
     </div>
   );
 

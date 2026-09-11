@@ -18,6 +18,8 @@ export type AziendaTimelineItem = {
   occurredAt: string;
   title: string;
   subtitle: string;
+  /** Id sorgente (mail / fattura / ordine) per Visualizza. */
+  sourceId?: string;
   href?: string | null;
   /** Solo kind=nota */
   notaId?: string;
@@ -34,3 +36,41 @@ export type AziendaTimelineItem = {
     storagePath?: string;
   }>;
 };
+
+export const TIMELINE_FILTER_GROUPS = [
+  { key: "webmail", label: "Mail", kinds: ["webmail"] },
+  { key: "nota", label: "Note", kinds: ["nota"] },
+  { key: "fattura", label: "Fatture", kinds: ["fattura_emessa", "fattura_ricevuta"] },
+  { key: "ordine", label: "Ordini", kinds: ["ordine"] },
+  { key: "campionatura", label: "Campionature", kinds: ["campionatura"] },
+  { key: "rubrica", label: "Rubrica", kinds: ["rubrica"] },
+] as const;
+
+export type TimelineFilterKey = (typeof TIMELINE_FILTER_GROUPS)[number]["key"];
+
+export type TimelineKindFilters = Record<TimelineFilterKey, boolean>;
+
+export function emptyTimelineKindFiltersOn(): TimelineKindFilters {
+  return {
+    webmail: true,
+    nota: true,
+    fattura: true,
+    ordine: true,
+    campionatura: true,
+    rubrica: true,
+  };
+}
+
+export function timelineFilterKeyForKind(
+  kind: AziendaTimelineKind
+): TimelineFilterKey {
+  if (kind === "fattura_emessa" || kind === "fattura_ricevuta") return "fattura";
+  return kind;
+}
+
+export function timelineItemVisible(
+  kind: AziendaTimelineKind,
+  filters: TimelineKindFilters
+): boolean {
+  return filters[timelineFilterKeyForKind(kind)];
+}
