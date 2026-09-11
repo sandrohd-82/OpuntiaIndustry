@@ -219,11 +219,17 @@ function formatWhen(iso: string | null) {
 function TimelineMailHitRow({
   hit,
   pending,
+  selected,
+  pickMode,
+  onSelect,
   onLink,
 }: {
   hit: AziendaTimelineMailHit;
   pending: boolean;
-  onLink: () => void;
+  selected?: boolean;
+  pickMode?: boolean;
+  onSelect?: () => void;
+  onLink?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [bodyText, setBodyText] = useState("");
@@ -251,7 +257,20 @@ function TimelineMailHitRow({
   }, [open, hit.id]);
 
   return (
-    <li className="rounded-lg border border-[var(--border)] bg-white text-xs">
+    <li
+      className={`rounded-lg border bg-white text-xs ${
+        selected
+          ? "border-sky-500 ring-2 ring-sky-200"
+          : "border-[var(--border)]"
+      } ${pickMode ? "cursor-pointer" : ""}`}
+      onClick={
+        pickMode
+          ? () => {
+              onSelect?.();
+            }
+          : undefined
+      }
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-slate-900">{hit.subject}</p>
@@ -263,7 +282,10 @@ function TimelineMailHitRow({
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen((v) => !v);
+            }}
             aria-expanded={open}
             aria-label={
               open
@@ -282,14 +304,34 @@ function TimelineMailHitRow({
             <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-800">
               Già in timeline
             </span>
-          ) : (
+          ) : null}
+          {pickMode ? (
             <button
               type="button"
               disabled={pending}
-              onClick={onLink}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect?.();
+              }}
+              className={`rounded-lg px-2.5 py-1 text-[11px] font-medium ${
+                selected
+                  ? "bg-sky-700 text-white"
+                  : "border border-sky-300 bg-sky-50 text-sky-950 hover:bg-sky-100"
+              }`}
+            >
+              {selected ? "Selezionata" : "Seleziona"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={pending || !onLink}
+              onClick={(e) => {
+                e.stopPropagation();
+                onLink?.();
+              }}
               className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-50"
             >
-              Collega
+              {hit.alreadyLinked ? "Ricollega" : "Collega"}
             </button>
           )}
         </div>
@@ -404,6 +446,13 @@ export function AziendaTimelineModal({
   const [mailQuery, setMailQuery] = useState("");
   const [mailHits, setMailHits] = useState<AziendaTimelineMailHit[]>([]);
   const [mailSearching, setMailSearching] = useState(false);
+  const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
+    null
+  );
+
+  const isMailPick =
+    pickMode?.purpose === "campionatura-mail" ||
+    pickMode?.purpose === "ordine-accettazione-mail";
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -597,7 +646,6 @@ export function AziendaTimelineModal({
   }
 
   function linkMail(hit: AziendaTimelineMailHit) {
-    if (hit.alreadyLinked) return;
     setError(null);
     setInfo(null);
     startTransition(async () => {
@@ -614,12 +662,39 @@ export function AziendaTimelineModal({
       setInfo("Mail collegata alla timeline.");
       await reload();
       await runMailSearch(mailQuery);
-      if (
-        pickMode?.purpose === "campionatura-mail" ||
-        pickMode?.purpose === "ordine-accettazione-mail"
-      ) {
-        pickMode.onPicked({ id: hit.id, subject: hit.subject });
+    });
+  }
+
+  function confirmPickedMail() {
+    if (
+      !selectedMail ||
+      (pickMode?.purpose !== "campionatura-mail" &&
+        pickMode?.purpose !== "ordine-accettazione-mail")
+    ) {
+      return;
+    }
+    const picked = {
+      id: selectedMail.id,
+      subject: selectedMail.subject,
+    };
+    setError(null);
+    setInfo(null);
+    if (selectedMail.alreadyLinked) {
+      pickMode.onPicked(picked);
+      return;
+    }
+    startTransition(async () => {
+      const res = await linkWebmailToAziendaTimelineAction({
+        aziendaTipo,
+        aziendaId,
+        aziendaLabel,
+        messaggioId: selectedMail.id,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
       }
+      pickMode.onPicked(picked);
     });
   }
 
@@ -857,8 +932,9 @@ export function AziendaTimelineModal({
               Collega mail WebMail
             </p>
             <p className="mt-0.5 text-xs text-sky-900/80">
-              Default: indirizzi scheda/referenti e stesso dominio aziendale
-              (escl. caselle consumer). Solo caselle con i tuoi permessi.
+              {isMailPick
+                ? "Seleziona una mail anche se è già in timeline, poi premi Avanti per collegarla e chiudere."
+                : "Default: indirizzi scheda/referenti e stesso dominio aziendale (escl. caselle consumer). Solo caselle con i tuoi permessi."}
             </p>
             {mailHints.length > 0 || mailDomains.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -928,11 +1004,29 @@ export function AziendaTimelineModal({
                     key={hit.id}
                     hit={hit}
                     pending={pending}
+                    pickMode={isMailPick}
+                    selected={selectedMail?.id === hit.id}
+                    onSelect={() => {
+                      setError(null);
+                      setSelectedMail(hit);
+                    }}
                     onLink={() => linkMail(hit)}
                   />
                 ))
               )}
             </ul>
+            {isMailPick ? (
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  disabled={pending || !selectedMail}
+                  onClick={confirmPickedMail}
+                  className="rounded-lg bg-sky-700 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Avanti
+                </button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
