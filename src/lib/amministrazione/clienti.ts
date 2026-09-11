@@ -11,6 +11,7 @@ import {
 import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
+  matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
 
@@ -246,6 +247,8 @@ export type ClientiFilters = {
   citta: string;
   query: string;
   volume: ClientiVolumeFilter;
+  /** "" = tutte, "azienda" = senza commerciale, altrimenti uuid. */
+  commercialeArea: string;
 };
 
 export function emptyClientiFilters(): ClientiFilters {
@@ -254,6 +257,7 @@ export function emptyClientiFilters(): ClientiFilters {
     citta: "",
     query: "",
     volume: "",
+    commercialeArea: "",
   };
 }
 
@@ -262,7 +266,8 @@ export function hasActiveClientiFilters(filters: ClientiFilters): boolean {
     Boolean(filters.letter) ||
     Boolean(filters.citta.trim()) ||
     Boolean(filters.query.trim()) ||
-    Boolean(filters.volume)
+    Boolean(filters.volume) ||
+    Boolean(filters.commercialeArea.trim())
   );
 }
 
@@ -337,6 +342,10 @@ export function filterClienti(
     }
 
     if (!matchesVolume(volumeAcquistoClienteOf(c), filters.volume)) {
+      return false;
+    }
+
+    if (!matchesCommercialeArea(c, filters.commercialeArea)) {
       return false;
     }
 

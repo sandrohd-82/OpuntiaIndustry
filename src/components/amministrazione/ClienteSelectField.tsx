@@ -13,9 +13,11 @@ import { AZ } from "@/lib/auth/action-access";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { useClienti } from "@/hooks/useClienti";
 import type { Cliente } from "@/lib/amministrazione/clienti";
+import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
+  matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 
 type Props = {
@@ -50,6 +52,7 @@ export function ClienteSelectField({
   const [creating, setCreating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [commercialeArea, setCommercialeArea] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -72,14 +75,15 @@ export function ClienteSelectField({
 
   const filtered = useMemo(() => {
     const q = normalizeSearch(query);
-    if (!q) return sorted;
     return sorted.filter((c) => {
+      if (!matchesCommercialeArea(c, commercialeArea)) return false;
+      if (!q) return true;
       const hay = normalizeSearch(
         `${c.ragioneSociale} ${c.codiceTarga} ${c.partitaIva} ${c.codiceFiscale} ${commercialeAssegnazioneSearchText(c)}`
       );
       return hay.includes(q);
     });
-  }, [sorted, query]);
+  }, [sorted, query, commercialeArea]);
 
   useEffect(() => {
     if (!selected || open) return;
@@ -133,7 +137,14 @@ export function ClienteSelectField({
 
   return (
     <div className="space-y-2" ref={rootRef}>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="sm:w-56">
+          <CommercialeAreaFilterSelect
+            value={commercialeArea}
+            onChange={setCommercialeArea}
+            records={sorted}
+          />
+        </div>
         <div className="relative min-w-0 flex-1">
           <input
             ref={inputRef}
@@ -147,9 +158,7 @@ export function ClienteSelectField({
             required={required && !value}
             disabled={!ready}
             placeholder={
-              ready
-                ? "Cerca azienda, targa o commerciale (Azienda, nome…)"
-                : "Caricamento clienti…"
+              ready ? "Cerca azienda, targa, P.IVA…" : "Caricamento clienti…"
             }
             value={query}
             onFocus={() => {

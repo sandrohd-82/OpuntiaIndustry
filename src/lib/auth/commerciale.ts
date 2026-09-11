@@ -96,6 +96,69 @@ export function formatCommercialeAssegnazione(opts: {
     : nome;
 }
 
+/** Valore filtro: anagrafiche senza commerciale collegato. */
+export const COMMERCIALE_AREA_AZIENDA = "azienda";
+
+/** Nome compatto in menù: Rosario Pisano → R. Pisano. */
+export function formatCommercialeAreaBreve(nome: string): string {
+  const parts = nome
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "Commerciale";
+  if (parts.length === 1) return parts[0];
+  const first = parts[0].replace(/\.$/, "");
+  if (first.length <= 1) return parts.join(" ");
+  return `${first.charAt(0).toUpperCase()}. ${parts[parts.length - 1]}`;
+}
+
+export type CommercialeAreaOption = {
+  value: string;
+  label: string;
+};
+
+export function uniqueCommercialeAreaOptions(
+  records: Array<{
+    commercialeId: string | null | undefined;
+    commercialeNome?: string | null;
+  }>
+): CommercialeAreaOption[] {
+  const byId = new Map<string, string>();
+  for (const record of records) {
+    const id = record.commercialeId?.trim();
+    if (!id || byId.has(id)) continue;
+    const nome = String(record.commercialeNome ?? "").trim() || "Commerciale";
+    byId.set(id, formatCommercialeAreaBreve(nome));
+  }
+  return [...byId.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "it"));
+}
+
+export function matchesCommercialeArea(
+  record: { commercialeId: string | null | undefined },
+  filter: string
+): boolean {
+  const value = filter.trim();
+  if (!value) return true;
+  if (value === COMMERCIALE_AREA_AZIENDA) return !record.commercialeId;
+  return record.commercialeId === value;
+}
+
+export function commercialeAreaFilterLabel(
+  filter: string,
+  records: Array<{
+    commercialeId: string | null | undefined;
+    commercialeNome?: string | null;
+  }>
+): string {
+  const value = filter.trim();
+  if (!value) return "";
+  if (value === COMMERCIALE_AREA_AZIENDA) return "Azienda";
+  const hit = uniqueCommercialeAreaOptions(records).find((o) => o.value === value);
+  return hit?.label || "Commerciale";
+}
+
 /** Testo cercabile: Azienda, nome commerciale e grado (nuovi assegnatari inclusi). */
 export function commercialeAssegnazioneSearchText(opts: {
   commercialeId: string | null | undefined;

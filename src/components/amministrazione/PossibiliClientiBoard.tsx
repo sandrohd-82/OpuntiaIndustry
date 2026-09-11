@@ -9,10 +9,12 @@ import {
   softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
+import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
   isCommercialOwnRecord,
+  matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 import {
   ActionGate,
@@ -33,6 +35,7 @@ export function PossibiliClientiBoard() {
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
   const [query, setQuery] = useState("");
+  const [commercialeArea, setCommercialeArea] = useState("");
   const priv = useAnagraficaPrivileges("cliente_possibile");
   const [lineageIds, setLineageIds] = useState<string[]>([]);
 
@@ -42,8 +45,9 @@ export function PossibiliClientiBoard() {
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .trim();
-    if (!q) return items;
     return items.filter((lead) => {
+      if (!matchesCommercialeArea(lead, commercialeArea)) return false;
+      if (!q) return true;
       const hay = [
         lead.ragioneSociale,
         lead.partitaIva,
@@ -59,7 +63,7 @@ export function PossibiliClientiBoard() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [items, query]);
+  }, [items, query, commercialeArea]);
 
   function reload() {
     startTransition(async () => {
@@ -89,12 +93,19 @@ export function PossibiliClientiBoard() {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[14rem] sm:w-64">
+          <CommercialeAreaFilterSelect
+            value={commercialeArea}
+            onChange={setCommercialeArea}
+            records={items}
+          />
+        </div>
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca ragione sociale o commerciale (Azienda, nome…)"
+          placeholder="Cerca ragione sociale, P.IVA, città…"
           className="min-w-[16rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
         />
         <ActionGate actionKey={AZ.nuovoPossibileCliente}>
@@ -178,7 +189,7 @@ export function PossibiliClientiBoard() {
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
             {items.length === 0
               ? "Nessun possibile cliente. Usa «Nuovo possibile cliente»."
-              : `Nessun risultato per «${query}».`}
+              : "Nessun risultato con i filtri attivi."}
           </li>
         ) : null}
       </ul>

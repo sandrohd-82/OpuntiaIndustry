@@ -8,6 +8,7 @@ import {
   type ClientiFilters,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import { commercialeAreaFilterLabel } from "@/lib/auth/commerciale";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 
 function formatDateTime(date = new Date()): string {
@@ -23,7 +24,8 @@ function formatDateTime(date = new Date()): string {
 function describeExport(
   filters: ClientiFilters,
   selectedCount: number,
-  mode: "all-filtered" | "selection"
+  mode: "all-filtered" | "selection",
+  clienti: Cliente[] = []
 ): string[] {
   if (mode === "selection") {
     return [`Selezione manuale: ${selectedCount} aziende`];
@@ -42,6 +44,14 @@ function describeExport(
   if (filters.volume === "0") lines.push("Volume: nessun prodotto collegato");
   if (filters.volume === "1-3") lines.push("Volume: 1–3 prodotti collegati");
   if (filters.volume === "4+") lines.push("Volume: 4+ prodotti collegati");
+  if (filters.commercialeArea.trim()) {
+    lines.push(
+      `Area commerciale: ${commercialeAreaFilterLabel(
+        filters.commercialeArea,
+        clienti
+      )}`
+    );
+  }
   return lines.length ? lines : ["Filtri attivi"];
 }
 
@@ -99,7 +109,8 @@ function writeHeader(
   for (const line of describeExport(
     filters,
     clienti.length,
-    selectionMode ? "selection" : "all-filtered"
+    selectionMode ? "selection" : "all-filtered",
+    clienti
   )) {
     const wrapped = doc.splitTextToSize(line, pageWidth - marginX * 2);
     doc.text(wrapped, marginX, y);

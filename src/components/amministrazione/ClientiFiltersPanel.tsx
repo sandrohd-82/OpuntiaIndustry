@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FaChevronUp, FaFilter, FaXmark } from "react-icons/fa6";
+import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import {
   CLIENTI_ALPHABET,
   emptyClientiFilters,
@@ -42,7 +43,8 @@ export function ClientiFiltersPanel({
     Boolean(value.letter) ||
     Boolean(value.citta.trim()) ||
     Boolean(value.query.trim()) ||
-    Boolean(value.volume);
+    Boolean(value.volume) ||
+    Boolean(value.commercialeArea.trim());
 
   const suggestions = useMemo(
     () => suggestClienti(clienti, value.query, 8),
@@ -84,9 +86,8 @@ export function ClientiFiltersPanel({
       </div>
 
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Filtra per alfabeto, città, ricerca istantanea (anche commerciale:
-        Azienda, Rosario Pisano, …) o volume. L’export PDF usa l’elenco
-        risultante o la selezione.
+        Filtra per alfabeto, città, area commerciale, ricerca o volume.
+        L’export PDF usa l’elenco risultante o la selezione.
       </p>
 
       <div className="mt-3">
@@ -124,7 +125,12 @@ export function ClientiFiltersPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CommercialeAreaFilterSelect
+          value={value.commercialeArea}
+          onChange={(commercialeArea) => patch({ commercialeArea })}
+          records={clienti}
+        />
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Città
@@ -173,7 +179,7 @@ export function ClientiFiltersPanel({
             }}
             onFocus={() => setSuggestOpen(true)}
             onBlur={() => window.setTimeout(() => setSuggestOpen(false), 140)}
-            placeholder="Azienda, commerciale, targa, città…"
+            placeholder="Ragione sociale, targa, città…"
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           />
           {suggestOpen && suggestions.length > 0 && (

@@ -13,9 +13,11 @@ import { AZ } from "@/lib/auth/action-access";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
+import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
+  matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 
 type Props = {
@@ -55,6 +57,7 @@ export function PossibileClienteSelectField({
   const [creating, setCreating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [commercialeArea, setCommercialeArea] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -77,14 +80,15 @@ export function PossibileClienteSelectField({
 
   const filtered = useMemo(() => {
     const q = normalizeSearch(query);
-    if (!q) return sorted;
     return sorted.filter((c) => {
+      if (!matchesCommercialeArea(c, commercialeArea)) return false;
+      if (!q) return true;
       const hay = normalizeSearch(
         `${c.ragioneSociale} ${c.partitaIva} ${c.codiceFiscale} ${commercialeAssegnazioneSearchText(c)}`
       );
       return hay.includes(q);
     });
-  }, [sorted, query]);
+  }, [sorted, query, commercialeArea]);
 
   useEffect(() => {
     if (!selected || open) return;
@@ -138,7 +142,14 @@ export function PossibileClienteSelectField({
 
   return (
     <div className="space-y-2" ref={rootRef}>
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="sm:w-56">
+          <CommercialeAreaFilterSelect
+            value={commercialeArea}
+            onChange={setCommercialeArea}
+            records={sorted}
+          />
+        </div>
         <div className="relative min-w-0 flex-1">
           <input
             ref={inputRef}
@@ -153,7 +164,7 @@ export function PossibileClienteSelectField({
             disabled={!ready}
             placeholder={
               ready
-                ? "Cerca possibile cliente o commerciale (Azienda, nome…)"
+                ? "Cerca possibile cliente, P.IVA…"
                 : "Caricamento possibili clienti…"
             }
             value={query}
