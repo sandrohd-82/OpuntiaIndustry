@@ -50,7 +50,7 @@ export type RubricaTimelineItem = {
 export const createRubricaContattoSchema = z.object({
   nome: z.string().trim().min(1).max(80),
   cognome: z.string().trim().min(1).max(80),
-  telefono: z.string().trim().min(1).max(60),
+  telefono: z.string().trim().max(60).optional().default(""),
   email: z.string().trim().max(120).optional().default(""),
   rapporto: z.enum(["dipendente", "referente", "altro"]),
   aziendaTipo: z

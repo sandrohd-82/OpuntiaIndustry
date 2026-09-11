@@ -65,8 +65,8 @@ export function RubricaContattoFormModal({
   }, [aziendaTipo]);
 
   function save() {
-    if (!nome.trim() || !cognome.trim() || !telefono.trim() || !rapporto) {
-      setError("Compila Nome, Cognome, Telefono e Referente.");
+    if (!nome.trim() || !cognome.trim() || !rapporto) {
+      setError("Compila Nome, Cognome e Referente.");
       return;
     }
     startTransition(async () => {
@@ -116,8 +116,8 @@ export function RubricaContattoFormModal({
           <div>
             <h2 className="text-lg font-semibold">Nuovo contatto rubrica</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Obbligatori: Nome, Cognome, Telefono, Referente. Il resto si può
-              completare dopo.
+              Obbligatori: Nome, Cognome, Referente. Telefono e mail sono
+              facoltativi.
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Chiudi">
@@ -143,11 +143,10 @@ export function RubricaContattoFormModal({
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">Telefono *</span>
+            <span className="mb-1 block font-medium">Telefono</span>
             <input
               value={telefono}
               onChange={(e) => setTelefono(e.target.value)}
-              required
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
@@ -273,13 +272,7 @@ export function RubricaContattoFormModal({
           </button>
           <button
             type="button"
-            disabled={
-              pending ||
-              !nome.trim() ||
-              !cognome.trim() ||
-              !telefono.trim() ||
-              !rapporto
-            }
+            disabled={pending || !nome.trim() || !cognome.trim() || !rapporto}
             onClick={save}
             className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white disabled:opacity-50"
           >
