@@ -4,6 +4,7 @@ import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffer
 import { MateriePrimeBoard } from "@/components/amministrazione/MateriePrimeBoard";
 import { ProdottiPropriBoard } from "@/components/amministrazione/ProdottiPropriBoard";
 import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdottiBoard";
+import { MagazzinoInserisciQuantitaBoard } from "@/components/magazzino/MagazzinoInserisciQuantitaBoard";
 import { MagazzinoScanBoard } from "@/components/magazzino/MagazzinoScanBoard";
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
@@ -134,6 +135,17 @@ export default async function MagazzinoSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <CatalogoOffertaBoard kind="prodotto" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "prodotti-agrinsicilia" && sub === "inserisci-quantita") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <MagazzinoInserisciQuantitaBoard />
         </div>
       </>
     );

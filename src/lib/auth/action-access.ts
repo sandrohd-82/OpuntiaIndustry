@@ -137,6 +137,7 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
   item("Magazzino", "/app/magazzino/prodotti-di-consumo/elenco", "nuovo-prodotto", "Nuovo prodotto"),
   item("Magazzino", "/app/magazzino/prodotti-di-consumo/inserisci", "crea-nuovo-prodotto", "Crea nuovo prodotto"),
   item("Magazzino", "/app/magazzino/prodotti-agrinsicilia/elenco-e-quantita", "nuovo-prodotto-proprio", "Nuovo prodotto proprio"),
+  item("Magazzino", "/app/magazzino/prodotti-agrinsicilia/inserisci-quantita", "inserisci-quantita", "Inserisci quantità"),
 
   item("Area fiscale", "/app/area-fiscale/fatture/emesse", "registra-fattura", "Registra fattura"),
   item("Area fiscale", "/app/area-fiscale/fatture/ricevute", "registra-fattura", "Registra fattura"),
@@ -229,6 +230,8 @@ export const AZ = {
     "action:/app/magazzino/prodotti-di-consumo/inserisci/crea-nuovo-prodotto",
   nuovoProdottoProprioMag:
     "action:/app/magazzino/prodotti-agrinsicilia/elenco-e-quantita/nuovo-prodotto-proprio",
+  inserisciQuantitaAgrinsicilia:
+    "action:/app/magazzino/prodotti-agrinsicilia/inserisci-quantita/inserisci-quantita",
   registraFatturaEmessa:
     "action:/app/area-fiscale/fatture/emesse/registra-fattura",
   registraFatturaRicevuta:

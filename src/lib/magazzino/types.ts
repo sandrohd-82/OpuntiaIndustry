@@ -168,3 +168,67 @@ export function quantitaDaOrdinare(
   const delta = quantitaRiserva - quantita;
   return Math.max(1, Math.round(delta * 1000) / 1000);
 }
+
+export const MOTIVO_SENZA_FOGLIO = ["inventario", "rivisita_ordine"] as const;
+export type MotivoSenzaFoglio = (typeof MOTIVO_SENZA_FOGLIO)[number];
+
+export const MOTIVO_SENZA_FOGLIO_LABEL: Record<MotivoSenzaFoglio, string> = {
+  inventario: "Inventario",
+  rivisita_ordine: "Rivisita di ordine",
+};
+
+export const movimentoManualeSchema = z
+  .object({
+    prodottoId: z.string().uuid("Seleziona un prodotto"),
+    quantita: z.number().positive("Quantità maggiore di zero"),
+    unitaMisura: z.enum(["g", "kg"]),
+    lottoCodice: z.string().trim().min(1, "Lotto obbligatorio").max(80),
+    collegaFoglio: z.boolean(),
+    foglioId: z.string().uuid().nullable().optional(),
+    motivoSenzaFoglio: z.enum(MOTIVO_SENZA_FOGLIO).nullable().optional(),
+    note: z.string().trim().max(1000).optional().default(""),
+  })
+  .superRefine((val, ctx) => {
+    if (val.collegaFoglio && !val.foglioId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona il foglio di lavorazione.",
+        path: ["foglioId"],
+      });
+    }
+    if (!val.collegaFoglio && !val.motivoSenzaFoglio) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Indica il motivo del bypass (inventario o rivisita ordine).",
+        path: ["motivoSenzaFoglio"],
+      });
+    }
+    if (!val.collegaFoglio && !val.note.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "In bypass il dettaglio della motivazione è obbligatorio.",
+        path: ["note"],
+      });
+    }
+  });
+
+export type MovimentoManualeInput = z.infer<typeof movimentoManualeSchema>;
+
+export type FoglioApertoOption = {
+  id: string;
+  codice: string;
+  prodotto: string;
+  lottoLabel: string;
+  stato: "aperto" | "chiuso";
+};
+
+export type MovimentoAgrinsiciliaRiga = {
+  id: string;
+  createdAt: string;
+  prodottoCodice: string;
+  quantitaKg: number;
+  lottoCodice: string;
+  foglioCodice: string | null;
+  motivoSenzaFoglio: MotivoSenzaFoglio | null;
+  note: string;
+};

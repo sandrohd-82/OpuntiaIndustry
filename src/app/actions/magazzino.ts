@@ -5,12 +5,16 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   computeSemaforo,
   categoriaRequiresMagazzino,
+  movimentoManualeSchema,
   quantitaDaOrdinare,
   updateMagazzinoProdottoSchema,
   type CategoriaUtilizzo,
+  type FoglioApertoOption,
   type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
+  type MotivoSenzaFoglio,
+  type MovimentoAgrinsiciliaRiga,
   type NotaAcquisto,
   type NotaAcquistoRiga,
   type NotaAcquistoStato,
@@ -718,4 +722,258 @@ export async function chiudiNotaAcquistoAction(
     payload: { documento_stato: "chiusa" },
   });
   return { success: true };
+}
+
+const CATALOG_PROPRIO = "prodotto_proprio";
+
+export async function listProdottiPropriMagazzinoAction(): Promise<
+  | {
+      success: true;
+      prodotti: Array<{
+        id: string;
+        codice: string;
+        nome: string;
+        giacenzaKg: number;
+      }>;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const [{ data: prodotti, error: pErr }, { data: giacenze, error: gErr }] =
+    await Promise.all([
+      supabase
+        .from("prodotti_propri")
+        .select("id, codice, nome")
+        .is("deleted_at", null)
+        .order("codice", { ascending: true }),
+      supabase
+        .from("magazzino_giacenze")
+        .select("prodotto_id, quantita_kg")
+        .eq("catalog_kind", CATALOG_PROPRIO)
+        .is("deleted_at", null),
+    ]);
+  if (pErr) return { success: false, error: pErr.message };
+  if (gErr) return { success: false, error: gErr.message };
+  const qty = new Map(
+    ((giacenze ?? []) as Array<{ prodotto_id: string; quantita_kg: number }>).map(
+      (g) => [g.prodotto_id, Number(g.quantita_kg) || 0]
+    )
+  );
+  return {
+    success: true,
+    prodotti: ((prodotti ?? []) as Array<{
+      id: string;
+      codice: string;
+      nome: string;
+    }>).map((p) => ({
+      id: p.id,
+      codice: p.codice,
+      nome: p.nome,
+      giacenzaKg: qty.get(p.id) ?? 0,
+    })),
+  };
+}
+
+export async function listFogliApertiMagazzinoAction(): Promise<
+  | { success: true; items: FoglioApertoOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("produzione_fogli_lavorazione")
+    .select("id, codice, prodotto, lotto_label, stato")
+    .eq("stato", "aperto")
+    .is("deleted_at", null)
+    .order("started_at", { ascending: false })
+    .limit(120);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      codice: string;
+      prodotto: string | null;
+      lotto_label: string | null;
+      stato: "aperto" | "chiuso";
+    }>).map((r) => ({
+      id: r.id,
+      codice: r.codice,
+      prodotto: r.prodotto ?? "",
+      lottoLabel: r.lotto_label ?? "",
+      stato: r.stato,
+    })),
+  };
+}
+
+export async function listMovimentiAgrinsiciliaAction(): Promise<
+  | { success: true; items: MovimentoAgrinsiciliaRiga[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_movimenti")
+    .select(
+      "id, created_at, prodotto_codice, quantita_kg, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice)"
+    )
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(40);
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      created_at: string;
+      prodotto_codice: string;
+      quantita_kg: number;
+      lotto_codice: string | null;
+      motivo_senza_foglio: string | null;
+      note: string | null;
+      foglio: { codice: string } | { codice: string }[] | null;
+    }>).map((r) => {
+      const foglio = Array.isArray(r.foglio) ? r.foglio[0] : r.foglio;
+      const motivo =
+        r.motivo_senza_foglio === "inventario" ||
+        r.motivo_senza_foglio === "rivisita_ordine"
+          ? (r.motivo_senza_foglio as MotivoSenzaFoglio)
+          : null;
+      return {
+        id: r.id,
+        createdAt: r.created_at,
+        prodottoCodice: r.prodotto_codice,
+        quantitaKg: Number(r.quantita_kg) || 0,
+        lottoCodice: r.lotto_codice ?? "",
+        foglioCodice: foglio?.codice ?? null,
+        motivoSenzaFoglio: motivo,
+        note: r.note ?? "",
+      };
+    }),
+  };
+}
+
+export async function movimentoManualeAgrinsiciliaAction(
+  raw: unknown
+): Promise<
+  | { success: true; giacenzaKg: number; movimentoId: string }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("magazzino");
+  const parsed = movimentoManualeSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const { data: prodotto, error: pErr } = await supabase
+    .from("prodotti_propri")
+    .select("id, codice, nome")
+    .eq("id", input.prodottoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (pErr || !prodotto) {
+    return { success: false, error: pErr?.message ?? "Prodotto non trovato." };
+  }
+
+  if (input.collegaFoglio && input.foglioId) {
+    const { data: foglio, error: fErr } = await supabase
+      .from("produzione_fogli_lavorazione")
+      .select("id, codice, stato")
+      .eq("id", input.foglioId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (fErr || !foglio) {
+      return { success: false, error: fErr?.message ?? "Foglio non trovato." };
+    }
+    if (foglio.stato !== "aperto") {
+      return { success: false, error: "Il foglio selezionato non è aperto." };
+    }
+  }
+
+  const qtyKg =
+    input.unitaMisura === "g" ? input.quantita / 1000 : input.quantita;
+  const { data: giac } = await supabase
+    .from("magazzino_giacenze")
+    .select("id, quantita_kg")
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .eq("prodotto_id", input.prodottoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const prima = giac ? Number(giac.quantita_kg) || 0 : 0;
+  const dopo = Math.round((prima + qtyKg) * 1000) / 1000;
+
+  const giacPayload = {
+    catalog_kind: CATALOG_PROPRIO,
+    prodotto_id: input.prodottoId,
+    prodotto_codice: prodotto.codice,
+    quantita_kg: dopo,
+    unita: "kg",
+    updated_by: auth.userId,
+    is_test: false,
+  };
+  if (giac?.id) {
+    const { error } = await supabase
+      .from("magazzino_giacenze")
+      .update(giacPayload)
+      .eq("id", giac.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("magazzino_giacenze")
+      .insert({ ...giacPayload, created_by: auth.userId });
+    if (error) return { success: false, error: error.message };
+  }
+
+  const { data: mov, error: movErr } = await supabase
+    .from("magazzino_movimenti")
+    .insert({
+      catalog_kind: CATALOG_PROPRIO,
+      prodotto_id: input.prodottoId,
+      prodotto_codice: prodotto.codice,
+      tipo: "carico",
+      quantita_kg: qtyKg,
+      unita: "kg",
+      lotto_codice: input.lottoCodice.trim(),
+      foglio_id: input.collegaFoglio ? input.foglioId : null,
+      motivo_senza_foglio: input.collegaFoglio
+        ? null
+        : input.motivoSenzaFoglio,
+      riferimento: "carico-manuale",
+      note: input.note.trim(),
+      is_test: false,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (movErr || !mov) {
+    return { success: false, error: movErr?.message ?? "Movimento fallito." };
+  }
+
+  void writeAuditLog({
+    entity_type: "magazzino_movimenti",
+    entity_id: mov.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Carico manuale ${qtyKg} kg · ${prodotto.codice} · lotto ${input.lottoCodice}`,
+    payload: {
+      prodotto_id: input.prodottoId,
+      quantita_kg: qtyKg,
+      lotto_codice: input.lottoCodice,
+      foglio_id: input.collegaFoglio ? input.foglioId : null,
+      motivo_senza_foglio: input.collegaFoglio
+        ? null
+        : input.motivoSenzaFoglio,
+      giacenza_prima: prima,
+      giacenza_dopo: dopo,
+    },
+  });
+
+  return { success: true, giacenzaKg: dopo, movimentoId: mov.id };
 }
