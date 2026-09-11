@@ -34,11 +34,15 @@ import {
   areaPathFromSlug,
 } from "@/lib/areas/config";
 import {
+  applyDaProcessareBadge,
+  filterNavByAdminOnly,
   isNavBranch,
   openKeysFromPathname,
   type NavBadge,
   type NavItem,
 } from "@/lib/areas/nav-tree";
+import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
+import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import {
   mergeProduzioneNavWithAree,
@@ -87,6 +91,7 @@ type Props = {
   roleName: string;
   userId: string;
   isSuperadmin?: boolean;
+  isAdminLike?: boolean;
   canImpersonate?: boolean;
   canCreateProfiles?: boolean;
   impersonating?: boolean;
@@ -222,7 +227,7 @@ function NavBadgeDot({ badge }: { badge: NavBadge }) {
   return (
     <span
       className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"
-      title={`${n} aperte`}
+      title={`${n} da processare (passare in produzione)`}
     >
       {n > 99 ? "99+" : n}
     </span>
@@ -473,6 +478,7 @@ export function AppSidebar({
   roleName,
   userId,
   isSuperadmin = false,
+  isAdminLike = false,
   canImpersonate = false,
   canCreateProfiles = false,
   impersonating = false,
@@ -491,6 +497,7 @@ export function AppSidebar({
   const [webmailGrantTone, setWebmailGrantTone] = useState<AccessTone | null>(
     null
   );
+  const [daProcessareCount, setDaProcessareCount] = useState(0);
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -525,6 +532,33 @@ export function AppSidebar({
       /* ignore */
     }
   }
+
+  const hasAmministrazione = areas.some((a) => a.slug === "amministrazione");
+  useEffect(() => {
+    if (!hasAmministrazione || !isAdminLike) {
+      setDaProcessareCount(0);
+      return;
+    }
+    let cancelled = false;
+    function loadCount() {
+      void countOrdiniDaProcessareAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setDaProcessareCount(res.totale);
+        })
+        .catch(() => {
+          /* badge opzionale */
+        });
+    }
+    loadCount();
+    window.addEventListener(ORDINI_DA_PROCESSARE_NAV_EVENT, loadCount);
+    window.addEventListener("focus", loadCount);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ORDINI_DA_PROCESSARE_NAV_EVENT, loadCount);
+      window.removeEventListener("focus", loadCount);
+    };
+  }, [hasAmministrazione, isAdminLike]);
 
   const hasProduzione = areas.some((a) => a.slug === "produzione");
   useEffect(() => {
@@ -818,10 +852,18 @@ export function AppSidebar({
               produzioneNav,
               archivioNav
             );
+            const treeSectionsFiltered = treeSectionsRaw
+              ? filterNavByAdminOnly(
+                  applyPageFilter
+                    ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
+                    : treeSectionsRaw,
+                  isAdminLike
+                )
+              : null;
             const treeSections =
-              applyPageFilter && treeSectionsRaw
-                ? filterNavByPageAccess(treeSectionsRaw, pageAccess)
-                : treeSectionsRaw;
+              area.slug === "amministrazione" && treeSectionsFiltered
+                ? applyDaProcessareBadge(treeSectionsFiltered, daProcessareCount)
+                : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
               ? area.slug === "webmail" && webmailGrantTone

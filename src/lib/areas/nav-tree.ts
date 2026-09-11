@@ -9,6 +9,8 @@ export type NavLeaf = {
   path: string;
   /** Indicatore sidebar (stato area / contatore). */
   badge?: NavBadge;
+  /** Voce visibile solo ad Admin / Super Admin. */
+  adminOnly?: boolean;
 };
 
 export type NavBranch = {
@@ -17,6 +19,8 @@ export type NavBranch = {
   description: string;
   path: string;
   badge?: NavBadge;
+  /** Voce visibile solo ad Admin / Super Admin. */
+  adminOnly?: boolean;
   /** Foglie o sotto-rami (max profondità usata: 3 livelli area→ramo→foglia). */
   children: readonly NavItem[];
 };
@@ -105,6 +109,48 @@ export function findNavItem(
     }
   }
   return current ?? null;
+}
+
+/** Nasconde rami/foglie riservati ad Admin. */
+export function filterNavByAdminOnly(
+  items: readonly NavItem[],
+  isAdminLike: boolean
+): NavItem[] {
+  const out: NavItem[] = [];
+  for (const item of items) {
+    if (item.adminOnly && !isAdminLike) continue;
+    if (isNavBranch(item)) {
+      const children = filterNavByAdminOnly(item.children, isAdminLike);
+      if (children.length === 0 && item.adminOnly) continue;
+      out.push({ ...item, children });
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** Applica il contatore «Da processare» sul ramo omonimo. */
+export function applyDaProcessareBadge(
+  items: readonly NavItem[],
+  count: number
+): NavItem[] {
+  return items.map((item) => {
+    const badge =
+      item.slug === "da-processare" && count > 0
+        ? ({ kind: "count", count } satisfies NavBadge)
+        : item.slug === "da-processare"
+          ? undefined
+          : item.badge;
+    if (isNavBranch(item)) {
+      return {
+        ...item,
+        badge,
+        children: applyDaProcessareBadge(item.children, count),
+      };
+    }
+    return { ...item, badge };
+  });
 }
 
 /** Slug dei rami aperti lungo il pathname corrente. */

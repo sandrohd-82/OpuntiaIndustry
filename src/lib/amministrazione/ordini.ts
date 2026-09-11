@@ -456,7 +456,7 @@ export function formatOperatoreQuando(
 export function labelStatoOrdine(stato: OrdineStato): string {
   switch (stato) {
     case "in_attesa":
-      return "In attesa";
+      return "Inserito";
     case "sospeso":
       return "Sospeso";
     case "in_scaletta":
@@ -464,7 +464,7 @@ export function labelStatoOrdine(stato: OrdineStato): string {
     case "storico":
       return "Storico";
     case "ricevuto":
-      return "In attesa";
+      return "Inserito";
     case "evaso":
       return "In scaletta";
     default:
@@ -486,6 +486,22 @@ export function isCampionaturaGratuita(
 export function isOrdineDaProcessare(stato: OrdineStato): boolean {
   return stato === "in_attesa" || stato === "ricevuto";
 }
+
+/** Coda Admin: inseriti + sospesi (il badge conta solo quelli processabili). */
+export const ORDINI_STATI_DA_PROCESSARE: OrdineStato[] = [
+  "in_attesa",
+  "ricevuto",
+  "sospeso",
+];
+
+/** Elenco operativo (lo storico resta in Archivio). */
+export const ORDINI_STATI_ELENCO: OrdineStato[] = [
+  "in_attesa",
+  "ricevuto",
+  "sospeso",
+  "in_scaletta",
+  "evaso",
+];
 
 export function labelDocumentoStato(stato: OrdineDocumentoStato): string {
   switch (stato) {

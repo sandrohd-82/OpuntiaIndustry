@@ -1,4 +1,6 @@
-import { requireAnyAreaAccess } from "@/lib/areas/guard";
+import { notFound } from "next/navigation";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 
 /** Elenco, dettaglio, anteprima numero, allegati. */
 export async function requireOrdineReadAccess() {
@@ -17,6 +19,13 @@ export async function requireOrdineCreateAccess() {
 /** Inserimento in scaletta produzione. */
 export async function requireOrdineProcessAccess() {
   return requireAnyAreaAccess(["amministrazione", "produzione"]);
+}
+
+/** Area Admin «Da processare»: passare in produzione. */
+export async function requireOrdiniDaProcessarePageAccess() {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) notFound();
+  return { auth };
 }
 
 /** Catalogo prodotti, listino, clienti per il wizard. */

@@ -17,8 +17,8 @@ import {
   PortaleNewsletterBoard,
   PortaleRichiesteBoard,
 } from "@/components/amministrazione/PortaleLeadBoard";
-import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
-import { OrdiniProcessatiBoard } from "@/components/amministrazione/OrdiniProcessatiBoard";
+import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
+import { OrdiniElencoBoard } from "@/components/amministrazione/OrdiniElencoBoard";
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrganigrammaAlberoBoard } from "@/components/amministrazione/organigramma/OrganigrammaAlberoBoard";
 import { OrganigrammaElencoBoard } from "@/components/amministrazione/organigramma/OrganigrammaElencoBoard";
@@ -26,6 +26,7 @@ import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
@@ -57,10 +58,13 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     redirect(map[sub] ?? "/app/amministrazione/statistiche");
   }
   if (section === "ordini" && sub === "ricevuti") {
-    redirect("/app/amministrazione/ordini/crea-nuovo");
+    redirect("/app/amministrazione/da-processare/merce");
   }
   if (section === "ordini" && sub === "evasi") {
-    redirect("/app/amministrazione/ordini/processati");
+    redirect("/app/amministrazione/elenco-ordini/merce");
+  }
+  if (section === "ordini" && (sub === "crea-nuovo" || sub === "processati")) {
+    redirect("/app/amministrazione/da-processare/merce");
   }
   if (section === "dipendenti") {
     redirect("/app/amministrazione/organigramma/elenco-e-mansioni");
@@ -129,23 +133,28 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "ordini" && sub === "crea-nuovo") {
+  if (section === "da-processare" && (sub === "merce" || sub === "campionature")) {
+    await requireOrdiniDaProcessarePageAccess();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <OrdiniRicevutiBoard />
+          <OrdiniDaProcessareBoard
+            tipo={sub === "campionature" ? "campionatura" : "vendita"}
+          />
         </div>
       </>
     );
   }
 
-  if (section === "ordini" && sub === "processati") {
+  if (section === "elenco-ordini" && (sub === "merce" || sub === "campionature")) {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <OrdiniProcessatiBoard />
+          <OrdiniElencoBoard
+            tipo={sub === "campionature" ? "campionatura" : "vendita"}
+          />
         </div>
       </>
     );

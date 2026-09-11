@@ -1,7 +1,11 @@
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { actorCanSwitchProfiles } from "@/lib/auth/impersonation-scope";
-import { isSuperadminProfile, isUnrestrictedSuperadmin } from "@/lib/auth/roles";
+import {
+  isAdminLikeProfile,
+  isSuperadminProfile,
+  isUnrestrictedSuperadmin,
+} from "@/lib/auth/roles";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
@@ -160,6 +164,7 @@ export default async function AppLayout({
         roleName={roleName}
         userId={auth.userId}
         isSuperadmin={isSuperadminProfile(auth.profile)}
+        isAdminLike={isAdminLikeProfile(auth.profile)}
         canImpersonate={canImpersonate}
         canCreateProfiles={canCreateProfiles}
         impersonating={auth.impersonating}

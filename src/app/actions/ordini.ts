@@ -40,6 +40,7 @@ import {
   requireOrdineProcessAccess,
   requireOrdineReadAccess,
 } from "@/lib/auth/ordini-access";
+import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
   AuditLogInsert,
@@ -50,6 +51,7 @@ import type {
   OrdineRigaRow,
   OrdineRow,
   OrdineStato,
+  OrdineTipoDocumento,
 } from "@/types/database";
 
 export type OrdiniActionResult =
@@ -194,7 +196,8 @@ async function replaceRighe(
 }
 
 export async function listOrdiniAction(
-  stato: OrdineStato | OrdineStato[]
+  stato: OrdineStato | OrdineStato[],
+  opts?: { tipo?: OrdineTipoDocumento }
 ): Promise<{ success: true; ordini: Ordine[] } | { success: false; error: string }> {
   await requireOrdineReadAccess();
   const supabase = await createClient();
@@ -207,6 +210,9 @@ export async function listOrdiniAction(
     .is("deleted_at", null);
   if (scope && !scope.skip && scope.mode === "proprie") {
     q = q.eq("created_by", scope.userId);
+  }
+  if (opts?.tipo) {
+    q = q.eq("tipo", opts.tipo);
   }
   q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
   const { data, error } = await q.order(
@@ -241,6 +247,39 @@ export async function listOrdiniAction(
       mapOrdineRow(row, righeByOrdine.get(row.id) ?? [], labels)
     ),
   };
+}
+
+/** Badge sidebar: ordini inseriti da passare in produzione. */
+export async function countOrdiniDaProcessareAction(): Promise<
+  | {
+      success: true;
+      totale: number;
+      merce: number;
+      campionature: number;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  if (!isAdminLikeProfile(auth.profile)) {
+    return { success: true, totale: 0, merce: 0, campionature: 0 };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("ordini")
+    .select("id, tipo")
+    .is("deleted_at", null)
+    .in("stato", ["in_attesa", "ricevuto"]);
+  if (error) return { success: false, error: error.message };
+  let merce = 0;
+  let campionature = 0;
+  for (const row of data ?? []) {
+    if (String((row as { tipo?: string }).tipo ?? "vendita") === "campionatura") {
+      campionature += 1;
+    } else {
+      merce += 1;
+    }
+  }
+  return { success: true, totale: merce + campionature, merce, campionature };
 }
 
 export async function getOrdineAction(

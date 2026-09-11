@@ -32,12 +32,13 @@ import {
   labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
+import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
   compareSortValues,
   nextSortState,
   type SortState,
 } from "@/lib/ui/list-sort";
-import type { OrdineStato } from "@/types/database";
+import type { OrdineStato, OrdineTipoDocumento } from "@/types/database";
 
 const COL_COUNT = 12;
 
@@ -189,11 +190,11 @@ function OrdineTableRow({
               <ActionGate actionKey={AZ.processaOrdine}>
                 <button
                   type="button"
-                  title="Processa e metti in scaletta"
+                  title="Passare in produzione (scaletta)"
                   onClick={onProcess}
                   className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
                 >
-                  Processa
+                  Passa in produzione
                 </button>
               </ActionGate>
             ) : null}
@@ -207,8 +208,6 @@ function OrdineTableRow({
               {open ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
               Dettaglio
             </button>
-            {processMode ? null : (
-              <>
             <button
               type="button"
               title="Modifica"
@@ -225,8 +224,6 @@ function OrdineTableRow({
             >
               <FaTrash size={14} />
             </button>
-              </>
-            )}
           </div>
         </td>
       </tr>
@@ -254,8 +251,12 @@ type Props = {
   dualCreateActions?: boolean;
   /** Pulsante soft-purge dati is_test */
   showPurgeTest?: boolean;
-  /** Coda processazione: nasconde crea, mostra Processa */
+  /** Coda processazione: mostra Processa */
   processMode?: boolean;
+  /** Filtra vendita / campionatura */
+  tipo?: OrdineTipoDocumento;
+  /** Mostra crea anche in processMode */
+  showCreate?: boolean;
 };
 
 export function OrdiniBoard({
@@ -269,9 +270,13 @@ export function OrdiniBoard({
   dualCreateActions = false,
   showPurgeTest = false,
   processMode = false,
+  tipo,
+  showCreate,
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
-    useOrdini(stato);
+    useOrdini(stato, tipo);
+  const canCreate = showCreate ?? !processMode;
+  const wizardVariant = tipo === "campionatura" ? "campionatura" : "ordine";
   const statoForm: OrdineStato = Array.isArray(stato)
     ? (stato[0] ?? "in_attesa")
     : stato;
@@ -330,7 +335,7 @@ export function OrdiniBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">{description}</p>
         <div className="flex flex-wrap items-center gap-2">
-          {processMode ? null : showPurgeTest ? (
+          {showPurgeTest ? (
             <button
               type="button"
               disabled={purgeBusy}
@@ -363,7 +368,7 @@ export function OrdiniBoard({
               {purgeBusy ? "Pulizia…" : "Pulisci dati test"}
             </button>
           ) : null}
-          {processMode ? null : dualCreateActions ? (
+          {canCreate && dualCreateActions ? (
             <>
               <ActionGate actionKey={AZ.creaOrdine}>
               <button
@@ -391,7 +396,7 @@ export function OrdiniBoard({
               </button>
               </ActionGate>
             </>
-          ) : (
+          ) : canCreate ? (
             <ActionGate
               actionKey={
                 createLabel.toLowerCase().includes("storico")
@@ -411,7 +416,7 @@ export function OrdiniBoard({
               {createLabel}
             </button>
             </ActionGate>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -432,7 +437,7 @@ export function OrdiniBoard({
           {emptyHint ? (
             <p className="mt-1 text-xs text-[var(--muted)]">{emptyHint}</p>
           ) : null}
-          {processMode ? null : dualCreateActions ? (
+          {canCreate && dualCreateActions ? (
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <ActionGate actionKey={AZ.creaOrdine}>
               <button
@@ -454,7 +459,7 @@ export function OrdiniBoard({
               </button>
               </ActionGate>
             </div>
-          ) : (
+          ) : canCreate ? (
             <button
               type="button"
               onClick={() => setCreating("ordine")}
@@ -463,7 +468,7 @@ export function OrdiniBoard({
               <FaPlus size={14} />
               {createLabel}
             </button>
-          )}
+          ) : null}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
@@ -569,12 +574,13 @@ export function OrdiniBoard({
 
       {creating === "ordine" && useWizardCreate && (
         <OrdineNuovoWizardModal
-          variant="ordine"
+          variant={wizardVariant}
           onClose={() => setCreating(false)}
           onSaved={(ordine) => {
             upsertLocal(ordine);
             setCreating(false);
             setExpandedId(ordine.id);
+            notifyOrdiniDaProcessareNav();
           }}
         />
       )}
@@ -588,6 +594,7 @@ export function OrdiniBoard({
             upsertLocal(ordine);
             setCreating(false);
             setExpandedId(ordine.id);
+            notifyOrdiniDaProcessareNav();
           }}
         />
       )}
@@ -611,8 +618,14 @@ export function OrdiniBoard({
           ordine={processing}
           onClose={() => setProcessing(null)}
           onSaved={(ordine) => {
-            upsertLocal(ordine);
             setProcessing(null);
+            notifyOrdiniDaProcessareNav();
+            if (processMode && !isOrdineDaProcessare(ordine.stato)) {
+              void refresh();
+              setExpandedId(null);
+              return;
+            }
+            upsertLocal(ordine);
             setExpandedId(ordine.id);
           }}
         />
@@ -647,6 +660,7 @@ export function OrdiniBoard({
             }
             if (expandedId === deleting.id) setExpandedId(null);
             setDeleting(null);
+            notifyOrdiniDaProcessareNav();
           }}
         />
       )}

@@ -8,6 +8,7 @@ import {
 } from "@/lib/areas/amministrazione";
 import { isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireOrdiniDaProcessarePageAccess } from "@/lib/auth/ordini-access";
 
 type Props = {
   params: Promise<{ section: string }>;
@@ -36,6 +37,16 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
   }
   if (section === "fornitori") {
     redirect("/app/amministrazione/fornitori/elenco");
+  }
+  if (section === "da-processare") {
+    await requireOrdiniDaProcessarePageAccess();
+    redirect("/app/amministrazione/da-processare/merce");
+  }
+  if (section === "elenco-ordini") {
+    redirect("/app/amministrazione/elenco-ordini/merce");
+  }
+  if (section === "ordini") {
+    redirect("/app/amministrazione/ordini/preventivi");
   }
 
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);

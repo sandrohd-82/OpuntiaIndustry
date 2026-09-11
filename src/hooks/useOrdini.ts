@@ -6,22 +6,25 @@ import {
   softDeleteOrdineAction,
 } from "@/app/actions/ordini";
 import type { Ordine } from "@/lib/amministrazione/ordini";
-import type { OrdineStato } from "@/types/database";
+import type { OrdineStato, OrdineTipoDocumento } from "@/types/database";
 
-export function useOrdini(stato: OrdineStato | OrdineStato[]) {
+export function useOrdini(
+  stato: OrdineStato | OrdineStato[],
+  tipo?: OrdineTipoDocumento
+) {
   const [ordini, setOrdini] = useState<Ordine[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const result = await listOrdiniAction(stato);
+    const result = await listOrdiniAction(stato, tipo ? { tipo } : undefined);
     if (result.success) {
       setOrdini(result.ordini);
       setError(null);
     } else {
       setError(result.error);
     }
-  }, [JSON.stringify(stato)]);
+  }, [JSON.stringify(stato), tipo ?? ""]);
 
   useEffect(() => {
     void refresh().finally(() => setReady(true));
