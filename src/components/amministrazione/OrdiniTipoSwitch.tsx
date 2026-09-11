@@ -1,38 +1,44 @@
 "use client";
 
-import Link from "next/link";
 import type { OrdineTipoDocumento } from "@/types/database";
 
-type Area = "da-processare" | "elenco-ordini";
+const TABS: Array<{ id: OrdineTipoDocumento; label: string }> = [
+  { id: "vendita", label: "Ordini merce" },
+  { id: "campionatura", label: "Ordini Campionature" },
+];
 
 export function OrdiniTipoSwitch({
-  area,
   tipo,
+  onChange,
 }: {
-  area: Area;
   tipo: OrdineTipoDocumento;
+  onChange: (tipo: OrdineTipoDocumento) => void;
 }) {
-  const merce = `/app/amministrazione/${area}/merce`;
-  const camp = `/app/amministrazione/${area}/campionature`;
-  const tabClass = (active: boolean) =>
-    `rounded-lg border px-3 py-1.5 text-sm font-medium ${
-      active
-        ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_12%,white)] text-[var(--primary)]"
-        : "border-[var(--border)] bg-white text-slate-700 hover:bg-slate-50"
-    }`;
-
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Tipo ordine">
-      <Link href={merce} className={tabClass(tipo === "vendita")} role="tab">
-        Ordini merce
-      </Link>
-      <Link
-        href={camp}
-        className={tabClass(tipo === "campionatura")}
-        role="tab"
-      >
-        Ordini Campionature
-      </Link>
+    <div
+      className="flex items-end gap-1 border-b border-[var(--border)] px-1"
+      role="tablist"
+      aria-label="Raccoglitore tipo ordine"
+    >
+      {TABS.map((tab) => {
+        const selected = tipo === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selected}
+            onClick={() => onChange(tab.id)}
+            className={`relative -mb-px rounded-t-lg border px-4 py-2 text-sm transition-colors ${
+              selected
+                ? "z-10 border-[var(--border)] border-b-0 bg-[var(--card)] font-semibold text-slate-900"
+                : "border-transparent bg-slate-100/80 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

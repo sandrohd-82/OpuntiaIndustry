@@ -58,13 +58,19 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     redirect(map[sub] ?? "/app/amministrazione/statistiche");
   }
   if (section === "ordini" && sub === "ricevuti") {
-    redirect("/app/amministrazione/da-processare/merce");
+    redirect("/app/amministrazione/ordini/da-processare");
   }
   if (section === "ordini" && sub === "evasi") {
-    redirect("/app/amministrazione/elenco-ordini/merce");
+    redirect("/app/amministrazione/ordini/elenco");
   }
   if (section === "ordini" && (sub === "crea-nuovo" || sub === "processati")) {
-    redirect("/app/amministrazione/da-processare/merce");
+    redirect("/app/amministrazione/ordini/da-processare");
+  }
+  if (section === "da-processare") {
+    redirect("/app/amministrazione/ordini/da-processare");
+  }
+  if (section === "elenco-ordini") {
+    redirect("/app/amministrazione/ordini/elenco");
   }
   if (section === "dipendenti") {
     redirect("/app/amministrazione/organigramma/elenco-e-mansioni");
@@ -133,28 +139,24 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     );
   }
 
-  if (section === "da-processare" && (sub === "merce" || sub === "campionature")) {
+  if (section === "ordini" && sub === "da-processare") {
     await requireOrdiniDaProcessarePageAccess();
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <OrdiniDaProcessareBoard
-            tipo={sub === "campionature" ? "campionatura" : "vendita"}
-          />
+          <OrdiniDaProcessareBoard />
         </div>
       </>
     );
   }
 
-  if (section === "elenco-ordini" && (sub === "merce" || sub === "campionature")) {
+  if (section === "ordini" && sub === "elenco") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
-          <OrdiniElencoBoard
-            tipo={sub === "campionature" ? "campionatura" : "vendita"}
-          />
+          <OrdiniElencoBoard />
         </div>
       </>
     );

@@ -111,56 +111,25 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "da-processare",
-    label: "Da processare",
-    description:
-      "Ordini inseriti da passare in produzione (solo Admin)",
-    path: "/app/amministrazione/da-processare",
-    adminOnly: true,
-    children: [
-      {
-        slug: "merce",
-        label: "Ordini merce",
-        description: "Ordini di vendita inseriti, da processare in produzione",
-        path: "/app/amministrazione/da-processare/merce",
-        adminOnly: true,
-      },
-      {
-        slug: "campionature",
-        label: "Ordini Campionature",
-        description:
-          "Ordini campionatura da produrre, da processare in produzione",
-        path: "/app/amministrazione/da-processare/campionature",
-        adminOnly: true,
-      },
-    ],
-  },
-  {
-    slug: "elenco-ordini",
-    label: "Elenco ordini",
-    description: "Tutti gli ordini merce e campionatura",
-    path: "/app/amministrazione/elenco-ordini",
-    children: [
-      {
-        slug: "merce",
-        label: "Ordini merce",
-        description: "Elenco ordini di vendita",
-        path: "/app/amministrazione/elenco-ordini/merce",
-      },
-      {
-        slug: "campionature",
-        label: "Ordini Campionature",
-        description: "Elenco ordini campionatura da produrre",
-        path: "/app/amministrazione/elenco-ordini/campionature",
-      },
-    ],
-  },
-  {
     slug: "ordini",
     label: "Ordini",
-    description: "Preventivi e collegamenti legacy",
+    description: "Coda da processare, elenco e preventivi",
     path: "/app/amministrazione/ordini",
     children: [
+      {
+        slug: "da-processare",
+        label: "Da processare",
+        description:
+          "Ordini inseriti da passare in produzione (solo Admin)",
+        path: "/app/amministrazione/ordini/da-processare",
+        adminOnly: true,
+      },
+      {
+        slug: "elenco",
+        label: "Elenco ordini",
+        description: "Tutti gli ordini merce e campionatura",
+        path: "/app/amministrazione/ordini/elenco",
+      },
       {
         slug: "preventivi",
         label: "Preventivi",
