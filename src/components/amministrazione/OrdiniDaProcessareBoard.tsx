@@ -39,7 +39,7 @@ export function OrdiniDaProcessareBoard() {
             </p>
             <CampionatureBoard
               embedded
-              stati={["bozza"]}
+              stati={["inserita", "bozza"]}
               onFilteredCount={setCampCount}
             />
             <OrdiniBoard

@@ -50,6 +50,7 @@ export function cicloStatoCampionatura(
   stato: CampionaturaStatoDb
 ): CicloStatoMeta {
   switch (stato) {
+    case "inserita":
     case "bozza":
       return CICLO_STATO_ORDINE.inserito;
     case "processata":

@@ -1286,6 +1286,7 @@ export interface OrdineRigaInsert {
 }
 
 export type CampionaturaStatoDb =
+  | "inserita"
   | "bozza"
   | "processata"
   | "pronto_spedizione"

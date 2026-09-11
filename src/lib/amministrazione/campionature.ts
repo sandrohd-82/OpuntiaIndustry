@@ -7,6 +7,7 @@ import {
 } from "@/lib/amministrazione/ordini";
 
 export const CAMPIONATURA_STATI = [
+  "inserita",
   "bozza",
   "processata",
   "pronto_spedizione",
@@ -171,12 +172,22 @@ export function formatNumeroCampionatura(
 }
 
 export const CAMPIONATURA_STATO_LABEL: Record<CampionaturaStato, string> = {
+  inserita: "Inserito",
   bozza: "Inserito",
   processata: "Processato",
   pronto_spedizione: "Pronto per spedizione",
   inviata: "Inviato",
   consegnata: "Consegnata",
   annullata: "Annullata",
+};
+
+export const CAMPIONATURA_DOCUMENTO_STATO_LABEL: Record<
+  Campionatura["documentoStato"],
+  string
+> = {
+  bozza: "Registrato",
+  approvato: "Approvato",
+  chiuso: "Chiuso",
 };
 
 export function formatIndirizzoSede(sede: {

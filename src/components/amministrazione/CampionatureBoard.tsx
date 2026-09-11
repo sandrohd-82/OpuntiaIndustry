@@ -5,6 +5,7 @@ import { FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa6";
 import { useCampionature } from "@/hooks/useCampionature";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
+  CAMPIONATURA_DOCUMENTO_STATO_LABEL,
   CAMPIONATURA_MEZZO_LABEL,
   type Campionatura,
 } from "@/lib/amministrazione/campionature";
@@ -299,11 +300,15 @@ function CampionaturaTableRow({
               ) : null}
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">
-                  Documento
+                  Stato
                 </dt>
-                <dd>
-                  {item.documentoStato} · approvata{" "}
-                  {item.approvedAt ? formatDate(item.approvedAt) : "—"}
+                <dd title={cicloStatoCampionatura(item.stato).hint}>
+                  {cicloStatoCampionatura(item.stato).label}
+                  {" · "}
+                  {CAMPIONATURA_DOCUMENTO_STATO_LABEL[item.documentoStato]}
+                  {item.approvedAt
+                    ? ` · ${formatDate(item.approvedAt)}`
+                    : ""}
                 </dd>
               </div>
               {item.note ? (

@@ -305,7 +305,7 @@ async function createCampionaturaActionInner(
       destinatario: input.destinatario || input.cliente,
       indirizzo_spedizione: input.indirizzoSpedizione,
       note: input.note,
-      stato: "bozza",
+      stato: "inserita",
       documento_stato: "approvato",
       versione: 1,
       approved_at: now,

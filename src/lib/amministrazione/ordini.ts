@@ -501,13 +501,13 @@ export const ORDINI_STATI_ELENCO: OrdineStato[] = [
 export function labelDocumentoStato(stato: OrdineDocumentoStato): string {
   switch (stato) {
     case "bozza":
-      return "bozza";
+      return "Registrato";
     case "registrato":
-      return "registrato";
+      return "Registrato";
     case "approvato":
-      return "approvato";
+      return "Approvato";
     case "chiuso":
-      return "chiuso";
+      return "Chiuso";
     default:
       return stato;
   }
