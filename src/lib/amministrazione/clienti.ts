@@ -12,6 +12,7 @@ import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
 } from "@/lib/auth/commerciale";
+import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
 
 export type SedeCliente = SedeFornitore;
 
@@ -31,6 +32,9 @@ export type Cliente = {
   sdiCode: string;
   telefono: string;
   sitoWeb: string;
+  emailGeneriche: string[];
+  telefoniGenerici: string[];
+  sitiWebGenerici: string[];
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -53,6 +57,9 @@ export type ClienteInput = {
   sdiCode?: string;
   telefono?: string;
   sitoWeb?: string;
+  emailGeneriche?: string[];
+  telefoniGenerici?: string[];
+  sitiWebGenerici?: string[];
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -111,6 +118,7 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
     sdiCode: (input.sdiCode ?? "").trim(),
     telefono: (input.telefono ?? "").trim(),
     sitoWeb: (input.sitoWeb ?? "").trim(),
+    ...normalizeContattiGenerici(input),
     sedeAmministrativa: normalizeSede(input.sedeAmministrativa),
     sedeMagazzino: normalizeSede(input.sedeMagazzino),
     consegneAltraAzienda: (input.consegneAltraAzienda ?? [])
@@ -195,6 +203,11 @@ export function mapClienteRow(
     sdiCode: row.sdi_code ?? "",
     telefono: row.telefono ?? "",
     sitoWeb: row.sito_web ?? "",
+    ...normalizeContattiGenerici({
+      emailGeneriche: row.email_generiche,
+      telefoniGenerici: row.telefoni_generici,
+      sitiWebGenerici: row.siti_web_generici,
+    }),
     sedeAmministrativa: {
       nazione: row.sede_amm_nazione,
       provincia: row.sede_amm_provincia,

@@ -7,6 +7,8 @@ import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
+import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
+import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-generici";
 import {
   emptyConsegnaAltraAzienda,
   emptySede,
@@ -105,6 +107,12 @@ export function PossibileClienteFormModal({
   const [pec, setPec] = useState(initial?.pec ?? "");
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
   const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
+  const [emailExtra, setEmailExtra] = useState(initial?.emailGeneriche ?? []);
+  const [telefonoExtra, setTelefonoExtra] = useState(
+    initial?.telefoniGenerici ?? []
+  );
+  const [sitoExtra, setSitoExtra] = useState(initial?.sitiWebGenerici ?? []);
+  const [reminderTick, setReminderTick] = useState(0);
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -191,6 +199,9 @@ export function PossibileClienteFormModal({
       sdiCode: sdiCode.trim(),
       telefono: telefono.trim(),
       sitoWeb: sitoWeb.trim(),
+      emailGeneriche: emailExtra,
+      telefoniGenerici: telefonoExtra,
+      sitiWebGenerici: sitoExtra,
       sedeAmministrativa: ammOpen ? sedeAmministrativa : emptySede(),
       sedeMagazzino: !magOpen
         ? emptySede()
@@ -295,49 +306,66 @@ export function PossibileClienteFormModal({
                 Copia P.IVA in Codice Fiscale
               </button>
             </div>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Mail</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Telefono</span>
-              <input
-                value={telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">PEC</span>
-              <input
-                type="email"
-                value={pec}
-                onChange={(e) => setPec(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">SDI</span>
-              <input
-                value={sdiCode}
-                onChange={(e) => setSdiCode(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Sito Web</span>
-              <input
-                value={sitoWeb}
-                onChange={(e) => setSitoWeb(e.target.value)}
-                placeholder="https://"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
-              />
-            </label>
+            <AnagraficaContattiGenericiFields
+              email={email}
+              onEmailChange={setEmail}
+              emailExtra={emailExtra}
+              onEmailExtraChange={setEmailExtra}
+              telefono={telefono}
+              onTelefonoChange={setTelefono}
+              telefonoExtra={telefonoExtra}
+              onTelefonoExtraChange={setTelefonoExtra}
+              sitoWeb={sitoWeb}
+              onSitoWebChange={setSitoWeb}
+              sitoExtra={sitoExtra}
+              onSitoExtraChange={setSitoExtra}
+              reminderTick={reminderTick}
+              onAdd={(kind) => {
+                setReminderTick((t) => t + 1);
+                if (kind === "mail") {
+                  setEmailExtra((prev) =>
+                    prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                      ? prev
+                      : [...prev, ""]
+                  );
+                  return;
+                }
+                if (kind === "telefono") {
+                  setTelefonoExtra((prev) =>
+                    prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                      ? prev
+                      : [...prev, ""]
+                  );
+                  return;
+                }
+                setSitoExtra((prev) =>
+                  prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                    ? prev
+                    : [...prev, ""]
+                );
+              }}
+              afterTelefono={
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">PEC</span>
+                    <input
+                      type="email"
+                      value={pec}
+                      onChange={(e) => setPec(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">SDI</span>
+                    <input
+                      value={sdiCode}
+                      onChange={(e) => setSdiCode(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2"
+                    />
+                  </label>
+                </div>
+              }
+            />
           </div>
 
           <Collapsible

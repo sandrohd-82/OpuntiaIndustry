@@ -89,6 +89,9 @@ export type ClientePossibile = {
   sdiCode: string;
   telefono: string;
   sitoWeb: string;
+  emailGeneriche: string[];
+  telefoniGenerici: string[];
+  sitiWebGenerici: string[];
   sedeAmministrativa: SedeCliente;
   sedeMagazzino: SedeCliente;
   consegneAltraAzienda: ConsegnaAltraAzienda[];
@@ -220,6 +223,9 @@ export const createClientePossibileSchema = z.object({
   sdiCode: z.string().trim().max(10).optional().default(""),
   telefono: z.string().trim().max(60).optional().default(""),
   sitoWeb: z.string().trim().max(200).optional().default(""),
+  emailGeneriche: z.array(z.string()).max(20).optional().default([]),
+  telefoniGenerici: z.array(z.string()).max(20).optional().default([]),
+  sitiWebGenerici: z.array(z.string()).max(20).optional().default([]),
   sedeAmministrativa: sedeSchema,
   sedeMagazzino: sedeSchema.optional(),
   consegneAltraAzienda: z
@@ -260,6 +266,9 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     sdiCode: lead.sdiCode,
     telefono: lead.telefono,
     sitoWeb: lead.sitoWeb,
+    emailGeneriche: lead.emailGeneriche,
+    telefoniGenerici: lead.telefoniGenerici,
+    sitiWebGenerici: lead.sitiWebGenerici,
     sedeAmministrativa: lead.sedeAmministrativa,
     sedeMagazzino: lead.sedeMagazzino,
     consegneAltraAzienda: lead.consegneAltraAzienda,

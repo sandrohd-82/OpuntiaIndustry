@@ -35,12 +35,13 @@ import {
   type PnNotaBozza,
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
+import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
 import { createClient } from "@/lib/supabase/server";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_by, created_at, updated_at, commerciale_id";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_by, created_at, updated_at, commerciale_id";
 
 function mapConsegnaLead(
   row: ClienteConsegnaAltraAziendaRow | Record<string, unknown>
@@ -74,6 +75,11 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     sdiCode: String(r.sdi_code ?? ""),
     telefono: String(r.telefono ?? ""),
     sitoWeb: String(r.sito_web ?? ""),
+    ...normalizeContattiGenerici({
+      emailGeneriche: r.email_generiche,
+      telefoniGenerici: r.telefoni_generici,
+      sitiWebGenerici: r.siti_web_generici,
+    }),
     sedeAmministrativa: {
       nazione: String(r.sede_amm_nazione ?? ""),
       provincia: String(r.sede_amm_provincia ?? ""),
@@ -828,6 +834,9 @@ export async function createClientePossibileAction(
     sdiCode: parsed.data.sdiCode,
     telefono: parsed.data.telefono,
     sitoWeb: parsed.data.sitoWeb,
+    emailGeneriche: parsed.data.emailGeneriche,
+    telefoniGenerici: parsed.data.telefoniGenerici,
+    sitiWebGenerici: parsed.data.sitiWebGenerici,
     sedeAmministrativa: parsed.data.sedeAmministrativa,
     sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
     consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
@@ -857,6 +866,9 @@ export async function createClientePossibileAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      telefoni_generici: normalized.telefoniGenerici ?? [],
+      email_generiche: normalized.emailGeneriche ?? [],
+      siti_web_generici: normalized.sitiWebGenerici ?? [],
       sede_amm_nazione: normalized.sedeAmministrativa.nazione,
       sede_amm_provincia: normalized.sedeAmministrativa.provincia,
       sede_amm_citta: normalized.sedeAmministrativa.citta,
@@ -962,6 +974,9 @@ export async function updateClientePossibileAction(
     sdiCode: parsed.data.sdiCode,
     telefono: parsed.data.telefono,
     sitoWeb: parsed.data.sitoWeb,
+    emailGeneriche: parsed.data.emailGeneriche,
+    telefoniGenerici: parsed.data.telefoniGenerici,
+    sitiWebGenerici: parsed.data.sitiWebGenerici,
     sedeAmministrativa: parsed.data.sedeAmministrativa,
     sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
     consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
@@ -987,6 +1002,9 @@ export async function updateClientePossibileAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      telefoni_generici: normalized.telefoniGenerici ?? [],
+      email_generiche: normalized.emailGeneriche ?? [],
+      siti_web_generici: normalized.sitiWebGenerici ?? [],
       sede_amm_nazione: normalized.sedeAmministrativa.nazione,
       sede_amm_provincia: normalized.sedeAmministrativa.provincia,
       sede_amm_citta: normalized.sedeAmministrativa.citta,

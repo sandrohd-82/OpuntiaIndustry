@@ -289,6 +289,10 @@ export interface ClienteRow {
   sdi_code: string;
   telefono: string;
   sito_web: string;
+  /** Extra generici (non referenti). Presenti dopo 20260911170000. */
+  telefoni_generici?: string[];
+  email_generiche?: string[];
+  siti_web_generici?: string[];
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -324,6 +328,9 @@ export interface ClienteInsert {
   sdi_code?: string;
   telefono?: string;
   sito_web?: string;
+  telefoni_generici?: string[];
+  email_generiche?: string[];
+  siti_web_generici?: string[];
   sede_amm_nazione: string;
   sede_amm_provincia: string;
   sede_amm_citta: string;
@@ -359,6 +366,9 @@ export interface ClienteUpdate {
   sdi_code?: string;
   telefono?: string;
   sito_web?: string;
+  telefoni_generici?: string[];
+  email_generiche?: string[];
+  siti_web_generici?: string[];
   sede_amm_nazione?: string;
   sede_amm_provincia?: string;
   sede_amm_citta?: string;

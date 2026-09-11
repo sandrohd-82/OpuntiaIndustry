@@ -12,6 +12,8 @@ import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge"
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
+import { AnagraficaContattiGenericiFields } from "@/components/amministrazione/AnagraficaContattiGenericiFields";
+import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-generici";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptyConsegnaAltraAzienda,
@@ -114,6 +116,12 @@ export function ClienteFormModal({
   const [sdiCode, setSdiCode] = useState(initial?.sdiCode ?? "");
   const [telefono, setTelefono] = useState(initial?.telefono ?? "");
   const [sitoWeb, setSitoWeb] = useState(initial?.sitoWeb ?? "");
+  const [emailExtra, setEmailExtra] = useState(initial?.emailGeneriche ?? []);
+  const [telefonoExtra, setTelefonoExtra] = useState(
+    initial?.telefoniGenerici ?? []
+  );
+  const [sitoExtra, setSitoExtra] = useState(initial?.sitiWebGenerici ?? []);
+  const [reminderTick, setReminderTick] = useState(0);
   const [sedeAmministrativa, setSedeAmministrativa] = useState(
     initial?.sedeAmministrativa ?? emptySede()
   );
@@ -253,6 +261,9 @@ export function ClienteFormModal({
       sdiCode: sdiCode.trim(),
       telefono: telefono.trim(),
       sitoWeb: sitoWeb.trim(),
+      emailGeneriche: emailExtra,
+      telefoniGenerici: telefonoExtra,
+      sitiWebGenerici: sitoExtra,
       sedeAmministrativa,
       sedeMagazzino: !magazzinoOpen
         ? emptySede()
@@ -568,51 +579,66 @@ export function ClienteFormModal({
                 </button>
               ) : null}
             </div>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Mail</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Telefono</span>
-              <input
-                value={telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">PEC</span>
-              <input
-                type="email"
-                value={pec}
-                onChange={(e) => setPec(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">SDI</span>
-              <input
-                value={sdiCode}
-                onChange={(e) => setSdiCode(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Sito Web</span>
-              <input
-                type="text"
-                inputMode="url"
-                placeholder="https://"
-                value={sitoWeb}
-                onChange={(e) => setSitoWeb(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
+            <AnagraficaContattiGenericiFields
+              email={email}
+              onEmailChange={setEmail}
+              emailExtra={emailExtra}
+              onEmailExtraChange={setEmailExtra}
+              telefono={telefono}
+              onTelefonoChange={setTelefono}
+              telefonoExtra={telefonoExtra}
+              onTelefonoExtraChange={setTelefonoExtra}
+              sitoWeb={sitoWeb}
+              onSitoWebChange={setSitoWeb}
+              sitoExtra={sitoExtra}
+              onSitoExtraChange={setSitoExtra}
+              reminderTick={reminderTick}
+              onAdd={(kind) => {
+                setReminderTick((t) => t + 1);
+                if (kind === "mail") {
+                  setEmailExtra((prev) =>
+                    prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                      ? prev
+                      : [...prev, ""]
+                  );
+                  return;
+                }
+                if (kind === "telefono") {
+                  setTelefonoExtra((prev) =>
+                    prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                      ? prev
+                      : [...prev, ""]
+                  );
+                  return;
+                }
+                setSitoExtra((prev) =>
+                  prev.length >= CONTATTI_GENERICI_MAX_ITEMS
+                    ? prev
+                    : [...prev, ""]
+                );
+              }}
+              afterTelefono={
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">PEC</span>
+                    <input
+                      type="email"
+                      value={pec}
+                      onChange={(e) => setPec(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    />
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block font-medium">SDI</span>
+                    <input
+                      value={sdiCode}
+                      onChange={(e) => setSdiCode(e.target.value)}
+                      className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+                    />
+                  </label>
+                </div>
+              }
+            />
           </div>
 
           <AddressSedeFields

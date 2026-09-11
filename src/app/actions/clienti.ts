@@ -238,6 +238,9 @@ export async function createClienteAction(
     sdi_code: normalized.sdiCode ?? "",
     telefono: normalized.telefono ?? "",
     sito_web: normalized.sitoWeb ?? "",
+    telefoni_generici: normalized.telefoniGenerici ?? [],
+    email_generiche: normalized.emailGeneriche ?? [],
+    siti_web_generici: normalized.sitiWebGenerici ?? [],
     sede_amm_nazione: normalized.sedeAmministrativa.nazione,
     sede_amm_provincia: normalized.sedeAmministrativa.provincia,
     sede_amm_citta: normalized.sedeAmministrativa.citta,
@@ -370,6 +373,9 @@ export async function updateClienteAction(
       sdi_code: normalized.sdiCode ?? "",
       telefono: normalized.telefono ?? "",
       sito_web: normalized.sitoWeb ?? "",
+      telefoni_generici: normalized.telefoniGenerici ?? [],
+      email_generiche: normalized.emailGeneriche ?? [],
+      siti_web_generici: normalized.sitiWebGenerici ?? [],
       sede_amm_nazione: normalized.sedeAmministrativa.nazione,
       sede_amm_provincia: normalized.sedeAmministrativa.provincia,
       sede_amm_citta: normalized.sedeAmministrativa.citta,
@@ -708,6 +714,15 @@ export async function convertClientePossibileAdClienteAction(
     sdiCode: String(leadRow.sdi_code ?? ""),
     telefono: String(leadRow.telefono ?? ""),
     sitoWeb: String(leadRow.sito_web ?? ""),
+    emailGeneriche: Array.isArray(leadRow.email_generiche)
+      ? (leadRow.email_generiche as string[])
+      : [],
+    telefoniGenerici: Array.isArray(leadRow.telefoni_generici)
+      ? (leadRow.telefoni_generici as string[])
+      : [],
+    sitiWebGenerici: Array.isArray(leadRow.siti_web_generici)
+      ? (leadRow.siti_web_generici as string[])
+      : [],
     sedeAmministrativa: {
       nazione: String(leadRow.sede_amm_nazione ?? ""),
       provincia: String(leadRow.sede_amm_provincia ?? ""),
