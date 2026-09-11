@@ -272,6 +272,7 @@ export const ordineProcessaScalettaSchema = z.object({
   dataConsegnaCalendario: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   urgente: z.boolean().optional(),
   usaMagazzino: z.boolean().optional(),
+  approvvigionamento: z.enum(["magazzino", "lavorazione"]).optional(),
   usaSabato: z.boolean().optional(),
   lottoCodice: z.string().trim().max(80).optional().default(""),
   resaPercentualeOverride: z.number().positive().max(100).nullable().optional(),

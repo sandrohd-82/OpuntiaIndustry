@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa6";
+import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
+import { ProcessaCampionaturaProduzioneModal } from "@/components/amministrazione/ProcessaCampionaturaProduzioneModal";
 import { useCampionature } from "@/hooks/useCampionature";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
@@ -41,6 +44,7 @@ type Props = {
   embedded?: boolean;
   stati?: Array<Campionatura["stato"]>;
   onFilteredCount?: (n: number) => void;
+  processMode?: boolean;
 };
 
 export function CampionatureBoard({
@@ -48,10 +52,13 @@ export function CampionatureBoard({
   embedded = false,
   stati,
   onFilteredCount,
+  processMode = false,
 }: Props) {
-  const { items, ready, error, removeItem } = useCampionature(refreshToken);
+  const { items, ready, error, removeItem, upsertLocal } =
+    useCampionature(refreshToken);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [processing, setProcessing] = useState<Campionatura | null>(null);
   const [sort, setSort] = useState<SortState<SortKey> | null>({
     key: "dataInvio",
     dir: "desc",
@@ -169,6 +176,14 @@ export function CampionatureBoard({
                         prev === item.id ? null : item.id
                       )
                     }
+                    onProcess={
+                      processMode
+                        ? () => {
+                            setActionError(null);
+                            setProcessing(item);
+                          }
+                        : undefined
+                    }
                     onDelete={async () => {
                       if (
                         !window.confirm(
@@ -190,6 +205,18 @@ export function CampionatureBoard({
           </table>
         </div>
       )}
+
+      {processing ? (
+        <ProcessaCampionaturaProduzioneModal
+          item={processing}
+          onClose={() => setProcessing(null)}
+          onSaved={(next) => {
+            upsertLocal(next);
+            setProcessing(null);
+            notifyOrdiniDaProcessareNav();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -198,11 +225,13 @@ function CampionaturaTableRow({
   item,
   open,
   onToggle,
+  onProcess,
   onDelete,
 }: {
   item: Campionatura;
   open: boolean;
   onToggle: () => void;
+  onProcess?: () => void;
   onDelete: () => void;
 }) {
   const lotti = item.righe.map((r) => r.lottoCodice).filter(Boolean).join(", ");
@@ -235,6 +264,19 @@ function CampionaturaTableRow({
         </td>
         <td className="px-4 py-3">
           <div className="flex justify-end gap-1">
+            {onProcess &&
+            (item.stato === "inserita" || item.stato === "bozza") ? (
+              <ActionGate actionKey={AZ.processaOrdine}>
+                <button
+                  type="button"
+                  title="Inserire in produzione"
+                  onClick={onProcess}
+                  className="rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                >
+                  Inserisci in produzione
+                </button>
+              </ActionGate>
+            ) : null}
             <button
               type="button"
               title={open ? "Chiudi dettaglio" : "Espandi dettaglio"}

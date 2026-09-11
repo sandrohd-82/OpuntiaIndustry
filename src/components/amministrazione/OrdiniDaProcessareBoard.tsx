@@ -39,6 +39,7 @@ export function OrdiniDaProcessareBoard() {
             </p>
             <CampionatureBoard
               embedded
+              processMode
               stati={["inserita", "bozza"]}
               onFilteredCount={setCampCount}
             />
@@ -65,7 +66,7 @@ export function OrdiniDaProcessareBoard() {
             processMode
             showCreate={false}
             createLabel="Crea ordine merce"
-            description="Ordini merce inseriti. Passa in produzione per metterli in scaletta."
+            description="Ordini merce inseriti. Inserisci in produzione da magazzino o da prossima lavorazione."
             emptyTitle="Nessun ordine merce da processare"
             emptyHint="Crea l’ordine da Nuovo ordine: risulta Inserito e compare qui finché non viene processato."
             loadingLabel="Caricamento coda da processare…"

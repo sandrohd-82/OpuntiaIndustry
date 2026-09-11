@@ -11,7 +11,14 @@ import {
   type CampionaturaMezzo,
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
+import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
+import {
+  giacenzaCopreRichiesta,
+  messaggioGiacenzaInsufficiente,
+  quantitaRichiestaInBaseKg,
+} from "@/lib/amministrazione/approvvigionamento";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import type { CampionaturaRigaRow, CampionaturaRow } from "@/types/database";
@@ -526,5 +533,133 @@ export async function createReferenteRicezioneMerceAction(
     id: String(data.id),
     destinatario,
     label: `${d.nome} ${d.cognome}`.trim(),
+  };
+}
+
+const processCampionaturaSchema = z.object({
+  campionaturaId: z.string().uuid(),
+  lottoCodice: z.string().trim().max(80).optional().default(""),
+});
+
+/** Inserisce la campionatura in produzione: solo magazzino, mai lavorazione. */
+export async function processCampionaturaInProduzioneAction(
+  raw: unknown
+): Promise<
+  { success: true; item: Campionatura } | { success: false; error: string }
+> {
+  const gate = await requireCampionaturaAccess("write");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const parsed = processCampionaturaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const supabase = await createClient();
+  const { data: row, error: readErr } = await supabase
+    .from("campionature")
+    .select("*")
+    .eq("id", parsed.data.campionaturaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr || !row) {
+    return { success: false, error: readErr?.message ?? "Record non trovato" };
+  }
+  const header = row as CampionaturaRow;
+  if (header.stato !== "inserita" && header.stato !== "bozza") {
+    return {
+      success: false,
+      error: "Questa campionatura è già in produzione o chiusa.",
+    };
+  }
+  const { data: righeData, error: righeErr } = await supabase
+    .from("campionature_righe")
+    .select("*")
+    .eq("campionatura_id", header.id)
+    .order("sort_order", { ascending: true });
+  if (righeErr) return { success: false, error: righeErr.message };
+  const righe = (righeData ?? []) as CampionaturaRigaRow[];
+  if (righe.length === 0) {
+    return { success: false, error: "Campionatura senza righe prodotto." };
+  }
+
+  for (const r of righe) {
+    if (!r.prodotto_id) {
+      return { success: false, error: `Riga senza prodotto: ${r.prodotto_nome}` };
+    }
+    const stock = await getGiacenzaProdottoAction(r.prodotto_id);
+    if (!stock.success) return { success: false, error: stock.error };
+    const richiesta = quantitaRichiestaInBaseKg(
+      Number(r.quantita),
+      r.unita_misura
+    );
+    if (!giacenzaCopreRichiesta(stock.quantitaKg, richiesta)) {
+      const need = richiesta ?? Number(r.quantita);
+      return {
+        success: false,
+        error: `${r.prodotto_codice}: ${messaggioGiacenzaInsufficiente(stock.quantitaKg, need)}`,
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const lotto = parsed.data.lottoCodice.trim();
+  const { error: updErr } = await supabase
+    .from("campionature")
+    .update({
+      stato: "processata",
+      versione: header.versione + 1,
+      updated_by: gate.auth.userId,
+    })
+    .eq("id", header.id)
+    .is("deleted_at", null);
+  if (updErr) return { success: false, error: updErr.message };
+
+  if (lotto && righe[0]?.id) {
+    const { error: lottoErr } = await supabase
+      .from("campionature_righe")
+      .update({
+        lotto_codice: lotto,
+        updated_at: now,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", righe[0].id);
+    if (lottoErr) return { success: false, error: lottoErr.message };
+  }
+
+  await writeAuditLog({
+    entity_type: "campionature",
+    entity_id: header.id,
+    action: "status_change",
+    actor_id: gate.auth.userId,
+    summary: `Inserita in produzione ${header.numero_interno} (solo magazzino)`,
+    payload: {
+      stato_da: header.stato,
+      stato_a: "processata",
+      approvvigionamento: "magazzino",
+      lotto_codice: lotto || null,
+    },
+  });
+
+  const { data: fresh } = await supabase
+    .from("campionature")
+    .select("*")
+    .eq("id", header.id)
+    .maybeSingle();
+  const { data: freshRighe } = await supabase
+    .from("campionature_righe")
+    .select("*")
+    .eq("campionatura_id", header.id)
+    .order("sort_order", { ascending: true });
+  if (!fresh) {
+    return { success: false, error: "Processata ma non leggibile." };
+  }
+  return {
+    success: true,
+    item: mapCampionatura(
+      fresh as CampionaturaRow,
+      (freshRighe ?? []) as CampionaturaRigaRow[]
+    ),
   };
 }

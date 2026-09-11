@@ -25,6 +25,7 @@ import {
   normalizeConfezionamentoDraft,
   totaleKgConfezionati,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
+import { messaggioGiacenzaInsufficiente } from "@/lib/amministrazione/approvvigionamento";
 import {
   ordineProcessaScalettaSchema,
   ordineWizardInputSchema,
@@ -1299,6 +1300,19 @@ export async function processOrdineInScalettaAction(
     return { success: false, error: "Ordine senza riga prodotto." };
   }
 
+  const isCamp = existing.tipo === "campionatura";
+  const fonte =
+    input.approvvigionamento ??
+    (input.usaMagazzino === true || isCamp ? "magazzino" : "lavorazione");
+  if (isCamp && fonte === "lavorazione") {
+    return {
+      success: false,
+      error:
+        "La campionatura si approvvigiona solo da magazzino, senza lavorazione.",
+    };
+  }
+  const usaMagazzino = fonte === "magazzino";
+
   const giorniProduzione = input.giorniProduzione ?? [];
   const giorniAttivita = input.giorniAttivita ?? [];
   const attivitaSnapshot = input.attivitaSnapshot ?? [];
@@ -1311,7 +1325,7 @@ export async function processOrdineInScalettaAction(
     dataRichiesta:
       existing.consegnaTipo === "data" ? existing.dataConsegna : null,
     urgente: input.urgente ?? existing.urgente,
-    usaMagazzino: input.usaMagazzino ?? existing.usaMagazzino,
+    usaMagazzino,
     usaSabato: input.usaSabato ?? existing.usaSabato,
     resaPercentualeOverride: input.resaPercentualeOverride ?? null,
     capacitaIngressoKgPerEssiccatoreOverride:
@@ -1320,7 +1334,15 @@ export async function processOrdineInScalettaAction(
   if (!calcRes.success) {
     return { success: false, error: calcRes.error };
   }
+  const richiestaKg = quantitaInUnitaBase(riga.quantita, riga.unitaMisura);
+  if (usaMagazzino && calcRes.giacenzaKg + 1e-9 < richiestaKg) {
+    return {
+      success: false,
+      error: messaggioGiacenzaInsufficiente(calcRes.giacenzaKg, richiestaKg),
+    };
+  }
   if (
+    !usaMagazzino &&
     calcRes.calcolo.giorniLavorativiNecessari > 0 &&
     giorniProduzione.length === 0
   ) {
@@ -1347,7 +1369,7 @@ export async function processOrdineInScalettaAction(
       data_consegna: input.dataConsegnaCalendario,
       data_consegna_stimata: input.dataConsegnaCalendario,
       urgente: input.urgente ?? existing.urgente,
-      usa_magazzino: input.usaMagazzino ?? existing.usaMagazzino,
+      usa_magazzino: usaMagazzino,
       usa_sabato: input.usaSabato ?? existing.usaSabato,
       giorni_produzione: giorniProduzione,
       capacita_snapshot: {
@@ -1405,13 +1427,15 @@ export async function processOrdineInScalettaAction(
     entity_id: existing.id,
     action: "ordine_processa",
     actor_id: auth.userId,
-    summary: `Processato ordine ${existing.numeroInterno} — inserito in scaletta`,
+    summary: `Inserito in produzione ${existing.numeroInterno} (${fonte})`,
     payload: {
       stato_da: existing.stato,
       stato_a: "in_scaletta",
+      approvvigionamento: fonte,
       giorni_produzione: giorniProduzione,
       data_consegna: input.dataConsegnaCalendario,
       lotto_codice: lottoCodice || null,
+      giacenza_kg: calcRes.giacenzaKg,
     },
   });
   await writeAudit({

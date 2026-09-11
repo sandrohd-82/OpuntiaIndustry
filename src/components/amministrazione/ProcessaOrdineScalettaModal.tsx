@@ -1,20 +1,41 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { processOrdineInScalettaAction } from "@/app/actions/ordini";
 import { listAttivitaByProdottoAction } from "@/app/actions/attivita";
-import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
+import {
+  calcolaConsegnaOrdineAction,
+  getGiacenzaProdottoAction,
+} from "@/app/actions/produzione-capacita";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
 import {
   attivitaToOrdineDraft,
   type AttivitaOrdineDraft,
 } from "@/lib/amministrazione/attivita";
 import {
+  formatKgLt,
+  giacenzaCopreRichiesta,
+  messaggioGiacenzaInsufficiente,
+  quantitaRichiestaInBaseKg,
+  type FonteApprovvigionamento,
+} from "@/lib/amministrazione/approvvigionamento";
+import {
   labelTipoOrdine,
   quantitaInUnitaBase,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
 import type { CapacitaCalcoloResult } from "@/lib/amministrazione/produzione-capacita";
+
+type GiacenzaRiga = {
+  prodottoId: string;
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantita: number;
+  unitaMisura: string;
+  giacenzaKg: number;
+  richiestaKg: number | null;
+  ok: boolean;
+};
 
 type Props = {
   ordine: Ordine;
@@ -28,6 +49,7 @@ export function ProcessaOrdineScalettaModal({
   onSaved,
 }: Props) {
   const titleId = useId();
+  const isCamp = ordine.tipo === "campionatura";
   const riga = ordine.righe[0];
   const [lottoCodice, setLottoCodice] = useState(riga?.lottoCodice ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -36,10 +58,55 @@ export function ProcessaOrdineScalettaModal({
   const [calcoloLoading, setCalcoloLoading] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
   const [usaSabato, setUsaSabato] = useState(ordine.usaSabato);
-  const [usaMagazzino, setUsaMagazzino] = useState(ordine.usaMagazzino);
+  const [fonte, setFonte] = useState<FonteApprovvigionamento>(
+    isCamp || ordine.usaMagazzino ? "magazzino" : "lavorazione"
+  );
   const [urgente, setUrgente] = useState(ordine.urgente);
   const [attivitaDrafts, setAttivitaDrafts] = useState<AttivitaOrdineDraft[]>(
     []
+  );
+  const [giacenze, setGiacenze] = useState<GiacenzaRiga[]>([]);
+
+  const usaMagazzino = fonte === "magazzino";
+
+  useEffect(() => {
+    if (isCamp) setFonte("magazzino");
+  }, [isCamp]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      ordine.righe
+        .filter((r) => r.prodottoId)
+        .map(async (r) => {
+          const stock = await getGiacenzaProdottoAction(r.prodottoId);
+          const richiestaKg = quantitaRichiestaInBaseKg(
+            r.quantita,
+            r.unitaMisura
+          );
+          const giacenzaKg = stock.success ? stock.quantitaKg : 0;
+          return {
+            prodottoId: r.prodottoId,
+            prodottoCodice: r.prodottoCodice,
+            prodottoNome: r.prodottoNome,
+            quantita: r.quantita,
+            unitaMisura: r.unitaMisura,
+            giacenzaKg,
+            richiestaKg,
+            ok: giacenzaCopreRichiesta(giacenzaKg, richiestaKg),
+          } satisfies GiacenzaRiga;
+        })
+    ).then((rows) => {
+      if (!cancelled) setGiacenze(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ordine.righe]);
+
+  const magazzinoOk = useMemo(
+    () => giacenze.length > 0 && giacenze.every((g) => g.ok),
+    [giacenze]
   );
 
   useEffect(() => {
@@ -55,7 +122,7 @@ export function ProcessaOrdineScalettaModal({
   }, [riga?.prodottoId]);
 
   useEffect(() => {
-    if (!riga) return;
+    if (!riga || isCamp) return;
     let cancelled = false;
     setCalcoloLoading(true);
     void calcolaConsegnaOrdineAction({
@@ -93,6 +160,7 @@ export function ProcessaOrdineScalettaModal({
       cancelled = true;
     };
   }, [
+    isCamp,
     riga?.prodottoId,
     riga?.prodottoCodice,
     riga?.quantita,
@@ -127,6 +195,7 @@ export function ProcessaOrdineScalettaModal({
         dataConsegnaCalendario: payload.dataConsegna,
         urgente,
         usaMagazzino,
+        approvvigionamento: fonte,
         usaSabato,
         lottoCodice: lottoCodice.trim(),
       });
@@ -145,11 +214,21 @@ export function ProcessaOrdineScalettaModal({
     }
   }
 
-  async function processSenzaGiorni() {
-    if (!calcolo?.dataConsegnaStimata) {
-      setError("Impossibile stimare la data di consegna.");
+  async function processDaMagazzino() {
+    if (!magazzinoOk) {
+      const first = giacenze.find((g) => !g.ok);
+      setError(
+        first
+          ? `${first.prodottoCodice}: ${messaggioGiacenzaInsufficiente(first.giacenzaKg, first.richiestaKg ?? first.quantita)}`
+          : "Giacenza insufficiente."
+      );
       return;
     }
+    const oggi = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dataConsegna =
+      calcolo?.dataConsegnaStimata ??
+      `${oggi.getFullYear()}-${pad(oggi.getMonth() + 1)}-${pad(oggi.getDate())}`;
     setSaving(true);
     setError(null);
     try {
@@ -158,10 +237,11 @@ export function ProcessaOrdineScalettaModal({
         giorniProduzione: [],
         giorniAttivita: [],
         attivitaSnapshot: [],
-        dataConsegnaCalendario: calcolo.dataConsegnaStimata,
-        urgente,
-        usaMagazzino,
-        usaSabato,
+        dataConsegnaCalendario: dataConsegna,
+        urgente: isCamp ? false : urgente,
+        usaMagazzino: true,
+        approvvigionamento: "magazzino",
+        usaSabato: false,
         lottoCodice: lottoCodice.trim(),
       });
       if (!result.success) {
@@ -178,6 +258,10 @@ export function ProcessaOrdineScalettaModal({
     }
   }
 
+  const puoLavorazione =
+    !isCamp && fonte === "lavorazione" && !!calcolo && !!riga;
+  const puoMagazzino = usaMagazzino && magazzinoOk && !!riga;
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-8"
@@ -190,22 +274,92 @@ export function ProcessaOrdineScalettaModal({
         className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Processa e metti in scaletta
+          Inserisci in produzione
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           {ordine.numeroInterno} · {labelTipoOrdine(ordine.tipo)} ·{" "}
           {ordine.cliente}
         </p>
-        {riga ? (
-          <p className="mt-1 text-sm">
-            {riga.prodottoCodice} — {riga.prodottoNome} ·{" "}
-            {riga.quantita.toLocaleString("it-IT")} {riga.unitaMisura}
-          </p>
-        ) : (
-          <p className="mt-2 text-sm text-red-700">Nessuna riga prodotto.</p>
-        )}
 
-        {ordine.tipo === "campionatura" ? (
+        <fieldset className="mt-4 space-y-2">
+          <legend className="text-sm font-medium">Approvvigionamento</legend>
+          {isCamp ? (
+            <p className="text-sm text-[var(--muted)]">
+              Campionatura: solo da magazzino. Nessuna lavorazione.
+            </p>
+          ) : (
+            <>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="fonte"
+                  checked={fonte === "magazzino"}
+                  onChange={() => setFonte("magazzino")}
+                />
+                <span>
+                  Da magazzino
+                  <span className="block text-xs text-[var(--muted)]">
+                    Solo se la quantità è già presente in giacenza.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="fonte"
+                  checked={fonte === "lavorazione"}
+                  onChange={() => setFonte("lavorazione")}
+                />
+                <span>
+                  Da prossima lavorazione
+                  <span className="block text-xs text-[var(--muted)]">
+                    Inserisce l’ordine in scaletta produzione.
+                  </span>
+                </span>
+              </label>
+            </>
+          )}
+        </fieldset>
+
+        <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--border)]">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-[var(--muted)]">
+              <tr>
+                <th className="px-3 py-2">Prodotto</th>
+                <th className="px-3 py-2">Richiesto</th>
+                <th className="px-3 py-2">In magazzino</th>
+              </tr>
+            </thead>
+            <tbody>
+              {giacenze.map((g) => (
+                <tr key={g.prodottoId} className="border-t border-[var(--border)]">
+                  <td className="px-3 py-2">
+                    {g.prodottoCodice} — {g.prodottoNome}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">
+                    {g.quantita.toLocaleString("it-IT")} {g.unitaMisura}
+                  </td>
+                  <td
+                    className={`px-3 py-2 tabular-nums ${g.ok ? "text-emerald-800" : "text-red-700"}`}
+                  >
+                    {formatKgLt(g.giacenzaKg)}
+                    {g.ok ? " · ok" : " · insufficiente"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {usaMagazzino && !magazzinoOk ? (
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {isCamp
+              ? "Non puoi inserire la campionatura in produzione: manca materiale a magazzino."
+              : "Da magazzino non è possibile. Scegli «prossima lavorazione» oppure attendi il ripristino giacenza."}
+          </p>
+        ) : null}
+
+        {isCamp || usaMagazzino ? (
           <label className="mt-4 block text-sm">
             <span className="mb-1 block font-medium">Numero di lotto</span>
             <input
@@ -215,63 +369,53 @@ export function ProcessaOrdineScalettaModal({
               placeholder="Facoltativo — se già assegnato"
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm outline-none focus:border-[var(--primary)]"
             />
-            <span className="mt-1 block text-xs text-[var(--muted)]">
-              Non obbligatorio in creazione: si indica qui in processazione.
-            </span>
           </label>
         ) : null}
 
-        <div className="mt-4 space-y-2 text-sm">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={urgente}
-              onChange={(e) => setUrgente(e.target.checked)}
-            />
-            Urgente
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={usaMagazzino}
-              onChange={(e) => setUsaMagazzino(e.target.checked)}
-            />
-            Usa magazzino
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={usaSabato}
-              onChange={(e) => setUsaSabato(e.target.checked)}
-            />
-            Includi sabato
-          </label>
-        </div>
-
-        <div className="mt-4 rounded-lg border border-[var(--border)] px-3 py-3 text-sm">
-          {calcoloLoading ? (
-            <p className="text-[var(--muted)]">Calcolo capacità…</p>
-          ) : calcolo ? (
-            <ul className="space-y-1">
-              <li>
-                Giorni lavorativi stimati:{" "}
-                <strong>{calcolo.giorniLavorativiNecessari}</strong>
-              </li>
-              <li>
-                Consegna stimata:{" "}
-                <strong>
-                  {calcolo.dataConsegnaStimata
-                    ? new Date(calcolo.dataConsegnaStimata).toLocaleDateString(
-                        "it-IT"
-                      )
-                    : "—"}
-                </strong>
-              </li>
-            </ul>
-          ) : (
-            <p className="text-[var(--muted)]">Calcolo non disponibile.</p>
-          )}
-        </div>
+        {!isCamp && fonte === "lavorazione" ? (
+          <div className="mt-4 space-y-2 text-sm">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={urgente}
+                onChange={(e) => setUrgente(e.target.checked)}
+              />
+              Urgente
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={usaSabato}
+                onChange={(e) => setUsaSabato(e.target.checked)}
+              />
+              Includi sabato
+            </label>
+            <div className="rounded-lg border border-[var(--border)] px-3 py-3">
+              {calcoloLoading ? (
+                <p className="text-[var(--muted)]">Calcolo capacità…</p>
+              ) : calcolo ? (
+                <ul className="space-y-1">
+                  <li>
+                    Giorni lavorativi stimati:{" "}
+                    <strong>{calcolo.giorniLavorativiNecessari}</strong>
+                  </li>
+                  <li>
+                    Consegna stimata:{" "}
+                    <strong>
+                      {calcolo.dataConsegnaStimata
+                        ? new Date(
+                            calcolo.dataConsegnaStimata
+                          ).toLocaleDateString("it-IT")
+                        : "—"}
+                    </strong>
+                  </li>
+                </ul>
+              ) : (
+                <p className="text-[var(--muted)]">Calcolo non disponibile.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {error ? (
           <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -287,35 +431,33 @@ export function ProcessaOrdineScalettaModal({
           >
             Annulla
           </button>
-          {calcolo && calcolo.giorniLavorativiNecessari > 0 ? (
+          {fonte === "lavorazione" && !isCamp ? (
             <button
               type="button"
-              disabled={saving || !riga}
+              disabled={saving || !puoLavorazione}
               onClick={() => setCalendarioOpen(true)}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Apri calendario e processa"}
+              {saving ? "Salvataggio…" : "Apri calendario e inserisci"}
             </button>
           ) : (
             <button
               type="button"
-              disabled={saving || !calcolo || !riga}
-              onClick={() => void processSenzaGiorni()}
+              disabled={saving || !puoMagazzino}
+              onClick={() => void processDaMagazzino()}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Processa senza giorni di linea"}
+              {saving ? "Salvataggio…" : "Inserisci da magazzino"}
             </button>
           )}
         </div>
       </div>
 
-      {calendarioOpen && calcolo ? (
+      {calendarioOpen && calcolo && fonte === "lavorazione" ? (
         <ConsegnaCalendarioModal
           giorniProduzioneNecessari={calcolo.giorniLavorativiNecessari}
           kgOrdine={
-            riga
-              ? quantitaInUnitaBase(riga.quantita, riga.unitaMisura)
-              : 0
+            riga ? quantitaInUnitaBase(riga.quantita, riga.unitaMisura) : 0
           }
           usaSabato={usaSabato}
           onToggleSabato={setUsaSabato}
