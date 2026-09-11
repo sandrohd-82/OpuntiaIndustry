@@ -275,7 +275,8 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               </span>
             </>
           ) : null}
-          . Salvataggio = inviata e approvata (ISO 9001).
+          . Salvataggio = Inserito (ordine creato) e documento approvato (ISO
+          9001).
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">

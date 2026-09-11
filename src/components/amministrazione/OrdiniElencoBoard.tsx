@@ -34,8 +34,8 @@ export function OrdiniElencoBoard() {
         {isCamp ? (
           <div className="space-y-5">
             <p className="text-sm text-[var(--muted)]">
-              Campionature inviate e ordini campionatura (inseriti, in
-              scaletta, evasi, storico).
+              Campionature e ordini campionatura: Inserito, Processato, Pronto
+              per spedizione, Inviato.
             </p>
             <CampionatureBoard embedded onFilteredCount={setCampCount} />
             <OrdiniBoard
@@ -59,7 +59,7 @@ export function OrdiniElencoBoard() {
             tipo="vendita"
             showCreate={false}
             createLabel="Crea ordine"
-            description="Elenco ordini merce (inseriti, in scaletta, evasi, storico)."
+            description="Elenco ordini merce: Inserito, Processato, Pronto per spedizione, Inviato."
             emptyTitle="Nessun ordine merce"
             emptyHint="Gli ordini creati da Nuovo ordine restano in questo elenco."
             loadingLabel="Caricamento elenco ordini…"

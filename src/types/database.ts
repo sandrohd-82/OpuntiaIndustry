@@ -882,6 +882,8 @@ export type OrdineStato =
   | "in_attesa"
   | "sospeso"
   | "in_scaletta"
+  | "pronto_spedizione"
+  | "inviato"
   | "storico"
   | "ricevuto"
   | "evaso";
@@ -1285,6 +1287,8 @@ export interface OrdineRigaInsert {
 
 export type CampionaturaStatoDb =
   | "bozza"
+  | "processata"
+  | "pronto_spedizione"
   | "inviata"
   | "consegnata"
   | "annullata";

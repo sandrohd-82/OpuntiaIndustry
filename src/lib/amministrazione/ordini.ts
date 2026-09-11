@@ -5,6 +5,7 @@ import type {
   OrdineStato,
   OrdineTipoDocumento,
 } from "@/types/database";
+import { cicloStatoOrdine } from "@/lib/amministrazione/ciclo-stato-ordine";
 
 export type OrdineAllegatoMeta = {
   storagePath: string;
@@ -286,6 +287,8 @@ export const ordineInputSchema = z
       "in_attesa",
       "sospeso",
       "in_scaletta",
+      "pronto_spedizione",
+      "inviato",
       "storico",
       "ricevuto",
       "evaso",
@@ -454,22 +457,11 @@ export function formatOperatoreQuando(
 }
 
 export function labelStatoOrdine(stato: OrdineStato): string {
-  switch (stato) {
-    case "in_attesa":
-      return "Inserito";
-    case "sospeso":
-      return "Sospeso";
-    case "in_scaletta":
-      return "In scaletta";
-    case "storico":
-      return "Storico";
-    case "ricevuto":
-      return "Inserito";
-    case "evaso":
-      return "In scaletta";
-    default:
-      return stato;
-  }
+  return cicloStatoOrdine(stato).label;
+}
+
+export function hintStatoOrdine(stato: OrdineStato): string {
+  return cicloStatoOrdine(stato).hint;
 }
 
 export function labelTipoOrdine(tipo: OrdineTipoDocumento): string {
@@ -500,6 +492,8 @@ export const ORDINI_STATI_ELENCO: OrdineStato[] = [
   "ricevuto",
   "sospeso",
   "in_scaletta",
+  "pronto_spedizione",
+  "inviato",
   "evaso",
   "storico",
 ];

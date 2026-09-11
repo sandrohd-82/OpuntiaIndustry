@@ -6,9 +6,12 @@ import { useCampionature } from "@/hooks/useCampionature";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
   CAMPIONATURA_MEZZO_LABEL,
-  CAMPIONATURA_STATO_LABEL,
   type Campionatura,
 } from "@/lib/amministrazione/campionature";
+import {
+  classeCicloStato,
+  cicloStatoCampionatura,
+} from "@/lib/amministrazione/ciclo-stato-ordine";
 import { SortableTh } from "@/components/ui/SortableTh";
 import {
   compareSortValues,
@@ -28,10 +31,7 @@ function formatDate(isoDate: string | null) {
 }
 
 function statoClass(stato: Campionatura["stato"]) {
-  if (stato === "inviata") return "bg-sky-50 text-sky-800";
-  if (stato === "consegnata") return "bg-emerald-50 text-emerald-800";
-  if (stato === "annullata") return "bg-red-50 text-red-700";
-  return "bg-slate-100 text-slate-700";
+  return classeCicloStato(cicloStatoCampionatura(stato).label);
 }
 
 type Props = {
@@ -223,9 +223,10 @@ function CampionaturaTableRow({
         </td>
         <td className="px-4 py-3">
           <span
+            title={cicloStatoCampionatura(item.stato).hint}
             className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${statoClass(item.stato)}`}
           >
-            {CAMPIONATURA_STATO_LABEL[item.stato]}
+            {cicloStatoCampionatura(item.stato).label}
           </span>
         </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">

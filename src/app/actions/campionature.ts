@@ -305,13 +305,11 @@ async function createCampionaturaActionInner(
       destinatario: input.destinatario || input.cliente,
       indirizzo_spedizione: input.indirizzoSpedizione,
       note: input.note,
-      stato: "inviata",
+      stato: "bozza",
       documento_stato: "approvato",
       versione: 1,
       approved_at: now,
       approved_by: gate.auth.userId,
-      sent_at: now,
-      sent_by: gate.auth.userId,
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
     })
@@ -370,7 +368,7 @@ async function createCampionaturaActionInner(
     entity_id: header.id,
     action: "create",
     actor_id: gate.auth.userId,
-    summary: `Campionatura ${numero} inviata a ${input.cliente}`,
+    summary: `Campionatura ${numero} inserita per ${input.cliente}`,
     payload: {
       numero_interno: numero,
       cliente_id: input.clienteId,

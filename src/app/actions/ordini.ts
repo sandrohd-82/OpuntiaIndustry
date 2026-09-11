@@ -277,7 +277,7 @@ export async function countOrdiniDaProcessareAction(): Promise<
       .from("campionature")
       .select("id")
       .is("deleted_at", null)
-      .in("stato", ["bozza", "inviata"]),
+      .in("stato", ["bozza"]),
   ]);
   if (error) return { success: false, error: error.message };
   let merce = 0;

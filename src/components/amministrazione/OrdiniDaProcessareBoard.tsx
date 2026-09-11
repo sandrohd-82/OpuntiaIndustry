@@ -34,12 +34,12 @@ export function OrdiniDaProcessareBoard() {
         {isCamp ? (
           <div className="space-y-5">
             <p className="text-sm text-[var(--muted)]">
-              Campionature inviate o in bozza e ordini campionatura da passare
+              Campionature e ordini campionatura in stato Inserito da passare
               in produzione.
             </p>
             <CampionatureBoard
               embedded
-              stati={["bozza", "inviata"]}
+              stati={["bozza"]}
               onFilteredCount={setCampCount}
             />
             <OrdiniBoard

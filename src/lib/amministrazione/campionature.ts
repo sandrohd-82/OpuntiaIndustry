@@ -8,6 +8,8 @@ import {
 
 export const CAMPIONATURA_STATI = [
   "bozza",
+  "processata",
+  "pronto_spedizione",
   "inviata",
   "consegnata",
   "annullata",
@@ -169,8 +171,10 @@ export function formatNumeroCampionatura(
 }
 
 export const CAMPIONATURA_STATO_LABEL: Record<CampionaturaStato, string> = {
-  bozza: "Bozza",
-  inviata: "Inviata",
+  bozza: "Inserito",
+  processata: "Processato",
+  pronto_spedizione: "Pronto per spedizione",
+  inviata: "Inviato",
   consegnata: "Consegnata",
   annullata: "Annullata",
 };

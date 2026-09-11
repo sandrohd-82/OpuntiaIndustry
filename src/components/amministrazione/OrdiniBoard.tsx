@@ -27,11 +27,13 @@ import { ProcessaOrdineScalettaModal } from "@/components/amministrazione/Proces
 import {
   fraseConfermaEliminazione,
   isOrdineDaProcessare,
+  hintStatoOrdine,
   labelStatoOrdine,
   labelTipoOrdine,
   labelTipoPagamento,
   type Ordine,
 } from "@/lib/amministrazione/ordini";
+import { classeCicloStato } from "@/lib/amministrazione/ciclo-stato-ordine";
 import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
   compareSortValues,
@@ -40,12 +42,13 @@ import {
 } from "@/lib/ui/list-sort";
 import type { OrdineStato, OrdineTipoDocumento } from "@/types/database";
 
-const COL_COUNT = 12;
+const COL_COUNT = 13;
 
 type OrdineSortKey =
   | "numeroInterno"
   | "numeroCliente"
   | "cliente"
+  | "stato"
   | "dataOrdine"
   | "dataConsegna"
   | "importoEuro"
@@ -121,27 +124,24 @@ function OrdineTableRow({
           <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
             {labelTipoOrdine(ordine.tipo)}
           </span>
-          {ordine.stato === "sospeso" ? (
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-900">
-              Sospeso
-              {ordine.dataDisponibilitaPresunta
-                ? ` · presunta ${formatDate(ordine.dataDisponibilitaPresunta)}`
-                : ""}
-            </span>
-          ) : ordine.stato === "in_scaletta" || ordine.stato === "evaso" ? (
-            <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
-              {labelStatoOrdine(ordine.stato)}
-            </span>
-          ) : isOrdineDaProcessare(ordine.stato) ? (
-            <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-900">
-              {labelStatoOrdine(ordine.stato)}
-            </span>
-          ) : null}
         </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {ordine.numeroCliente || "—"}
         </td>
         <td className="px-4 py-3">{ordine.cliente}</td>
+        <td className="px-4 py-3">
+          <span
+            title={hintStatoOrdine(ordine.stato)}
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${classeCicloStato(labelStatoOrdine(ordine.stato))}`}
+          >
+            {labelStatoOrdine(ordine.stato)}
+          </span>
+          {ordine.stato === "sospeso" && ordine.dataDisponibilitaPresunta ? (
+            <span className="mt-1 block text-[10px] text-amber-800">
+              presunta {formatDate(ordine.dataDisponibilitaPresunta)}
+            </span>
+          ) : null}
+        </td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
           {formatDate(ordine.dataOrdine)}
         </td>
@@ -317,17 +317,21 @@ export function OrdiniBoard({
           ? a.pagato
             ? 1
             : 0
-          : sort.key === "importoEuro" || sort.key === "versione"
-            ? a[sort.key]
-            : (a[sort.key] ?? "");
+          : sort.key === "stato"
+            ? labelStatoOrdine(a.stato)
+            : sort.key === "importoEuro" || sort.key === "versione"
+              ? a[sort.key]
+              : (a[sort.key] ?? "");
       const bv =
         sort.key === "pagato"
           ? b.pagato
             ? 1
             : 0
-          : sort.key === "importoEuro" || sort.key === "versione"
-            ? b[sort.key]
-            : (b[sort.key] ?? "");
+          : sort.key === "stato"
+            ? labelStatoOrdine(b.stato)
+            : sort.key === "importoEuro" || sort.key === "versione"
+              ? b[sort.key]
+              : (b[sort.key] ?? "");
       return compareSortValues(av, bv, sort.dir);
     });
   }, [ordini, sort, processMode]);
@@ -510,6 +514,12 @@ export function OrdiniBoard({
                 <SortableTh
                   label="Cliente"
                   sortKey="cliente"
+                  sort={sort}
+                  onSort={(k) => setSort((s) => nextSortState(s, k))}
+                />
+                <SortableTh
+                  label="Stato"
+                  sortKey="stato"
                   sort={sort}
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
                 />

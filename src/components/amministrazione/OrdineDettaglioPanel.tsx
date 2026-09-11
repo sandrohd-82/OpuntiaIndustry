@@ -7,6 +7,7 @@ import { OrdineAuditLogModal } from "@/components/amministrazione/OrdineAuditLog
 import {
   formatOperatoreQuando,
   imponibileRiga,
+  hintStatoOrdine,
   labelDocumentoStato,
   labelStatoOrdine,
   labelTipoOrdine,
@@ -99,7 +100,11 @@ export function OrdineDettaglioPanel({ ordine, onEdit }: Props) {
 
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
         <span className="font-semibold text-slate-800">
-          {labelTipoOrdine(ordine.tipo)} · {labelStatoOrdine(ordine.stato)} · V
+          {labelTipoOrdine(ordine.tipo)} ·{" "}
+          <span title={hintStatoOrdine(ordine.stato)}>
+            {labelStatoOrdine(ordine.stato)}
+          </span>{" "}
+          · V
           {ordine.versione} {labelDocumentoStato(ordine.documentoStato)}
         </span>
         <span className="text-[var(--muted)]" aria-hidden>
