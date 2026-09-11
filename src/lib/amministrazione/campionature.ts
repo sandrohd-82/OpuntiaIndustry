@@ -111,7 +111,7 @@ export const createCampionaturaSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Data richiesta obbligatoria"),
   mezzo: z.enum(CAMPIONATURA_MEZZI, { message: "Indica a mezzo di" }),
-  pnNotaId: z.string().uuid("Collega o crea una nota della timeline"),
+  pnNotaId: z.string().uuid().nullable().optional().default(null),
   webmailMessaggioId: z.string().uuid().nullable().optional().default(null),
   spedizioneTipo: z
     .enum(["sede_azienda", "altro_posto"])
@@ -123,7 +123,26 @@ export const createCampionaturaSchema = z.object({
   indirizzoSpedizione: z.string().trim().max(500).optional().default(""),
   note: z.string().trim().max(4000).optional().default(""),
   righe: z.array(campionaturaRigaSchema).min(1, "Aggiungi almeno un prodotto"),
-});
+})
+  .superRefine((val, ctx) => {
+    if (val.mezzo === "mail") {
+      if (!val.webmailMessaggioId && !val.pnNotaId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Collega la mail oppure una nota della timeline.",
+          path: ["webmailMessaggioId"],
+        });
+      }
+      return;
+    }
+    if (!val.pnNotaId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Collega o crea una nota della timeline.",
+        path: ["pnNotaId"],
+      });
+    }
+  });
 
 export type CreateCampionaturaInput = z.infer<typeof createCampionaturaSchema>;
 

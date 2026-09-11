@@ -225,39 +225,43 @@ export async function createCampionaturaAction(
   );
 
   const supabase = await createClient();
-  const { data: notaCheck, error: notaErr } = await supabase
-    .from("pn_note")
-    .select("id, titolo, entity_type, entity_id")
-    .eq("id", input.pnNotaId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (notaErr || !notaCheck) {
-    return { success: false, error: "Nota timeline non trovata" };
-  }
-  const notaSuCliente =
-    notaCheck.entity_type === "cliente" &&
-    notaCheck.entity_id === input.clienteId;
-  const notaSuLead =
-    notaCheck.entity_type === "cliente_possibile" &&
-    Boolean(resolved.possibileClienteId) &&
-    notaCheck.entity_id === resolved.possibileClienteId;
-  if (!notaSuCliente && !notaSuLead) {
-    return {
-      success: false,
-      error: "La nota deve appartenere all’azienda selezionata",
-    };
-  }
-  if (notaSuLead) {
-    await supabase
+  let notaTitolo = "";
+  if (input.pnNotaId) {
+    const { data: notaCheck, error: notaErr } = await supabase
       .from("pn_note")
-      .update({
-        entity_type: "cliente",
-        entity_id: input.clienteId,
-        entity_label: input.cliente,
-        updated_by: gate.auth.userId,
-      })
-      .eq("id", notaCheck.id)
-      .is("deleted_at", null);
+      .select("id, titolo, entity_type, entity_id")
+      .eq("id", input.pnNotaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (notaErr || !notaCheck) {
+      return { success: false, error: "Nota timeline non trovata" };
+    }
+    const notaSuCliente =
+      notaCheck.entity_type === "cliente" &&
+      notaCheck.entity_id === input.clienteId;
+    const notaSuLead =
+      notaCheck.entity_type === "cliente_possibile" &&
+      Boolean(resolved.possibileClienteId) &&
+      notaCheck.entity_id === resolved.possibileClienteId;
+    if (!notaSuCliente && !notaSuLead) {
+      return {
+        success: false,
+        error: "La nota deve appartenere all’azienda selezionata",
+      };
+    }
+    if (notaSuLead) {
+      await supabase
+        .from("pn_note")
+        .update({
+          entity_type: "cliente",
+          entity_id: input.clienteId,
+          entity_label: input.cliente,
+          updated_by: gate.auth.userId,
+        })
+        .eq("id", notaCheck.id)
+        .is("deleted_at", null);
+    }
+    notaTitolo = String(notaCheck.titolo || "Nota");
   }
 
   const { data, error } = await supabase
@@ -325,15 +329,17 @@ export async function createCampionaturaAction(
     return { success: false, error: rErr.message };
   }
 
-  const service = createServiceClient();
-  await service
-    .from("pn_note")
-    .update({
-      linked_campionatura_id: header.id,
-      updated_by: gate.auth.userId,
-    })
-    .eq("id", input.pnNotaId)
-    .is("deleted_at", null);
+  if (input.pnNotaId) {
+    const service = createServiceClient();
+    await service
+      .from("pn_note")
+      .update({
+        linked_campionatura_id: header.id,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", input.pnNotaId)
+      .is("deleted_at", null);
+  }
 
   await writeAuditLog({
     entity_type: "campionature",
@@ -350,19 +356,21 @@ export async function createCampionaturaAction(
       lotti: input.righe.map((r) => r.lottoCodice),
     },
   });
-  await writeAuditLog({
-    entity_type: "pn_note",
-    entity_id: input.pnNotaId,
-    action: "link_campionatura",
-    actor_id: gate.auth.userId,
-    summary: `Nota collegata a campionatura ${numero}`,
-    payload: { campionatura_id: header.id },
-  });
+  if (input.pnNotaId) {
+    await writeAuditLog({
+      entity_type: "pn_note",
+      entity_id: input.pnNotaId,
+      action: "link_campionatura",
+      actor_id: gate.auth.userId,
+      summary: `Nota collegata a campionatura ${numero}`,
+      payload: { campionatura_id: header.id },
+    });
+  }
 
   return {
     success: true,
     item: mapCampionatura(header, (righe ?? []) as CampionaturaRigaRow[], {
-      notaTitolo: String(notaCheck.titolo || "Nota"),
+      notaTitolo,
     }),
   };
 }

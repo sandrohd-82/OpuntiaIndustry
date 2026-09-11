@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { FaEnvelopeOpen, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
+import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
+import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
 import {
   createCampionaturaAction,
   previewNumeroCampionaturaAction,
@@ -67,6 +69,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
   const [mail, setMail] = useState<{ id: string; subject: string } | null>(
     null
   );
+  const [mailPreviewOpen, setMailPreviewOpen] = useState(false);
   const [origineOpen, setOrigineOpen] = useState(false);
   const [timelinePick, setTimelinePick] = useState<
     null | "nota" | "nota-create" | "mail"
@@ -180,7 +183,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       setFormError("Indica a mezzo di.");
       return;
     }
-    if (!nota) {
+    if (mezzo === "mail") {
+      if (!mail && !nota) {
+        setFormError("Collega la mail oppure una nota della timeline.");
+        return;
+      }
+    } else if (!nota) {
       setFormError("Collega o crea una nota della timeline.");
       return;
     }
@@ -210,7 +218,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       codiceTargaCliente: cliente.codiceTarga || "C000",
       dataInvio,
       mezzo,
-      pnNotaId: nota.id,
+      pnNotaId: nota?.id ?? null,
       webmailMessaggioId: mail?.id ?? null,
       spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
       spedizionePrivato,
@@ -337,14 +345,24 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                   ) : null}
                   {nota && mail ? " · " : null}
                   {mail ? (
-                    <>
+                    <span className="inline-flex flex-wrap items-center gap-2">
                       Mail: <span className="font-medium">{mail.subject}</span>
-                    </>
+                      <button
+                        type="button"
+                        onClick={() => setMailPreviewOpen(true)}
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-900 hover:bg-sky-100"
+                      >
+                        <FaEnvelopeOpen size={10} />
+                        Leggi mail
+                      </button>
+                    </span>
                   ) : null}
                 </p>
               ) : mezzo ? (
                 <p className="mt-2 text-xs text-amber-800">
-                  Collega una nota della timeline (obbligatoria).
+                  {mezzo === "mail"
+                    ? "Collega la mail (la nota è facoltativa)."
+                    : "Collega una nota della timeline (obbligatoria)."}
                 </p>
               ) : null}
             </div>
@@ -571,7 +589,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               disabled={saving}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Registra invio"}
+              {saving ? "Salvataggio…" : "Registra ordine"}
             </button>
           </div>
         </form>
@@ -595,7 +613,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
               {mezzo === "mail"
-                ? "Collega la mail oppure una nota della timeline. La nota è obbligatoria."
+                ? "Collega la mail della richiesta. La nota della timeline è facoltativa."
                 : "Collega una nota già creata o creane una sulla timeline dell’azienda."}
             </p>
             <div className="mt-4 flex flex-col gap-2">
@@ -674,6 +692,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                   onPicked: (picked) => {
                     setMail(picked);
                     setTimelinePick(null);
+                    setOrigineOpen(false);
                   },
                 }
               : {
@@ -689,6 +708,100 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
           }
         />
       ) : null}
+
+      {mailPreviewOpen && mail ? (
+        <CampionaturaMailPreviewModal
+          mail={mail}
+          onClose={() => setMailPreviewOpen(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CampionaturaMailPreviewModal({
+  mail,
+  onClose,
+}: {
+  mail: { id: string; subject: string };
+  onClose: () => void;
+}) {
+  const titleId = useId();
+  const [bodyText, setBodyText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void getWebmailMessaggioTextAction(mail.id).then((res) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setBodyText(res.bodyText);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mail.id]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/55 px-4 py-8"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="w-full max-w-2xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 id={titleId} className="text-base font-semibold">
+              Leggi mail
+            </h3>
+            <p className="mt-1 truncate text-sm text-[var(--muted)]">
+              {mail.subject}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Chiudi"
+            className="rounded p-1 text-slate-500 hover:bg-slate-100"
+          >
+            <FaXmark />
+          </button>
+        </div>
+        {loading ? (
+          <p className="mt-4 text-sm text-[var(--muted)]">
+            Caricamento contenuto…
+          </p>
+        ) : error ? (
+          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        ) : (
+          <WebmailHtmlBody messaggioId={mail.id} bodyText={bodyText} />
+        )}
+        <div className="mt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm"
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
