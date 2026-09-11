@@ -13,6 +13,10 @@ import { AZ } from "@/lib/auth/action-access";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
+import {
+  commercialeAssegnazioneSearchText,
+  formatCommercialeAssegnazione,
+} from "@/lib/auth/commerciale";
 
 type Props = {
   value: string;
@@ -76,7 +80,7 @@ export function PossibileClienteSelectField({
     if (!q) return sorted;
     return sorted.filter((c) => {
       const hay = normalizeSearch(
-        `${c.ragioneSociale} ${c.partitaIva} ${c.codiceFiscale}`
+        `${c.ragioneSociale} ${c.partitaIva} ${c.codiceFiscale} ${commercialeAssegnazioneSearchText(c)}`
       );
       return hay.includes(q);
     });
@@ -149,7 +153,7 @@ export function PossibileClienteSelectField({
             disabled={!ready}
             placeholder={
               ready
-                ? "Digita il nome del possibile cliente…"
+                ? "Cerca possibile cliente o commerciale (Azienda, nome…)"
                 : "Caricamento possibili clienti…"
             }
             value={query}
@@ -198,6 +202,7 @@ export function PossibileClienteSelectField({
                       <span className="text-xs text-[var(--muted)]">
                         {statoLabel(c.stato)}
                         {c.partitaIva ? ` · P.IVA ${c.partitaIva}` : ""}
+                        {` · ${formatCommercialeAssegnazione(c)}`}
                       </span>
                     </button>
                   </li>

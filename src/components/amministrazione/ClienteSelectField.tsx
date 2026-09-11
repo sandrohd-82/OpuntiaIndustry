@@ -13,6 +13,10 @@ import { AZ } from "@/lib/auth/action-access";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { useClienti } from "@/hooks/useClienti";
 import type { Cliente } from "@/lib/amministrazione/clienti";
+import {
+  commercialeAssegnazioneSearchText,
+  formatCommercialeAssegnazione,
+} from "@/lib/auth/commerciale";
 
 type Props = {
   /** Id cliente selezionato (vuoto = nessuno). */
@@ -71,7 +75,7 @@ export function ClienteSelectField({
     if (!q) return sorted;
     return sorted.filter((c) => {
       const hay = normalizeSearch(
-        `${c.ragioneSociale} ${c.codiceTarga} ${c.partitaIva} ${c.codiceFiscale}`
+        `${c.ragioneSociale} ${c.codiceTarga} ${c.partitaIva} ${c.codiceFiscale} ${commercialeAssegnazioneSearchText(c)}`
       );
       return hay.includes(q);
     });
@@ -143,7 +147,9 @@ export function ClienteSelectField({
             required={required && !value}
             disabled={!ready}
             placeholder={
-              ready ? "Digita il nome azienda per filtrare…" : "Caricamento clienti…"
+              ready
+                ? "Cerca azienda, targa o commerciale (Azienda, nome…)"
+                : "Caricamento clienti…"
             }
             value={query}
             onFocus={() => {
@@ -191,6 +197,7 @@ export function ClienteSelectField({
                       <span className="text-xs text-[var(--muted)]">
                         {c.codiceTarga}
                         {c.partitaIva ? ` · P.IVA ${c.partitaIva}` : ""}
+                        {` · ${formatCommercialeAssegnazione(c)}`}
                       </span>
                     </button>
                   </li>

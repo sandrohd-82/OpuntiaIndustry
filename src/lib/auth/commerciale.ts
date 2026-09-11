@@ -96,6 +96,20 @@ export function formatCommercialeAssegnazione(opts: {
     : nome;
 }
 
+/** Testo cercabile: Azienda, nome commerciale e grado (nuovi assegnatari inclusi). */
+export function commercialeAssegnazioneSearchText(opts: {
+  commercialeId: string | null | undefined;
+  commercialeNome?: string | null;
+  commercialeGrado?: CommercialeGrado | null;
+}): string {
+  const label = formatCommercialeAssegnazione(opts);
+  const nome = String(opts.commercialeNome ?? "").trim();
+  const grado = opts.commercialeGrado
+    ? COMMERCIALE_GRADO_LABELS[opts.commercialeGrado]
+    : "";
+  return [label, nome, grado].filter(Boolean).join(" ");
+}
+
 export type CommercialeAssegnabile = {
   id: string;
   nome: string;

@@ -8,6 +8,10 @@ import {
   normalizeSede,
   type SedeFornitore,
 } from "@/lib/amministrazione/fornitori";
+import {
+  commercialeAssegnazioneSearchText,
+  formatCommercialeAssegnazione,
+} from "@/lib/auth/commerciale";
 
 export type SedeCliente = SedeFornitore;
 
@@ -307,6 +311,7 @@ export function filterClienti(
         c.sedeAmministrativa.citta,
         c.sedeAmministrativa.provincia,
         c.sedeMagazzino.citta,
+        commercialeAssegnazioneSearchText(c),
         ...c.consegneAltraAzienda.flatMap((consegna) => [
           consegna.ragioneSociale,
           consegna.citta,
@@ -364,6 +369,7 @@ export function suggestClienti(
         c.codiceFiscale,
         c.sedeAmministrativa.citta,
         c.sedeMagazzino.citta,
+        commercialeAssegnazioneSearchText(c),
         ...c.consegneAltraAzienda.map((x) => x.ragioneSociale),
       ];
       const hit = fields.find((field) => normalizeSearch(field).includes(q));
@@ -371,7 +377,11 @@ export function suggestClienti(
       return {
         id: c.id,
         label: c.ragioneSociale,
-        meta: [c.codiceTarga, c.sedeAmministrativa.citta || "—"]
+        meta: [
+          c.codiceTarga,
+          formatCommercialeAssegnazione(c),
+          c.sedeAmministrativa.citta || "—",
+        ]
           .filter(Boolean)
           .join(" · "),
       } satisfies ClienteSuggestion;

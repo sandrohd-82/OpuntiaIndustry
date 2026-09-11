@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { FaClockRotateLeft, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import {
@@ -10,6 +10,7 @@ import {
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
 import {
+  commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
   isCommercialOwnRecord,
 } from "@/lib/auth/commerciale";
@@ -31,8 +32,34 @@ export function PossibiliClientiBoard() {
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
+  const [query, setQuery] = useState("");
   const priv = useAnagraficaPrivileges("cliente_possibile");
   const [lineageIds, setLineageIds] = useState<string[]>([]);
+
+  const filtered = useMemo(() => {
+    const q = query
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .trim();
+    if (!q) return items;
+    return items.filter((lead) => {
+      const hay = [
+        lead.ragioneSociale,
+        lead.partitaIva,
+        lead.codiceFiscale,
+        lead.email,
+        lead.telefono,
+        lead.sedeAmministrativa.citta,
+        commercialeAssegnazioneSearchText(lead),
+      ]
+        .join(" ")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, query]);
 
   function reload() {
     startTransition(async () => {
@@ -62,7 +89,14 @@ export function PossibiliClientiBoard() {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Cerca ragione sociale o commerciale (Azienda, nome…)"
+          className="min-w-[16rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+        />
         <ActionGate actionKey={AZ.nuovoPossibileCliente}>
         <button
           type="button"
@@ -76,7 +110,7 @@ export function PossibiliClientiBoard() {
       </div>
 
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
-        {items.map((lead) => {
+        {filtered.map((lead) => {
           const treatAsOwn = isCommercialOwnRecord({
             userId: priv.userId,
             createdBy: lead.createdBy,
@@ -140,9 +174,11 @@ export function PossibiliClientiBoard() {
           </li>
           );
         })}
-        {items.length === 0 && !pending ? (
+        {filtered.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            Nessun possibile cliente. Usa «Nuovo possibile cliente».
+            {items.length === 0
+              ? "Nessun possibile cliente. Usa «Nuovo possibile cliente»."
+              : `Nessun risultato per «${query}».`}
           </li>
         ) : null}
       </ul>
