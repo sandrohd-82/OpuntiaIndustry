@@ -494,13 +494,14 @@ export const ORDINI_STATI_DA_PROCESSARE: OrdineStato[] = [
   "sospeso",
 ];
 
-/** Elenco operativo (lo storico resta in Archivio). */
+/** Elenco operativo, incluso lo storico già presente. */
 export const ORDINI_STATI_ELENCO: OrdineStato[] = [
   "in_attesa",
   "ricevuto",
   "sospeso",
   "in_scaletta",
   "evaso",
+  "storico",
 ];
 
 export function labelDocumentoStato(stato: OrdineDocumentoStato): string {

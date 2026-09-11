@@ -19,6 +19,7 @@ import {
   type Ordine,
   type OrdineAuditEntry,
   type OrdineInput,
+  ORDINI_STATI_ELENCO,
 } from "@/lib/amministrazione/ordini";
 import {
   normalizeConfezionamentoDraft,
@@ -211,8 +212,10 @@ export async function listOrdiniAction(
   if (scope && !scope.skip && scope.mode === "proprie") {
     q = q.eq("created_by", scope.userId);
   }
-  if (opts?.tipo) {
-    q = q.eq("tipo", opts.tipo);
+  if (opts?.tipo === "campionatura") {
+    q = q.eq("tipo", "campionatura");
+  } else if (opts?.tipo === "vendita") {
+    q = q.or("tipo.eq.vendita,tipo.is.null");
   }
   q = stati.length === 1 ? q.eq("stato", stati[0]) : q.in("stato", stati);
   const { data, error } = await q.order(
@@ -264,11 +267,18 @@ export async function countOrdiniDaProcessareAction(): Promise<
     return { success: true, totale: 0, merce: 0, campionature: 0 };
   }
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("ordini")
-    .select("id, tipo")
-    .is("deleted_at", null)
-    .in("stato", ["in_attesa", "ricevuto"]);
+  const [{ data, error }, { data: camps, error: campErr }] = await Promise.all([
+    supabase
+      .from("ordini")
+      .select("id, tipo")
+      .is("deleted_at", null)
+      .in("stato", ["in_attesa", "ricevuto", "sospeso"]),
+    supabase
+      .from("campionature")
+      .select("id")
+      .is("deleted_at", null)
+      .in("stato", ["bozza", "inviata"]),
+  ]);
   if (error) return { success: false, error: error.message };
   let merce = 0;
   let campionature = 0;
@@ -279,7 +289,49 @@ export async function countOrdiniDaProcessareAction(): Promise<
       merce += 1;
     }
   }
+  if (!campErr) campionature += camps?.length ?? 0;
   return { success: true, totale: merce + campionature, merce, campionature };
+}
+
+export async function countOrdiniElencoAction(): Promise<
+  | { success: true; merce: number; campionature: number }
+  | { success: false; error: string }
+> {
+  await requireOrdineReadAccess();
+  const supabase = await createClient();
+  const scope = await resolveScopeMode("ordini");
+  let qVendita = supabase
+    .from("ordini")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .or("tipo.eq.vendita,tipo.is.null")
+    .in("stato", ORDINI_STATI_ELENCO);
+  let qCampOrd = supabase
+    .from("ordini")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .eq("tipo", "campionatura")
+    .in("stato", ORDINI_STATI_ELENCO);
+  if (scope && !scope.skip && scope.mode === "proprie") {
+    qVendita = qVendita.eq("created_by", scope.userId);
+    qCampOrd = qCampOrd.eq("created_by", scope.userId);
+  }
+  const [vendita, campOrd, camps] = await Promise.all([
+    qVendita,
+    qCampOrd,
+    supabase
+      .from("campionature")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null),
+  ]);
+  if (vendita.error) return { success: false, error: vendita.error.message };
+  if (campOrd.error) return { success: false, error: campOrd.error.message };
+  const invii = camps.error ? 0 : camps.count ?? 0;
+  return {
+    success: true,
+    merce: vendita.count ?? 0,
+    campionature: (campOrd.count ?? 0) + invii,
+  };
 }
 
 export async function getOrdineAction(

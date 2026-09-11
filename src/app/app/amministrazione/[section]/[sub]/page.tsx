@@ -19,6 +19,7 @@ import {
 } from "@/components/amministrazione/PortaleLeadBoard";
 import { OrdiniDaProcessareBoard } from "@/components/amministrazione/OrdiniDaProcessareBoard";
 import { OrdiniElencoBoard } from "@/components/amministrazione/OrdiniElencoBoard";
+import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevutiBoard";
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrganigrammaAlberoBoard } from "@/components/amministrazione/organigramma/OrganigrammaAlberoBoard";
 import { OrganigrammaElencoBoard } from "@/components/amministrazione/organigramma/OrganigrammaElencoBoard";
@@ -63,7 +64,10 @@ export default async function AmministrazioneSubPage({ params }: Props) {
   if (section === "ordini" && sub === "evasi") {
     redirect("/app/amministrazione/ordini/elenco");
   }
-  if (section === "ordini" && (sub === "crea-nuovo" || sub === "processati")) {
+  if (section === "ordini" && sub === "crea-nuovo") {
+    redirect("/app/amministrazione/ordini/nuovo");
+  }
+  if (section === "ordini" && sub === "processati") {
     redirect("/app/amministrazione/ordini/da-processare");
   }
   if (section === "da-processare") {
@@ -134,6 +138,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <FornitoriBoard bioMode="non_bio" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "ordini" && sub === "nuovo") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <OrdiniRicevutiBoard />
         </div>
       </>
     );

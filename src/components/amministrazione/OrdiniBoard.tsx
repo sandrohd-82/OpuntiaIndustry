@@ -257,6 +257,10 @@ type Props = {
   tipo?: OrdineTipoDocumento;
   /** Mostra crea anche in processMode */
   showCreate?: boolean;
+  /** Non renderizzare nulla se l’elenco è vuoto (es. sotto le campionature). */
+  hideWhenEmpty?: boolean;
+  /** Nasconde titolo/descrizione e pulsanti di creazione. */
+  hideHeader?: boolean;
 };
 
 export function OrdiniBoard({
@@ -272,6 +276,8 @@ export function OrdiniBoard({
   processMode = false,
   tipo,
   showCreate,
+  hideWhenEmpty = false,
+  hideHeader = false,
 }: Props) {
   const { ordini, ready, error, removeOrdine, upsertLocal, refresh } =
     useOrdini(stato, tipo);
@@ -327,11 +333,24 @@ export function OrdiniBoard({
   }, [ordini, sort, processMode]);
 
   if (!ready) {
+    if (hideWhenEmpty) return null;
     return <p className="text-sm text-[var(--muted)]">{loadingLabel}</p>;
+  }
+
+  if (hideWhenEmpty && ordini.length === 0) {
+    if (error) {
+      return (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      );
+    }
+    return null;
   }
 
   return (
     <div className="space-y-5">
+      {hideHeader ? null : (
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">{description}</p>
         <div className="flex flex-wrap items-center gap-2">
@@ -419,6 +438,7 @@ export function OrdiniBoard({
           ) : null}
         </div>
       </div>
+      )}
 
       {(error || actionError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -605,6 +625,7 @@ export function OrdiniBoard({
           onSaved={() => {
             setCreating(false);
             setCampionaturaTick((n) => n + 1);
+            notifyOrdiniDaProcessareNav();
           }}
         />
       )}

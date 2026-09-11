@@ -117,6 +117,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     path: "/app/amministrazione/ordini",
     children: [
       {
+        slug: "nuovo",
+        label: "Nuovo ordine",
+        description:
+          "Crea un ordine merce o una campionatura da produrre / inviare",
+        path: "/app/amministrazione/ordini/nuovo",
+      },
+      {
         slug: "da-processare",
         label: "Da processare",
         description:

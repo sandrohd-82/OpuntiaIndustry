@@ -10,9 +10,11 @@ const TABS: Array<{ id: OrdineTipoDocumento; label: string }> = [
 export function OrdiniTipoSwitch({
   tipo,
   onChange,
+  counts,
 }: {
   tipo: OrdineTipoDocumento;
   onChange: (tipo: OrdineTipoDocumento) => void;
+  counts?: { vendita?: number; campionatura?: number };
 }) {
   return (
     <div
@@ -35,7 +37,14 @@ export function OrdiniTipoSwitch({
                 : "border-transparent bg-slate-100/80 text-[var(--muted)] hover:bg-slate-100 hover:text-slate-700"
             }`}
           >
-            {tab.label}
+            <span className="inline-flex items-center gap-2">
+              {tab.label}
+              {(counts?.[tab.id] ?? 0) > 0 ? (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white">
+                  {counts?.[tab.id]}
+                </span>
+              ) : null}
+            </span>
           </button>
         );
       })}

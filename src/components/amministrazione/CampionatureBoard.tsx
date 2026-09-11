@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FaChevronDown, FaChevronUp, FaTrash } from "react-icons/fa6";
 import { useCampionature } from "@/hooks/useCampionature";
+import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
   CAMPIONATURA_MEZZO_LABEL,
   CAMPIONATURA_STATO_LABEL,
@@ -35,9 +36,18 @@ function statoClass(stato: Campionatura["stato"]) {
 
 type Props = {
   refreshToken?: number;
+  /** Dentro il raccoglitore Ordini Campionature. */
+  embedded?: boolean;
+  stati?: Array<Campionatura["stato"]>;
+  onFilteredCount?: (n: number) => void;
 };
 
-export function CampionatureBoard({ refreshToken = 0 }: Props) {
+export function CampionatureBoard({
+  refreshToken = 0,
+  embedded = false,
+  stati,
+  onFilteredCount,
+}: Props) {
   const { items, ready, error, removeItem } = useCampionature(refreshToken);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -47,13 +57,26 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
   });
 
   const sorted = useMemo(() => {
-    if (!sort) return items;
-    return [...items].sort((a, b) =>
+    const filtered = stati
+      ? items.filter((item) => stati.includes(item.stato))
+      : items;
+    if (!sort) return filtered;
+    return [...filtered].sort((a, b) =>
       compareSortValues(a[sort.key] ?? "", b[sort.key] ?? "", sort.dir)
     );
-  }, [items, sort]);
+  }, [items, sort, stati]);
+
+  useEffect(() => {
+    if (!ready) return;
+    onFilteredCount?.(sorted.length);
+  }, [ready, sorted.length, onFilteredCount]);
+
+  if (embedded && ready && sorted.length === 0 && !error) {
+    return null;
+  }
 
   if (!ready) {
+    if (embedded) return null;
     return (
       <p className="text-sm text-[var(--muted)]">Caricamento campionature…</p>
     );
@@ -61,6 +84,7 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
 
   return (
     <div className="space-y-3">
+      {embedded ? null : (
       <div>
         <h3 className="text-base font-semibold">Campionature inviate</h3>
         <p className="text-sm text-[var(--muted)]">
@@ -68,6 +92,7 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
           al salvataggio.
         </p>
       </div>
+      )}
 
       {(error || actionError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -75,13 +100,15 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
         </p>
       )}
 
-      {items.length === 0 ? (
+      {sorted.length === 0 ? (
+        embedded ? null : (
         <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--card)] p-8 text-center">
           <p className="text-sm font-medium">Nessuna campionatura registrata</p>
           <p className="mt-1 text-xs text-[var(--muted)]">
             Usa «Invio campionatura» per creare il primo documento.
           </p>
         </div>
+        )
       ) : (
         <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
           <table className="w-full min-w-[860px] text-left text-sm">
@@ -152,6 +179,7 @@ export function CampionatureBoard({ refreshToken = 0 }: Props) {
                       setActionError(null);
                       const result = await removeItem(item.id);
                       if (!result.success) setActionError(result.error);
+                      else notifyOrdiniDaProcessareNav();
                       if (expandedId === item.id) setExpandedId(null);
                     }}
                   />

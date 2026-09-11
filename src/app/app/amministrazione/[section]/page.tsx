@@ -8,14 +8,13 @@ import {
 } from "@/lib/areas/amministrazione";
 import { isNavBranch } from "@/lib/areas/nav-tree";
 import { requireAreaAccess } from "@/lib/areas/guard";
-import { isAdminLikeProfile } from "@/lib/auth/roles";
 
 type Props = {
   params: Promise<{ section: string }>;
 };
 
 export default async function AmministrazioneSectionPage({ params }: Props) {
-  const { auth } = await requireAreaAccess("amministrazione");
+  await requireAreaAccess("amministrazione");
 
   const { section } = await params;
 
@@ -45,11 +44,7 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     redirect("/app/amministrazione/ordini/elenco");
   }
   if (section === "ordini") {
-    redirect(
-      isAdminLikeProfile(auth.profile)
-        ? "/app/amministrazione/ordini/da-processare"
-        : "/app/amministrazione/ordini/elenco"
-    );
+    redirect("/app/amministrazione/ordini/nuovo");
   }
 
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);
