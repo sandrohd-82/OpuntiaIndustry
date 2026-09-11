@@ -279,8 +279,31 @@ function normalizeSearch(value: string): string {
     .trim();
 }
 
-export function volumeAcquistoClienteOf(cliente: Cliente): number {
-  return cliente.prodottiAcquistati.length;
+/** Record minimo per gli stessi filtri di ricerca clienti / possibili. */
+export type AnagraficaFiltroInput = {
+  id: string;
+  ragioneSociale: string;
+  partitaIva: string;
+  codiceFiscale: string;
+  codiceTarga?: string;
+  email?: string;
+  telefono?: string;
+  sedeAmministrativa: { citta: string; provincia?: string };
+  sedeMagazzino?: { citta: string };
+  consegneAltraAzienda?: Array<{ ragioneSociale?: string; citta: string }>;
+  prodottiAcquistati?: string[];
+  prodottiInteressati?: string[];
+  commercialeId: string | null;
+  commercialeNome?: string | null;
+  commercialeGrado?: "senior" | "professional" | "executive" | null;
+};
+
+function prodottiOf(item: AnagraficaFiltroInput): string[] {
+  return item.prodottiAcquistati ?? item.prodottiInteressati ?? [];
+}
+
+export function volumeAcquistoClienteOf(cliente: AnagraficaFiltroInput): number {
+  return prodottiOf(cliente).length;
 }
 
 function matchesVolume(count: number, volume: ClientiVolumeFilter): boolean {
@@ -291,10 +314,10 @@ function matchesVolume(count: number, volume: ClientiVolumeFilter): boolean {
   return true;
 }
 
-export function filterClienti(
-  clienti: Cliente[],
+export function filterClienti<T extends AnagraficaFiltroInput>(
+  clienti: T[],
   filters: ClientiFilters
-): Cliente[] {
+): T[] {
   const letter = filters.letter.trim().toUpperCase();
   const cittaQ = normalizeSearch(filters.citta);
   const q = normalizeSearch(filters.query);
@@ -307,8 +330,8 @@ export function filterClienti(
 
     if (cittaQ) {
       const cittaAmm = normalizeSearch(c.sedeAmministrativa.citta);
-      const cittaMag = normalizeSearch(c.sedeMagazzino.citta);
-      const cittaConsegne = c.consegneAltraAzienda.some((consegna) =>
+      const cittaMag = normalizeSearch(c.sedeMagazzino?.citta ?? "");
+      const cittaConsegne = (c.consegneAltraAzienda ?? []).some((consegna) =>
         normalizeSearch(consegna.citta).includes(cittaQ)
       );
       if (
@@ -325,16 +348,18 @@ export function filterClienti(
         c.ragioneSociale,
         c.partitaIva,
         c.codiceFiscale,
-        c.codiceTarga,
+        c.codiceTarga ?? "",
+        c.email ?? "",
+        c.telefono ?? "",
         c.sedeAmministrativa.citta,
-        c.sedeAmministrativa.provincia,
-        c.sedeMagazzino.citta,
+        c.sedeAmministrativa.provincia ?? "",
+        c.sedeMagazzino?.citta ?? "",
         commercialeAssegnazioneSearchText(c),
-        ...c.consegneAltraAzienda.flatMap((consegna) => [
-          consegna.ragioneSociale,
+        ...(c.consegneAltraAzienda ?? []).flatMap((consegna) => [
+          consegna.ragioneSociale ?? "",
           consegna.citta,
         ]),
-        ...c.prodottiAcquistati,
+        ...prodottiOf(c),
       ]
         .map(normalizeSearch)
         .join(" ");
@@ -353,14 +378,14 @@ export function filterClienti(
   });
 }
 
-export function uniqueClientiCitta(clienti: Cliente[]): string[] {
+export function uniqueClientiCitta(clienti: AnagraficaFiltroInput[]): string[] {
   const set = new Set<string>();
   for (const c of clienti) {
     const a = c.sedeAmministrativa.citta.trim();
-    const m = c.sedeMagazzino.citta.trim();
+    const m = (c.sedeMagazzino?.citta ?? "").trim();
     if (a) set.add(a);
     if (m) set.add(m);
-    for (const consegna of c.consegneAltraAzienda) {
+    for (const consegna of c.consegneAltraAzienda ?? []) {
       const citta = consegna.citta.trim();
       if (citta) set.add(citta);
     }
@@ -375,7 +400,7 @@ export type ClienteSuggestion = {
 };
 
 export function suggestClienti(
-  clienti: Cliente[],
+  clienti: AnagraficaFiltroInput[],
   query: string,
   limit = 8
 ): ClienteSuggestion[] {
@@ -386,13 +411,14 @@ export function suggestClienti(
     .map((c) => {
       const fields = [
         c.ragioneSociale,
-        c.codiceTarga,
+        c.codiceTarga ?? "",
         c.partitaIva,
         c.codiceFiscale,
+        c.email ?? "",
         c.sedeAmministrativa.citta,
-        c.sedeMagazzino.citta,
+        c.sedeMagazzino?.citta ?? "",
         commercialeAssegnazioneSearchText(c),
-        ...c.consegneAltraAzienda.map((x) => x.ragioneSociale),
+        ...(c.consegneAltraAzienda ?? []).map((x) => x.ragioneSociale ?? ""),
       ];
       const hit = fields.find((field) => normalizeSearch(field).includes(q));
       if (!hit) return null;

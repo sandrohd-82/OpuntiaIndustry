@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { FaClockRotateLeft, FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import {
+  FaClockRotateLeft,
+  FaMagnifyingGlass,
+  FaPen,
+  FaPlus,
+  FaTrash,
+} from "react-icons/fa6";
 import { getCommercialeAnagraficaContextAction } from "@/app/actions/commerciale-anagrafica";
 import {
   createClientePossibileAction,
@@ -9,21 +15,23 @@ import {
   softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
-import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
-import {
-  commercialeAssegnazioneSearchText,
-  formatCommercialeAssegnazione,
-  isCommercialOwnRecord,
-  matchesCommercialeArea,
-} from "@/lib/auth/commerciale";
+import { formatCommercialeAssegnazione, isCommercialOwnRecord } from "@/lib/auth/commerciale";
 import {
   ActionGate,
   useAnagraficaPrivileges,
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
+import {
+  emptyClientiFilters,
+  filterClienti,
+  hasActiveClientiFilters,
+  uniqueClientiCitta,
+  type ClientiFilters,
+} from "@/lib/amministrazione/clienti";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 
 export function PossibiliClientiBoard() {
@@ -34,36 +42,14 @@ export function PossibiliClientiBoard() {
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
-  const [query, setQuery] = useState("");
-  const [commercialeArea, setCommercialeArea] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<ClientiFilters>(emptyClientiFilters());
   const priv = useAnagraficaPrivileges("cliente_possibile");
   const [lineageIds, setLineageIds] = useState<string[]>([]);
 
-  const filtered = useMemo(() => {
-    const q = query
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim();
-    return items.filter((lead) => {
-      if (!matchesCommercialeArea(lead, commercialeArea)) return false;
-      if (!q) return true;
-      const hay = [
-        lead.ragioneSociale,
-        lead.partitaIva,
-        lead.codiceFiscale,
-        lead.email,
-        lead.telefono,
-        lead.sedeAmministrativa.citta,
-        commercialeAssegnazioneSearchText(lead),
-      ]
-        .join(" ")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [items, query, commercialeArea]);
+  const filtersActive = hasActiveClientiFilters(filters);
+  const filtered = useMemo(() => filterClienti(items, filters), [items, filters]);
+  const cittaOptions = useMemo(() => uniqueClientiCitta(items), [items]);
 
   function reload() {
     startTransition(async () => {
@@ -93,32 +79,58 @@ export function PossibiliClientiBoard() {
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[14rem] sm:w-64">
-          <CommercialeAreaFilterSelect
-            value={commercialeArea}
-            onChange={setCommercialeArea}
-            records={items}
-          />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-[var(--muted)]">
+          Stessi filtri dei clienti: alfabeto, città, area commerciale e ricerca.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {items.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              aria-expanded={filtersOpen}
+              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium ${
+                filtersOpen || filtersActive
+                  ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                  : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+              }`}
+            >
+              <FaMagnifyingGlass size={14} />
+              Ricerca
+              {filtersActive && !filtersOpen ? (
+                <span className="rounded-full bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  ON
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+          <ActionGate actionKey={AZ.nuovoPossibileCliente}>
+            <button
+              type="button"
+              onClick={() => setShowLeadForm(true)}
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              <FaPlus size={12} />
+              Nuovo possibile cliente
+            </button>
+          </ActionGate>
         </div>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Cerca ragione sociale, P.IVA, città…"
-          className="min-w-[16rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
-        />
-        <ActionGate actionKey={AZ.nuovoPossibileCliente}>
-        <button
-          type="button"
-          onClick={() => setShowLeadForm(true)}
-          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-        >
-          <FaPlus size={12} />
-          Nuovo possibile cliente
-        </button>
-        </ActionGate>
       </div>
+
+      {items.length > 0 && filtersOpen ? (
+        <ClientiFiltersPanel
+          value={filters}
+          onChange={setFilters}
+          clienti={items}
+          cittaOptions={cittaOptions}
+          resultCount={filtered.length}
+          totalCount={items.length}
+          onCollapse={() => setFiltersOpen(false)}
+          hideVolume
+          hint="Filtra per alfabeto, città, area commerciale (Azienda, R. Pisano, …) o ricerca istantanea."
+          queryPlaceholder="Ragione sociale, P.IVA, città…"
+        />
+      ) : null}
 
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
         {filtered.map((lead) => {
@@ -187,9 +199,20 @@ export function PossibiliClientiBoard() {
         })}
         {filtered.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            {items.length === 0
-              ? "Nessun possibile cliente. Usa «Nuovo possibile cliente»."
-              : "Nessun risultato con i filtri attivi."}
+            {items.length === 0 ? (
+              "Nessun possibile cliente. Usa «Nuovo possibile cliente»."
+            ) : (
+              <div className="space-y-3">
+                <p>Nessun risultato con questi filtri.</p>
+                <button
+                  type="button"
+                  onClick={() => setFilters(emptyClientiFilters())}
+                  className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
+                >
+                  Azzera filtri
+                </button>
+              </div>
+            )}
           </li>
         ) : null}
       </ul>

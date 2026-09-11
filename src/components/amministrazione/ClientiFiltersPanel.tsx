@@ -7,7 +7,7 @@ import {
   CLIENTI_ALPHABET,
   emptyClientiFilters,
   suggestClienti,
-  type Cliente,
+  type AnagraficaFiltroInput,
   type ClientiFilters,
   type ClientiVolumeFilter,
 } from "@/lib/amministrazione/clienti";
@@ -15,12 +15,15 @@ import {
 type Props = {
   value: ClientiFilters;
   onChange: (next: ClientiFilters) => void;
-  clienti: Cliente[];
+  clienti: AnagraficaFiltroInput[];
   cittaOptions: string[];
   resultCount: number;
   totalCount: number;
   onCollapse?: () => void;
   onPickSuggestion?: (clienteId: string) => void;
+  hideVolume?: boolean;
+  hint?: string;
+  queryPlaceholder?: string;
 };
 
 export function ClientiFiltersPanel({
@@ -32,6 +35,9 @@ export function ClientiFiltersPanel({
   totalCount,
   onCollapse,
   onPickSuggestion,
+  hideVolume = false,
+  hint,
+  queryPlaceholder = "Ragione sociale, targa, città…",
 }: Props) {
   const [suggestOpen, setSuggestOpen] = useState(false);
 
@@ -86,8 +92,8 @@ export function ClientiFiltersPanel({
       </div>
 
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Filtra per alfabeto, città, area commerciale, ricerca o volume.
-        L’export PDF usa l’elenco risultante o la selezione.
+        {hint ??
+          "Filtra per alfabeto, città, area commerciale, ricerca o volume. L’export PDF usa l’elenco risultante o la selezione."}
       </p>
 
       <div className="mt-3">
@@ -125,7 +131,11 @@ export function ClientiFiltersPanel({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        className={`mt-4 grid gap-3 sm:grid-cols-2 ${
+          hideVolume ? "lg:grid-cols-3" : "lg:grid-cols-4"
+        }`}
+      >
         <CommercialeAreaFilterSelect
           value={value.commercialeArea}
           onChange={(commercialeArea) => patch({ commercialeArea })}
@@ -149,6 +159,7 @@ export function ClientiFiltersPanel({
           </select>
         </label>
 
+        {hideVolume ? null : (
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Volume (prodotti)
@@ -166,6 +177,7 @@ export function ClientiFiltersPanel({
             <option value="4+">4 o più prodotti</option>
           </select>
         </label>
+        )}
 
         <div className="relative block text-sm sm:col-span-2 lg:col-span-1">
           <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
@@ -179,7 +191,7 @@ export function ClientiFiltersPanel({
             }}
             onFocus={() => setSuggestOpen(true)}
             onBlur={() => window.setTimeout(() => setSuggestOpen(false), 140)}
-            placeholder="Ragione sociale, targa, città…"
+            placeholder={queryPlaceholder}
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           />
           {suggestOpen && suggestions.length > 0 && (
