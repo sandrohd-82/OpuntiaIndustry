@@ -42,7 +42,9 @@ import {
   nowLocalTime,
 } from "@/components/promemorie-e-note/NotaFormExtras";
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
-import { FaPen } from "react-icons/fa6";
+import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
+import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
+import { FaChevronDown, FaPen } from "react-icons/fa6";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -212,6 +214,103 @@ function formatWhen(iso: string | null) {
   } catch {
     return iso;
   }
+}
+
+function TimelineMailHitRow({
+  hit,
+  pending,
+  onLink,
+}: {
+  hit: AziendaTimelineMailHit;
+  pending: boolean;
+  onLink: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [bodyText, setBodyText] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    void getWebmailMessaggioTextAction(hit.id).then((res) => {
+      if (cancelled) return;
+      setLoading(false);
+      if (!res.success) {
+        setLoadError(res.error);
+        setBodyText("");
+        return;
+      }
+      setBodyText(res.bodyText);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, hit.id]);
+
+  return (
+    <li className="rounded-lg border border-[var(--border)] bg-white text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium text-slate-900">{hit.subject}</p>
+          <p className="truncate text-[var(--muted)]">
+            {hit.fromName || hit.fromAddress} · {formatWhen(hit.receivedAt)} ·{" "}
+            {hit.matchReason}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-label={
+              open
+                ? `Chiudi anteprima: ${hit.subject}`
+                : `Apri anteprima: ${hit.subject}`
+            }
+            title={open ? "Chiudi contenuto" : "Leggi il contenuto"}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+          >
+            <FaChevronDown
+              size={14}
+              className={`transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+          {hit.alreadyLinked ? (
+            <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-800">
+              Già in timeline
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={onLink}
+              className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-50"
+            >
+              Collega
+            </button>
+          )}
+        </div>
+      </div>
+      {open ? (
+        <div className="border-t border-[var(--border)] px-3 pb-3">
+          {loading ? (
+            <p className="mt-2 text-[var(--muted)]">Caricamento contenuto…</p>
+          ) : loadError ? (
+            <p className="mt-2 text-red-700">{loadError}</p>
+          ) : (
+            <WebmailHtmlBody
+              compact
+              messaggioId={hit.id}
+              bodyText={bodyText}
+            />
+          )}
+        </div>
+      ) : null}
+    </li>
+  );
 }
 
 export function AziendaTimelineModal({
@@ -818,41 +917,19 @@ export function AziendaTimelineModal({
                 Suggerite
               </button>
             </div>
-            <ul className="mt-3 max-h-48 space-y-1.5 overflow-y-auto">
+            <ul className="mt-3 max-h-[min(28rem,55vh)] space-y-1.5 overflow-y-auto">
               {mailHits.length === 0 && !mailSearching ? (
                 <li className="text-xs text-[var(--muted)]">
                   Nessuna mail trovata nelle caselle accessibili.
                 </li>
               ) : (
                 mailHits.map((hit) => (
-                  <li
+                  <TimelineMailHitRow
                     key={hit.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-xs"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium text-slate-900">
-                        {hit.subject}
-                      </p>
-                      <p className="truncate text-[var(--muted)]">
-                        {hit.fromName || hit.fromAddress} ·{" "}
-                        {formatWhen(hit.receivedAt)} · {hit.matchReason}
-                      </p>
-                    </div>
-                    {hit.alreadyLinked ? (
-                      <span className="shrink-0 rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-800">
-                        Già in timeline
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        onClick={() => linkMail(hit)}
-                        className="shrink-0 rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-50"
-                      >
-                        Collega
-                      </button>
-                    )}
-                  </li>
+                    hit={hit}
+                    pending={pending}
+                    onLink={() => linkMail(hit)}
+                  />
                 ))
               )}
             </ul>

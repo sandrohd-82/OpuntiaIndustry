@@ -15,6 +15,8 @@ type Props = {
   onError?: (msg: string) => void;
   reloadToken?: number;
   onAllegatoClick?: (allegato: WebmailMessaggioAllegatoPublic) => void;
+  /** Anteprima compatta (lista collega-mail). */
+  compact?: boolean;
 };
 
 /**
@@ -27,6 +29,7 @@ export function WebmailHtmlBody({
   onError,
   reloadToken = 0,
   onAllegatoClick,
+  compact = false,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [hasHtml, setHasHtml] = useState(false);
@@ -64,7 +67,11 @@ export function WebmailHtmlBody({
 
   if (forcePlain) {
     return (
-      <pre className="mt-2 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+      <pre
+        className={`mt-2 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800 ${
+          compact ? "max-h-56" : "max-h-[50vh]"
+        }`}
+      >
         {bodyText || "(vuoto)"}
       </pre>
     );
@@ -78,7 +85,11 @@ export function WebmailHtmlBody({
 
   if (!hasHtml || !html.trim()) {
     return (
-      <pre className="mt-2 max-h-[50vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800">
+      <pre
+        className={`mt-2 overflow-y-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-800 ${
+          compact ? "max-h-56" : "max-h-[50vh]"
+        }`}
+      >
         {bodyText || "(vuoto)"}
       </pre>
     );
@@ -93,7 +104,9 @@ export function WebmailHtmlBody({
           title="Corpo messaggio HTML"
           sandbox="allow-popups allow-popups-to-escape-sandbox allow-downloads"
           srcDoc={html}
-          className="min-h-[50vh] w-full border-0 bg-white"
+          className={`w-full border-0 bg-white ${
+            compact ? "h-56 min-h-0" : "min-h-[50vh]"
+          }`}
         />
       </div>
       {downloadable.length > 0 ? (
