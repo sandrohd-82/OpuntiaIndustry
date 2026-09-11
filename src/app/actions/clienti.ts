@@ -24,7 +24,11 @@ import {
   anagraficaLineageOrFilter,
   loadCommercialLineageUserIds,
   loadCommercialeLabels,
+  loadCommercialeUserIds,
+  resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
+import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
@@ -174,16 +178,27 @@ export async function listClientiAction(): Promise<
   }
 
   const rows = (data ?? []) as ClienteRow[];
+  const commercialIds = await loadCommercialeUserIds();
   const labels = await loadCommercialeLabels(
-    rows.map((r) => r.commerciale_id ?? "").filter(Boolean)
+    rows
+      .flatMap((r) => [r.commerciale_id ?? "", r.created_by ?? ""])
+      .filter(Boolean)
   );
   return {
     success: true,
     clienti: rows.map((row) => {
-      const label = row.commerciale_id
-        ? labels.get(row.commerciale_id)
-        : undefined;
-      return mapClienteRow(row, label);
+      const resolved = resolveCommercialeAppartenenza({
+        commercialeId: row.commerciale_id ?? null,
+        createdBy: row.created_by ?? null,
+        commercialIds,
+        labels,
+      });
+      const cliente = mapClienteRow(row, {
+        nome: resolved.commercialeNome,
+        grado: resolved.commercialeGrado,
+      });
+      cliente.commercialeId = resolved.commercialeId;
+      return cliente;
     }),
   };
 }
@@ -253,7 +268,11 @@ export async function createClienteAction(
     sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
     prodotti_acquistati: normalized.prodottiAcquistati,
     consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
-    commerciale_id: normalized.commercialeId ?? null,
+    commerciale_id: await resolveDefaultCommercialeId({
+      userId: auth.userId,
+      isSuperadmin: isSuperadminProfile(auth.actorProfile),
+      explicitId: normalized.commercialeId,
+    }),
     created_by: auth.userId,
     updated_by: auth.userId,
   };

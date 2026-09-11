@@ -8,7 +8,12 @@ import {
   anagraficaLineageOrFilter,
   loadCommercialLineageUserIds,
   loadCommercialeLabels,
+  loadCommercialeUserIds,
+  loadSuperadminUserIds,
+  resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
+import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
+import { isSuperadminProfile } from "@/lib/auth/roles";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
@@ -765,15 +770,24 @@ export async function listClientiPossibiliAction(): Promise<
   const items = (data ?? []).map((r) =>
     mapClientePossibileRow(r as Record<string, unknown>)
   );
+  const [commercialIds, excludeCreatorIds] = await Promise.all([
+    loadCommercialeUserIds(),
+    loadSuperadminUserIds(),
+  ]);
   const labels = await loadCommercialeLabels(
-    items.map((i) => i.commercialeId ?? "").filter(Boolean)
+    items.flatMap((i) => [i.commercialeId ?? "", i.createdBy ?? ""]).filter(Boolean)
   );
   for (const item of items) {
-    const label = item.commercialeId
-      ? labels.get(item.commercialeId)
-      : undefined;
-    item.commercialeNome = label?.nome ?? "";
-    item.commercialeGrado = label?.grado ?? null;
+    const resolved = resolveCommercialeAppartenenza({
+      commercialeId: item.commercialeId,
+      createdBy: item.createdBy,
+      commercialIds,
+      excludeCreatorIds,
+      labels,
+    });
+    item.commercialeId = resolved.commercialeId;
+    item.commercialeNome = resolved.commercialeNome;
+    item.commercialeGrado = resolved.commercialeGrado;
   }
   const noteCounts: Record<string, number> = {};
   if (items.length > 0) {
@@ -853,6 +867,13 @@ export async function createClientePossibileAction(
     (input as { referenteIds?: string[] }).referenteIds ?? []
   ).filter(Boolean);
 
+  const commercialeId = await resolveDefaultCommercialeId({
+    userId: auth.userId,
+    isSuperadmin: isSuperadminProfile(auth.actorProfile),
+    explicitId: asCliente.commercialeId,
+    anyNonSuperadmin: true,
+  });
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clienti_possibili")
@@ -879,11 +900,12 @@ export async function createClientePossibileAction(
       sede_mag_citta: normalized.sedeMagazzino.citta,
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
-      prodotti_interessati: [],
+      prodotti_interessati: normalized.prodottiAcquistati,
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
       referente: parsed.data.referente ?? "",
       note_interne: parsed.data.noteInterne ?? "",
       stato: "da_valutare",
+      commerciale_id: commercialeId,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -893,6 +915,25 @@ export async function createClientePossibileAction(
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
   const item = mapClientePossibileRow(data as Record<string, unknown>);
+  {
+    const [commercialIds, excludeCreatorIds] = await Promise.all([
+      loadCommercialeUserIds(),
+      loadSuperadminUserIds(),
+    ]);
+    const labels = await loadCommercialeLabels(
+      [item.commercialeId ?? "", item.createdBy ?? ""].filter(Boolean)
+    );
+    const resolved = resolveCommercialeAppartenenza({
+      commercialeId: item.commercialeId,
+      createdBy: item.createdBy,
+      commercialIds,
+      excludeCreatorIds,
+      labels,
+    });
+    item.commercialeId = resolved.commercialeId;
+    item.commercialeNome = resolved.commercialeNome;
+    item.commercialeGrado = resolved.commercialeGrado;
+  }
 
   if (referenteIds.length > 0) {
     await supabase.from("clienti_possibili_referenti").insert(
@@ -980,14 +1021,15 @@ export async function updateClientePossibileAction(
     sedeAmministrativa: parsed.data.sedeAmministrativa,
     sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
     consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
-    prodottiAcquistati: [],
+    prodottiAcquistati:
+      parsed.data.prodottiAcquistati ?? parsed.data.prodottiInteressati ?? [],
   });
   const fiscalErr = validateClienteFiscali({ ...normalized, isPrivato: false });
   if (fiscalErr) return { success: false, error: fiscalErr };
 
-  const referenteIds = (
-    (input as { referenteIds?: string[] }).referenteIds ?? []
-  ).filter(Boolean);
+  const referenteIdsRaw = (input as { referenteIds?: string[] }).referenteIds;
+  const hasReferentiPayload = Array.isArray(referenteIdsRaw);
+  const referenteIds = (referenteIdsRaw ?? []).filter(Boolean);
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -1016,6 +1058,7 @@ export async function updateClientePossibileAction(
       sede_mag_cap: normalized.sedeMagazzino.cap,
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
+      prodotti_interessati: normalized.prodottiAcquistati,
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -1027,6 +1070,7 @@ export async function updateClientePossibileAction(
   }
   const item = mapClientePossibileRow(data as Record<string, unknown>);
 
+  if (hasReferentiPayload) {
   await supabase.from("clienti_possibili_referenti").delete().eq("cliente_possibile_id", id);
   if (referenteIds.length > 0) {
     await supabase.from("clienti_possibili_referenti").insert(
@@ -1046,6 +1090,7 @@ export async function updateClientePossibileAction(
       })
       .in("id", referenteIds)
       .is("deleted_at", null);
+  }
   }
 
   const sync = await syncCommercialeOnSchedaUpdate({
@@ -1069,14 +1114,24 @@ export async function updateClientePossibileAction(
       Object.assign(item, next);
     }
   }
-  if (item.commercialeId) {
-    const labels = await loadCommercialeLabels([item.commercialeId]);
-    const label = labels.get(item.commercialeId);
-    item.commercialeNome = label?.nome ?? "";
-    item.commercialeGrado = label?.grado ?? null;
-  } else {
-    item.commercialeNome = "";
-    item.commercialeGrado = null;
+  {
+    const [commercialIds, excludeCreatorIds] = await Promise.all([
+      loadCommercialeUserIds(),
+      loadSuperadminUserIds(),
+    ]);
+    const labels = await loadCommercialeLabels(
+      [item.commercialeId ?? "", item.createdBy ?? ""].filter(Boolean)
+    );
+    const resolved = resolveCommercialeAppartenenza({
+      commercialeId: item.commercialeId,
+      createdBy: item.createdBy,
+      commercialIds,
+      excludeCreatorIds,
+      labels,
+    });
+    item.commercialeId = resolved.commercialeId;
+    item.commercialeNome = resolved.commercialeNome;
+    item.commercialeGrado = resolved.commercialeGrado;
   }
 
   await writeAuditLog({

@@ -281,6 +281,16 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
   };
 }
 
+/** Scheda lead nel form cliente (stessi campi, id del possibile). */
+export function clienteSchedaFromPossibile(lead: ClientePossibile): Cliente {
+  return {
+    ...clienteFromPossibile(lead),
+    id: lead.id,
+    createdAt: lead.createdAt,
+    createdBy: lead.createdBy,
+  };
+}
+
 export function monthKeyFromIso(iso: string): string {
   return iso.slice(0, 7);
 }

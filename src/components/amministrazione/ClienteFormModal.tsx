@@ -161,9 +161,9 @@ export function ClienteFormModal({
   const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isPossibile || !initial?.id) return;
+    if (!initial?.id) return;
     void listEntityReferentiAction({
-      tipo: "cliente",
+      tipo: isPossibile ? "cliente_possibile" : "cliente",
       entityId: initial.id,
     }).then((res) => {
       if (res.success) setReferenti(res.items);
@@ -363,14 +363,13 @@ export function ClienteFormModal({
         result === true ||
         (typeof result === "object" && result !== null && "id" in result);
       if (!ok) return false;
-      if (isPossibile) return true;
       const entityId =
         (typeof result === "object" && result && "id" in result
           ? result.id
           : null) || initial?.id;
       if (entityId) {
         await syncEntityReferentiAction({
-          tipo: "cliente",
+          tipo: isPossibile ? "cliente_possibile" : "cliente",
           entityId,
           entityLabel: values.ragioneSociale,
           contattoIds: referenti.map((r) => r.id),
@@ -811,14 +810,12 @@ export function ClienteFormModal({
             }
           />
 
-          {!isPossibile ? (
-            <ReferentiPickerField
-              value={referenti}
-              onChange={setReferenti}
-              defaultAziendaTipo="cliente"
-              defaultAziendaLabel={ragioneSociale}
-            />
-          ) : null}
+          <ReferentiPickerField
+            value={referenti}
+            onChange={setReferenti}
+            defaultAziendaTipo={isPossibile ? "cliente_possibile" : "cliente"}
+            defaultAziendaLabel={ragioneSociale}
+          />
 
           {formError && (
             <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

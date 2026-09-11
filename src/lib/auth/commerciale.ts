@@ -135,6 +135,40 @@ export function uniqueCommercialeAreaOptions(
     .sort((a, b) => a.label.localeCompare(b.label, "it"));
 }
 
+/** Assegnato, oppure creato da un commerciale (non Super Admin). */
+export function resolveCommercialeAppartenenza(opts: {
+  commercialeId: string | null | undefined;
+  createdBy: string | null | undefined;
+  commercialIds: Set<string>;
+  excludeCreatorIds?: Set<string>;
+  labels: Map<string, { nome: string; grado: CommercialeGrado | null }>;
+}): {
+  commercialeId: string | null;
+  commercialeNome: string;
+  commercialeGrado: CommercialeGrado | null;
+} {
+  const assigned = String(opts.commercialeId ?? "").trim();
+  const creator = String(opts.createdBy ?? "").trim();
+  const skipCreator =
+    !creator ||
+    Boolean(opts.excludeCreatorIds?.has(creator)) ||
+    (opts.excludeCreatorIds == null && !opts.commercialIds.has(creator));
+  const effective = assigned || (skipCreator ? "" : creator);
+  if (!effective) {
+    return {
+      commercialeId: null,
+      commercialeNome: "",
+      commercialeGrado: null,
+    };
+  }
+  const label = opts.labels.get(effective);
+  return {
+    commercialeId: effective,
+    commercialeNome: label?.nome ?? "",
+    commercialeGrado: label?.grado ?? null,
+  };
+}
+
 export function matchesCommercialeArea(
   record: { commercialeId: string | null | undefined },
   filter: string

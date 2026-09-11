@@ -74,6 +74,90 @@ export async function loadCommercialLineageUserIds(
   return [...userIds];
 }
 
+/** Super Admin: non diventano «area commerciale» se creano un’anagrafica. */
+export async function loadSuperadminUserIds(): Promise<Set<string>> {
+  const service = createServiceClient();
+  const [{ data: roles }, { data: profiles }] = await Promise.all([
+    service.from("app_roles").select("id, code").eq("code", "superadmin"),
+    service.from("profiles").select("id, potere, role_id"),
+  ]);
+  const roleIds = new Set(
+    (roles ?? []).map((r) => String((r as { id?: string }).id ?? "")).filter(Boolean)
+  );
+  const ids = new Set<string>();
+  for (const p of profiles ?? []) {
+    const row = p as {
+      id?: string;
+      potere?: string | null;
+      role_id?: string | null;
+    };
+    const uid = String(row.id ?? "");
+    if (!uid) continue;
+    if (row.potere === "superadmin" || (row.role_id && roleIds.has(row.role_id))) {
+      ids.add(uid);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Stesso insieme del picker Super Admin: persone in organigramma con utente,
+ * più reparto/grado commerciale. Esclude i Super Admin.
+ */
+export async function loadCommercialeUserIds(): Promise<Set<string>> {
+  const service = createServiceClient();
+  const [{ data: persone }, { data: fromReparti }, { data: graded }, supers] =
+    await Promise.all([
+      service
+        .from("organigramma_persone")
+        .select("user_id, commerciale_grado")
+        .is("deleted_at", null)
+        .not("user_id", "is", null),
+      service
+        .from("profile_reparti")
+        .select("profile_id")
+        .eq("codice", "commerciale")
+        .is("deleted_at", null),
+      service
+        .from("profiles")
+        .select("id")
+        .eq("is_active", true)
+        .not("commerciale_grado", "is", null),
+      loadSuperadminUserIds(),
+    ]);
+
+  const ids = new Set<string>();
+  for (const p of persone ?? []) {
+    const uid = String((p as { user_id?: string }).user_id ?? "");
+    if (uid) ids.add(uid);
+  }
+  for (const r of fromReparti ?? []) {
+    const uid = String((r as { profile_id?: string }).profile_id ?? "");
+    if (uid) ids.add(uid);
+  }
+  for (const p of graded ?? []) {
+    const uid = String((p as { id?: string }).id ?? "");
+    if (uid) ids.add(uid);
+  }
+  for (const id of supers) ids.delete(id);
+  return ids;
+}
+
+export async function resolveDefaultCommercialeId(opts: {
+  userId: string;
+  isSuperadmin: boolean;
+  explicitId?: string | null;
+  /** Lead: chi lo inserisce (non Super Admin) ne è titolare. */
+  anyNonSuperadmin?: boolean;
+}): Promise<string | null> {
+  const explicit = opts.explicitId?.trim() || null;
+  if (explicit) return explicit;
+  if (opts.isSuperadmin) return null;
+  if (opts.anyNonSuperadmin) return opts.userId;
+  const ids = await loadCommercialeUserIds();
+  return ids.has(opts.userId) ? opts.userId : null;
+}
+
 export async function loadCommercialeLabels(
   userIds: string[]
 ): Promise<Map<string, { nome: string; grado: CommercialeGrado | null }>> {
