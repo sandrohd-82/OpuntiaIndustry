@@ -712,6 +712,7 @@ export function FornitoreFormModal({
             onChange={setReferenti}
             defaultAziendaTipo="fornitore"
             defaultAziendaLabel={ragioneSociale}
+            defaultAziendaId={initial?.id ?? ""}
           />
 
           {formError ? (

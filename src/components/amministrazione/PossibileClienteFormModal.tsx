@@ -493,6 +493,7 @@ export function PossibileClienteFormModal({
             onChange={setReferenti}
             defaultAziendaTipo="cliente_possibile"
             defaultAziendaLabel={ragioneSociale}
+            defaultAziendaId={initial?.id ?? ""}
           />
 
           {formError ? (

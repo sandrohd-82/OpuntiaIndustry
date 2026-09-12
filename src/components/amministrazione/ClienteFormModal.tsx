@@ -815,6 +815,7 @@ export function ClienteFormModal({
             onChange={setReferenti}
             defaultAziendaTipo={isPossibile ? "cliente_possibile" : "cliente"}
             defaultAziendaLabel={ragioneSociale}
+            defaultAziendaId={initial?.id ?? ""}
           />
 
           {formError && (

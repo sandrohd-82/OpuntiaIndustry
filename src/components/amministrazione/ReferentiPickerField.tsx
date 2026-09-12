@@ -148,6 +148,11 @@ export function ReferentiPickerField({
       {showCreate ? (
         <RubricaContattoFormModal
           elevated
+          lockToThisAzienda={
+            defaultAziendaTipo === "cliente" ||
+            defaultAziendaTipo === "fornitore" ||
+            defaultAziendaTipo === "cliente_possibile"
+          }
           defaultAziendaTipo={defaultAziendaTipo}
           defaultAziendaLabel={defaultAziendaLabel}
           defaultAziendaId={defaultAziendaId}

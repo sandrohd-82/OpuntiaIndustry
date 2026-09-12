@@ -21,6 +21,8 @@ type Props = {
   defaultAziendaTipo?: RubricaAziendaTipo;
   defaultAziendaLabel?: string;
   defaultAziendaId?: string;
+  /** Da scheda cliente/fornitore: collega a questa azienda, senza elenco. */
+  lockToThisAzienda?: boolean;
   elevated?: boolean;
 };
 
@@ -30,6 +32,7 @@ export function RubricaContattoFormModal({
   defaultAziendaTipo = "nessuna",
   defaultAziendaLabel = "",
   defaultAziendaId = "",
+  lockToThisAzienda = false,
   elevated = false,
 }: Props) {
   const [pending, startTransition] = useTransition();
@@ -50,10 +53,19 @@ export function RubricaContattoFormModal({
   const [mansione, setMansione] = useState("");
   const [note, setNote] = useState("");
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
+  const [collegaQuestaAzienda, setCollegaQuestaAzienda] = useState(
+    lockToThisAzienda
+  );
 
-  const aziendaCollegata = aziendaTipo !== "nessuna";
+  const aziendaCollegata = lockToThisAzienda
+    ? collegaQuestaAzienda
+    : aziendaTipo !== "nessuna";
 
   useEffect(() => {
+    if (lockToThisAzienda) {
+      setAziende([]);
+      return;
+    }
     if (aziendaTipo === "nessuna") {
       setAziende([]);
       return;
@@ -62,7 +74,7 @@ export function RubricaContattoFormModal({
       if (res.success) setAziende(res.items);
       else setAziende([]);
     });
-  }, [aziendaTipo]);
+  }, [aziendaTipo, lockToThisAzienda]);
 
   function save() {
     if (!nome.trim() || !cognome.trim() || !rapporto) {
@@ -70,25 +82,35 @@ export function RubricaContattoFormModal({
       return;
     }
     startTransition(async () => {
+      const locked = lockToThisAzienda && collegaQuestaAzienda;
+      const tipoEff = locked
+        ? defaultAziendaTipo
+        : lockToThisAzienda
+          ? "nessuna"
+          : aziendaTipo;
       const res = await createRubricaContattoAction({
         nome,
         cognome,
         telefono,
         email,
         rapporto,
-        aziendaTipo,
+        aziendaTipo: tipoEff,
         aziendaId:
-          aziendaTipo === "agrinsicilia" || aziendaTipo === "nessuna"
+          tipoEff === "agrinsicilia" || tipoEff === "nessuna"
             ? null
-            : aziendaId || null,
+            : locked
+              ? defaultAziendaId || null
+              : aziendaId || null,
         aziendaLabel:
-          aziendaTipo === "agrinsicilia"
+          tipoEff === "agrinsicilia"
             ? "Agrinsicilia"
-            : aziendaTipo === "nessuna"
+            : tipoEff === "nessuna"
               ? ""
-              : aziendaLabel ||
-                aziende.find((a) => a.id === aziendaId)?.label ||
-                "",
+              : locked
+                ? defaultAziendaLabel.trim() || "Questa azienda"
+                : aziendaLabel ||
+                  aziende.find((a) => a.id === aziendaId)?.label ||
+                  "",
         mansione,
         note,
       });
@@ -189,59 +211,82 @@ export function RubricaContattoFormModal({
             />
           </label>
 
-          <label className="block text-sm sm:col-span-2">
-            <span className="mb-1 block font-medium">
-              {RAPPORTO_LABELS[rapporto]} → Azienda (facoltativo)
-            </span>
-            <select
-              value={aziendaTipo}
-              onChange={(e) => {
-                const t = e.target.value as RubricaAziendaTipo;
-                setAziendaTipo(t);
-                setAziendaId("");
-                setAziendaLabel(
-                  t === "agrinsicilia"
-                    ? "Agrinsicilia"
-                    : t === "nessuna"
-                      ? ""
-                      : ""
-                );
-              }}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            >
-              {(Object.keys(AZIENDA_TIPO_LABELS) as RubricaAziendaTipo[]).map(
-                (k) => (
-                  <option key={k} value={k}>
-                    {AZIENDA_TIPO_LABELS[k]}
-                  </option>
-                )
-              )}
-            </select>
-          </label>
-
-          {aziendaCollegata && aziendaTipo !== "agrinsicilia" ? (
+          {lockToThisAzienda ? (
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">
-                Seleziona azienda (facoltativo)
+                Collega a questa azienda
               </span>
-              <select
-                value={aziendaId}
-                onChange={(e) => {
-                  setAziendaId(e.target.value);
-                  const hit = aziende.find((a) => a.id === e.target.value);
-                  setAziendaLabel(hit?.label ?? "");
-                }}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              >
-                <option value="">— scegli dopo —</option>
-                {aziende.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.label}
-                  </option>
-                ))}
-              </select>
+              <span className="flex items-center gap-2 rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={collegaQuestaAzienda}
+                  onChange={(e) => setCollegaQuestaAzienda(e.target.checked)}
+                />
+                <span>
+                  {defaultAziendaLabel.trim() || "Questa scheda"}
+                  <span className="ml-1 text-xs text-[var(--muted)]">
+                    ({AZIENDA_TIPO_LABELS[defaultAziendaTipo]})
+                  </span>
+                </span>
+              </span>
             </label>
-          ) : null}
+          ) : (
+            <>
+              <label className="block text-sm sm:col-span-2">
+                <span className="mb-1 block font-medium">
+                  {RAPPORTO_LABELS[rapporto]} → Azienda (facoltativo)
+                </span>
+                <select
+                  value={aziendaTipo}
+                  onChange={(e) => {
+                    const t = e.target.value as RubricaAziendaTipo;
+                    setAziendaTipo(t);
+                    setAziendaId("");
+                    setAziendaLabel(
+                      t === "agrinsicilia"
+                        ? "Agrinsicilia"
+                        : t === "nessuna"
+                          ? ""
+                          : ""
+                    );
+                  }}
+                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                >
+                  {(Object.keys(AZIENDA_TIPO_LABELS) as RubricaAziendaTipo[]).map(
+                    (k) => (
+                      <option key={k} value={k}>
+                        {AZIENDA_TIPO_LABELS[k]}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+
+              {aziendaCollegata && aziendaTipo !== "agrinsicilia" ? (
+                <label className="block text-sm sm:col-span-2">
+                  <span className="mb-1 block font-medium">
+                    Seleziona azienda (facoltativo)
+                  </span>
+                  <select
+                    value={aziendaId}
+                    onChange={(e) => {
+                      setAziendaId(e.target.value);
+                      const hit = aziende.find((a) => a.id === e.target.value);
+                      setAziendaLabel(hit?.label ?? "");
+                    }}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="">— scegli dopo —</option>
+                    {aziende.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+            </>
+          )}
 
           {aziendaCollegata ? (
             <label className="block text-sm sm:col-span-2">
