@@ -26,7 +26,7 @@ import {
   FornitoreIngressoScrematura,
   type FornitoreIngressoOpt,
 } from "@/components/produzione/FornitoreIngressoScrematura";
-import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
+import { IngressoMpLottoEtichettaBox } from "@/components/produzione/IngressoMpLottoEtichettaBox";
 import { PageLoading } from "@/components/ui/BusyIndicator";
 import { SelectMenu } from "@/components/ui/SelectMenu";
 import {
@@ -94,7 +94,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
   const [nuovoMezzo, setNuovoMezzo] = useState(false);
   const [mezzoTarga, setMezzoTarga] = useState("");
-  const [printOpen, setPrintOpen] = useState(false);
   const [uploadOwner] = useState(() => crypto.randomUUID());
   const [testMode, setTestMode] = useState(false);
   const [testNotice, setTestNotice] = useState<string | null>(null);
@@ -223,6 +222,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     }
   }
 
+  const lottoMostrato = testLotto || item?.lottoCodice || null;
+
   const payload = useMemo(
     () => ({
       id: item?.id,
@@ -243,11 +244,14 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       operatoreMulettoId: operatoreId || null,
       note,
       confezioni: righe
-        .filter((r) => r.confezionamentoId && Number(r.quantitaConfezioni) > 0)
-        .map((r) => ({
-          confezionamentoId: r.confezionamentoId,
-          quantitaConfezioni: Number(r.quantitaConfezioni),
-        })),
+        .filter((r) => r.confezionamentoId)
+        .map((r) => {
+          const n = Number(String(r.quantitaConfezioni).replace(",", ".").trim());
+          return {
+            confezionamentoId: r.confezionamentoId,
+            quantitaConfezioni: Number.isFinite(n) && n > 0 ? Math.trunc(n) : 1,
+          };
+        }),
     }),
     [
       item?.id,
@@ -311,6 +315,11 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   async function genera() {
     setError(null);
     setTestNotice(null);
+    if (lottoMostrato) return;
+    if (!righe.some((r) => r.confezionamentoId)) {
+      setError("Seleziona almeno un confezionamento e il numero.");
+      return;
+    }
     if (testMode) {
       setBusy(true);
       const res = await provaFoglioIngressoMpAction(
@@ -322,21 +331,41 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         return;
       }
       setTestLotto(res.lottoCodice);
-      setTestNotice(`${res.messaggio} Salvataggio non eseguito.`);
-      if (res.lottoCodice) setPrintOpen(true);
+      setTestNotice(`${res.messaggio} Codice lotto in anteprima, senza salvataggio.`);
+      window.setTimeout(() => {
+        document.getElementById("ingresso-mp-etichetta")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 80);
       return;
     }
-    const saved = await salva();
-    if (!saved) return;
     setBusy(true);
-    const res = await generaLottoIngressoMpAction(saved.id);
+    const savedRes = await saveFoglioIngressoMpAction(payload);
+    if (!savedRes.success) {
+      setBusy(false);
+      setError(savedRes.error);
+      return;
+    }
+    applyItem(savedRes.item);
+    if (!foglioId) {
+      router.replace(
+        `/app/produzione/foglio-ingresso-mp/nuovo?id=${savedRes.item.id}`
+      );
+    }
+    const res = await generaLottoIngressoMpAction(savedRes.item.id);
     setBusy(false);
     if (!res.success) {
       setError(res.error);
       return;
     }
     applyItem(res.item);
-    setPrintOpen(true);
+    window.setTimeout(() => {
+      document.getElementById("ingresso-mp-etichetta")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
   }
 
   async function chiudi() {
@@ -573,7 +602,13 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                     setRighe((cur) =>
                       cur.map((x, idx) =>
                         idx === i
-                          ? { ...x, confezionamentoId: e.target.value }
+                          ? {
+                              ...x,
+                              confezionamentoId: e.target.value,
+                              quantitaConfezioni: x.quantitaConfezioni.trim()
+                                ? x.quantitaConfezioni
+                                : "1",
+                            }
                           : x
                       )
                     )
@@ -846,7 +881,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             Salva bozza
           </button>
         ) : null}
-        {!locked ? (
+        {!locked && !lottoMostrato ? (
           <button
             type="button"
             disabled={busy}
@@ -854,15 +889,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
           >
             13. Genera codice lotto
-          </button>
-        ) : null}
-        {item?.lottoCodice || testLotto ? (
-          <button
-            type="button"
-            onClick={() => setPrintOpen(true)}
-            className="rounded-lg bg-slate-800 px-4 py-2 text-sm text-white"
-          >
-            Stampa etichetta
           </button>
         ) : null}
         {item?.documentoStato === "registrato" || (testMode && testLotto) ? (
@@ -877,13 +903,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         ) : null}
       </div>
 
-      {printOpen && (testLotto || item?.lottoCodice) ? (
-        <IngressoMpLottoPrintModal
-          lotto={(testLotto || item?.lottoCodice) as string}
-          arrivatoAt={
-            item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()
-          }
-          onClose={() => setPrintOpen(false)}
+      {lottoMostrato ? (
+        <IngressoMpLottoEtichettaBox
+          lotto={lottoMostrato}
+          arrivatoAt={item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()}
         />
       ) : null}
     </div>
