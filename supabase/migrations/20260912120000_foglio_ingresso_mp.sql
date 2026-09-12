@@ -181,6 +181,7 @@ alter table public.produzione_mezzi_foto enable row level security;
 alter table public.produzione_fogli_ingresso_mp enable row level security;
 alter table public.produzione_fogli_ingresso_confezioni enable row level security;
 
+drop policy if exists "ingresso_mp_catalogo_all" on public.produzione_confezionamenti_mp;
 create policy "ingresso_mp_catalogo_all"
   on public.produzione_confezionamenti_mp for all to authenticated
   using (
@@ -195,6 +196,7 @@ create policy "ingresso_mp_catalogo_all"
     or public.is_superadmin()
   );
 
+drop policy if exists "ingresso_mp_mezzi_all" on public.produzione_mezzi;
 create policy "ingresso_mp_mezzi_all"
   on public.produzione_mezzi for all to authenticated
   using (
@@ -208,6 +210,7 @@ create policy "ingresso_mp_mezzi_all"
     or public.is_superadmin()
   );
 
+drop policy if exists "ingresso_mp_mezzi_foto_all" on public.produzione_mezzi_foto;
 create policy "ingresso_mp_mezzi_foto_all"
   on public.produzione_mezzi_foto for all to authenticated
   using (
@@ -221,6 +224,7 @@ create policy "ingresso_mp_mezzi_foto_all"
     or public.is_superadmin()
   );
 
+drop policy if exists "ingresso_mp_fogli_select" on public.produzione_fogli_ingresso_mp;
 create policy "ingresso_mp_fogli_select"
   on public.produzione_fogli_ingresso_mp for select to authenticated
   using (
@@ -233,6 +237,7 @@ create policy "ingresso_mp_fogli_select"
     )
   );
 
+drop policy if exists "ingresso_mp_fogli_write" on public.produzione_fogli_ingresso_mp;
 create policy "ingresso_mp_fogli_write"
   on public.produzione_fogli_ingresso_mp for all to authenticated
   using (
@@ -246,6 +251,7 @@ create policy "ingresso_mp_fogli_write"
     or public.is_superadmin()
   );
 
+drop policy if exists "ingresso_mp_conf_all" on public.produzione_fogli_ingresso_confezioni;
 create policy "ingresso_mp_conf_all"
   on public.produzione_fogli_ingresso_confezioni for all to authenticated
   using (
