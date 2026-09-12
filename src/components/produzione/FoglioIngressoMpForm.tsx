@@ -691,36 +691,28 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           placeholder="Numero o riferimento DDT"
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
-        {!locked ? (
-          <IngressoMpFotoPicker
-            kind="ddt"
-            ownerId={item?.id ?? uploadOwner}
-            acceptPdf
-            testMode={testMode}
-            previewUrl={ddtPreview}
-            onUploaded={(path, fileName, url) => {
-              setDdtFilePath(path);
-              setDdtFileName(fileName);
-              setDdtPreview(url);
-              if (item?.id && !testMode) {
-                void attachDdtFoglioAction({
-                  foglioId: item.id,
-                  path,
-                  fileName,
-                });
-              }
-            }}
-          />
-        ) : ddtPreview ? (
-          <a
-            href={ddtPreview}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm text-[var(--primary)] underline"
-          >
-            Apri allegato DDT
-          </a>
-        ) : null}
+        <IngressoMpFotoPicker
+          kind="ddt"
+          ownerId={item?.id ?? uploadOwner}
+          acceptPdf
+          variant="previewBox"
+          testMode={testMode}
+          disabled={locked}
+          previewUrl={ddtPreview}
+          fileName={ddtFileName}
+          onUploaded={(path, fileName, url) => {
+            setDdtFilePath(path);
+            setDdtFileName(fileName);
+            setDdtPreview(url);
+            if (item?.id && !testMode) {
+              void attachDdtFoglioAction({
+                foglioId: item.id,
+                path,
+                fileName,
+              });
+            }
+          }}
+        />
       </section>
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
