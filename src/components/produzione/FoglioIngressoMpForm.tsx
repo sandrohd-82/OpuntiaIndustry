@@ -27,10 +27,7 @@ import {
 } from "@/app/actions/produzione-ingresso-mp";
 import { IngressoMpFotoPicker } from "@/components/produzione/IngressoMpFotoPicker";
 import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
-import {
-  FORNITORE_TIPOLOGIE,
-  labelFornitoreTipologia,
-} from "@/lib/amministrazione/catalogo-offerta";
+import { labelFornitoreTipologia } from "@/lib/amministrazione/catalogo-offerta";
 import {
   FOGLIO_INGRESSO_TEST_KEY,
   MEZZO_FOTO_KINDS,
@@ -44,7 +41,14 @@ import {
 } from "@/lib/produzione/fogli-ingresso-mp";
 import type { FornitoreTipologia } from "@/types/database";
 
-type FornitoreFiltro = FornitoreTipologia | "" | "nessuna";
+type FornitoreFiltro = "" | "servizio" | "prodotto" | "materia_prima";
+
+const FORNITORE_FILTRI: Array<{ value: FornitoreFiltro; label: string }> = [
+  { value: "", label: "Tutti" },
+  { value: "servizio", label: "Servizi" },
+  { value: "prodotto", label: "Prodotti" },
+  { value: "materia_prima", label: "Materia prima" },
+];
 
 type FornitoreOpt = {
   id: string;
@@ -135,12 +139,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const fornitoriVisibili = useMemo(() => {
     const q = fornitoreQuery.trim().toLowerCase();
     return fornitori.filter((f) => {
-      if (fornitoreFiltro === "nessuna" && f.tipologie.length > 0) return false;
-      if (
-        fornitoreFiltro &&
-        fornitoreFiltro !== "nessuna" &&
-        !f.tipologie.includes(fornitoreFiltro)
-      ) {
+      if (fornitoreFiltro && !f.tipologie.includes(fornitoreFiltro)) {
         return false;
       }
       if (!q) return true;
@@ -468,25 +467,19 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             Screma per tipologia
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {(
-              [
-                ["", "Tutti"],
-                ...FORNITORE_TIPOLOGIE.map((t) => [t.value, t.label] as const),
-                ["nessuna", "Senza tipologia"],
-              ] as const
-            ).map(([value, label]) => (
+            {FORNITORE_FILTRI.map((f) => (
               <button
-                key={value || "tutti"}
+                key={f.value || "tutti"}
                 type="button"
                 disabled={locked}
-                onClick={() => setFornitoreFiltro(value)}
+                onClick={() => setFornitoreFiltro(f.value)}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
-                  fornitoreFiltro === value
+                  fornitoreFiltro === f.value
                     ? "bg-[var(--primary)] text-white ring-[var(--primary)]"
                     : "bg-white text-slate-700 ring-[var(--border)] hover:bg-slate-50"
                 }`}
               >
-                {label}
+                {f.label}
               </button>
             ))}
           </div>
@@ -549,11 +542,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                const tipologieCreate: FornitoreTipologia[] =
-                  fornitoreFiltro &&
-                  fornitoreFiltro !== "nessuna"
-                    ? [fornitoreFiltro]
-                    : ["materia_prima"];
+                const tipologieCreate: FornitoreTipologia[] = fornitoreFiltro
+                  ? [fornitoreFiltro]
+                  : ["materia_prima"];
                 const body = {
                   ragioneSociale: fornNome,
                   partitaIva: fornPiva,
