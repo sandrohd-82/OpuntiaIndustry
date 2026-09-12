@@ -28,6 +28,14 @@ import {
   type NotaAcquistoStato,
   type UpdateMagazzinoProdottoInput,
 } from "@/lib/magazzino/types";
+import {
+  annoDaDataLotto,
+  composeLottoAgrinsicilia,
+  formatDataLotto,
+  maxProgressivoDaLotti,
+  nextProgressivoLabel,
+  parseLottoAgrinsicilia,
+} from "@/lib/magazzino/lotto-agrinsicilia";
 import { createClient } from "@/lib/supabase/server";
 
 type GiacenzaRow = {
@@ -943,6 +951,23 @@ export async function movimentoManualeAgrinsiciliaAction(
   if (pErr || !prodotto) {
     return { success: false, error: pErr?.message ?? "Prodotto non trovato." };
   }
+  const lottoParti = parseLottoAgrinsicilia(input.lottoCodice);
+  if (!lottoParti) {
+    return { success: false, error: "Lotto non valido." };
+  }
+  if (lottoParti.targaProdotto !== prodotto.codice) {
+    return {
+      success: false,
+      error: `La targa lotto (${lottoParti.targaProdotto}) non coincide con il prodotto ${prodotto.codice}.`,
+    };
+  }
+  const lottoCodice = composeLottoAgrinsicilia({
+    ...lottoParti,
+    targaProdotto: prodotto.codice,
+  });
+  if (!lottoCodice) {
+    return { success: false, error: "Impossibile comporre il lotto." };
+  }
 
   if (input.collegaFoglio && input.foglioId) {
     const { data: foglio, error: fErr } = await supabase
@@ -1006,7 +1031,7 @@ export async function movimentoManualeAgrinsiciliaAction(
       tipo: "carico",
       quantita_kg: qtyStock,
       unita: input.unitaMisura,
-      lotto_codice: input.lottoCodice.trim(),
+      lotto_codice: lottoCodice,
       foglio_id: input.collegaFoglio ? input.foglioId : null,
       motivo_senza_foglio: input.collegaFoglio
         ? null
@@ -1028,14 +1053,15 @@ export async function movimentoManualeAgrinsiciliaAction(
     entity_id: mov.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Carico manuale ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${input.lottoCodice}`,
+    summary: `Carico manuale ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${lottoCodice}`,
     payload: {
       prodotto_id: input.prodottoId,
       quantita: input.quantita,
       unita: input.unitaMisura,
       quantita_stock: qtyStock,
       unita_stock: unitaStock,
-      lotto_codice: input.lottoCodice,
+      lotto_codice: lottoCodice,
+      lotto_parti: lottoParti,
       foglio_id: input.collegaFoglio ? input.foglioId : null,
       motivo_senza_foglio: input.collegaFoglio
         ? null
@@ -1046,4 +1072,122 @@ export async function movimentoManualeAgrinsiciliaAction(
   });
 
   return { success: true, giacenzaKg: dopo, movimentoId: mov.id };
+}
+
+export type FornitoreTargaMagazzino = {
+  id: string;
+  codiceTarga: string;
+  targaSenzaF: string;
+  ragioneSociale: string;
+};
+
+export async function listFornitoriTargaMagazzinoAction(): Promise<
+  | { success: true; items: FornitoreTargaMagazzino[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("fornitori")
+    .select("id, codice_targa, ragione_sociale")
+    .is("deleted_at", null)
+    .order("codice_targa", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: ((data ?? []) as Array<{
+      id: string;
+      codice_targa: string;
+      ragione_sociale: string;
+    }>).map((r) => ({
+      id: r.id,
+      codiceTarga: r.codice_targa,
+      targaSenzaF: r.codice_targa.replace(/^F/i, ""),
+      ragioneSociale: r.ragione_sociale,
+    })),
+  };
+}
+
+export type LottoMateriaPrimaOption = {
+  id: string;
+  lottoCodice: string;
+  prodottoCodice: string;
+  targaFornitore: string;
+  ddt: string;
+};
+
+export async function listLottiMateriaPrimaPerLottoAction(): Promise<
+  | { success: true; items: LottoMateriaPrimaOption[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_movimenti")
+    .select("id, lotto_codice, prodotto_codice")
+    .eq("catalog_kind", "materia_prima")
+    .neq("lotto_codice", "")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return { success: false, error: error.message };
+  const seen = new Set<string>();
+  const items: LottoMateriaPrimaOption[] = [];
+  for (const r of (data ?? []) as Array<{
+    id: string;
+    lotto_codice: string;
+    prodotto_codice: string;
+  }>) {
+    const key = r.lotto_codice.trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const parsed = parseLottoAgrinsicilia(key);
+    items.push({
+      id: r.id,
+      lottoCodice: key,
+      prodottoCodice: r.prodotto_codice,
+      targaFornitore: parsed?.targaFornitore ?? "",
+      ddt: parsed?.ddt ?? "",
+    });
+  }
+  return { success: true, items };
+}
+
+export async function nextLottoProgressivoAgrinsiciliaAction(input: {
+  targaProdotto: string;
+  dataInizio?: string;
+}): Promise<
+  { success: true; progressivo: string } | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const targa = input.targaProdotto.trim();
+  if (!targa) return { success: false, error: "Targa prodotto mancante." };
+  const data = input.dataInizio?.trim() || formatDataLotto(new Date());
+  const anno = annoDaDataLotto(data) ?? new Date().getFullYear();
+  const supabase = await createClient();
+  const [{ data: mov }, { data: fogli }] = await Promise.all([
+    supabase
+      .from("magazzino_movimenti")
+      .select("lotto_codice")
+      .eq("catalog_kind", CATALOG_PROPRIO)
+      .is("deleted_at", null)
+      .ilike("lotto_codice", `%/${targa}/%`),
+    supabase
+      .from("produzione_fogli_lavorazione")
+      .select("lotto_label")
+      .is("deleted_at", null)
+      .ilike("lotto_label", `%/${targa}/%`),
+  ]);
+  const lotti = [
+    ...((mov ?? []) as Array<{ lotto_codice: string | null }>).map(
+      (r) => r.lotto_codice ?? ""
+    ),
+    ...((fogli ?? []) as Array<{ lotto_label: string | null }>).map(
+      (r) => r.lotto_label ?? ""
+    ),
+  ];
+  return {
+    success: true,
+    progressivo: nextProgressivoLabel(maxProgressivoDaLotti(lotti, targa, anno)),
+  };
 }

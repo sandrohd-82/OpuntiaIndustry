@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
 
 export type MagazzinoCatalogKind = "materia_prima" | "prodotto_fornitore";
 
@@ -276,7 +277,15 @@ export const movimentoManualeSchema = z
     prodottoId: z.string().uuid("Seleziona un prodotto"),
     quantita: z.number().positive("Quantità maggiore di zero"),
     unitaMisura: z.enum(MAGAZZINO_CARICO_UNITA),
-    lottoCodice: z.string().trim().min(1, "Lotto obbligatorio").max(80),
+    lottoCodice: z
+      .string()
+      .trim()
+      .min(1, "Lotto obbligatorio")
+      .max(120)
+      .refine(
+        (v) => isValidLottoAgrinsicilia(v),
+        "Lotto non valido. Apri la composizione (L-data/targa/fornitore/DDT-nnn)."
+      ),
     collegaFoglio: z.boolean(),
     foglioId: z.string().uuid().nullable().optional(),
     motivoSenzaFoglio: z.enum(MOTIVO_SENZA_FOGLIO).nullable().optional(),

@@ -7,6 +7,7 @@ import {
   listProdottiPropriMagazzinoAction,
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
+import { LottoAgrinsiciliaModal } from "@/components/magazzino/LottoAgrinsiciliaModal";
 import {
   formatQuantitaCarico,
   MAGAZZINO_CARICO_UNITA_OPTIONS,
@@ -34,6 +35,7 @@ export function MagazzinoInserisciQuantitaBoard() {
   const [quantita, setQuantita] = useState<number | "">("");
   const [unitaMisura, setUnitaMisura] = useState<MagazzinoCaricoUnita>("kg");
   const [lottoCodice, setLottoCodice] = useState("");
+  const [lottoOpen, setLottoOpen] = useState(false);
   const [collegaFoglio, setCollegaFoglio] = useState(true);
   const [foglioId, setFoglioId] = useState("");
   const [motivo, setMotivo] = useState<MotivoSenzaFoglio>("inventario");
@@ -72,6 +74,10 @@ export function MagazzinoInserisciQuantitaBoard() {
     setOk(null);
     if (quantita === "" || quantita <= 0) {
       setError("Inserisci una quantità maggiore di zero.");
+      return;
+    }
+    if (!lottoCodice.trim()) {
+      setError("Apri la composizione e conferma il lotto di lavorazione.");
       return;
     }
     setSaving(true);
@@ -138,6 +144,7 @@ export function MagazzinoInserisciQuantitaBoard() {
               setProdottoId(id);
               const next = prodotti.find((p) => p.id === id);
               if (next) setUnitaMisura(next.unitaScheda);
+              setLottoCodice("");
             }}
             className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
           >
@@ -198,17 +205,28 @@ export function MagazzinoInserisciQuantitaBoard() {
           </label>
         </div>
 
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium">Lotto</span>
-          <input
-            type="text"
-            required
-            maxLength={80}
-            value={lottoCodice}
-            onChange={(e) => setLottoCodice(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
-          />
-        </label>
+        <div className="block text-sm">
+          <span className="mb-1 block font-medium">Lotto lavorazione</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (!selected) {
+                setError("Seleziona prima il prodotto: la targa entra nel lotto.");
+                return;
+              }
+              setError(null);
+              setLottoOpen(true);
+            }}
+            className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-left font-mono text-sm hover:bg-slate-50"
+          >
+            <span className={lottoCodice ? "" : "text-[var(--muted)]"}>
+              {lottoCodice || "Apri composizione lotto…"}
+            </span>
+            <span className="text-xs font-sans text-[var(--muted)]">
+              Modifica
+            </span>
+          </button>
+        </div>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Foglio di lavorazione</legend>
@@ -308,6 +326,19 @@ export function MagazzinoInserisciQuantitaBoard() {
           </button>
         </div>
       </form>
+
+      {lottoOpen && selected ? (
+        <LottoAgrinsiciliaModal
+          targaProdotto={selected.codice}
+          prodottoLabel={`${selected.codice} — ${selected.nome}`}
+          initialLotto={lottoCodice}
+          onClose={() => setLottoOpen(false)}
+          onConfirm={(lotto) => {
+            setLottoCodice(lotto);
+            setLottoOpen(false);
+          }}
+        />
+      ) : null}
 
       <div className="overflow-x-auto rounded-xl border border-[var(--border)] bg-[var(--card)]">
         <table className="w-full min-w-[720px] text-left text-sm">
