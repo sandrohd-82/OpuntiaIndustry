@@ -589,26 +589,31 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   ))}
                 </SelectMenu>
               </label>
-              <label className="w-36 shrink-0 text-sm">
-                <span className="mb-1 block font-medium">
-                  {cat?.labelNumero ?? "Numero confezioni"}
-                </span>
-                <input
-                  disabled={locked}
-                  value={r.quantitaConfezioni}
-                  onChange={(e) =>
-                    setRighe((cur) =>
-                      cur.map((x, idx) =>
-                        idx === i
-                          ? { ...x, quantitaConfezioni: e.target.value }
-                          : x
+              <div className="flex min-w-0 items-end gap-2">
+                <label className="w-24 shrink-0 text-sm">
+                  <span className="mb-1 block font-medium">Numero</span>
+                  <input
+                    disabled={locked}
+                    value={r.quantitaConfezioni}
+                    onChange={(e) =>
+                      setRighe((cur) =>
+                        cur.map((x, idx) =>
+                          idx === i
+                            ? { ...x, quantitaConfezioni: e.target.value }
+                            : x
+                        )
                       )
-                    )
-                  }
-                  inputMode="numeric"
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                />
-              </label>
+                    }
+                    inputMode="numeric"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </label>
+                {cat ? (
+                  <p className="mb-2 min-w-0 truncate text-sm font-medium text-slate-800">
+                    {cat.nome}
+                  </p>
+                ) : null}
+              </div>
               {!locked && righe.length > 1 ? (
                 <button
                   type="button"
