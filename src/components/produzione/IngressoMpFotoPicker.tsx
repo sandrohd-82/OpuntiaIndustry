@@ -9,6 +9,8 @@ type Props = {
   ownerId: string;
   acceptPdf?: boolean;
   previewUrl?: string | null;
+  /** Anteprima locale, nessun upload su storage. */
+  testMode?: boolean;
   onUploaded: (path: string, fileName: string, url: string) => void;
 };
 
@@ -17,6 +19,7 @@ export function IngressoMpFotoPicker({
   ownerId,
   acceptPdf,
   previewUrl,
+  testMode = false,
   onUploaded,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +31,21 @@ export function IngressoMpFotoPicker({
     setBusy(true);
     setError(null);
     try {
+      if (file.size > 8 * 1024 * 1024) {
+        setError("File troppo grande (max 8 MB).");
+        return;
+      }
+      const mime = file.type || "application/octet-stream";
+      const ok = mime.startsWith("image/") || mime === "application/pdf";
+      if (!ok) {
+        setError("Consentiti immagini o PDF.");
+        return;
+      }
+      if (testMode) {
+        const url = URL.createObjectURL(file);
+        onUploaded(`test://${kind}/${ownerId}/${file.name}`, file.name, url);
+        return;
+      }
       const fd = new FormData();
       fd.set("file", file);
       fd.set("kind", kind);

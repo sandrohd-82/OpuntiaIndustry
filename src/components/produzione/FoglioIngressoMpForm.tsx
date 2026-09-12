@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
 import {
+  anteprimaAutistaIngressoAction,
+  anteprimaFornitoreRapidoIngressoAction,
+  anteprimaMezzoIngressoAction,
   attachDdtFoglioAction,
   attachMezzoFotoAction,
   chiudiFoglioIngressoMpAction,
@@ -18,12 +21,14 @@ import {
   listFornitoriIngressoAction,
   listMateriePrimeIngressoAction,
   listMezziIngressoAction,
+  provaFoglioIngressoMpAction,
   saveFoglioIngressoMpAction,
   signedIngressoMpUrlAction,
 } from "@/app/actions/produzione-ingresso-mp";
 import { IngressoMpFotoPicker } from "@/components/produzione/IngressoMpFotoPicker";
 import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
 import {
+  FOGLIO_INGRESSO_TEST_KEY,
   MEZZO_FOTO_KINDS,
   MEZZO_FOTO_LABEL,
   labelStatoIngresso,
@@ -103,9 +108,59 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [autTel, setAutTel] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
   const [uploadOwner] = useState(() => crypto.randomUUID());
+  const [testMode, setTestMode] = useState(false);
+  const [testNotice, setTestNotice] = useState<string | null>(null);
+  const [testLotto, setTestLotto] = useState<string | null>(null);
+  const [fornitoriLocali, setFornitoriLocali] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [mezziLocali, setMezziLocali] = useState<Set<string>>(() => new Set());
+  const [autistiLocali, setAutistiLocali] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const fornitore = fornitori.find((f) => f.id === fornitoreId);
   const locked = item?.documentoStato === "chiuso";
+
+  useEffect(() => {
+    try {
+      setTestMode(sessionStorage.getItem(FOGLIO_INGRESSO_TEST_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function toggleTestMode() {
+    const next = !testMode;
+    setTestMode(next);
+    try {
+      if (next) sessionStorage.setItem(FOGLIO_INGRESSO_TEST_KEY, "1");
+      else sessionStorage.removeItem(FOGLIO_INGRESSO_TEST_KEY);
+    } catch {
+      /* ignore */
+    }
+    if (next) return;
+    setTestNotice(null);
+    setTestLotto(null);
+    if (ddtFilePath?.startsWith("test://")) {
+      setDdtFilePath(null);
+      setDdtFileName(null);
+      if (ddtPreview?.startsWith("blob:")) URL.revokeObjectURL(ddtPreview);
+      setDdtPreview(null);
+    }
+    setFornitori((cur) => cur.filter((f) => !fornitoriLocali.has(f.id)));
+    setMezzi((cur) => cur.filter((m) => !mezziLocali.has(m.id)));
+    setAutisti((cur) => cur.filter((a) => !autistiLocali.has(a.id)));
+    if (fornitoreId && fornitoriLocali.has(fornitoreId)) {
+      setFornitoreId("");
+      setAutistaId("");
+    }
+    if (mezzoId && mezziLocali.has(mezzoId)) setMezzoId("");
+    if (autistaId && autistiLocali.has(autistaId)) setAutistaId("");
+    setFornitoriLocali(new Set());
+    setMezziLocali(new Set());
+    setAutistiLocali(new Set());
+  }
 
   useEffect(() => {
     void Promise.all([
@@ -222,9 +277,31 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     ]
   );
 
+  function provaInput(extra: { generaLotto?: boolean; chiudi?: boolean }) {
+    const locale = fornitore && fornitoriLocali.has(fornitore.id);
+    return {
+      foglio: payload,
+      ...extra,
+      fornitoreLocale: locale
+        ? { isBio: fornitore.isBio, label: fornitore.label }
+        : undefined,
+    };
+  }
+
   async function salva(): Promise<FoglioIngressoMp | null> {
     setBusy(true);
     setError(null);
+    setTestNotice(null);
+    if (testMode) {
+      const res = await provaFoglioIngressoMpAction(provaInput({}));
+      setBusy(false);
+      if (!res.success) {
+        setError(res.error);
+        return null;
+      }
+      setTestNotice(`${res.messaggio} Salvataggio non eseguito.`);
+      return null;
+    }
     const res = await saveFoglioIngressoMpAction(payload);
     setBusy(false);
     if (!res.success) {
@@ -239,6 +316,23 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   }
 
   async function genera() {
+    setError(null);
+    setTestNotice(null);
+    if (testMode) {
+      setBusy(true);
+      const res = await provaFoglioIngressoMpAction(
+        provaInput({ generaLotto: true })
+      );
+      setBusy(false);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setTestLotto(res.lottoCodice);
+      setTestNotice(`${res.messaggio} Salvataggio non eseguito.`);
+      if (res.lottoCodice) setPrintOpen(true);
+      return;
+    }
     const saved = await salva();
     if (!saved) return;
     setBusy(true);
@@ -253,6 +347,18 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   }
 
   async function chiudi() {
+    if (testMode) {
+      setBusy(true);
+      setError(null);
+      const res = await provaFoglioIngressoMpAction(provaInput({ chiudi: true }));
+      setBusy(false);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setTestNotice(`${res.messaggio} Salvataggio non eseguito.`);
+      return;
+    }
     if (!item) return;
     setBusy(true);
     const res = await chiudiFoglioIngressoMpAction(item.id);
@@ -272,6 +378,37 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-[var(--muted)]">
+          {testMode
+            ? "Controlli identici al reale: il salvataggio su questa pagina è bloccato."
+            : "Compila il foglio e genera il codice lotto MP."}
+        </p>
+        <button
+          type="button"
+          aria-pressed={testMode}
+          onClick={toggleTestMode}
+          className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+            testMode
+              ? "bg-amber-500 text-white"
+              : "border border-[var(--border)] bg-white text-slate-700"
+          }`}
+        >
+          Modalità test {testMode ? "accesa" : "spenta"}
+        </button>
+      </div>
+      {testMode ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Modalità test di questa pagina: validazioni, anteprima lotto e
+          allegati restano locali. Nessuna scrittura su database, storage o
+          registro audit.
+        </p>
+      ) : null}
+      {testNotice ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {testNotice}
+        </p>
+      ) : null}
       {item ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 text-sm">
           <span className="font-medium">{item.codice}</span>
@@ -338,14 +475,25 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                const res = await createFornitoreRapidoIngressoAction({
-                  ragioneSociale: fornNome,
-                  partitaIva: fornPiva,
-                });
+                const res = testMode
+                  ? await anteprimaFornitoreRapidoIngressoAction({
+                      ragioneSociale: fornNome,
+                      partitaIva: fornPiva,
+                    })
+                  : await createFornitoreRapidoIngressoAction({
+                      ragioneSociale: fornNome,
+                      partitaIva: fornPiva,
+                    });
                 setBusy(false);
                 if (!res.success) {
                   setError(res.error);
                   return;
+                }
+                if (testMode) {
+                  setFornitoriLocali((cur) => new Set(cur).add(res.id));
+                  setTestNotice(
+                    `Fornitore ${res.label} valido. Non salvato in anagrafica.`
+                  );
                 }
                 setFornitori((cur) => [
                   ...cur,
@@ -444,12 +592,13 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             kind="ddt"
             ownerId={item?.id ?? uploadOwner}
             acceptPdf
+            testMode={testMode}
             previewUrl={ddtPreview}
             onUploaded={(path, fileName, url) => {
               setDdtFilePath(path);
               setDdtFileName(fileName);
               setDdtPreview(url);
-              if (item?.id) {
+              if (item?.id && !testMode) {
                 void attachDdtFoglioAction({
                   foglioId: item.id,
                   path,
@@ -613,15 +762,24 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
               disabled={busy}
               onClick={async () => {
                 setBusy(true);
-                const res = await createMezzoIngressoAction({
+                const body = {
                   targa: mezzoTarga,
                   fornitoreId: fornitoreId || null,
                   aziendaNome: mezzoAzienda || fornitore?.label || "",
-                });
+                };
+                const res = testMode
+                  ? await anteprimaMezzoIngressoAction(body)
+                  : await createMezzoIngressoAction(body);
                 setBusy(false);
                 if (!res.success) {
                   setError(res.error);
                   return;
+                }
+                if (testMode) {
+                  setMezziLocali((cur) => new Set(cur).add(res.item.id));
+                  setTestNotice(
+                    `Mezzo ${res.item.targa} valido. Non salvato in anagrafica.`
+                  );
                 }
                 setMezzi((cur) => [...cur, res.item]);
                 setMezzoId(res.item.id);
@@ -643,7 +801,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   <IngressoMpFotoPicker
                     kind={`mezzo_${kind}`}
                     ownerId={mezzoId}
+                    testMode={testMode}
                     onUploaded={(path, fileName) => {
+                      if (testMode) return;
                       void attachMezzoFotoAction({
                         mezzoId,
                         kind,
@@ -710,17 +870,26 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
               onClick={async () => {
                 if (!fornitore) return;
                 setBusy(true);
-                const res = await createAutistaIngressoAction({
+                const body = {
                   nome: autNome,
                   cognome: autCognome,
                   telefono: autTel,
                   fornitoreId,
                   fornitoreLabel: fornitore.label,
-                });
+                };
+                const res = testMode
+                  ? await anteprimaAutistaIngressoAction(body)
+                  : await createAutistaIngressoAction(body);
                 setBusy(false);
                 if (!res.success) {
                   setError(res.error);
                   return;
+                }
+                if (testMode) {
+                  setAutistiLocali((cur) => new Set(cur).add(res.id));
+                  setTestNotice(
+                    `Autista ${res.label} valido. Non salvato in rubrica.`
+                  );
                 }
                 setAutisti((cur) => [...cur, { id: res.id, label: res.label }]);
                 setAutistaId(res.id);
@@ -796,7 +965,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             13. Genera codice lotto
           </button>
         ) : null}
-        {item?.lottoCodice ? (
+        {item?.lottoCodice || testLotto ? (
           <button
             type="button"
             onClick={() => setPrintOpen(true)}
@@ -805,7 +974,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             Stampa etichetta
           </button>
         ) : null}
-        {item?.documentoStato === "registrato" ? (
+        {item?.documentoStato === "registrato" || (testMode && testLotto) ? (
           <button
             type="button"
             disabled={busy}
@@ -817,10 +986,12 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         ) : null}
       </div>
 
-      {printOpen && item?.lottoCodice ? (
+      {printOpen && (testLotto || item?.lottoCodice) ? (
         <IngressoMpLottoPrintModal
-          lotto={item.lottoCodice}
-          arrivatoAt={item.arrivatoAt}
+          lotto={(testLotto || item?.lottoCodice) as string}
+          arrivatoAt={
+            item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()
+          }
           onClose={() => setPrintOpen(false)}
         />
       ) : null}

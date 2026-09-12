@@ -1,5 +1,6 @@
 "use server";
 
+import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
@@ -1108,4 +1109,236 @@ export async function signedIngressoMpUrlAction(
     return { success: false, error: error?.message ?? "URL non disponibile." };
   }
   return { success: true, url: data.signedUrl };
+}
+
+const provaFoglioSchema = z.object({
+  foglio: foglioIngressoSaveSchema,
+  generaLotto: z.boolean().optional().default(false),
+  chiudi: z.boolean().optional().default(false),
+  fornitoreLocale: z
+    .object({
+      isBio: z.boolean(),
+      label: z.string().trim().max(240).optional().default(""),
+    })
+    .optional(),
+});
+
+/**
+ * Dry-run della sola pagina Foglio Ingresso MP: stessi controlli del reale,
+ * nessuna scrittura su DB, storage o audit.
+ */
+export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
+  | {
+      success: true;
+      skippedPersist: true;
+      lottoCodice: string | null;
+      codiceFoglio: string;
+      messaggio: string;
+    }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const parsed = provaFoglioSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati foglio non validi.",
+    };
+  }
+  const { foglio: v, generaLotto, chiudi, fornitoreLocale } = parsed.data;
+  const supabase = await createClient();
+
+  const { data: forn } = await supabase
+    .from("fornitori")
+    .select("id, bio_certificato_path, codice_targa, ragione_sociale")
+    .eq("id", v.fornitoreId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!forn && !fornitoreLocale) {
+    return { success: false, error: "Fornitore non trovato." };
+  }
+  const fornBio = forn
+    ? Boolean(
+        (forn as { bio_certificato_path?: string }).bio_certificato_path?.trim()
+      )
+    : Boolean(fornitoreLocale?.isBio);
+  if (v.isBio && !fornBio) {
+    return {
+      success: false,
+      error:
+        "Il materiale bio è consentito solo se il fornitore ha il certificato caricato.",
+    };
+  }
+
+  const { data: mp } = await supabase
+    .from("materie_prime")
+    .select("id")
+    .eq("id", v.materiaPrimaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!mp) return { success: false, error: "Tipo materiale non trovato." };
+
+  let codiceFoglio = `FIMP-${prefixLottoDaData(new Date(v.arrivatoAt))}-ANTEPRIMA`;
+  let lottoEsistente: string | null = null;
+  let stato: IngressoMpStato = "bozza";
+  if (v.id) {
+    const { data: existing } = await supabase
+      .from("produzione_fogli_ingresso_mp")
+      .select("codice, lotto_codice, documento_stato")
+      .eq("id", v.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!existing) return { success: false, error: "Foglio non trovato." };
+    const row = existing as {
+      codice: string;
+      lotto_codice: string | null;
+      documento_stato: IngressoMpStato;
+    };
+    if (row.documento_stato === "chiuso") {
+      return { success: false, error: "Il foglio chiuso non è modificabile." };
+    }
+    codiceFoglio = row.codice;
+    lottoEsistente = row.lotto_codice;
+    stato = row.documento_stato;
+  }
+
+  let lottoCodice = lottoEsistente;
+  if (generaLotto && !lottoCodice) {
+    const arrivato = new Date(v.arrivatoAt);
+    const prefix = prefixLottoDaData(arrivato);
+    const { data: esistenti } = await supabase
+      .from("produzione_fogli_ingresso_mp")
+      .select("lotto_codice")
+      .is("deleted_at", null)
+      .like("lotto_codice", `${prefix}%`);
+    const seq = nextSeqFromLotti(
+      ((esistenti ?? []) as Array<{ lotto_codice: string | null }>).map(
+        (r) => r.lotto_codice ?? ""
+      ),
+      prefix
+    );
+    const lotto = composeLottoIngressoMp(prefix, seq);
+    if (!isValidLottoIngressoMp(lotto)) {
+      return { success: false, error: "Formato lotto non valido." };
+    }
+    lottoCodice = lotto;
+  }
+
+  if (chiudi && !lottoCodice) {
+    return { success: false, error: "Genera prima il codice lotto." };
+  }
+
+  const messaggio = chiudi
+    ? `Controlli ok. Il foglio ${codiceFoglio} sarebbe stato chiuso.`
+    : generaLotto
+      ? `Controlli ok. Sarebbe stato assegnato il lotto ${lottoCodice} (stato Registrato).`
+      : stato === "registrato"
+        ? `Controlli ok. Il foglio ${codiceFoglio} sarebbe stato aggiornato.`
+        : `Controlli ok. Sarebbe stata salvata la bozza ${codiceFoglio}.`;
+
+  return {
+    success: true,
+    skippedPersist: true,
+    lottoCodice,
+    codiceFoglio,
+    messaggio,
+  };
+}
+
+export async function anteprimaFornitoreRapidoIngressoAction(
+  raw: unknown
+): Promise<
+  | { success: true; id: string; label: string; targa: string; isBio: false }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const parsed = nuovoFornitoreRapidoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati fornitore non validi.",
+    };
+  }
+  const supabase = await createClient();
+  const piva = parsed.data.partitaIva.trim();
+  const { data: dup } = await supabase
+    .from("fornitori")
+    .select("id")
+    .is("deleted_at", null)
+    .ilike("partita_iva", piva)
+    .maybeSingle();
+  if (dup) {
+    return { success: false, error: "Partita IVA già presente in anagrafica." };
+  }
+  const { data: usedRows } = await supabase.from("fornitori").select("codice_targa");
+  const used = ((usedRows ?? []) as Array<{ codice_targa: string }>).map(
+    (r) => r.codice_targa
+  );
+  let targa: string;
+  try {
+    targa = nextSequentialCodiceTarga("F", used);
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Targa fornitore non disponibile.",
+    };
+  }
+  return {
+    success: true,
+    id: crypto.randomUUID(),
+    targa,
+    label: `${targa} — ${parsed.data.ragioneSociale.trim()}`,
+    isBio: false,
+  };
+}
+
+export async function anteprimaMezzoIngressoAction(raw: unknown): Promise<
+  { success: true; item: MezzoIngresso } | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const parsed = nuovoMezzoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati mezzo non validi.",
+    };
+  }
+  const targa = parsed.data.targa.trim().toUpperCase();
+  const supabase = await createClient();
+  const { data: dup } = await supabase
+    .from("produzione_mezzi")
+    .select("id")
+    .is("deleted_at", null)
+    .ilike("targa", targa)
+    .maybeSingle();
+  if (dup) return { success: false, error: "Targa mezzo già registrata." };
+  return {
+    success: true,
+    item: {
+      id: crypto.randomUUID(),
+      targa,
+      fornitoreId: parsed.data.fornitoreId ?? null,
+      aziendaNome: parsed.data.aziendaNome?.trim() ?? "",
+      foto: [],
+    },
+  };
+}
+
+export async function anteprimaAutistaIngressoAction(raw: unknown): Promise<
+  | { success: true; id: string; label: string }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const parsed = nuovoAutistaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati autista non validi.",
+    };
+  }
+  return {
+    success: true,
+    id: crypto.randomUUID(),
+    label: `${parsed.data.nome} ${parsed.data.cognome}`.trim(),
+  };
 }

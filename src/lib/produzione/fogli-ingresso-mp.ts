@@ -23,6 +23,10 @@ export const MEZZO_FOTO_LABEL: Record<MezzoFotoKind, string> = {
 
 export const LOTTO_MP_RE = /^[0-9]{6}[0-9A-F]{5}$/;
 
+/** Solo la pagina Foglio Ingresso MP legge questa chiave. */
+export const FOGLIO_INGRESSO_TEST_KEY =
+  "opuntia.page.foglio-ingresso-mp.modalita-test";
+
 export function prefixLottoDaData(d: Date): string {
   const gg = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
