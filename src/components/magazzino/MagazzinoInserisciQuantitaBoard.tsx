@@ -8,6 +8,7 @@ import {
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
 import { LottoAgrinsiciliaModal } from "@/components/magazzino/LottoAgrinsiciliaModal";
+import { lottoMaskPlaceholder } from "@/lib/magazzino/lotto-agrinsicilia";
 import {
   formatQuantitaCarico,
   MAGAZZINO_CARICO_UNITA_OPTIONS,
@@ -205,28 +206,35 @@ export function MagazzinoInserisciQuantitaBoard() {
           </label>
         </div>
 
-        <div className="block text-sm">
-          <span className="mb-1 block font-medium">Lotto lavorazione</span>
-          <button
-            type="button"
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium">Lotto</span>
+          <input
+            readOnly
+            value={lottoCodice}
+            placeholder={lottoMaskPlaceholder(selected?.codice ?? "targa")}
             onClick={() => {
               if (!selected) {
-                setError("Seleziona prima il prodotto: la targa entra nel lotto.");
+                setError(
+                  "Seleziona prima il prodotto: la targa entra nel lotto."
+                );
                 return;
               }
               setError(null);
               setLottoOpen(true);
             }}
-            className="flex w-full items-center justify-between rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-left font-mono text-sm hover:bg-slate-50"
-          >
-            <span className={lottoCodice ? "" : "text-[var(--muted)]"}>
-              {lottoCodice || "Apri composizione lotto…"}
-            </span>
-            <span className="text-xs font-sans text-[var(--muted)]">
-              Modifica
-            </span>
-          </button>
-        </div>
+            onFocus={() => {
+              if (!selected) {
+                setError(
+                  "Seleziona prima il prodotto: la targa entra nel lotto."
+                );
+                return;
+              }
+              setError(null);
+              setLottoOpen(true);
+            }}
+            className="w-full cursor-pointer rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
+          />
+        </label>
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Foglio di lavorazione</legend>

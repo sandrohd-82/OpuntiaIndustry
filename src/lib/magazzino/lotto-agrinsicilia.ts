@@ -71,10 +71,15 @@ export function annoDaDataLotto(dataInizio: string): number | null {
   return 2000 + Number(m[1]);
 }
 
+export function normalizeDataLotto(raw: string): string {
+  const formatted = formatPartialDate(raw);
+  return formatted.includes("_") ? "" : formatted;
+}
+
 export function composeLottoAgrinsicilia(
   p: LottoAgrinsiciliaParti
 ): string {
-  const data = p.dataInizio.trim();
+  const data = normalizeDataLotto(p.dataInizio);
   const prod = p.targaProdotto.trim();
   const forn = stripTargaFornitore(p.targaFornitore);
   const ddt = p.ddt.trim();
@@ -128,4 +133,63 @@ export function maxProgressivoDaLotti(
 
 export function nextProgressivoLabel(maxUsato: number): string {
   return padProgressivo(Math.min(999, Math.max(0, maxUsato) + 1));
+}
+
+/** Data parziale stile 11.06.__ */
+export function formatPartialDate(raw: string): string {
+  const d = String(raw ?? "").replace(/\D/g, "").slice(0, 6);
+  return [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6)]
+    .map((c) => c.padEnd(2, "_"))
+    .join(".");
+}
+
+export function digitsFromDataLotto(raw: string): string {
+  return String(raw ?? "").replace(/\D/g, "").slice(0, 6);
+}
+
+/** Bozza sempre con separatori visibili: L-__.__.__/NDRi/___/____-___ */
+export function composeLottoBozza(p: LottoAgrinsiciliaParti): string {
+  const data = formatPartialDate(p.dataInizio);
+  const forn = (p.targaFornitore.replace(/_/g, "") || "").padEnd(3, "_");
+  const ddtRaw = p.ddt.replace(/_/g, "");
+  const ddt = ddtRaw || "____";
+  const prog = (p.progressivo.replace(/\D/g, "") || "").padEnd(3, "_");
+  const targa = p.targaProdotto.trim() || "____";
+  return `${LOTTO_AGRINSICILIA_PREFIX}${data}/${targa}/${forn}/${ddt}-${prog}`;
+}
+
+export function lottoMaskPlaceholder(targaProdotto: string): string {
+  return composeLottoBozza({
+    dataInizio: "",
+    targaProdotto: targaProdotto.trim() || "targa",
+    targaFornitore: "",
+    ddt: "",
+    progressivo: "",
+  });
+}
+
+/** Accetta lotto completo o bozza con _ e separatori. */
+export function parseLottoBozza(
+  raw: string,
+  targaProdotto: string
+): LottoAgrinsiciliaParti {
+  const completo = parseLottoAgrinsicilia(raw.replace(/_/g, ""));
+  if (completo) {
+    return { ...completo, targaProdotto: targaProdotto || completo.targaProdotto };
+  }
+  const s = String(raw ?? "").replace(/\s+/g, "").replace(/^L-/i, "");
+  const parts = s.split("/");
+  const dataDigits = digitsFromDataLotto(parts[0] ?? "");
+  const forn = stripTargaFornitore((parts[2] ?? "").replace(/_/g, ""));
+  const coda = (parts.slice(3).join("/") || "").replace(/_/g, "");
+  const progMatch = coda.match(/-(\d{0,3})$/);
+  const ddt = progMatch ? coda.slice(0, progMatch.index) : coda.replace(/-$/, "");
+  const prog = progMatch?.[1] ?? "";
+  return {
+    dataInizio: dataDigits.length === 6 ? formatPartialDate(dataDigits).replace(/_/g, "") : dataDigits,
+    targaProdotto,
+    targaFornitore: forn,
+    ddt,
+    progressivo: prog,
+  };
 }

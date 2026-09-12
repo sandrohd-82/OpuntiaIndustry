@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import {
   listFornitoriTargaMagazzinoAction,
   listLottiMateriaPrimaPerLottoAction,
@@ -10,10 +10,11 @@ import {
 } from "@/app/actions/magazzino";
 import {
   composeLottoAgrinsicilia,
-  dataLottoToIso,
-  formatDataLotto,
-  isoToDataLotto,
+  composeLottoBozza,
+  digitsFromDataLotto,
+  formatPartialDate,
   parseLottoAgrinsicilia,
+  parseLottoBozza,
   stripTargaFornitore,
   type LottoAgrinsiciliaParti,
 } from "@/lib/magazzino/lotto-agrinsicilia";
@@ -28,12 +29,17 @@ type Props = {
 
 function emptyParti(targaProdotto: string): LottoAgrinsiciliaParti {
   return {
-    dataInizio: formatDataLotto(new Date()),
+    dataInizio: "",
     targaProdotto,
     targaFornitore: "",
     ddt: "",
     progressivo: "",
   };
+}
+
+function dateParts(dataInizio: string): [string, string, string] {
+  const d = digitsFromDataLotto(dataInizio);
+  return [d.slice(0, 2), d.slice(2, 4), d.slice(4, 6)];
 }
 
 export function LottoAgrinsiciliaModal({
@@ -45,7 +51,6 @@ export function LottoAgrinsiciliaModal({
 }: Props) {
   const titleId = useId();
   const parsedInitial = parseLottoAgrinsicilia(initialLotto ?? "");
-  const [raw, setRaw] = useState(initialLotto ?? "");
   const [parti, setParti] = useState<LottoAgrinsiciliaParti>(
     parsedInitial
       ? { ...parsedInitial, targaProdotto }
@@ -55,6 +60,12 @@ export function LottoAgrinsiciliaModal({
   const [lottiMp, setLottiMp] = useState<LottoMateriaPrimaOption[]>([]);
   const [lottoMpId, setLottoMpId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const dayRef = useRef<HTMLInputElement>(null);
+  const monthRef = useRef<HTMLInputElement>(null);
+  const yearRef = useRef<HTMLInputElement>(null);
+  const fornRef = useRef<HTMLInputElement>(null);
+  const ddtRef = useRef<HTMLInputElement>(null);
+  const progRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -75,7 +86,7 @@ export function LottoAgrinsiciliaModal({
       listLottiMateriaPrimaPerLottoAction(),
       nextLottoProgressivoAgrinsiciliaAction({
         targaProdotto,
-        dataInizio: parti.dataInizio,
+        dataInizio: parsedInitial?.dataInizio,
       }),
     ]).then(([f, m, p]) => {
       if (f.success) setFornitori(f.items);
@@ -86,59 +97,69 @@ export function LottoAgrinsiciliaModal({
         );
       }
     });
+    dayRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targaProdotto]);
 
-  const composto = useMemo(() => composeLottoAgrinsicilia(parti), [parti]);
+  const [dd, mm, yy] = dateParts(parti.dataInizio);
+  const bozza = composeLottoBozza({ ...parti, targaProdotto });
+  const composto = composeLottoAgrinsicilia({ ...parti, targaProdotto });
 
-  function applyRaw(value: string) {
-    setRaw(value);
-    const parsed = parseLottoAgrinsicilia(value);
-    if (!parsed) return;
-    setParti({ ...parsed, targaProdotto });
+  function setPartiLocked(next: LottoAgrinsiciliaParti) {
+    setParti({ ...next, targaProdotto });
     setError(null);
   }
 
   function patch(partial: Partial<LottoAgrinsiciliaParti>) {
-    setParti((cur) => {
-      const next = { ...cur, ...partial, targaProdotto };
-      setRaw(composeLottoAgrinsicilia(next));
-      return next;
-    });
-    setError(null);
+    setPartiLocked({ ...parti, ...partial, targaProdotto });
   }
 
-  async function onDataChange(iso: string) {
-    const dataInizio = isoToDataLotto(iso) || formatDataLotto(new Date());
+  function applyPasted(value: string) {
+    const parsed =
+      parseLottoAgrinsicilia(value) ?? parseLottoBozza(value, targaProdotto);
+    setPartiLocked({ ...parsed, targaProdotto });
+  }
+
+  async function refreshProgressivo(dataInizio: string) {
     const prog = await nextLottoProgressivoAgrinsiciliaAction({
       targaProdotto,
       dataInizio,
     });
-    patch({
-      dataInizio,
-      progressivo: prog.success ? prog.progressivo : parti.progressivo,
-    });
+    if (prog.success) {
+      setParti((cur) => ({
+        ...cur,
+        dataInizio,
+        targaProdotto,
+        progressivo: cur.progressivo || prog.progressivo,
+      }));
+    }
   }
 
-  function onFornitoreSelect(targaSenzaF: string) {
-    patch({ targaFornitore: targaSenzaF });
-  }
-
-  function onLottoMpSelect(id: string) {
-    setLottoMpId(id);
-    const lotto = lottiMp.find((l) => l.id === id);
-    if (!lotto) return;
-    patch({
-      targaFornitore: lotto.targaFornitore || parti.targaFornitore,
-      ddt: lotto.ddt || parti.ddt,
-    });
+  function onDateSeg(
+    which: "dd" | "mm" | "yy",
+    value: string,
+    next?: React.RefObject<HTMLInputElement | null>
+  ) {
+    const digits = value.replace(/\D/g, "");
+    const parts = dateParts(parti.dataInizio);
+    if (which === "dd") parts[0] = digits.slice(0, 2);
+    if (which === "mm") parts[1] = digits.slice(0, 2);
+    if (which === "yy") parts[2] = digits.slice(0, 2);
+    const dataInizio = formatPartialDate(parts.join(""));
+    patch({ dataInizio: dataInizio.includes("_") ? parts.join("") : dataInizio });
+    const max = which === "yy" ? 2 : 2;
+    if (digits.length >= max && next?.current) next.current.focus();
+    if (which === "yy" && digits.length >= 2) {
+      const full = formatPartialDate(parts.join(""));
+      if (!full.includes("_")) void refreshProgressivo(full);
+    }
   }
 
   function confirm() {
-    const out = composeLottoAgrinsicilia(parti);
+    const out = composeLottoAgrinsicilia({ ...parti, targaProdotto });
     if (!out) {
       setError(
-        "Compila data, targa fornitore, DDT e progressivo, oppure incolla un lotto valido."
+        "Completa data, fornitore, DDT e progressivo, oppure incolla un lotto valido."
       );
       return;
     }
@@ -157,63 +178,131 @@ export function LottoAgrinsiciliaModal({
     >
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl">
         <h2 id={titleId} className="text-base font-semibold">
-          Composizione lotto lavorazione
+          Lotto lavorazione
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Incolla il lotto completo: il sistema lo suddivide nei campi, come un
-          IBAN. Prodotto: {prodottoLabel} (targa {targaProdotto}).
+          Digita sulla riga (separatori già visibili, come una data) oppure
+          compila i campi sotto: si aggiornano a vicenda. {prodottoLabel}
         </p>
 
         <label className="mt-4 block text-sm">
-          <span className="mb-1 block font-medium">Lotto completo</span>
+          <span className="mb-1 block font-medium">
+            Compilazione manuale (separatori già in riga)
+          </span>
           <input
-            autoFocus
-            value={raw}
-            onChange={(e) => applyRaw(e.target.value)}
-            placeholder="L-11.06.26/NDRi/031/B013-215"
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
+            value={bozza}
+            onChange={(e) => applyPasted(e.target.value)}
+            spellCheck={false}
+            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm tracking-wide"
           />
         </label>
 
-        <div className="mt-3 flex flex-wrap gap-1 font-mono text-xs">
-          <Seg label="L-" value="L-" locked />
-          <Seg label="data" value={parti.dataInizio || "gg.mm.aa"} />
-          <Seg label="prodotto" value={parti.targaProdotto || "—"} locked />
-          <Seg label="fornitore" value={parti.targaFornitore || "—"} />
-          <Seg label="DDT" value={parti.ddt || "—"} />
-          <Seg label="n°" value={parti.progressivo || "—"} />
+        <div className="mt-2">
+          <span className="mb-1 block text-xs text-[var(--muted)]">
+            Stessa riga, caselle separate
+          </span>
+          <div
+            className="flex flex-wrap items-center gap-0.5 rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
+            onPaste={(e) => {
+              const text = e.clipboardData.getData("text");
+              if (text.includes("L-") || text.includes("/")) {
+                e.preventDefault();
+                applyPasted(text);
+              }
+            }}
+          >
+            <span className="select-none text-slate-400">L-</span>
+            <MaskCell
+              ref={dayRef}
+              value={dd}
+              max={2}
+              placeholder="gg"
+              onChange={(v) => onDateSeg("dd", v, monthRef)}
+            />
+            <span className="select-none text-slate-400">.</span>
+            <MaskCell
+              ref={monthRef}
+              value={mm}
+              max={2}
+              placeholder="mm"
+              onChange={(v) => onDateSeg("mm", v, yearRef)}
+            />
+            <span className="select-none text-slate-400">.</span>
+            <MaskCell
+              ref={yearRef}
+              value={yy}
+              max={2}
+              placeholder="aa"
+              onChange={(v) => onDateSeg("yy", v, fornRef)}
+            />
+            <span className="select-none text-slate-400">/</span>
+            <span className="rounded bg-slate-50 px-1 text-slate-600">
+              {targaProdotto}
+            </span>
+            <span className="select-none text-slate-400">/</span>
+            <MaskCell
+              ref={fornRef}
+              value={parti.targaFornitore}
+              max={3}
+              placeholder="___"
+              onChange={(v) => {
+                const next = stripTargaFornitore(v).slice(0, 3);
+                patch({ targaFornitore: next });
+                if (next.length >= 3) ddtRef.current?.focus();
+              }}
+            />
+            <span className="select-none text-slate-400">/</span>
+            <MaskCell
+              ref={ddtRef}
+              value={parti.ddt}
+              max={12}
+              width="w-20"
+              placeholder="____"
+              onChange={(v) => {
+                const next = v.replace(/\s+/g, "").replace(/-/g, "");
+                patch({ ddt: next });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "-" || e.key === "Enter") {
+                  e.preventDefault();
+                  progRef.current?.focus();
+                }
+              }}
+            />
+            <span className="select-none text-slate-400">-</span>
+            <MaskCell
+              ref={progRef}
+              value={parti.progressivo}
+              max={3}
+              placeholder="___"
+              onChange={(v) =>
+                patch({ progressivo: v.replace(/\D/g, "").slice(0, 3) })
+              }
+            />
+          </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">
-              Data inizio lavorazione
-            </span>
-            <input
-              type="date"
-              value={dataLottoToIso(parti.dataInizio)}
-              onChange={(e) => void onDataChange(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Targa prodotto</span>
-            <input
-              readOnly
-              value={targaProdotto}
-              className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm"
-            />
-          </label>
-        </div>
+        <p className="mt-5 text-sm font-medium">Campi per significato</p>
+        <p className="text-xs text-[var(--muted)]">
+          Se compili qui, la riga sopra si aggiorna da sola. Se scrivi sopra, si
+          compilano questi campi.
+        </p>
 
         {lottiMp.length > 0 ? (
           <label className="mt-3 block text-sm">
-            <span className="mb-1 block font-medium">
-              Lotto materia prima (riempie fornitore e DDT se noti)
-            </span>
+            <span className="mb-1 block font-medium">Lotto materia prima</span>
             <select
               value={lottoMpId}
-              onChange={(e) => onLottoMpSelect(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                setLottoMpId(id);
+                const lotto = lottiMp.find((l) => l.id === id);
+                if (!lotto) return;
+                patch({
+                  targaFornitore: lotto.targaFornitore || parti.targaFornitore,
+                  ddt: lotto.ddt || parti.ddt,
+                });
+              }}
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
               <option value="">Seleziona lotto Mp…</option>
@@ -229,6 +318,33 @@ export function LottoAgrinsiciliaModal({
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
             <span className="mb-1 block font-medium">
+              Data inizio lavorazione
+            </span>
+            <input
+              value={formatPartialDate(parti.dataInizio)}
+              onChange={(e) => {
+                const digits = digitsFromDataLotto(e.target.value);
+                const dataInizio =
+                  digits.length === 6
+                    ? formatPartialDate(digits)
+                    : digits;
+                patch({ dataInizio });
+                if (digits.length === 6) void refreshProgressivo(formatPartialDate(digits));
+              }}
+              placeholder="gg.mm.aa"
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Targa prodotto</span>
+            <input
+              readOnly
+              value={targaProdotto}
+              className="w-full rounded-lg border border-[var(--border)] bg-slate-50 px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">
               Targa fornitore (senza F)
             </span>
             <select
@@ -237,7 +353,9 @@ export function LottoAgrinsiciliaModal({
                   ? parti.targaFornitore
                   : ""
               }
-              onChange={(e) => onFornitoreSelect(e.target.value)}
+              onChange={(e) =>
+                patch({ targaFornitore: stripTargaFornitore(e.target.value) })
+              }
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
               <option value="">Seleziona fornitore…</option>
@@ -260,27 +378,30 @@ export function LottoAgrinsiciliaModal({
             <span className="mb-1 block font-medium">DDT merce in arrivo</span>
             <input
               value={parti.ddt}
-              onChange={(e) => patch({ ddt: e.target.value.replace(/\s+/g, "") })}
+              onChange={(e) =>
+                patch({ ddt: e.target.value.replace(/\s+/g, "") })
+              }
               placeholder="B013"
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
             />
           </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">
+              Progressivo annuo (3 cifre)
+            </span>
+            <input
+              value={parti.progressivo}
+              onChange={(e) =>
+                patch({
+                  progressivo: e.target.value.replace(/\D/g, "").slice(0, 3),
+                })
+              }
+              placeholder="001"
+              maxLength={3}
+              className="w-32 rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
+            />
+          </label>
         </div>
-
-        <label className="mt-3 block text-sm">
-          <span className="mb-1 block font-medium">
-            Progressivo annuo (questo prodotto, 3 cifre)
-          </span>
-          <input
-            value={parti.progressivo}
-            onChange={(e) =>
-              patch({ progressivo: e.target.value.replace(/\D/g, "").slice(0, 3) })
-            }
-            placeholder="001"
-            maxLength={3}
-            className="w-32 rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
-          />
-        </label>
 
         {composto ? (
           <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 font-mono text-sm">
@@ -315,25 +436,29 @@ export function LottoAgrinsiciliaModal({
   );
 }
 
-function Seg({
-  label,
-  value,
-  locked,
-}: {
-  label: string;
-  value: string;
-  locked?: boolean;
-}) {
+const MaskCell = forwardRef<
+  HTMLInputElement,
+  {
+    value: string;
+    max: number;
+    placeholder: string;
+    width?: string;
+    onChange: (value: string) => void;
+    onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  }
+>(function MaskCell(
+  { value, max, placeholder, width, onChange, onKeyDown },
+  ref
+) {
   return (
-    <span
-      title={label}
-      className={`rounded-md border px-2 py-1 ${
-        locked
-          ? "border-slate-200 bg-slate-50 text-slate-600"
-          : "border-[var(--border)] bg-white"
-      }`}
-    >
-      {value}
-    </span>
+    <input
+      ref={ref}
+      value={value}
+      maxLength={max}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      className={`${width ?? "w-8"} border-0 bg-transparent p-0 text-center outline-none placeholder:text-slate-300`}
+    />
   );
-}
+});
