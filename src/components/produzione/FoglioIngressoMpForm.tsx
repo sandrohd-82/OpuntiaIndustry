@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { FaMagnifyingGlass, FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
 import {
   anteprimaAutistaIngressoAction,
@@ -91,7 +91,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
   const [fornitoreFiltro, setFornitoreFiltro] =
     useState<FornitoreFiltro>("materia_prima");
+  const [fornitoreSearchOpen, setFornitoreSearchOpen] = useState(false);
   const [fornitoreQuery, setFornitoreQuery] = useState("");
+  const fornitoreSearchRef = useRef<HTMLInputElement>(null);
   const [fornitoreId, setFornitoreId] = useState("");
   const [materiaPrimaId, setMateriaPrimaId] = useState("");
   const [isBio, setIsBio] = useState(false);
@@ -461,7 +463,31 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       ) : null}
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h3 className="text-sm font-semibold">1. Fornitore</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-sm font-semibold">1. Fornitore</h3>
+          <button
+            type="button"
+            disabled={locked}
+            aria-pressed={fornitoreSearchOpen}
+            aria-label="Cerca ragione sociale o targa"
+            onClick={() => {
+              setFornitoreSearchOpen((v) => {
+                const next = !v;
+                if (next) {
+                  window.setTimeout(() => fornitoreSearchRef.current?.focus(), 0);
+                }
+                return next;
+              });
+            }}
+            className={`rounded-lg p-2 ${
+              fornitoreSearchOpen
+                ? "bg-[var(--primary)] text-white"
+                : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <FaMagnifyingGlass size={14} />
+          </button>
+        </div>
         <div>
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Screma per tipologia
@@ -484,13 +510,16 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             ))}
           </div>
         </div>
-        <input
-          disabled={locked}
-          value={fornitoreQuery}
-          onChange={(e) => setFornitoreQuery(e.target.value)}
-          placeholder="Cerca ragione sociale o targa…"
-          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-        />
+        {fornitoreSearchOpen ? (
+          <input
+            ref={fornitoreSearchRef}
+            disabled={locked}
+            value={fornitoreQuery}
+            onChange={(e) => setFornitoreQuery(e.target.value)}
+            placeholder="Cerca ragione sociale o targa…"
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+          />
+        ) : null}
         <select
           disabled={locked}
           value={fornitoreId}
