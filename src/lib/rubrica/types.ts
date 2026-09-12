@@ -14,6 +14,14 @@ export type RubricaModalita =
   | "mail"
   | "incontro";
 
+export type RubricaMansione = {
+  id: string;
+  codice: string;
+  nome: string;
+  documentoStato: "bozza" | "approvato";
+  versione: number;
+};
+
 export type RubricaContatto = {
   id: string;
   nome: string;
@@ -24,6 +32,7 @@ export type RubricaContatto = {
   aziendaTipo: RubricaAziendaTipo;
   aziendaId: string | null;
   aziendaLabel: string;
+  mansioneId: string | null;
   mansione: string;
   note: string;
   createdAt: string;
@@ -66,7 +75,13 @@ export const createRubricaContattoSchema = z.object({
   aziendaId: z.string().uuid().nullable().optional(),
   aziendaLabel: z.string().trim().max(200).optional().default(""),
   mansione: z.string().trim().max(120).optional().default(""),
+  mansioneId: z.string().uuid().nullable().optional(),
   note: z.string().trim().max(2000).optional().default(""),
+});
+
+export const createRubricaMansioneSchema = z.object({
+  nome: z.string().trim().min(2).max(80),
+  confermaAffinita: z.boolean().optional().default(false),
 });
 
 export const createRubricaTimelineSchema = z.object({

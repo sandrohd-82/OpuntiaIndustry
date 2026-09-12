@@ -664,6 +664,12 @@ export async function createAutistaIngressoAction(raw: unknown): Promise<
   }
   const v = parsed.data;
   const supabase = await createClient();
+  const { data: mansioneAutista } = await supabase
+    .from("rubrica_mansioni")
+    .select("id, nome")
+    .eq("codice", "autista")
+    .is("deleted_at", null)
+    .maybeSingle();
   const { data, error } = await supabase
     .from("rubrica_contatti")
     .insert({
@@ -675,7 +681,8 @@ export async function createAutistaIngressoAction(raw: unknown): Promise<
       azienda_tipo: "fornitore",
       azienda_id: v.fornitoreId,
       azienda_label: v.fornitoreLabel,
-      mansione: "Autista",
+      mansione_id: mansioneAutista?.id ?? null,
+      mansione: mansioneAutista?.nome ?? "Autista",
       note: v.note,
       created_by: auth.userId,
       updated_by: auth.userId,

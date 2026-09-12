@@ -5,16 +5,13 @@ import { useRouter } from "next/navigation";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
 import {
-  anteprimaAutistaIngressoAction,
   anteprimaMezzoIngressoAction,
   attachDdtFoglioAction,
   attachMezzoFotoAction,
   chiudiFoglioIngressoMpAction,
-  createAutistaIngressoAction,
   createMezzoIngressoAction,
   generaLottoIngressoMpAction,
   getFoglioIngressoMpAction,
-  listAutistiIngressoAction,
   listConfezionamentiMpAction,
   listFornitoriIngressoAction,
   listMateriePrimeIngressoAction,
@@ -23,6 +20,7 @@ import {
   saveFoglioIngressoMpAction,
   signedIngressoMpUrlAction,
 } from "@/app/actions/produzione-ingresso-mp";
+import { AutistaIngressoScrematura } from "@/components/produzione/AutistaIngressoScrematura";
 import { IngressoMpFotoPicker } from "@/components/produzione/IngressoMpFotoPicker";
 import {
   FornitoreIngressoScrematura,
@@ -68,7 +66,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [materie, setMaterie] = useState<Array<{ id: string; label: string; isBio: boolean }>>([]);
   const [catalogo, setCatalogo] = useState<ConfezionamentoMp[]>([]);
   const [mezzi, setMezzi] = useState<MezzoIngresso[]>([]);
-  const [autisti, setAutisti] = useState<Array<{ id: string; label: string }>>([]);
   const [operatori, setOperatori] = useState<Array<{ id: string; nome: string; cognome: string }>>([]);
 
   const [fornitoreId, setFornitoreId] = useState("");
@@ -93,10 +90,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
   const [nuovoMezzo, setNuovoMezzo] = useState(false);
   const [mezzoTarga, setMezzoTarga] = useState("");
-  const [nuovoAutista, setNuovoAutista] = useState(false);
-  const [autNome, setAutNome] = useState("");
-  const [autCognome, setAutCognome] = useState("");
-  const [autTel, setAutTel] = useState("");
   const [printOpen, setPrintOpen] = useState(false);
   const [uploadOwner] = useState(() => crypto.randomUUID());
   const [testMode, setTestMode] = useState(false);
@@ -151,7 +144,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     }
     setFornitori((cur) => cur.filter((f) => !fornitoriLocali.has(f.id)));
     setMezzi((cur) => cur.filter((m) => !mezziLocali.has(m.id)));
-    setAutisti((cur) => cur.filter((a) => !autistiLocali.has(a.id)));
     if (fornitoreId && fornitoriLocali.has(fornitoreId)) {
       setFornitoreId("");
       setAutistaId("");
@@ -194,16 +186,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       applyItem(res.item);
     });
   }, [foglioId]);
-
-  useEffect(() => {
-    if (!fornitoreId) {
-      setAutisti([]);
-      return;
-    }
-    void listAutistiIngressoAction(fornitoreId).then((res) => {
-      if (res.success) setAutisti(res.items);
-    });
-  }, [fornitoreId]);
 
   function applyItem(next: FoglioIngressoMp) {
     setItem(next);
@@ -444,7 +426,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           onCreated={addFornitoreLocale}
           onChange={(id, f) => {
             setFornitoreId(id);
-            setAutistaId("");
             if (f && !f.isBio) setIsBio(false);
           }}
         />
@@ -770,90 +751,21 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">10. Autista</h3>
-        <select
-          disabled={locked || !fornitoreId}
+        <AutistaIngressoScrematura
+          locked={locked}
           value={autistaId}
-          onChange={(e) => setAutistaId(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="">
-            {fornitoreId ? "Seleziona dalla rubrica…" : "Prima il fornitore"}
-          </option>
-          {autisti.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}
-            </option>
-          ))}
-        </select>
-        {!locked && fornitoreId ? (
-          <button
-            type="button"
-            onClick={() => setNuovoAutista((v) => !v)}
-            className="text-sm text-[var(--primary)] underline"
-          >
-            {nuovoAutista ? "Nascondi nuovo autista" : "+ Nuovo autista"}
-          </button>
-        ) : null}
-        {nuovoAutista && !locked ? (
-          <div className="grid gap-2 sm:grid-cols-3">
-            <input
-              value={autNome}
-              onChange={(e) => setAutNome(e.target.value)}
-              placeholder="Nome"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <input
-              value={autCognome}
-              onChange={(e) => setAutCognome(e.target.value)}
-              placeholder="Cognome"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <input
-              value={autTel}
-              onChange={(e) => setAutTel(e.target.value)}
-              placeholder="Telefono (opzionale)"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={async () => {
-                if (!fornitore) return;
-                setBusy(true);
-                const body = {
-                  nome: autNome,
-                  cognome: autCognome,
-                  telefono: autTel,
-                  fornitoreId,
-                  fornitoreLabel: fornitore.label,
-                };
-                const res = testMode
-                  ? await anteprimaAutistaIngressoAction(body)
-                  : await createAutistaIngressoAction(body);
-                setBusy(false);
-                if (!res.success) {
-                  setError(res.error);
-                  return;
-                }
-                if (testMode) {
-                  setAutistiLocali((cur) => new Set(cur).add(res.id));
-                  setTestNotice(
-                    `Autista ${res.label} valido. Non salvato in rubrica.`
-                  );
-                }
-                setAutisti((cur) => [...cur, { id: res.id, label: res.label }]);
-                setAutistaId(res.id);
-                setNuovoAutista(false);
-                setAutNome("");
-                setAutCognome("");
-                setAutTel("");
-              }}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white"
-            >
-              Salva autista
-            </button>
-          </div>
-        ) : null}
+          testMode={testMode}
+          defaultAziendaId={mezzoAziendaId || fornitoreId}
+          defaultAziendaLabel={mezzoAzienda?.label || fornitore?.label || ""}
+          onError={setError}
+          onTestNotice={setTestNotice}
+          onCreated={(item) => {
+            if (testMode) {
+              setAutistiLocali((cur) => new Set(cur).add(item.id));
+            }
+          }}
+          onChange={(id) => setAutistaId(id)}
+        />
       </section>
 
       <section className="grid gap-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 sm:grid-cols-2">

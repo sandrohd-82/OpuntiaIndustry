@@ -5,10 +5,12 @@ import { FaPlus } from "react-icons/fa6";
 import {
   createRubricaTimelineAction,
   listRubricaContattiAction,
+  listRubricaMansioniAction,
   listRubricaTimelineAction,
   listWebmailMessagesLiteAction,
 } from "@/app/actions/rubrica";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
+import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import {
@@ -17,6 +19,7 @@ import {
   RAPPORTO_LABELS,
   displayContattoName,
   type RubricaContatto,
+  type RubricaMansione,
   type RubricaModalita,
   type RubricaTimelineItem,
 } from "@/lib/rubrica/types";
@@ -32,6 +35,9 @@ export function RubricaBoard() {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [showCreate, setShowCreate] = useState(false);
+  const [showCreaMansione, setShowCreaMansione] = useState(false);
+  const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
+  const [mansioneFiltro, setMansioneFiltro] = useState<string>("");
   const [selected, setSelected] = useState<RubricaContatto | null>(null);
   const [timeline, setTimeline] = useState<RubricaTimelineItem[]>([]);
   const [mailOptions, setMailOptions] = useState<
@@ -46,9 +52,13 @@ export function RubricaBoard() {
   const [mailId, setMailId] = useState("");
   const [occurredAt, setOccurredAt] = useState(toLocalInputValue());
 
-  function reload(q = query) {
+  function reload(q = query, filtro = mansioneFiltro) {
     startTransition(async () => {
-      const res = await listRubricaContattiAction({ query: q });
+      const res = await listRubricaContattiAction({
+        query: q,
+        mansioneId: filtro && filtro !== "senza" ? filtro : null,
+        senzaMansione: filtro === "senza",
+      });
       if (!res.success) {
         setError(res.error);
         return;
@@ -58,10 +68,22 @@ export function RubricaBoard() {
     });
   }
 
+  function loadMansioni() {
+    void listRubricaMansioniAction().then((res) => {
+      if (res.success) setMansioni(res.items);
+    });
+  }
+
   useEffect(() => {
+    loadMansioni();
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    reload(query, mansioneFiltro);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mansioneFiltro]);
 
   async function openTimeline(c: RubricaContatto) {
     setSelected(c);
@@ -141,6 +163,55 @@ export function RubricaBoard() {
         </button>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
+        <aside className="space-y-2 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3">
+          <h3 className="text-sm font-semibold">Mansioni</h3>
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              onClick={() => setMansioneFiltro("")}
+              className={`rounded-md px-2.5 py-1.5 text-left text-sm ${
+                mansioneFiltro === ""
+                  ? "bg-[var(--primary)] text-white"
+                  : "hover:bg-slate-50"
+              }`}
+            >
+              Tutti
+            </button>
+            {mansioni.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setMansioneFiltro(m.id)}
+                className={`rounded-md px-2.5 py-1.5 text-left text-sm ${
+                  mansioneFiltro === m.id
+                    ? "bg-[var(--primary)] text-white"
+                    : "hover:bg-slate-50"
+                }`}
+              >
+                {m.nome}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setMansioneFiltro("senza")}
+              className={`rounded-md px-2.5 py-1.5 text-left text-sm ${
+                mansioneFiltro === "senza"
+                  ? "bg-[var(--primary)] text-white"
+                  : "hover:bg-slate-50"
+              }`}
+            >
+              Senza mansione
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCreaMansione(true)}
+            className="mt-2 w-full rounded-lg border border-dashed border-[var(--border)] px-2.5 py-1.5 text-sm text-[var(--primary)] hover:bg-slate-50"
+          >
+            + Crea mansione
+          </button>
+        </aside>
       <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
         {items.map((c) => (
           <li
@@ -175,10 +246,11 @@ export function RubricaBoard() {
         ))}
         {items.length === 0 && !pending ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--muted)]">
-            Nessun contatto in rubrica.
+            Nessun contatto in questa mansione.
           </li>
         ) : null}
       </ul>
+      </div>
 
       {selected ? (
         <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-950/50 p-4 py-10">
@@ -341,10 +413,30 @@ export function RubricaBoard() {
 
       {showCreate ? (
         <RubricaContattoFormModal
+          defaultMansioneId={
+            mansioneFiltro && mansioneFiltro !== "senza" ? mansioneFiltro : ""
+          }
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
             reload();
+          }}
+        />
+      ) : null}
+      {showCreaMansione ? (
+        <RubricaMansioneCreateModal
+          catalog={mansioni}
+          onClose={() => setShowCreaMansione(false)}
+          onCreated={(item) => {
+            setMansioni((cur) =>
+              [...cur, item].sort((a, b) => a.nome.localeCompare(b.nome, "it"))
+            );
+            setMansioneFiltro(item.id);
+            setShowCreaMansione(false);
+          }}
+          onSelectExisting={(item) => {
+            setMansioneFiltro(item.id);
+            setShowCreaMansione(false);
           }}
         />
       ) : null}

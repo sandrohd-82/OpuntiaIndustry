@@ -5,12 +5,15 @@ import { FaXmark } from "react-icons/fa6";
 import {
   createRubricaContattoAction,
   listAziendeRubricaPickerAction,
+  listRubricaMansioniAction,
 } from "@/app/actions/rubrica";
+import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
 import {
   AZIENDA_TIPO_LABELS,
   RAPPORTO_LABELS,
   type RubricaAziendaTipo,
   type RubricaContatto,
+  type RubricaMansione,
   type RubricaRapporto,
 } from "@/lib/rubrica/types";
 
@@ -23,6 +26,8 @@ type Props = {
   defaultAziendaId?: string;
   /** Da scheda cliente/fornitore: collega a questa azienda, senza elenco. */
   lockToThisAzienda?: boolean;
+  defaultMansioneId?: string;
+  testMode?: boolean;
   elevated?: boolean;
 };
 
@@ -33,6 +38,8 @@ export function RubricaContattoFormModal({
   defaultAziendaLabel = "",
   defaultAziendaId = "",
   lockToThisAzienda = false,
+  defaultMansioneId = "",
+  testMode = false,
   elevated = false,
 }: Props) {
   const [pending, startTransition] = useTransition();
@@ -50,7 +57,9 @@ export function RubricaContattoFormModal({
       ? "Agrinsicilia"
       : defaultAziendaLabel
   );
-  const [mansione, setMansione] = useState("");
+  const [mansioneId, setMansioneId] = useState(defaultMansioneId);
+  const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
+  const [showCreaMansione, setShowCreaMansione] = useState(false);
   const [note, setNote] = useState("");
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
   const [collegaQuestaAzienda, setCollegaQuestaAzienda] = useState(
@@ -60,6 +69,14 @@ export function RubricaContattoFormModal({
   const aziendaCollegata = lockToThisAzienda
     ? collegaQuestaAzienda
     : aziendaTipo !== "nessuna";
+
+  useEffect(() => {
+    void listRubricaMansioniAction().then((res) => {
+      if (!res.success) return;
+      setMansioni(res.items);
+      if (defaultMansioneId) setMansioneId(defaultMansioneId);
+    });
+  }, [defaultMansioneId]);
 
   useEffect(() => {
     if (lockToThisAzienda) {
@@ -88,7 +105,9 @@ export function RubricaContattoFormModal({
         : lockToThisAzienda
           ? "nessuna"
           : aziendaTipo;
-      const res = await createRubricaContattoAction({
+      const mansioneNome =
+        mansioni.find((m) => m.id === mansioneId)?.nome ?? "";
+      const payload = {
         nome,
         cognome,
         telefono,
@@ -111,9 +130,31 @@ export function RubricaContattoFormModal({
                 : aziendaLabel ||
                   aziende.find((a) => a.id === aziendaId)?.label ||
                   "",
-        mansione,
+        mansioneId: mansioneId || null,
+        mansione: mansioneNome,
         note,
-      });
+      };
+      if (testMode) {
+        const now = new Date().toISOString();
+        onCreated({
+          id: crypto.randomUUID(),
+          nome: payload.nome.trim(),
+          cognome: payload.cognome.trim(),
+          telefono: payload.telefono ?? "",
+          email: payload.email ?? "",
+          rapporto: payload.rapporto,
+          aziendaTipo: tipoEff,
+          aziendaId: payload.aziendaId,
+          aziendaLabel: payload.aziendaLabel,
+          mansioneId: payload.mansioneId,
+          mansione: mansioneNome,
+          note: payload.note ?? "",
+          createdAt: now,
+          updatedAt: now,
+        });
+        return;
+      }
+      const res = await createRubricaContattoAction(payload);
       if (!res.success) {
         setError(res.error);
         return;
@@ -123,6 +164,7 @@ export function RubricaContattoFormModal({
   }
 
   return (
+    <>
     <div
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 ${
         elevated ? "z-[95]" : "z-[80]"
@@ -288,17 +330,28 @@ export function RubricaContattoFormModal({
             </>
           )}
 
-          {aziendaCollegata ? (
-            <label className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">Mansione (facoltativa)</span>
-              <input
-                value={mansione}
-                onChange={(e) => setMansione(e.target.value)}
-                placeholder="Es. Responsabile acquisti"
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-              />
-            </label>
-          ) : null}
+          <div className="sm:col-span-2">
+            <span className="mb-1 block text-sm font-medium">Mansione</span>
+            <select
+              value={mansioneId}
+              onChange={(e) => setMansioneId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona mansione…</option>
+              {mansioni.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.nome}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => setShowCreaMansione(true)}
+              className="mt-1.5 text-sm text-[var(--primary)] underline"
+            >
+              + Crea mansione
+            </button>
+          </div>
         </div>
 
         {error ? (
@@ -326,5 +379,25 @@ export function RubricaContattoFormModal({
         </div>
       </div>
     </div>
+    {showCreaMansione ? (
+      <RubricaMansioneCreateModal
+        catalog={mansioni}
+        testMode={testMode}
+        elevated
+        onClose={() => setShowCreaMansione(false)}
+        onCreated={(item) => {
+          setMansioni((cur) =>
+            cur.some((m) => m.id === item.id) ? cur : [...cur, item]
+          );
+          setMansioneId(item.id);
+          setShowCreaMansione(false);
+        }}
+        onSelectExisting={(item) => {
+          setMansioneId(item.id);
+          setShowCreaMansione(false);
+        }}
+      />
+    ) : null}
+    </>
   );
 }

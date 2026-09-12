@@ -1,12 +1,19 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import {
+  codiceMansioneFromNome,
+  mansioniAffini,
+  normalizeMansioneNome,
+} from "@/lib/rubrica/mansioni-affinita";
 import {
   createRubricaContattoSchema,
+  createRubricaMansioneSchema,
   createRubricaTimelineSchema,
   type RubricaAziendaTipo,
   type RubricaContatto,
+  type RubricaMansione,
   type RubricaModalita,
   type RubricaTimelineItem,
 } from "@/lib/rubrica/types";
@@ -18,8 +25,16 @@ async function guard() {
   return requireAreaAccess("amministrazione");
 }
 
+async function guardRubricaAnagrafica() {
+  return requireAnyAreaAccess([
+    "amministrazione",
+    "produzione",
+    "commerciale",
+  ]);
+}
+
 const CONTATTO_SELECT =
-  "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione, note, created_at, updated_at";
+  "id, nome, cognome, telefono, email, rapporto, azienda_tipo, azienda_id, azienda_label, mansione_id, mansione, note, created_at, updated_at";
 
 function mapContatto(r: Record<string, unknown>): RubricaContatto {
   return {
@@ -32,11 +47,50 @@ function mapContatto(r: Record<string, unknown>): RubricaContatto {
     aziendaTipo: r.azienda_tipo as RubricaAziendaTipo,
     aziendaId: r.azienda_id ? String(r.azienda_id) : null,
     aziendaLabel: String(r.azienda_label ?? ""),
+    mansioneId: r.mansione_id ? String(r.mansione_id) : null,
     mansione: String(r.mansione ?? ""),
     note: String(r.note ?? ""),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   };
+}
+
+function mapMansione(r: Record<string, unknown>): RubricaMansione {
+  return {
+    id: String(r.id),
+    codice: String(r.codice ?? ""),
+    nome: String(r.nome ?? ""),
+    documentoStato: r.documento_stato === "bozza" ? "bozza" : "approvato",
+    versione: Number(r.versione ?? 1),
+  };
+}
+
+async function resolveMansione(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mansioneId: string | null | undefined,
+  mansioneNome: string
+): Promise<{ id: string | null; nome: string }> {
+  if (mansioneId) {
+    const { data } = await supabase
+      .from("rubrica_mansioni")
+      .select("id, nome")
+      .eq("id", mansioneId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (data) {
+      return { id: String(data.id), nome: String(data.nome) };
+    }
+  }
+  const nome = mansioneNome.trim();
+  if (!nome) return { id: null, nome: "" };
+  const { data } = await supabase
+    .from("rubrica_mansioni")
+    .select("id, nome")
+    .is("deleted_at", null)
+    .ilike("nome", nome)
+    .maybeSingle();
+  if (data) return { id: String(data.id), nome: String(data.nome) };
+  return { id: null, nome };
 }
 
 function mapTimeline(r: Record<string, unknown>): RubricaTimelineItem {
@@ -64,20 +118,126 @@ function mapTimeline(r: Record<string, unknown>): RubricaTimelineItem {
   };
 }
 
+export async function listRubricaMansioniAction(): Promise<
+  { success: true; items: RubricaMansione[] } | { success: false; error: string }
+> {
+  await guardRubricaAnagrafica();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("rubrica_mansioni")
+    .select("id, codice, nome, documento_stato, versione")
+    .is("deleted_at", null)
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((r) => mapMansione(r as Record<string, unknown>)),
+  };
+}
+
+export async function createRubricaMansioneAction(input: unknown): Promise<
+  | { success: true; item: RubricaMansione }
+  | {
+      success: false;
+      error: string;
+      affini?: Array<{ id: string; nome: string; affinita: number }>;
+    }
+> {
+  const { auth } = await guardRubricaAnagrafica();
+  const parsed = createRubricaMansioneSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Nome mansione non valido.",
+    };
+  }
+  const nome = parsed.data.nome.trim();
+  const supabase = await createClient();
+  const { data: esistenti, error: listErr } = await supabase
+    .from("rubrica_mansioni")
+    .select("id, codice, nome")
+    .is("deleted_at", null);
+  if (listErr) return { success: false, error: listErr.message };
+  const catalog = (esistenti ?? []) as Array<{
+    id: string;
+    codice: string;
+    nome: string;
+  }>;
+  const exact = catalog.find(
+    (m) => normalizeMansioneNome(m.nome) === normalizeMansioneNome(nome)
+  );
+  if (exact) {
+    return {
+      success: false,
+      error: "Questa mansione è già in elenco.",
+      affini: [{ id: exact.id, nome: exact.nome, affinita: 100 }],
+    };
+  }
+  const affini = mansioniAffini(nome, catalog);
+  if (affini.length > 0 && !parsed.data.confermaAffinita) {
+    return {
+      success: false,
+      error: "Ci sono mansioni con affinità maggiore del 75%.",
+      affini,
+    };
+  }
+
+  let codice = codiceMansioneFromNome(nome);
+  if (catalog.some((m) => m.codice.toLowerCase() === codice)) {
+    codice = `${codice}-${crypto.randomUUID().slice(0, 4)}`;
+  }
+
+  const { data, error } = await supabase
+    .from("rubrica_mansioni")
+    .insert({
+      codice,
+      nome,
+      documento_stato: "approvato",
+      versione: 1,
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id, codice, nome, documento_stato, versione")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Mansione non salvata." };
+  }
+  const item = mapMansione(data as Record<string, unknown>);
+  await writeAuditLog({
+    entity_type: "rubrica_mansioni",
+    entity_id: item.id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Rubrica mansione: ${item.nome}`,
+    payload: { codice: item.codice, conferma_affinita: parsed.data.confermaAffinita },
+  });
+  return { success: true, item };
+}
+
 export async function listRubricaContattiAction(input?: {
   query?: string;
+  mansioneId?: string | null;
+  senzaMansione?: boolean;
+  skipScope?: boolean;
 }): Promise<
   { success: true; items: RubricaContatto[] } | { success: false; error: string }
 > {
-  await guard();
+  await guardRubricaAnagrafica();
   const supabase = await createClient();
-  const scope = await resolveScopeMode("anagrafiche_clienti");
+  const scope = input?.skipScope
+    ? null
+    : await resolveScopeMode("anagrafiche_clienti");
   let q = supabase
     .from("rubrica_contatti")
     .select(CONTATTO_SELECT)
     .is("deleted_at", null);
   if (scope && !scope.skip && scope.mode === "proprie") {
     q = q.eq("created_by", scope.userId);
+  }
+  if (input?.mansioneId) {
+    q = q.eq("mansione_id", input.mansioneId);
+  } else if (input?.senzaMansione) {
+    q = q.is("mansione_id", null);
   }
   q = q
     .order("cognome", { ascending: true })
@@ -86,7 +246,7 @@ export async function listRubricaContattiAction(input?: {
   const query = input?.query?.trim();
   if (query) {
     q = q.or(
-      `nome.ilike.%${query}%,cognome.ilike.%${query}%,email.ilike.%${query}%,telefono.ilike.%${query}%,azienda_label.ilike.%${query}%`
+      `nome.ilike.%${query}%,cognome.ilike.%${query}%,email.ilike.%${query}%,telefono.ilike.%${query}%,azienda_label.ilike.%${query}%,mansione.ilike.%${query}%`
     );
   }
   const { data, error } = await q;
@@ -101,7 +261,7 @@ export async function createRubricaContattoAction(input: unknown): Promise<
   | { success: true; item: RubricaContatto }
   | { success: false; error: string }
 > {
-  const { auth } = await guard();
+  const { auth } = await guardRubricaAnagrafica();
   const parsed = createRubricaContattoSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -128,6 +288,11 @@ export async function createRubricaContattoAction(input: unknown): Promise<
   }
 
   const supabase = await createClient();
+  const mansione = await resolveMansione(
+    supabase,
+    d.mansioneId,
+    d.mansione ?? ""
+  );
   const { data, error } = await supabase
     .from("rubrica_contatti")
     .insert({
@@ -139,7 +304,8 @@ export async function createRubricaContattoAction(input: unknown): Promise<
       azienda_tipo: aziendaTipo,
       azienda_id: aziendaId,
       azienda_label: aziendaLabel,
-      mansione: d.mansione ?? "",
+      mansione_id: mansione.id,
+      mansione: mansione.nome,
       note: d.note ?? "",
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -150,13 +316,35 @@ export async function createRubricaContattoAction(input: unknown): Promise<
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
   const item = mapContatto(data as Record<string, unknown>);
+  if (aziendaTipo === "fornitore" && aziendaId) {
+    await supabase.from("fornitori_referenti").insert({
+      fornitore_id: aziendaId,
+      contatto_id: item.id,
+      created_by: auth.userId,
+    });
+  } else if (aziendaTipo === "cliente" && aziendaId) {
+    await supabase.from("clienti_referenti").insert({
+      cliente_id: aziendaId,
+      contatto_id: item.id,
+      created_by: auth.userId,
+    });
+  } else if (aziendaTipo === "cliente_possibile" && aziendaId) {
+    await supabase.from("clienti_possibili_referenti").insert({
+      cliente_possibile_id: aziendaId,
+      contatto_id: item.id,
+      created_by: auth.userId,
+    });
+  }
   await writeAuditLog({
     entity_type: "rubrica_contatti",
     entity_id: item.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Rubrica: ${item.nome} ${item.cognome}`,
-    payload: { azienda_tipo: item.aziendaTipo },
+    payload: {
+      azienda_tipo: item.aziendaTipo,
+      mansione_id: item.mansioneId,
+    },
   });
   return { success: true, item };
 }
@@ -167,7 +355,7 @@ export async function listAziendeRubricaPickerAction(
   | { success: true; items: { id: string; label: string }[] }
   | { success: false; error: string }
 > {
-  await guard();
+  await guardRubricaAnagrafica();
   if (tipo === "nessuna") {
     return { success: true, items: [] };
   }
