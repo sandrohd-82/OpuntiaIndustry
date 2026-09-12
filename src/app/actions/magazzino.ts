@@ -5,11 +5,17 @@ import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   computeSemaforo,
   categoriaRequiresMagazzino,
+  formatQuantitaCarico,
+  isMagazzinoCaricoUnita,
   movimentoManualeSchema,
   quantitaDaOrdinare,
+  quantitaStockDaCarico,
+  unitaSchedaProdotto,
+  unitaStockDaCarico,
   updateMagazzinoProdottoSchema,
   type CategoriaUtilizzo,
   type FoglioApertoOption,
+  type MagazzinoCaricoUnita,
   type MagazzinoCatalogKind,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
@@ -734,6 +740,7 @@ export async function listProdottiPropriMagazzinoAction(): Promise<
         codice: string;
         nome: string;
         giacenzaKg: number;
+        unitaScheda: MagazzinoCaricoUnita;
       }>;
     }
   | { success: false; error: string }
@@ -744,7 +751,7 @@ export async function listProdottiPropriMagazzinoAction(): Promise<
     await Promise.all([
       supabase
         .from("prodotti_propri")
-        .select("id, codice, nome")
+        .select("id, codice, nome, unita_misura")
         .is("deleted_at", null)
         .order("codice", { ascending: true }),
       supabase
@@ -766,11 +773,16 @@ export async function listProdottiPropriMagazzinoAction(): Promise<
       id: string;
       codice: string;
       nome: string;
+      unita_misura?: string | null;
     }>).map((p) => ({
       id: p.id,
       codice: p.codice,
       nome: p.nome,
       giacenzaKg: qty.get(p.id) ?? 0,
+      unitaScheda: unitaSchedaProdotto({
+        schedaUm: p.unita_misura,
+        prodottoCodice: p.codice,
+      }),
     })),
   };
 }
@@ -816,7 +828,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
   const { data, error } = await supabase
     .from("magazzino_movimenti")
     .select(
-      "id, created_at, prodotto_codice, quantita_kg, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice)"
+      "id, created_at, prodotto_codice, quantita_kg, unita, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice)"
     )
     .eq("catalog_kind", CATALOG_PROPRIO)
     .is("deleted_at", null)
@@ -830,6 +842,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
       created_at: string;
       prodotto_codice: string;
       quantita_kg: number;
+      unita?: string | null;
       lotto_codice: string | null;
       motivo_senza_foglio: string | null;
       note: string | null;
@@ -846,6 +859,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
         createdAt: r.created_at,
         prodottoCodice: r.prodotto_codice,
         quantitaKg: Number(r.quantita_kg) || 0,
+        unita: isMagazzinoCaricoUnita(r.unita) ? r.unita : "kg",
         lottoCodice: r.lotto_codice ?? "",
         foglioCodice: foglio?.codice ?? null,
         motivoSenzaFoglio: motivo,
@@ -873,7 +887,7 @@ export async function movimentoManualeAgrinsiciliaAction(
   const supabase = await createClient();
   const { data: prodotto, error: pErr } = await supabase
     .from("prodotti_propri")
-    .select("id, codice, nome")
+    .select("id, codice, nome, unita_misura")
     .eq("id", input.prodottoId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -896,8 +910,12 @@ export async function movimentoManualeAgrinsiciliaAction(
     }
   }
 
-  const qtyKg =
-    input.unitaMisura === "g" ? input.quantita / 1000 : input.quantita;
+  const qtyStock = quantitaStockDaCarico(input.quantita, input.unitaMisura);
+  const unitaScheda = unitaSchedaProdotto({
+    schedaUm: (prodotto as { unita_misura?: string | null }).unita_misura,
+    prodottoCodice: prodotto.codice,
+  });
+  const unitaStock = unitaStockDaCarico(unitaScheda);
   const { data: giac } = await supabase
     .from("magazzino_giacenze")
     .select("id, quantita_kg")
@@ -906,14 +924,14 @@ export async function movimentoManualeAgrinsiciliaAction(
     .is("deleted_at", null)
     .maybeSingle();
   const prima = giac ? Number(giac.quantita_kg) || 0 : 0;
-  const dopo = Math.round((prima + qtyKg) * 1000) / 1000;
+  const dopo = Math.round((prima + qtyStock) * 1000) / 1000;
 
   const giacPayload = {
     catalog_kind: CATALOG_PROPRIO,
     prodotto_id: input.prodottoId,
     prodotto_codice: prodotto.codice,
     quantita_kg: dopo,
-    unita: "kg",
+    unita: unitaStock,
     updated_by: auth.userId,
     is_test: false,
   };
@@ -937,8 +955,8 @@ export async function movimentoManualeAgrinsiciliaAction(
       prodotto_id: input.prodottoId,
       prodotto_codice: prodotto.codice,
       tipo: "carico",
-      quantita_kg: qtyKg,
-      unita: "kg",
+      quantita_kg: qtyStock,
+      unita: input.unitaMisura,
       lotto_codice: input.lottoCodice.trim(),
       foglio_id: input.collegaFoglio ? input.foglioId : null,
       motivo_senza_foglio: input.collegaFoglio
@@ -961,10 +979,13 @@ export async function movimentoManualeAgrinsiciliaAction(
     entity_id: mov.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Carico manuale ${qtyKg} kg · ${prodotto.codice} · lotto ${input.lottoCodice}`,
+    summary: `Carico manuale ${formatQuantitaCarico(qtyStock, input.unitaMisura)} · ${prodotto.codice} · lotto ${input.lottoCodice}`,
     payload: {
       prodotto_id: input.prodottoId,
-      quantita_kg: qtyKg,
+      quantita: input.quantita,
+      unita: input.unitaMisura,
+      quantita_stock: qtyStock,
+      unita_stock: unitaStock,
       lotto_codice: input.lottoCodice,
       foglio_id: input.collegaFoglio ? input.foglioId : null,
       motivo_senza_foglio: input.collegaFoglio

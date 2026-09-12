@@ -177,11 +177,91 @@ export const MOTIVO_SENZA_FOGLIO_LABEL: Record<MotivoSenzaFoglio, string> = {
   rivisita_ordine: "Rivisita di ordine",
 };
 
+/** Unità carico Agrinsicilia: scheda prodotto + override operatore. */
+export const MAGAZZINO_CARICO_UNITA = ["kg", "g", "lt", "ml", "pz"] as const;
+export type MagazzinoCaricoUnita = (typeof MAGAZZINO_CARICO_UNITA)[number];
+
+export const MAGAZZINO_CARICO_UNITA_OPTIONS: ReadonlyArray<{
+  value: MagazzinoCaricoUnita;
+  label: string;
+}> = [
+  { value: "kg", label: "kg" },
+  { value: "g", label: "g (gr)" },
+  { value: "lt", label: "lt" },
+  { value: "ml", label: "ml" },
+  { value: "pz", label: "pz" },
+];
+
+export function isMagazzinoCaricoUnita(
+  value: unknown
+): value is MagazzinoCaricoUnita {
+  return (
+    value === "kg" ||
+    value === "g" ||
+    value === "lt" ||
+    value === "ml" ||
+    value === "pz"
+  );
+}
+
+/** Normalizza UM scheda / listino / input libero (gr, l, nr…). */
+export function parseUnitaCarico(value: unknown): MagazzinoCaricoUnita | null {
+  const v = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(",", ".");
+  if (!v) return null;
+  if (v === "kg" || v === "kgs" || v === "kilogrammi") return "kg";
+  if (v === "g" || v === "gr" || v === "grammi" || v === "grammo") return "g";
+  if (v === "lt" || v === "l" || v === "litro" || v === "litri") return "lt";
+  if (v === "ml" || v === "millilitri") return "ml";
+  if (v === "pz" || v === "pzs" || v === "nr" || v === "n" || v === "pezzi") {
+    return "pz";
+  }
+  return isMagazzinoCaricoUnita(v) ? v : null;
+}
+
+export function unitaSchedaProdotto(opts: {
+  schedaUm?: string | null;
+  prodottoCodice?: string | null;
+}): MagazzinoCaricoUnita {
+  const fromScheda = parseUnitaCarico(opts.schedaUm);
+  if (fromScheda) return fromScheda;
+  const code = String(opts.prodottoCodice ?? "").toUpperCase();
+  if (code.startsWith("OGL") || code.startsWith("NGL")) return "lt";
+  return "kg";
+}
+
+export function unitaStockDaCarico(
+  um: MagazzinoCaricoUnita
+): "kg" | "lt" | "pz" {
+  if (um === "g" || um === "kg") return "kg";
+  if (um === "ml" || um === "lt") return "lt";
+  return "pz";
+}
+
+export function quantitaStockDaCarico(
+  quantita: number,
+  um: MagazzinoCaricoUnita
+): number {
+  const raw = um === "g" || um === "ml" ? quantita / 1000 : quantita;
+  return Math.round(raw * 1000) / 1000;
+}
+
+export function formatQuantitaCarico(
+  quantitaStock: number,
+  um: MagazzinoCaricoUnita
+): string {
+  const q = um === "g" || um === "ml" ? quantitaStock * 1000 : quantitaStock;
+  const label = um === "g" ? "g" : um;
+  return `${q.toLocaleString("it-IT")} ${label}`;
+}
+
 export const movimentoManualeSchema = z
   .object({
     prodottoId: z.string().uuid("Seleziona un prodotto"),
     quantita: z.number().positive("Quantità maggiore di zero"),
-    unitaMisura: z.enum(["g", "kg"]),
+    unitaMisura: z.enum(MAGAZZINO_CARICO_UNITA),
     lottoCodice: z.string().trim().min(1, "Lotto obbligatorio").max(80),
     collegaFoglio: z.boolean(),
     foglioId: z.string().uuid().nullable().optional(),
@@ -227,6 +307,7 @@ export type MovimentoAgrinsiciliaRiga = {
   createdAt: string;
   prodottoCodice: string;
   quantitaKg: number;
+  unita: MagazzinoCaricoUnita;
   lottoCodice: string;
   foglioCodice: string | null;
   motivoSenzaFoglio: MotivoSenzaFoglio | null;

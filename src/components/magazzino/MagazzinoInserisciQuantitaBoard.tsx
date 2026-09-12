@@ -8,8 +8,12 @@ import {
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
 import {
+  formatQuantitaCarico,
+  MAGAZZINO_CARICO_UNITA_OPTIONS,
   MOTIVO_SENZA_FOGLIO_LABEL,
+  unitaStockDaCarico,
   type FoglioApertoOption,
+  type MagazzinoCaricoUnita,
   type MotivoSenzaFoglio,
   type MovimentoAgrinsiciliaRiga,
 } from "@/lib/magazzino/types";
@@ -19,6 +23,7 @@ type ProdottoOpt = {
   codice: string;
   nome: string;
   giacenzaKg: number;
+  unitaScheda: MagazzinoCaricoUnita;
 };
 
 export function MagazzinoInserisciQuantitaBoard() {
@@ -27,7 +32,7 @@ export function MagazzinoInserisciQuantitaBoard() {
   const [movimenti, setMovimenti] = useState<MovimentoAgrinsiciliaRiga[]>([]);
   const [prodottoId, setProdottoId] = useState("");
   const [quantita, setQuantita] = useState<number | "">("");
-  const [unitaMisura, setUnitaMisura] = useState<"g" | "kg">("kg");
+  const [unitaMisura, setUnitaMisura] = useState<MagazzinoCaricoUnita>("kg");
   const [lottoCodice, setLottoCodice] = useState("");
   const [collegaFoglio, setCollegaFoglio] = useState(true);
   const [foglioId, setFoglioId] = useState("");
@@ -86,7 +91,10 @@ export function MagazzinoInserisciQuantitaBoard() {
         return;
       }
       setOk(
-        `Carico registrato. Giacenza attuale: ${result.giacenzaKg.toLocaleString("it-IT")} kg.`
+        `Carico registrato. Giacenza attuale: ${formatQuantitaCarico(
+          result.giacenzaKg,
+          unitaStockDaCarico(selected?.unitaScheda ?? unitaMisura)
+        )}.`
       );
       setQuantita("");
       setLottoCodice("");
@@ -125,19 +133,34 @@ export function MagazzinoInserisciQuantitaBoard() {
           <select
             required
             value={prodottoId}
-            onChange={(e) => setProdottoId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setProdottoId(id);
+              const next = prodotti.find((p) => p.id === id);
+              if (next) setUnitaMisura(next.unitaScheda);
+            }}
             className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
           >
             <option value="">Seleziona…</option>
             {prodotti.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.codice} — {p.nome} ({p.giacenzaKg.toLocaleString("it-IT")} kg)
+                {p.codice} — {p.nome} (
+                {formatQuantitaCarico(
+                  p.giacenzaKg,
+                  unitaStockDaCarico(p.unitaScheda)
+                )}
+                )
               </option>
             ))}
           </select>
           {selected ? (
             <span className="mt-1 block text-xs text-[var(--muted)]">
-              Giacenza attuale: {selected.giacenzaKg.toLocaleString("it-IT")} kg
+              Giacenza attuale:{" "}
+              {formatQuantitaCarico(
+                selected.giacenzaKg,
+                unitaStockDaCarico(selected.unitaScheda)
+              )}
+              {" · "}unità scheda {selected.unitaScheda}, modificabile
             </span>
           ) : null}
         </label>
@@ -161,11 +184,16 @@ export function MagazzinoInserisciQuantitaBoard() {
             <span className="mb-1 block font-medium">Unità</span>
             <select
               value={unitaMisura}
-              onChange={(e) => setUnitaMisura(e.target.value as "g" | "kg")}
+              onChange={(e) =>
+                setUnitaMisura(e.target.value as MagazzinoCaricoUnita)
+              }
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
-              <option value="kg">kg</option>
-              <option value="g">g</option>
+              {MAGAZZINO_CARICO_UNITA_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -289,7 +317,9 @@ export function MagazzinoInserisciQuantitaBoard() {
               <th className="px-4 py-3 font-medium text-[var(--muted)]">
                 Prodotto
               </th>
-              <th className="px-4 py-3 font-medium text-[var(--muted)]">Kg</th>
+              <th className="px-4 py-3 font-medium text-[var(--muted)]">
+                Quantità
+              </th>
               <th className="px-4 py-3 font-medium text-[var(--muted)]">Lotto</th>
               <th className="px-4 py-3 font-medium text-[var(--muted)]">
                 Foglio / motivo
@@ -314,7 +344,7 @@ export function MagazzinoInserisciQuantitaBoard() {
                   </td>
                   <td className="px-4 py-3 font-mono">{m.prodottoCodice}</td>
                   <td className="px-4 py-3 tabular-nums">
-                    {m.quantitaKg.toLocaleString("it-IT")}
+                    {formatQuantitaCarico(m.quantitaKg, m.unita)}
                   </td>
                   <td className="px-4 py-3 font-mono">{m.lottoCodice || "—"}</td>
                   <td className="px-4 py-3">
