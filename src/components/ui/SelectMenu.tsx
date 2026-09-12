@@ -28,7 +28,7 @@ export function SelectMenu({
       : `${placeholder}…`;
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0 w-full">
       <select
         {...rest}
         value={loading && !value ? "" : value}

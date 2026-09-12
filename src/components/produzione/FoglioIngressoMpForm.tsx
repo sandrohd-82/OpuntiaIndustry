@@ -560,9 +560,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           return (
             <div
               key={i}
-              className="grid gap-2 rounded-lg border border-dashed border-[var(--border)] p-3 sm:grid-cols-[1fr_10rem_auto]"
+              className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-[var(--border)] p-3"
             >
-              <label className="text-sm">
+              <label className="w-56 shrink-0 text-sm sm:w-64">
                 <span className="mb-1 block font-medium">Confezionamento</span>
                 <SelectMenu
                   disabled={locked}
@@ -589,7 +589,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   ))}
                 </SelectMenu>
               </label>
-              <label className="text-sm">
+              <label className="w-36 shrink-0 text-sm">
                 <span className="mb-1 block font-medium">
                   {cat?.labelNumero ?? "Numero confezioni"}
                 </span>
@@ -615,7 +615,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   onClick={() =>
                     setRighe((cur) => cur.filter((_, idx) => idx !== i))
                   }
-                  className="self-end rounded-lg border border-[var(--border)] px-3 py-2 text-slate-600"
+                  className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-slate-600"
                   aria-label="Rimuovi riga"
                 >
                   <FaTrash size={12} />
