@@ -17,6 +17,8 @@ import {
   type FoglioApertoOption,
   type MagazzinoCaricoUnita,
   type MagazzinoCatalogKind,
+  type MagazzinoPanoramica,
+  type MagazzinoPanoramicaSezione,
   type MagazzinoProdottoRiga,
   type MagazzinoUnita,
   type MotivoSenzaFoglio,
@@ -351,6 +353,53 @@ export async function listMagazzinoProdottiAction(
   }
 
   return { success: true, items };
+}
+
+function riepilogoScorte(
+  items: MagazzinoProdottoRiga[]
+): MagazzinoPanoramicaSezione {
+  return {
+    articoli: items.length,
+    conGiacenza: items.filter((i) => i.quantita > 0).length,
+    sottoSoglia: items.filter((i) => i.semaforo === "sotto").length,
+    inSoglia: items.filter((i) => i.semaforo === "soglia").length,
+  };
+}
+
+export async function getMagazzinoPanoramicaAction(): Promise<
+  { success: true; data: MagazzinoPanoramica } | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const supabase = await createClient();
+  const [mp, pr, agri, notes] = await Promise.all([
+    listMagazzinoProdottiAction("materia_prima"),
+    listMagazzinoProdottiAction("prodotto_fornitore"),
+    listProdottiPropriMagazzinoAction(),
+    supabase
+      .from("magazzino_note_acquisto")
+      .select("id", { count: "exact", head: true })
+      .in("documento_stato", ["aperta", "bozza"])
+      .is("deleted_at", null),
+  ]);
+  if (!mp.success) return mp;
+  if (!pr.success) return pr;
+  if (!agri.success) return agri;
+  if (notes.error) return { success: false, error: notes.error.message };
+
+  return {
+    success: true,
+    data: {
+      materiaPrima: riepilogoScorte(mp.items),
+      prodottiConsumo: riepilogoScorte(pr.items),
+      agrinsicilia: {
+        articoli: agri.prodotti.length,
+        conGiacenza: agri.prodotti.filter((p) => p.giacenzaKg > 0).length,
+        sottoSoglia: 0,
+        inSoglia: 0,
+      },
+      noteAperte: notes.count ?? 0,
+    },
+  };
 }
 
 export async function updateMagazzinoProdottoAction(

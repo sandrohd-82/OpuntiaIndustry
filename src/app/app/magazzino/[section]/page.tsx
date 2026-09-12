@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { MagazzinoPanoramicaBoard } from "@/components/magazzino/MagazzinoPanoramicaBoard";
 import {
   MAGAZZINO_SECTIONS,
   resolveMagazzinoPage,
@@ -47,6 +48,17 @@ export default async function MagazzinoSectionPage({ params }: Props) {
 
   const page = resolveMagazzinoPage([section]);
   if (!page) notFound();
+
+  if (section === "panoramica") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <MagazzinoPanoramicaBoard />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

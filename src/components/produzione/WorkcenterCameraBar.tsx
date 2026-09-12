@@ -13,6 +13,7 @@ type Props = {
   postoCodice?: string | null;
   compact?: boolean;
   className?: string;
+  liveLabel?: string;
 };
 
 export function WorkcenterCameraBar({
@@ -21,6 +22,7 @@ export function WorkcenterCameraBar({
   postoCodice,
   compact = false,
   className = "",
+  liveLabel = "Guarda Live Postazione",
 }: Props) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [camera, setCamera] = useState<CameraPublic | null>(null);
@@ -47,10 +49,6 @@ export function WorkcenterCameraBar({
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKind, areaCodice, postoCodice]);
-
-  if (!isAdmin) {
-    return null;
-  }
 
   if (!camera) {
     return error ? (
@@ -85,18 +83,20 @@ export function WorkcenterCameraBar({
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white"
           >
             <FaVideo size={14} />
-            Guarda Live Postazione
+            {liveLabel}
           </button>
         ) : null}
-        <button
-          type="button"
-          title="Aggiungi o modifica telecamera (solo admin)"
-          onClick={() => setWizard(true)}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--primary)] hover:bg-slate-50"
-        >
-          <FaPlus size={14} />
-          <span className="sr-only">Aggiungi telecamera</span>
-        </button>
+        {isAdmin ? (
+          <button
+            type="button"
+            title="Aggiungi o modifica telecamera (solo admin)"
+            onClick={() => setWizard(true)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--primary)] hover:bg-slate-50"
+          >
+            <FaPlus size={14} />
+            <span className="sr-only">Aggiungi telecamera</span>
+          </button>
+        ) : null}
       </div>
 
       {wizard ? (

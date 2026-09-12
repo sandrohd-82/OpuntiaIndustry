@@ -60,6 +60,20 @@ export type Reparto = {
 
 export type MagazzinoUnita = "kg" | "pz";
 
+export type MagazzinoPanoramicaSezione = {
+  articoli: number;
+  conGiacenza: number;
+  sottoSoglia: number;
+  inSoglia: number;
+};
+
+export type MagazzinoPanoramica = {
+  materiaPrima: MagazzinoPanoramicaSezione;
+  prodottiConsumo: MagazzinoPanoramicaSezione;
+  agrinsicilia: MagazzinoPanoramicaSezione;
+  noteAperte: number;
+};
+
 export type ScorteSemaforo = "ok" | "soglia" | "sotto" | "n/d";
 
 export type MagazzinoProdottoRiga = {

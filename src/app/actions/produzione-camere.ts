@@ -149,10 +149,15 @@ export async function getCameraPanelAction(input: {
   | { success: true; isAdmin: boolean; camera: CameraPublic }
   | { success: false; error: string; isAdmin?: boolean }
 > {
-  const ctx = await requireCameraAdmin();
+  const ctx = await requireCameraViewer();
   if (!ctx.success) return { ...ctx, isAdmin: false };
   const target = await resolveTarget(input);
-  if (!target.success) return { ...target, isAdmin: true };
+  if (!target.success) {
+    return {
+      ...target,
+      isAdmin: isAdminLikeProfile(ctx.auth.profile),
+    };
+  }
   const hasPassword = await hasSecret(input.targetKind, target.row.id);
   return {
     success: true,
@@ -274,7 +279,7 @@ export async function startCameraLiveAction(input: {
     }
   | { success: false; error: string }
 > {
-  const ctx = await requireCameraAdmin();
+  const ctx = await requireCameraViewer();
   if (!ctx.success) return ctx;
   const target = await resolveTarget(input);
   if (!target.success) return target;

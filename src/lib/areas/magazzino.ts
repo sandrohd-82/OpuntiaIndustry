@@ -7,6 +7,12 @@ import {
 
 export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
   {
+    slug: "panoramica",
+    label: "Panoramica",
+    description: "Riassunto del magazzino e videosorveglianza",
+    path: "/app/magazzino/panoramica",
+  },
+  {
     slug: "materia-prima",
     label: "Materia Prima",
     description: "Ingressi, elenco, stato e non conformità Mp",
