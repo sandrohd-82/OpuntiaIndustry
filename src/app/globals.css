@@ -94,7 +94,9 @@ body {
   .commercialista-print-root,
   .commercialista-print-root *,
   .barcode-print-root,
-  .barcode-print-root * {
+  .barcode-print-root *,
+  .ingresso-mp-print,
+  .ingresso-mp-print * {
     visibility: visible !important;
   }
 
@@ -107,7 +109,8 @@ body {
     background: white !important;
   }
 
-  .barcode-print-root {
+  .barcode-print-root,
+  .ingresso-mp-print {
     position: absolute;
     left: 0;
     top: 0;
@@ -117,6 +120,7 @@ body {
     margin: 0;
     padding: 2mm;
     background: white !important;
+    box-shadow: none !important;
   }
 
   .barcode-print-root.print-label-50 {

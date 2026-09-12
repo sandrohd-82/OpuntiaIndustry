@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FaPrint } from "react-icons/fa6";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
+import { stampaEtichettaIngressoMp } from "@/lib/produzione/stampa-etichetta-ingresso-mp";
 
 type Props = {
   lotto: string;
@@ -23,31 +24,20 @@ function formatArrivo(iso: string): string {
 
 export function IngressoMpLottoEtichettaBox({ lotto, arrivatoAt }: Props) {
   const [format, setFormat] = useState<"qrcode" | "code128">("qrcode");
+  const printRootRef = useRef<HTMLDivElement>(null);
+  const ingressoLabel = formatArrivo(arrivatoAt);
 
   return (
     <section
       id="ingresso-mp-etichetta"
       className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
     >
-      <style>{`
-        @media print {
-          @page { size: landscape; margin: 8mm; }
-          body * { visibility: hidden; }
-          .ingresso-mp-print, .ingresso-mp-print * { visibility: visible; }
-          .ingresso-mp-print {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-        }
-      `}</style>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">13. Codice lotto — bozza PDF</h3>
           <p className="text-xs text-[var(--muted)]">
-            Anteprima etichetta sulla pagina. Scegli QR o BarCode, poi stampa.
+            Anteprima etichetta sulla pagina. Scegli QR o BarCode, poi stampa in
+            orizzontale.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm">
@@ -71,7 +61,13 @@ export function IngressoMpLottoEtichettaBox({ lotto, arrivatoAt }: Props) {
           </label>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() =>
+              stampaEtichettaIngressoMp({
+                lotto,
+                ingressoLabel,
+                root: printRootRef.current,
+              })
+            }
             className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-1.5 text-sm text-white"
           >
             <FaPrint size={12} />
@@ -81,7 +77,10 @@ export function IngressoMpLottoEtichettaBox({ lotto, arrivatoAt }: Props) {
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-300 bg-slate-200/70 p-4">
-        <div className="ingresso-mp-print mx-auto w-full max-w-2xl rounded-sm bg-white px-10 py-8 text-center shadow-[0_8px_24px_rgba(15,23,42,0.18)]">
+        <div
+          ref={printRootRef}
+          className="ingresso-mp-print mx-auto w-full max-w-2xl rounded-sm bg-white px-10 py-8 text-center shadow-[0_8px_24px_rgba(15,23,42,0.18)]"
+        >
           <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
             Codice lotto MP
           </p>
@@ -97,7 +96,7 @@ export function IngressoMpLottoEtichettaBox({ lotto, arrivatoAt }: Props) {
             {lotto}
           </p>
           <p className="mt-3 text-sm text-slate-700">
-            Ingresso: {formatArrivo(arrivatoAt)}
+            Ingresso: {ingressoLabel}
           </p>
         </div>
       </div>

@@ -1,8 +1,9 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { FaPrint } from "react-icons/fa6";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
+import { stampaEtichettaIngressoMp } from "@/lib/produzione/stampa-etichetta-ingresso-mp";
 
 type Props = {
   lotto: string;
@@ -28,7 +29,9 @@ export function IngressoMpLottoPrintModal({
   onClose,
 }: Props) {
   const titleId = useId();
+  const printRootRef = useRef<HTMLDivElement>(null);
   const [format, setFormat] = useState<"qrcode" | "code128">("qrcode");
+  const ingressoLabel = formatArrivo(arrivatoAt);
 
   return (
     <div
@@ -40,20 +43,6 @@ export function IngressoMpLottoPrintModal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <style>{`
-        @media print {
-          @page { size: landscape; margin: 8mm; }
-          body * { visibility: hidden; }
-          .ingresso-mp-print, .ingresso-mp-print * { visibility: visible; }
-          .ingresso-mp-print {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-        }
-      `}</style>
       <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl print:border-0 print:shadow-none">
         <h2 id={titleId} className="text-base font-semibold print:hidden">
           Stampa codice lotto MP
@@ -82,7 +71,10 @@ export function IngressoMpLottoPrintModal({
           </label>
         </div>
 
-        <div className="ingresso-mp-print mt-4 rounded-xl border border-[var(--border)] bg-white p-6 text-center">
+        <div
+          ref={printRootRef}
+          className="ingresso-mp-print mt-4 rounded-xl border border-[var(--border)] bg-white p-6 text-center"
+        >
           <p className="text-xs uppercase tracking-wide text-slate-500">
             Codice lotto MP
           </p>
@@ -93,7 +85,7 @@ export function IngressoMpLottoPrintModal({
             {lotto}
           </p>
           <p className="mt-2 text-sm text-slate-700">
-            Ingresso: {formatArrivo(arrivatoAt)}
+            Ingresso: {ingressoLabel}
           </p>
         </div>
 
@@ -107,7 +99,13 @@ export function IngressoMpLottoPrintModal({
           </button>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() =>
+              stampaEtichettaIngressoMp({
+                lotto,
+                ingressoLabel,
+                root: printRootRef.current,
+              })
+            }
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
           >
             <FaPrint size={14} />
