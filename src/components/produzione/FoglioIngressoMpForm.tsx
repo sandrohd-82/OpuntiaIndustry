@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FaMagnifyingGlass, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
 import {
   anteprimaAutistaIngressoAction,
-  anteprimaFornitoreRapidoIngressoAction,
   anteprimaMezzoIngressoAction,
   attachDdtFoglioAction,
   attachMezzoFotoAction,
   chiudiFoglioIngressoMpAction,
   createAutistaIngressoAction,
-  createFornitoreRapidoIngressoAction,
   createMezzoIngressoAction,
   generaLottoIngressoMpAction,
   getFoglioIngressoMpAction,
@@ -26,8 +24,11 @@ import {
   signedIngressoMpUrlAction,
 } from "@/app/actions/produzione-ingresso-mp";
 import { IngressoMpFotoPicker } from "@/components/produzione/IngressoMpFotoPicker";
+import {
+  FornitoreIngressoScrematura,
+  type FornitoreIngressoOpt,
+} from "@/components/produzione/FornitoreIngressoScrematura";
 import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
-import { labelFornitoreTipologia } from "@/lib/amministrazione/catalogo-offerta";
 import {
   FOGLIO_INGRESSO_TEST_KEY,
   MEZZO_FOTO_KINDS,
@@ -39,25 +40,6 @@ import {
   type MezzoIngresso,
   type QuantitaTipoIngresso,
 } from "@/lib/produzione/fogli-ingresso-mp";
-import type { FornitoreTipologia } from "@/types/database";
-
-type FornitoreFiltro = "" | "servizio" | "prodotto" | "materia_prima";
-
-const FORNITORE_FILTRI: Array<{ value: FornitoreFiltro; label: string }> = [
-  { value: "", label: "Tutti" },
-  { value: "servizio", label: "Servizi" },
-  { value: "prodotto", label: "Prodotti" },
-  { value: "materia_prima", label: "Materia prima" },
-];
-
-type FornitoreOpt = {
-  id: string;
-  label: string;
-  targa: string;
-  isBio: boolean;
-  tipologie: FornitoreTipologia[];
-};
-
 type Props = {
   foglioId?: string;
 };
@@ -82,19 +64,15 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [item, setItem] = useState<FoglioIngressoMp | null>(null);
 
-  const [fornitori, setFornitori] = useState<FornitoreOpt[]>([]);
+  const [fornitori, setFornitori] = useState<FornitoreIngressoOpt[]>([]);
   const [materie, setMaterie] = useState<Array<{ id: string; label: string; isBio: boolean }>>([]);
   const [catalogo, setCatalogo] = useState<ConfezionamentoMp[]>([]);
   const [mezzi, setMezzi] = useState<MezzoIngresso[]>([]);
   const [autisti, setAutisti] = useState<Array<{ id: string; label: string }>>([]);
   const [operatori, setOperatori] = useState<Array<{ id: string; nome: string; cognome: string }>>([]);
 
-  const [fornitoreFiltro, setFornitoreFiltro] =
-    useState<FornitoreFiltro>("materia_prima");
-  const [fornitoreSearchOpen, setFornitoreSearchOpen] = useState(false);
-  const [fornitoreQuery, setFornitoreQuery] = useState("");
-  const fornitoreSearchRef = useRef<HTMLInputElement>(null);
   const [fornitoreId, setFornitoreId] = useState("");
+  const [mezzoAziendaId, setMezzoAziendaId] = useState("");
   const [materiaPrimaId, setMateriaPrimaId] = useState("");
   const [isBio, setIsBio] = useState(false);
   const [quantita, setQuantita] = useState("");
@@ -113,12 +91,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     Array<{ confezionamentoId: string; quantitaConfezioni: string }>
   >([{ confezionamentoId: "", quantitaConfezioni: "" }]);
 
-  const [nuovoForn, setNuovoForn] = useState(false);
-  const [fornNome, setFornNome] = useState("");
-  const [fornPiva, setFornPiva] = useState("");
   const [nuovoMezzo, setNuovoMezzo] = useState(false);
   const [mezzoTarga, setMezzoTarga] = useState("");
-  const [mezzoAzienda, setMezzoAzienda] = useState("");
   const [nuovoAutista, setNuovoAutista] = useState(false);
   const [autNome, setAutNome] = useState("");
   const [autCognome, setAutCognome] = useState("");
@@ -137,25 +111,17 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   );
 
   const fornitore = fornitori.find((f) => f.id === fornitoreId);
+  const mezzoAzienda = fornitori.find((f) => f.id === mezzoAziendaId);
   const locked = item?.documentoStato === "chiuso";
-  const fornitoriVisibili = useMemo(() => {
-    const q = fornitoreQuery.trim().toLowerCase();
-    return fornitori.filter((f) => {
-      if (fornitoreFiltro && !f.tipologie.includes(fornitoreFiltro)) {
-        return false;
-      }
-      if (!q) return true;
-      return (
-        f.label.toLowerCase().includes(q) || f.targa.toLowerCase().includes(q)
-      );
-    });
-  }, [fornitori, fornitoreFiltro, fornitoreQuery]);
-  const fornitoriSelect = useMemo(() => {
-    if (fornitore && !fornitoriVisibili.some((f) => f.id === fornitore.id)) {
-      return [fornitore, ...fornitoriVisibili];
+
+  function addFornitoreLocale(item: FornitoreIngressoOpt) {
+    setFornitori((cur) =>
+      cur.some((f) => f.id === item.id) ? cur : [...cur, item]
+    );
+    if (testMode) {
+      setFornitoriLocali((cur) => new Set(cur).add(item.id));
     }
-    return fornitoriVisibili;
-  }, [fornitore, fornitoriVisibili]);
+  }
 
   useEffect(() => {
     try {
@@ -189,6 +155,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     if (fornitoreId && fornitoriLocali.has(fornitoreId)) {
       setFornitoreId("");
       setAutistaId("");
+    }
+    if (mezzoAziendaId && fornitoriLocali.has(mezzoAziendaId)) {
+      setMezzoAziendaId("");
     }
     if (mezzoId && mezziLocali.has(mezzoId)) setMezzoId("");
     if (autistaId && autistiLocali.has(autistaId)) setAutistaId("");
@@ -463,157 +432,22 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       ) : null}
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-sm font-semibold">1. Fornitore</h3>
-          <button
-            type="button"
-            disabled={locked}
-            aria-pressed={fornitoreSearchOpen}
-            aria-label="Cerca ragione sociale o targa"
-            onClick={() => {
-              setFornitoreSearchOpen((v) => {
-                const next = !v;
-                if (next) {
-                  window.setTimeout(() => fornitoreSearchRef.current?.focus(), 0);
-                }
-                return next;
-              });
-            }}
-            className={`rounded-lg p-2 ${
-              fornitoreSearchOpen
-                ? "bg-[var(--primary)] text-white"
-                : "text-slate-600 hover:bg-slate-100"
-            }`}
-          >
-            <FaMagnifyingGlass size={14} />
-          </button>
-        </div>
-        <div>
-          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-            Screma per tipologia
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {FORNITORE_FILTRI.map((f) => (
-              <button
-                key={f.value || "tutti"}
-                type="button"
-                disabled={locked}
-                onClick={() => setFornitoreFiltro(f.value)}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium ring-1 ${
-                  fornitoreFiltro === f.value
-                    ? "bg-[var(--primary)] text-white ring-[var(--primary)]"
-                    : "bg-white text-slate-700 ring-[var(--border)] hover:bg-slate-50"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {fornitoreSearchOpen ? (
-          <input
-            ref={fornitoreSearchRef}
-            disabled={locked}
-            value={fornitoreQuery}
-            onChange={(e) => setFornitoreQuery(e.target.value)}
-            placeholder="Cerca ragione sociale o targa…"
-            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-          />
-        ) : null}
-        <select
-          disabled={locked}
+        <h3 className="text-sm font-semibold">1. Fornitore</h3>
+        <FornitoreIngressoScrematura
+          locked={locked}
+          fornitori={fornitori}
           value={fornitoreId}
-          onChange={(e) => {
-            setFornitoreId(e.target.value);
+          defaultFiltro="materia_prima"
+          testMode={testMode}
+          onError={setError}
+          onTestNotice={setTestNotice}
+          onCreated={addFornitoreLocale}
+          onChange={(id, f) => {
+            setFornitoreId(id);
             setAutistaId("");
-            const f = fornitori.find((x) => x.id === e.target.value);
             if (f && !f.isBio) setIsBio(false);
           }}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-        >
-          <option value="">
-            Seleziona fornitore… ({fornitoriVisibili.length})
-          </option>
-          {fornitoriSelect.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.label}
-              {f.tipologie.length
-                ? ` · ${f.tipologie.map(labelFornitoreTipologia).join(", ")}`
-                : " · senza tipologia"}
-            </option>
-          ))}
-        </select>
-        {!locked ? (
-          <button
-            type="button"
-            onClick={() => setNuovoForn((v) => !v)}
-            className="text-sm text-[var(--primary)] underline"
-          >
-            {nuovoForn ? "Nascondi nuovo fornitore" : "+ Crea nuovo fornitore"}
-          </button>
-        ) : null}
-        {nuovoForn && !locked ? (
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input
-              value={fornNome}
-              onChange={(e) => setFornNome(e.target.value)}
-              placeholder="Ragione sociale"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <input
-              value={fornPiva}
-              onChange={(e) => setFornPiva(e.target.value)}
-              placeholder="Partita IVA"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                const tipologieCreate: FornitoreTipologia[] = fornitoreFiltro
-                  ? [fornitoreFiltro]
-                  : ["materia_prima"];
-                const body = {
-                  ragioneSociale: fornNome,
-                  partitaIva: fornPiva,
-                  tipologie: tipologieCreate,
-                };
-                const res = testMode
-                  ? await anteprimaFornitoreRapidoIngressoAction(body)
-                  : await createFornitoreRapidoIngressoAction(body);
-                setBusy(false);
-                if (!res.success) {
-                  setError(res.error);
-                  return;
-                }
-                if (testMode) {
-                  setFornitoriLocali((cur) => new Set(cur).add(res.id));
-                  setTestNotice(
-                    `Fornitore ${res.label} valido. Non salvato in anagrafica.`
-                  );
-                }
-                setFornitori((cur) => [
-                  ...cur,
-                  {
-                    id: res.id,
-                    label: res.label,
-                    targa: res.targa,
-                    isBio: false,
-                    tipologie: res.tipologie,
-                  },
-                ]);
-                setFornitoreId(res.id);
-                setNuovoForn(false);
-                setFornNome("");
-                setFornPiva("");
-              }}
-              className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white"
-            >
-              Salva fornitore
-            </button>
-          </div>
-        ) : null}
+        />
       </section>
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -833,35 +667,56 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         {!locked ? (
           <button
             type="button"
-            onClick={() => setNuovoMezzo((v) => !v)}
+            onClick={() => {
+              setNuovoMezzo((v) => {
+                const next = !v;
+                if (next && !mezzoAziendaId && fornitoreId) {
+                  setMezzoAziendaId(fornitoreId);
+                }
+                return next;
+              });
+            }}
             className="text-sm text-[var(--primary)] underline"
           >
             {nuovoMezzo ? "Nascondi nuovo mezzo" : "+ Nuovo mezzo"}
           </button>
         ) : null}
         {nuovoMezzo && !locked ? (
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-3 rounded-lg border border-dashed border-[var(--border)] p-3">
             <input
               value={mezzoTarga}
               onChange={(e) => setMezzoTarga(e.target.value)}
               placeholder="Targa"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm uppercase"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm uppercase"
             />
-            <input
-              value={mezzoAzienda}
-              onChange={(e) => setMezzoAzienda(e.target.value)}
-              placeholder="Azienda (o nuova ragione sociale)"
-              className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
+            <div>
+              <p className="mb-2 text-sm font-medium">Azienda del mezzo</p>
+              <FornitoreIngressoScrematura
+                locked={locked}
+                fornitori={fornitori}
+                value={mezzoAziendaId}
+                defaultFiltro="servizio"
+                tipologiaSeTutti="servizio"
+                testMode={testMode}
+                onError={setError}
+                onTestNotice={setTestNotice}
+                onCreated={addFornitoreLocale}
+                onChange={(id) => setMezzoAziendaId(id)}
+              />
+            </div>
             <button
               type="button"
               disabled={busy}
               onClick={async () => {
+                if (!mezzoAziendaId) {
+                  setError("Seleziona o crea l'azienda del mezzo.");
+                  return;
+                }
                 setBusy(true);
                 const body = {
                   targa: mezzoTarga,
-                  fornitoreId: fornitoreId || null,
-                  aziendaNome: mezzoAzienda || fornitore?.label || "",
+                  fornitoreId: mezzoAziendaId,
+                  aziendaNome: mezzoAzienda?.label || "",
                 };
                 const res = testMode
                   ? await anteprimaMezzoIngressoAction(body)
@@ -881,7 +736,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                 setMezzoId(res.item.id);
                 setNuovoMezzo(false);
                 setMezzoTarga("");
-                setMezzoAzienda("");
               }}
               className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white"
             >
