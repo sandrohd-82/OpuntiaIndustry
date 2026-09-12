@@ -41,6 +41,9 @@ export default async function ProduzioneSectionPage({
   if (section === "statistiche") {
     redirect("/app/amministrazione/statistiche");
   }
+  if (section === "foglio-ingresso-mp") {
+    redirect("/app/produzione/foglio-ingresso-mp/nuovo");
+  }
   if (section === "fogli-lavorazione") {
     redirect(
       query.nuovo === "1"

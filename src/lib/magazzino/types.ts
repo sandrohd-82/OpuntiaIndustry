@@ -284,7 +284,7 @@ export const movimentoManualeSchema = z
       .max(120)
       .refine(
         (v) => isValidLottoAgrinsicilia(v),
-        "Lotto non valido. Apri la composizione (L-data/targa/fornitore/DDT-nnn)."
+        "Lotto non valido. Apri la composizione (L-data/targa/fornitore/codice MP-nnn)."
       ),
     collegaFoglio: z.boolean(),
     foglioId: z.string().uuid().nullable().optional(),

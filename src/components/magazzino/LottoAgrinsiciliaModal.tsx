@@ -1,12 +1,11 @@
 "use client";
 
 import { forwardRef, useEffect, useId, useRef, useState } from "react";
+import { listCodiciMpLavorataMagazzinoAction } from "@/app/actions/produzione-ingresso-mp";
 import {
   listFornitoriTargaMagazzinoAction,
-  listLottiMateriaPrimaPerLottoAction,
   nextLottoProgressivoAgrinsiciliaAction,
   type FornitoreTargaMagazzino,
-  type LottoMateriaPrimaOption,
 } from "@/app/actions/magazzino";
 import {
   composeLottoAgrinsicilia,
@@ -18,6 +17,7 @@ import {
   stripTargaFornitore,
   type LottoAgrinsiciliaParti,
 } from "@/lib/magazzino/lotto-agrinsicilia";
+import { isValidLottoIngressoMp } from "@/lib/produzione/fogli-ingresso-mp";
 
 type Props = {
   targaProdotto: string;
@@ -57,8 +57,15 @@ export function LottoAgrinsiciliaModal({
       : emptyParti(targaProdotto)
   );
   const [fornitori, setFornitori] = useState<FornitoreTargaMagazzino[]>([]);
-  const [lottiMp, setLottiMp] = useState<LottoMateriaPrimaOption[]>([]);
-  const [lottoMpId, setLottoMpId] = useState("");
+  const [codiciMp, setCodiciMp] = useState<
+    Array<{
+      lotto: string;
+      fornitoreTarga: string;
+      fornitoreLabel: string;
+      materiaPrima: string;
+    }>
+  >([]);
+  const [codiceMpSel, setCodiceMpSel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const dayRef = useRef<HTMLInputElement>(null);
   const monthRef = useRef<HTMLInputElement>(null);
@@ -83,14 +90,17 @@ export function LottoAgrinsiciliaModal({
   useEffect(() => {
     void Promise.all([
       listFornitoriTargaMagazzinoAction(),
-      listLottiMateriaPrimaPerLottoAction(),
+      listCodiciMpLavorataMagazzinoAction(),
       nextLottoProgressivoAgrinsiciliaAction({
         targaProdotto,
         dataInizio: parsedInitial?.dataInizio,
       }),
     ]).then(([f, m, p]) => {
       if (f.success) setFornitori(f.items);
-      if (m.success) setLottiMp(m.items);
+      if (m.success) {
+        setCodiciMp(m.items);
+        if (parsedInitial?.ddt) setCodiceMpSel(parsedInitial.ddt);
+      }
       if (p.success && !parsedInitial?.progressivo) {
         setParti((cur) =>
           cur.progressivo ? cur : { ...cur, progressivo: p.progressivo }
@@ -156,10 +166,16 @@ export function LottoAgrinsiciliaModal({
   }
 
   function confirm() {
+    if (parti.ddt && !isValidLottoIngressoMp(parti.ddt)) {
+      setError(
+        "Codice MP lavorata non valido: serve GGMMAA + 5 cifre esadecimali (es. 12092600001)."
+      );
+      return;
+    }
     const out = composeLottoAgrinsicilia({ ...parti, targaProdotto });
     if (!out) {
       setError(
-        "Completa data, fornitore, DDT e progressivo, oppure incolla un lotto valido."
+        "Completa data, fornitore, codice MP lavorata (GGMMAA + 5 hex) e progressivo."
       );
       return;
     }
@@ -255,11 +271,15 @@ export function LottoAgrinsiciliaModal({
             <MaskCell
               ref={ddtRef}
               value={parti.ddt}
-              max={12}
-              width="w-20"
-              placeholder="____"
+              max={11}
+              width="w-28"
+              placeholder="GGMMAAhhhhh"
               onChange={(v) => {
-                const next = v.replace(/\s+/g, "").replace(/-/g, "");
+                const next = v
+                  .replace(/\s+/g, "")
+                  .replace(/-/g, "")
+                  .toUpperCase();
+                setCodiceMpSel(next);
                 patch({ ddt: next });
               }}
               onKeyDown={(e) => {
@@ -288,32 +308,30 @@ export function LottoAgrinsiciliaModal({
           compilano questi campi.
         </p>
 
-        {lottiMp.length > 0 ? (
-          <label className="mt-3 block text-sm">
-            <span className="mb-1 block font-medium">Lotto materia prima</span>
-            <select
-              value={lottoMpId}
-              onChange={(e) => {
-                const id = e.target.value;
-                setLottoMpId(id);
-                const lotto = lottiMp.find((l) => l.id === id);
-                if (!lotto) return;
-                patch({
-                  targaFornitore: lotto.targaFornitore || parti.targaFornitore,
-                  ddt: lotto.ddt || parti.ddt,
-                });
-              }}
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
-            >
-              <option value="">Seleziona lotto Mp…</option>
-              {lottiMp.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.lottoCodice} · {l.prodottoCodice}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <label className="mt-3 block text-sm">
+          <span className="mb-1 block font-medium">Codice MP lavorata</span>
+          <select
+            value={codiceMpSel}
+            onChange={(e) => {
+              const lotto = e.target.value;
+              setCodiceMpSel(lotto);
+              const row = codiciMp.find((l) => l.lotto === lotto);
+              if (!row) return;
+              patch({
+                targaFornitore: row.fornitoreTarga || parti.targaFornitore,
+                ddt: row.lotto,
+              });
+            }}
+            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+          >
+            <option value="">Seleziona lotto ingresso MP…</option>
+            {codiciMp.map((l) => (
+              <option key={l.lotto} value={l.lotto}>
+                {l.lotto} · {l.materiaPrima} · {l.fornitoreLabel}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="block text-sm">
@@ -375,13 +393,18 @@ export function LottoAgrinsiciliaModal({
             />
           </label>
           <label className="block text-sm">
-            <span className="mb-1 block font-medium">DDT merce in arrivo</span>
+            <span className="mb-1 block font-medium">
+              Codice MP lavorata (GGMMAA + 5 hex)
+            </span>
             <input
               value={parti.ddt}
-              onChange={(e) =>
-                patch({ ddt: e.target.value.replace(/\s+/g, "") })
-              }
-              placeholder="B013"
+              onChange={(e) => {
+                const next = e.target.value.replace(/\s+/g, "").toUpperCase();
+                setCodiceMpSel(next);
+                patch({ ddt: next });
+              }}
+              placeholder="12092600001"
+              maxLength={11}
               className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
             />
           </label>

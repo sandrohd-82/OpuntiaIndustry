@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzioneBoard";
+import { FoglioIngressoMpForm } from "@/components/produzione/FoglioIngressoMpForm";
+import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
 import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
@@ -13,12 +15,14 @@ import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
+  searchParams: Promise<{ id?: string }>;
 };
 
-export default async function ProduzioneSubPage({ params }: Props) {
+export default async function ProduzioneSubPage({ params, searchParams }: Props) {
   await requireAreaAccess("produzione");
 
   const { section, sub } = await params;
+  const query = await searchParams;
   if (section === "processi-e-attivita" && sub === "nuovo-processo") {
     redirect("/app/produzione/processi-e-attivita/elenco-processi");
   }
@@ -36,6 +40,48 @@ export default async function ProduzioneSubPage({ params }: Props) {
   }
   const page = await resolveProduzioneDynamic([section, sub]);
   if (!page) notFound();
+
+  if (section === "foglio-ingresso-mp" && sub === "nuovo") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FoglioIngressoMpForm
+            foglioId={
+              query.id &&
+              /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+                query.id
+              )
+                ? query.id
+                : undefined
+            }
+          />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "foglio-ingresso-mp" && sub === "aperti") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FogliIngressoMpBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "foglio-ingresso-mp" && sub === "storico") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FogliIngressoMpBoard storico />
+        </div>
+      </>
+    );
+  }
 
   if (section === "fogli-lavorazione" && sub === "nuovo") {
     return (

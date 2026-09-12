@@ -7,7 +7,7 @@ export type LottoAgrinsiciliaParti = {
   targaProdotto: string;
   /** Targa fornitore Mp senza la F iniziale (es. F031 → 031) */
   targaFornitore: string;
-  /** DDT merce in arrivo (dal lotto Mp) */
+  /** Codice MP lavorata (lotto ingresso GGMMAA + 5 hex) */
   ddt: string;
   /** Progressivo annuo per tipo prodotto, 3 cifre */
   progressivo: string;

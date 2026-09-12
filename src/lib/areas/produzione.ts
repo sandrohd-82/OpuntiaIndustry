@@ -23,6 +23,32 @@ export const GESTIONE_AREE_ELENCO_NAV = {
 /** Menu Produzione — struttura target */
 export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
   {
+    slug: "foglio-ingresso-mp",
+    label: "Foglio Ingresso MP",
+    description: "Registrazione carichi materia prima e codice lotto interno",
+    path: "/app/produzione/foglio-ingresso-mp",
+    children: [
+      {
+        slug: "nuovo",
+        label: "Nuovo",
+        description: "Compila il foglio di ingresso materia prima",
+        path: "/app/produzione/foglio-ingresso-mp/nuovo",
+      },
+      {
+        slug: "aperti",
+        label: "Aperti",
+        description: "Bozze e fogli registrati ancora aperti",
+        path: "/app/produzione/foglio-ingresso-mp/aperti",
+      },
+      {
+        slug: "storico",
+        label: "Storico",
+        description: "Fogli ingresso MP chiusi",
+        path: "/app/produzione/foglio-ingresso-mp/storico",
+      },
+    ],
+  },
+  {
     slug: "fogli-lavorazione",
     label: "Fogli di lavorazione",
     description: "Nuovi fogli, esecuzione e storico",
