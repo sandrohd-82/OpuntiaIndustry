@@ -115,6 +115,7 @@ export type FoglioIngressoMp = {
   quantitaUnita: string;
   quantitaTipo: QuantitaTipoIngresso;
   ddtProduttore: string;
+  ddtData: string | null;
   ddtFilePath: string | null;
   ddtFileName: string | null;
   arrivatoAt: string;
@@ -148,6 +149,14 @@ export const foglioIngressoSaveSchema = z.object({
   quantitaUnita: z.string().trim().min(1).max(8).default("kg"),
   quantitaTipo: z.enum(QUANTITA_TIPI),
   ddtProduttore: z.string().max(200).default(""),
+  ddtData: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data documento DDT non valida")
+      .nullable()
+      .optional()
+  ),
   ddtFilePath: z.string().max(500).nullable().optional(),
   ddtFileName: z.string().max(200).nullable().optional(),
   arrivatoAt: z.string().min(1, "Data e ora arrivo obbligatorie"),

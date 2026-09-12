@@ -78,6 +78,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [quantita, setQuantita] = useState("");
   const [quantitaTipo, setQuantitaTipo] = useState<QuantitaTipoIngresso>("stimato");
   const [ddtProduttore, setDdtProduttore] = useState("");
+  const [ddtData, setDdtData] = useState("");
   const [ddtFilePath, setDdtFilePath] = useState<string | null>(null);
   const [ddtFileName, setDdtFileName] = useState<string | null>(null);
   const [ddtPreview, setDdtPreview] = useState<string | null>(null);
@@ -198,6 +199,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     setQuantita(String(next.quantita));
     setQuantitaTipo(next.quantitaTipo);
     setDdtProduttore(next.ddtProduttore);
+    setDdtData(next.ddtData ?? "");
     setDdtFilePath(next.ddtFilePath);
     setDdtFileName(next.ddtFileName);
     setArrivatoAt(isoToLocal(next.arrivatoAt));
@@ -231,6 +233,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       quantitaUnita: "kg",
       quantitaTipo,
       ddtProduttore,
+      ddtData: ddtData || null,
       ddtFilePath,
       ddtFileName,
       arrivatoAt,
@@ -254,6 +257,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       quantita,
       quantitaTipo,
       ddtProduttore,
+      ddtData,
       ddtFilePath,
       ddtFileName,
       arrivatoAt,
@@ -503,13 +507,28 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">4. DDT produttore</h3>
-        <input
-          disabled={locked}
-          value={ddtProduttore}
-          onChange={(e) => setDdtProduttore(e.target.value)}
-          placeholder="Numero o riferimento DDT"
-          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Numero o riferimento</span>
+            <input
+              disabled={locked}
+              value={ddtProduttore}
+              onChange={(e) => setDdtProduttore(e.target.value)}
+              placeholder="Numero o riferimento DDT"
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block font-medium">Data documento</span>
+            <input
+              type="date"
+              disabled={locked}
+              value={ddtData}
+              onChange={(e) => setDdtData(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
         <IngressoMpFotoPicker
           kind="ddt"
           ownerId={item?.id ?? uploadOwner}

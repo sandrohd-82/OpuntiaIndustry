@@ -41,6 +41,7 @@ type FoglioRow = {
   quantita_unita: string;
   quantita_tipo: QuantitaTipoIngresso;
   ddt_produttore: string;
+  ddt_data: string | null;
   ddt_file_path: string | null;
   ddt_file_name: string | null;
   arrivato_at: string;
@@ -84,6 +85,7 @@ function mapFoglio(
     quantitaUnita: r.quantita_unita,
     quantitaTipo: r.quantita_tipo,
     ddtProduttore: r.ddt_produttore ?? "",
+    ddtData: r.ddt_data ? String(r.ddt_data).slice(0, 10) : null,
     ddtFilePath: r.ddt_file_path,
     ddtFileName: r.ddt_file_name,
     arrivatoAt: r.arrivato_at,
@@ -772,6 +774,7 @@ export async function saveFoglioIngressoMpAction(raw: unknown): Promise<
     quantita_unita: v.quantitaUnita,
     quantita_tipo: v.quantitaTipo,
     ddt_produttore: v.ddtProduttore,
+    ddt_data: v.ddtData || null,
     ddt_file_path: v.ddtFilePath ?? null,
     ddt_file_name: v.ddtFileName ?? null,
     arrivato_at: new Date(v.arrivatoAt).toISOString(),
