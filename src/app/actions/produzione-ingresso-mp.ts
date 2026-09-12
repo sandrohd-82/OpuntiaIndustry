@@ -22,7 +22,9 @@ import {
   type MezzoIngresso,
   type QuantitaTipoIngresso,
 } from "@/lib/produzione/fogli-ingresso-mp";
+import { normalizeTipologie } from "@/lib/amministrazione/catalogo-offerta";
 import { createClient } from "@/lib/supabase/server";
+import type { FornitoreTipologia } from "@/types/database";
 
 const BUCKET = "produzione-ingresso-mp";
 
@@ -259,6 +261,7 @@ export async function listFornitoriIngressoAction(): Promise<
         label: string;
         targa: string;
         isBio: boolean;
+        tipologie: FornitoreTipologia[];
       }>;
     }
   | { success: false; error: string }
@@ -267,7 +270,7 @@ export async function listFornitoriIngressoAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fornitori")
-    .select("id, codice_targa, ragione_sociale, bio_certificato_path")
+    .select("id, codice_targa, ragione_sociale, bio_certificato_path, tipologie")
     .is("deleted_at", null)
     .order("codice_targa", { ascending: true });
   if (error) return { success: false, error: error.message };
@@ -278,11 +281,13 @@ export async function listFornitoriIngressoAction(): Promise<
       codice_targa: string;
       ragione_sociale: string;
       bio_certificato_path: string | null;
+      tipologie: FornitoreTipologia[] | null;
     }>).map((r) => ({
       id: r.id,
       label: `${r.codice_targa} — ${r.ragione_sociale}`,
       targa: r.codice_targa,
       isBio: Boolean(r.bio_certificato_path?.trim()),
+      tipologie: normalizeTipologie(r.tipologie),
     })),
   };
 }
@@ -509,7 +514,14 @@ export async function listCodiciMpLavorataMagazzinoAction(): Promise<
 }
 
 export async function createFornitoreRapidoIngressoAction(raw: unknown): Promise<
-  | { success: true; id: string; label: string; targa: string; isBio: false }
+  | {
+      success: true;
+      id: string;
+      label: string;
+      targa: string;
+      isBio: false;
+      tipologie: FornitoreTipologia[];
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("produzione");
@@ -549,7 +561,7 @@ export async function createFornitoreRapidoIngressoAction(raw: unknown): Promise
       sdi_code: empty,
       telefono: empty,
       sito_web: empty,
-      tipologie: [],
+      tipologie: parsed.data.tipologie ?? ["materia_prima"],
       servizi_offerti: [],
       prodotti_fornitore: [],
       sede_amm_nazione: empty,
@@ -588,6 +600,7 @@ export async function createFornitoreRapidoIngressoAction(raw: unknown): Promise
     targa: data.codice_targa,
     label: `${data.codice_targa} — ${data.ragione_sociale}`,
     isBio: false,
+    tipologie: parsed.data.tipologie ?? ["materia_prima"],
   };
 }
 
@@ -1248,7 +1261,14 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
 export async function anteprimaFornitoreRapidoIngressoAction(
   raw: unknown
 ): Promise<
-  | { success: true; id: string; label: string; targa: string; isBio: false }
+  | {
+      success: true;
+      id: string;
+      label: string;
+      targa: string;
+      isBio: false;
+      tipologie: FornitoreTipologia[];
+    }
   | { success: false; error: string }
 > {
   await requireAreaAccess("produzione");
@@ -1289,6 +1309,7 @@ export async function anteprimaFornitoreRapidoIngressoAction(
     targa,
     label: `${targa} — ${parsed.data.ragioneSociale.trim()}`,
     isBio: false,
+    tipologie: parsed.data.tipologie ?? ["materia_prima"],
   };
 }
 

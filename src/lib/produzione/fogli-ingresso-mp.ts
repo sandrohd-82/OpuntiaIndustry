@@ -166,6 +166,10 @@ export type FoglioIngressoSaveInput = z.infer<typeof foglioIngressoSaveSchema>;
 export const nuovoFornitoreRapidoSchema = z.object({
   ragioneSociale: z.string().trim().min(2).max(200),
   partitaIva: z.string().trim().min(5).max(20),
+  tipologie: z
+    .array(z.enum(["servizio", "prodotto", "materia_prima", "contributo"]))
+    .optional()
+    .default(["materia_prima"]),
 });
 
 export const nuovoMezzoSchema = z.object({
