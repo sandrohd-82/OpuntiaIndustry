@@ -11,6 +11,7 @@ import { FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
+import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClienti } from "@/hooks/useClienti";
 import type { Cliente } from "@/lib/amministrazione/clienti";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
@@ -158,7 +159,7 @@ export function ClienteSelectField({
             required={required && !value}
             disabled={!ready}
             placeholder={
-              ready ? "Cerca azienda, targa, P.IVA…" : "Caricamento clienti…"
+              ready ? "Cerca azienda, targa, P.IVA…" : "Seleziona cliente"
             }
             value={query}
             onFocus={() => {
@@ -176,9 +177,10 @@ export function ClienteSelectField({
               }
             }}
             onKeyDown={onKeyDown}
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)] disabled:opacity-60"
+            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 pr-10 outline-none focus:border-[var(--primary)] disabled:opacity-60"
             autoComplete="off"
           />
+          <FieldLoadingOverlay show={!ready} />
           {open && ready ? (
             <ul
               id={id ? `${id}-list` : undefined}

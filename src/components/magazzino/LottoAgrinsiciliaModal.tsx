@@ -18,6 +18,7 @@ import {
   type LottoAgrinsiciliaParti,
 } from "@/lib/magazzino/lotto-agrinsicilia";
 import { isValidLottoIngressoMp } from "@/lib/produzione/fogli-ingresso-mp";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 
 type Props = {
   targaProdotto: string;
@@ -66,6 +67,7 @@ export function LottoAgrinsiciliaModal({
     }>
   >([]);
   const [codiceMpSel, setCodiceMpSel] = useState("");
+  const [listsReady, setListsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dayRef = useRef<HTMLInputElement>(null);
   const monthRef = useRef<HTMLInputElement>(null);
@@ -106,7 +108,7 @@ export function LottoAgrinsiciliaModal({
           cur.progressivo ? cur : { ...cur, progressivo: p.progressivo }
         );
       }
-    });
+    }).finally(() => setListsReady(true));
     dayRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targaProdotto]);
@@ -310,7 +312,9 @@ export function LottoAgrinsiciliaModal({
 
         <label className="mt-3 block text-sm">
           <span className="mb-1 block font-medium">Codice MP lavorata</span>
-          <select
+          <SelectMenu
+            loading={!listsReady}
+            placeholder="Seleziona lotto ingresso MP"
             value={codiceMpSel}
             onChange={(e) => {
               const lotto = e.target.value;
@@ -322,15 +326,13 @@ export function LottoAgrinsiciliaModal({
                 ddt: row.lotto,
               });
             }}
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
           >
-            <option value="">Seleziona lotto ingresso MP…</option>
             {codiciMp.map((l) => (
               <option key={l.lotto} value={l.lotto}>
                 {l.lotto} · {l.materiaPrima} · {l.fornitoreLabel}
               </option>
             ))}
-          </select>
+          </SelectMenu>
         </label>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -365,7 +367,9 @@ export function LottoAgrinsiciliaModal({
             <span className="mb-1 block font-medium">
               Targa fornitore (senza F)
             </span>
-            <select
+            <SelectMenu
+              loading={!listsReady}
+              placeholder="Seleziona fornitore"
               value={
                 fornitori.some((f) => f.targaSenzaF === parti.targaFornitore)
                   ? parti.targaFornitore
@@ -374,15 +378,13 @@ export function LottoAgrinsiciliaModal({
               onChange={(e) =>
                 patch({ targaFornitore: stripTargaFornitore(e.target.value) })
               }
-              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
             >
-              <option value="">Seleziona fornitore…</option>
               {fornitori.map((f) => (
                 <option key={f.id} value={f.targaSenzaF}>
                   {f.targaSenzaF} — {f.ragioneSociale}
                 </option>
               ))}
-            </select>
+            </SelectMenu>
             <input
               value={parti.targaFornitore}
               onChange={(e) =>

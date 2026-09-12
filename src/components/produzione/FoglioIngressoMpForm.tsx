@@ -27,6 +27,8 @@ import {
   type FornitoreIngressoOpt,
 } from "@/components/produzione/FornitoreIngressoScrematura";
 import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
+import { PageLoading } from "@/components/ui/BusyIndicator";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import {
   FOGLIO_INGRESSO_TEST_KEY,
   MEZZO_FOTO_KINDS,
@@ -62,6 +64,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [item, setItem] = useState<FoglioIngressoMp | null>(null);
 
+  const [catalogReady, setCatalogReady] = useState(false);
   const [fornitori, setFornitori] = useState<FornitoreIngressoOpt[]>([]);
   const [materie, setMaterie] = useState<Array<{ id: string; label: string; isBio: boolean }>>([]);
   const [catalogo, setCatalogo] = useState<ConfezionamentoMp[]>([]);
@@ -171,7 +174,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       if (c.success) setCatalogo(c.items);
       if (z.success) setMezzi(z.items);
       if (p.success) setOperatori(p.items);
-    });
+    }).finally(() => setCatalogReady(true));
   }, []);
 
   useEffect(() => {
@@ -359,7 +362,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   }
 
   if (loading) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento foglio…</p>;
+    return <PageLoading label="Caricamento foglio" />;
   }
 
   return (
@@ -417,6 +420,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         <h3 className="text-sm font-semibold">1. Fornitore</h3>
         <FornitoreIngressoScrematura
           locked={locked}
+          loading={!catalogReady}
           fornitori={fornitori}
           value={fornitoreId}
           defaultFiltro="materia_prima"
@@ -433,8 +437,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">2. Tipo materiale</h3>
-        <select
+        <SelectMenu
           disabled={locked}
+          loading={!catalogReady}
+          placeholder="Seleziona materia prima"
           value={materiaPrimaId}
           onChange={(e) => {
             const id = e.target.value;
@@ -442,16 +448,14 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             const m = materie.find((x) => x.id === id);
             if (m?.isBio && fornitore?.isBio) setIsBio(true);
           }}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
         >
-          <option value="">Seleziona materia prima…</option>
           {materie.map((m) => (
             <option key={m.id} value={m.id}>
               {m.label}
               {m.isBio ? " (bio)" : ""}
             </option>
           ))}
-        </select>
+        </SelectMenu>
         <label className="inline-flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -541,8 +545,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             >
               <label className="text-sm">
                 <span className="mb-1 block font-medium">Confezionamento</span>
-                <select
+                <SelectMenu
                   disabled={locked}
+                  loading={!catalogReady}
+                  placeholder="Seleziona confezionamento"
                   value={r.confezionamentoId}
                   onChange={(e) =>
                     setRighe((cur) =>
@@ -553,9 +559,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                       )
                     )
                   }
-                  className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                 >
-                  <option value="">Seleziona…</option>
                   {catalogo.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.nome}
@@ -564,7 +568,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                         : ""}
                     </option>
                   ))}
-                </select>
+                </SelectMenu>
               </label>
               <label className="text-sm">
                 <span className="mb-1 block font-medium">
@@ -631,20 +635,20 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">9. Mezzo</h3>
-        <select
+        <SelectMenu
           disabled={locked}
+          loading={!catalogReady}
+          placeholder="Seleziona mezzo"
           value={mezzoId}
           onChange={(e) => setMezzoId(e.target.value)}
-          className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
         >
-          <option value="">Seleziona mezzo…</option>
           {mezzi.map((m) => (
             <option key={m.id} value={m.id}>
               {m.targa}
               {m.aziendaNome ? ` — ${m.aziendaNome}` : ""}
             </option>
           ))}
-        </select>
+        </SelectMenu>
         {!locked ? (
           <button
             type="button"
@@ -674,6 +678,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
               <p className="mb-2 text-sm font-medium">Azienda del mezzo</p>
               <FornitoreIngressoScrematura
                 locked={locked}
+                loading={!catalogReady}
                 fornitori={fornitori}
                 value={mezzoAziendaId}
                 defaultFiltro="servizio"
@@ -780,19 +785,19 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         </label>
         <label className="text-sm">
           <span className="mb-1 block font-semibold">12. Operatore muletto</span>
-          <select
+          <SelectMenu
             disabled={locked}
+            loading={!catalogReady}
+            placeholder="Seleziona operatore"
             value={operatoreId}
             onChange={(e) => setOperatoreId(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
           >
-            <option value="">Seleziona dall’organigramma…</option>
             {operatori.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.nome} {o.cognome}
               </option>
             ))}
-          </select>
+          </SelectMenu>
         </label>
         <label className="sm:col-span-2 text-sm">
           <span className="mb-1 block font-medium">Note</span>

@@ -8,6 +8,7 @@ import {
   labelStatoIngresso,
   type FoglioIngressoMp,
 } from "@/lib/produzione/fogli-ingresso-mp";
+import { PageLoading } from "@/components/ui/BusyIndicator";
 
 type Props = {
   storico?: boolean;
@@ -43,7 +44,7 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
   }, [storico]);
 
   if (loading) {
-    return <p className="text-sm text-[var(--muted)]">Caricamento fogli…</p>;
+    return <PageLoading label="Caricamento fogli" />;
   }
 
   return (

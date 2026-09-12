@@ -6,6 +6,7 @@ import {
   anteprimaFornitoreRapidoIngressoAction,
   createFornitoreRapidoIngressoAction,
 } from "@/app/actions/produzione-ingresso-mp";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import { labelFornitoreTipologia } from "@/lib/amministrazione/catalogo-offerta";
 import type { FornitoreTipologia } from "@/types/database";
 
@@ -28,6 +29,7 @@ const FILTRI: Array<{ value: FornitoreFiltroIngresso; label: string }> = [
 
 type Props = {
   locked?: boolean;
+  loading?: boolean;
   fornitori: FornitoreIngressoOpt[];
   value: string;
   onChange: (id: string, item: FornitoreIngressoOpt | undefined) => void;
@@ -42,6 +44,7 @@ type Props = {
 
 export function FornitoreIngressoScrematura({
   locked = false,
+  loading = false,
   fornitori,
   value,
   onChange,
@@ -138,8 +141,11 @@ export function FornitoreIngressoScrematura({
         />
       ) : null}
 
-      <select
+      <SelectMenu
         disabled={locked}
+        loading={loading}
+        placeholder="Seleziona fornitore"
+        count={visibili.length}
         value={value}
         onChange={(e) => {
           const id = e.target.value;
@@ -148,9 +154,7 @@ export function FornitoreIngressoScrematura({
             fornitori.find((x) => x.id === id)
           );
         }}
-        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
       >
-        <option value="">Seleziona fornitore… ({visibili.length})</option>
         {options.map((f) => (
           <option key={f.id} value={f.id}>
             {f.label}
@@ -159,7 +163,7 @@ export function FornitoreIngressoScrematura({
               : " · senza tipologia"}
           </option>
         ))}
-      </select>
+      </SelectMenu>
 
       {showCreate && !locked ? (
         <button

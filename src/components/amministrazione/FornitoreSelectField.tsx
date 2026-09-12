@@ -5,6 +5,7 @@ import { FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { FornitoreFormModal } from "@/components/amministrazione/FornitoreFormModal";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import { useFornitori } from "@/hooks/useFornitori";
 import type { Fornitore } from "@/lib/amministrazione/fornitori";
 
@@ -40,31 +41,30 @@ export function FornitoreSelectField({
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
-        <select
-          id={id}
-          value={value}
-          onChange={(e) => {
-            const idValue = e.target.value;
-            if (!idValue) {
-              onChange(null);
-              return;
-            }
-            onChange(sorted.find((f) => f.id === idValue) ?? null);
-          }}
-          required={required}
-          autoFocus={autoFocus}
-          disabled={!ready}
-          className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)] disabled:opacity-60"
-        >
-          <option value="">
-            {ready ? "Seleziona un fornitore…" : "Caricamento fornitori…"}
-          </option>
-          {sorted.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.codiceTarga} — {f.ragioneSociale}
-            </option>
-          ))}
-        </select>
+        <div className="min-w-0 flex-1">
+          <SelectMenu
+            id={id}
+            value={value}
+            required={required}
+            autoFocus={autoFocus}
+            loading={!ready}
+            placeholder="Seleziona fornitore"
+            onChange={(e) => {
+              const idValue = e.target.value;
+              if (!idValue) {
+                onChange(null);
+                return;
+              }
+              onChange(sorted.find((f) => f.id === idValue) ?? null);
+            }}
+          >
+            {sorted.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.codiceTarga} — {f.ragioneSociale}
+              </option>
+            ))}
+          </SelectMenu>
+        </div>
         <ActionGate actionKey={AZ.nuovoFornitore}>
         <button
           type="button"

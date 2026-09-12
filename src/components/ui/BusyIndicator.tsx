@@ -23,3 +23,16 @@ export function BusyBanner({ label }: { label: string }) {
     </p>
   );
 }
+
+export function PageLoading({ label }: { label: string }) {
+  return (
+    <p
+      className="inline-flex items-center gap-2 text-sm text-[var(--muted)]"
+      role="status"
+      aria-live="polite"
+    >
+      <BusySpinner />
+      <span>{label}</span>
+    </p>
+  );
+}

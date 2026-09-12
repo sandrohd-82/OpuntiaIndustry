@@ -7,6 +7,7 @@ import {
   listRubricaMansioniAction,
 } from "@/app/actions/rubrica";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import {
   displayContattoName,
   type RubricaContatto,
@@ -43,36 +44,55 @@ export function AutistaIngressoScrematura({
   const [contatti, setContatti] = useState<RubricaContatto[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [fetching, setFetching] = useState(true);
+  const [mansioniReady, setMansioniReady] = useState(false);
   const [showRubrica, setShowRubrica] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQuery(query), 250);
+    return () => window.clearTimeout(t);
+  }, [query]);
 
   useEffect(() => {
     void listRubricaMansioniAction().then((res) => {
       if (!res.success) {
         onError?.(res.error);
+        setMansioniReady(true);
         return;
       }
       setMansioni(res.items);
       const autista = res.items.find((m) => m.codice === "autista");
       if (autista) setFiltro(autista.id);
+      setMansioniReady(true);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (!filtro && mansioni.length === 0) return;
+    if (!mansioniReady) return;
+    let cancelled = false;
+    setFetching(true);
     void listRubricaContattiAction({
-      query,
+      query: debouncedQuery,
       mansioneId: filtro || null,
       skipScope: true,
     }).then((res) => {
+      if (cancelled) return;
+      setFetching(false);
       if (!res.success) {
         onError?.(res.error);
         return;
       }
       setContatti(res.items);
     });
-  }, [filtro, query, mansioni.length, onError]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filtro, debouncedQuery, mansioniReady, onError]);
+
+  const loading = fetching || query !== debouncedQuery;
 
   const selected = contatti.find((c) => c.id === value);
   const visibili = useMemo(() => {
@@ -160,8 +180,11 @@ export function AutistaIngressoScrematura({
         />
       ) : null}
 
-      <select
+      <SelectMenu
         disabled={locked}
+        loading={loading}
+        placeholder="Seleziona autista"
+        count={visibili.length}
         value={value}
         onChange={(e) => {
           const id = e.target.value;
@@ -170,9 +193,7 @@ export function AutistaIngressoScrematura({
             contatti.find((c) => c.id === id)
           );
         }}
-        className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
       >
-        <option value="">Seleziona dalla rubrica… ({visibili.length})</option>
         {options.map((c) => (
           <option key={c.id} value={c.id}>
             {displayContattoName(c)}
@@ -180,7 +201,7 @@ export function AutistaIngressoScrematura({
             {c.mansione ? ` · ${c.mansione}` : ""}
           </option>
         ))}
-      </select>
+      </SelectMenu>
 
       {!locked ? (
         <button

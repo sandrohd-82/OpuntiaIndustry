@@ -11,6 +11,7 @@ import { FaPlus } from "react-icons/fa6";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
+import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
@@ -165,7 +166,7 @@ export function PossibileClienteSelectField({
             placeholder={
               ready
                 ? "Cerca possibile cliente, P.IVA…"
-                : "Caricamento possibili clienti…"
+                : "Seleziona possibile cliente"
             }
             value={query}
             onFocus={() => {
@@ -183,9 +184,10 @@ export function PossibileClienteSelectField({
               }
             }}
             onKeyDown={onKeyDown}
-            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)] disabled:opacity-60"
+            className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 pr-10 outline-none focus:border-[var(--primary)] disabled:opacity-60"
             autoComplete="off"
           />
+          <FieldLoadingOverlay show={!ready} />
           {open && ready ? (
             <ul
               id={id ? `${id}-list` : undefined}

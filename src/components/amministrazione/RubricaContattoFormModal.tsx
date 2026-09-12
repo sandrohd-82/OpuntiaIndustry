@@ -8,6 +8,7 @@ import {
   listRubricaMansioniAction,
 } from "@/app/actions/rubrica";
 import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
+import { SelectMenu } from "@/components/ui/SelectMenu";
 import {
   AZIENDA_TIPO_LABELS,
   RAPPORTO_LABELS,
@@ -59,6 +60,8 @@ export function RubricaContattoFormModal({
   );
   const [mansioneId, setMansioneId] = useState(defaultMansioneId);
   const [mansioni, setMansioni] = useState<RubricaMansione[]>([]);
+  const [mansioniLoading, setMansioniLoading] = useState(true);
+  const [aziendeLoading, setAziendeLoading] = useState(false);
   const [showCreaMansione, setShowCreaMansione] = useState(false);
   const [note, setNote] = useState("");
   const [aziende, setAziende] = useState<{ id: string; label: string }[]>([]);
@@ -71,7 +74,9 @@ export function RubricaContattoFormModal({
     : aziendaTipo !== "nessuna";
 
   useEffect(() => {
+    setMansioniLoading(true);
     void listRubricaMansioniAction().then((res) => {
+      setMansioniLoading(false);
       if (!res.success) return;
       setMansioni(res.items);
       if (defaultMansioneId) setMansioneId(defaultMansioneId);
@@ -81,13 +86,17 @@ export function RubricaContattoFormModal({
   useEffect(() => {
     if (lockToThisAzienda) {
       setAziende([]);
+      setAziendeLoading(false);
       return;
     }
     if (aziendaTipo === "nessuna") {
       setAziende([]);
+      setAziendeLoading(false);
       return;
     }
+    setAziendeLoading(true);
     void listAziendeRubricaPickerAction(aziendaTipo).then((res) => {
+      setAziendeLoading(false);
       if (res.success) setAziende(res.items);
       else setAziende([]);
     });
@@ -309,22 +318,22 @@ export function RubricaContattoFormModal({
                   <span className="mb-1 block font-medium">
                     Seleziona azienda (facoltativo)
                   </span>
-                  <select
+                  <SelectMenu
+                    loading={aziendeLoading}
+                    placeholder="Seleziona azienda"
                     value={aziendaId}
                     onChange={(e) => {
                       setAziendaId(e.target.value);
                       const hit = aziende.find((a) => a.id === e.target.value);
                       setAziendaLabel(hit?.label ?? "");
                     }}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   >
-                    <option value="">— scegli dopo —</option>
                     {aziende.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.label}
                       </option>
                     ))}
-                  </select>
+                  </SelectMenu>
                 </label>
               ) : null}
             </>
@@ -332,18 +341,18 @@ export function RubricaContattoFormModal({
 
           <div className="sm:col-span-2">
             <span className="mb-1 block text-sm font-medium">Mansione</span>
-            <select
+            <SelectMenu
+              loading={mansioniLoading}
+              placeholder="Seleziona mansione"
               value={mansioneId}
               onChange={(e) => setMansioneId(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             >
-              <option value="">Seleziona mansione…</option>
               {mansioni.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.nome}
                 </option>
               ))}
-            </select>
+            </SelectMenu>
             <button
               type="button"
               onClick={() => setShowCreaMansione(true)}
