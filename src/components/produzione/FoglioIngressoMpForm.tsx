@@ -385,6 +385,76 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     return res.item;
   }
 
+  async function salvaParziale() {
+    const saved = await salva();
+    if (testMode) {
+      setTestNotice((cur) =>
+        cur
+          ? `${cur} Andrebbe in Aperti.`
+          : "Controlli ok. Andrebbe in Aperti, senza salvataggio."
+      );
+      return;
+    }
+    if (!saved) return;
+    router.push("/app/produzione/foglio-ingresso-mp/aperti");
+  }
+
+  async function dichiaraCompletato() {
+    setError(null);
+    setTestNotice(null);
+    const fotoErr = fotoCaricoMancanti();
+    if (fotoErr) {
+      setError(fotoErr);
+      return;
+    }
+    if (!righe.some((r) => r.confezionamentoId)) {
+      setError("Seleziona almeno un confezionamento e il numero.");
+      return;
+    }
+    if (testMode) {
+      setBusy(true);
+      const res = await provaFoglioIngressoMpAction(
+        provaInput({
+          generaLotto: !lottoMostrato,
+          chiudi: true,
+        })
+      );
+      setBusy(false);
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setTestNotice(`${res.messaggio} Andrebbe in Storico, senza salvataggio.`);
+      return;
+    }
+    setBusy(true);
+    const savedRes = await saveFoglioIngressoMpAction(payload);
+    if (!savedRes.success) {
+      setBusy(false);
+      setError(savedRes.error);
+      return;
+    }
+    applyItem(savedRes.item);
+    let foglio = savedRes.item;
+    if (!foglio.lottoCodice) {
+      const gen = await generaLottoIngressoMpAction(foglio.id);
+      if (!gen.success) {
+        setBusy(false);
+        setError(gen.error);
+        return;
+      }
+      applyItem(gen.item);
+      foglio = gen.item;
+    }
+    const closed = await chiudiFoglioIngressoMpAction(foglio.id);
+    setBusy(false);
+    if (!closed.success) {
+      setError(closed.error);
+      return;
+    }
+    router.push("/app/produzione/foglio-ingresso-mp/storico");
+  }
+
   async function genera() {
     setError(null);
     setTestNotice(null);
@@ -444,32 +514,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         block: "start",
       });
     }, 80);
-  }
-
-  async function chiudi() {
-    if (testMode) {
-      setBusy(true);
-      setError(null);
-      const res = await provaFoglioIngressoMpAction(provaInput({ chiudi: true }));
-      setBusy(false);
-      if (!res.success) {
-        setError(res.error);
-        return;
-      }
-      setTestNotice(`${res.messaggio} Salvataggio non eseguito.`);
-      return;
-    }
-    if (!item) return;
-    setBusy(true);
-    const res = await chiudiFoglioIngressoMpAction(item.id);
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
-      return;
-    }
-    const fresh = await getFoglioIngressoMpAction(item.id);
-    if (fresh.success) applyItem(fresh.item);
-    router.push("/app/produzione/foglio-ingresso-mp/storico");
   }
 
   if (loading) {
@@ -1010,16 +1054,6 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       </section>
 
       <div className="flex flex-wrap gap-2">
-        {!locked ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void salva()}
-            className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
-          >
-            Salva bozza
-          </button>
-        ) : null}
         {!locked && !lottoMostrato ? (
           <button
             type="button"
@@ -1030,14 +1064,24 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
             13. Genera codice lotto
           </button>
         ) : null}
-        {item?.documentoStato === "registrato" || (testMode && testLotto) ? (
+        {!locked ? (
           <button
             type="button"
             disabled={busy}
-            onClick={() => void chiudi()}
+            onClick={() => void dichiaraCompletato()}
+            className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white"
+          >
+            Dichiara completato
+          </button>
+        ) : null}
+        {!locked ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void salvaParziale()}
             className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm"
           >
-            Chiudi foglio
+            Salva Parziale
           </button>
         ) : null}
       </div>
