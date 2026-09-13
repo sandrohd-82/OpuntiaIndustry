@@ -118,6 +118,10 @@ export type FoglioIngressoMp = {
   ddtData: string | null;
   ddtFilePath: string | null;
   ddtFileName: string | null;
+  caricoLatoDestroPath: string | null;
+  caricoLatoDestroName: string | null;
+  caricoLatoSinistroPath: string | null;
+  caricoLatoSinistroName: string | null;
   arrivatoAt: string;
   mezzoId: string | null;
   mezzoTarga: string | null;
@@ -159,6 +163,16 @@ export const foglioIngressoSaveSchema = z.object({
   ),
   ddtFilePath: z.string().max(500).nullable().optional(),
   ddtFileName: z.string().max(200).nullable().optional(),
+  caricoLatoDestroPath: z.preprocess(
+    (v) => (typeof v === "string" ? v : ""),
+    z.string().trim().min(1, "Carica la foto del lato destro del carico")
+  ),
+  caricoLatoDestroName: z.string().max(200).nullable().optional(),
+  caricoLatoSinistroPath: z.preprocess(
+    (v) => (typeof v === "string" ? v : ""),
+    z.string().trim().min(1, "Carica la foto del lato sinistro del carico")
+  ),
+  caricoLatoSinistroName: z.string().max(200).nullable().optional(),
   arrivatoAt: z.string().min(1, "Data e ora arrivo obbligatorie"),
   mezzoId: z.string().uuid().nullable().optional(),
   autistaContattoId: z.string().uuid().nullable().optional(),

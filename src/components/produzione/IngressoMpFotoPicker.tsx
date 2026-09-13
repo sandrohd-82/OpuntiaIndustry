@@ -15,6 +15,8 @@ type Props = {
   /** Box di anteprima cliccabile (DDT) oppure pulsanti (foto mezzo). */
   variant?: "buttons" | "previewBox";
   disabled?: boolean;
+  /** Testo box vuoto in variant previewBox (default: Anteprima DDT). */
+  emptyLabel?: string;
   onUploaded: (path: string, fileName: string, url: string) => void;
 };
 
@@ -33,6 +35,7 @@ export function IngressoMpFotoPicker({
   testMode = false,
   variant = "buttons",
   disabled = false,
+  emptyLabel = "Anteprima DDT",
   onUploaded,
 }: Props) {
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +125,7 @@ export function IngressoMpFotoPicker({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={previewUrl}
-                alt={fileName || "Anteprima DDT"}
+                alt={fileName || emptyLabel}
                 className="h-full w-full object-cover"
               />
             ) : null}
@@ -137,7 +140,7 @@ export function IngressoMpFotoPicker({
             {!hasPreview ? (
               <div className="flex h-full flex-col items-center justify-center px-2 text-center">
                 <p className="text-[11px] font-semibold text-slate-700">
-                  Anteprima DDT
+                  {emptyLabel}
                 </p>
               </div>
             ) : null}

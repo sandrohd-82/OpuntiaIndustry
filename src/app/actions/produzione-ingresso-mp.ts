@@ -44,6 +44,10 @@ type FoglioRow = {
   ddt_data: string | null;
   ddt_file_path: string | null;
   ddt_file_name: string | null;
+  carico_lato_destro_path: string | null;
+  carico_lato_destro_name: string | null;
+  carico_lato_sinistro_path: string | null;
+  carico_lato_sinistro_name: string | null;
   arrivato_at: string;
   mezzo_id: string | null;
   autista_contatto_id: string | null;
@@ -88,6 +92,10 @@ function mapFoglio(
     ddtData: r.ddt_data ? String(r.ddt_data).slice(0, 10) : null,
     ddtFilePath: r.ddt_file_path,
     ddtFileName: r.ddt_file_name,
+    caricoLatoDestroPath: r.carico_lato_destro_path ?? null,
+    caricoLatoDestroName: r.carico_lato_destro_name ?? null,
+    caricoLatoSinistroPath: r.carico_lato_sinistro_path ?? null,
+    caricoLatoSinistroName: r.carico_lato_sinistro_name ?? null,
     arrivatoAt: r.arrivato_at,
     mezzoId: r.mezzo_id,
     mezzoTarga: extra.mezzoTarga,
@@ -777,6 +785,10 @@ export async function saveFoglioIngressoMpAction(raw: unknown): Promise<
     ddt_data: v.ddtData || null,
     ddt_file_path: v.ddtFilePath ?? null,
     ddt_file_name: v.ddtFileName ?? null,
+    carico_lato_destro_path: v.caricoLatoDestroPath,
+    carico_lato_destro_name: v.caricoLatoDestroName ?? null,
+    carico_lato_sinistro_path: v.caricoLatoSinistroPath,
+    carico_lato_sinistro_name: v.caricoLatoSinistroName ?? null,
     arrivato_at: new Date(v.arrivatoAt).toISOString(),
     mezzo_id: v.mezzoId ?? null,
     autista_contatto_id: v.autistaContattoId ?? null,
@@ -862,6 +874,8 @@ export async function saveFoglioIngressoMpAction(raw: unknown): Promise<
       materia_prima_id: v.materiaPrimaId,
       quantita: v.quantita,
       quantita_tipo: v.quantitaTipo,
+      carico_lato_destro_path: v.caricoLatoDestroPath,
+      carico_lato_sinistro_path: v.caricoLatoSinistroPath,
     },
   });
 
@@ -1056,7 +1070,11 @@ export async function uploadIngressoMpFileAction(
     mime.startsWith("image/") || mime === "application/pdf";
   if (!ok) return { success: false, error: "Consentiti immagini o PDF." };
   const ext = mime === "application/pdf" ? "pdf" : mime.includes("png") ? "png" : "jpg";
-  const folder = kind.startsWith("mezzo") ? "mezzi" : "ddt";
+  const folder = kind.startsWith("mezzo")
+    ? "mezzi"
+    : kind.startsWith("carico")
+      ? "carico"
+      : "ddt";
   const path = `${folder}/${ownerId || auth.userId}/${Date.now()}-${kind}.${ext}`;
   const supabase = await createClient();
   const buf = new Uint8Array(await file.arrayBuffer());
@@ -1092,6 +1110,48 @@ export async function attachDdtFoglioAction(input: {
     })
     .eq("id", input.foglioId);
   if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+export async function attachCaricoFotoFoglioAction(input: {
+  foglioId: string;
+  lato: "destro" | "sinistro";
+  path: string;
+  fileName: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("produzione");
+  if (input.lato !== "destro" && input.lato !== "sinistro") {
+    return { success: false, error: "Lato foto carico non valido." };
+  }
+  const supabase = await createClient();
+  const patch =
+    input.lato === "destro"
+      ? {
+          carico_lato_destro_path: input.path,
+          carico_lato_destro_name: input.fileName,
+        }
+      : {
+          carico_lato_sinistro_path: input.path,
+          carico_lato_sinistro_name: input.fileName,
+        };
+  const { error } = await supabase
+    .from("produzione_fogli_ingresso_mp")
+    .update({
+      ...patch,
+      updated_by: auth.userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.foglioId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  void writeAuditLog({
+    entity_type: "produzione_fogli_ingresso_mp",
+    entity_id: input.foglioId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Foto carico lato ${input.lato} sul foglio ingresso MP`,
+    payload: { lato: input.lato, path: input.path },
+  });
   return { success: true };
 }
 

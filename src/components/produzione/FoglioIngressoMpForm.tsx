@@ -6,6 +6,7 @@ import { FaPlus, FaTrash } from "react-icons/fa6";
 import { listPersoneMinimeAction } from "@/app/actions/organigramma";
 import {
   anteprimaMezzoIngressoAction,
+  attachCaricoFotoFoglioAction,
   attachDdtFoglioAction,
   attachMezzoFotoAction,
   chiudiFoglioIngressoMpAction,
@@ -82,6 +83,20 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [ddtFilePath, setDdtFilePath] = useState<string | null>(null);
   const [ddtFileName, setDdtFileName] = useState<string | null>(null);
   const [ddtPreview, setDdtPreview] = useState<string | null>(null);
+  const [caricoDestroPath, setCaricoDestroPath] = useState<string | null>(null);
+  const [caricoDestroName, setCaricoDestroName] = useState<string | null>(null);
+  const [caricoDestroPreview, setCaricoDestroPreview] = useState<string | null>(
+    null
+  );
+  const [caricoSinistroPath, setCaricoSinistroPath] = useState<string | null>(
+    null
+  );
+  const [caricoSinistroName, setCaricoSinistroName] = useState<string | null>(
+    null
+  );
+  const [caricoSinistroPreview, setCaricoSinistroPreview] = useState<
+    string | null
+  >(null);
   const [arrivatoAt, setArrivatoAt] = useState(nowLocal());
   const [mezzoId, setMezzoId] = useState("");
   const [autistaId, setAutistaId] = useState("");
@@ -144,6 +159,22 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       setDdtFileName(null);
       if (ddtPreview?.startsWith("blob:")) URL.revokeObjectURL(ddtPreview);
       setDdtPreview(null);
+    }
+    if (caricoDestroPath?.startsWith("test://")) {
+      setCaricoDestroPath(null);
+      setCaricoDestroName(null);
+      if (caricoDestroPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(caricoDestroPreview);
+      }
+      setCaricoDestroPreview(null);
+    }
+    if (caricoSinistroPath?.startsWith("test://")) {
+      setCaricoSinistroPath(null);
+      setCaricoSinistroName(null);
+      if (caricoSinistroPreview?.startsWith("blob:")) {
+        URL.revokeObjectURL(caricoSinistroPreview);
+      }
+      setCaricoSinistroPreview(null);
     }
     setFornitori((cur) => cur.filter((f) => !fornitoriLocali.has(f.id)));
     setMezzi((cur) => cur.filter((m) => !mezziLocali.has(m.id)));
@@ -215,10 +246,28 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           }))
         : [{ confezionamentoId: "", quantitaConfezioni: "" }]
     );
+    setCaricoDestroPath(next.caricoLatoDestroPath);
+    setCaricoDestroName(next.caricoLatoDestroName);
+    setCaricoSinistroPath(next.caricoLatoSinistroPath);
+    setCaricoSinistroName(next.caricoLatoSinistroName);
     if (next.ddtFilePath) {
       void signedIngressoMpUrlAction(next.ddtFilePath).then((u) => {
         if (u.success) setDdtPreview(u.url);
       });
+    }
+    if (next.caricoLatoDestroPath) {
+      void signedIngressoMpUrlAction(next.caricoLatoDestroPath).then((u) => {
+        if (u.success) setCaricoDestroPreview(u.url);
+      });
+    } else {
+      setCaricoDestroPreview(null);
+    }
+    if (next.caricoLatoSinistroPath) {
+      void signedIngressoMpUrlAction(next.caricoLatoSinistroPath).then((u) => {
+        if (u.success) setCaricoSinistroPreview(u.url);
+      });
+    } else {
+      setCaricoSinistroPreview(null);
     }
   }
 
@@ -237,6 +286,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       ddtData: ddtData || null,
       ddtFilePath,
       ddtFileName,
+      caricoLatoDestroPath: caricoDestroPath,
+      caricoLatoDestroName: caricoDestroName,
+      caricoLatoSinistroPath: caricoSinistroPath,
+      caricoLatoSinistroName: caricoSinistroName,
       arrivatoAt,
       mezzoId: mezzoId || null,
       autistaContattoId: autistaId || null,
@@ -264,6 +317,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       ddtData,
       ddtFilePath,
       ddtFileName,
+      caricoDestroPath,
+      caricoDestroName,
+      caricoSinistroPath,
+      caricoSinistroName,
       arrivatoAt,
       mezzoId,
       autistaId,
@@ -285,10 +342,26 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     };
   }
 
+  function fotoCaricoMancanti(): string | null {
+    if (!caricoSinistroPath) {
+      return "Carica la foto del lato sinistro del carico.";
+    }
+    if (!caricoDestroPath) {
+      return "Carica la foto del lato destro del carico.";
+    }
+    return null;
+  }
+
   async function salva(): Promise<FoglioIngressoMp | null> {
     setBusy(true);
     setError(null);
     setTestNotice(null);
+    const fotoErr = fotoCaricoMancanti();
+    if (fotoErr) {
+      setBusy(false);
+      setError(fotoErr);
+      return null;
+    }
     if (testMode) {
       const res = await provaFoglioIngressoMpAction(provaInput({}));
       setBusy(false);
@@ -316,6 +389,11 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     setError(null);
     setTestNotice(null);
     if (lottoMostrato) return;
+    const fotoErr = fotoCaricoMancanti();
+    if (fotoErr) {
+      setError(fotoErr);
+      return;
+    }
     if (!righe.some((r) => r.confezionamentoId)) {
       setError("Seleziona almeno un confezionamento e il numero.");
       return;
@@ -690,6 +768,67 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           onChange={(e) => setArrivatoAt(e.target.value)}
           className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
         />
+        <p className="pt-1 text-sm font-medium">
+          Foto carico all&apos;arrivo del mezzo
+        </p>
+        <p className="text-xs text-[var(--muted)]">
+          Obbligatorie: una foto del lato sinistro e una del lato destro del
+          carico.
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Lato sinistro del carico</p>
+            <IngressoMpFotoPicker
+              kind="carico_sinistro"
+              ownerId={item?.id ?? uploadOwner}
+              variant="previewBox"
+              emptyLabel="Lato sinistro"
+              testMode={testMode}
+              disabled={locked}
+              previewUrl={caricoSinistroPreview}
+              fileName={caricoSinistroName}
+              onUploaded={(path, fileName, url) => {
+                setCaricoSinistroPath(path);
+                setCaricoSinistroName(fileName);
+                setCaricoSinistroPreview(url);
+                if (item?.id && !testMode) {
+                  void attachCaricoFotoFoglioAction({
+                    foglioId: item.id,
+                    lato: "sinistro",
+                    path,
+                    fileName,
+                  });
+                }
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Lato destro del carico</p>
+            <IngressoMpFotoPicker
+              kind="carico_destro"
+              ownerId={item?.id ?? uploadOwner}
+              variant="previewBox"
+              emptyLabel="Lato destro"
+              testMode={testMode}
+              disabled={locked}
+              previewUrl={caricoDestroPreview}
+              fileName={caricoDestroName}
+              onUploaded={(path, fileName, url) => {
+                setCaricoDestroPath(path);
+                setCaricoDestroName(fileName);
+                setCaricoDestroPreview(url);
+                if (item?.id && !testMode) {
+                  void attachCaricoFotoFoglioAction({
+                    foglioId: item.id,
+                    lato: "destro",
+                    path,
+                    fileName,
+                  });
+                }
+              }}
+            />
+          </div>
+        </div>
       </section>
 
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
