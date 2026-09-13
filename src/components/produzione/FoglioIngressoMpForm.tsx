@@ -711,43 +711,43 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           return (
             <div
               key={i}
-              className="flex w-full max-w-3xl flex-wrap items-end gap-3 rounded-lg border border-dashed border-[var(--border)] p-3"
+              className="flex items-end gap-2 rounded-lg border border-dashed border-[var(--border)] p-3"
             >
-              <label className="min-w-[16rem] flex-1 basis-[16rem] text-sm">
-                <span className="mb-1 block font-medium">Confezionamento</span>
-                <SelectMenu
-                  disabled={locked}
-                  loading={!catalogReady}
-                  placeholder="Seleziona confezionamento"
-                  value={r.confezionamentoId}
-                  onChange={(e) =>
-                    setRighe((cur) =>
-                      cur.map((x, idx) =>
-                        idx === i
-                          ? {
-                              ...x,
-                              confezionamentoId: e.target.value,
-                              quantitaConfezioni: x.quantitaConfezioni.trim()
-                                ? x.quantitaConfezioni
-                                : "1",
-                            }
-                          : x
+              <div className="grid min-w-0 flex-1 grid-cols-4 gap-3">
+                <label className="col-span-3 min-w-0 text-sm">
+                  <span className="mb-1 block font-medium">Confezionamento</span>
+                  <SelectMenu
+                    disabled={locked}
+                    loading={!catalogReady}
+                    placeholder="Seleziona confezionamento"
+                    value={r.confezionamentoId}
+                    onChange={(e) =>
+                      setRighe((cur) =>
+                        cur.map((x, idx) =>
+                          idx === i
+                            ? {
+                                ...x,
+                                confezionamentoId: e.target.value,
+                                quantitaConfezioni: x.quantitaConfezioni.trim()
+                                  ? x.quantitaConfezioni
+                                  : "1",
+                              }
+                            : x
+                        )
                       )
-                    )
-                  }
-                >
-                  {catalogo.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nome}
-                      {c.mediaPesoKg != null
-                        ? ` · media ${c.mediaPesoKg} kg`
-                        : ""}
-                    </option>
-                  ))}
-                </SelectMenu>
-              </label>
-              <div className="flex min-w-0 flex-1 items-end gap-2">
-                <label className="w-28 shrink-0 text-sm">
+                    }
+                  >
+                    {catalogo.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                        {c.mediaPesoKg != null
+                          ? ` · media ${c.mediaPesoKg} kg`
+                          : ""}
+                      </option>
+                    ))}
+                  </SelectMenu>
+                </label>
+                <label className="col-span-1 min-w-0 text-sm">
                   <span className="mb-1 block font-medium">Numero</span>
                   <input
                     disabled={locked}
@@ -764,12 +764,12 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                     inputMode="numeric"
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   />
+                  {cat ? (
+                    <p className="mt-1 truncate text-xs font-medium text-slate-700">
+                      {cat.nome}
+                    </p>
+                  ) : null}
                 </label>
-                {cat ? (
-                  <p className="mb-2 min-w-0 truncate text-sm font-medium text-slate-800">
-                    {cat.nome}
-                  </p>
-                ) : null}
               </div>
               {!locked && righe.length > 1 ? (
                 <button
@@ -777,7 +777,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   onClick={() =>
                     setRighe((cur) => cur.filter((_, idx) => idx !== i))
                   }
-                  className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-slate-600"
+                  className="mb-0.5 shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-slate-600"
                   aria-label="Rimuovi riga"
                 >
                   <FaTrash size={12} />
