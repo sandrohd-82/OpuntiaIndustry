@@ -711,9 +711,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           return (
             <div
               key={i}
-              className="flex flex-wrap items-end gap-3 rounded-lg border border-dashed border-[var(--border)] p-3"
+              className="flex w-full max-w-3xl flex-wrap items-end gap-3 rounded-lg border border-dashed border-[var(--border)] p-3"
             >
-              <label className="w-56 shrink-0 text-sm sm:w-64">
+              <label className="min-w-[16rem] flex-1 basis-[16rem] text-sm">
                 <span className="mb-1 block font-medium">Confezionamento</span>
                 <SelectMenu
                   disabled={locked}
@@ -746,8 +746,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
                   ))}
                 </SelectMenu>
               </label>
-              <div className="flex min-w-0 items-end gap-2">
-                <label className="w-24 shrink-0 text-sm">
+              <div className="flex min-w-0 flex-1 items-end gap-2">
+                <label className="w-28 shrink-0 text-sm">
                   <span className="mb-1 block font-medium">Numero</span>
                   <input
                     disabled={locked}
