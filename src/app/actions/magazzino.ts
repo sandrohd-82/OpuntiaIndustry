@@ -36,6 +36,11 @@ import {
   nextProgressivoLabel,
   parseLottoAgrinsicilia,
 } from "@/lib/magazzino/lotto-agrinsicilia";
+import {
+  composeLottoIngressoMp,
+  isValidLottoIngressoMp,
+  prefixLottoDaData,
+} from "@/lib/produzione/fogli-ingresso-mp";
 import { createClient } from "@/lib/supabase/server";
 
 type GiacenzaRow = {
@@ -1190,4 +1195,67 @@ export async function nextLottoProgressivoAgrinsiciliaAction(input: {
     success: true,
     progressivo: nextProgressivoLabel(maxProgressivoDaLotti(lotti, targa, anno)),
   };
+}
+
+function randomHexInventario(): number {
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return 0xa0000 + (buf[0] % (0xfffff - 0xa0000 + 1));
+}
+
+/**
+ * Codice MP (GGMMAA + 5 hex) per carico inventario senza ingresso
+ * né foglio di lavorazione. Non crea un foglio: solo codice tracciato.
+ */
+export async function generaCodiceMpInventarioAction(): Promise<
+  { success: true; codice: string } | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("magazzino");
+  const prefix = prefixLottoDaData(new Date());
+  const supabase = await createClient();
+  const [{ data: fogli }, { data: mov }] = await Promise.all([
+    supabase
+      .from("produzione_fogli_ingresso_mp")
+      .select("lotto_codice")
+      .is("deleted_at", null)
+      .like("lotto_codice", `${prefix}%`),
+    supabase
+      .from("magazzino_movimenti")
+      .select("lotto_codice")
+      .is("deleted_at", null)
+      .not("lotto_codice", "is", null),
+  ]);
+  const used = new Set<string>();
+  for (const r of (fogli ?? []) as Array<{ lotto_codice: string | null }>) {
+    const v = (r.lotto_codice ?? "").trim().toUpperCase();
+    if (v) used.add(v);
+  }
+  for (const r of (mov ?? []) as Array<{ lotto_codice: string | null }>) {
+    const p = parseLottoAgrinsicilia(r.lotto_codice ?? "");
+    const v = (p?.ddt ?? "").trim().toUpperCase();
+    if (v) used.add(v);
+  }
+
+  let codice = "";
+  for (let i = 0; i < 32; i++) {
+    const candidate = composeLottoIngressoMp(prefix, randomHexInventario());
+    if (isValidLottoIngressoMp(candidate) && !used.has(candidate)) {
+      codice = candidate;
+      break;
+    }
+  }
+  if (!codice) {
+    return { success: false, error: "Impossibile generare un codice MP libero." };
+  }
+
+  void writeAuditLog({
+    entity_type: "magazzino_codice_mp_inventario",
+    entity_id: crypto.randomUUID(),
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Generato codice MP inventario ${codice} (senza storico ingresso)`,
+    payload: { codice, origine: "inventario", prefix },
+  });
+
+  return { success: true, codice };
 }

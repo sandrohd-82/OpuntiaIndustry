@@ -3,6 +3,7 @@
 import { forwardRef, useEffect, useId, useRef, useState } from "react";
 import { listCodiciMpLavorataMagazzinoAction } from "@/app/actions/produzione-ingresso-mp";
 import {
+  generaCodiceMpInventarioAction,
   listFornitoriTargaMagazzinoAction,
   nextLottoProgressivoAgrinsiciliaAction,
   type FornitoreTargaMagazzino,
@@ -68,6 +69,7 @@ export function LottoAgrinsiciliaModal({
   >([]);
   const [codiceMpSel, setCodiceMpSel] = useState("");
   const [listsReady, setListsReady] = useState(false);
+  const [generaMpBusy, setGeneraMpBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dayRef = useRef<HTMLInputElement>(null);
   const monthRef = useRef<HTMLInputElement>(null);
@@ -165,6 +167,36 @@ export function LottoAgrinsiciliaModal({
       const full = formatPartialDate(parts.join(""));
       if (!full.includes("_")) void refreshProgressivo(full);
     }
+  }
+
+  async function generaCodiceMpInventario() {
+    setError(null);
+    setGeneraMpBusy(true);
+    const res = await generaCodiceMpInventarioAction();
+    setGeneraMpBusy(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    const codice = res.codice;
+    setCodiciMp((cur) =>
+      cur.some((x) => x.lotto === codice)
+        ? cur
+        : [
+            {
+              lotto: codice,
+              fornitoreTarga: parti.targaFornitore || "INV",
+              fornitoreLabel: "Inventario (senza storico)",
+              materiaPrima: "Inventario",
+            },
+            ...cur,
+          ]
+    );
+    setCodiceMpSel(codice);
+    patch({
+      ddt: codice,
+      targaFornitore: parti.targaFornitore || "INV",
+    });
   }
 
   function confirm() {
@@ -333,6 +365,20 @@ export function LottoAgrinsiciliaModal({
               </option>
             ))}
           </SelectMenu>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Se il carico è da inventario e non c&apos;è ingresso né
+            lavorazione, genera un codice MP nuovo.
+          </p>
+          <button
+            type="button"
+            disabled={generaMpBusy}
+            onClick={() => void generaCodiceMpInventario()}
+            className="mt-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50"
+          >
+            {generaMpBusy
+              ? "Generazione…"
+              : "Genera codice MP inventario"}
+          </button>
         </label>
 
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
