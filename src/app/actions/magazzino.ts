@@ -1094,8 +1094,9 @@ export async function listFornitoriTargaMagazzinoAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("fornitori")
-    .select("id, codice_targa, ragione_sociale")
+    .select("id, codice_targa, ragione_sociale, tipologie")
     .is("deleted_at", null)
+    .contains("tipologie", ["materia_prima"])
     .order("codice_targa", { ascending: true });
   if (error) return { success: false, error: error.message };
   return {
@@ -1104,12 +1105,15 @@ export async function listFornitoriTargaMagazzinoAction(): Promise<
       id: string;
       codice_targa: string;
       ragione_sociale: string;
-    }>).map((r) => ({
-      id: r.id,
-      codiceTarga: r.codice_targa,
-      targaSenzaF: r.codice_targa.replace(/^F/i, ""),
-      ragioneSociale: r.ragione_sociale,
-    })),
+      tipologie?: string[] | null;
+    }>)
+      .filter((r) => (r.tipologie ?? []).includes("materia_prima"))
+      .map((r) => ({
+        id: r.id,
+        codiceTarga: r.codice_targa,
+        targaSenzaF: r.codice_targa.replace(/^F/i, ""),
+        ragioneSociale: r.ragione_sociale,
+      })),
   };
 }
 

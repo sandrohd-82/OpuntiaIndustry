@@ -415,7 +415,7 @@ export function LottoAgrinsiciliaModal({
             </span>
             <SelectMenu
               loading={!listsReady}
-              placeholder="Seleziona fornitore"
+              placeholder="Seleziona fornitore materia prima"
               value={
                 fornitori.some((f) => f.targaSenzaF === parti.targaFornitore)
                   ? parti.targaFornitore
