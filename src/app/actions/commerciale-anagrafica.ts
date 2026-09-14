@@ -38,6 +38,8 @@ export type CommercialeAnagraficaContext = {
   showAreaFilter: boolean;
   areaFilterOptions: CommercialeAreaOption[];
   includeAziendaArea: boolean;
+  /** Senior: il proprio id. Altri: tutte le aree. */
+  defaultAreaFilter: string;
 };
 
 const EMPTY_COMMERCIALE_CONTEXT: CommercialeAnagraficaContext = {
@@ -47,6 +49,7 @@ const EMPTY_COMMERCIALE_CONTEXT: CommercialeAnagraficaContext = {
   showAreaFilter: false,
   areaFilterOptions: [],
   includeAziendaArea: false,
+  defaultAreaFilter: "",
 };
 
 async function subtreeAreaFilterOptions(
@@ -147,6 +150,8 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
     op.grado === "senior" ||
     hasSubordinates;
   const includeAziendaArea = skip || !op.isCommerciale;
+  const defaultAreaFilter =
+    !skip && op.isCommerciale && showAreaFilter ? auth.userId : "";
   const areaFilterOptions =
     op.isCommerciale && showAreaFilter
       ? await subtreeAreaFilterOptions(auth.userId, lineageIds)
@@ -160,6 +165,7 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
       showAreaFilter,
       areaFilterOptions,
       includeAziendaArea,
+      defaultAreaFilter,
     };
   }
 
@@ -208,6 +214,7 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
       showAreaFilter,
       areaFilterOptions,
       includeAziendaArea,
+      defaultAreaFilter,
     };
   }
 
@@ -246,6 +253,7 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
     showAreaFilter,
     areaFilterOptions,
     includeAziendaArea,
+    defaultAreaFilter,
   };
 }
 

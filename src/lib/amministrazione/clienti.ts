@@ -251,23 +251,29 @@ export type ClientiFilters = {
   commercialeArea: string;
 };
 
-export function emptyClientiFilters(): ClientiFilters {
+export function emptyClientiFilters(
+  defaults?: Partial<Pick<ClientiFilters, "commercialeArea">>
+): ClientiFilters {
   return {
     letter: "",
     citta: "",
     query: "",
     volume: "",
-    commercialeArea: "",
+    commercialeArea: defaults?.commercialeArea ?? "",
   };
 }
 
-export function hasActiveClientiFilters(filters: ClientiFilters): boolean {
+export function hasActiveClientiFilters(
+  filters: ClientiFilters,
+  baseline?: Partial<Pick<ClientiFilters, "commercialeArea">>
+): boolean {
+  const empty = emptyClientiFilters(baseline);
   return (
     Boolean(filters.letter) ||
     Boolean(filters.citta.trim()) ||
     Boolean(filters.query.trim()) ||
     Boolean(filters.volume) ||
-    Boolean(filters.commercialeArea.trim())
+    filters.commercialeArea.trim() !== empty.commercialeArea.trim()
   );
 }
 

@@ -327,8 +327,11 @@ export function ClientiBoard() {
     CommercialeAreaOption[]
   >([]);
   const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
+  const [defaultCommercialeArea, setDefaultCommercialeArea] = useState("");
 
-  const filtersActive = hasActiveClientiFilters(filters);
+  const filtersActive = hasActiveClientiFilters(filters, {
+    commercialeArea: defaultCommercialeArea,
+  });
 
   function exitPdfSelectMode() {
     setPdfSelectMode(false);
@@ -378,10 +381,16 @@ export function ClientiBoard() {
       setShowAreaFilter(ctx.showAreaFilter);
       setAreaFilterOptions(ctx.areaFilterOptions);
       setIncludeAziendaArea(ctx.includeAziendaArea);
+      setDefaultCommercialeArea(ctx.defaultAreaFilter);
       if (!ctx.showAreaFilter) {
         setFilters((prev) =>
           prev.commercialeArea ? { ...prev, commercialeArea: "" } : prev
         );
+      } else if (ctx.defaultAreaFilter) {
+        setFilters((prev) => ({
+          ...prev,
+          commercialeArea: ctx.defaultAreaFilter,
+        }));
       }
     });
   }, []);
@@ -592,6 +601,7 @@ export function ClientiBoard() {
           hideCommercialeArea={!showAreaFilter}
           areaFilterOptions={areaFilterOptions}
           includeAziendaArea={includeAziendaArea}
+          defaultCommercialeArea={defaultCommercialeArea}
           onPickSuggestion={(id) => {
             setPdfSelectMode(true);
             setSelectedIds(new Set([id]));
@@ -623,7 +633,11 @@ export function ClientiBoard() {
           </p>
           <button
             type="button"
-            onClick={() => setFilters(emptyClientiFilters())}
+            onClick={() =>
+              setFilters(
+                emptyClientiFilters({ commercialeArea: defaultCommercialeArea })
+              )
+            }
             className="mt-4 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
           >
             Azzera filtri

@@ -269,11 +269,14 @@ export function PossibiliClientiBoard() {
     CommercialeAreaOption[]
   >([]);
   const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
+  const [defaultCommercialeArea, setDefaultCommercialeArea] = useState("");
   const [prodottiByCode, setProdottiByCode] = useState<
     Map<string, ProdottoProprio>
   >(() => new Map());
 
-  const filtersActive = hasActiveClientiFilters(filters);
+  const filtersActive = hasActiveClientiFilters(filters, {
+    commercialeArea: defaultCommercialeArea,
+  });
   const filtered = useMemo(() => filterClienti(items, filters), [items, filters]);
   const cittaOptions = useMemo(() => uniqueClientiCitta(items), [items]);
 
@@ -296,10 +299,16 @@ export function PossibiliClientiBoard() {
       setShowAreaFilter(ctx.showAreaFilter);
       setAreaFilterOptions(ctx.areaFilterOptions);
       setIncludeAziendaArea(ctx.includeAziendaArea);
+      setDefaultCommercialeArea(ctx.defaultAreaFilter);
       if (!ctx.showAreaFilter) {
         setFilters((prev) =>
           prev.commercialeArea ? { ...prev, commercialeArea: "" } : prev
         );
+      } else if (ctx.defaultAreaFilter) {
+        setFilters((prev) => ({
+          ...prev,
+          commercialeArea: ctx.defaultAreaFilter,
+        }));
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -372,6 +381,7 @@ export function PossibiliClientiBoard() {
           hideCommercialeArea={!showAreaFilter}
           areaFilterOptions={areaFilterOptions}
           includeAziendaArea={includeAziendaArea}
+          defaultCommercialeArea={defaultCommercialeArea}
           hint="Filtra per alfabeto, città, area commerciale (Azienda, R. Pisano, …) o ricerca istantanea."
           queryPlaceholder="Ragione sociale, P.IVA, città…"
         />
@@ -393,7 +403,11 @@ export function PossibiliClientiBoard() {
           </p>
           <button
             type="button"
-            onClick={() => setFilters(emptyClientiFilters())}
+            onClick={() =>
+              setFilters(
+                emptyClientiFilters({ commercialeArea: defaultCommercialeArea })
+              )
+            }
             className="mt-4 rounded-lg border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-slate-50"
           >
             Azzera filtri

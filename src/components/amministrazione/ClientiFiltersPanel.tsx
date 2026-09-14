@@ -6,6 +6,7 @@ import { CommercialeAreaFilterSelect } from "@/components/amministrazione/Commer
 import {
   CLIENTI_ALPHABET,
   emptyClientiFilters,
+  hasActiveClientiFilters,
   suggestClienti,
   type AnagraficaFiltroInput,
   type ClientiFilters,
@@ -28,6 +29,7 @@ type Props = {
   hideCommercialeArea?: boolean;
   areaFilterOptions?: CommercialeAreaOption[];
   includeAziendaArea?: boolean;
+  defaultCommercialeArea?: string;
 };
 
 export function ClientiFiltersPanel({
@@ -45,6 +47,7 @@ export function ClientiFiltersPanel({
   hideCommercialeArea = false,
   areaFilterOptions,
   includeAziendaArea = true,
+  defaultCommercialeArea = "",
 }: Props) {
   const [suggestOpen, setSuggestOpen] = useState(false);
 
@@ -52,12 +55,9 @@ export function ClientiFiltersPanel({
     onChange({ ...value, ...partial });
   }
 
-  const active =
-    Boolean(value.letter) ||
-    Boolean(value.citta.trim()) ||
-    Boolean(value.query.trim()) ||
-    Boolean(value.volume) ||
-    Boolean(value.commercialeArea.trim());
+  const active = hasActiveClientiFilters(value, {
+    commercialeArea: defaultCommercialeArea,
+  });
 
   const suggestions = useMemo(
     () => suggestClienti(clienti, value.query, 8),
@@ -78,7 +78,13 @@ export function ClientiFiltersPanel({
           {active && (
             <button
               type="button"
-              onClick={() => onChange(emptyClientiFilters())}
+              onClick={() =>
+                onChange(
+                  emptyClientiFilters({
+                    commercialeArea: defaultCommercialeArea,
+                  })
+                )
+              }
               className="inline-flex items-center gap-1 font-medium text-[var(--primary)] hover:underline"
             >
               <FaXmark size={11} />

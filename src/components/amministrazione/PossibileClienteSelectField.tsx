@@ -60,11 +60,18 @@ export function PossibileClienteSelectField({
     showFilter: showAreaFilter,
     options: areaFilterOptions,
     includeAzienda,
+    defaultArea,
+    ready: filterReady,
   } = useCommercialeAreaFilter();
   const [creating, setCreating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [commercialeArea, setCommercialeArea] = useState("");
+
+  useEffect(() => {
+    if (!filterReady) return;
+    setCommercialeArea(defaultArea);
+  }, [filterReady, defaultArea]);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);

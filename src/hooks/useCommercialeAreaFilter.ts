@@ -8,6 +8,7 @@ export function useCommercialeAreaFilter() {
   const [showFilter, setShowFilter] = useState(false);
   const [options, setOptions] = useState<CommercialeAreaOption[]>([]);
   const [includeAzienda, setIncludeAzienda] = useState(false);
+  const [defaultArea, setDefaultArea] = useState("");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -15,9 +16,10 @@ export function useCommercialeAreaFilter() {
       setShowFilter(ctx.showAreaFilter);
       setOptions(ctx.areaFilterOptions);
       setIncludeAzienda(ctx.includeAziendaArea);
+      setDefaultArea(ctx.defaultAreaFilter);
       setReady(true);
     });
   }, []);
 
-  return { ready, showFilter, options, includeAzienda };
+  return { ready, showFilter, options, includeAzienda, defaultArea };
 }
