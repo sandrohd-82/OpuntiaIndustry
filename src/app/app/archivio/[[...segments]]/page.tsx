@@ -15,6 +15,7 @@ import { MagazzinoProdottiBoard } from "@/components/magazzino/MagazzinoProdotti
 import { NoteAcquistoBoard } from "@/components/magazzino/NoteAcquistoBoard";
 import { WebmailBoard } from "@/components/commerciale/WebmailBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ArchivioTutorialBoard } from "@/components/archivio/ArchivioTutorialBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { requireArchivioSource, requireAreaAccess } from "@/lib/areas/guard";
 import {
@@ -57,6 +58,22 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
     const { auth } = await requireAreaAccess("archivio");
     const nav = filterArchivioNavByAccess(auth.areas);
     redirect(getFirstArchivioPath(nav));
+  }
+
+  if (segments[0] === "tutorial") {
+    await requireAreaAccess("archivio");
+    if (segments.length > 1) notFound();
+    return (
+      <>
+        <AppHeader
+          title="Tutorial"
+          subtitle="Guida di ogni area, funzione, lotto e processo — cerca e apri le schede qui dentro"
+        />
+        <div className="p-6">
+          <ArchivioTutorialBoard />
+        </div>
+      </>
+    );
   }
 
   if (!source) notFound();

@@ -9,6 +9,13 @@ import type { AreaSlug, UserArea } from "@/types/database";
 /** Menu Archivio: stessi rami dell’area originale, solo voci di storico/archivio. */
 export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
   {
+    slug: "tutorial",
+    label: "Tutorial",
+    description:
+      "Guida di tutte le aree, i lotti e i processi (indice e ricerca nella pagina)",
+    path: "/app/archivio/tutorial",
+  },
+  {
     slug: "amministrazione",
     label: "Amministrazione",
     description: "Storico ordini e registro accessi",
@@ -254,6 +261,7 @@ export function filterArchivioNavByAccess(
     have.has("amministrazione") ||
     have.has("commerciale");
   return sections.filter((item) => {
+    if (item.slug === "tutorial") return have.has("archivio");
     if (item.slug === "webmail") return webmailOk;
     return have.has(item.slug as AreaSlug);
   });
