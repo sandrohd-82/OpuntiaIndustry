@@ -52,7 +52,7 @@ export default async function ProduzioneSectionPage({
     );
   }
   if (section === "strumenti") {
-    redirect("/app/produzione/strumenti/generatore-lotti");
+    redirect("/app/strumenti/generatore-lotti");
   }
 
   if (section === "reparti") {

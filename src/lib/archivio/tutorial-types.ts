@@ -42,6 +42,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
   { id: "magazzino", title: "Magazzino" },
   { id: "promemorie-e-note", title: "Promemorie e note" },
   { id: "area-fiscale", title: "Area Fiscale" },
+  { id: "strumenti", title: "Strumenti" },
   { id: "area-fornitori", title: "Gestionale Fornitori" },
   { id: "impostazioni", title: "Impostazioni" },
   { id: "archivio", title: "Archivio" },

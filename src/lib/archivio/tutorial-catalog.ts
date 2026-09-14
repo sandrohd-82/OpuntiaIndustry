@@ -9,6 +9,7 @@ import { AREA_ROUTES } from "@/lib/areas/config";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 import { PRODUZIONE_SECTIONS } from "@/lib/areas/produzione";
+import { STRUMENTI_SECTIONS } from "@/lib/areas/strumenti";
 import { PROMEMORIE_E_NOTE_SECTIONS } from "@/lib/areas/promemorie-e-note";
 import { RICERCA_SVILUPPO_SECTIONS } from "@/lib/areas/ricerca-sviluppo";
 import {
@@ -234,6 +235,14 @@ function buildPageArticles(): TutorialArticle[] {
     "area-fiscale",
     "Area Fiscale",
     ["Area Fiscale"],
+    out,
+    seen
+  );
+  walkNav(
+    STRUMENTI_SECTIONS,
+    "strumenti",
+    "Strumenti",
+    ["Strumenti"],
     out,
     seen
   );

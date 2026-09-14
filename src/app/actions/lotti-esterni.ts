@@ -1,7 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { getPublicAppUrl } from "@/lib/auth/app-url";
 import { isValidLottoIngressoMp } from "@/lib/produzione/fogli-ingresso-mp";
 import {
@@ -277,7 +277,7 @@ export async function generaLottoUscitaFoglioAction(
   | { success: true; lotto: LottoEsterno; created: boolean }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("produzione");
+  const { auth } = await requireAnyAreaAccess(["strumenti", "produzione"]);
   if (!foglioId) return { success: false, error: "Foglio mancante." };
   return ensureLottoUscitaPerFoglio({ foglioId, userId: auth.userId });
 }
@@ -286,7 +286,7 @@ export async function listLottiEsterniAction(): Promise<
   | { success: true; items: LottoEsterno[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
+  await requireAnyAreaAccess(["strumenti", "produzione"]);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("lotti_esterni")
@@ -335,7 +335,7 @@ export async function listLottiEsterniAction(): Promise<
 export async function getLottoEsternoByCodiceAction(codice: string): Promise<
   { success: true; lotto: LottoEsterno } | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
+  await requireAnyAreaAccess(["strumenti", "produzione"]);
   const raw = codice.trim().toUpperCase();
   if (!isValidLottoUscita(raw)) {
     return { success: false, error: "Codice lotto in uscita non valido (10 caratteri SSAA + 6 hex)." };
@@ -372,7 +372,7 @@ export async function getLottoEsternoByCodiceAction(codice: string): Promise<
 export async function updateVisibilitaLottoAction(
   raw: unknown
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await requireAreaAccess("produzione");
+  const { auth } = await requireAnyAreaAccess(["strumenti", "produzione"]);
   const parsed = visibilitaSaveSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };
@@ -415,7 +415,7 @@ export async function risolviLottoUscitaPerVenditaAction(
 ): Promise<
   { success: true; lotto: LottoEsterno } | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
+  await requireAnyAreaAccess(["strumenti", "produzione"]);
   const unique = [...new Set(lottiIds.filter(Boolean))];
   if (unique.length === 0) {
     return { success: false, error: "Nessun lotto di provenienza." };
@@ -445,7 +445,7 @@ export async function creaLottoUscitaCompositoAction(
 ): Promise<
   { success: true; lotto: LottoEsterno } | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("produzione");
+  const { auth } = await requireAnyAreaAccess(["strumenti", "produzione"]);
   const parsed = compositoCreateSchema.safeParse(raw);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Dati non validi." };

@@ -21,6 +21,7 @@ import {
   FaIndustry,
   FaPlus,
   FaTruck,
+  FaWrench,
 } from "react-icons/fa6";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
@@ -28,6 +29,7 @@ import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { ACTION_SECTIONS } from "@/lib/areas/action";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
+import { STRUMENTI_SECTIONS } from "@/lib/areas/strumenti";
 import {
   SIDEBAR_AREA_ORDER,
   SIDEBAR_HIDDEN_AREAS,
@@ -136,6 +138,8 @@ function sectionsForArea(
       return AMMINISTRAZIONE_SECTIONS;
     case "area-fiscale":
       return AREA_FISCALE_SECTIONS;
+    case "strumenti":
+      return STRUMENTI_SECTIONS;
     case "chat":
       return null;
     case "webmail":
@@ -174,6 +178,8 @@ function AreaIcon({ slug }: { slug: string }) {
       return <FaClipboardList className={cls} />;
     case "area-fiscale":
       return <FaCalculator className={cls} />;
+    case "strumenti":
+      return <FaWrench className={cls} />;
     case "area-fornitori":
       return <FaTruck className={cls} />;
     case "impostazioni":

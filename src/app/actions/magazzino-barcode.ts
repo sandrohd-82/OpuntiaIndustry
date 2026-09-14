@@ -139,7 +139,7 @@ export async function listBarcodeRegistratiAction(
   | { success: true; items: BarcodeRegistratoRiga[] }
   | { success: false; error: string }
 > {
-  await requireAnyAreaAccess(["produzione", "magazzino"]);
+  await requireAnyAreaAccess(["strumenti", "produzione", "magazzino"]);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from(catalogTable(catalogKind))

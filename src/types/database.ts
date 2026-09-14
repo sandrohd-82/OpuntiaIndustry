@@ -16,6 +16,7 @@ export type AreaSlug =
   | "acquisti"
   | "hr"
   | "area-fiscale"
+  | "strumenti"
   | "amministrazione"
   | "chat"
   | "webmail"

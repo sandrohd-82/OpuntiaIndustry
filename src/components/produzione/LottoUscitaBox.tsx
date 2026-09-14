@@ -150,7 +150,7 @@ export function LottoUscitaBox({ foglioId, lottoCodice }: Props) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            href={`/app/produzione/strumenti/decifratore?codice=${lotto.codice}`}
+            href={`/app/strumenti/decifratore?codice=${lotto.codice}`}
             className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm text-sky-800"
           >
             Decifratore

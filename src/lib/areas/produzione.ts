@@ -71,47 +71,6 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "strumenti",
-    label: "Strumenti",
-    description:
-      "Generatore e decifratore lotti, barcode e utilità del gestionale",
-    path: "/app/produzione/strumenti",
-    children: [
-      {
-        slug: "generatore-lotti",
-        label: "Generatore di Lotti",
-        description:
-          "Lotti esterni di vendita (10 caratteri) e lotti inclusivi",
-        path: "/app/produzione/strumenti/generatore-lotti",
-      },
-      {
-        slug: "decifratore",
-        label: "Decifratore di lotti",
-        description:
-          "Smonta un lotto in uscita e mostra la storia del prodotto",
-        path: "/app/produzione/strumenti/decifratore",
-      },
-      {
-        slug: "generatore-barcode",
-        label: "Generatore barcode",
-        description: "Stampa barcode e QR da un testo o da un lotto",
-        path: "/app/produzione/strumenti/generatore-barcode",
-      },
-      {
-        slug: "barcode-mp",
-        label: "Barcode registrati Mp",
-        description: "Barcode già associati alle schede materia prima",
-        path: "/app/produzione/strumenti/barcode-mp",
-      },
-      {
-        slug: "barcode-prodotti",
-        label: "Barcode registrati prodotti",
-        description: "Barcode già associati alle schede prodotti fornitore",
-        path: "/app/produzione/strumenti/barcode-prodotti",
-      },
-    ],
-  },
-  {
     slug: "ordini",
     label: "Ordini",
     description: "Processazione ordini e inserimento in scaletta",
@@ -366,11 +325,6 @@ export function mergeProduzioneNavWithAree(
     };
   });
 }
-
-export const STRUMENTI_GENERATORE_LOTTI_PATH =
-  "/app/produzione/strumenti/generatore-lotti";
-export const STRUMENTI_DECIFRATORE_PATH =
-  "/app/produzione/strumenti/decifratore";
 
 export function getFirstProduzionePath(): string {
   return firstNavLeafPath(PRODUZIONE_SECTIONS);

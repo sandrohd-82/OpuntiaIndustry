@@ -5,10 +5,6 @@ import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzion
 import { FoglioIngressoMpForm } from "@/components/produzione/FoglioIngressoMpForm";
 import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
-import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
-import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
-import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
-import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
 import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
@@ -43,14 +39,23 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
     redirect("/app/archivio/produzione/fogli-lavorazione/storico");
   }
   if (section === "fogli-lavorazione" && sub === "lotti-uscita") {
-    redirect("/app/produzione/strumenti/generatore-lotti");
+    redirect("/app/strumenti/generatore-lotti");
   }
   if (section === "fogli-lavorazione" && sub === "decifratore") {
     const codice = query.codice?.trim();
     redirect(
       codice
-        ? `/app/produzione/strumenti/decifratore?codice=${encodeURIComponent(codice)}`
-        : "/app/produzione/strumenti/decifratore"
+        ? `/app/strumenti/decifratore?codice=${encodeURIComponent(codice)}`
+        : "/app/strumenti/decifratore"
+    );
+  }
+  if (section === "strumenti") {
+    const codice = query.codice?.trim();
+    const dest = `/app/strumenti/${sub}`;
+    redirect(
+      sub === "decifratore" && codice
+        ? `${dest}?codice=${encodeURIComponent(codice)}`
+        : dest
     );
   }
   const page = await resolveProduzioneDynamic([section, sub]);
@@ -126,61 +131,6 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ProcessiAttivitaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "strumenti" && sub === "generatore-lotti") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <LottiEsterniBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "strumenti" && sub === "decifratore") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <LottoEsternoDecoderBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "strumenti" && sub === "generatore-barcode") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <BarcodeGeneratoreBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "strumenti" && sub === "barcode-mp") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <BarcodeRegistratiBoard catalogKind="materia_prima" />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "strumenti" && sub === "barcode-prodotti") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
-          <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
         </div>
       </>
     );

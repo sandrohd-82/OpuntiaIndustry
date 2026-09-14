@@ -133,7 +133,7 @@ export function LottiEsterniBoard() {
                   <td className="px-3 py-2">{l.prodottoNome ?? "—"}</td>
                   <td className="px-3 py-2 text-right">
                     <Link
-                      href={`/app/produzione/strumenti/decifratore?codice=${l.codice}`}
+                      href={`/app/strumenti/decifratore?codice=${l.codice}`}
                       className="text-sky-700 underline"
                     >
                       Decifra

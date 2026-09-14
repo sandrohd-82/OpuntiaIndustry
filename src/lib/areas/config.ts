@@ -60,6 +60,12 @@ export const AREA_ROUTES: Record<
     label: "Area Fiscale",
     description: "Fatture, banca, calcoli e commercialista",
   },
+  strumenti: {
+    path: "/app/strumenti",
+    label: "Strumenti",
+    description:
+      "Generatore e decifratore lotti, barcode e utilità del gestionale",
+  },
   "area-fornitori": {
     path: "/app/area-fornitori",
     label: "Gestionale Fornitori",
@@ -111,6 +117,7 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "magazzino",
   "promemorie-e-note",
   "area-fiscale",
+  "strumenti",
   "area-fornitori",
   "impostazioni",
   "archivio",
