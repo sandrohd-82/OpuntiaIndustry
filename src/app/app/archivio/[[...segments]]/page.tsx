@@ -7,6 +7,7 @@ import { CatalogoOffertaBoard } from "@/components/amministrazione/CatalogoOffer
 import { ChatArgomentiStoricoBoard } from "@/components/chat/ChatArgomentiStoricoBoard";
 import { ChatDiretteEliminateBoard } from "@/components/chat/ChatDiretteEliminateBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { ProcessiStoricoBoard } from "@/components/produzione/ProcessiStoricoBoard";
 import { ProcessiAttivitaStoricoBoard } from "@/components/produzione/ProcessiAttivitaStoricoBoard";
 import { RsRicercheBoard } from "@/components/ricerca-sviluppo/RsRicercheBoard";
@@ -176,6 +177,17 @@ export default async function ArchivioCatchAllPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <RsRicercheBoard tipo={null} mode="archivio" />
+        </div>
+      </>
+    );
+  }
+
+  if (key === "produzione/foglio-ingresso-mp/storico") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <FogliIngressoMpBoard storico />
         </div>
       </>
     );

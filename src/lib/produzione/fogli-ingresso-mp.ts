@@ -74,6 +74,16 @@ export function labelStatoIngresso(stato: IngressoMpStato): string {
   return "Chiuso";
 }
 
+export const INGRESSO_MP_ORIGINI = ["ingresso", "inventario_magazzino"] as const;
+export type IngressoMpOrigine = (typeof INGRESSO_MP_ORIGINI)[number];
+
+export function labelOrigineIngresso(origine: IngressoMpOrigine | null | undefined): string {
+  if (origine === "inventario_magazzino") {
+    return "Inventario / settaggio magazzino";
+  }
+  return "Ingresso produttore";
+}
+
 export type ConfezionamentoMp = {
   id: string;
   codice: string;
@@ -104,11 +114,15 @@ export type FoglioIngressoMp = {
   lottoCodice: string | null;
   versione: number;
   documentoStato: IngressoMpStato;
-  fornitoreId: string;
+  origine: IngressoMpOrigine;
+  lottoLavorazione: string | null;
+  prodottoProprioId: string | null;
+  movimentoMagazzinoId: string | null;
+  fornitoreId: string | null;
   fornitoreLabel: string;
   fornitoreTarga: string;
   fornitoreBio: boolean;
-  materiaPrimaId: string;
+  materiaPrimaId: string | null;
   materiaPrimaLabel: string;
   isBio: boolean;
   quantita: number;

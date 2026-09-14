@@ -58,6 +58,21 @@ export const ARCHIVIO_SECTIONS: readonly NavItem[] = [
     path: "/app/archivio/produzione",
     children: [
       {
+        slug: "foglio-ingresso-mp",
+        label: "Foglio Ingresso MP",
+        description: "Storico fogli ingresso e Codice MP Lavorata",
+        path: "/app/archivio/produzione/foglio-ingresso-mp",
+        children: [
+          {
+            slug: "storico",
+            label: "Storico",
+            description:
+              "Fogli ingresso chiusi e fogli Codice MP Lavorata da carico/settaggio magazzino",
+            path: "/app/archivio/produzione/foglio-ingresso-mp/storico",
+          },
+        ],
+      },
+      {
         slug: "fogli-lavorazione",
         label: "Fogli di lavorazione",
         description: "Storico fogli",

@@ -7,6 +7,7 @@ import {
   categoriaRequiresMagazzino,
   formatQuantitaCarico,
   isMagazzinoCaricoUnita,
+  MOTIVO_SENZA_FOGLIO_LABEL,
   movimentoManualeSchema,
   quantitaDaOrdinare,
   quantitaStockDaCarico,
@@ -42,6 +43,7 @@ import {
   prefixLottoDaData,
 } from "@/lib/produzione/fogli-ingresso-mp";
 import { createClient } from "@/lib/supabase/server";
+import { ensureFoglioMpInventarioDaCarico } from "@/app/actions/produzione-ingresso-mp";
 
 type GiacenzaRow = {
   id: string;
@@ -890,7 +892,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
   const { data, error } = await supabase
     .from("magazzino_movimenti")
     .select(
-      "id, created_at, prodotto_codice, quantita_kg, unita, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice)"
+      "id, created_at, prodotto_codice, quantita_kg, unita, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice), foglio_ingresso:produzione_fogli_ingresso_mp!foglio_ingresso_mp_id(codice, lotto_codice)"
     )
     .eq("catalog_kind", CATALOG_PROPRIO)
     .is("deleted_at", null)
@@ -909,8 +911,15 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
       motivo_senza_foglio: string | null;
       note: string | null;
       foglio: { codice: string } | { codice: string }[] | null;
+      foglio_ingresso:
+        | { codice: string; lotto_codice: string | null }
+        | { codice: string; lotto_codice: string | null }[]
+        | null;
     }>).map((r) => {
       const foglio = Array.isArray(r.foglio) ? r.foglio[0] : r.foglio;
+      const foglioIngresso = Array.isArray(r.foglio_ingresso)
+        ? r.foglio_ingresso[0]
+        : r.foglio_ingresso;
       const motivo =
         r.motivo_senza_foglio === "inventario" ||
         r.motivo_senza_foglio === "rivisita_ordine"
@@ -924,6 +933,8 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
         unita: isMagazzinoCaricoUnita(r.unita) ? r.unita : "kg",
         lottoCodice: r.lotto_codice ?? "",
         foglioCodice: foglio?.codice ?? null,
+        foglioIngressoCodice: foglioIngresso?.codice ?? null,
+        foglioIngressoLotto: foglioIngresso?.lotto_codice ?? null,
         motivoSenzaFoglio: motivo,
         note: r.note ?? "",
       };
@@ -934,7 +945,12 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
 export async function movimentoManualeAgrinsiciliaAction(
   raw: unknown
 ): Promise<
-  | { success: true; giacenzaKg: number; movimentoId: string }
+  | {
+      success: true;
+      giacenzaKg: number;
+      movimentoId: string;
+      foglioMpCodice: string | null;
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("magazzino");
@@ -987,6 +1003,33 @@ export async function movimentoManualeAgrinsiciliaAction(
     if (foglio.stato !== "aperto") {
       return { success: false, error: "Il foglio selezionato non è aperto." };
     }
+  }
+
+  let foglioMp: { id: string; codice: string } | null = null;
+  if (isValidLottoIngressoMp(lottoParti.ddt)) {
+    const motivoLabel = input.collegaFoglio
+      ? "Collegato a foglio di lavorazione"
+      : input.motivoSenzaFoglio
+        ? MOTIVO_SENZA_FOGLIO_LABEL[input.motivoSenzaFoglio]
+        : "Carico magazzino";
+    const foglioRes = await ensureFoglioMpInventarioDaCarico({
+      lottoMp: lottoParti.ddt.toUpperCase(),
+      lottoLavorazione: lottoCodice,
+      movimentoId: null,
+      prodottoId: input.prodottoId,
+      prodottoCodice: prodotto.codice,
+      prodottoNome: prodotto.nome,
+      quantitaKg: input.quantita,
+      unita: input.unitaMisura,
+      targaFornitore: lottoParti.targaFornitore,
+      motivoLabel,
+      note: input.note,
+      userId: auth.userId,
+    });
+    if (!foglioRes.success) {
+      return { success: false, error: foglioRes.error };
+    }
+    foglioMp = { id: foglioRes.foglioId, codice: foglioRes.foglioCodice };
   }
 
   const qtyStock = quantitaStockDaCarico(input.quantita, input.unitaMisura);
@@ -1043,6 +1086,7 @@ export async function movimentoManualeAgrinsiciliaAction(
         : input.motivoSenzaFoglio,
       riferimento: "carico-manuale",
       note: input.note.trim(),
+      foglio_ingresso_mp_id: foglioMp?.id ?? null,
       is_test: false,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -1051,6 +1095,17 @@ export async function movimentoManualeAgrinsiciliaAction(
     .single();
   if (movErr || !mov) {
     return { success: false, error: movErr?.message ?? "Movimento fallito." };
+  }
+
+  if (foglioMp) {
+    await supabase
+      .from("produzione_fogli_ingresso_mp")
+      .update({
+        movimento_magazzino_id: mov.id,
+        updated_by: auth.userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", foglioMp.id);
   }
 
   void writeAuditLog({
@@ -1073,10 +1128,17 @@ export async function movimentoManualeAgrinsiciliaAction(
         : input.motivoSenzaFoglio,
       giacenza_prima: prima,
       giacenza_dopo: dopo,
+      foglio_ingresso_mp_id: foglioMp?.id ?? null,
+      foglio_ingresso_mp_codice: foglioMp?.codice ?? null,
     },
   });
 
-  return { success: true, giacenzaKg: dopo, movimentoId: mov.id };
+  return {
+    success: true,
+    giacenzaKg: dopo,
+    movimentoId: mov.id,
+    foglioMpCodice: foglioMp?.codice ?? null,
+  };
 }
 
 export type FornitoreTargaMagazzino = {

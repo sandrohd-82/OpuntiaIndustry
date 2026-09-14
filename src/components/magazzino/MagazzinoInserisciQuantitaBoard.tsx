@@ -101,7 +101,11 @@ export function MagazzinoInserisciQuantitaBoard() {
         `Carico registrato. Giacenza attuale: ${formatQuantitaCarico(
           result.giacenzaKg,
           unitaStockDaCarico(selected?.unitaScheda ?? unitaMisura)
-        )}.`
+        )}.${
+          result.foglioMpCodice
+            ? ` Foglio Codice MP Lavorata ${result.foglioMpCodice} archiviato (Storico / Archivio).`
+            : ""
+        }`
       );
       setQuantita("");
       setLottoCodice("");
@@ -363,13 +367,16 @@ export function MagazzinoInserisciQuantitaBoard() {
               <th className="px-4 py-3 font-medium text-[var(--muted)]">
                 Foglio / motivo
               </th>
+              <th className="px-4 py-3 font-medium text-[var(--muted)]">
+                Foglio MP
+              </th>
             </tr>
           </thead>
           <tbody>
             {movimenti.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-8 text-center text-sm text-[var(--muted)]"
                 >
                   Nessun carico manuale registrato.
@@ -397,6 +404,22 @@ export function MagazzinoInserisciQuantitaBoard() {
                         {m.note}
                       </span>
                     ) : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    {m.foglioIngressoCodice ? (
+                      <>
+                        <span className="font-medium">
+                          {m.foglioIngressoCodice}
+                        </span>
+                        {m.foglioIngressoLotto ? (
+                          <span className="block font-mono text-xs text-[var(--muted)]">
+                            {m.foglioIngressoLotto}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                 </tr>
               ))

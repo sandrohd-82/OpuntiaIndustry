@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { listFogliIngressoMpAction } from "@/app/actions/produzione-ingresso-mp";
 import { IngressoMpLottoPrintModal } from "@/components/produzione/IngressoMpLottoPrintModal";
 import {
+  labelOrigineIngresso,
   labelStatoIngresso,
   type FoglioIngressoMp,
 } from "@/lib/produzione/fogli-ingresso-mp";
@@ -51,7 +52,7 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
         {storico
-          ? "Fogli ingresso MP chiusi, con codice lotto già assegnato."
+          ? "Fogli ingresso MP chiusi: arrivi produttore e fogli Codice MP Lavorata creati da carico/settaggio magazzino."
           : "Bozze e fogli registrati ancora aperti."}
       </p>
       {error ? (
@@ -70,6 +71,7 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
               <tr>
                 <th className="px-4 py-3 font-medium">Codice</th>
                 <th className="px-4 py-3 font-medium">Stato</th>
+                <th className="px-4 py-3 font-medium">Origine</th>
                 <th className="px-4 py-3 font-medium">Lotto MP</th>
                 <th className="px-4 py-3 font-medium">Fornitore</th>
                 <th className="px-4 py-3 font-medium">Materiale</th>
@@ -83,6 +85,22 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
                   <td className="px-4 py-3 font-medium">{f.codice}</td>
                   <td className="px-4 py-3">
                     {labelStatoIngresso(f.documentoStato)} · v{f.versione}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={
+                        f.origine === "inventario_magazzino"
+                          ? "rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-900"
+                          : "text-xs text-[var(--muted)]"
+                      }
+                    >
+                      {labelOrigineIngresso(f.origine)}
+                    </span>
+                    {f.lottoLavorazione ? (
+                      <span className="mt-1 block font-mono text-[11px] text-[var(--muted)]">
+                        {f.lottoLavorazione}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 font-mono">{f.lottoCodice ?? "—"}</td>
                   <td className="px-4 py-3">{f.fornitoreLabel}</td>

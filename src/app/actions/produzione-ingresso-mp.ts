@@ -17,6 +17,7 @@ import {
   type ConfezionamentoMp,
   type ConfezioneRiga,
   type FoglioIngressoMp,
+  type IngressoMpOrigine,
   type IngressoMpStato,
   type MezzoFotoKind,
   type MezzoIngresso,
@@ -34,8 +35,12 @@ type FoglioRow = {
   lotto_codice: string | null;
   versione: number;
   documento_stato: IngressoMpStato;
-  fornitore_id: string;
-  materia_prima_id: string;
+  origine?: IngressoMpOrigine | null;
+  movimento_magazzino_id?: string | null;
+  prodotto_proprio_id?: string | null;
+  lotto_lavorazione?: string | null;
+  fornitore_id: string | null;
+  materia_prima_id: string | null;
   is_bio: boolean;
   quantita: number | string;
   quantita_unita: string;
@@ -70,20 +75,32 @@ function mapFoglio(
     autistaLabel: string | null;
     operatoreLabel: string | null;
     confezioni: ConfezioneRiga[];
+    prodottoProprioLabel?: string | null;
   }
 ): FoglioIngressoMp {
+  const origine: IngressoMpOrigine =
+    r.origine === "inventario_magazzino" ? "inventario_magazzino" : "ingresso";
   return {
     id: r.id,
     codice: r.codice,
     lottoCodice: r.lotto_codice,
     versione: r.versione,
     documentoStato: r.documento_stato,
+    origine,
+    lottoLavorazione: r.lotto_lavorazione ?? null,
+    prodottoProprioId: r.prodotto_proprio_id ?? null,
+    movimentoMagazzinoId: r.movimento_magazzino_id ?? null,
     fornitoreId: r.fornitore_id,
     fornitoreLabel: extra.fornitoreLabel,
     fornitoreTarga: extra.fornitoreTarga,
     fornitoreBio: extra.fornitoreBio,
     materiaPrimaId: r.materia_prima_id,
-    materiaPrimaLabel: extra.materiaPrimaLabel,
+    materiaPrimaLabel:
+      origine === "inventario_magazzino"
+        ? extra.prodottoProprioLabel ||
+          extra.materiaPrimaLabel ||
+          "Inventario / settaggio magazzino"
+        : extra.materiaPrimaLabel,
     isBio: r.is_bio,
     quantita: Number(r.quantita) || 0,
     quantitaUnita: r.quantita_unita,
@@ -118,8 +135,23 @@ async function hydrateFogli(
 ): Promise<FoglioIngressoMp[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const fornIds = [...new Set(rows.map((r) => r.fornitore_id))];
-  const mpIds = [...new Set(rows.map((r) => r.materia_prima_id))];
+  const fornIds = [
+    ...new Set(
+      rows.map((r) => r.fornitore_id).filter((x): x is string => Boolean(x))
+    ),
+  ];
+  const mpIds = [
+    ...new Set(
+      rows.map((r) => r.materia_prima_id).filter((x): x is string => Boolean(x))
+    ),
+  ];
+  const prodIds = [
+    ...new Set(
+      rows
+        .map((r) => r.prodotto_proprio_id)
+        .filter((x): x is string => Boolean(x))
+    ),
+  ];
   const mezzoIds = [
     ...new Set(rows.map((r) => r.mezzo_id).filter((x): x is string => Boolean(x))),
   ];
@@ -134,12 +166,16 @@ async function hydrateFogli(
     ),
   ];
 
-  const [forn, mp, mezzi, autisti, ops, confs] = await Promise.all([
-    supabase
-      .from("fornitori")
-      .select("id, codice_targa, ragione_sociale, bio_certificato_path")
-      .in("id", fornIds),
-    supabase.from("materie_prime").select("id, codice, nome").in("id", mpIds),
+  const [forn, mp, mezzi, autisti, ops, confs, prods] = await Promise.all([
+    fornIds.length
+      ? supabase
+          .from("fornitori")
+          .select("id, codice_targa, ragione_sociale, bio_certificato_path")
+          .in("id", fornIds)
+      : Promise.resolve({ data: [] }),
+    mpIds.length
+      ? supabase.from("materie_prime").select("id, codice, nome").in("id", mpIds)
+      : Promise.resolve({ data: [] }),
     mezzoIds.length
       ? supabase.from("produzione_mezzi").select("id, targa").in("id", mezzoIds)
       : Promise.resolve({ data: [] }),
@@ -161,6 +197,12 @@ async function hydrateFogli(
       .in("foglio_id", ids)
       .is("deleted_at", null)
       .order("sort_order", { ascending: true }),
+    prodIds.length
+      ? supabase
+          .from("prodotti_propri")
+          .select("id, codice, nome")
+          .in("id", prodIds)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const fornMap = new Map(
@@ -192,6 +234,11 @@ async function hydrateFogli(
       (a) => [a.id, `${a.nome} ${a.cognome}`.trim()]
     )
   );
+  const prodMap = new Map(
+    ((prods.data ?? []) as Array<{ id: string; codice: string; nome: string }>).map(
+      (p) => [p.id, p]
+    )
+  );
   const confBy = new Map<string, ConfezioneRiga[]>();
   for (const c of (confs.data ?? []) as Array<{
     id: string;
@@ -211,11 +258,22 @@ async function hydrateFogli(
   }
 
   return rows.map((r) => {
-    const f = fornMap.get(r.fornitore_id);
-    const m = mpMap.get(r.materia_prima_id);
+    const f = r.fornitore_id ? fornMap.get(r.fornitore_id) : undefined;
+    const m = r.materia_prima_id ? mpMap.get(r.materia_prima_id) : undefined;
+    const prod = r.prodotto_proprio_id
+      ? prodMap.get(r.prodotto_proprio_id)
+      : undefined;
     return mapFoglio(r, {
-      fornitoreLabel: f ? `${f.codice_targa} — ${f.ragione_sociale}` : "—",
+      fornitoreLabel:
+        r.origine === "inventario_magazzino" && !f
+          ? "Inventario / settaggio magazzino"
+          : f
+            ? `${f.codice_targa} — ${f.ragione_sociale}`
+            : "—",
       fornitoreTarga: f?.codice_targa ?? "",
+      prodottoProprioLabel: prod
+        ? `${prod.codice} — ${prod.nome}`
+        : null,
       fornitoreBio: Boolean(f?.bio_certificato_path),
       materiaPrimaLabel: m ? `${m.codice} — ${m.nome}` : "—",
       mezzoTarga: r.mezzo_id ? mezzoMap.get(r.mezzo_id) ?? null : null,
@@ -470,7 +528,7 @@ async function queryCodiciMpLavorata(): Promise<
   const { data, error } = await supabase
     .from("produzione_fogli_ingresso_mp")
     .select(
-      "lotto_codice, fornitore_id, materia_prima_id, arrivato_at, fornitori(codice_targa, ragione_sociale), materie_prime(codice, nome)"
+      "lotto_codice, fornitore_id, materia_prima_id, arrivato_at, origine, fornitori(codice_targa, ragione_sociale), materie_prime(codice, nome)"
     )
     .is("deleted_at", null)
     .not("lotto_codice", "is", null)
@@ -483,6 +541,7 @@ async function queryCodiciMpLavorata(): Promise<
     items: ((data ?? []) as Array<{
       lotto_codice: string;
       arrivato_at: string;
+      origine?: string | null;
       fornitori:
         | { codice_targa: string; ragione_sociale: string }
         | { codice_targa: string; ragione_sociale: string }[]
@@ -496,13 +555,22 @@ async function queryCodiciMpLavorata(): Promise<
       const m = Array.isArray(r.materie_prime)
         ? r.materie_prime[0]
         : r.materie_prime;
+      const inventario = r.origine === "inventario_magazzino";
       return {
         lotto: r.lotto_codice,
         fornitoreTarga: (f?.codice_targa ?? "").replace(/^F/i, ""),
-        fornitoreLabel: f
-          ? `${f.codice_targa} — ${f.ragione_sociale}`
-          : "—",
-        materiaPrima: m ? `${m.codice} — ${m.nome}` : "—",
+        fornitoreLabel: inventario
+          ? f
+            ? `${f.codice_targa} — ${f.ragione_sociale} · inventario`
+            : "Inventario / settaggio magazzino"
+          : f
+            ? `${f.codice_targa} — ${f.ragione_sociale}`
+            : "—",
+        materiaPrima: inventario
+          ? "Inventario / settaggio magazzino"
+          : m
+            ? `${m.codice} — ${m.nome}`
+            : "—",
         arrivatoAt: r.arrivato_at,
       };
     }),
@@ -830,6 +898,7 @@ export async function saveFoglioIngressoMpAction(raw: unknown): Promise<
         ...payload,
         codice,
         documento_stato: "bozza",
+        origine: "ingresso",
         versione: 1,
         created_by: auth.userId,
       })
@@ -884,6 +953,169 @@ export async function saveFoglioIngressoMpAction(raw: unknown): Promise<
 
 function formatHex5Local(n: number): string {
   return Math.max(1, n).toString(16).toUpperCase().padStart(5, "0");
+}
+
+export async function ensureFoglioMpInventarioDaCarico(input: {
+  lottoMp: string;
+  lottoLavorazione: string;
+  movimentoId?: string | null;
+  prodottoId: string;
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantitaKg: number;
+  unita: string;
+  targaFornitore: string;
+  motivoLabel: string;
+  note: string;
+  userId: string;
+}): Promise<
+  | { success: true; foglioId: string; foglioCodice: string; created: boolean }
+  | { success: false; error: string }
+> {
+  if (!isValidLottoIngressoMp(input.lottoMp)) {
+    return { success: false, error: "Codice MP lavorata non valido." };
+  }
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("produzione_fogli_ingresso_mp")
+    .select("id, codice, origine")
+    .eq("lotto_codice", input.lottoMp)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing) {
+    const row = existing as {
+      id: string;
+      codice: string;
+      origine?: string | null;
+    };
+    const patch: Record<string, unknown> = {
+      updated_by: input.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (input.movimentoId) {
+      patch.movimento_magazzino_id = input.movimentoId;
+    }
+    if (row.origine === "inventario_magazzino") {
+      patch.prodotto_proprio_id = input.prodottoId;
+      patch.lotto_lavorazione = input.lottoLavorazione;
+    }
+    await supabase
+      .from("produzione_fogli_ingresso_mp")
+      .update(patch)
+      .eq("id", row.id);
+    return {
+      success: true,
+      foglioId: row.id,
+      foglioCodice: row.codice,
+      created: false,
+    };
+  }
+
+  let fornitoreId: string | null = null;
+  const targa = input.targaFornitore.trim().toUpperCase();
+  if (targa && targa !== "INV") {
+    const naked = targa.replace(/^F/, "");
+    const candidates = [...new Set([targa, `F${naked}`])];
+    const { data: fornRows } = await supabase
+      .from("fornitori")
+      .select("id")
+      .is("deleted_at", null)
+      .in("codice_targa", candidates)
+      .limit(1);
+    fornitoreId =
+      ((fornRows ?? []) as Array<{ id: string }>)[0]?.id ?? null;
+  }
+
+  const now = new Date();
+  const codice = `FIMP-${prefixLottoDaData(now)}-${formatHex5Local(
+    Math.floor(Math.random() * 0xfffff) + 1
+  )}`;
+  const note = [
+    "Generato per carico/settaggio merce magazzino (non da ingresso produttore).",
+    `Lotto lavorazione: ${input.lottoLavorazione}`,
+    `Prodotto: ${input.prodottoCodice} — ${input.prodottoNome}`,
+    `Quantità: ${input.quantitaKg} ${input.unita}`,
+    `Motivo: ${input.motivoLabel}`,
+    input.note.trim() ? `Note carico: ${input.note.trim()}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { data, error } = await supabase
+    .from("produzione_fogli_ingresso_mp")
+    .insert({
+      codice,
+      lotto_codice: input.lottoMp,
+      versione: 1,
+      documento_stato: "chiuso",
+      origine: "inventario_magazzino",
+      movimento_magazzino_id: input.movimentoId ?? null,
+      prodotto_proprio_id: input.prodottoId,
+      lotto_lavorazione: input.lottoLavorazione,
+      fornitore_id: fornitoreId,
+      materia_prima_id: null,
+      is_bio: false,
+      quantita: input.quantitaKg,
+      quantita_unita: input.unita || "kg",
+      quantita_tipo: "reale",
+      ddt_produttore: "INVENTARIO / SETTAGGIO MAGAZZINO",
+      arrivato_at: now.toISOString(),
+      scarico_mezzo: "inventario",
+      note,
+      confirmed_at: now.toISOString(),
+      confirmed_by: input.userId,
+      closed_at: now.toISOString(),
+      closed_by: input.userId,
+      created_by: input.userId,
+      updated_by: input.userId,
+    })
+    .select("id, codice")
+    .single();
+  if (error || !data) {
+    if (error?.code === "23505") {
+      const { data: again } = await supabase
+        .from("produzione_fogli_ingresso_mp")
+        .select("id, codice")
+        .eq("lotto_codice", input.lottoMp)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (again) {
+        const row = again as { id: string; codice: string };
+        return {
+          success: true,
+          foglioId: row.id,
+          foglioCodice: row.codice,
+          created: false,
+        };
+      }
+    }
+    return {
+      success: false,
+      error: error?.message ?? "Creazione foglio MP inventario fallita.",
+    };
+  }
+  const created = data as { id: string; codice: string };
+  void writeAuditLog({
+    entity_type: "produzione_fogli_ingresso_mp",
+    entity_id: created.id,
+    action: "create",
+    actor_id: input.userId,
+    summary: `Foglio Codice MP Lavorata ${input.lottoMp} da carico/settaggio magazzino`,
+    payload: {
+      origine: "inventario_magazzino",
+      lotto_mp: input.lottoMp,
+      lotto_lavorazione: input.lottoLavorazione,
+      movimento_id: input.movimentoId,
+      prodotto_id: input.prodottoId,
+      quantita_kg: input.quantitaKg,
+    },
+  });
+  return {
+    success: true,
+    foglioId: created.id,
+    foglioCodice: created.codice,
+    created: true,
+  };
 }
 
 export async function generaLottoIngressoMpAction(

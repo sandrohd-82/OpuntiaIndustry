@@ -34,6 +34,7 @@ import {
   FOGLIO_INGRESSO_TEST_KEY,
   MEZZO_FOTO_KINDS,
   MEZZO_FOTO_LABEL,
+  labelOrigineIngresso,
   labelStatoIngresso,
   type ConfezionamentoMp,
   type FoglioIngressoMp,
@@ -223,8 +224,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
 
   function applyItem(next: FoglioIngressoMp) {
     setItem(next);
-    setFornitoreId(next.fornitoreId);
-    setMateriaPrimaId(next.materiaPrimaId);
+    setFornitoreId(next.fornitoreId ?? "");
+    setMateriaPrimaId(next.materiaPrimaId ?? "");
     setIsBio(next.isBio);
     setQuantita(String(next.quantita));
     setQuantitaTipo(next.quantitaTipo);
@@ -562,7 +563,24 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           {item.lottoCodice ? (
             <span className="font-mono text-sm">{item.lottoCodice}</span>
           ) : null}
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold">
+            {labelOrigineIngresso(item.origine)}
+          </span>
         </div>
+      ) : null}
+      {item?.origine === "inventario_magazzino" ? (
+        <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
+          Foglio <strong>Codice MP Lavorata</strong> generato per
+          carico/settaggio merce magazzino, non da ingresso produttore.
+          {item.lottoLavorazione ? (
+            <>
+              {" "}
+              Lotto lavorazione:{" "}
+              <span className="font-mono">{item.lottoLavorazione}</span>.
+            </>
+          ) : null}{" "}
+          Visibile nello Storico e in Archivio.
+        </p>
       ) : null}
 
       {error ? (

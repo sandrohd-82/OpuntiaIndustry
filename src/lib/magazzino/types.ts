@@ -333,6 +333,8 @@ export type MovimentoAgrinsiciliaRiga = {
   unita: MagazzinoCaricoUnita;
   lottoCodice: string;
   foglioCodice: string | null;
+  foglioIngressoCodice: string | null;
+  foglioIngressoLotto: string | null;
   motivoSenzaFoglio: MotivoSenzaFoglio | null;
   note: string;
 };
