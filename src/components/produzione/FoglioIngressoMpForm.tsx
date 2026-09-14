@@ -13,6 +13,7 @@ import {
   createMezzoIngressoAction,
   generaLottoIngressoMpAction,
   getFoglioIngressoMpAction,
+  peekIngressoMpLetteraAction,
   listConfezionamentiMpAction,
   listFornitoriIngressoAction,
   listMateriePrimeIngressoAction,
@@ -42,6 +43,11 @@ import {
   type MezzoIngresso,
   type QuantitaTipoIngresso,
 } from "@/lib/produzione/fogli-ingresso-mp";
+import {
+  buildAnteprimaUnita,
+  quantitaContenitoriRiga,
+  type IngressoMpUnita,
+} from "@/lib/produzione/ingresso-mp-unita";
 type Props = {
   foglioId?: string;
 };
@@ -114,6 +120,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [testMode, setTestMode] = useState(false);
   const [testNotice, setTestNotice] = useState<string | null>(null);
   const [testLotto, setTestLotto] = useState<string | null>(null);
+  const [testLettera, setTestLettera] = useState<string | null>(null);
+  const [testUnita, setTestUnita] = useState<IngressoMpUnita[]>([]);
+  const [peekLettera, setPeekLettera] = useState("A");
   const [fornitoriLocali, setFornitoriLocali] = useState<Set<string>>(
     () => new Set()
   );
@@ -155,6 +164,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
     if (next) return;
     setTestNotice(null);
     setTestLotto(null);
+    setTestLettera(null);
+    setTestUnita([]);
     if (ddtFilePath?.startsWith("test://")) {
       setDdtFilePath(null);
       setDdtFileName(null);
@@ -207,6 +218,9 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       if (z.success) setMezzi(z.items);
       if (p.success) setOperatori(p.items);
     }).finally(() => setCatalogReady(true));
+    void peekIngressoMpLetteraAction().then((res) => {
+      if (res.success) setPeekLettera(res.lettera);
+    });
   }, []);
 
   useEffect(() => {
@@ -273,6 +287,45 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   }
 
   const lottoMostrato = testLotto || item?.lottoCodice || null;
+  const unitaAnteprima = useMemo(
+    () =>
+      buildAnteprimaUnita({
+        foglioId: item?.id,
+        lettera: item?.gruppoLettera || testLettera || peekLettera,
+        righe: righe.map((r) => ({
+          confezionamentoId: r.confezionamentoId,
+          tipoNome:
+            catalogo.find((c) => c.id === r.confezionamentoId)?.nome ??
+            "Contenitore",
+          quantitaConfezioni:
+            quantitaContenitoriRiga(r.quantitaConfezioni) ||
+            (r.confezionamentoId ? 1 : 0),
+        })),
+      }),
+    [
+      item?.id,
+      item?.gruppoLettera,
+      testLettera,
+      peekLettera,
+      righe,
+      catalogo,
+    ]
+  );
+  const unitaFogli =
+    item?.unita && item.unita.length > 0
+      ? item.unita
+      : testUnita.length > 0
+        ? testUnita
+        : unitaAnteprima;
+  const letteraFogli =
+    item?.gruppoLettera ||
+    testLettera ||
+    unitaFogli[0]?.gruppoLettera ||
+    peekLettera;
+  const fogliEmesse = Boolean(
+    (item?.unita && item.unita.length > 0) ||
+      (testMode && testUnita.length > 0 && testLotto)
+  );
 
   const payload = useMemo(
     () => ({
@@ -480,6 +533,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         return;
       }
       setTestLotto(res.lottoCodice);
+      setTestLettera(res.lettera);
+      setTestUnita(res.unita);
       setTestNotice(`${res.messaggio} Codice lotto in anteprima, senza salvataggio.`);
       window.setTimeout(() => {
         document.getElementById("ingresso-mp-etichetta")?.scrollIntoView({
@@ -829,6 +884,16 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         ) : null}
       </section>
 
+      {unitaFogli.length > 0 ? (
+        <IngressoMpLottoEtichettaBox
+          lotto={lottoMostrato}
+          arrivatoAt={item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()}
+          lettera={letteraFogli}
+          unita={unitaFogli}
+          emesse={fogliEmesse}
+        />
+      ) : null}
+
       <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         <h3 className="text-sm font-semibold">8. Data e ora arrivo</h3>
         <input
@@ -1112,12 +1177,13 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         ) : null}
       </div>
 
-      {lottoMostrato ? (
+      {lottoMostrato && unitaFogli.length === 0 ? (
         <IngressoMpLottoEtichettaBox
           lotto={lottoMostrato}
           arrivatoAt={item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()}
-          lettera={item?.gruppoLettera}
-          unita={item?.unita ?? []}
+          lettera={letteraFogli}
+          unita={[]}
+          emesse={false}
         />
       ) : null}
     </div>

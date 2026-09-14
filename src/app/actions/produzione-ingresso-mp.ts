@@ -24,6 +24,7 @@ import {
   type QuantitaTipoIngresso,
 } from "@/lib/produzione/fogli-ingresso-mp";
 import {
+  buildAnteprimaUnita,
   composeCodiceUnita,
   parseUnitaScanInput,
   scanPayloadFromToken,
@@ -1681,12 +1682,27 @@ const provaFoglioSchema = z.object({
  * Dry-run della sola pagina Foglio Ingresso MP: stessi controlli del reale,
  * nessuna scrittura su DB, storage o audit.
  */
+export async function peekIngressoMpLetteraAction(): Promise<
+  { success: true; lettera: string } | { success: false; error: string }
+> {
+  await requireAreaAccess("produzione");
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("peek_ingresso_mp_lettera");
+  if (error) {
+    return { success: true, lettera: "A" };
+  }
+  const lettera = String(data ?? "A").trim().toUpperCase();
+  return { success: true, lettera: /^[A-Z]$/.test(lettera) ? lettera : "A" };
+}
+
 export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
   | {
       success: true;
       skippedPersist: true;
       lottoCodice: string | null;
       codiceFoglio: string;
+      lettera: string | null;
+      unita: IngressoMpUnita[];
       messaggio: string;
     }
   | { success: false; error: string }
@@ -1783,15 +1799,34 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
   }
 
   let letteraPeek = "";
-  if (generaLotto && lottoCodice) {
+  if (lottoCodice || generaLotto) {
     const { data: peek } = await supabase.rpc("peek_ingresso_mp_lettera");
     letteraPeek = String(peek ?? "").trim().toUpperCase();
+    if (!/^[A-Z]$/.test(letteraPeek)) letteraPeek = "A";
   }
 
-  const totCont = v.confezioni.reduce(
-    (acc, r) => acc + Math.max(0, r.quantitaConfezioni || 0),
-    0
+  const catIds = [...new Set(v.confezioni.map((r) => r.confezionamentoId))];
+  const { data: cats } = catIds.length
+    ? await supabase
+        .from("produzione_confezionamenti_mp")
+        .select("id, nome")
+        .in("id", catIds)
+    : { data: [] };
+  const nomeBy = new Map(
+    ((cats ?? []) as Array<{ id: string; nome: string }>).map((c) => [
+      c.id,
+      c.nome,
+    ])
   );
+  const unita = buildAnteprimaUnita({
+    lettera: letteraPeek || "A",
+    righe: v.confezioni.map((r) => ({
+      confezionamentoId: r.confezionamentoId,
+      tipoNome: nomeBy.get(r.confezionamentoId)?.trim() || "Contenitore",
+      quantitaConfezioni: r.quantitaConfezioni,
+    })),
+  });
+  const totCont = unita.length;
 
   const messaggio = chiudi
     ? `Controlli ok. Il foglio ${codiceFoglio} sarebbe stato chiuso.`
@@ -1810,6 +1845,8 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
     skippedPersist: true,
     lottoCodice,
     codiceFoglio,
+    lettera: letteraPeek || null,
+    unita,
     messaggio,
   };
 }

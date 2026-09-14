@@ -215,6 +215,7 @@ export async function stampaFogliUnitaIngressoMp(opts: {
     pages.push(`<section class="page">
   <div class="stamp" aria-label="Gruppo ${escapeHtml(opts.lettera)}">${escapeHtml(opts.lettera)}</div>
   <p class="kicker">Foglio contenitore</p>
+  <p class="tipo-label">Tipo contenitore</p>
   <p class="tipo">${escapeHtml(u.tipoNome)}</p>
   <p class="prog">${escapeHtml(u.tipoNome)} ${u.indiceTipo}/${u.totaleTipo}</p>
   <img src="${qr}" alt="" />
@@ -247,10 +248,12 @@ export async function stampaFogliUnitaIngressoMp(opts: {
       position: absolute;
       top: 4mm;
       right: 6mm;
-      width: 28mm;
-      height: 28mm;
-      border: 3.2px solid #0f172a;
+      width: 30mm;
+      height: 30mm;
+      border: 1.4mm solid #b91c1c;
       border-radius: 50%;
+      box-shadow: inset 0 0 0 0.7mm #b91c1c;
+      color: #b91c1c;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -258,6 +261,7 @@ export async function stampaFogliUnitaIngressoMp(opts: {
       font-weight: 800;
       letter-spacing: 0;
       line-height: 1;
+      transform: rotate(-12deg);
     }
     .kicker {
       margin: 0;
@@ -266,8 +270,16 @@ export async function stampaFogliUnitaIngressoMp(opts: {
       font-size: 12px;
       color: #64748b;
     }
+    .tipo-label {
+      margin: 12px 0 0;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 11px;
+      color: #64748b;
+      font-weight: 600;
+    }
     .tipo {
-      margin: 10px 0 0;
+      margin: 4px 0 0;
       font-size: 34px;
       font-weight: 700;
     }
@@ -287,8 +299,10 @@ export async function stampaFogliUnitaIngressoMp(opts: {
       bottom: 5mm;
       margin: 0;
       font-family: ui-monospace, Consolas, monospace;
-      font-size: 10px;
-      color: #64748b;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #0f172a;
     }
   </style>
 </head>

@@ -48,3 +48,52 @@ export function isUnitaScanInput(raw: string): boolean {
   const parsed = parseUnitaScanInput(raw);
   return Boolean(parsed.token || parsed.codice);
 }
+
+export function quantitaContenitoriRiga(raw: string | number | null | undefined): number {
+  const n =
+    typeof raw === "number"
+      ? raw
+      : Number(String(raw ?? "").replace(",", ".").trim());
+  return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
+}
+
+/** Anteprima fogli (un foglio per contenitore) prima dell’emissione reale. */
+export function buildAnteprimaUnita(opts: {
+  foglioId?: string;
+  lettera: string;
+  righe: Array<{
+    confezionamentoId: string;
+    tipoNome: string;
+    quantitaConfezioni: number;
+  }>;
+}): IngressoMpUnita[] {
+  const L = /^[A-Z]$/.test(opts.lettera.trim().toUpperCase())
+    ? opts.lettera.trim().toUpperCase()
+    : "A";
+  const out: IngressoMpUnita[] = [];
+  let n = 1;
+  for (const r of opts.righe) {
+    const q = Math.max(0, Math.trunc(r.quantitaConfezioni));
+    if (!r.confezionamentoId || q < 1) continue;
+    const tipo = r.tipoNome.trim() || "Contenitore";
+    for (let i = 1; i <= q; i += 1) {
+      const token = `ANTEPRIMA-${n}`;
+      out.push({
+        id: `preview-${n}`,
+        foglioId: opts.foglioId ?? "",
+        confezioneId: null,
+        confezionamentoId: r.confezionamentoId,
+        tipoNome: tipo,
+        gruppoLettera: L,
+        indiceTipo: i,
+        totaleTipo: q,
+        codiceUnita: composeCodiceUnita(L, n),
+        scanToken: token,
+        scanPayload: scanPayloadFromToken(token),
+        usatoAt: null,
+      });
+      n += 1;
+    }
+  }
+  return out;
+}

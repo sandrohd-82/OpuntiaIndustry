@@ -115,7 +115,10 @@ export function IngressoMpLottoPrintModal({
           className="ingresso-mp-print relative mt-4 rounded-xl border border-[var(--border)] bg-white p-6 text-center"
         >
           {lettera ? (
-            <div className="absolute right-4 top-4 flex h-14 w-14 items-center justify-center rounded-full border-4 border-slate-900 text-3xl font-extrabold">
+            <div
+              aria-label={`Timbro gruppo ${lettera}`}
+              className="absolute right-4 top-3 flex h-16 w-16 -rotate-[14deg] items-center justify-center rounded-full border-[5px] border-red-700 text-3xl font-black text-red-700 shadow-[inset_0_0_0_3px_rgba(185,28,28,0.9)]"
+            >
               {lettera}
             </div>
           ) : null}
@@ -123,7 +126,12 @@ export function IngressoMpLottoPrintModal({
             {preview ? "Foglio contenitore" : "Codice lotto MP"}
           </p>
           {preview ? (
-            <p className="mt-2 text-lg font-bold">{preview.tipoNome}</p>
+            <>
+              <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Tipo contenitore
+              </p>
+              <p className="mt-1 text-lg font-bold">{preview.tipoNome}</p>
+            </>
           ) : null}
           <div className="mt-3">
             <BarcodePreview
@@ -139,7 +147,7 @@ export function IngressoMpLottoPrintModal({
             Ingresso: {ingressoLabel}
           </p>
           {preview ? (
-            <p className="mt-3 text-left font-mono text-[11px] text-slate-500">
+            <p className="absolute bottom-3 left-4 font-mono text-sm font-semibold text-slate-800">
               {preview.codiceUnita}
             </p>
           ) : null}
