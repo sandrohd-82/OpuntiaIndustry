@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { IngressoMpUnita } from "@/lib/produzione/ingresso-mp-unita";
 
 export const INGRESSO_MP_STATI = ["bozza", "registrato", "chiuso"] as const;
 export type IngressoMpStato = (typeof INGRESSO_MP_STATI)[number];
@@ -147,7 +148,9 @@ export type FoglioIngressoMp = {
   confirmedAt: string | null;
   closedAt: string | null;
   note: string;
+  gruppoLettera: string | null;
   confezioni: ConfezioneRiga[];
+  unita: IngressoMpUnita[];
   createdAt: string;
 };
 

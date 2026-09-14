@@ -73,6 +73,7 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
                 <th className="px-4 py-3 font-medium">Stato</th>
                 <th className="px-4 py-3 font-medium">Origine</th>
                 <th className="px-4 py-3 font-medium">Lotto MP</th>
+                <th className="px-4 py-3 font-medium">Gruppo</th>
                 <th className="px-4 py-3 font-medium">Fornitore</th>
                 <th className="px-4 py-3 font-medium">Materiale</th>
                 <th className="px-4 py-3 font-medium">Arrivo</th>
@@ -103,6 +104,15 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
                     ) : null}
                   </td>
                   <td className="px-4 py-3 font-mono">{f.lottoCodice ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    {f.gruppoLettera ? (
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border-2 border-slate-800 text-xs font-extrabold">
+                        {f.gruppoLettera}
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-4 py-3">{f.fornitoreLabel}</td>
                   <td className="px-4 py-3">{f.materiaPrimaLabel}</td>
                   <td className="px-4 py-3">{formatArrivo(f.arrivatoAt)}</td>
@@ -133,6 +143,8 @@ export function FogliIngressoMpBoard({ storico = false }: Props) {
         <IngressoMpLottoPrintModal
           lotto={print.lottoCodice}
           arrivatoAt={print.arrivatoAt}
+          lettera={print.gruppoLettera}
+          unita={print.unita}
           onClose={() => setPrint(null)}
         />
       ) : null}

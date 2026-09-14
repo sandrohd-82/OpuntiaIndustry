@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
   composeLottoIngressoMp,
@@ -23,6 +23,12 @@ import {
   type MezzoIngresso,
   type QuantitaTipoIngresso,
 } from "@/lib/produzione/fogli-ingresso-mp";
+import {
+  composeCodiceUnita,
+  parseUnitaScanInput,
+  scanPayloadFromToken,
+  type IngressoMpUnita,
+} from "@/lib/produzione/ingresso-mp-unita";
 import { normalizeTipologie } from "@/lib/amministrazione/catalogo-offerta";
 import { createClient } from "@/lib/supabase/server";
 import type { FornitoreTipologia } from "@/types/database";
@@ -61,6 +67,7 @@ type FoglioRow = {
   confirmed_at: string | null;
   closed_at: string | null;
   note: string;
+  gruppo_lettera?: string | null;
   created_at: string;
 };
 
@@ -75,6 +82,7 @@ function mapFoglio(
     autistaLabel: string | null;
     operatoreLabel: string | null;
     confezioni: ConfezioneRiga[];
+    unita: IngressoMpUnita[];
     prodottoProprioLabel?: string | null;
   }
 ): FoglioIngressoMp {
@@ -124,7 +132,9 @@ function mapFoglio(
     confirmedAt: r.confirmed_at,
     closedAt: r.closed_at,
     note: r.note ?? "",
+    gruppoLettera: r.gruppo_lettera ?? null,
     confezioni: extra.confezioni,
+    unita: extra.unita,
     createdAt: r.created_at,
   };
 }
@@ -166,7 +176,7 @@ async function hydrateFogli(
     ),
   ];
 
-  const [forn, mp, mezzi, autisti, ops, confs, prods] = await Promise.all([
+  const [forn, mp, mezzi, autisti, ops, confs, prods, unitaRows] = await Promise.all([
     fornIds.length
       ? supabase
           .from("fornitori")
@@ -203,6 +213,14 @@ async function hydrateFogli(
           .select("id, codice, nome")
           .in("id", prodIds)
       : Promise.resolve({ data: [] }),
+    supabase
+      .from("produzione_fogli_ingresso_unita")
+      .select(
+        "id, foglio_id, confezione_id, confezionamento_id, tipo_nome, gruppo_lettera, indice_tipo, totale_tipo, codice_unita, scan_token, usato_at"
+      )
+      .in("foglio_id", ids)
+      .is("deleted_at", null)
+      .order("codice_unita", { ascending: true }),
   ]);
 
   const fornMap = new Map(
@@ -257,6 +275,38 @@ async function hydrateFogli(
     confBy.set(c.foglio_id, list);
   }
 
+  const unitaBy = new Map<string, IngressoMpUnita[]>();
+  for (const u of (unitaRows.data ?? []) as Array<{
+    id: string;
+    foglio_id: string;
+    confezione_id: string | null;
+    confezionamento_id: string;
+    tipo_nome: string;
+    gruppo_lettera: string;
+    indice_tipo: number;
+    totale_tipo: number;
+    codice_unita: string;
+    scan_token: string;
+    usato_at: string | null;
+  }>) {
+    const list = unitaBy.get(u.foglio_id) ?? [];
+    list.push({
+      id: u.id,
+      foglioId: u.foglio_id,
+      confezioneId: u.confezione_id,
+      confezionamentoId: u.confezionamento_id,
+      tipoNome: u.tipo_nome,
+      gruppoLettera: u.gruppo_lettera,
+      indiceTipo: u.indice_tipo,
+      totaleTipo: u.totale_tipo,
+      codiceUnita: u.codice_unita,
+      scanToken: u.scan_token,
+      scanPayload: scanPayloadFromToken(u.scan_token),
+      usatoAt: u.usato_at,
+    });
+    unitaBy.set(u.foglio_id, list);
+  }
+
   return rows.map((r) => {
     const f = r.fornitore_id ? fornMap.get(r.fornitore_id) : undefined;
     const m = r.materia_prima_id ? mpMap.get(r.materia_prima_id) : undefined;
@@ -284,6 +334,7 @@ async function hydrateFogli(
         ? opMap.get(r.operatore_muletto_id) ?? null
         : null,
       confezioni: confBy.get(r.id) ?? [],
+      unita: unitaBy.get(r.id) ?? [],
     });
   });
 }
@@ -494,7 +545,7 @@ export async function getFoglioIngressoMpAction(
 ): Promise<
   { success: true; item: FoglioIngressoMp } | { success: false; error: string }
 > {
-  await requireAreaAccess("produzione");
+  const { auth } = await requireAreaAccess("produzione");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_fogli_ingresso_mp")
@@ -505,9 +556,33 @@ export async function getFoglioIngressoMpAction(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Foglio non trovato." };
   }
-  const items = await hydrateFogli(supabase, [data as FoglioRow]);
-  const item = items[0];
+  let items = await hydrateFogli(supabase, [data as FoglioRow]);
+  let item = items[0];
   if (!item) return { success: false, error: "Foglio non trovato." };
+  if (
+    item.lottoCodice &&
+    item.unita.length === 0 &&
+    item.confezioni.some((c) => c.quantitaConfezioni > 0)
+  ) {
+    const units = await ensureUnitaIngressoMp(
+      supabase,
+      id,
+      auth.userId,
+      item.gruppoLettera
+    );
+    if (units.success && units.created > 0) {
+      const { data: again } = await supabase
+        .from("produzione_fogli_ingresso_mp")
+        .select("*")
+        .eq("id", id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (again) {
+        items = await hydrateFogli(supabase, [again as FoglioRow]);
+        item = items[0] ?? item;
+      }
+    }
+  }
   return { success: true, item };
 }
 
@@ -1118,6 +1193,148 @@ export async function ensureFoglioMpInventarioDaCarico(input: {
   };
 }
 
+async function ensureUnitaIngressoMp(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  foglioId: string,
+  userId: string,
+  letteraEsistente?: string | null
+): Promise<
+  | { success: true; lettera: string; created: number }
+  | { success: false; error: string }
+> {
+  const { data: already } = await supabase
+    .from("produzione_fogli_ingresso_unita")
+    .select("id")
+    .eq("foglio_id", foglioId)
+    .is("deleted_at", null)
+    .limit(1);
+  if ((already ?? []).length > 0) {
+    return {
+      success: true,
+      lettera: String(letteraEsistente ?? "").trim() || "A",
+      created: 0,
+    };
+  }
+
+  const { data: confs, error: confErr } = await supabase
+    .from("produzione_fogli_ingresso_confezioni")
+    .select("id, confezionamento_id, quantita_confezioni, sort_order")
+    .eq("foglio_id", foglioId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (confErr) return { success: false, error: confErr.message };
+
+  const righe = (confs ?? []) as Array<{
+    id: string;
+    confezionamento_id: string;
+    quantita_confezioni: number;
+  }>;
+  const totale = righe.reduce(
+    (acc, r) => acc + Math.max(0, Number(r.quantita_confezioni) || 0),
+    0
+  );
+  if (totale < 1) {
+    return {
+      success: true,
+      lettera: String(letteraEsistente ?? "").trim() || "",
+      created: 0,
+    };
+  }
+
+  let lettera = String(letteraEsistente ?? "").trim().toUpperCase();
+  if (!/^[A-Z]$/.test(lettera)) {
+    const { data: nextL, error: letErr } = await supabase.rpc(
+      "next_ingresso_mp_lettera"
+    );
+    if (letErr || !nextL) {
+      return {
+        success: false,
+        error: letErr?.message ?? "Lettera di gruppo non assegnata.",
+      };
+    }
+    lettera = String(nextL).trim().toUpperCase();
+    const { error: upLet } = await supabase
+      .from("produzione_fogli_ingresso_mp")
+      .update({
+        gruppo_lettera: lettera,
+        updated_by: userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", foglioId);
+    if (upLet) return { success: false, error: upLet.message };
+  }
+
+  const { data: firstN, error: seqErr } = await supabase.rpc(
+    "alloc_ingresso_mp_unita_seq",
+    { p_lettera: lettera, p_count: totale }
+  );
+  if (seqErr || firstN == null) {
+    return {
+      success: false,
+      error: seqErr?.message ?? "Progressivo contenitori non assegnato.",
+    };
+  }
+  let nextN = Number(firstN);
+
+  const catIds = [...new Set(righe.map((r) => r.confezionamento_id))];
+  const { data: cats } = await supabase
+    .from("produzione_confezionamenti_mp")
+    .select("id, nome")
+    .in("id", catIds);
+  const nomeBy = new Map(
+    ((cats ?? []) as Array<{ id: string; nome: string }>).map((c) => [
+      c.id,
+      c.nome,
+    ])
+  );
+
+  const rows: Array<Record<string, unknown>> = [];
+  for (const r of righe) {
+    const q = Math.max(0, Number(r.quantita_confezioni) || 0);
+    const tipo = nomeBy.get(r.confezionamento_id)?.trim() || "Contenitore";
+    for (let i = 1; i <= q; i += 1) {
+      const token = crypto.randomUUID();
+      rows.push({
+        foglio_id: foglioId,
+        confezione_id: r.id,
+        confezionamento_id: r.confezionamento_id,
+        tipo_nome: tipo,
+        gruppo_lettera: lettera,
+        indice_tipo: i,
+        totale_tipo: q,
+        codice_unita: composeCodiceUnita(lettera, nextN),
+        scan_token: token,
+        documento_stato: "emesso",
+        versione: 1,
+        created_by: userId,
+        updated_by: userId,
+      });
+      nextN += 1;
+    }
+  }
+
+  const { error: insErr } = await supabase
+    .from("produzione_fogli_ingresso_unita")
+    .insert(rows);
+  if (insErr) return { success: false, error: insErr.message };
+
+  void writeAuditLog({
+    entity_type: "produzione_fogli_ingresso_mp",
+    entity_id: foglioId,
+    action: "unita_generate",
+    actor_id: userId,
+    summary: `Emessi ${rows.length} fogli contenitore gruppo ${lettera}`,
+    payload: {
+      gruppo_lettera: lettera,
+      quantita_unita: rows.length,
+      primo_codice: rows[0]?.codice_unita,
+      ultimo_codice: rows[rows.length - 1]?.codice_unita,
+    },
+  });
+
+  return { success: true, lettera, created: rows.length };
+}
+
 export async function generaLottoIngressoMpAction(
   foglioId: string
 ): Promise<
@@ -1140,6 +1357,13 @@ export async function generaLottoIngressoMpAction(
     return { success: false, error: "Foglio chiuso." };
   }
   if (foglio.lotto_codice) {
+    const units = await ensureUnitaIngressoMp(
+      supabase,
+      foglioId,
+      auth.userId,
+      foglio.gruppo_lettera
+    );
+    if (!units.success) return units;
     const cur = await getFoglioIngressoMpAction(foglioId);
     if (!cur.success) return cur;
     return { success: true, lottoCodice: foglio.lotto_codice, item: cur.item };
@@ -1179,13 +1403,28 @@ export async function generaLottoIngressoMpAction(
 
   await aggiornaMedieConfezioni(supabase, foglioId, Number(foglio.quantita));
 
+  const units = await ensureUnitaIngressoMp(
+    supabase,
+    foglioId,
+    auth.userId,
+    foglio.gruppo_lettera
+  );
+  if (!units.success) return units;
+
   void writeAuditLog({
     entity_type: "produzione_fogli_ingresso_mp",
     entity_id: foglioId,
     action: "lotto_generate",
     actor_id: auth.userId,
-    summary: `Generato lotto MP ${lotto}`,
-    payload: { lotto_codice: lotto, prefix },
+    summary: `Generato lotto MP ${lotto}${
+      units.lettera ? ` · gruppo ${units.lettera}` : ""
+    }`,
+    payload: {
+      lotto_codice: lotto,
+      prefix,
+      gruppo_lettera: units.lettera || null,
+      unita: units.created,
+    },
   });
 
   const cur = await getFoglioIngressoMpAction(foglioId);
@@ -1543,10 +1782,25 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
     return { success: false, error: "Genera prima il codice lotto." };
   }
 
+  let letteraPeek = "";
+  if (generaLotto && lottoCodice) {
+    const { data: peek } = await supabase.rpc("peek_ingresso_mp_lettera");
+    letteraPeek = String(peek ?? "").trim().toUpperCase();
+  }
+
+  const totCont = v.confezioni.reduce(
+    (acc, r) => acc + Math.max(0, r.quantitaConfezioni || 0),
+    0
+  );
+
   const messaggio = chiudi
     ? `Controlli ok. Il foglio ${codiceFoglio} sarebbe stato chiuso.`
     : generaLotto
-      ? `Controlli ok. Sarebbe stato assegnato il lotto ${lottoCodice} (stato Registrato).`
+      ? `Controlli ok. Sarebbe stato assegnato il lotto ${lottoCodice} (stato Registrato)${
+          letteraPeek
+            ? `, gruppo ${letteraPeek}, ${totCont} fogli contenitore (id unici non assegnati in test)`
+            : ""
+        }.`
       : stato === "registrato"
         ? `Controlli ok. Il foglio ${codiceFoglio} sarebbe stato aggiornato.`
         : `Controlli ok. Sarebbe stata salvata la bozza ${codiceFoglio}.`;
@@ -1663,5 +1917,167 @@ export async function anteprimaAutistaIngressoAction(raw: unknown): Promise<
     success: true,
     id: crypto.randomUUID(),
     label: `${parsed.data.nome} ${parsed.data.cognome}`.trim(),
+  };
+}
+
+export type UnitaIngressoLookup = {
+  id: string;
+  codiceUnita: string;
+  tipoNome: string;
+  gruppoLettera: string;
+  lottoCodice: string | null;
+  usatoAt: string | null;
+};
+
+async function findUnitaIngressoByScan(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  raw: string
+): Promise<
+  | {
+      id: string;
+      codice_unita: string;
+      tipo_nome: string;
+      gruppo_lettera: string;
+      usato_at: string | null;
+      foglio_id: string;
+    }
+  | null
+> {
+  const parsed = parseUnitaScanInput(raw);
+  if (!parsed.token && !parsed.codice) return null;
+  let q = supabase
+    .from("produzione_fogli_ingresso_unita")
+    .select("id, codice_unita, tipo_nome, gruppo_lettera, usato_at, foglio_id")
+    .is("deleted_at", null);
+  q = parsed.token
+    ? q.eq("scan_token", parsed.token)
+    : q.eq("codice_unita", parsed.codice);
+  const { data } = await q.maybeSingle();
+  return data
+    ? (data as {
+        id: string;
+        codice_unita: string;
+        tipo_nome: string;
+        gruppo_lettera: string;
+        usato_at: string | null;
+        foglio_id: string;
+      })
+    : null;
+}
+
+export async function lookupUnitaIngressoMpAction(
+  barcodeRaw: string
+): Promise<
+  | { success: true; found: true; item: UnitaIngressoLookup }
+  | { success: true; found: false }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["produzione", "magazzino"]);
+  const supabase = await createClient();
+  const row = await findUnitaIngressoByScan(supabase, barcodeRaw);
+  if (!row) return { success: true, found: false };
+  const { data: foglio } = await supabase
+    .from("produzione_fogli_ingresso_mp")
+    .select("lotto_codice")
+    .eq("id", row.foglio_id)
+    .maybeSingle();
+  return {
+    success: true,
+    found: true,
+    item: {
+      id: row.id,
+      codiceUnita: row.codice_unita,
+      tipoNome: row.tipo_nome,
+      gruppoLettera: row.gruppo_lettera,
+      lottoCodice:
+        (foglio as { lotto_codice?: string | null } | null)?.lotto_codice ??
+        null,
+      usatoAt: row.usato_at,
+    },
+  };
+}
+
+export async function registraUsoUnitaIngressoMpAction(input: {
+  barcode: string;
+  modo: "carico" | "scarico";
+}): Promise<
+  | { success: true; item: UnitaIngressoLookup; alreadyUsed: false }
+  | { success: false; error: string; alreadyUsed?: true }
+> {
+  const { auth } = await requireAnyAreaAccess(["produzione", "magazzino"]);
+  const supabase = await createClient();
+  const row = await findUnitaIngressoByScan(supabase, input.barcode);
+  if (!row) {
+    return { success: false, error: "Contenitore ingresso non riconosciuto." };
+  }
+  if (row.usato_at) {
+    return {
+      success: false,
+      alreadyUsed: true,
+      error: `Il contenitore ${row.codice_unita} è già stato registrato e non può essere usato di nuovo.`,
+    };
+  }
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("produzione_fogli_ingresso_unita")
+    .update({
+      usato_at: now,
+      usato_by: auth.userId,
+      usato_modo: input.modo,
+      documento_stato: "usato",
+      versione: 2,
+      updated_by: auth.userId,
+      updated_at: now,
+    })
+    .eq("id", row.id)
+    .is("usato_at", null)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  const { data: check } = await supabase
+    .from("produzione_fogli_ingresso_unita")
+    .select("usato_at")
+    .eq("id", row.id)
+    .maybeSingle();
+  if (!(check as { usato_at?: string | null } | null)?.usato_at) {
+    return {
+      success: false,
+      alreadyUsed: true,
+      error: `Il contenitore ${row.codice_unita} è già stato registrato e non può essere usato di nuovo.`,
+    };
+  }
+
+  const { data: foglio } = await supabase
+    .from("produzione_fogli_ingresso_mp")
+    .select("lotto_codice")
+    .eq("id", row.foglio_id)
+    .maybeSingle();
+
+  void writeAuditLog({
+    entity_type: "produzione_fogli_ingresso_unita",
+    entity_id: row.id,
+    action: "unita_uso",
+    actor_id: auth.userId,
+    summary: `Registrato contenitore ${row.codice_unita} (${input.modo})`,
+    payload: {
+      codice_unita: row.codice_unita,
+      modo: input.modo,
+      foglio_id: row.foglio_id,
+    },
+  });
+
+  return {
+    success: true,
+    alreadyUsed: false,
+    item: {
+      id: row.id,
+      codiceUnita: row.codice_unita,
+      tipoNome: row.tipo_nome,
+      gruppoLettera: row.gruppo_lettera,
+      lottoCodice:
+        (foglio as { lotto_codice?: string | null } | null)?.lotto_codice ??
+        null,
+      usatoAt: now,
+    },
   };
 }

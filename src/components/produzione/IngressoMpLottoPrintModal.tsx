@@ -3,11 +3,17 @@
 import { useId, useRef, useState } from "react";
 import { FaPrint } from "react-icons/fa6";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
-import { stampaEtichettaIngressoMp } from "@/lib/produzione/stampa-etichetta-ingresso-mp";
+import {
+  stampaEtichettaIngressoMp,
+  stampaFogliUnitaIngressoMp,
+} from "@/lib/produzione/stampa-etichetta-ingresso-mp";
+import type { IngressoMpUnita } from "@/lib/produzione/ingresso-mp-unita";
 
 type Props = {
   lotto: string;
   arrivatoAt: string;
+  lettera?: string | null;
+  unita?: IngressoMpUnita[];
   onClose: () => void;
 };
 
@@ -26,12 +32,44 @@ function formatArrivo(iso: string): string {
 export function IngressoMpLottoPrintModal({
   lotto,
   arrivatoAt,
+  lettera,
+  unita = [],
   onClose,
 }: Props) {
   const titleId = useId();
   const printRootRef = useRef<HTMLDivElement>(null);
   const [format, setFormat] = useState<"qrcode" | "code128">("qrcode");
+  const [busy, setBusy] = useState(false);
   const ingressoLabel = formatArrivo(arrivatoAt);
+  const preview = unita[0] ?? null;
+
+  async function stampa() {
+    setBusy(true);
+    try {
+      if (unita.length > 0 && lettera) {
+        await stampaFogliUnitaIngressoMp({
+          lotto,
+          ingressoLabel,
+          lettera,
+          unita: unita.map((u) => ({
+            codiceUnita: u.codiceUnita,
+            tipoNome: u.tipoNome,
+            indiceTipo: u.indiceTipo,
+            totaleTipo: u.totaleTipo,
+            scanPayload: u.scanPayload,
+          })),
+        });
+        return;
+      }
+      stampaEtichettaIngressoMp({
+        lotto,
+        ingressoLabel,
+        root: printRootRef.current,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div
@@ -45,11 +83,12 @@ export function IngressoMpLottoPrintModal({
     >
       <div className="w-full max-w-xl rounded-xl border border-[var(--border)] bg-white p-5 shadow-xl print:border-0 print:shadow-none">
         <h2 id={titleId} className="text-base font-semibold print:hidden">
-          Stampa codice lotto MP
+          Stampa fogli contenitore
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)] print:hidden">
-          Etichetta orizzontale: codice a barre o QR, lotto intero e data di
-          ingresso.
+          {unita.length > 0
+            ? `${unita.length} fogli, gruppo ${lettera}. QR univoco: un contenitore non si registra due volte.`
+            : "Etichetta orizzontale: codice a barre o QR, lotto intero e data di ingresso."}
         </p>
 
         <div className="mt-4 flex flex-wrap gap-4 text-sm print:hidden">
@@ -73,13 +112,25 @@ export function IngressoMpLottoPrintModal({
 
         <div
           ref={printRootRef}
-          className="ingresso-mp-print mt-4 rounded-xl border border-[var(--border)] bg-white p-6 text-center"
+          className="ingresso-mp-print relative mt-4 rounded-xl border border-[var(--border)] bg-white p-6 text-center"
         >
+          {lettera ? (
+            <div className="absolute right-4 top-4 flex h-14 w-14 items-center justify-center rounded-full border-4 border-slate-900 text-3xl font-extrabold">
+              {lettera}
+            </div>
+          ) : null}
           <p className="text-xs uppercase tracking-wide text-slate-500">
-            Codice lotto MP
+            {preview ? "Foglio contenitore" : "Codice lotto MP"}
           </p>
+          {preview ? (
+            <p className="mt-2 text-lg font-bold">{preview.tipoNome}</p>
+          ) : null}
           <div className="mt-3">
-            <BarcodePreview value={lotto} format={format} scale={format === "qrcode" ? 4 : 3} />
+            <BarcodePreview
+              value={preview?.scanPayload ?? lotto}
+              format={format}
+              scale={format === "qrcode" ? 4 : 3}
+            />
           </div>
           <p className="mt-3 font-mono text-2xl font-semibold tracking-wider">
             {lotto}
@@ -87,6 +138,11 @@ export function IngressoMpLottoPrintModal({
           <p className="mt-2 text-sm text-slate-700">
             Ingresso: {ingressoLabel}
           </p>
+          {preview ? (
+            <p className="mt-3 text-left font-mono text-[11px] text-slate-500">
+              {preview.codiceUnita}
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-5 flex justify-end gap-2 print:hidden">
@@ -99,17 +155,12 @@ export function IngressoMpLottoPrintModal({
           </button>
           <button
             type="button"
-            onClick={() =>
-              stampaEtichettaIngressoMp({
-                lotto,
-                ingressoLabel,
-                root: printRootRef.current,
-              })
-            }
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
+            disabled={busy}
+            onClick={() => void stampa()}
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             <FaPrint size={14} />
-            Stampa
+            {unita.length > 1 ? `Stampa ${unita.length} fogli` : "Stampa"}
           </button>
         </div>
       </div>

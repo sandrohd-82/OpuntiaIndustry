@@ -563,6 +563,14 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
           {item.lottoCodice ? (
             <span className="font-mono text-sm">{item.lottoCodice}</span>
           ) : null}
+          {item.gruppoLettera ? (
+            <span
+              title="Gruppo contenitori"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-900 text-sm font-extrabold"
+            >
+              {item.gruppoLettera}
+            </span>
+          ) : null}
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold">
             {labelOrigineIngresso(item.origine)}
           </span>
@@ -1108,6 +1116,8 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
         <IngressoMpLottoEtichettaBox
           lotto={lottoMostrato}
           arrivatoAt={item?.arrivatoAt ?? new Date(arrivatoAt).toISOString()}
+          lettera={item?.gruppoLettera}
+          unita={item?.unita ?? []}
         />
       ) : null}
     </div>

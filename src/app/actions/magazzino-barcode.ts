@@ -16,6 +16,11 @@ import type {
   MagazzinoUnita,
 } from "@/lib/magazzino/types";
 import { createClient } from "@/lib/supabase/server";
+import {
+  lookupUnitaIngressoMpAction,
+  registraUsoUnitaIngressoMpAction,
+} from "@/app/actions/produzione-ingresso-mp";
+import { isUnitaScanInput } from "@/lib/produzione/ingresso-mp-unita";
 
 function catalogTable(
   kind: MagazzinoCatalogKind
@@ -99,6 +104,29 @@ export async function lookupBarcodeAction(barcodeRaw: string): Promise<
   await requireAreaAccess("magazzino");
   const barcode = String(barcodeRaw ?? "").trim();
   if (!barcode) return { success: false, error: "Barcode vuoto." };
+  if (isUnitaScanInput(barcode)) {
+    const unit = await lookupUnitaIngressoMpAction(barcode);
+    if (!unit.success) return { success: false, error: unit.error };
+    if (unit.found) {
+      return {
+        success: true,
+        found: true,
+        item: {
+          catalogKind: "materia_prima",
+          prodottoId: unit.item.id,
+          codice: unit.item.codiceUnita,
+          nome: `${unit.item.tipoNome} · gruppo ${unit.item.gruppoLettera}${
+            unit.item.usatoAt ? " · già registrato" : ""
+          }`,
+          barcode,
+          schedaProvvisoria: false,
+          categoriaUtilizzo: null,
+          giacenza: unit.item.usatoAt ? 0 : 1,
+          unita: "pz",
+        },
+      };
+    }
+  }
   const supabase = await createClient();
   const hit = await findByBarcode(supabase, barcode);
   if (!hit) {
@@ -588,6 +616,29 @@ export async function movimentoScanAction(raw: unknown): Promise<
     };
   }
   const input = parsed.data;
+  if (isUnitaScanInput(input.barcode)) {
+    const used = await registraUsoUnitaIngressoMpAction({
+      barcode: input.barcode,
+      modo: input.mode,
+    });
+    if (!used.success) return { success: false, error: used.error };
+    return {
+      success: true,
+      item: {
+        catalogKind: "materia_prima",
+        prodottoId: used.item.id,
+        codice: used.item.codiceUnita,
+        nome: `${used.item.tipoNome} · gruppo ${used.item.gruppoLettera}`,
+        barcode: input.barcode,
+        schedaProvvisoria: false,
+        categoriaUtilizzo: null,
+        giacenza: 0,
+        unita: "pz",
+      },
+      movimentoId: used.item.id,
+      delta: 0,
+    };
+  }
   const supabase = await createClient();
   const hit = await findByBarcode(supabase, input.barcode);
   if (!hit) {
