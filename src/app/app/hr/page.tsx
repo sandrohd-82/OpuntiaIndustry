@@ -1,7 +1,5 @@
-import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { redirect } from "next/navigation";
 
-export default async function HrPage() {
-  const { meta } = await requireAreaAccess("hr");
-  return <AreaPlaceholder title={meta.label} description={meta.description} />;
+export default function HrPage() {
+  redirect("/app/amministrazione/organigramma/presenze");
 }

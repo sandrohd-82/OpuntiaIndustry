@@ -123,6 +123,7 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
   item("Amministrazione", "/app/amministrazione/organigramma/elenco-e-mansioni", "nuova-mansione", "Nuova mansione"),
   item("Amministrazione", "/app/amministrazione/organigramma/elenco-e-mansioni", "nuovo-reparto", "Nuovo reparto"),
   item("Amministrazione", "/app/amministrazione/organigramma/elenco-e-mansioni", "crea-profilo", "Crea Profilo"),
+  item("Amministrazione", "/app/amministrazione/organigramma/presenze", "sincronizza", "Sincronizza presenze"),
 
   item("Produzione", "/app/produzione/processi-e-attivita/elenco-processi", "nuovo-processo", "Nuovo processo"),
   item("Produzione", "/app/produzione/processi-e-attivita/elenco-processi", "nuova-attivita", "Nuova attività"),
@@ -209,6 +210,8 @@ export const AZ = {
     "action:/app/amministrazione/organigramma/elenco-e-mansioni/nuovo-reparto",
   creaProfilo:
     "action:/app/amministrazione/organigramma/elenco-e-mansioni/crea-profilo",
+  sincronizzaPresenze:
+    "action:/app/amministrazione/organigramma/presenze/sincronizza",
   nuovoProcesso:
     "action:/app/produzione/processi-e-attivita/elenco-processi/nuovo-processo",
   nuovaAttivitaInProcesso:

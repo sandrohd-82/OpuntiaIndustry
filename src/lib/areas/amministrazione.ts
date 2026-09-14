@@ -200,6 +200,13 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         description: "Organigramma a cascata",
         path: "/app/amministrazione/organigramma/albero",
       },
+      {
+        slug: "presenze",
+        label: "Presenze",
+        description:
+          "Timbrature ingresso/uscita da Dipendenti in Cloud",
+        path: "/app/amministrazione/organigramma/presenze",
+      },
     ],
   },
 ] as const;

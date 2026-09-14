@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/webmail-sync",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/presenze-sync",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

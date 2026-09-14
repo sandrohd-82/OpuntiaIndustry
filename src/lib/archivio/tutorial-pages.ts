@@ -29,7 +29,6 @@ export const PLACEHOLDER_PATHS = new Set<string>([
   "/app/area-fornitori/quaderno-di-campagna",
   "/app/area-fornitori/calendario-raccolto",
   "/app/acquisti",
-  "/app/hr",
 ]);
 
 export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
@@ -140,6 +139,12 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
     {
       type: "p",
       text: "Persone interne: mansioni, documenti, contratti, foto tessera. Da qui puoi creare il profilo per entrare nel gestionale. I turni e i permessi di area partono da queste schede.",
+    },
+  ],
+  "/app/amministrazione/organigramma/presenze": [
+    {
+      type: "p",
+      text: "Dashboard timbrature da Dipendenti in Cloud: chi è presente, ingressi/uscite e ore del giorno. Sincronizza per aggiornare; il cron aggiorna da solo ogni 15 minuti.",
     },
   ],
   "/app/produzione/foglio-ingresso-mp/nuovo": [

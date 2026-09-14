@@ -23,6 +23,7 @@ import { OrdiniRicevutiBoard } from "@/components/amministrazione/OrdiniRicevuti
 import { PreventiviBoard } from "@/components/amministrazione/PreventiviBoard";
 import { OrganigrammaAlberoBoard } from "@/components/amministrazione/organigramma/OrganigrammaAlberoBoard";
 import { OrganigrammaElencoBoard } from "@/components/amministrazione/organigramma/OrganigrammaElencoBoard";
+import { PresenzeBoard } from "@/components/amministrazione/organigramma/PresenzeBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { resolveAmministrazionePage } from "@/lib/areas/amministrazione";
@@ -364,6 +365,17 @@ export default async function AmministrazioneSubPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <OrganigrammaAlberoBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "organigramma" && sub === "presenze") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <PresenzeBoard />
         </div>
       </>
     );

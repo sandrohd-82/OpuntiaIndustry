@@ -306,7 +306,7 @@ function buildPageArticles(): TutorialArticle[] {
     "nascoste",
     "Aree nascoste o in arrivo",
     "/app/hr",
-    "Area HR prevista, oggi segnaposto. Persone e contratti stanno in Amministrazione → Organigramma.",
+    "Area HR: reindirizza a Amministrazione → Organigramma → Presenze (timbrature Dipendenti in Cloud).",
     out,
     seen
   );
