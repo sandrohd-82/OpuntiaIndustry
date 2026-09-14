@@ -322,7 +322,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
         type: "ul",
         items: [
           "Fornitore, tipo materiale, bio, quantità, confezionamento.",
-          "Alla generazione del lotto: una lettera di gruppo (A–Z, poi riparte) e un foglio PDF per ogni contenitore, con id unico a vita (es. A13) in basso a sinistra. Il QR è del contenitore, non del solo lotto: lo stesso pezzo non si registra due volte in carico/scarico.",
+          "Alla generazione del lotto: una lettera di gruppo (A–Z, poi riparte) sul timbro e un foglio PDF per ogni contenitore, con id esadecimale unico a vita in basso a sinistra (1, 2, … 9, A, B, … F, 10, A1). Il QR è del contenitore, non del solo lotto: lo stesso pezzo non si registra due volte in carico/scarico.",
           "DDT produttore (testo + data + file) e foto lato destro/sinistro del carico.",
           "Mezzo, autista, operatore muletto.",
           "Note, lotto L- se è nato da magazzino, prodotto caricato.",

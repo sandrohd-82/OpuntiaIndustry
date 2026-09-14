@@ -123,6 +123,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
   const [testLettera, setTestLettera] = useState<string | null>(null);
   const [testUnita, setTestUnita] = useState<IngressoMpUnita[]>([]);
   const [peekLettera, setPeekLettera] = useState("A");
+  const [peekPrimoNumero, setPeekPrimoNumero] = useState(1);
   const [fornitoriLocali, setFornitoriLocali] = useState<Set<string>>(
     () => new Set()
   );
@@ -219,7 +220,10 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       if (p.success) setOperatori(p.items);
     }).finally(() => setCatalogReady(true));
     void peekIngressoMpLetteraAction().then((res) => {
-      if (res.success) setPeekLettera(res.lettera);
+      if (res.success) {
+        setPeekLettera(res.lettera);
+        setPeekPrimoNumero(res.prossimoNumero);
+      }
     });
   }, []);
 
@@ -292,6 +296,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       buildAnteprimaUnita({
         foglioId: item?.id,
         lettera: item?.gruppoLettera || testLettera || peekLettera,
+        primoNumero: peekPrimoNumero,
         righe: righe.map((r) => ({
           confezionamentoId: r.confezionamentoId,
           tipoNome:
@@ -307,6 +312,7 @@ export function FoglioIngressoMpForm({ foglioId }: Props) {
       item?.gruppoLettera,
       testLettera,
       peekLettera,
+      peekPrimoNumero,
       righe,
       catalogo,
     ]

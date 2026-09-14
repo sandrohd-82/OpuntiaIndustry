@@ -1,4 +1,5 @@
-export const UNITA_CODICE_RE = /^[A-Z][1-9][0-9]{0,8}$/;
+/** Progressivo esadecimale unico a vita: 1,2,…,9,A,B,…,F,10,…,A1. Senza zeri iniziali. */
+export const UNITA_CODICE_RE = /^[1-9A-F][0-9A-F]{0,11}$/;
 export const UNITA_SCAN_PREFIX = "OI-U/";
 
 export type IngressoMpUnita = {
@@ -16,12 +17,11 @@ export type IngressoMpUnita = {
   usatoAt: string | null;
 };
 
-export function composeCodiceUnita(lettera: string, n: number): string {
-  const L = lettera.trim().toUpperCase();
-  if (!/^[A-Z]$/.test(L) || !Number.isInteger(n) || n < 1) {
+export function composeCodiceUnita(n: number): string {
+  if (!Number.isInteger(n) || n < 1) {
     throw new Error("Codice contenitore non valido.");
   }
-  return `${L}${n}`;
+  return n.toString(16).toUpperCase();
 }
 
 export function scanPayloadFromToken(token: string): string {
@@ -61,6 +61,8 @@ export function quantitaContenitoriRiga(raw: string | number | null | undefined)
 export function buildAnteprimaUnita(opts: {
   foglioId?: string;
   lettera: string;
+  /** Primo progressivo decimale da convertire in hex (default 1). */
+  primoNumero?: number;
   righe: Array<{
     confezionamentoId: string;
     tipoNome: string;
@@ -71,7 +73,10 @@ export function buildAnteprimaUnita(opts: {
     ? opts.lettera.trim().toUpperCase()
     : "A";
   const out: IngressoMpUnita[] = [];
-  let n = 1;
+  let n =
+    Number.isInteger(opts.primoNumero) && (opts.primoNumero ?? 0) > 0
+      ? (opts.primoNumero as number)
+      : 1;
   for (const r of opts.righe) {
     const q = Math.max(0, Math.trunc(r.quantitaConfezioni));
     if (!r.confezionamentoId || q < 1) continue;
@@ -87,7 +92,7 @@ export function buildAnteprimaUnita(opts: {
         gruppoLettera: L,
         indiceTipo: i,
         totaleTipo: q,
-        codiceUnita: composeCodiceUnita(L, n),
+        codiceUnita: composeCodiceUnita(n),
         scanToken: token,
         scanPayload: scanPayloadFromToken(token),
         usatoAt: null,

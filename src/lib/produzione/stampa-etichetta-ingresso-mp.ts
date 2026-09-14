@@ -188,7 +188,7 @@ function openPrintHtml(html: string) {
   }
 }
 
-/** Un foglio PDF per contenitore: timbro lettera, tipo, QR token, id A13 in basso a sx. */
+/** Un foglio PDF per contenitore: timbro lettera, tipo, QR token, id hex in basso a sx. */
 export async function stampaFogliUnitaIngressoMp(opts: {
   lotto: string;
   ingressoLabel: string;

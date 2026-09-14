@@ -217,11 +217,11 @@ async function hydrateFogli(
     supabase
       .from("produzione_fogli_ingresso_unita")
       .select(
-        "id, foglio_id, confezione_id, confezionamento_id, tipo_nome, gruppo_lettera, indice_tipo, totale_tipo, codice_unita, scan_token, usato_at"
+        "id, foglio_id, confezione_id, confezionamento_id, tipo_nome, gruppo_lettera, indice_tipo, totale_tipo, codice_unita, scan_token, usato_at, created_at"
       )
       .in("foglio_id", ids)
       .is("deleted_at", null)
-      .order("codice_unita", { ascending: true }),
+      .order("created_at", { ascending: true }),
   ]);
 
   const fornMap = new Map(
@@ -1266,8 +1266,8 @@ async function ensureUnitaIngressoMp(
   }
 
   const { data: firstN, error: seqErr } = await supabase.rpc(
-    "alloc_ingresso_mp_unita_seq",
-    { p_lettera: lettera, p_count: totale }
+    "alloc_ingresso_mp_unita_hex_seq",
+    { p_count: totale }
   );
   if (seqErr || firstN == null) {
     return {
@@ -1303,7 +1303,7 @@ async function ensureUnitaIngressoMp(
         gruppo_lettera: lettera,
         indice_tipo: i,
         totale_tipo: q,
-        codice_unita: composeCodiceUnita(lettera, nextN),
+        codice_unita: composeCodiceUnita(nextN),
         scan_token: token,
         documento_stato: "emesso",
         versione: 1,
@@ -1683,16 +1683,24 @@ const provaFoglioSchema = z.object({
  * nessuna scrittura su DB, storage o audit.
  */
 export async function peekIngressoMpLetteraAction(): Promise<
-  { success: true; lettera: string } | { success: false; error: string }
+  | { success: true; lettera: string; prossimoNumero: number }
+  | { success: false; error: string }
 > {
   await requireAreaAccess("produzione");
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("peek_ingresso_mp_lettera");
-  if (error) {
-    return { success: true, lettera: "A" };
-  }
-  const lettera = String(data ?? "A").trim().toUpperCase();
-  return { success: true, lettera: /^[A-Z]$/.test(lettera) ? lettera : "A" };
+  const [{ data, error }, { data: nextHex }] = await Promise.all([
+    supabase.rpc("peek_ingresso_mp_lettera"),
+    supabase.rpc("peek_ingresso_mp_unita_hex"),
+  ]);
+  const letteraRaw = error ? "A" : String(data ?? "A").trim().toUpperCase();
+  const lettera = /^[A-Z]$/.test(letteraRaw) ? letteraRaw : "A";
+  const prossimoNumero =
+    typeof nextHex === "number" && nextHex > 0 ? nextHex : Number(nextHex) || 1;
+  return {
+    success: true,
+    lettera,
+    prossimoNumero: prossimoNumero > 0 ? prossimoNumero : 1,
+  };
 }
 
 export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
@@ -1799,10 +1807,16 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
   }
 
   let letteraPeek = "";
+  let primoHex = 1;
   if (lottoCodice || generaLotto) {
-    const { data: peek } = await supabase.rpc("peek_ingresso_mp_lettera");
+    const [{ data: peek }, { data: nextHex }] = await Promise.all([
+      supabase.rpc("peek_ingresso_mp_lettera"),
+      supabase.rpc("peek_ingresso_mp_unita_hex"),
+    ]);
     letteraPeek = String(peek ?? "").trim().toUpperCase();
     if (!/^[A-Z]$/.test(letteraPeek)) letteraPeek = "A";
+    const n = typeof nextHex === "number" ? nextHex : Number(nextHex);
+    if (Number.isFinite(n) && n > 0) primoHex = n;
   }
 
   const catIds = [...new Set(v.confezioni.map((r) => r.confezionamentoId))];
@@ -1820,6 +1834,7 @@ export async function provaFoglioIngressoMpAction(raw: unknown): Promise<
   );
   const unita = buildAnteprimaUnita({
     lettera: letteraPeek || "A",
+    primoNumero: primoHex,
     righe: v.confezioni.map((r) => ({
       confezionamentoId: r.confezionamentoId,
       tipoNome: nomeBy.get(r.confezionamentoId)?.trim() || "Contenitore",
