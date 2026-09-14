@@ -143,6 +143,106 @@ async function nextCodiceUscita(
   return { codice, week, year, seqHex: codice.slice(4) };
 }
 
+export async function anteprimaLottoUscitaAction(): Promise<
+  | { success: true; codice: string; settimana: number; anno: number }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["strumenti", "produzione", "magazzino"]);
+  const supabase = await createClient();
+  const next = await nextCodiceUscita(supabase, new Date());
+  return {
+    success: true,
+    codice: next.codice,
+    settimana: next.week,
+    anno: next.year,
+  };
+}
+
+export async function creaLottoUscitaAlSalvataggio(input: {
+  userId: string;
+  codicePreferito?: string | null;
+  prodottoNome?: string | null;
+  note?: string;
+}): Promise<
+  | { success: true; lotto: LottoEsterno; codiceCambiato: boolean }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["strumenti", "produzione", "magazzino"]);
+  const supabase = await createClient();
+  const preferito = (input.codicePreferito ?? "").trim().toUpperCase();
+  const preferitoOk = preferito && isValidLottoUscita(preferito);
+  const now = new Date().toISOString();
+  let lastError = "Creazione lotto in uscita fallita.";
+
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const next =
+      attempt === 0 && preferitoOk
+        ? (() => {
+            const p = parseLottoUscita(preferito);
+            if (!p) return null;
+            return {
+              codice: preferito,
+              week: p.week,
+              year: p.year,
+              seqHex: p.seqHex,
+            };
+          })()
+        : await nextCodiceUscita(supabase, new Date());
+    if (!next) continue;
+    const { data, error } = await supabase
+      .from("lotti_esterni")
+      .insert({
+        codice: next.codice,
+        tipo: "prodotto_uscita",
+        settimana: next.week,
+        anno: next.year,
+        seq_hex: next.seqHex,
+        foglio_lavorazione_id: null,
+        prodotto_nome: input.prodottoNome?.trim() || null,
+        is_composito: false,
+        versione: 1,
+        documento_stato: "registrato",
+        public_token: newPublicToken(),
+        public_enabled: true,
+        visibilita: VISIBILITA_DEFAULT,
+        note:
+          input.note?.trim() ||
+          "Lotto in uscita associato al carico magazzino (inventario).",
+        generated_at: now,
+        generated_by: input.userId,
+        created_by: input.userId,
+        updated_by: input.userId,
+      })
+      .select("*")
+      .single();
+    if (!error && data) {
+      const created = data as LottoRow;
+      void writeAuditLog({
+        entity_type: "lotti_esterni",
+        entity_id: created.id,
+        action: "create",
+        actor_id: input.userId,
+        summary: `Lotto prodotto in uscita ${created.codice} da carico magazzino`,
+        payload: {
+          codice: created.codice,
+          origine: "carico_magazzino",
+          codice_preferito: preferito || null,
+        },
+      });
+      return {
+        success: true,
+        lotto: mapLotto(created),
+        codiceCambiato: Boolean(preferitoOk && preferito !== created.codice),
+      };
+    }
+    lastError = error?.message ?? lastError;
+    if (error?.code !== "23505") {
+      return { success: false, error: lastError };
+    }
+  }
+  return { success: false, error: lastError };
+}
+
 export async function ensureLottoUscitaPerFoglio(input: {
   foglioId: string;
   userId: string;

@@ -964,6 +964,8 @@ export async function movimentoManualeAgrinsiciliaAction(
       giacenzaKg: number;
       movimentoId: string;
       foglioMpCodice: string | null;
+      lottoUscitaCodice: string | null;
+      lottoUscitaCodiceCambiato: boolean;
     }
   | { success: false; error: string }
 > {
@@ -1005,7 +1007,28 @@ export async function movimentoManualeAgrinsiciliaAction(
   }
 
   let lottoEsternoId: string | null = null;
-  if (input.collegaFoglio && input.foglioId) {
+  let lottoUscitaCodice: string | null = null;
+  let lottoUscitaCodiceCambiato = false;
+  if (input.associaLottoUscita) {
+    const { creaLottoUscitaAlSalvataggio } = await import(
+      "@/app/actions/lotti-esterni"
+    );
+    const motivoUscita = input.collegaFoglio
+      ? "Carico magazzino collegato a foglio"
+      : input.motivoSenzaFoglio
+        ? MOTIVO_SENZA_FOGLIO_LABEL[input.motivoSenzaFoglio]
+        : "Carico magazzino";
+    const lottoRes = await creaLottoUscitaAlSalvataggio({
+      userId: auth.userId,
+      codicePreferito: input.lottoUscitaAnteprima,
+      prodottoNome: `${prodotto.codice} — ${prodotto.nome}`,
+      note: `${motivoUscita}. Lotto interno ${lottoCodice}.`,
+    });
+    if (!lottoRes.success) return { success: false, error: lottoRes.error };
+    lottoEsternoId = lottoRes.lotto.id;
+    lottoUscitaCodice = lottoRes.lotto.codice;
+    lottoUscitaCodiceCambiato = lottoRes.codiceCambiato;
+  } else if (input.collegaFoglio && input.foglioId) {
     const { data: foglio, error: fErr } = await supabase
       .from("produzione_fogli_lavorazione")
       .select("id, codice, stato, lotto_esterno_id")
@@ -1149,6 +1172,8 @@ export async function movimentoManualeAgrinsiciliaAction(
       giacenza_dopo: dopo,
       foglio_ingresso_mp_id: foglioMp?.id ?? null,
       foglio_ingresso_mp_codice: foglioMp?.codice ?? null,
+      lotto_esterno_id: lottoEsternoId,
+      lotto_uscita_codice: lottoUscitaCodice,
     },
   });
 
@@ -1157,6 +1182,8 @@ export async function movimentoManualeAgrinsiciliaAction(
     giacenzaKg: dopo,
     movimentoId: mov.id,
     foglioMpCodice: foglioMp?.codice ?? null,
+    lottoUscitaCodice,
+    lottoUscitaCodiceCambiato,
   };
 }
 

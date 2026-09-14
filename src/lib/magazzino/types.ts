@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isValidLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
+import { isValidLottoUscita } from "@/lib/produzione/lotti-esterni";
 
 export type MagazzinoCatalogKind = "materia_prima" | "prodotto_fornitore";
 
@@ -290,6 +291,13 @@ export const movimentoManualeSchema = z
     foglioId: z.string().uuid().nullable().optional(),
     motivoSenzaFoglio: z.enum(MOTIVO_SENZA_FOGLIO).nullable().optional(),
     note: z.string().trim().max(1000).optional().default(""),
+    associaLottoUscita: z.boolean().optional().default(false),
+    lottoUscitaAnteprima: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .optional()
+      .nullable(),
   })
   .superRefine((val, ctx) => {
     if (val.collegaFoglio && !val.foglioId) {
@@ -312,6 +320,17 @@ export const movimentoManualeSchema = z
         message: "In bypass il dettaglio della motivazione è obbligatorio.",
         path: ["note"],
       });
+    }
+    if (val.associaLottoUscita) {
+      const ante = (val.lottoUscitaAnteprima ?? "").trim().toUpperCase();
+      if (!ante || !isValidLottoUscita(ante)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Associa il lotto in uscita prima di registrare, oppure togli l’associazione.",
+          path: ["lottoUscitaAnteprima"],
+        });
+      }
     }
   });
 

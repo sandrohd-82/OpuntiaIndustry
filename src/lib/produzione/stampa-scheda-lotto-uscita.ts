@@ -43,8 +43,12 @@ export function stampaSchedaLottoUscita(opts: {
   <div class="row">
     ${img}
     <div>
-      <p>Inquadra il QR per la storia pubblica del prodotto (solo i campi abilitati).</p>
-      <p class="muted">${url}</p>
+      <p>${
+        url
+          ? "Inquadra il QR per la storia pubblica del prodotto (solo i campi abilitati)."
+          : "QR del codice lotto. La storia pubblica si attiva dopo Registra carico."
+      }</p>
+      <p class="muted">${url || codice}</p>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>

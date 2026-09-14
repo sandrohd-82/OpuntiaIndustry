@@ -195,3 +195,9 @@ export const compositoCreateSchema = z.object({
     .min(2, "Servono almeno due lotti per un lotto inclusivo."),
   note: z.string().max(500).optional(),
 });
+
+export const lottoUscitaAnteprima = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .refine(isValidLottoUscita, "Lotto in uscita non valido.");

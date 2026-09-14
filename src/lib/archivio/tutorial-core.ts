@@ -186,6 +186,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
           "DDT fiscale (Area Fiscale): menu presente, pagina in costruzione. Il DDT del produttore sul foglio ingresso invece c’è già (è un testo + foto, non un numero di lotto).",
           "Sulle righe ordine/campionatura il campo lotto è un testo: di solito ci incolli il L-…, non si genera da solo.",
           "Lotti inclusivi automatici dagli ordini (un lotto per ordine o per confezione): la regola è già pronta, la generazione da ordine arriva dopo. Oggi si prova da Strumenti → Generatore di Lotti.",
+          "In Magazzino → Inserisci quantità puoi associare un lotto in uscita: lo stampi subito, ma si salva solo con Registra carico.",
         ],
       },
       {

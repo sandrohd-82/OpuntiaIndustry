@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   listFogliApertiMagazzinoAction,
   listMovimentiAgrinsiciliaAction,
   listProdottiPropriMagazzinoAction,
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
+import { anteprimaLottoUscitaAction } from "@/app/actions/lotti-esterni";
+import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
 import { LottoAgrinsiciliaModal } from "@/components/magazzino/LottoAgrinsiciliaModal";
 import { lottoMaskPlaceholder } from "@/lib/magazzino/lotto-agrinsicilia";
+import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
 import {
   formatQuantitaCarico,
   MAGAZZINO_CARICO_UNITA_OPTIONS,
@@ -45,6 +48,13 @@ export function MagazzinoInserisciQuantitaBoard() {
   const [ok, setOk] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [ready, setReady] = useState(false);
+  const [lottoUscita, setLottoUscita] = useState<{
+    codice: string;
+    settimana: number;
+    anno: number;
+  } | null>(null);
+  const [lottoUscitaBusy, setLottoUscitaBusy] = useState(false);
+  const printRootRef = useRef<HTMLDivElement>(null);
 
   async function reload() {
     const [p, f, m] = await Promise.all([
@@ -69,6 +79,42 @@ export function MagazzinoInserisciQuantitaBoard() {
     [prodotti, prodottoId]
   );
 
+  async function associaLottoUscita() {
+    setError(null);
+    setLottoUscitaBusy(true);
+    try {
+      const res = await anteprimaLottoUscitaAction();
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      setLottoUscita({
+        codice: res.codice,
+        settimana: res.settimana,
+        anno: res.anno,
+      });
+    } finally {
+      setLottoUscitaBusy(false);
+    }
+  }
+
+  function stampaAnteprimaUscita() {
+    if (!lottoUscita) return;
+    const canvas = printRootRef.current?.querySelector("canvas");
+    const qr =
+      canvas instanceof HTMLCanvasElement ? canvas.toDataURL("image/png") : null;
+    stampaSchedaLottoUscita({
+      codice: lottoUscita.codice,
+      publicUrl: "",
+      prodotto: selected
+        ? `${selected.codice} — ${selected.nome}`
+        : "Prodotto Agrinsicilia",
+      settimana: lottoUscita.settimana,
+      anno: lottoUscita.anno,
+      qrDataUrl: qr,
+    });
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -92,11 +138,18 @@ export function MagazzinoInserisciQuantitaBoard() {
         foglioId: collegaFoglio ? foglioId || null : null,
         motivoSenzaFoglio: collegaFoglio ? null : motivo,
         note,
+        associaLottoUscita: Boolean(lottoUscita),
+        lottoUscitaAnteprima: lottoUscita?.codice ?? null,
       });
       if (!result.success) {
         setError(result.error);
         return;
       }
+      const lottoMsg = result.lottoUscitaCodice
+        ? result.lottoUscitaCodiceCambiato
+          ? ` Lotto in uscita registrato ${result.lottoUscitaCodice} (il codice stampato era già usato).`
+          : ` Lotto in uscita ${result.lottoUscitaCodice} registrato.`
+        : "";
       setOk(
         `Carico registrato. Giacenza attuale: ${formatQuantitaCarico(
           result.giacenzaKg,
@@ -105,10 +158,11 @@ export function MagazzinoInserisciQuantitaBoard() {
           result.foglioMpCodice
             ? ` Foglio Codice MP Lavorata ${result.foglioMpCodice} archiviato (Storico / Archivio).`
             : ""
-        }`
+        }${lottoMsg}`
       );
       setQuantita("");
       setLottoCodice("");
+      setLottoUscita(null);
       setNote("");
       await reload();
     } catch (err) {
@@ -317,6 +371,70 @@ export function MagazzinoInserisciQuantitaBoard() {
             />
           )}
         </fieldset>
+
+        <section
+          ref={printRootRef}
+          className="space-y-3 rounded-xl border border-sky-200 bg-sky-50/60 p-4"
+        >
+          <p className="text-sm font-medium text-sky-900">
+            Lotto prodotto in uscita (esterno)
+          </p>
+          <p className="text-xs text-sky-800">
+            Si stampa ora; si registra in anagrafica solo con «Registra
+            carico». Se chiudi senza salvare, il codice non esiste.
+          </p>
+          {collegaFoglio &&
+          fogli.find((f) => f.id === foglioId)?.lottoUscitaCodice &&
+          !lottoUscita ? (
+            <p className="text-xs text-slate-600">
+              Il foglio ha già il lotto{" "}
+              <span className="font-mono">
+                {fogli.find((f) => f.id === foglioId)?.lottoUscitaCodice}
+              </span>
+              . Verrà usato sul carico, salvo se associ un lotto nuovo.
+            </p>
+          ) : null}
+          {lottoUscita ? (
+            <div className="grid gap-3 md:grid-cols-[140px_1fr]">
+              <BarcodePreview value={lottoUscita.codice} format="qrcode" />
+              <div>
+                <p className="font-mono text-2xl font-semibold tracking-wide">
+                  {lottoUscita.codice}
+                </p>
+                <p className="text-xs text-slate-600">
+                  Settimana ISO {lottoUscita.settimana} · {lottoUscita.anno}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={stampaAnteprimaUscita}
+                    className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white"
+                  >
+                    Stampa etichetta
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLottoUscita(null)}
+                    className="rounded-lg border border-sky-300 bg-white px-3 py-1.5 text-sm text-sky-800"
+                  >
+                    Togli associazione
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={lottoUscitaBusy}
+              onClick={() => void associaLottoUscita()}
+              className="rounded-lg bg-sky-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {lottoUscitaBusy
+                ? "Preparazione…"
+                : "Associa nuovo lotto di uscita"}
+            </button>
+          )}
+        </section>
 
         {error ? (
           <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
