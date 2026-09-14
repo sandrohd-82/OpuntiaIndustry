@@ -881,9 +881,3 @@ export async function getDecodificaLottoPubblicoAction(
     },
   };
 }
-
-export function describeLottoUscita(codice: string): string {
-  const p = parseLottoUscita(codice);
-  if (!p) return "Codice non riconosciuto.";
-  return `Settimana ${p.week} · anno ${p.year} · seq ${p.seqHex}`;
-}
