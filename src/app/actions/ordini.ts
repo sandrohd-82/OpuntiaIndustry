@@ -43,6 +43,7 @@ import {
   requireOrdineReadAccess,
 } from "@/lib/auth/ordini-access";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
+import { resolveVisibleClienteIds } from "@/lib/auth/anagrafica-visibility";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import type {
   AuditLogInsert,
@@ -204,13 +205,19 @@ export async function listOrdiniAction(
   await requireOrdineReadAccess();
   const supabase = await createClient();
   const stati = Array.isArray(stato) ? stato : [stato];
+  const visibleClienti = await resolveVisibleClienteIds();
+  if (visibleClienti && visibleClienti.length === 0) {
+    return { success: true, ordini: [] };
+  }
   const scope = await resolveScopeMode("ordini");
 
   let q = supabase
     .from("ordini")
     .select("*")
     .is("deleted_at", null);
-  if (scope && !scope.skip && scope.mode === "proprie") {
+  if (visibleClienti) {
+    q = q.in("cliente_id", visibleClienti);
+  } else if (scope && !scope.skip && scope.mode === "proprie") {
     q = q.eq("created_by", scope.userId);
   }
   if (opts?.tipo === "campionatura") {
@@ -300,6 +307,10 @@ export async function countOrdiniElencoAction(): Promise<
 > {
   await requireOrdineReadAccess();
   const supabase = await createClient();
+  const visibleClienti = await resolveVisibleClienteIds();
+  if (visibleClienti && visibleClienti.length === 0) {
+    return { success: true, merce: 0, campionature: 0 };
+  }
   const scope = await resolveScopeMode("ordini");
   let qVendita = supabase
     .from("ordini")
@@ -313,17 +324,23 @@ export async function countOrdiniElencoAction(): Promise<
     .is("deleted_at", null)
     .eq("tipo", "campionatura")
     .in("stato", ORDINI_STATI_ELENCO);
-  if (scope && !scope.skip && scope.mode === "proprie") {
+  let qCamps = supabase
+    .from("campionature")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null);
+  if (visibleClienti) {
+    qVendita = qVendita.in("cliente_id", visibleClienti);
+    qCampOrd = qCampOrd.in("cliente_id", visibleClienti);
+    qCamps = qCamps.in("cliente_id", visibleClienti);
+  } else if (scope && !scope.skip && scope.mode === "proprie") {
     qVendita = qVendita.eq("created_by", scope.userId);
     qCampOrd = qCampOrd.eq("created_by", scope.userId);
+    qCamps = qCamps.eq("created_by", scope.userId);
   }
   const [vendita, campOrd, camps] = await Promise.all([
     qVendita,
     qCampOrd,
-    supabase
-      .from("campionature")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null),
+    qCamps,
   ]);
   if (vendita.error) return { success: false, error: vendita.error.message };
   if (campOrd.error) return { success: false, error: campOrd.error.message };
@@ -341,6 +358,13 @@ export async function getOrdineAction(
   await requireOrdineReadAccess();
   const ordine = await loadOrdineWithRighe(id);
   if (!ordine || ordine.deletedAt) {
+    return { success: false, error: "Ordine non trovato." };
+  }
+  const visibleClienti = await resolveVisibleClienteIds();
+  if (
+    visibleClienti &&
+    (!ordine.clienteId || !visibleClienti.includes(ordine.clienteId))
+  ) {
     return { success: false, error: "Ordine non trovato." };
   }
   return { success: true, ordine };

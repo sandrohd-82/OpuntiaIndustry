@@ -5,9 +5,13 @@ import {
   loadCommercialeOperatorContext,
   loadCommercialeUserIds,
 } from "@/lib/auth/commerciale-lineage";
-import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import {
+  loadOwnedAziendaIds,
+  resolveScopeMode,
+} from "@/lib/auth/data-scope-enforce";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
 
 export type AnagraficaListVisibility = {
   /** `null` = nessuna restrizione (Super Admin reale / scope tutte). */
@@ -56,6 +60,22 @@ export const resolveAnagraficaListVisibility = cache(
 export const resolveAnagraficaOwnerUserIds = cache(
   async (): Promise<string[] | null> => {
     return (await resolveAnagraficaListVisibility()).ownerIds;
+  }
+);
+
+/**
+ * Aziende visibili per conteggi/elenchi collegati (ordini, campionature).
+ * `null` = nessuna restrizione. `[]` = zero aziende (elenco e pallini a 0).
+ * Un commerciale vede solo le aziende del sottoalbero (collegate a lui).
+ */
+export const resolveVisibleClienteIds = cache(
+  async (): Promise<string[] | null> => {
+    const ownerUserIds = await resolveAnagraficaOwnerUserIds();
+    if (ownerUserIds === null) return null;
+    const auth = await getAuthContext();
+    if (!auth) return [];
+    const supabase = await createClient();
+    return loadOwnedAziendaIds(supabase, auth.userId, "clienti");
   }
 );
 
