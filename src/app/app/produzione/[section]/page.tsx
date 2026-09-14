@@ -51,6 +51,9 @@ export default async function ProduzioneSectionPage({
         : "/app/produzione/fogli-lavorazione/nuovo"
     );
   }
+  if (section === "strumenti") {
+    redirect("/app/produzione/strumenti/generatore-lotti");
+  }
 
   if (section === "reparti") {
     return (

@@ -1,7 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import {
   associateBarcodeSchema,
   createFromBarcodeSchema,
@@ -139,7 +139,7 @@ export async function listBarcodeRegistratiAction(
   | { success: true; items: BarcodeRegistratoRiga[] }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("magazzino");
+  await requireAnyAreaAccess(["produzione", "magazzino"]);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from(catalogTable(catalogKind))

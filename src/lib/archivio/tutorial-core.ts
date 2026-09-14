@@ -185,7 +185,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
           "Scarti / non conformità di magazzino: menu presente, pagina in costruzione.",
           "DDT fiscale (Area Fiscale): menu presente, pagina in costruzione. Il DDT del produttore sul foglio ingresso invece c’è già (è un testo + foto, non un numero di lotto).",
           "Sulle righe ordine/campionatura il campo lotto è un testo: di solito ci incolli il L-…, non si genera da solo.",
-          "Lotti inclusivi automatici dagli ordini (un lotto per ordine o per confezione): la regola è già pronta, la generazione da ordine arriva dopo. Oggi si prova da Produzione → Lotti in uscita.",
+          "Lotti inclusivi automatici dagli ordini (un lotto per ordine o per confezione): la regola è già pronta, la generazione da ordine arriva dopo. Oggi si prova da Produzione → Strumenti → Generatore di Lotti.",
         ],
       },
       {
@@ -596,7 +596,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
       },
       {
         type: "note",
-        text: "Il generatore barcode (percorso legacy /app/magazzino/barcode/generatore) stampa quello che gli dai. Non crea un nuovo sistema di lotti.",
+        text: "Il generatore barcode sta in Produzione → Strumenti. Stampa quello che gli dai. Non crea un nuovo sistema di lotti.",
       },
     ],
   }),
@@ -607,7 +607,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
     title: "Lotti esterni: lotto prodotto in uscita",
     summary:
       "Lotto da 10 caratteri (SSAA + 6 hex) per clienti, fatture e DDT. Nasce col foglio di lavorazione.",
-    path: "/app/produzione/fogli-lavorazione/lotti-uscita",
+    path: "/app/produzione/strumenti/generatore-lotti",
     tags: [
       "lotto esterno",
       "lotto in uscita",
@@ -632,7 +632,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
       },
       {
         type: "p",
-        text: "Alla creazione del foglio di lavorazione. Lo vedi in Foglio in esecuzione, con le spunte di cosa mostrare sul QR pubblico e la stampa PDF.",
+        text: "Alla creazione del foglio di lavorazione. Lo vedi in Foglio in esecuzione, con le spunte di cosa mostrare sul QR pubblico e la stampa PDF. Elenco, lotti inclusivi e decifratore stanno in Produzione → Strumenti.",
       },
       {
         type: "h",
@@ -642,7 +642,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
         type: "ul",
         items: [
           "Se tutta la quantità viene da un solo lotto in uscita: si comunica quello.",
-          "Se viene da due o più: si genera un nuovo lotto inclusivo che li contiene. Oggi lo puoi provare in Produzione → Lotti in uscita; dagli ordini arriverà in automatico.",
+          "Se viene da due o più: si genera un nuovo lotto inclusivo che li contiene. Oggi lo puoi provare in Produzione → Strumenti → Generatore di Lotti; dagli ordini arriverà in automatico.",
         ],
       },
       {

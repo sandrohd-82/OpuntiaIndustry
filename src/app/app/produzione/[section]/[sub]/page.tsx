@@ -5,6 +5,8 @@ import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzion
 import { FoglioIngressoMpForm } from "@/components/produzione/FoglioIngressoMpForm";
 import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
+import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
 import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
 import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
 import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
@@ -17,7 +19,7 @@ import { resolveProduzioneDynamic } from "../../_resolve";
 
 type Props = {
   params: Promise<{ section: string; sub: string }>;
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; codice?: string }>;
 };
 
 export default async function ProduzioneSubPage({ params, searchParams }: Props) {
@@ -39,6 +41,17 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
   }
   if (section === "fogli-lavorazione" && sub === "storico") {
     redirect("/app/archivio/produzione/fogli-lavorazione/storico");
+  }
+  if (section === "fogli-lavorazione" && sub === "lotti-uscita") {
+    redirect("/app/produzione/strumenti/generatore-lotti");
+  }
+  if (section === "fogli-lavorazione" && sub === "decifratore") {
+    const codice = query.codice?.trim();
+    redirect(
+      codice
+        ? `/app/produzione/strumenti/decifratore?codice=${encodeURIComponent(codice)}`
+        : "/app/produzione/strumenti/decifratore"
+    );
   }
   const page = await resolveProduzioneDynamic([section, sub]);
   if (!page) notFound();
@@ -118,7 +131,7 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
     );
   }
 
-  if (section === "fogli-lavorazione" && sub === "lotti-uscita") {
+  if (section === "strumenti" && sub === "generatore-lotti") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
@@ -129,12 +142,45 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
     );
   }
 
-  if (section === "fogli-lavorazione" && sub === "decifratore") {
+  if (section === "strumenti" && sub === "decifratore") {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <LottoEsternoDecoderBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "strumenti" && sub === "generatore-barcode") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeGeneratoreBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "strumenti" && sub === "barcode-mp") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeRegistratiBoard catalogKind="materia_prima" />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "strumenti" && sub === "barcode-prodotti") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
         </div>
       </>
     );
