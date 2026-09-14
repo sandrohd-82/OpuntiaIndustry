@@ -288,3 +288,20 @@ export function anagraficaLineageOrFilter(lineageIds: string[]): string {
   return `created_by.in.(${inList}),commerciale_id.in.(${inList})`;
 }
 
+/**
+ * Sottoalbero + anagrafiche «Azienda» (nessun commerciale assegnato/creatore).
+ * Non include titolari commerciali fuori dal sottoalbero.
+ */
+export function anagraficaLineageOrAziendaFilter(
+  lineageIds: string[],
+  commercialIds: Iterable<string>
+): string {
+  const lineage = anagraficaLineageOrFilter(lineageIds);
+  const commercials = [...new Set([...commercialIds].filter(Boolean))];
+  const azienda =
+    commercials.length === 0
+      ? "commerciale_id.is.null"
+      : `and(commerciale_id.is.null,or(created_by.is.null,created_by.not.in.(${commercials.join(",")})))`;
+  return `${lineage},${azienda}`;
+}
+

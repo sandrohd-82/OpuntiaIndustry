@@ -37,6 +37,7 @@ export type CommercialeAnagraficaContext = {
   /** Agente: nascosto. Senior: visibile su sé + subordinati. Altri: tutte. */
   showAreaFilter: boolean;
   areaFilterOptions: CommercialeAreaOption[];
+  /** Senior: anche «Azienda». Agente senza team: no. */
   includeAziendaArea: boolean;
   /** Senior: il proprio id. Altri: tutte le aree. */
   defaultAreaFilter: string;
@@ -149,7 +150,7 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
     !op.isCommerciale ||
     op.grado === "senior" ||
     hasSubordinates;
-  const includeAziendaArea = skip || !op.isCommerciale;
+  const includeAziendaArea = showAreaFilter;
   const defaultAreaFilter =
     !skip && op.isCommerciale && showAreaFilter ? auth.userId : "";
   const areaFilterOptions =

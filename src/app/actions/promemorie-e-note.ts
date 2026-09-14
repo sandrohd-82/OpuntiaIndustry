@@ -5,7 +5,6 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
-  anagraficaLineageOrFilter,
   loadCommercialeLabels,
   loadCommercialeUserIds,
   loadSuperadminUserIds,
@@ -13,7 +12,7 @@ import {
 } from "@/lib/auth/commerciale-lineage";
 import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
-import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
+import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
@@ -754,14 +753,14 @@ export async function listClientiPossibiliAction(): Promise<
 > {
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
-  const ownerIds = await resolveAnagraficaOwnerUserIds();
+  const listOr = await anagraficaListOrClause();
   let q = supabase
     .from("clienti_possibili")
     .select(CLIENTI_POSSIBILI_SELECT)
     .is("deleted_at", null)
     .neq("stato", "scartato");
-  if (ownerIds) {
-    q = q.or(anagraficaLineageOrFilter(ownerIds));
+  if (listOr) {
+    q = q.or(listOr);
   }
   const { data, error } = await q.order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };

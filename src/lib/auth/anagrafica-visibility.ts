@@ -1,8 +1,20 @@
 import { cache } from "react";
-import { loadCommercialeOperatorContext } from "@/lib/auth/commerciale-lineage";
+import {
+  anagraficaLineageOrAziendaFilter,
+  anagraficaLineageOrFilter,
+  loadCommercialeOperatorContext,
+  loadCommercialeUserIds,
+} from "@/lib/auth/commerciale-lineage";
 import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
+
+export type AnagraficaListVisibility = {
+  /** `null` = nessuna restrizione (Super Admin reale / scope tutte). */
+  ownerIds: string[] | null;
+  /** Senior (o commerciale con subordinati): anche le schede «Azienda». */
+  includeAzienda: boolean;
+};
 
 /**
  * Chi può comparire come titolare anagrafica (created_by / commerciale_id).
@@ -11,19 +23,47 @@ import { getAuthContext } from "@/lib/auth/session";
  *
  * Un commerciale vede sempre solo il proprio sottoalbero, in ogni area,
  * anche se lo scope è «tutte». Mai i superiori.
+ * Senior / capo-team: in elenco può anche vedere le schede «Azienda»
+ * (solo dati primari: timeline/fatture/modifica restano sui privilegi).
  */
-export const resolveAnagraficaOwnerUserIds = cache(
-  async (): Promise<string[] | null> => {
+export const resolveAnagraficaListVisibility = cache(
+  async (): Promise<AnagraficaListVisibility> => {
     const auth = await getAuthContext();
-    if (!auth) return [];
+    if (!auth) return { ownerIds: [], includeAzienda: false };
     const skip = isSuperadminProfile(auth.profile) && !auth.impersonating;
-    if (skip) return null;
+    if (skip) return { ownerIds: null, includeAzienda: true };
     const op = await loadCommercialeOperatorContext(auth.userId);
-    if (op.isCommerciale) return op.subtreeIds;
+    const hasSubordinates = op.subtreeIds.some((id) => id !== auth.userId);
+    const canSeeAziendaInElenco =
+      op.grado === "senior" || hasSubordinates;
+    if (op.isCommerciale) {
+      return {
+        ownerIds: op.subtreeIds,
+        includeAzienda: canSeeAziendaInElenco,
+      };
+    }
     const scope = await resolveScopeMode("anagrafiche_clienti");
     if (scope && !scope.skip && scope.mode === "proprie") {
-      return op.subtreeIds.length > 0 ? op.subtreeIds : [auth.userId];
+      return {
+        ownerIds: op.subtreeIds.length > 0 ? op.subtreeIds : [auth.userId],
+        includeAzienda: false,
+      };
     }
-    return null;
+    return { ownerIds: null, includeAzienda: true };
   }
 );
+
+export const resolveAnagraficaOwnerUserIds = cache(
+  async (): Promise<string[] | null> => {
+    return (await resolveAnagraficaListVisibility()).ownerIds;
+  }
+);
+
+/** Clausola `.or()` per elenchi clienti / possibili. `null` = nessun filtro. */
+export async function anagraficaListOrClause(): Promise<string | null> {
+  const vis = await resolveAnagraficaListVisibility();
+  if (!vis.ownerIds) return null;
+  if (!vis.includeAzienda) return anagraficaLineageOrFilter(vis.ownerIds);
+  const commercialIds = await loadCommercialeUserIds();
+  return anagraficaLineageOrAziendaFilter(vis.ownerIds, commercialIds);
+}

@@ -21,14 +21,13 @@ import {
   type AnagraficaOrdineFonte,
 } from "@/lib/amministrazione/ordine-anagrafica";
 import {
-  anagraficaLineageOrFilter,
   loadCommercialeLabels,
   loadCommercialeUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
 import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
-import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
+import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 import { z } from "zod";
@@ -160,14 +159,14 @@ export async function listClientiAction(): Promise<
 > {
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
-  const ownerIds = await resolveAnagraficaOwnerUserIds();
+  const listOr = await anagraficaListOrClause();
 
   let q = supabase
     .from("clienti")
     .select("*")
     .is("deleted_at", null);
-  if (ownerIds) {
-    q = q.or(anagraficaLineageOrFilter(ownerIds));
+  if (listOr) {
+    q = q.or(listOr);
   }
   const { data, error } = await q.order("created_at", { ascending: false });
 
