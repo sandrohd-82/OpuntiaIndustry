@@ -419,7 +419,10 @@ export async function upsertFoglioLavorazioneAction(input: {
   lottoId?: string | null;
   lottoLabel?: string | null;
   codiceProdottoUscita?: string | null;
-}): Promise<{ success: true; id: string } | { success: false; error: string }> {
+}): Promise<
+  | { success: true; id: string; lottoUscitaCodice: string | null }
+  | { success: false; error: string }
+> {
   const { auth } = await requireAreaAccess("produzione");
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -483,7 +486,21 @@ export async function upsertFoglioLavorazioneAction(input: {
       summary: `Creato foglio ${input.codice}`,
     });
   }
-  return { success: true, id: input.id };
+
+  const { ensureLottoUscitaPerFoglio } = await import(
+    "@/app/actions/lotti-esterni"
+  );
+  const lottoRes = await ensureLottoUscitaPerFoglio({
+    foglioId: input.id,
+    userId: auth.userId,
+    startedAt: input.startedAt,
+    prodottoUscita: input.codiceProdottoUscita,
+  });
+  return {
+    success: true,
+    id: input.id,
+    lottoUscitaCodice: lottoRes.success ? lottoRes.lotto.codice : null,
+  };
 }
 
 export async function getFoglioConteggioAction(

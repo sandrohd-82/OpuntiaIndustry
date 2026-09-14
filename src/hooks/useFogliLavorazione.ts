@@ -60,9 +60,21 @@ export function useFogliLavorazione() {
     setFogli(migrated);
     if (migrated.some((f, i) => f.id !== loaded[i]?.id)) {
       window.localStorage.setItem(FOGLI_STORAGE_KEY, JSON.stringify(migrated));
-      for (const f of migrated) {
-        void syncFoglioDb(f);
-      }
+    }
+    for (const f of migrated.filter((x) => UUID_RE.test(x.id))) {
+      if (f.lottoUscitaCodice) continue;
+      void syncFoglioDb(f).then((res) => {
+        if (!res || !res.success || !res.lottoUscitaCodice) return;
+        setFogli((prev) => {
+          const next = prev.map((x) =>
+            x.id === f.id
+              ? { ...x, lottoUscitaCodice: res.lottoUscitaCodice }
+              : x
+          );
+          window.localStorage.setItem(FOGLI_STORAGE_KEY, JSON.stringify(next));
+          return next;
+        });
+      });
     }
   }, []);
 
@@ -108,7 +120,12 @@ export function useFogliLavorazione() {
       codiceProdottoUscita: foglio.codiceProdottoUscita,
     });
     if (!sync.success) throw new Error(sync.error);
-    return foglio;
+    const withLotto: FoglioLavorazione = {
+      ...foglio,
+      lottoUscitaCodice: sync.lottoUscitaCodice ?? null,
+    };
+    persist([withLotto, ...fogli]);
+    return withLotto;
   }
 
   async function closeFoglio(id: string): Promise<{ ok: true } | { ok: false; error: string }> {

@@ -5,6 +5,8 @@ import { FogliInEsecuzioneBoard } from "@/components/produzione/FogliInEsecuzion
 import { FoglioIngressoMpForm } from "@/components/produzione/FoglioIngressoMpForm";
 import { FogliIngressoMpBoard } from "@/components/produzione/FogliIngressoMpBoard";
 import { FogliLavorazioneBoard } from "@/components/produzione/FogliLavorazioneBoard";
+import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
+import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
 import { AreeElencoBoard } from "@/components/produzione/AreeElencoBoard";
 import { GestioneAreaBoard } from "@/components/produzione/GestioneAreaBoard";
 import { ProcessiAttivitaBoard } from "@/components/produzione/ProcessiAttivitaBoard";
@@ -111,6 +113,28 @@ export default async function ProduzioneSubPage({ params, searchParams }: Props)
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <ProcessiAttivitaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fogli-lavorazione" && sub === "lotti-uscita") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <LottiEsterniBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "fogli-lavorazione" && sub === "decifratore") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <LottoEsternoDecoderBoard />
         </div>
       </>
     );

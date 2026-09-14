@@ -143,6 +143,11 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
             "Foglio giornaliero di produzione. Si può collegare al carico, non è obbligatorio.",
           ],
           [
+            "Lotto in uscita (esterno)",
+            "1426000001",
+            "10 caratteri: settimana ISO + anno + 6 hex. Nasce col foglio di lavorazione. È il lotto di vendita (fatture, DDT, QR pubblico).",
+          ],
+          [
             "Targhe C / F",
             "C003 · F031",
             "Anagrafiche. Nel lotto L- la F si toglie: F031 diventa 031.",
@@ -180,6 +185,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
           "Scarti / non conformità di magazzino: menu presente, pagina in costruzione.",
           "DDT fiscale (Area Fiscale): menu presente, pagina in costruzione. Il DDT del produttore sul foglio ingresso invece c’è già (è un testo + foto, non un numero di lotto).",
           "Sulle righe ordine/campionatura il campo lotto è un testo: di solito ci incolli il L-…, non si genera da solo.",
+          "Lotti inclusivi automatici dagli ordini (un lotto per ordine o per confezione): la regola è già pronta, la generazione da ordine arriva dopo. Oggi si prova da Produzione → Lotti in uscita.",
         ],
       },
       {
@@ -188,7 +194,7 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
       },
       {
         type: "p",
-        text: "Se vedi 11 caratteri tipo 14092600001 è il Codice MP (data arrivo + contatore del giorno). Se vedi L-14.09.26/… è il lotto di lavorazione/prodotto. Se vedi FIMP-… è il foglio documento. Se vedi FL-2026-… è il foglio di lavorazione in produzione. Se vedi Or- o Ft- è vendita/fattura, non stock.",
+        text: "Se vedi 10 caratteri tipo 1426000001 è il lotto in uscita (esterno: settimana ISO + anno + progressivo hex) — è quello di vendita, fatture e DDT. Se vedi 11 caratteri tipo 14092600001 è il Codice MP (data arrivo + contatore del giorno). Se vedi L-14.09.26/… è il lotto interno di lavorazione. Se vedi FIMP-… è il foglio ingresso. Se vedi FL-2026-… è il foglio di lavorazione. Se vedi Or- o Ft- è vendita/fattura, non stock.",
       },
     ],
   }),
@@ -591,6 +597,61 @@ export const TUTORIAL_CORE_ARTICLES: TutorialArticle[] = [
       {
         type: "note",
         text: "Il generatore barcode (percorso legacy /app/magazzino/barcode/generatore) stampa quello che gli dai. Non crea un nuovo sistema di lotti.",
+      },
+    ],
+  }),
+  makeArticle({
+    id: "lotti-esterni-uscita",
+    sectionId: "lotti",
+    sectionTitle: "Lotti e numerazioni",
+    title: "Lotti esterni: lotto prodotto in uscita",
+    summary:
+      "Lotto da 10 caratteri (SSAA + 6 hex) per clienti, fatture e DDT. Nasce col foglio di lavorazione.",
+    path: "/app/produzione/fogli-lavorazione/lotti-uscita",
+    tags: [
+      "lotto esterno",
+      "lotto in uscita",
+      "SSAA",
+      "QR",
+      "decifratore",
+      "composito",
+    ],
+    blocks: [
+      {
+        type: "p",
+        text: "I lotti interni (MP, FIMP, L-, FL-, targhe) restano per lavorare in azienda. Il lotto esterno è quello che esce: corto, uguale in tutti i gestionali, max 10 caratteri.",
+      },
+      {
+        type: "code",
+        caption: "Esempio 1426000001",
+        text: "14  26  000001\n│   │   └── progressivo hex della settimana\n│   └────── anno 2026\n└────────── settimana ISO 14",
+      },
+      {
+        type: "h",
+        text: "Quando nasce",
+      },
+      {
+        type: "p",
+        text: "Alla creazione del foglio di lavorazione. Lo vedi in Foglio in esecuzione, con le spunte di cosa mostrare sul QR pubblico e la stampa PDF.",
+      },
+      {
+        type: "h",
+        text: "Un lotto o più lotti in vendita",
+      },
+      {
+        type: "ul",
+        items: [
+          "Se tutta la quantità viene da un solo lotto in uscita: si comunica quello.",
+          "Se viene da due o più: si genera un nuovo lotto inclusivo che li contiene. Oggi lo puoi provare in Produzione → Lotti in uscita; dagli ordini arriverà in automatico.",
+        ],
+      },
+      {
+        type: "h",
+        text: "Decifratore e QR",
+      },
+      {
+        type: "p",
+        text: "Il decifratore interno smonta la storia in ordine di tempo: raccolto (quando ci sarà il gestionale fornitori), arrivo, attesa, foglio, personale, essiccazione, magazzino, imballaggio, spedizione. Sul QR pubblico restano solo le caselle spuntate.",
       },
     ],
   }),

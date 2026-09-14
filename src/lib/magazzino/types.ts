@@ -322,6 +322,7 @@ export type FoglioApertoOption = {
   codice: string;
   prodotto: string;
   lottoLabel: string;
+  lottoUscitaCodice: string | null;
   stato: "aperto" | "chiuso";
 };
 
@@ -335,6 +336,7 @@ export type MovimentoAgrinsiciliaRiga = {
   foglioCodice: string | null;
   foglioIngressoCodice: string | null;
   foglioIngressoLotto: string | null;
+  lottoUscitaCodice: string | null;
   motivoSenzaFoglio: MotivoSenzaFoglio | null;
   note: string;
 };

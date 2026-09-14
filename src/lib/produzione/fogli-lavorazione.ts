@@ -23,6 +23,8 @@ export type FoglioLavorazione = {
   lottoLabel: string;
   codiceProdottoUscitaId: string;
   codiceProdottoUscita: string;
+  /** Lotto esterno di vendita (SSAA + 6 hex), generato alla creazione. */
+  lottoUscitaCodice?: string | null;
 };
 
 /** Placeholder area Ordini (da sostituire) */

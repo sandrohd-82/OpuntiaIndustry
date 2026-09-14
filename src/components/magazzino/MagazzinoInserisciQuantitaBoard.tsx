@@ -262,6 +262,7 @@ export function MagazzinoInserisciQuantitaBoard() {
                 <option key={f.id} value={f.id}>
                   {f.codice}
                   {f.prodotto ? ` · ${f.prodotto}` : ""}
+                  {f.lottoUscitaCodice ? ` · uscita ${f.lottoUscitaCodice}` : ""}
                   {f.lottoLabel ? ` · ${f.lottoLabel}` : ""}
                 </option>
               ))}
@@ -392,7 +393,14 @@ export function MagazzinoInserisciQuantitaBoard() {
                   <td className="px-4 py-3 tabular-nums">
                     {formatQuantitaCarico(m.quantitaKg, m.unita)}
                   </td>
-                  <td className="px-4 py-3 font-mono">{m.lottoCodice || "—"}</td>
+                  <td className="px-4 py-3 font-mono">
+                    {m.lottoCodice || "—"}
+                    {m.lottoUscitaCodice ? (
+                      <span className="mt-1 block text-xs text-sky-800">
+                        uscita {m.lottoUscitaCodice}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">
                     {m.foglioCodice
                       ? m.foglioCodice

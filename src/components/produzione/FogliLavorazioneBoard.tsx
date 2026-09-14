@@ -132,9 +132,15 @@ export function FogliLavorazioneBoard({
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <dt>Lotto</dt>
+                  <dt>Lotto interno</dt>
                   <dd className="font-medium text-[var(--foreground)]">
                     {foglio.lottoLabel}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt>Lotto in uscita</dt>
+                  <dd className="font-mono font-medium text-sky-800">
+                    {foglio.lottoUscitaCodice || "in generazione"}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { listProduzioneAreeAction } from "@/app/actions/produzione-aree";
 import { FoglioBilancioPanel } from "@/components/produzione/FoglioBilancioPanel";
 import { FoglioProcessiPanel } from "@/components/produzione/FoglioProcessiPanel";
+import { LottoUscitaBox } from "@/components/produzione/LottoUscitaBox";
 import { useFogliLavorazione } from "@/hooks/useFogliLavorazione";
 import { formatFoglioRange } from "@/lib/produzione/fogli-lavorazione";
 import type { ProduzioneArea } from "@/lib/produzione/aree-posti";
@@ -86,6 +87,10 @@ export function FogliInEsecuzioneBoard() {
               {closingId === foglio.id ? "Verifica chiusura…" : "Chiudi foglio"}
             </button>
           </div>
+          <LottoUscitaBox
+            foglioId={foglio.id}
+            lottoCodice={foglio.lottoUscitaCodice}
+          />
           <FoglioProcessiPanel foglio={foglio} />
           {aree.length === 0 ? (
             <p className="text-xs text-[var(--muted)]">

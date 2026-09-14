@@ -859,7 +859,9 @@ export async function listFogliApertiMagazzinoAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("produzione_fogli_lavorazione")
-    .select("id, codice, prodotto, lotto_label, stato")
+    .select(
+      "id, codice, prodotto, lotto_label, stato, lotto_esterno:lotti_esterni!lotto_esterno_id(codice)"
+    )
     .eq("stato", "aperto")
     .is("deleted_at", null)
     .order("started_at", { ascending: false })
@@ -873,13 +875,20 @@ export async function listFogliApertiMagazzinoAction(): Promise<
       prodotto: string | null;
       lotto_label: string | null;
       stato: "aperto" | "chiuso";
-    }>).map((r) => ({
-      id: r.id,
-      codice: r.codice,
-      prodotto: r.prodotto ?? "",
-      lottoLabel: r.lotto_label ?? "",
-      stato: r.stato,
-    })),
+      lotto_esterno: { codice: string } | { codice: string }[] | null;
+    }>).map((r) => {
+      const ext = Array.isArray(r.lotto_esterno)
+        ? r.lotto_esterno[0]
+        : r.lotto_esterno;
+      return {
+        id: r.id,
+        codice: r.codice,
+        prodotto: r.prodotto ?? "",
+        lottoLabel: r.lotto_label ?? "",
+        lottoUscitaCodice: ext?.codice ?? null,
+        stato: r.stato,
+      };
+    }),
   };
 }
 
@@ -892,7 +901,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
   const { data, error } = await supabase
     .from("magazzino_movimenti")
     .select(
-      "id, created_at, prodotto_codice, quantita_kg, unita, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice), foglio_ingresso:produzione_fogli_ingresso_mp!foglio_ingresso_mp_id(codice, lotto_codice)"
+      "id, created_at, prodotto_codice, quantita_kg, unita, lotto_codice, foglio_id, motivo_senza_foglio, note, foglio:produzione_fogli_lavorazione(codice), foglio_ingresso:produzione_fogli_ingresso_mp!foglio_ingresso_mp_id(codice, lotto_codice), lotto_esterno:lotti_esterni!lotto_esterno_id(codice)"
     )
     .eq("catalog_kind", CATALOG_PROPRIO)
     .is("deleted_at", null)
@@ -915,11 +924,15 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
         | { codice: string; lotto_codice: string | null }
         | { codice: string; lotto_codice: string | null }[]
         | null;
+      lotto_esterno: { codice: string } | { codice: string }[] | null;
     }>).map((r) => {
       const foglio = Array.isArray(r.foglio) ? r.foglio[0] : r.foglio;
       const foglioIngresso = Array.isArray(r.foglio_ingresso)
         ? r.foglio_ingresso[0]
         : r.foglio_ingresso;
+      const lottoEsterno = Array.isArray(r.lotto_esterno)
+        ? r.lotto_esterno[0]
+        : r.lotto_esterno;
       const motivo =
         r.motivo_senza_foglio === "inventario" ||
         r.motivo_senza_foglio === "rivisita_ordine"
@@ -935,6 +948,7 @@ export async function listMovimentiAgrinsiciliaAction(): Promise<
         foglioCodice: foglio?.codice ?? null,
         foglioIngressoCodice: foglioIngresso?.codice ?? null,
         foglioIngressoLotto: foglioIngresso?.lotto_codice ?? null,
+        lottoUscitaCodice: lottoEsterno?.codice ?? null,
         motivoSenzaFoglio: motivo,
         note: r.note ?? "",
       };
@@ -990,10 +1004,11 @@ export async function movimentoManualeAgrinsiciliaAction(
     return { success: false, error: "Impossibile comporre il lotto." };
   }
 
+  let lottoEsternoId: string | null = null;
   if (input.collegaFoglio && input.foglioId) {
     const { data: foglio, error: fErr } = await supabase
       .from("produzione_fogli_lavorazione")
-      .select("id, codice, stato")
+      .select("id, codice, stato, lotto_esterno_id")
       .eq("id", input.foglioId)
       .is("deleted_at", null)
       .maybeSingle();
@@ -1003,6 +1018,9 @@ export async function movimentoManualeAgrinsiciliaAction(
     if (foglio.stato !== "aperto") {
       return { success: false, error: "Il foglio selezionato non è aperto." };
     }
+    lottoEsternoId =
+      (foglio as { lotto_esterno_id?: string | null }).lotto_esterno_id ??
+      null;
   }
 
   let foglioMp: { id: string; codice: string } | null = null;
@@ -1087,6 +1105,7 @@ export async function movimentoManualeAgrinsiciliaAction(
       riferimento: "carico-manuale",
       note: input.note.trim(),
       foglio_ingresso_mp_id: foglioMp?.id ?? null,
+      lotto_esterno_id: lottoEsternoId,
       is_test: false,
       created_by: auth.userId,
       updated_by: auth.userId,

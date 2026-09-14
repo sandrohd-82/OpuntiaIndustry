@@ -68,6 +68,20 @@ export const PRODUZIONE_SECTIONS: readonly NavItem[] = [
         path: "/app/produzione/fogli-lavorazione/in-esecuzione",
         badge: { kind: "status", active: false },
       },
+      {
+        slug: "lotti-uscita",
+        label: "Lotti in uscita",
+        description:
+          "Lotti esterni di vendita (10 caratteri) e lotti inclusivi",
+        path: "/app/produzione/fogli-lavorazione/lotti-uscita",
+      },
+      {
+        slug: "decifratore",
+        label: "Decifratore lotti",
+        description:
+          "Smonta un lotto in uscita e mostra la storia del prodotto",
+        path: "/app/produzione/fogli-lavorazione/decifratore",
+      },
     ],
   },
   {
