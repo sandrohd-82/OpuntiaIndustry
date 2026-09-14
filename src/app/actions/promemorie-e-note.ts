@@ -6,7 +6,6 @@ import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
   anagraficaLineageOrFilter,
-  loadCommercialLineageUserIds,
   loadCommercialeLabels,
   loadCommercialeUserIds,
   loadSuperadminUserIds,
@@ -14,7 +13,7 @@ import {
 } from "@/lib/auth/commerciale-lineage";
 import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
-import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
@@ -755,15 +754,14 @@ export async function listClientiPossibiliAction(): Promise<
 > {
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
-  const scope = await resolveScopeMode("anagrafiche_clienti");
+  const ownerIds = await resolveAnagraficaOwnerUserIds();
   let q = supabase
     .from("clienti_possibili")
     .select(CLIENTI_POSSIBILI_SELECT)
     .is("deleted_at", null)
     .neq("stato", "scartato");
-  if (scope && !scope.skip && scope.mode === "proprie") {
-    const lineage = await loadCommercialLineageUserIds(scope.userId);
-    q = q.or(anagraficaLineageOrFilter(lineage));
+  if (ownerIds) {
+    q = q.or(anagraficaLineageOrFilter(ownerIds));
   }
   const { data, error } = await q.order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };

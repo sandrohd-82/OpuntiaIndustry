@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
   COMMERCIALE_AREA_AZIENDA,
   uniqueCommercialeAreaOptions,
+  type CommercialeAreaOption,
 } from "@/lib/auth/commerciale";
 
 type RecordLike = {
@@ -16,6 +17,9 @@ type Props = {
   onChange: (next: string) => void;
   records: RecordLike[];
   id?: string;
+  /** Se valorizzato (Senior): solo sé + subordinati, mai un gradino sopra. */
+  presetOptions?: CommercialeAreaOption[];
+  includeAzienda?: boolean;
 };
 
 export function CommercialeAreaFilterSelect({
@@ -23,11 +27,13 @@ export function CommercialeAreaFilterSelect({
   onChange,
   records,
   id,
+  presetOptions,
+  includeAzienda = true,
 }: Props) {
-  const options = useMemo(
-    () => uniqueCommercialeAreaOptions(records),
-    [records]
-  );
+  const options = useMemo(() => {
+    if (presetOptions && presetOptions.length > 0) return presetOptions;
+    return uniqueCommercialeAreaOptions(records);
+  }, [presetOptions, records]);
 
   return (
     <label className="block text-sm">
@@ -41,7 +47,9 @@ export function CommercialeAreaFilterSelect({
         className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
       >
         <option value="">Tutte le aree</option>
-        <option value={COMMERCIALE_AREA_AZIENDA}>Azienda</option>
+        {includeAzienda ? (
+          <option value={COMMERCIALE_AREA_AZIENDA}>Azienda</option>
+        ) : null}
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

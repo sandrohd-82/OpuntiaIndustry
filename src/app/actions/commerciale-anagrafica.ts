@@ -9,17 +9,20 @@ import {
   COMMERCIALE_GRADO_RANK,
   commercialeAziendaOrigine,
   commercialeGradoLabel,
+  formatCommercialeAreaBreve,
   parseCommercialeGrado,
+  type CommercialeAreaOption,
   type CommercialeAssegnabile,
   type CommercialeAziendaOrigine,
   type CommercialeGrado,
 } from "@/lib/auth/commerciale";
 import {
-  loadCommercialLineageUserIds,
   loadCommercialeLabels,
+  loadCommercialeOperatorContext,
 } from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { getAuthContext } from "@/lib/auth/session";
+import { createServiceClient } from "@/lib/supabase/server";
 
 const assignSchema = z.object({
   aziendaTipo: z.enum(["cliente", "cliente_possibile"]),
@@ -31,7 +34,84 @@ export type CommercialeAnagraficaContext = {
   canAssign: boolean;
   lineageIds: string[];
   commerciali: CommercialeAssegnabile[];
+  /** Agente: nascosto. Senior: visibile su sé + subordinati. Altri: tutte. */
+  showAreaFilter: boolean;
+  areaFilterOptions: CommercialeAreaOption[];
+  includeAziendaArea: boolean;
 };
+
+const EMPTY_COMMERCIALE_CONTEXT: CommercialeAnagraficaContext = {
+  canAssign: false,
+  lineageIds: [],
+  commerciali: [],
+  showAreaFilter: false,
+  areaFilterOptions: [],
+  includeAziendaArea: false,
+};
+
+async function subtreeAreaFilterOptions(
+  userId: string,
+  subtreeIds: string[]
+): Promise<CommercialeAreaOption[]> {
+  const ids = [...new Set(subtreeIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+  const service = createServiceClient();
+  const [{ data: persone }, { data: profiles }, { data: fromReparto }] =
+    await Promise.all([
+      service
+        .from("organigramma_persone")
+        .select("user_id, commerciale_grado")
+        .in("user_id", ids)
+        .is("deleted_at", null),
+      service
+        .from("profiles")
+        .select("id, commerciale_grado")
+        .in("id", ids),
+      service
+        .from("profile_reparti")
+        .select("profile_id")
+        .in("profile_id", ids)
+        .eq("codice", "commerciale")
+        .is("deleted_at", null),
+    ]);
+  const allowed = new Set<string>([userId]);
+  for (const row of persone ?? []) {
+    const uid = String((row as { user_id?: string }).user_id ?? "");
+    if (
+      uid &&
+      parseCommercialeGrado(
+        (row as { commerciale_grado?: string | null }).commerciale_grado
+      )
+    ) {
+      allowed.add(uid);
+    }
+  }
+  for (const row of profiles ?? []) {
+    const uid = String((row as { id?: string }).id ?? "");
+    if (
+      uid &&
+      parseCommercialeGrado(
+        (row as { commerciale_grado?: string | null }).commerciale_grado
+      )
+    ) {
+      allowed.add(uid);
+    }
+  }
+  for (const row of fromReparto ?? []) {
+    const uid = String((row as { profile_id?: string }).profile_id ?? "");
+    if (uid) allowed.add(uid);
+  }
+  const labels = await loadCommercialeLabels([...allowed]);
+  return [...allowed]
+    .map((id) => ({
+      value: id,
+      label: formatCommercialeAreaBreve(
+        labels.get(id)?.nome?.trim() ||
+          (id === userId ? "Il mio profilo" : "Commerciale")
+      ),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, "it"));
+}
 
 function canAssignCommerciale(auth: {
   actorProfile: Parameters<typeof isSuperadminProfile>[0];
@@ -53,11 +133,34 @@ function displayName(row: {
 export async function getCommercialeAnagraficaContextAction(): Promise<
   CommercialeAnagraficaContext
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
-  const lineageIds = await loadCommercialLineageUserIds(auth.userId);
+  const auth = await getAuthContext();
+  if (!auth) return EMPTY_COMMERCIALE_CONTEXT;
+
+  const skip = isSuperadminProfile(auth.profile) && !auth.impersonating;
+  const op = await loadCommercialeOperatorContext(auth.userId);
+  const lineageIds = op.subtreeIds;
   const canAssign = canAssignCommerciale(auth);
+  const hasSubordinates = lineageIds.some((id) => id !== auth.userId);
+  const showAreaFilter =
+    skip ||
+    !op.isCommerciale ||
+    op.grado === "senior" ||
+    hasSubordinates;
+  const includeAziendaArea = skip || !op.isCommerciale;
+  const areaFilterOptions =
+    op.isCommerciale && showAreaFilter
+      ? await subtreeAreaFilterOptions(auth.userId, lineageIds)
+      : [];
+
   if (!canAssign) {
-    return { canAssign: false, lineageIds, commerciali: [] };
+    return {
+      canAssign: false,
+      lineageIds,
+      commerciali: [],
+      showAreaFilter,
+      areaFilterOptions,
+      includeAziendaArea,
+    };
   }
 
   const service = createServiceClient();
@@ -98,7 +201,14 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
     ids.add(String((p as { id: string }).id));
   }
   if (ids.size === 0) {
-    return { canAssign, lineageIds, commerciali: [] };
+    return {
+      canAssign,
+      lineageIds,
+      commerciali: [],
+      showAreaFilter,
+      areaFilterOptions,
+      includeAziendaArea,
+    };
   }
 
   const { data: profiles } = await service
@@ -129,7 +239,14 @@ export async function getCommercialeAnagraficaContextAction(): Promise<
       return a.nome.localeCompare(b.nome, "it");
     });
 
-  return { canAssign, lineageIds, commerciali };
+  return {
+    canAssign,
+    lineageIds,
+    commerciali,
+    showAreaFilter,
+    areaFilterOptions,
+    includeAziendaArea,
+  };
 }
 
 /** In modifica scheda: applica il collegamento solo se Super Admin e il valore è cambiato. */

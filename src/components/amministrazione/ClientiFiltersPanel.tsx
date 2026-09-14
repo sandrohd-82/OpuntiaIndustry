@@ -11,6 +11,7 @@ import {
   type ClientiFilters,
   type ClientiVolumeFilter,
 } from "@/lib/amministrazione/clienti";
+import type { CommercialeAreaOption } from "@/lib/auth/commerciale";
 
 type Props = {
   value: ClientiFilters;
@@ -24,6 +25,9 @@ type Props = {
   hideVolume?: boolean;
   hint?: string;
   queryPlaceholder?: string;
+  hideCommercialeArea?: boolean;
+  areaFilterOptions?: CommercialeAreaOption[];
+  includeAziendaArea?: boolean;
 };
 
 export function ClientiFiltersPanel({
@@ -38,6 +42,9 @@ export function ClientiFiltersPanel({
   hideVolume = false,
   hint,
   queryPlaceholder = "Ragione sociale, targa, città…",
+  hideCommercialeArea = false,
+  areaFilterOptions,
+  includeAziendaArea = true,
 }: Props) {
   const [suggestOpen, setSuggestOpen] = useState(false);
 
@@ -133,14 +140,24 @@ export function ClientiFiltersPanel({
 
       <div
         className={`mt-4 grid gap-3 sm:grid-cols-2 ${
-          hideVolume ? "lg:grid-cols-3" : "lg:grid-cols-4"
+          hideCommercialeArea
+            ? hideVolume
+              ? "lg:grid-cols-2"
+              : "lg:grid-cols-3"
+            : hideVolume
+              ? "lg:grid-cols-3"
+              : "lg:grid-cols-4"
         }`}
       >
-        <CommercialeAreaFilterSelect
-          value={value.commercialeArea}
-          onChange={(commercialeArea) => patch({ commercialeArea })}
-          records={clienti}
-        />
+        {hideCommercialeArea ? null : (
+          <CommercialeAreaFilterSelect
+            value={value.commercialeArea}
+            onChange={(commercialeArea) => patch({ commercialeArea })}
+            records={clienti}
+            presetOptions={areaFilterOptions}
+            includeAzienda={includeAziendaArea}
+          />
+        )}
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Città

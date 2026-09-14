@@ -19,6 +19,8 @@ import {
 } from "@/lib/amministrazione/approvvigionamento";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
+import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
+import { loadOwnedAziendaIds } from "@/lib/auth/data-scope-enforce";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import type { CampionaturaRigaRow, CampionaturaRow } from "@/types/database";
@@ -132,12 +134,28 @@ export async function listCampionatureAction(): Promise<
   const gate = await requireCampionaturaAccess("read");
   if (!gate.ok) return { success: false, error: gate.error };
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const ownerIds = await resolveAnagraficaOwnerUserIds();
+  let ownedClienteIds: string[] | null = null;
+  if (ownerIds) {
+    ownedClienteIds = await loadOwnedAziendaIds(
+      supabase,
+      gate.auth.userId,
+      "clienti"
+    );
+    if (ownedClienteIds.length === 0) {
+      return { success: true, items: [] };
+    }
+  }
+  let q = supabase
     .from("campionature")
     .select("*")
     .is("deleted_at", null)
     .order("data_invio", { ascending: false })
     .limit(200);
+  if (ownedClienteIds) {
+    q = q.in("cliente_id", ownedClienteIds);
+  }
+  const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as CampionaturaRow[];
   const ids = rows.map((r) => r.id);
@@ -232,6 +250,21 @@ async function createCampionaturaActionInner(
   if (!gate.ok) return { success: false, error: gate.error };
   const resolved = await resolveClientePerOrdineFromRawAction(raw);
   if (!resolved.success) return resolved;
+  const supabase = await createClient();
+  const ownerIds = await resolveAnagraficaOwnerUserIds();
+  if (ownerIds) {
+    const owned = await loadOwnedAziendaIds(
+      supabase,
+      gate.auth.userId,
+      "clienti"
+    );
+    if (!owned.includes(resolved.cliente.id)) {
+      return {
+        success: false,
+        error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
+      };
+    }
+  }
   const parsed = createCampionaturaSchema.safeParse({
     ...(raw && typeof raw === "object" ? raw : {}),
     clienteId: resolved.cliente.id,
@@ -255,7 +288,6 @@ async function createCampionaturaActionInner(
     seq
   );
 
-  const supabase = await createClient();
   let notaTitolo = "";
   if (input.pnNotaId) {
     const { data: notaCheck, error: notaErr } = await supabase

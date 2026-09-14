@@ -2,6 +2,7 @@ import { cache } from "react";
 import {
   anagraficaLineageOrFilter,
   loadCommercialLineageUserIds,
+  loadCommercialeOperatorContext,
 } from "@/lib/auth/commerciale-lineage";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext } from "@/lib/auth/session";
@@ -110,7 +111,11 @@ export async function resolveStatsClienteIds(
 ): Promise<{ empty: boolean; ids: string[] | null }> {
   const resolved = await resolveScopeMode("statistiche_aziende");
   const requested = requestedClienteId?.trim() || null;
-  if (!resolved || resolved.skip || resolved.mode !== "aziende_proprie") {
+  if (!resolved || resolved.skip) {
+    return { empty: false, ids: requested ? [requested] : null };
+  }
+  const op = await loadCommercialeOperatorContext(resolved.userId);
+  if (resolved.mode !== "aziende_proprie" && !op.isCommerciale) {
     return { empty: false, ids: requested ? [requested] : null };
   }
   const owned = await loadOwnedAziendaIds(supabase, resolved.userId, "clienti");
@@ -146,7 +151,12 @@ export async function resolveFiscaleDocScope(
     return { skip: true, dateFloor: null, ownedIds: null };
   }
   const dateFloor = resolved.mode === "da_oggi" ? todayRomeDate() : null;
-  if (resolved.mode !== "aziende_proprie") {
+  const usesFornitori = fiscaleScopeUsesFornitori(scopeKey);
+  const op = await loadCommercialeOperatorContext(resolved.userId);
+  if (
+    resolved.mode !== "aziende_proprie" &&
+    !(op.isCommerciale && !usesFornitori)
+  ) {
     return { skip: false, dateFloor, ownedIds: null };
   }
   const ids = await loadOwnedAziendaIds(

@@ -22,14 +22,13 @@ import {
 } from "@/lib/amministrazione/ordine-anagrafica";
 import {
   anagraficaLineageOrFilter,
-  loadCommercialLineageUserIds,
   loadCommercialeLabels,
   loadCommercialeUserIds,
   resolveDefaultCommercialeId,
 } from "@/lib/auth/commerciale-lineage";
 import { resolveCommercialeAppartenenza } from "@/lib/auth/commerciale";
 import { isSuperadminProfile } from "@/lib/auth/roles";
-import { resolveScopeMode } from "@/lib/auth/data-scope-enforce";
+import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
 import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagrafica";
 import type { ClienteInsert, ClienteRow } from "@/types/database";
 import { z } from "zod";
@@ -161,15 +160,14 @@ export async function listClientiAction(): Promise<
 > {
   await requireAnyAreaAccess(["amministrazione", "commerciale"]);
   const supabase = await createClient();
-  const scope = await resolveScopeMode("anagrafiche_clienti");
+  const ownerIds = await resolveAnagraficaOwnerUserIds();
 
   let q = supabase
     .from("clienti")
     .select("*")
     .is("deleted_at", null);
-  if (scope && !scope.skip && scope.mode === "proprie") {
-    const lineage = await loadCommercialLineageUserIds(scope.userId);
-    q = q.or(anagraficaLineageOrFilter(lineage));
+  if (ownerIds) {
+    q = q.or(anagraficaLineageOrFilter(ownerIds));
   }
   const { data, error } = await q.order("created_at", { ascending: false });
 

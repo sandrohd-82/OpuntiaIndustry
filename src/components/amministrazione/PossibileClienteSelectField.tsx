@@ -15,6 +15,7 @@ import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClientiPossibili } from "@/hooks/useClientiPossibili";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
+import { useCommercialeAreaFilter } from "@/hooks/useCommercialeAreaFilter";
 import {
   commercialeAssegnazioneSearchText,
   formatCommercialeAssegnazione,
@@ -55,6 +56,11 @@ export function PossibileClienteSelectField({
   id,
 }: Props) {
   const { items, ready, error, addPossibile } = useClientiPossibili();
+  const {
+    showFilter: showAreaFilter,
+    options: areaFilterOptions,
+    includeAzienda,
+  } = useCommercialeAreaFilter();
   const [creating, setCreating] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -82,14 +88,19 @@ export function PossibileClienteSelectField({
   const filtered = useMemo(() => {
     const q = normalizeSearch(query);
     return sorted.filter((c) => {
-      if (!matchesCommercialeArea(c, commercialeArea)) return false;
+      if (
+        showAreaFilter &&
+        !matchesCommercialeArea(c, commercialeArea)
+      ) {
+        return false;
+      }
       if (!q) return true;
       const hay = normalizeSearch(
         `${c.ragioneSociale} ${c.partitaIva} ${c.codiceFiscale} ${commercialeAssegnazioneSearchText(c)}`
       );
       return hay.includes(q);
     });
-  }, [sorted, query, commercialeArea]);
+  }, [sorted, query, commercialeArea, showAreaFilter]);
 
   useEffect(() => {
     if (!selected || open) return;
@@ -144,13 +155,17 @@ export function PossibileClienteSelectField({
   return (
     <div className="space-y-2" ref={rootRef}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <div className="sm:w-56">
-          <CommercialeAreaFilterSelect
-            value={commercialeArea}
-            onChange={setCommercialeArea}
-            records={sorted}
-          />
-        </div>
+        {showAreaFilter ? (
+          <div className="sm:w-56">
+            <CommercialeAreaFilterSelect
+              value={commercialeArea}
+              onChange={setCommercialeArea}
+              records={sorted}
+              presetOptions={areaFilterOptions}
+              includeAzienda={includeAzienda}
+            />
+          </div>
+        ) : null}
         <div className="relative min-w-0 flex-1">
           <input
             ref={inputRef}

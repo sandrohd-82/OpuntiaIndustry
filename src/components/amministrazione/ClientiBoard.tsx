@@ -34,6 +34,7 @@ import { useClienti } from "@/hooks/useClienti";
 import {
   formatCommercialeAssegnazione,
   isCommercialOwnRecord,
+  type CommercialeAreaOption,
 } from "@/lib/auth/commerciale";
 import {
   emptyClientiFilters,
@@ -321,6 +322,11 @@ export function ClientiBoard() {
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [syncPending, startSyncTransition] = useTransition();
   const [lineageIds, setLineageIds] = useState<string[]>([]);
+  const [showAreaFilter, setShowAreaFilter] = useState(false);
+  const [areaFilterOptions, setAreaFilterOptions] = useState<
+    CommercialeAreaOption[]
+  >([]);
+  const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
 
   const filtersActive = hasActiveClientiFilters(filters);
 
@@ -369,6 +375,14 @@ export function ClientiBoard() {
   useEffect(() => {
     void getCommercialeAnagraficaContextAction().then((ctx) => {
       setLineageIds(ctx.lineageIds);
+      setShowAreaFilter(ctx.showAreaFilter);
+      setAreaFilterOptions(ctx.areaFilterOptions);
+      setIncludeAziendaArea(ctx.includeAziendaArea);
+      if (!ctx.showAreaFilter) {
+        setFilters((prev) =>
+          prev.commercialeArea ? { ...prev, commercialeArea: "" } : prev
+        );
+      }
     });
   }, []);
 
@@ -575,6 +589,9 @@ export function ClientiBoard() {
           resultCount={filtered.length}
           totalCount={clienti.length}
           onCollapse={() => setFiltersOpen(false)}
+          hideCommercialeArea={!showAreaFilter}
+          areaFilterOptions={areaFilterOptions}
+          includeAziendaArea={includeAziendaArea}
           onPickSuggestion={(id) => {
             setPdfSelectMode(true);
             setSelectedIds(new Set([id]));

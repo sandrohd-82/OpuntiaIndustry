@@ -18,7 +18,11 @@ import {
   softDeleteClientePossibileAction,
   updateClientePossibileAction,
 } from "@/app/actions/promemorie-e-note";
-import { formatCommercialeAssegnazione, isCommercialOwnRecord } from "@/lib/auth/commerciale";
+import {
+  formatCommercialeAssegnazione,
+  isCommercialOwnRecord,
+  type CommercialeAreaOption,
+} from "@/lib/auth/commerciale";
 import {
   ActionGate,
   useAnagraficaPrivileges,
@@ -260,6 +264,11 @@ export function PossibiliClientiBoard() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ClientiFilters>(emptyClientiFilters());
   const [lineageIds, setLineageIds] = useState<string[]>([]);
+  const [showAreaFilter, setShowAreaFilter] = useState(false);
+  const [areaFilterOptions, setAreaFilterOptions] = useState<
+    CommercialeAreaOption[]
+  >([]);
+  const [includeAziendaArea, setIncludeAziendaArea] = useState(false);
   const [prodottiByCode, setProdottiByCode] = useState<
     Map<string, ProdottoProprio>
   >(() => new Map());
@@ -284,6 +293,14 @@ export function PossibiliClientiBoard() {
     reload();
     void getCommercialeAnagraficaContextAction().then((ctx) => {
       setLineageIds(ctx.lineageIds);
+      setShowAreaFilter(ctx.showAreaFilter);
+      setAreaFilterOptions(ctx.areaFilterOptions);
+      setIncludeAziendaArea(ctx.includeAziendaArea);
+      if (!ctx.showAreaFilter) {
+        setFilters((prev) =>
+          prev.commercialeArea ? { ...prev, commercialeArea: "" } : prev
+        );
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -352,6 +369,9 @@ export function PossibiliClientiBoard() {
           totalCount={items.length}
           onCollapse={() => setFiltersOpen(false)}
           hideVolume
+          hideCommercialeArea={!showAreaFilter}
+          areaFilterOptions={areaFilterOptions}
+          includeAziendaArea={includeAziendaArea}
           hint="Filtra per alfabeto, città, area commerciale (Azienda, R. Pisano, …) o ricerca istantanea."
           queryPlaceholder="Ragione sociale, P.IVA, città…"
         />

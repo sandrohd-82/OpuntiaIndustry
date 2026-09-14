@@ -1,4 +1,6 @@
+import { cache } from "react";
 import {
+  isRepartoCommerciale,
   parseCommercialeGrado,
   type CommercialeGrado,
 } from "@/lib/auth/commerciale";
@@ -21,58 +23,125 @@ function parentIdsOf(p: PersonaLink): string[] {
   ];
 }
 
-/** Io + superiori + subordinati in organigramma (linee commerciali). */
-export async function loadCommercialLineageUserIds(
-  userId: string
-): Promise<string[]> {
-  const mine = String(userId ?? "").trim();
-  if (!mine) return [];
+/**
+ * Io + subordinati in organigramma. Mai i superiori:
+ * un agente non vede le aziende del Senior, il Senior non vede un gradino sopra.
+ */
+export const loadCommercialLineageUserIds = cache(
+  async (userId: string): Promise<string[]> => {
+    const mine = String(userId ?? "").trim();
+    if (!mine) return [];
 
-  const service = createServiceClient();
-  const { data } = await service
-    .from("organigramma_persone")
-    .select("id, user_id, parent_id, co_parent_ids")
-    .is("deleted_at", null);
+    const service = createServiceClient();
+    const { data } = await service
+      .from("organigramma_persone")
+      .select("id, user_id, parent_id, co_parent_ids")
+      .is("deleted_at", null);
 
-  const rows = (data ?? []) as PersonaLink[];
-  const byId = new Map(rows.map((r) => [r.id, r]));
-  const me = rows.find((r) => r.user_id === mine);
-  if (!me) return [mine];
+    const rows = (data ?? []) as PersonaLink[];
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const me = rows.find((r) => r.user_id === mine);
+    if (!me) return [mine];
 
-  const ancestors = new Set<string>();
-  const walkUp = (id: string, guard = 0) => {
-    if (guard > 80 || ancestors.has(id)) return;
-    ancestors.add(id);
-    const node = byId.get(id);
-    if (!node) return;
-    for (const pid of parentIdsOf(node)) walkUp(pid, guard + 1);
-  };
-  walkUp(me.id);
-
-  const children = new Map<string, string[]>();
-  for (const r of rows) {
-    for (const pid of parentIdsOf(r)) {
-      const list = children.get(pid) ?? [];
-      list.push(r.id);
-      children.set(pid, list);
+    const children = new Map<string, string[]>();
+    for (const r of rows) {
+      for (const pid of parentIdsOf(r)) {
+        const list = children.get(pid) ?? [];
+        list.push(r.id);
+        children.set(pid, list);
+      }
     }
-  }
 
-  const descendants = new Set<string>();
-  const walkDown = (id: string, guard = 0) => {
-    if (guard > 200 || descendants.has(id)) return;
-    descendants.add(id);
-    for (const cid of children.get(id) ?? []) walkDown(cid, guard + 1);
-  };
-  walkDown(me.id);
+    const subtree = new Set<string>();
+    const walkDown = (id: string, guard = 0) => {
+      if (guard > 200 || subtree.has(id)) return;
+      subtree.add(id);
+      for (const cid of children.get(id) ?? []) walkDown(cid, guard + 1);
+    };
+    walkDown(me.id);
 
-  const userIds = new Set<string>([mine]);
-  for (const id of [...ancestors, ...descendants]) {
-    const uid = byId.get(id)?.user_id;
-    if (uid) userIds.add(uid);
+    const userIds = new Set<string>([mine]);
+    for (const id of subtree) {
+      const uid = byId.get(id)?.user_id;
+      if (uid) userIds.add(uid);
+    }
+    return [...userIds];
   }
-  return [...userIds];
-}
+);
+
+export type CommercialeOperatorContext = {
+  isCommerciale: boolean;
+  grado: CommercialeGrado | null;
+  subtreeIds: string[];
+};
+
+/** Profilo commerciale (grado o reparto), con il suo sottoalbero. */
+export const loadCommercialeOperatorContext = cache(
+  async (userId: string): Promise<CommercialeOperatorContext> => {
+    const mine = String(userId ?? "").trim();
+    const subtreeIds = mine ? await loadCommercialLineageUserIds(mine) : [];
+    if (!mine) {
+      return { isCommerciale: false, grado: null, subtreeIds: [] };
+    }
+
+    const service = createServiceClient();
+    const [{ data: profile }, { data: persone }, { data: fromReparto }] =
+      await Promise.all([
+        service
+          .from("profiles")
+          .select("commerciale_grado")
+          .eq("id", mine)
+          .maybeSingle(),
+        service
+          .from("organigramma_persone")
+          .select("commerciale_grado, reparto_id")
+          .eq("user_id", mine)
+          .is("deleted_at", null),
+        service
+          .from("profile_reparti")
+          .select("id")
+          .eq("profile_id", mine)
+          .eq("codice", "commerciale")
+          .is("deleted_at", null)
+          .limit(1),
+      ]);
+
+    const personaRows = (persone ?? []) as Array<{
+      commerciale_grado?: string | null;
+      reparto_id?: string | null;
+    }>;
+    let grado = parseCommercialeGrado(
+      (profile as { commerciale_grado?: string | null } | null)
+        ?.commerciale_grado
+    );
+    for (const row of personaRows) {
+      grado = parseCommercialeGrado(row.commerciale_grado) ?? grado;
+    }
+
+    let inReparto = (fromReparto ?? []).length > 0;
+    const repartoIds = [
+      ...new Set(
+        personaRows
+          .map((row) => String(row.reparto_id ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    if (!inReparto && repartoIds.length > 0) {
+      const { data: reparti } = await service
+        .from("organigramma_reparti")
+        .select("codice, nome")
+        .in("id", repartoIds)
+        .is("deleted_at", null);
+      inReparto = (reparti ?? []).some((row) => isRepartoCommerciale(row));
+    }
+
+    return {
+      isCommerciale: Boolean(grado) || inReparto,
+      grado,
+      subtreeIds: subtreeIds.length > 0 ? subtreeIds : [mine],
+    };
+  }
+);
 
 /** Super Admin: non diventano «area commerciale» se creano un’anagrafica. */
 export async function loadSuperadminUserIds(): Promise<Set<string>> {
