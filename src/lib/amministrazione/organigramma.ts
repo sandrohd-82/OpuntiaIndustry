@@ -93,6 +93,7 @@ export type OrganigrammaPersona = {
   commercialeProvvigionePct: number | null;
   bancaIban: string | null;
   bancaBic: string | null;
+  bancaIstituto: string;
   bancaIntestatario: string;
   alberoEtichetta: string;
   alberoGapDopo: number;
@@ -332,6 +333,7 @@ export const personaInputSchema = z.object({
     .optional(),
   bancaIban: z.string().optional().nullable(),
   bancaBic: z.string().optional().nullable(),
+  bancaIstituto: z.string().trim().max(80).optional().default(""),
   bancaIntestatario: z.string().trim().max(120).optional().default(""),
 });
 

@@ -265,6 +265,7 @@ function AnagraficaCard({
   );
   const [bancaIban, setBancaIban] = useState(formatIbanDisplay(item.bancaIban));
   const [bancaBic, setBancaBic] = useState(item.bancaBic ?? "");
+  const [bancaIstituto, setBancaIstituto] = useState(item.bancaIstituto ?? "");
   const [bancaIntestatario, setBancaIntestatario] = useState(
     item.bancaIntestatario ?? ""
   );
@@ -289,6 +290,7 @@ function AnagraficaCard({
     );
     setBancaIban(formatIbanDisplay(item.bancaIban));
     setBancaBic(item.bancaBic ?? "");
+    setBancaIstituto(item.bancaIstituto ?? "");
     setBancaIntestatario(item.bancaIntestatario ?? "");
     setMansioneIds(item.mansioni.map((m) => m.id));
   }, [item]);
@@ -311,6 +313,7 @@ function AnagraficaCard({
       commercialeProvvigionePct: commercialeProvvigionePct || null,
       bancaIban,
       bancaBic,
+      bancaIstituto,
       bancaIntestatario,
     });
     if (!res.success) {
@@ -435,6 +438,18 @@ function AnagraficaCard({
                 disabled={!isAdmin}
                 onChange={(e) => setCi(e.target.value)}
                 className={inputCls}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)] sm:col-span-2">
+              Banca
+              <input
+                value={bancaIstituto}
+                disabled={!isAdmin}
+                onChange={(e) => setBancaIstituto(e.target.value)}
+                className={inputCls}
+                placeholder="Es. Unicredit, Credem"
+                maxLength={80}
+                autoComplete="off"
               />
             </label>
             <label className="text-xs text-[var(--muted)] sm:col-span-2">

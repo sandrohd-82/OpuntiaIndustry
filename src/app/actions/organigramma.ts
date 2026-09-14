@@ -56,7 +56,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -79,6 +79,7 @@ type PersonaRow = {
   commerciale_provvigione_pct?: number | string | null;
   banca_iban?: string | null;
   banca_bic?: string | null;
+  banca_istituto?: string | null;
   banca_intestatario?: string | null;
   albero_etichetta?: string | null;
   albero_gap_dopo?: number | null;
@@ -160,6 +161,7 @@ function mapPersona(
     })(),
     bancaIban: row.banca_iban?.trim() || null,
     bancaBic: row.banca_bic?.trim() || null,
+    bancaIstituto: row.banca_istituto?.trim() ?? "",
     bancaIntestatario: row.banca_intestatario?.trim() ?? "",
     alberoEtichetta: row.albero_etichetta?.trim() ?? "",
     alberoGapDopo: Math.max(
@@ -1163,9 +1165,16 @@ async function resolveCampiCommerciale(v: {
 function resolveCampiBancari(v: {
   bancaIban?: string | null;
   bancaBic?: string | null;
+  bancaIstituto?: string;
   bancaIntestatario?: string;
 }):
-  | { ok: true; iban: string | null; bic: string | null; intestatario: string }
+  | {
+      ok: true;
+      iban: string | null;
+      bic: string | null;
+      istituto: string;
+      intestatario: string;
+    }
   | { ok: false; error: string } {
   const iban = parseIbanInput(v.bancaIban);
   if (!iban.ok) return iban;
@@ -1175,6 +1184,7 @@ function resolveCampiBancari(v: {
     ok: true,
     iban: iban.value,
     bic: bic.value,
+    istituto: (v.bancaIstituto ?? "").trim(),
     intestatario: (v.bancaIntestatario ?? "").trim(),
   };
 }
@@ -1212,6 +1222,7 @@ export async function createPersonaAction(
       commerciale_provvigione_pct: comm.provvigionePct,
       banca_iban: banca.iban,
       banca_bic: banca.bic,
+      banca_istituto: banca.istituto || null,
       banca_intestatario: banca.intestatario || null,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -1322,6 +1333,7 @@ export async function updatePersonaAction(
       commerciale_provvigione_pct: comm.provvigionePct,
       banca_iban: banca.iban,
       banca_bic: banca.bic,
+      banca_istituto: banca.istituto || null,
       banca_intestatario: banca.intestatario || null,
       updated_by: auth.userId,
     })

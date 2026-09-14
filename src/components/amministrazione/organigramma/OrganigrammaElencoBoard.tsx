@@ -454,6 +454,7 @@ function OperatoreCreateModal({
     useState("");
   const [bancaIban, setBancaIban] = useState("");
   const [bancaBic, setBancaBic] = useState("");
+  const [bancaIstituto, setBancaIstituto] = useState("");
   const [bancaIntestatario, setBancaIntestatario] = useState("");
   const [note, setNote] = useState("");
   const [mansioneIds, setMansioneIds] = useState<string[]>([]);
@@ -480,6 +481,7 @@ function OperatoreCreateModal({
       commercialeProvvigionePct: commercialeProvvigionePct || null,
       bancaIban,
       bancaBic,
+      bancaIstituto,
       bancaIntestatario,
     });
     if (!res.success) {
@@ -546,6 +548,17 @@ function OperatoreCreateModal({
               value={cartaIdentita}
               onChange={(e) => setCi(e.target.value)}
               className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)] sm:col-span-2">
+            Banca
+            <input
+              value={bancaIstituto}
+              onChange={(e) => setBancaIstituto(e.target.value)}
+              className={inputCls}
+              placeholder="Es. Unicredit, Credem"
+              maxLength={80}
+              autoComplete="off"
             />
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">
