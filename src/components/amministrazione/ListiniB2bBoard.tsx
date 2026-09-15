@@ -435,6 +435,12 @@ export function ListiniB2bBoard() {
   }, []);
 
   useEffect(() => {
+    if (isAdmin || !items.length) return;
+    if (selectedId && items.some((i) => i.id === selectedId)) return;
+    setSelectedId(items[0].id);
+  }, [isAdmin, items, selectedId]);
+
+  useEffect(() => {
     if (!selectedId) {
       setRighe([]);
       setRigaSort(null);
@@ -645,6 +651,7 @@ export function ListiniB2bBoard() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-3">
+          {isAdmin ? (
           <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-semibold">Nuovo listino B2B</h2>
             <p className="mt-1 text-xs text-[var(--muted)]">
@@ -772,6 +779,15 @@ export function ListiniB2bBoard() {
               </div>
             ) : null}
           </div>
+          ) : (
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
+              <h2 className="text-sm font-semibold">Listino in carica</h2>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Sola consultazione: prezzi e, con la freccia, la scontistica.
+                Non puoi modificare, revisionare o mettere in uso un listino.
+              </p>
+            </div>
+          )}
           <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-[var(--muted-bg)] text-xs uppercase text-[var(--muted)]">
@@ -852,8 +868,9 @@ export function ListiniB2bBoard() {
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
           {!selected ? (
             <p className="text-sm text-[var(--muted)]">
-              Seleziona un listino. La validità la dà lo stato In Uso, non una
-              data. In bozza ogni voce va prezzata o dichiarata.
+              {isAdmin
+                ? "Seleziona un listino. La validità la dà lo stato In Uso, non una data. In bozza ogni voce va prezzata o dichiarata."
+                : "Apri un prodotto e usa la freccia per vedere la scontistica."}
             </p>
           ) : (
             <>
@@ -1209,7 +1226,7 @@ export function ListiniB2bBoard() {
                   <RigaBlock
                     key={r.id}
                     riga={r}
-                    editable={Boolean(isBozza)}
+                    editable={Boolean(isBozza && isAdmin)}
                     inRevisione={selected.stato === "in_revisione"}
                     isAdmin={isAdmin}
                     pending={pending}
@@ -1770,11 +1787,13 @@ function RigaBlock({
               {scontiOpen ? "▲" : "▼"}
             </button>
           </div>
+          {editable ? (
           <p className="mt-1 text-[11px] text-[var(--muted)]">
             Prezzo 0 solo con dichiarazione. La copia prende prezzo, quantità e
             imballaggi; le targhe sono nuove. Poi controlla e Salva sul
             prodotto.
           </p>
+          ) : null}
         </td>
         <td className="px-3 py-2">
           {editable ? (

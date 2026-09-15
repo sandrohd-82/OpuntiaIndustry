@@ -2,9 +2,17 @@
 
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { isTestImpersonation } from "@/lib/areas/guard";
 import { requireOrdineSupportReadAccess } from "@/lib/auth/ordini-access";
-import { canApprovareListino, isAdminLikeProfile } from "@/lib/auth/roles";
+import {
+  canApprovareListino,
+  isUnrestrictedSuperadmin,
+} from "@/lib/auth/roles";
+import {
+  getAuthContext,
+  userCanAccessArea,
+  type AuthContext,
+} from "@/lib/auth/session";
 import {
   GEO_CONTINENTE_LABEL,
   GEO_CONTINENTI,
@@ -66,8 +74,47 @@ import type {
   StatoPubblicazioneCanale,
 } from "@/types/database";
 
+async function requireListino(mode: "read" | "write"): Promise<
+  | { ok: true; auth: AuthContext; canManage: boolean }
+  | { ok: false; error: string }
+> {
+  const auth = await getAuthContext();
+  if (!auth?.isSecondFactorVerified) {
+    return { ok: false, error: "Non autenticato" };
+  }
+  const canManage = canApprovareListino(auth);
+  if (isUnrestrictedSuperadmin(auth) || isTestImpersonation(auth)) {
+    if (mode === "write" && !canManage) {
+      return {
+        ok: false,
+        error: "Il commerciale puo solo consultare il listino in carica.",
+      };
+    }
+    return { ok: true, auth, canManage };
+  }
+  const allowed =
+    userCanAccessArea(auth.areas, "amministrazione") ||
+    userCanAccessArea(auth.areas, "commerciale");
+  if (!allowed) return { ok: false, error: "Permesso negato" };
+  if (mode === "write" && !canManage) {
+    return {
+      ok: false,
+      error: "Il commerciale puo solo consultare il listino in carica.",
+    };
+  }
+  return { ok: true, auth, canManage };
+}
+
 async function guardAmm() {
-  return requireAreaAccess("amministrazione");
+  const gate = await requireListino("write");
+  if (!gate.ok) return { error: gate.error as string };
+  return { auth: gate.auth };
+}
+
+function denied(
+  gate: { auth: AuthContext } | { error: string }
+): gate is { error: string } {
+  return "error" in gate;
 }
 
 async function loadTargheScontoUsate(
@@ -98,7 +145,8 @@ export async function allocateTargheScontoListinoAction(
 ): Promise<
   { success: true; targhe: string[] } | { success: false; error: string }
 > {
-  await guardAmm();
+  const writeGate = await guardAmm();
+  if (denied(writeGate)) return { success: false, error: writeGate.error };
   const n = Math.max(0, Math.floor(count));
   if (!n) return { success: true, targhe: [] };
   const supabase = await createClient();
@@ -179,7 +227,8 @@ export async function listGeoCatalogAction(): Promise<
     }
   | { success: false; error: string }
 > {
-  await guardAmm();
+  const readGate = await requireListino("read");
+  if (!readGate.ok) return { success: false, error: readGate.error };
   const supabase = await createClient();
   const { data: nazioni, error } = await supabase
     .from("geo_nazioni")
@@ -305,13 +354,17 @@ export async function listListiniAction(): Promise<
   | { success: true; items: Listino[]; isAdmin: boolean }
   | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await requireListino("read");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { canManage } = gate;
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let q = supabase
     .from("listini")
     .select("*")
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
+  if (!canManage) q = q.eq("stato", "in_uso");
+  const { data, error } = await q;
   if (error) return { success: false, error: error.message };
   const rows = (data ?? []) as ListinoRow[];
   const nazioniMap = await loadNazioniByListinoIds(
@@ -326,14 +379,16 @@ export async function listListiniAction(): Promise<
         nazioniMap.get(r.listino_origine_id || r.id) ?? nazioniMap.get(r.id) ?? []
       )
     ),
-    isAdmin: canApprovareListino(auth),
+    isAdmin: canManage,
   };
 }
 
 export async function createListinoAction(input: unknown): Promise<
   { success: true; item: Listino } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const parsed = createListinoSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -675,7 +730,9 @@ async function requireListinoBozza(
 export async function updateListinoAction(input: unknown): Promise<
   { success: true; item: Listino } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const parsed = updateListinoSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -684,8 +741,8 @@ export async function updateListinoAction(input: unknown): Promise<
     };
   }
   const supabase = await createClient();
-  const gate = await requireListinoBozza(supabase, parsed.data.id);
-  if (!gate.ok) return { success: false, error: gate.error };
+  const bozza = await requireListinoBozza(supabase, parsed.data.id);
+  if (!bozza.ok) return { success: false, error: bozza.error };
 
   const { data: current } = await supabase
     .from("listini")
@@ -758,7 +815,9 @@ export async function setListinoStatoAction(input: {
 export async function inviaListinoInRevisioneAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const supabase = await createClient();
   const { data: head } = await supabase
     .from("listini")
@@ -773,8 +832,8 @@ export async function inviaListinoInRevisioneAction(
       error: "Le versioni in lingua non vanno In Revisione. Si lavora sul listino madre.",
     };
   }
-  const gate = await requireListinoBozza(supabase, id);
-  if (!gate.ok) return { success: false, error: gate.error };
+  const bozza = await requireListinoBozza(supabase, id);
+  if (!bozza.ok) return { success: false, error: bozza.error };
 
   const seedErr = await seedListinoProdotti(supabase, id, auth.userId, null);
   if (seedErr) return { success: false, error: seedErr };
@@ -856,7 +915,9 @@ export async function inviaListinoInRevisioneAction(
 export async function riportaListinoInBozzaAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può riportare il listino in bozza." };
   }
@@ -905,7 +966,9 @@ export async function setListinoRigaRevisioneAction(input: {
   rigaId: string;
   approvata: boolean;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può spuntare le voci in revisione." };
   }
@@ -945,7 +1008,9 @@ export async function setListinoRigheRevisioneBulkAction(input: {
 }): Promise<
   { success: true; updated: number } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può spuntare le voci in revisione." };
   }
@@ -991,7 +1056,9 @@ export async function approvaListinoInUsoAction(input: {
   id: string;
   otp: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può approvare e mettere In Uso." };
   }
@@ -1104,8 +1171,10 @@ export async function dichiaraListinoObsoletoAction(input: {
   | { success: true; bozzaId?: string }
   | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
-  if (!isAdminLikeProfile(auth.profile)) {
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
+  if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può dichiarare obsoleto un listino." };
   }
   const supabase = await createClient();
@@ -1244,19 +1313,24 @@ export async function listListinoRigheAction(
 ): Promise<
   { success: true; items: ListinoRiga[] } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await requireListino("read");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { auth, canManage } = gate;
   const supabase = await createClient();
-  const loaded = await loadListinoRigheMapped(supabase, listinoId);
-  if ("error" in loaded) return { success: false, error: loaded.error };
-
   const { data: head } = await supabase
     .from("listini")
-    .select("id, locale, nome")
+    .select("id, locale, nome, stato")
     .eq("id", listinoId)
     .is("deleted_at", null)
     .maybeSingle();
-  const locale = ((head as { locale?: string } | null)?.locale || "it").toLowerCase();
-  if (locale === "it" || !head) {
+  if (!head) return { success: false, error: "Listino non trovato" };
+  if (!canManage && (head as { stato?: string }).stato !== "in_uso") {
+    return { success: false, error: "Puoi consultare solo il listino in carica." };
+  }
+  const loaded = await loadListinoRigheMapped(supabase, listinoId);
+  if ("error" in loaded) return { success: false, error: loaded.error };
+  const locale = ((head as { locale?: string }).locale || "it").toLowerCase();
+  if (locale === "it" || !canManage) {
     return { success: true, items: loaded.items };
   }
   const translated = await traduciVersioneLingua(
@@ -1316,7 +1390,9 @@ async function loadCondizioniByRiga(
 export async function upsertListinoRigaAction(input: unknown): Promise<
   { success: true; item: ListinoRiga } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const parsed = upsertListinoRigaSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -1326,8 +1402,8 @@ export async function upsertListinoRigaAction(input: unknown): Promise<
   }
 
   const supabase = await createClient();
-  const gate = await requireListinoBozza(supabase, parsed.data.listinoId);
-  if (!gate.ok) return { success: false, error: gate.error };
+  const bozza = await requireListinoBozza(supabase, parsed.data.listinoId);
+  if (!bozza.ok) return { success: false, error: bozza.error };
 
   const { data: existing } = await supabase
     .from("listini_righe")
@@ -1571,7 +1647,9 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
   | { success: true; item: ListinoRigaCondizione }
   | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const parsed = upsertListinoRigaCondizioneSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -1590,11 +1668,11 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
   if (rigaErr || !riga) {
     return { success: false, error: rigaErr?.message ?? "Riga listino non trovata" };
   }
-  const gate = await requireListinoBozza(
+  const bozza = await requireListinoBozza(
     supabase,
     (riga as { listino_id: string }).listino_id
   );
-  if (!gate.ok) return { success: false, error: gate.error };
+  if (!bozza.ok) return { success: false, error: bozza.error };
 
   const { data: stdLink } = await supabase
     .from("imballaggi_voci_prodotti")
@@ -1762,7 +1840,9 @@ export async function upsertListinoRigaCondizioneAction(input: unknown): Promise
 export async function softDeleteListinoRigaCondizioneAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const supabase = await createClient();
   const { data: cond } = await supabase
     .from("listini_righe_condizioni")
@@ -1776,11 +1856,11 @@ export async function softDeleteListinoRigaCondizioneAction(
     .eq("id", (cond as { listino_riga_id: string }).listino_riga_id)
     .maybeSingle();
   if (!riga) return { success: false, error: "Riga listino non trovata" };
-  const gate = await requireListinoBozza(
+  const bozza = await requireListinoBozza(
     supabase,
     (riga as { listino_id: string }).listino_id
   );
-  if (!gate.ok) return { success: false, error: gate.error };
+  if (!bozza.ok) return { success: false, error: bozza.error };
 
   const { error } = await supabase
     .from("listini_righe_condizioni")
@@ -1820,7 +1900,8 @@ export type ProdottoCanale = {
 export async function listProdottiCanaliAction(): Promise<
   { success: true; items: ProdottoCanale[] } | { success: false; error: string }
 > {
-  await guardAmm();
+  const writeGate = await guardAmm();
+  if (denied(writeGate)) return { success: false, error: writeGate.error };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("prodotti_propri")
@@ -1860,7 +1941,9 @@ export async function updateProdottoCanaleAction(input: {
   visibileWiki: boolean;
   statoPubblicazione: StatoPubblicazioneCanale;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAmm();
+  const gate = await guardAmm();
+  if (denied(gate)) return { success: false, error: gate.error };
+  const { auth } = gate;
   const stati: StatoPubblicazioneCanale[] = [
     "bozza",
     "approvato",
@@ -1944,7 +2027,9 @@ export async function logListinoExportAction(input: {
 }): Promise<
   { success: true; actor: string } | { success: false; error: string }
 > {
-  const { auth } = await guardAmm();
+  const gate = await requireListino("read");
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { auth, canManage } = gate;
   if (!z.string().uuid().safeParse(input.listinoId).success) {
     return { success: false, error: "Listino non valido" };
   }
@@ -1961,12 +2046,15 @@ export async function logListinoExportAction(input: {
   const supabase = await createClient();
   const { data: listino, error } = await supabase
     .from("listini")
-    .select("id, codice")
+    .select("id, codice, stato")
     .eq("id", input.listinoId)
     .is("deleted_at", null)
     .maybeSingle();
   if (error || !listino) {
     return { success: false, error: error?.message ?? "Listino non trovato" };
+  }
+  if (!canManage && (listino as { stato?: string }).stato !== "in_uso") {
+    return { success: false, error: "Puoi consultare solo il listino in carica." };
   }
 
   const actor =

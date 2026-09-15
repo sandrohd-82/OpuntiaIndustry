@@ -63,7 +63,7 @@ export const COMMERCIALE_SECTIONS: readonly NavItem[] = [
   {
     slug: "listino",
     label: "Listino",
-    description: "Listini B2B versionati (bozza / in revisione / in uso)",
+    description: "Listino in carica e scontistica (sola consultazione)",
     path: "/app/commerciale/listino",
   },
   {

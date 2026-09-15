@@ -33,18 +33,13 @@ export function isAdminLikeProfile(profile: Profile): boolean {
   );
 }
 
-/** Approvazione listino: admin/superadmin sul profilo attivo o sull'attore (switch). */
-export function canApprovareListino(auth: {
-  profile: Profile;
-  actorProfile: Profile;
-  impersonating: boolean;
-}): boolean {
-  if (isUnrestrictedSuperadmin(auth)) return true;
-  if (isAdminLikeProfile(auth.profile) || isSuperadminProfile(auth.profile)) {
-    return true;
-  }
+/**
+ * Gestione listino (bozze, revisione, in uso): solo admin/superadmin
+ * sul profilo con cui si sta operando. Un commerciale, anche in switch,
+ * vede solo il listino in carica in sola lettura.
+ */
+export function canApprovareListino(auth: { profile: Profile }): boolean {
   return (
-    isAdminLikeProfile(auth.actorProfile) ||
-    isSuperadminProfile(auth.actorProfile)
+    isAdminLikeProfile(auth.profile) || isSuperadminProfile(auth.profile)
   );
 }
