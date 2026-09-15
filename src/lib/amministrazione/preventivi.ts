@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { ORDINE_TIPI_PAGAMENTO, type OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
+import {
+  formatNumeroPreventivoDocumento,
+  yearFromPreventivoData,
+} from "@/lib/amministrazione/preventivo-letterhead";
 
 export const PREVENTIVO_STATI = [
   "creato",
@@ -82,36 +86,39 @@ export const preventivoRigaSchema = z.object({
   confezionamento: z.string().trim().max(400).optional().default(""),
 });
 
-export const createPreventivoSchema = z.object({
-  clienteId: z.string().uuid("Seleziona un’azienda"),
-  cliente: z.string().trim().min(1),
-  codiceTargaCliente: z.string().trim().min(1),
-  dataPreventivo: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data obbligatoria"),
-  consegnaMetodo: z.enum(PREVENTIVO_CONSEGNA),
-  spedizioneACarico: z.enum(["cliente", "agrinsicilia", "diviso"]),
-  spedizioneImporto: z.number().min(0).optional().default(0),
-  tipoPagamento: z.enum([
-    "anticipato",
-    "alla_consegna",
-    "posticipato",
-    "dilazionato",
-  ]),
-  tempiPagamentoGiorni: z.number().int().min(0).nullable().optional(),
-  tempiPagamentoNote: z.string().trim().max(500).optional().default(""),
-  note: z.string().trim().max(4000).optional().default(""),
-  righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
-});
+export const createPreventivoSchema = z
+  .object({
+    clienteId: z.string().uuid().nullable().optional(),
+    clientePossibileId: z.string().uuid().nullable().optional(),
+    cliente: z.string().trim().min(1, "Seleziona un destinatario"),
+    codiceTargaCliente: z.string().trim().min(1).optional().default("PC"),
+    dataPreventivo: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data obbligatoria"),
+    consegnaMetodo: z.enum(PREVENTIVO_CONSEGNA),
+    spedizioneACarico: z.enum(["cliente", "agrinsicilia", "diviso"]),
+    spedizioneImporto: z.number().min(0).optional().default(0),
+    tipoPagamento: z.enum([
+      "anticipato",
+      "alla_consegna",
+      "posticipato",
+      "dilazionato",
+    ]),
+    tempiPagamentoGiorni: z.number().int().min(0).nullable().optional(),
+    tempiPagamentoNote: z.string().trim().max(500).optional().default(""),
+    note: z.string().trim().max(4000).optional().default(""),
+    righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
+  })
+  .refine((d) => Boolean(d.clienteId || d.clientePossibileId), {
+    message: "Seleziona un destinatario.",
+  });
 
 export function formatNumeroPreventivo(
   data: string,
-  targa: string,
+  _targa: string,
   seq: number
 ): string {
-  const yy = data.slice(2, 4) || String(new Date().getFullYear()).slice(2);
-  const code = targa.trim().toUpperCase().replace(/\s+/g, "");
-  return `Pv-${yy}-${code}/${seq}`;
+  return formatNumeroPreventivoDocumento(seq, yearFromPreventivoData(data));
 }
 
 export { ORDINE_TIPI_PAGAMENTO };

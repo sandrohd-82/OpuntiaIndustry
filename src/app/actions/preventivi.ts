@@ -8,6 +8,10 @@ import {
   type PreventivoRiga,
   type PreventivoStato,
 } from "@/lib/amministrazione/preventivi";
+import {
+  formatNumeroPreventivoDocumento,
+  yearFromPreventivoData,
+} from "@/lib/amministrazione/preventivo-letterhead";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
@@ -81,24 +85,49 @@ function mapPreventivo(
   };
 }
 
-async function nextSeq(targa: string): Promise<number> {
+async function nextSeqAnno(dataPreventivo: string): Promise<number> {
+  const year = yearFromPreventivoData(dataPreventivo);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("preventivi")
     .select("numero_interno")
     .is("deleted_at", null);
   if (error) throw new Error(error.message);
-  const code = targa.trim().toUpperCase().replace(/\s+/g, "");
-  const re = new RegExp(
-    `^Pv-\\d{2}-${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/(\\d+)$`,
-    "i"
-  );
+  const re = new RegExp(`^(\\d+)/${year}$`);
   let max = 0;
   for (const row of data ?? []) {
     const m = String(row.numero_interno).match(re);
     if (m) max = Math.max(max, Number(m[1]));
   }
   return max + 1;
+}
+
+export async function peekNextNumeroPreventivoAction(
+  dataPreventivo: string
+): Promise<
+  | { success: true; seq: number; year: number; numero: string }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataPreventivo)) {
+    return { success: false, error: "Data obbligatoria" };
+  }
+  try {
+    const seq = await nextSeqAnno(dataPreventivo);
+    const year = yearFromPreventivoData(dataPreventivo);
+    return {
+      success: true,
+      seq,
+      year,
+      numero: formatNumeroPreventivoDocumento(seq, year),
+    };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Numero non disponibile",
+    };
+  }
 }
 
 async function attachRighe(
@@ -237,10 +266,10 @@ export async function createPreventivoAction(
       };
     }
   }
-  const seq = await nextSeq(input.codiceTargaCliente);
+  const seq = await nextSeqAnno(input.dataPreventivo);
   const numero = formatNumeroPreventivo(
     input.dataPreventivo,
-    input.codiceTargaCliente,
+    input.codiceTargaCliente ?? "PC",
     seq
   );
   const supabase = await createClient();
@@ -248,9 +277,11 @@ export async function createPreventivoAction(
     .from("preventivi")
     .insert({
       numero_interno: numero,
-      cliente_id: input.clienteId,
+      cliente_id: input.clienteId ?? null,
       cliente_ragione_sociale: input.cliente,
-      cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
+      cliente_codice_targa: (input.codiceTargaCliente || "PC")
+        .trim()
+        .toUpperCase(),
       data_preventivo: input.dataPreventivo,
       stato: "creato",
       documento_stato: "bozza",
@@ -308,6 +339,11 @@ export async function createPreventivoAction(
     action: "create",
     actor_id: gate.auth.userId,
     summary: `Preventivo ${numero} creato per ${input.cliente}`,
+    payload: {
+      cliente_id: input.clienteId ?? null,
+      cliente_possibile_id: input.clientePossibileId ?? null,
+      numero_interno: numero,
+    },
   });
   return {
     success: true,

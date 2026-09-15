@@ -79,7 +79,7 @@ export function PreventiviBoard() {
           className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)]"
         >
           <FaPlus size={14} />
-          Crea nuovo
+          Nuovo preventivo
         </button>
         </ActionGate>
       </div>
@@ -100,7 +100,7 @@ export function PreventiviBoard() {
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
           >
             <FaPlus size={14} />
-            Crea nuovo
+            Nuovo preventivo
           </button>
           </ActionGate>
         </div>
