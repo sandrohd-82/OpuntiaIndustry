@@ -25,7 +25,7 @@ export function PreventivoA4Letterhead({
             className="h-auto w-full max-w-full object-contain object-left"
           />
         </div>
-        <div className="w-[50%] shrink-0 text-right text-[11px] leading-[1.45] text-slate-900">
+        <div className="w-[50%] shrink-0 pt-[2.8em] text-right text-[11px] leading-[1.45] text-slate-900">
           <p className="font-semibold">
             {AGRINSICILIA_LETTERHEAD.ragioneSociale}
           </p>
