@@ -44,10 +44,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   auditCollegamentiChange,
   loadCollegamentiByAttivitaIds,
-  operatorIdsFromCollegamenti,
   persistAttivitaCollegamenti,
   persistAttivitaMentions,
-} from "@/app/actions/attivita-mentions";
+} from "@/lib/promemorie-e-note/attivita-collegamenti-db";
+import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 

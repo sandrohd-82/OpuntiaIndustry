@@ -85,6 +85,30 @@ export function specForKind(kind: AttivitaMentionKind): AttivitaMentionSpec {
   return ATTIVITA_MENTION_SPECS.find((s) => s.kind === kind)!;
 }
 
+export function mapCollegamentoRow(
+  r: Record<string, unknown>
+): PnAttivitaCollegamento {
+  return {
+    id: String(r.id),
+    kind: r.kind as AttivitaMentionKind,
+    entityId: String(r.entity_id),
+    entityLabel: String(r.entity_label ?? ""),
+    token: String(r.token ?? ""),
+    meta:
+      r.meta && typeof r.meta === "object" && !Array.isArray(r.meta)
+        ? (r.meta as Record<string, unknown>)
+        : {},
+  };
+}
+
+export function operatorIdsFromCollegamenti(
+  collegamenti: PnAttivitaCollegamento[]
+): string[] {
+  return collegamenti
+    .filter((c) => c.kind === "operatore")
+    .map((c) => c.entityId);
+}
+
 export function matchMentionPrefix(afterAt: string): {
   spec: AttivitaMentionSpec;
   query: string;
