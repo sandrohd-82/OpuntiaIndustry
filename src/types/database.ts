@@ -1377,6 +1377,11 @@ export interface PreventivoRow {
   tipo_pagamento: OrdineTipoPagamento;
   tempi_pagamento_giorni: number | null;
   tempi_pagamento_note: string;
+  giorni_consegna: string;
+  include_coordinate_bancarie: boolean;
+  coordinate_banca: string;
+  coordinate_iban: string;
+  coordinate_bic: string;
   note: string;
   webmail_accettazione_id: string | null;
   referente_accettazione_id: string | null;

@@ -1,18 +1,24 @@
 import {
   AGRINSICILIA_LETTERHEAD,
   formatPreventivoDataIt,
+  type CoordinateBancarieAgrinsicilia,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import { formatIbanDisplay } from "@/lib/iban";
 
 type Props = {
   numero: string;
   dataPreventivo: string;
   onDataChange?: (isoDate: string) => void;
+  showCoordinateBancarie?: boolean;
+  coordinateBancarie?: CoordinateBancarieAgrinsicilia | null;
 };
 
 export function PreventivoA4Letterhead({
   numero,
   dataPreventivo,
   onDataChange,
+  showCoordinateBancarie = false,
+  coordinateBancarie,
 }: Props) {
   return (
     <header>
@@ -25,7 +31,11 @@ export function PreventivoA4Letterhead({
             className="h-auto w-full max-w-full object-contain object-left"
           />
         </div>
-        <div className="w-[50%] shrink-0 pt-[5.6em] text-right text-[11px] leading-[1.45] text-slate-900">
+        <div
+          className={`w-[50%] shrink-0 text-right text-[11px] leading-[1.45] text-slate-900 ${
+            showCoordinateBancarie ? "pt-[2.4em]" : "pt-[5.6em]"
+          }`}
+        >
           <p className="font-semibold">
             {AGRINSICILIA_LETTERHEAD.ragioneSociale}
           </p>
@@ -34,6 +44,21 @@ export function PreventivoA4Letterhead({
             P.iva {AGRINSICILIA_LETTERHEAD.partitaIva} - C.F.{" "}
             {AGRINSICILIA_LETTERHEAD.codiceFiscale}
           </p>
+          {showCoordinateBancarie ? (
+            <div className="mt-1">
+              {coordinateBancarie?.banca ? (
+                <p>Banca {coordinateBancarie.banca}</p>
+              ) : null}
+              {coordinateBancarie?.iban ? (
+                <p>IBAN {formatIbanDisplay(coordinateBancarie.iban)}</p>
+              ) : (
+                <p>IBAN non disponibile</p>
+              )}
+              {coordinateBancarie?.bic ? (
+                <p>BIC/SWIFT {coordinateBancarie.bic}</p>
+              ) : null}
+            </div>
+          ) : null}
           <p className="mt-1.5 text-[12px] font-bold tracking-wide">
             PREVENTIVO nr. {numero} del{" "}
             {onDataChange ? (

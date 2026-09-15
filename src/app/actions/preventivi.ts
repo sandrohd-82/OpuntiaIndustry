@@ -31,9 +31,12 @@ import type {
   ListinoRigaCondizioneRow,
 } from "@/types/database";
 import {
+  coordinateBancarieFallback,
   formatNumeroPreventivoDocumento,
   yearFromPreventivoData,
+  type CoordinateBancarieAgrinsicilia,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import { fetchFicPaymentAccounts } from "@/lib/fic";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { createClient } from "@/lib/supabase/server";
@@ -100,6 +103,11 @@ function mapPreventivo(
     tipoPagamento: row.tipo_pagamento,
     tempiPagamentoGiorni: row.tempi_pagamento_giorni,
     tempiPagamentoNote: row.tempi_pagamento_note,
+    giorniConsegna: row.giorni_consegna || "da concordare",
+    includeCoordinateBancarie: Boolean(row.include_coordinate_bancarie),
+    coordinateBanca: row.coordinate_banca ?? "",
+    coordinateIban: row.coordinate_iban ?? "",
+    coordinateBic: row.coordinate_bic ?? "",
     note: row.note,
     webmailAccettazioneId: row.webmail_accettazione_id,
     referenteAccettazioneId: row.referente_accettazione_id,
@@ -322,7 +330,18 @@ export async function createPreventivoAction(
         input.spedizioneFonte ?? fonteDefaultDaConsegna(input.consegnaMetodo),
       tipo_pagamento: input.tipoPagamento,
       tempi_pagamento_giorni: input.tempiPagamentoGiorni ?? null,
-      tempi_pagamento_note: input.tempiPagamentoNote ?? "",
+      tempi_pagamento_note: "",
+      giorni_consegna: input.giorniConsegna || "da concordare",
+      include_coordinate_bancarie: Boolean(input.includeCoordinateBancarie),
+      coordinate_banca: input.includeCoordinateBancarie
+        ? input.coordinateBanca ?? ""
+        : "",
+      coordinate_iban: input.includeCoordinateBancarie
+        ? input.coordinateIban ?? ""
+        : "",
+      coordinate_bic: input.includeCoordinateBancarie
+        ? input.coordinateBic ?? ""
+        : "",
       note: input.note ?? "",
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
@@ -636,4 +655,53 @@ export async function stimaSpedizionePreventivoAction(
     };
   }
   return { success: true, stima: stimaSpedizionePreventivo(parsed.data) };
+}
+
+export async function getCoordinateBancarieAgrinsiciliaAction(): Promise<
+  | { success: true; item: CoordinateBancarieAgrinsicilia }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const fallback = coordinateBancarieFallback();
+  try {
+    const accounts = await fetchFicPaymentAccounts();
+    const preferred =
+      accounts.find(
+        (a) => a.iban && /don\s*rizzo|bcc|ts\s*pay/i.test(a.name)
+      ) ?? accounts.find((a) => Boolean(a.iban));
+    if (preferred?.iban) {
+      return {
+        success: true,
+        item: {
+          banca: preferred.name || fallback.banca,
+          iban: preferred.iban,
+          bic: fallback.bic,
+          intestatario: fallback.intestatario,
+        },
+      };
+    }
+  } catch {
+    /* FiC assente: prova snapshot fatture / env */
+  }
+  const supabase = await createClient();
+  const { data, error: fattErr } = await supabase
+    .from("fatture_emesse")
+    .select("iban")
+    .not("iban", "eq", "")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const fromFattura = fattErr
+    ? undefined
+    : ((data ?? []) as { iban?: string }[]).find((r) =>
+        Boolean(r.iban?.trim())
+      );
+  if (fromFattura?.iban) {
+    return {
+      success: true,
+      item: { ...fallback, iban: fromFattura.iban.replace(/\s+/g, "") },
+    };
+  }
+  return { success: true, item: fallback };
 }

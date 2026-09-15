@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
+  getCoordinateBancarieAgrinsiciliaAction,
   peekNextNumeroPreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/amministrazione/ordini";
 import {
   CONFEZIONE_STANDARD,
+  GIORNI_CONSEGNA_DEFAULT,
   PREVENTIVO_CONSEGNA,
   PREVENTIVO_CONSEGNA_LABEL,
   prezzoNettoRigaPreventivo,
@@ -34,7 +36,10 @@ import {
   SPEDIZIONE_MARKUP_SICUREZZA_PCT,
   type PreventivoSpedizioneFonte,
 } from "@/lib/amministrazione/preventivo-spedizione";
-import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
+import type {
+  CoordinateBancarieAgrinsicilia,
+  DestinatarioPreventivo,
+} from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 
 type DraftRiga = PreventivoProdottoDraft & {
@@ -83,9 +88,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     useState<PreventivoSpedizioneFonte>("da_concordare");
   const [spedizioneMsg, setSpedizioneMsg] = useState<string | null>(null);
   const [tipoPagamento, setTipoPagamento] =
-    useState<OrdineTipoPagamento>("alla_consegna");
-  const [tempiGiorni, setTempiGiorni] = useState<number | "">("");
-  const [tempiNote, setTempiNote] = useState("");
+    useState<OrdineTipoPagamento>("anticipato");
+  const [giorniConsegna, setGiorniConsegna] = useState(GIORNI_CONSEGNA_DEFAULT);
+  const [includeCoordinate, setIncludeCoordinate] = useState(false);
+  const [coordinate, setCoordinate] =
+    useState<CoordinateBancarieAgrinsicilia | null>(null);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -131,6 +138,17 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       cancelled = true;
     };
   }, [dataPreventivo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCoordinateBancarieAgrinsiciliaAction().then((res) => {
+      if (cancelled || !res.success) return;
+      setCoordinate(res.item);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (consegnaMetodo !== "corriere_nostro") {
@@ -245,8 +263,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       spedizioneMarkupPct: SPEDIZIONE_MARKUP_SICUREZZA_PCT,
       spedizioneFonte,
       tipoPagamento,
-      tempiPagamentoGiorni: tempiGiorni === "" ? null : tempiGiorni,
-      tempiPagamentoNote: tempiNote,
+      giorniConsegna: giorniConsegna.trim() || GIORNI_CONSEGNA_DEFAULT,
+      includeCoordinateBancarie: includeCoordinate,
+      coordinateBanca: coordinate?.banca ?? "",
+      coordinateIban: coordinate?.iban ?? "",
+      coordinateBic: coordinate?.bic ?? "",
       note,
       righe: mapped,
     });
@@ -308,6 +329,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               numero={numeroPreview}
               dataPreventivo={dataPreventivo}
               onDataChange={setDataPreventivo}
+              showCoordinateBancarie={includeCoordinate}
+              coordinateBancarie={coordinate}
             />
 
             <PreventivoDestinatarioPicker
@@ -459,9 +482,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                   </>
                 ) : null}
                 <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Pagamento concordato
-                  </span>
+                  <span className="mb-1 block font-medium">Pagamento</span>
                   <select
                     value={tipoPagamento}
                     onChange={(e) =>
@@ -476,22 +497,28 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                     ))}
                   </select>
                 </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">Tempi (giorni)</span>
-                  <ClearableNumberInput
-                    min={0}
-                    value={tempiGiorni}
-                    onValueChange={setTempiGiorni}
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => setIncludeCoordinate((v) => !v)}
+                    className={`w-full rounded border px-3 py-2 text-sm font-medium ${
+                      includeCoordinate
+                        ? "border-slate-800 bg-slate-800 text-white"
+                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+                    }`}
+                  >
+                    {includeCoordinate
+                      ? "Togli coordinate bancarie"
+                      : "Includi coordinate bancarie"}
+                  </button>
+                </div>
                 <label className="block text-sm sm:col-span-2">
                   <span className="mb-1 block font-medium">
-                    Note tempi pagamento
+                    Giorni di consegna
                   </span>
                   <input
-                    value={tempiNote}
-                    onChange={(e) => setTempiNote(e.target.value)}
+                    value={giorniConsegna}
+                    onChange={(e) => setGiorniConsegna(e.target.value)}
                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                   />
                 </label>

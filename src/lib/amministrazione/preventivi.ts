@@ -114,6 +114,11 @@ export type Preventivo = {
   tipoPagamento: OrdineTipoPagamento;
   tempiPagamentoGiorni: number | null;
   tempiPagamentoNote: string;
+  giorniConsegna: string;
+  includeCoordinateBancarie: boolean;
+  coordinateBanca: string;
+  coordinateIban: string;
+  coordinateBic: string;
   note: string;
   webmailAccettazioneId: string | null;
   referenteAccettazioneId: string | null;
@@ -165,6 +170,17 @@ export const createPreventivoSchema = z
     ]),
     tempiPagamentoGiorni: z.number().int().min(0).nullable().optional(),
     tempiPagamentoNote: z.string().trim().max(500).optional().default(""),
+    giorniConsegna: z
+      .string()
+      .trim()
+      .min(1, "Indica i giorni di consegna")
+      .max(80)
+      .optional()
+      .default("da concordare"),
+    includeCoordinateBancarie: z.boolean().optional().default(false),
+    coordinateBanca: z.string().trim().max(120).optional().default(""),
+    coordinateIban: z.string().trim().max(40).optional().default(""),
+    coordinateBic: z.string().trim().max(20).optional().default(""),
     note: z.string().trim().max(4000).optional().default(""),
     righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
   })
@@ -188,5 +204,7 @@ export const stimaSpedizioneSchema = z.object({
   pesoKg: z.number().min(0).optional().default(0),
   importoBaseManuale: z.number().min(0).nullable().optional(),
 });
+
+export const GIORNI_CONSEGNA_DEFAULT = "da concordare";
 
 export { ORDINE_TIPI_PAGAMENTO };

@@ -11,6 +11,22 @@ export const AGRINSICILIA_LETTERHEAD = {
   codiceFiscale: "03031180841",
 } as const;
 
+export type CoordinateBancarieAgrinsicilia = {
+  banca: string;
+  iban: string;
+  bic: string;
+  intestatario: string;
+};
+
+export function coordinateBancarieFallback(): CoordinateBancarieAgrinsicilia {
+  return {
+    banca: (process.env.AGRINSICILIA_BANCA ?? "BCC Don Rizzo").trim(),
+    iban: (process.env.AGRINSICILIA_IBAN ?? "").replace(/\s+/g, "").toUpperCase(),
+    bic: (process.env.AGRINSICILIA_BIC ?? "").replace(/\s+/g, "").toUpperCase(),
+    intestatario: AGRINSICILIA_LETTERHEAD.ragioneSociale,
+  };
+}
+
 export type DestinatarioPreventivoKind = "cliente" | "possibile";
 
 export type DestinatarioPreventivo = {

@@ -153,8 +153,8 @@ export function PreventiviBoard() {
                   </td>
                   <td className="px-4 py-3 text-xs text-[var(--muted)]">
                     {labelTipoPagamento(item.tipoPagamento)}
-                    {item.tempiPagamentoGiorni != null
-                      ? ` · ${item.tempiPagamentoGiorni} gg`
+                    {item.giorniConsegna
+                      ? ` · consegna ${item.giorniConsegna}`
                       : ""}
                   </td>
                   <td className="px-4 py-3">
