@@ -10,6 +10,7 @@ import { notifyOrdiniDaProcessareNav } from "@/lib/amministrazione/ordini-nav";
 import {
   CAMPIONATURA_DOCUMENTO_STATO_LABEL,
   CAMPIONATURA_MEZZO_LABEL,
+  CAMPIONATURA_ORIGINE_LABEL,
   type Campionatura,
 } from "@/lib/amministrazione/campionature";
 import {
@@ -135,7 +136,7 @@ export function CampionatureBoard({
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
                 />
                 <SortableTh
-                  label="Data richiesta"
+                  label="Data"
                   sortKey="dataInvio"
                   sort={sort}
                   onSort={(k) => setSort((s) => nextSortState(s, k))}
@@ -239,7 +240,14 @@ function CampionaturaTableRow({
     <>
       <tr className="border-t border-[var(--border)]">
         <td className="px-4 py-3 font-mono font-semibold tabular-nums">
-          {item.numeroInterno}
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            {item.numeroInterno}
+            {item.origine === "storico" ? (
+              <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
+                {CAMPIONATURA_ORIGINE_LABEL.storico}
+              </span>
+            ) : null}
+          </span>
         </td>
         <td className="px-4 py-3">{item.cliente}</td>
         <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
@@ -320,12 +328,31 @@ function CampionaturaTableRow({
               </div>
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">
-                  A mezzo di
+                  {item.origine === "storico"
+                    ? "Richiesta fatta a mezzo"
+                    : "A mezzo di"}
                 </dt>
                 <dd>
                   {item.mezzo ? CAMPIONATURA_MEZZO_LABEL[item.mezzo] : "—"}
                 </dd>
               </div>
+              {item.trackingUrl ? (
+                <div className="sm:col-span-2">
+                  <dt className="text-xs uppercase text-[var(--muted)]">
+                    Tracking
+                  </dt>
+                  <dd>
+                    <a
+                      href={item.trackingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all text-sky-800 underline"
+                    >
+                      {item.trackingUrl}
+                    </a>
+                  </dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs uppercase text-[var(--muted)]">
                   Nota timeline

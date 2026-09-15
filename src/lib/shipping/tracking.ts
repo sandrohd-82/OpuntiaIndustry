@@ -85,7 +85,14 @@ export const createShippingTrackingSchema = z.object({
   trackingCode: z.string().trim().max(120).optional().default(""),
   notaId: z.string().uuid().nullable().optional(),
   entityType: z
-    .enum(["cliente", "fornitore", "cliente_possibile", "ordine", "altro"])
+    .enum([
+      "cliente",
+      "fornitore",
+      "cliente_possibile",
+      "ordine",
+      "campionatura",
+      "altro",
+    ])
     .nullable()
     .optional(),
   entityId: z.string().uuid().nullable().optional(),
@@ -262,6 +269,24 @@ function detectStatusFromText(text: string): ShippingStatus | null {
     return "registrato";
   }
   return null;
+}
+
+export function inferCarrierFromUrl(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+    if (host.includes("dhl")) return "DHL";
+    if (host.includes("ups")) return "UPS";
+    if (host.includes("fedex")) return "FedEx";
+    if (host.includes("bartolini") || host.includes("brt")) return "BRT";
+    if (host.includes("sda")) return "SDA";
+    if (host.includes("poste")) return "Poste Italiane";
+    if (host.includes("gls")) return "GLS";
+    if (host.includes("tnt")) return "TNT";
+    const first = host.split(".")[0]?.trim();
+    return first ? first.toUpperCase() : "Corriere";
+  } catch {
+    return "Corriere";
+  }
 }
 
 export function trackingAllegatoId(trackingId: string): string {

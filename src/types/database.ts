@@ -1302,7 +1302,9 @@ export interface CampionaturaRow {
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_invio: string;
-  mezzo: "mail" | "messaggio" | "chiamata" | "in_presenza" | null;
+  mezzo: "mail" | "messaggio" | "chiamata" | "in_presenza" | "non_ricordo" | null;
+  origine: "da_inviare" | "storico";
+  tracking_url: string;
   spedizione_tipo: "sede_azienda" | "altro_posto";
   spedizione_privato: boolean;
   referente_ricezione_id: string | null;

@@ -18,16 +18,27 @@ export const CAMPIONATURA_STATI = [
 
 export const CAMPIONATURA_UM = ["g", "kg", "pz", "ml", "lt"] as const;
 
+export const CAMPIONATURA_ORIGINI = ["da_inviare", "storico"] as const;
+
 export const CAMPIONATURA_MEZZI = [
   "mail",
   "messaggio",
   "chiamata",
   "in_presenza",
+  "non_ricordo",
 ] as const;
 
 export type CampionaturaStato = (typeof CAMPIONATURA_STATI)[number];
 export type CampionaturaUm = (typeof CAMPIONATURA_UM)[number];
+export type CampionaturaOrigine = (typeof CAMPIONATURA_ORIGINI)[number];
 export type CampionaturaMezzo = (typeof CAMPIONATURA_MEZZI)[number];
+
+export const CAMPIONATURA_MEZZI_OPERATIVI: readonly CampionaturaMezzo[] = [
+  "mail",
+  "messaggio",
+  "chiamata",
+  "in_presenza",
+];
 
 export function defaultUmCampionaturaPerProdotto(
   prodottoCodice?: string | null
@@ -54,6 +65,12 @@ export const CAMPIONATURA_MEZZO_LABEL: Record<CampionaturaMezzo, string> = {
   messaggio: "Messaggio",
   chiamata: "Chiamata",
   in_presenza: "In presenza",
+  non_ricordo: "Non ricordo",
+};
+
+export const CAMPIONATURA_ORIGINE_LABEL: Record<CampionaturaOrigine, string> = {
+  da_inviare: "Da inviare",
+  storico: "Storico",
 };
 
 export type CampionaturaRiga = {
@@ -74,6 +91,8 @@ export type Campionatura = {
   cliente: string;
   clienteCodiceTarga: string;
   dataInvio: string;
+  origine: CampionaturaOrigine;
+  trackingUrl: string;
   mezzo: CampionaturaMezzo | null;
   pnNotaId: string | null;
   pnNotaTitolo: string;
@@ -107,15 +126,17 @@ export const campionaturaRigaSchema = z.object({
 });
 
 export const createCampionaturaSchema = z.object({
+  origine: z.enum(CAMPIONATURA_ORIGINI).optional().default("da_inviare"),
   clienteId: z.string().uuid("Seleziona un’azienda"),
   cliente: z.string().trim().min(1),
   codiceTargaCliente: z.string().trim().min(1),
   dataInvio: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data richiesta obbligatoria"),
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data obbligatoria"),
   mezzo: z.enum(CAMPIONATURA_MEZZI, { message: "Indica a mezzo di" }),
   pnNotaId: z.string().uuid().nullable().optional().default(null),
   webmailMessaggioId: z.string().uuid().nullable().optional().default(null),
+  trackingUrl: z.string().trim().max(2000).optional().default(""),
   spedizioneTipo: z
     .enum(["sede_azienda", "altro_posto"])
     .optional()
@@ -128,6 +149,31 @@ export const createCampionaturaSchema = z.object({
   righe: z.array(campionaturaRigaSchema).min(1, "Aggiungi almeno un prodotto"),
 })
   .superRefine((val, ctx) => {
+    if (val.trackingUrl) {
+      try {
+        const u = new URL(val.trackingUrl);
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          throw new Error("protocol");
+        }
+      } catch {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "URL tracking non valido (usa http o https).",
+          path: ["trackingUrl"],
+        });
+      }
+    }
+    if (val.origine === "storico") {
+      return;
+    }
+    if (val.mezzo === "non_ricordo") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "«Non ricordo» è disponibile solo nello storico.",
+        path: ["mezzo"],
+      });
+      return;
+    }
     if (val.mezzo === "mail") {
       if (!val.webmailMessaggioId && !val.pnNotaId) {
         ctx.addIssue({

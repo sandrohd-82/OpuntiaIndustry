@@ -9,8 +9,10 @@ import {
   REFERENTE_RICEZIONE_MERCE,
   type Campionatura,
   type CampionaturaMezzo,
+  type CampionaturaOrigine,
   type CampionaturaRiga,
 } from "@/lib/amministrazione/campionature";
+import { inferCarrierFromUrl } from "@/lib/shipping/tracking";
 import { getGiacenzaProdottoAction } from "@/app/actions/produzione-capacita";
 import {
   giacenzaCopreRichiesta,
@@ -73,6 +75,9 @@ function mapCampionatura(
     cliente: row.cliente_ragione_sociale,
     clienteCodiceTarga: row.cliente_codice_targa,
     dataInvio: row.data_invio,
+    origine: ((row.origine as CampionaturaOrigine | undefined) ??
+      "da_inviare") as CampionaturaOrigine,
+    trackingUrl: row.tracking_url ?? "",
     mezzo: (row.mezzo as CampionaturaMezzo | null) ?? null,
     pnNotaId: row.pn_nota_id,
     pnNotaTitolo: extra?.notaTitolo ?? "",
@@ -278,7 +283,11 @@ async function createCampionaturaActionInner(
     };
   }
   const input = parsed.data;
+  const isStorico = input.origine === "storico";
   const now = new Date().toISOString();
+  const sentAtStorico = isStorico
+    ? `${input.dataInvio}T12:00:00`
+    : null;
   const seqRes = await nextSeq(input.codiceTargaCliente);
   if (!seqRes.ok) return { success: false, error: seqRes.error };
   const seq = seqRes.seq;
@@ -289,7 +298,7 @@ async function createCampionaturaActionInner(
   );
 
   let notaTitolo = "";
-  if (input.pnNotaId) {
+  if (input.pnNotaId && !isStorico) {
     const { data: notaCheck, error: notaErr } = await supabase
       .from("pn_note")
       .select("id, titolo, entity_type, entity_id")
@@ -335,20 +344,26 @@ async function createCampionaturaActionInner(
       cliente_ragione_sociale: input.cliente,
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_invio: input.dataInvio,
+      origine: input.origine,
+      tracking_url: isStorico ? input.trackingUrl || "" : "",
       mezzo: input.mezzo,
-      pn_nota_id: input.pnNotaId,
-      webmail_messaggio_id: input.webmailMessaggioId || null,
+      pn_nota_id: isStorico ? null : input.pnNotaId,
+      webmail_messaggio_id: isStorico
+        ? null
+        : input.webmailMessaggioId || null,
       spedizione_tipo: input.spedizioneTipo,
       spedizione_privato: input.spedizionePrivato,
       referente_ricezione_id: input.referenteRicezioneId || null,
       destinatario: input.destinatario || input.cliente,
       indirizzo_spedizione: input.indirizzoSpedizione,
       note: input.note,
-      stato: "inserita",
-      documento_stato: "approvato",
+      stato: isStorico ? "inviata" : "inserita",
+      documento_stato: isStorico ? "chiuso" : "approvato",
       versione: 1,
       approved_at: now,
       approved_by: gate.auth.userId,
+      sent_at: sentAtStorico,
+      sent_by: isStorico ? gate.auth.userId : null,
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
     })
@@ -390,7 +405,7 @@ async function createCampionaturaActionInner(
     return { success: false, error: rErr.message };
   }
 
-  if (input.pnNotaId) {
+  if (input.pnNotaId && !isStorico) {
     const service = createServiceClient();
     await service
       .from("pn_note")
@@ -402,22 +417,82 @@ async function createCampionaturaActionInner(
       .is("deleted_at", null);
   }
 
+  if (isStorico && input.trackingUrl) {
+    const service = createServiceClient();
+    const carrier = inferCarrierFromUrl(input.trackingUrl);
+    const { data: tracking, error: trackErr } = await service
+      .from("shipping_trackings")
+      .insert({
+        entity_type: "campionatura",
+        entity_id: header.id,
+        tracking_url: input.trackingUrl,
+        carrier,
+        tracking_code: "",
+        current_status: "registrato",
+        last_check_note: "Creato da campionatura storico",
+        created_by: gate.auth.userId,
+        updated_by: gate.auth.userId,
+      })
+      .select("id")
+      .single();
+    if (trackErr || !tracking) {
+      await supabase
+        .from("campionature")
+        .update({
+          deleted_at: now,
+          deleted_by: gate.auth.userId,
+        })
+        .eq("id", header.id);
+      return {
+        success: false,
+        error: trackErr?.message ?? "Creazione tracking fallita",
+      };
+    }
+    await service.from("shipping_tracking_logs").insert({
+      tracking_id: tracking.id,
+      status: "registrato",
+      details: {
+        event: "created",
+        source: "campionatura_storico",
+        carrier,
+        trackingUrl: input.trackingUrl,
+      },
+      created_by: gate.auth.userId,
+    });
+    await writeAuditLog({
+      entity_type: "shipping_tracking",
+      entity_id: String(tracking.id),
+      action: "create",
+      actor_id: gate.auth.userId,
+      summary: `Tracking ${carrier} da campionatura ${numero}`,
+      payload: {
+        tracking_url: input.trackingUrl,
+        entity_type: "campionatura",
+        entity_id: header.id,
+      },
+    });
+  }
+
   await writeAuditLog({
     entity_type: "campionature",
     entity_id: header.id,
     action: "create",
     actor_id: gate.auth.userId,
-    summary: `Campionatura ${numero} inserita per ${input.cliente}`,
+    summary: isStorico
+      ? `Campionatura ${numero} registrata in storico per ${input.cliente}`
+      : `Campionatura ${numero} inserita per ${input.cliente}`,
     payload: {
       numero_interno: numero,
       cliente_id: input.clienteId,
+      origine: input.origine,
       mezzo: input.mezzo,
-      pn_nota_id: input.pnNotaId,
-      webmail_messaggio_id: input.webmailMessaggioId,
+      tracking_url: isStorico ? input.trackingUrl || null : null,
+      pn_nota_id: isStorico ? null : input.pnNotaId,
+      webmail_messaggio_id: isStorico ? null : input.webmailMessaggioId,
       lotti: input.righe.map((r) => r.lottoCodice),
     },
   });
-  if (input.pnNotaId) {
+  if (input.pnNotaId && !isStorico) {
     await writeAuditLog({
       entity_type: "pn_note",
       entity_id: input.pnNotaId,

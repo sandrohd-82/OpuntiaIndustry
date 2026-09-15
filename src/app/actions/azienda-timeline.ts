@@ -313,7 +313,7 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     const { data: camp } = await service
       .from("campionature")
       .select(
-        "id, numero_interno, data_invio, stato, mezzo, pn_nota_id"
+        "id, numero_interno, data_invio, stato, mezzo, origine, tracking_url, pn_nota_id"
       )
       .eq("cliente_id", aziendaId)
       .is("deleted_at", null)
@@ -328,8 +328,18 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         kind: "campionatura",
         occurredAt: day,
         title: `Campionatura ${r.numero_interno ?? ""}`.trim(),
-        subtitle: `Stato: ${r.stato ?? "—"} · Mezzo: ${r.mezzo ?? "—"}`,
-        href: "/app/amministrazione/ordini",
+        subtitle: [
+          `Stato: ${r.stato ?? "—"}`,
+          r.origine === "storico" ? "Storico" : null,
+          `Mezzo: ${r.mezzo ?? "—"}`,
+          r.tracking_url ? "Tracking" : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        href:
+          typeof r.tracking_url === "string" && r.tracking_url
+            ? String(r.tracking_url)
+            : "/app/amministrazione/ordini",
       });
     }
   }

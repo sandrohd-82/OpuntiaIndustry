@@ -21,12 +21,14 @@ import type { AnagraficaOrdineFonte } from "@/lib/amministrazione/ordine-anagraf
 import { clienteFromPossibile } from "@/lib/promemorie-e-note/types";
 import {
   CAMPIONATURA_MEZZI,
+  CAMPIONATURA_MEZZI_OPERATIVI,
   CAMPIONATURA_MEZZO_LABEL,
   clienteSpedizioneOptions,
   defaultUmCampionaturaPerProdotto,
   opzioniUmCampionaturaPerProdotto,
   type Campionatura,
   type CampionaturaMezzo,
+  type CampionaturaOrigine,
   type CampionaturaUm,
 } from "@/lib/amministrazione/campionature";
 
@@ -66,7 +68,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     useState<AnagraficaOrdineFonte>("cliente");
   const [possibileClienteId, setPossibileClienteId] = useState("");
   const [cliente, setCliente] = useState<Cliente | null>(null);
+  const [origine, setOrigine] = useState<CampionaturaOrigine>("da_inviare");
   const [dataInvio, setDataInvio] = useState(todayInputValue);
+  const [trackingUrl, setTrackingUrl] = useState("");
   const [mezzo, setMezzo] = useState<CampionaturaMezzo | null>(null);
   const [nota, setNota] = useState<{ id: string; titolo: string } | null>(null);
   const [mail, setMail] = useState<{ id: string; subject: string } | null>(
@@ -183,17 +187,34 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
       return;
     }
     if (!mezzo) {
-      setFormError("Indica a mezzo di.");
+      setFormError(
+        origine === "storico"
+          ? "Indica a mezzo di (richiesta fatta a mezzo)."
+          : "Indica a mezzo di."
+      );
       return;
     }
-    if (mezzo === "mail") {
-      if (!mail && !nota) {
-        setFormError("Collega la mail oppure una nota della timeline.");
+    if (origine === "da_inviare") {
+      if (mezzo === "mail") {
+        if (!mail && !nota) {
+          setFormError("Collega la mail oppure una nota della timeline.");
+          return;
+        }
+      } else if (!nota) {
+        setFormError("Collega o crea una nota della timeline.");
         return;
       }
-    } else if (!nota) {
-      setFormError("Collega o crea una nota della timeline.");
-      return;
+    }
+    if (origine === "storico" && trackingUrl.trim()) {
+      try {
+        const u = new URL(trackingUrl.trim());
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          throw new Error("protocol");
+        }
+      } catch {
+        setFormError("URL tracking non valido (usa http o https).");
+        return;
+      }
     }
     if (!indirizzo.trim()) {
       setFormError("Seleziona un indirizzo di spedizione o spedisci in altro posto.");
@@ -220,10 +241,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         clienteId: cliente.id || undefined,
         cliente: cliente.ragioneSociale,
         codiceTargaCliente: cliente.codiceTarga || "C000",
+        origine,
         dataInvio,
         mezzo,
-        pnNotaId: nota?.id ?? null,
-        webmailMessaggioId: mail?.id ?? null,
+        trackingUrl: origine === "storico" ? trackingUrl.trim() : "",
+        pnNotaId: origine === "storico" ? null : (nota?.id ?? null),
+        webmailMessaggioId: origine === "storico" ? null : (mail?.id ?? null),
         spedizioneTipo: addressKey === "altro" ? "altro_posto" : "sede_azienda",
         spedizionePrivato,
         referenteRicezioneId: referenteRicezione?.id ?? null,
@@ -261,7 +284,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         className="w-full max-w-3xl rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
       >
         <h2 id={titleId} className="text-lg font-semibold">
-          Invio campionatura
+          {origine === "storico"
+            ? "Registra campionatura in storico"
+            : "Invio campionatura"}
         </h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
           Documento distinto dall’ordine. Numero interno{" "}
@@ -275,11 +300,45 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               </span>
             </>
           ) : null}
-          . Salvataggio = Inserito (ordine creato) e documento approvato (ISO
-          9001).
+          {origine === "storico"
+            ? ". Non crea un ordine da processare: risulta già inviata nella timeline alla data indicata."
+            : ". Salvataggio = Inserito (da processare) e documento approvato (ISO 9001)."}
         </p>
 
         <form onSubmit={onSubmit} className="mt-5 space-y-4">
+          <div className="block text-sm">
+            <span className="mb-1 block font-medium">Modalità</span>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ["da_inviare", "Da inviare"],
+                  ["storico", "Registra in storico"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setOrigine(value);
+                    setFormError(null);
+                    if (value === "da_inviare" && mezzo === "non_ricordo") {
+                      setMezzo(null);
+                    }
+                    if (value === "storico") {
+                      setOrigineOpen(false);
+                    }
+                  }}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+                    origine === value
+                      ? "border-[var(--primary)] bg-[var(--primary)] text-white"
+                      : "border-[var(--border)] bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm sm:col-span-2">
               <span className="mb-1 block font-medium">Azienda</span>
@@ -308,10 +367,12 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             </label>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">
-                Data richiesta
+                {origine === "storico" ? "Data invio" : "Data richiesta"}
               </span>
               <span className="mb-1 block text-xs text-[var(--muted)]">
-                Data in cui è arrivata la richiesta, non la spedizione.
+                {origine === "storico"
+                  ? "Data in cui la campionatura è stata inviata (comparirà in storico e timeline)."
+                  : "Data in cui è arrivata la richiesta, non la spedizione."}
               </span>
               <input
                 type="date"
@@ -322,9 +383,16 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               />
             </label>
             <div className="block text-sm sm:col-span-2">
-              <span className="mb-1 block font-medium">A mezzo di</span>
+              <span className="mb-1 block font-medium">
+                {origine === "storico"
+                  ? "Richiesta fatta a mezzo"
+                  : "A mezzo di"}
+              </span>
               <div className="flex flex-wrap gap-2">
-                {CAMPIONATURA_MEZZI.map((m) => (
+                {(origine === "storico"
+                  ? CAMPIONATURA_MEZZI
+                  : CAMPIONATURA_MEZZI_OPERATIVI
+                ).map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -335,7 +403,9 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                       }
                       setFormError(null);
                       setMezzo(m);
-                      setOrigineOpen(true);
+                      if (origine === "da_inviare") {
+                        setOrigineOpen(true);
+                      }
                     }}
                     className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
                       mezzo === m
@@ -347,7 +417,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
                   </button>
                 ))}
               </div>
-              {nota || mail ? (
+              {origine === "storico" ? null : nota || mail ? (
                 <p className="mt-2 text-xs text-[var(--muted)]">
                   {nota ? (
                     <>
@@ -570,6 +640,22 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
             </div>
           </div>
 
+          {origine === "storico" ? (
+            <label className="block text-sm">
+              <span className="mb-1 block font-medium">Tracking (URL)</span>
+              <span className="mb-1 block text-xs text-[var(--muted)]">
+                Facoltativo. Se presente, crea il monitoraggio spedizione.
+              </span>
+              <input
+                type="url"
+                value={trackingUrl}
+                onChange={(e) => setTrackingUrl(e.target.value)}
+                placeholder="https://"
+                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 outline-none focus:border-[var(--primary)]"
+              />
+            </label>
+          ) : null}
+
           <label className="block text-sm">
             <span className="mb-1 block font-medium">Note</span>
             <textarea
@@ -600,7 +686,11 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
               disabled={saving}
               className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
             >
-              {saving ? "Salvataggio…" : "Registra ordine"}
+              {saving
+                ? "Salvataggio…"
+                : origine === "storico"
+                  ? "Salva in storico e timeline"
+                  : "Registra ordine"}
             </button>
           </div>
         </form>
