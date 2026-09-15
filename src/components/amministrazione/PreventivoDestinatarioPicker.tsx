@@ -228,9 +228,9 @@ export function PreventivoDestinatarioModal({
         confirmLabel="Chiudi"
         onConfirm={onClose}
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex flex-col gap-3">
           {showAreaFilter ? (
-            <div className="sm:w-52">
+            <div className="w-full">
               <CommercialeAreaFilterSelect
                 value={commercialeArea}
                 onChange={setCommercialeArea}
@@ -240,7 +240,7 @@ export function PreventivoDestinatarioModal({
               />
             </div>
           ) : null}
-          <div className="relative min-w-0 flex-1">
+          <div className="relative min-w-0 w-full">
             <input
               ref={inputRef}
               type="text"
