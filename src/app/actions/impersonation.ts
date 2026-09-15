@@ -21,6 +21,7 @@ import { primoAccessoUrl } from "@/lib/auth/app-url";
 import { sendPrimoAccessoEmail } from "@/lib/email/primo-accesso";
 import {
   PROFILE_STATI_OPERATIVI,
+  isProfileAlreadyEnabled,
   parseProfileStatoOperativo,
   type ProfileStatoOperativo,
 } from "@/lib/auth/stato-operativo";
@@ -273,7 +274,7 @@ export async function setProfileStatoOperativoAction(
   const { data: target, error: tErr } = await service
     .from("profiles")
     .select(
-      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, attivato_at, potere, app_roles(code)"
+      "id, email, full_name, first_name, last_name, stato_operativo, password_impostata_at, attivato_at, created_at, potere, app_roles(code)"
     )
     .eq("id", targetId)
     .maybeSingle();
@@ -291,9 +292,11 @@ export async function setProfileStatoOperativoAction(
   const activating =
     parsed.data === "operativo" &&
     (previous === "test" || previous === "pre_operativo");
-  const alreadyActive = Boolean(
-    target.attivato_at || target.password_impostata_at
-  );
+  let alreadyActive = isProfileAlreadyEnabled(target);
+  if (!alreadyActive) {
+    const { data: authUser } = await service.auth.admin.getUserById(targetId);
+    alreadyActive = Boolean(authUser?.user?.last_sign_in_at);
+  }
 
   if (activating && !alreadyActive) {
     const alreadyHasPassword = Boolean(target.password_impostata_at);
@@ -342,6 +345,9 @@ export async function setProfileStatoOperativoAction(
     stato_operativo_at: now,
     stato_operativo_by: gate.actorUserId,
   };
+  if (activating && alreadyActive && !target.attivato_at) {
+    updatePayload.attivato_at = target.created_at ?? now;
+  }
   if (activating && !alreadyActive) {
     updatePayload.attivato_at = now;
     updatePayload.attivato_by = gate.actorUserId;

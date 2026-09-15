@@ -14,7 +14,10 @@ import {
   parseProfileGerarchia,
 } from "@/lib/auth/gerarchia";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
-import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
+import {
+  isProfileAlreadyEnabled,
+  parseProfileStatoOperativo,
+} from "@/lib/auth/stato-operativo";
 import { getAuthContext, getUserAreas } from "@/lib/auth/session";
 import { loadAccessMaps } from "@/app/actions/page-access";
 import { ActionAccessProvider } from "@/components/layout/ActionAccessProvider";
@@ -186,9 +189,7 @@ export default async function AppLayout({
         impersonating={auth.impersonating}
         actorName={actorName}
         statoOperativo={stato}
-        giaAttivato={Boolean(
-          auth.profile.attivato_at || auth.profile.password_impostata_at
-        )}
+        giaAttivato={isProfileAlreadyEnabled(auth.profile)}
         pageAccess={pageAccess}
         testMenuMode={testMenuMode}
         applyPageFilter={applyPageFilter && !testMenuMode}

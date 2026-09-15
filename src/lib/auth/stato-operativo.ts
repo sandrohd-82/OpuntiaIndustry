@@ -38,6 +38,23 @@ export function isOperatorSelfLoginAllowed(
   return stato === "operativo";
 }
 
+/** Prima di questa data i profili erano già operativi (niente mail di primo accesso). */
+export const PROFILE_TEST_PHASE_STARTED_AT = "2026-09-09T00:00:00.000Z";
+
+/** Già abilitato: password impostata, attivato in passato, o profilo precedente alla fase Test. */
+export function isProfileAlreadyEnabled(input: {
+  attivato_at?: string | null;
+  password_impostata_at?: string | null;
+  created_at?: string | null;
+}): boolean {
+  if (input.attivato_at || input.password_impostata_at) return true;
+  const created = input.created_at ? Date.parse(input.created_at) : Number.NaN;
+  return (
+    !Number.isNaN(created) &&
+    created < Date.parse(PROFILE_TEST_PHASE_STARTED_AT)
+  );
+}
+
 /** Fase in cui il Super Admin configura menu e autorizzazioni. */
 export function isConfigStato(stato: ProfileStatoOperativo): boolean {
   return stato === "test";

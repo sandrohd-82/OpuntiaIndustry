@@ -67,11 +67,10 @@ export function ProfileStatusLed({
     if (
       next === "operativo" &&
       (stato === "test" || stato === "pre_operativo") &&
+      !giaAttivato &&
       typeof window !== "undefined" &&
       !window.confirm(
-        giaAttivato
-          ? "Ripristinare Operativo? Nessuna email o avviso verra inviato all'operatore."
-          : "Passare a Operativo? Verrà inviata una email all'operatore con il link per il primo accesso."
+        "Passare a Operativo? Verrà inviata una email all'operatore con il link per il primo accesso."
       )
     ) {
       return;
