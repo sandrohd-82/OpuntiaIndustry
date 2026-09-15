@@ -31,6 +31,7 @@ import {
   createNotaBozzaSchema,
   createNotaSchema,
   createPromemoriaSchema,
+  updateAttivitaSchema,
   updateNotaSchema,
   type ClientePossibile,
   type PnAttivita,
@@ -40,6 +41,13 @@ import {
 } from "@/lib/promemorie-e-note/types";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
 import { createClient } from "@/lib/supabase/server";
+import {
+  auditCollegamentiChange,
+  loadCollegamentiByAttivitaIds,
+  operatorIdsFromCollegamenti,
+  persistAttivitaCollegamenti,
+  persistAttivitaMentions,
+} from "@/app/actions/attivita-mentions";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
@@ -268,6 +276,7 @@ export async function listAttivitaPnAction(): Promise<
       mentions.set(aid, list);
     }
   }
+  const collegamentiMap = await loadCollegamentiByAttivitaIds(supabase, ids);
   return {
     success: true,
     items: (data ?? []).map((r) => ({
@@ -278,6 +287,7 @@ export async function listAttivitaPnAction(): Promise<
       dueAt: String(r.due_at),
       stato: r.stato as PnAttivita["stato"],
       mentionUserIds: mentions.get(String(r.id)) ?? [],
+      collegamenti: collegamentiMap.get(String(r.id)) ?? [],
       createdAt: String(r.created_at),
     })),
   };
@@ -290,6 +300,7 @@ export async function createAttivitaPnAction(input: {
   dueAt: string;
   mentionUserIds?: string[];
   peers?: { id: string; name: string }[];
+  collegamenti?: unknown;
 }): Promise<
   { success: true; item: PnAttivita } | { success: false; error: string }
 > {
@@ -318,22 +329,27 @@ export async function createAttivitaPnAction(input: {
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
+  const collegamenti = await persistAttivitaCollegamenti({
+    supabase,
+    attivitaId: String(data.id),
+    userId: auth.userId,
+    descrizione: parsed.data.descrizione ?? "",
+    collegamenti: parsed.data.collegamenti ?? [],
+  });
   const mentionIds = new Set([
     ...(parsed.data.mentionUserIds ?? []),
+    ...operatorIdsFromCollegamenti(collegamenti),
     ...parseMentionIdsFromText(
       `${parsed.data.titolo} ${parsed.data.descrizione}`,
       input.peers ?? []
     ),
   ]);
-  if (mentionIds.size > 0) {
-    await supabase.from("pn_attivita_mentions").insert(
-      [...mentionIds].map((user_id) => ({
-        attivita_id: data.id,
-        user_id,
-        created_by: auth.userId,
-      }))
-    );
-  }
+  await persistAttivitaMentions({
+    supabase,
+    attivitaId: String(data.id),
+    userId: auth.userId,
+    userIds: [...mentionIds],
+  });
   const item: PnAttivita = {
     id: String(data.id),
     titolo: String(data.titolo),
@@ -342,15 +358,94 @@ export async function createAttivitaPnAction(input: {
     dueAt: String(data.due_at),
     stato: data.stato as PnAttivita["stato"],
     mentionUserIds: [...mentionIds],
+    collegamenti,
     createdAt: String(data.created_at),
   };
-  await writeAuditLog({
-    entity_type: "pn_attivita",
-    entity_id: item.id,
+  await auditCollegamentiChange({
+    attivitaId: item.id,
+    userId: auth.userId,
+    titolo: item.titolo,
+    collegamenti,
     action: "create",
-    actor_id: auth.userId,
-    summary: `Attività: ${item.titolo}`,
-    payload: { mentions: item.mentionUserIds.length },
+  });
+  return { success: true, item };
+}
+
+export async function updateAttivitaPnAction(input: unknown): Promise<
+  { success: true; item: PnAttivita } | { success: false; error: string }
+> {
+  const { auth } = await guardPn();
+  const parsed = updateAttivitaSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const supabase = await createClient();
+  const { data: current, error: readErr } = await supabase
+    .from("pn_attivita")
+    .select("id, versione, created_at")
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (readErr || !current) {
+    return { success: false, error: readErr?.message ?? "Attività non trovata" };
+  }
+  const { data, error } = await supabase
+    .from("pn_attivita")
+    .update({
+      titolo: parsed.data.titolo,
+      descrizione: parsed.data.descrizione ?? "",
+      luogo: parsed.data.luogo ?? "",
+      due_at: parsed.data.dueAt,
+      stato: parsed.data.stato ?? undefined,
+      versione: Number(current.versione ?? 1) + 1,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .select("id, titolo, descrizione, luogo, due_at, stato, created_at")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const collegamenti = await persistAttivitaCollegamenti({
+    supabase,
+    attivitaId: String(data.id),
+    userId: auth.userId,
+    descrizione: parsed.data.descrizione ?? "",
+    collegamenti: parsed.data.collegamenti ?? [],
+  });
+  const mentionIds = [
+    ...new Set([
+      ...(parsed.data.mentionUserIds ?? []),
+      ...operatorIdsFromCollegamenti(collegamenti),
+    ]),
+  ];
+  await persistAttivitaMentions({
+    supabase,
+    attivitaId: String(data.id),
+    userId: auth.userId,
+    userIds: mentionIds,
+  });
+  const item: PnAttivita = {
+    id: String(data.id),
+    titolo: String(data.titolo),
+    descrizione: String(data.descrizione ?? ""),
+    luogo: String(data.luogo ?? ""),
+    dueAt: String(data.due_at),
+    stato: data.stato as PnAttivita["stato"],
+    mentionUserIds: mentionIds,
+    collegamenti,
+    createdAt: String(data.created_at ?? current.created_at),
+  };
+  await auditCollegamentiChange({
+    attivitaId: item.id,
+    userId: auth.userId,
+    titolo: item.titolo,
+    collegamenti,
+    action: "update",
   });
   return { success: true, item };
 }

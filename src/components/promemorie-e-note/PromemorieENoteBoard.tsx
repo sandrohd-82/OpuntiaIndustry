@@ -7,6 +7,7 @@ import {
   createNotaPnAction,
   createPromemoriaAction,
   listAttivitaPnAction,
+  updateAttivitaPnAction,
   listNotePnAction,
   listPromemoriaAction,
 } from "@/app/actions/promemorie-e-note";
@@ -19,6 +20,11 @@ import {
   type NotaExtrasValue,
 } from "@/components/promemorie-e-note/NotaFormExtras";
 import { NotaCard } from "@/components/promemorie-e-note/NotaCard";
+import {
+  MentionDescriptionField,
+  MentionDescriptionView,
+} from "@/components/promemorie-e-note/MentionDescriptionField";
+import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import {
   dayKeyFromIso,
   monthKeyFromIso,
@@ -71,6 +77,18 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [colore, setColore] = useState<PnNota["colore"]>("giallo");
   const [notaExtras, setNotaExtras] =
     useState<NotaExtrasValue>(EMPTY_NOTA_EXTRAS);
+  const [collegamenti, setCollegamenti] = useState<PnAttivitaCollegamento[]>(
+    []
+  );
+  const [editing, setEditing] = useState<PnAttivita | null>(null);
+  const [editTitolo, setEditTitolo] = useState("");
+  const [editDescrizione, setEditDescrizione] = useState("");
+  const [editLuogo, setEditLuogo] = useState("");
+  const [editDueAt, setEditDueAt] = useState("");
+  const [editStato, setEditStato] = useState<PnAttivita["stato"]>("pianificata");
+  const [editCollegamenti, setEditCollegamenti] = useState<
+    PnAttivitaCollegamento[]
+  >([]);
 
   function reload() {
     startTransition(async () => {
@@ -134,6 +152,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           luogo,
           dueAt: dueIso,
           peers,
+          collegamenti,
         });
         if (!res.success) {
           setError(res.error);
@@ -168,6 +187,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       setDescrizione("");
       setLuogo("");
       setBody("");
+      setCollegamenti([]);
     });
   }
 
@@ -254,18 +274,27 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
             </>
           ) : (
             <>
-              <label className="block text-xs font-medium">Descrizione</label>
-              <textarea
-                value={descrizione}
-                onChange={(e) => setDescrizione(e.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                placeholder={
-                  kind === "attivita"
-                    ? "Dettagli… usa @Nome per collegare utenti"
-                    : ""
-                }
-              />
+              {kind === "attivita" ? (
+                <MentionDescriptionField
+                  value={descrizione}
+                  onChange={setDescrizione}
+                  collegamenti={collegamenti}
+                  onCollegamentiChange={setCollegamenti}
+                  placeholder="Dettagli… @ per operatori, @P- prodotti, Leggenda @ per tutti i comandi"
+                />
+              ) : (
+                <>
+                  <label className="block text-xs font-medium">
+                    Descrizione
+                  </label>
+                  <textarea
+                    value={descrizione}
+                    onChange={(e) => setDescrizione(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                </>
+              )}
             </>
           )}
           {kind === "attivita" ? (
@@ -412,25 +441,120 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
         <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
           {attivita.map((a) => (
             <li key={a.id} className="px-4 py-3">
-              <p className="font-medium">{a.titolo}</p>
-              <p className="text-xs text-[var(--muted)]">
-                {formatWhen(a.dueAt)}
-                {a.luogo ? ` · ${a.luogo}` : ""} · {a.stato}
-              </p>
-              {a.descrizione ? (
-                <p className="mt-1 text-sm whitespace-pre-wrap">{a.descrizione}</p>
-              ) : null}
-              {a.mentionUserIds.length > 0 ? (
-                <p className="mt-1 text-xs text-sky-800">
-                  Utenti:{" "}
-                  {a.mentionUserIds
-                    .map((id) => {
-                      const p = peers.find((x) => x.id === id);
-                      return p ? `@${p.name}` : id.slice(0, 6);
-                    })
-                    .join(", ")}
-                </p>
-              ) : null}
+              {editing?.id === a.id ? (
+                <div className="space-y-2">
+                  <input
+                    value={editTitolo}
+                    onChange={(e) => setEditTitolo(e.target.value.slice(0, 200))}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                  <MentionDescriptionField
+                    value={editDescrizione}
+                    onChange={setEditDescrizione}
+                    collegamenti={editCollegamenti}
+                    onCollegamentiChange={setEditCollegamenti}
+                  />
+                  <input
+                    value={editLuogo}
+                    onChange={(e) => setEditLuogo(e.target.value)}
+                    placeholder="Luogo"
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                  <input
+                    type="datetime-local"
+                    value={editDueAt}
+                    onChange={(e) => setEditDueAt(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                  <select
+                    value={editStato}
+                    onChange={(e) =>
+                      setEditStato(e.target.value as PnAttivita["stato"])
+                    }
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  >
+                    <option value="pianificata">Pianificata</option>
+                    <option value="in_corso">In corso</option>
+                    <option value="completata">Completata</option>
+                    <option value="archiviata">Archiviata</option>
+                  </select>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditing(null)}
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending || !editTitolo.trim()}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await updateAttivitaPnAction({
+                            id: a.id,
+                            titolo: editTitolo,
+                            descrizione: editDescrizione,
+                            luogo: editLuogo,
+                            dueAt: new Date(editDueAt).toISOString(),
+                            stato: editStato,
+                            collegamenti: editCollegamenti,
+                          });
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setEditing(null);
+                          reload();
+                        });
+                      }}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      {pending ? "Salvataggio…" : "Salva"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="font-medium">{a.titolo}</p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(a);
+                        setEditTitolo(a.titolo);
+                        setEditDescrizione(a.descrizione);
+                        setEditLuogo(a.luogo);
+                        setEditDueAt(toLocalInputValue(new Date(a.dueAt)));
+                        setEditStato(a.stato);
+                        setEditCollegamenti(a.collegamenti ?? []);
+                      }}
+                      className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                    >
+                      Modifica
+                    </button>
+                  </div>
+                  <p className="text-xs text-[var(--muted)]">
+                    {formatWhen(a.dueAt)}
+                    {a.luogo ? ` · ${a.luogo}` : ""} · {a.stato}
+                  </p>
+                  <MentionDescriptionView
+                    text={a.descrizione}
+                    collegamenti={a.collegamenti ?? []}
+                  />
+                  {a.mentionUserIds.length > 0 ? (
+                    <p className="mt-1 text-xs text-sky-800">
+                      Utenti:{" "}
+                      {a.mentionUserIds
+                        .map((id) => {
+                          const p = peers.find((x) => x.id === id);
+                          return p ? `@${p.name}` : id.slice(0, 6);
+                        })
+                        .join(", ")}
+                    </p>
+                  ) : null}
+                </>
+              )}
             </li>
           ))}
           {attivita.length === 0 ? (

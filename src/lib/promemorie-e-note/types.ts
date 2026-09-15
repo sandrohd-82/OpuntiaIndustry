@@ -5,6 +5,10 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import {
+  ATTIVITA_MENTION_KINDS,
+  type PnAttivitaCollegamento,
+} from "@/lib/promemorie-e-note/mention-tokens";
 
 export const pnEntityTypeSchema = z.enum([
   "cliente",
@@ -32,6 +36,7 @@ export type PnAttivita = {
   dueAt: string;
   stato: "pianificata" | "in_corso" | "completata" | "archiviata";
   mentionUserIds: string[];
+  collegamenti: PnAttivitaCollegamento[];
   createdAt: string;
 };
 
@@ -115,12 +120,34 @@ export const createPromemoriaSchema = z.object({
   dueAt: z.string().min(1),
 });
 
+export const pnAttivitaCollegamentoSchema = z.object({
+  kind: z.enum(ATTIVITA_MENTION_KINDS),
+  entityId: z.string().uuid(),
+  entityLabel: z.string().trim().min(1).max(200),
+  token: z.string().trim().min(2).max(240),
+  meta: z.record(z.string(), z.unknown()).optional().default({}),
+});
+
 export const createAttivitaSchema = z.object({
   titolo: z.string().trim().min(1).max(200),
   descrizione: z.string().trim().max(5000).optional().default(""),
   luogo: z.string().trim().max(300).optional().default(""),
   dueAt: z.string().min(1),
   mentionUserIds: z.array(z.string().uuid()).optional().default([]),
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+});
+
+export const updateAttivitaSchema = z.object({
+  id: z.string().uuid(),
+  titolo: z.string().trim().min(1).max(200),
+  descrizione: z.string().trim().max(5000).optional().default(""),
+  luogo: z.string().trim().max(300).optional().default(""),
+  dueAt: z.string().min(1),
+  stato: z
+    .enum(["pianificata", "in_corso", "completata", "archiviata"])
+    .optional(),
+  mentionUserIds: z.array(z.string().uuid()).optional().default([]),
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
 });
 
 export const createNotaSchema = z.object({
