@@ -66,6 +66,7 @@ function fromCliente(c: Cliente): DestinatarioPreventivo {
     partitaIva: c.partitaIva,
     codiceFiscale: c.codiceFiscale,
     codiceTarga: c.codiceTarga,
+    email: c.email ?? "",
     sede: c.sedeAmministrativa,
   };
 }
@@ -78,6 +79,7 @@ function fromPossibile(c: ClientePossibile): DestinatarioPreventivo {
     partitaIva: c.partitaIva,
     codiceFiscale: c.codiceFiscale,
     codiceTarga: "PC",
+    email: c.email ?? "",
     sede: c.sedeAmministrativa,
   };
 }

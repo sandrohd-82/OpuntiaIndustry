@@ -319,6 +319,12 @@ export async function createPreventivoAction(
       error: "Seleziona un commerciale o un admin di riferimento.",
     };
   }
+  const intenzione = input.intenzione ?? "bozza";
+  const stato =
+    intenzione === "inviato" ? ("inviato" as const) : ("creato" as const);
+  const documentoStato =
+    intenzione === "bozza" ? ("bozza" as const) : ("approvato" as const);
+  const now = new Date().toISOString();
   const seq = await nextSeqAnno(input.dataPreventivo);
   const numero = formatNumeroPreventivo(
     input.dataPreventivo,
@@ -336,9 +342,11 @@ export async function createPreventivoAction(
         .trim()
         .toUpperCase(),
       data_preventivo: input.dataPreventivo,
-      stato: "creato",
-      documento_stato: "bozza",
+      stato,
+      documento_stato: documentoStato,
       versione: 1,
+      sent_at: intenzione === "inviato" ? now : null,
+      sent_by: intenzione === "inviato" ? gate.auth.userId : null,
       consegna_metodo: input.consegnaMetodo,
       spedizione_a_carico: input.spedizioneACarico,
       spedizione_importo: input.spedizioneImporto ?? 0,
@@ -418,9 +426,168 @@ export async function createPreventivoAction(
       cliente_id: input.clienteId ?? null,
       cliente_possibile_id: input.clientePossibileId ?? null,
       numero_interno: numero,
+      intenzione,
       commerciale_riferimento_id: riferimento.id,
       commerciale_riferimento_nome: riferimento.nome,
     },
+  });
+  return {
+    success: true,
+    item: mapPreventivo(header, (righe ?? []) as PreventivoRigaRow[]),
+  };
+}
+
+export async function savePreventivoAction(
+  raw: unknown
+): Promise<
+  { success: true; item: Preventivo } | { success: false; error: string }
+> {
+  const parsed = createPreventivoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  if (!parsed.data.id) {
+    return createPreventivoAction(raw);
+  }
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const input = parsed.data;
+  for (const r of input.righe) {
+    const q = await queryListinoVoceVigente(r.prodottoId);
+    if (q.error) return { success: false, error: q.error };
+    const regola = valutaListinoPerContratto(q.voce);
+    if (regola.esito === "fuori_produzione") {
+      return {
+        success: false,
+        error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.fuori_produzione}`,
+      };
+    }
+    if (regola.esito === "senza_prezzo") {
+      return {
+        success: false,
+        error: `${r.prodottoCodice}: ${LISTINO_CONTRATTO_MSG.senza_prezzo}`,
+      };
+    }
+  }
+  const riferimento = await resolvePreventivoCommercialeRiferimento(
+    input.commercialeRiferimentoId
+  );
+  if (!riferimento) {
+    return {
+      success: false,
+      error: "Seleziona un commerciale o un admin di riferimento.",
+    };
+  }
+  const intenzione = input.intenzione ?? "bozza";
+  const stato =
+    intenzione === "inviato" ? ("inviato" as const) : ("creato" as const);
+  const documentoStato =
+    intenzione === "bozza" ? ("bozza" as const) : ("approvato" as const);
+  const now = new Date().toISOString();
+  const supabase = await createClient();
+  const { data: prev, error: prevErr } = await supabase
+    .from("preventivi")
+    .select("*")
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (prevErr || !prev) {
+    return { success: false, error: prevErr?.message ?? "Preventivo non trovato" };
+  }
+  const current = prev as PreventivoRow;
+  const nextVersione =
+    intenzione !== "bozza" && current.documento_stato === "bozza"
+      ? Math.max(1, current.versione)
+      : current.versione;
+  const patch: Record<string, unknown> = {
+    cliente_id: input.clienteId ?? null,
+    cliente_ragione_sociale: input.cliente,
+    cliente_codice_targa: (input.codiceTargaCliente || "PC")
+      .trim()
+      .toUpperCase(),
+    data_preventivo: input.dataPreventivo,
+    stato,
+    documento_stato: documentoStato,
+    versione: nextVersione,
+    consegna_metodo: input.consegnaMetodo,
+    spedizione_a_carico: input.spedizioneACarico,
+    spedizione_importo: input.spedizioneImporto ?? 0,
+    spedizione_importo_base: input.spedizioneImportoBase ?? 0,
+    spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
+    spedizione_fonte:
+      input.spedizioneFonte ?? fonteDefaultDaConsegna(input.consegnaMetodo),
+    tipo_pagamento: input.tipoPagamento,
+    giorni_consegna: input.giorniConsegna || "da concordare",
+    validita_giorni: input.validitaGiorni ?? 15,
+    include_coordinate_bancarie: Boolean(input.includeCoordinateBancarie),
+    coordinate_banca: input.includeCoordinateBancarie
+      ? input.coordinateBanca ?? ""
+      : "",
+    coordinate_iban: input.includeCoordinateBancarie
+      ? input.coordinateIban ?? ""
+      : "",
+    coordinate_bic: input.includeCoordinateBancarie
+      ? input.coordinateBic ?? ""
+      : "",
+    commerciale_riferimento_id: riferimento.id,
+    commerciale_riferimento_nome: riferimento.nome,
+    commerciale_riferimento_telefono: riferimento.telefono,
+    commerciale_riferimento_email: riferimento.email,
+    note: input.note ?? "",
+    updated_by: gate.auth.userId,
+  };
+  if (intenzione === "inviato") {
+    patch.sent_at = current.sent_at ?? now;
+    patch.sent_by = current.sent_by ?? gate.auth.userId;
+  }
+  const { data, error } = await supabase
+    .from("preventivi")
+    .update(patch)
+    .eq("id", input.id)
+    .is("deleted_at", null)
+    .select("*")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const header = data as PreventivoRow;
+  await supabase.from("preventivi_righe").delete().eq("preventivo_id", header.id);
+  const { data: righe, error: rErr } = await supabase
+    .from("preventivi_righe")
+    .insert(
+      input.righe.map((r, i) => ({
+        preventivo_id: header.id,
+        prodotto_id: r.prodottoId,
+        prodotto_codice: r.prodottoCodice,
+        prodotto_nome: r.prodottoNome,
+        quantita: r.quantita,
+        unita_misura: r.unitaMisura ?? "kg",
+        prezzo_unitario: r.prezzoUnitario,
+        iva_percentuale: r.ivaPercentuale ?? 22,
+        listino_id: r.listinoId ?? null,
+        prezzo_da_listino: Boolean(r.prezzoDaListino),
+        sconto_extra_pct: r.scontoExtraPct ?? 0,
+        confezionamento: r.confezionamento ?? "",
+        imballaggio_voce_id: r.imballaggioVoceId ?? null,
+        sort_order: i,
+        created_by: gate.auth.userId,
+        updated_by: gate.auth.userId,
+      }))
+    )
+    .select("*");
+  if (rErr) {
+    return { success: false, error: rErr.message };
+  }
+  await writeAuditLog({
+    entity_type: "preventivi",
+    entity_id: header.id,
+    action: "update",
+    actor_id: gate.auth.userId,
+    summary: `Preventivo ${header.numero_interno} aggiornato (${intenzione})`,
+    payload: { intenzione, versione: nextVersione },
   });
   return {
     success: true,

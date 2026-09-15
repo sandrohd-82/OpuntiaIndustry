@@ -206,8 +206,13 @@ export function PreventiviBoard() {
         <PreventivoFormModal
           onClose={() => setCreating(false)}
           onSaved={(item) => {
-            setItems((prev) => [item, ...prev]);
-            setCreating(false);
+            setItems((prev) => {
+              const i = prev.findIndex((p) => p.id === item.id);
+              if (i < 0) return [item, ...prev];
+              const next = [...prev];
+              next[i] = item;
+              return next;
+            });
           }}
         />
       ) : null}

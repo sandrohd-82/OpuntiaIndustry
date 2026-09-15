@@ -218,6 +218,11 @@ export const createPreventivoSchema = z
     commercialeRiferimentoId: z
       .string()
       .uuid("Seleziona il commerciale di riferimento"),
+    id: z.string().uuid().optional(),
+    intenzione: z
+      .enum(["bozza", "salvato", "inviato"])
+      .optional()
+      .default("bozza"),
     note: z
       .string()
       .trim()

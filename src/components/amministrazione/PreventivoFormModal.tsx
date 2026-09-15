@@ -3,9 +3,9 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
-  createPreventivoAction,
   listPreventivoCommercialiRiferimentoAction,
   peekNextNumeroPreventivoAction,
+  savePreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
@@ -55,6 +55,12 @@ import {
   type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
+import {
+  labelIntenzionePreventivo,
+  loadPreventivoSessione,
+  savePreventivoSessione,
+  type PreventivoIntenzione,
+} from "@/lib/amministrazione/preventivo-sessione";
 
 type DraftRiga = PreventivoProdottoDraft & {
   key: string;
@@ -139,6 +145,14 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [intenzione, setIntenzione] = useState<PreventivoIntenzione>("bozza");
+  const [sessionePronta, setSessionePronta] = useState(false);
+  const [inviaOpen, setInviaOpen] = useState(false);
+  const [invioEmail, setInvioEmail] = useState("");
+  const [invioOggetto, setInvioOggetto] = useState("");
+  const [invioMessaggio, setInvioMessaggio] = useState("");
+  const [sessioneMsg, setSessioneMsg] = useState<string | null>(null);
 
   const editing = editKey
     ? (righe.find((r) => r.key === editKey) ?? null)
@@ -173,6 +187,43 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   }, [onClose, saving, fieldOpen]);
 
   useEffect(() => {
+    const sessione = loadPreventivoSessione();
+    if (sessione) {
+      setSavedId(sessione.savedId);
+      setIntenzione(sessione.intenzione);
+      setDestinatario(
+        sessione.destinatario
+          ? { ...sessione.destinatario, email: sessione.destinatario.email ?? "" }
+          : null
+      );
+      setCommerciale(sessione.commerciale);
+      setDataPreventivo(sessione.dataPreventivo);
+      if (sessione.numeroInterno) setNumeroPreview(sessione.numeroInterno);
+      setConsegnaMetodo(sessione.consegnaMetodo);
+      setSpedizioneACarico(sessione.spedizioneACarico);
+      setSpedizioneBase(sessione.spedizioneBase);
+      setSpedizioneFonte(sessione.spedizioneFonte);
+      setTipoPagamento(sessione.tipoPagamento);
+      setGiorniConsegna(sessione.giorniConsegna);
+      setNote(sessione.note);
+      setIvaDocumento(sessione.ivaDocumento);
+      setValiditaGiorni(sessione.validitaGiorni);
+      setInvioEmail(sessione.invioEmail);
+      setRighe(
+        sessione.righe.map((r) => ({
+          ...r,
+          disponibilita: (r.disponibilita as DraftRiga["disponibilita"]) ?? null,
+          blocco: (r.blocco as DraftRiga["blocco"]) ?? null,
+        }))
+      );
+      setSessioneMsg(
+        `Sessione provvisoria ripresa (${labelIntenzionePreventivo(sessione.intenzione)}).`
+      );
+    }
+    setSessionePronta(true);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     void listPreventivoCommercialiRiferimentoAction().then((res) => {
       if (cancelled || !res.success) return;
@@ -185,6 +236,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   }, []);
 
   useEffect(() => {
+    if (savedId) return;
     let cancelled = false;
     void peekNextNumeroPreventivoAction(dataPreventivo).then((res) => {
       if (cancelled) return;
@@ -193,7 +245,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [dataPreventivo]);
+  }, [dataPreventivo, savedId]);
 
   useEffect(() => {
     if (consegnaMetodo !== "corriere_nostro") {
@@ -276,28 +328,97 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     closeEdit();
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  function snapshotSessione(
+    nextIntenzione: PreventivoIntenzione = intenzione,
+    nextSavedId: string | null = savedId,
+    nextNumero = numeroPreview
+  ) {
+    savePreventivoSessione({
+      savedId: nextSavedId,
+      numeroInterno: nextNumero,
+      intenzione: nextIntenzione,
+      destinatario,
+      commerciale,
+      dataPreventivo,
+      consegnaMetodo,
+      spedizioneACarico,
+      spedizioneBase,
+      spedizioneFonte,
+      tipoPagamento,
+      giorniConsegna,
+      note,
+      ivaDocumento,
+      validitaGiorni,
+      invioEmail: invioEmail || destinatario?.email || "",
+      righe: righe.map((r) => ({
+        key: r.key,
+        prodottoId: r.prodottoId,
+        prodottoCodice: r.prodottoCodice,
+        prodottoNome: r.prodottoNome,
+        quantita: r.quantita,
+        unitaMisura: r.unitaMisura,
+        prezzoUnitario: r.prezzoUnitario,
+        ivaPercentuale: r.ivaPercentuale,
+        listinoId: r.listinoId,
+        prezzoDaListino: r.prezzoDaListino,
+        scontoExtraPct: r.scontoExtraPct,
+        confezioneValue: r.confezioneValue,
+        confezionamento: r.confezionamento,
+        imballaggioVoceId: r.imballaggioVoceId,
+        disponibilita: r.disponibilita,
+        blocco: r.blocco,
+      })),
+    });
+  }
+
+  useEffect(() => {
+    if (!sessionePronta) return;
+    snapshotSessione();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot esplicito del foglio
+  }, [
+    sessionePronta,
+    savedId,
+    intenzione,
+    destinatario,
+    commerciale,
+    dataPreventivo,
+    numeroPreview,
+    consegnaMetodo,
+    spedizioneACarico,
+    spedizioneBase,
+    spedizioneFonte,
+    tipoPagamento,
+    giorniConsegna,
+    note,
+    ivaDocumento,
+    validitaGiorni,
+    invioEmail,
+    righe,
+  ]);
+
+  async function persist(
+    nextIntenzione: PreventivoIntenzione
+  ): Promise<Preventivo | null> {
     if (!destinatario) {
       setFormError("Seleziona un destinatario.");
-      return;
+      return null;
     }
     if (!commerciale) {
       setFormError("Seleziona il commerciale di riferimento.");
-      return;
+      return null;
     }
     if (!righe.length) {
       setFormError("Aggiungi almeno un prodotto.");
-      return;
+      return null;
     }
     const bloccata = righe.find((r) => r.blocco);
     if (bloccata?.blocco === "fuori_produzione") {
       setFormError(LISTINO_CONTRATTO_MSG.fuori_produzione);
-      return;
+      return null;
     }
     if (bloccata?.blocco === "senza_prezzo") {
       setFormError(LISTINO_CONTRATTO_MSG.senza_prezzo);
-      return;
+      return null;
     }
     const mapped = righe.map((r) => ({
       prodottoId: r.prodottoId,
@@ -319,7 +440,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         : 0;
     setSaving(true);
     setFormError(null);
-    const result = await createPreventivoAction({
+    const result = await savePreventivoAction({
+      id: savedId ?? undefined,
+      intenzione: nextIntenzione,
       clienteId: destinatario.kind === "cliente" ? destinatario.id : null,
       clientePossibileId:
         destinatario.kind === "possibile" ? destinatario.id : null,
@@ -346,9 +469,55 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     setSaving(false);
     if (!result.success) {
       setFormError(result.error);
-      return;
+      return null;
     }
+    setSavedId(result.item.id);
+    setNumeroPreview(result.item.numeroInterno);
+    setIntenzione(nextIntenzione);
+    snapshotSessione(nextIntenzione, result.item.id, result.item.numeroInterno);
     onSaved(result.item);
+    return result.item;
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault();
+  }
+
+  async function onSalvaBozza() {
+    const item = await persist("bozza");
+    if (item) {
+      setSessioneMsg("Bozza salvata in sessione. Il foglio resta aperto per i test.");
+    }
+  }
+
+  async function onSalva() {
+    const item = await persist("salvato");
+    if (item) {
+      setSessioneMsg("Preventivo salvato in sessione. Il foglio resta aperto per i test.");
+    }
+  }
+
+  async function onSalvaEInvia() {
+    const item = await persist("salvato");
+    if (!item) return;
+    setInvioEmail(invioEmail.trim() || destinatario?.email || "");
+    setInvioOggetto(
+      `Preventivo n. ${item.numeroInterno} del ${item.dataPreventivo.split("-").reverse().join("/")}`
+    );
+    setInvioMessaggio(
+      `In allegato il preventivo n. ${item.numeroInterno}.\nValidità ${validitaGiorni} giorni.\n\n(Invio in sessione di prova: nessuna email reale.)`
+    );
+    setInviaOpen(true);
+    setSessioneMsg("Pronto per il test di invio. Conferma nella modale.");
+  }
+
+  async function onConfermaInvioProva() {
+    const item = await persist("inviato");
+    if (!item) return;
+    setInviaOpen(false);
+    setSessioneMsg(
+      `Invio di prova registrato per ${invioEmail || "destinatario senza email"}. Nessuna email reale è partita.`
+    );
   }
 
   const draftNoloImporto =
@@ -397,9 +566,12 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
         <h2 id={titleId} className="text-sm font-semibold text-white">
-          Nuovo preventivo
+          {savedId ? "Preventivo in sessione" : "Nuovo preventivo"}
+          <span className="ml-2 text-xs font-normal text-white/70">
+            {labelIntenzionePreventivo(intenzione)}
+          </span>
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -409,15 +581,37 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
             Annulla
           </button>
           <button
-            type="submit"
-            form="preventivo-a4-form"
+            type="button"
+            onClick={() => void onSalvaBozza()}
+            disabled={saving}
+            className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm text-white hover:bg-white/20 disabled:opacity-50"
+          >
+            Salva bozza
+          </button>
+          <button
+            type="button"
+            onClick={() => void onSalva()}
+            disabled={saving}
+            className="rounded-lg border border-white/40 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Salva
+          </button>
+          <button
+            type="button"
+            onClick={() => void onSalvaEInvia()}
             disabled={saving}
             className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
           >
-            {saving ? "Salvataggio…" : "Salva bozza"}
+            {saving ? "Salvataggio…" : "Salva e invia"}
           </button>
         </div>
       </div>
+
+      {sessioneMsg ? (
+        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden">
+          {sessioneMsg}
+        </p>
+      ) : null}
 
       {formError ? (
         <p className="mx-auto mb-3 max-w-[210mm] rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden">
@@ -853,6 +1047,50 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               max={365}
               value={draftValidita}
               onValueChange={setDraftValidita}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </PreventivoEditModal>
+      ) : null}
+
+      {inviaOpen ? (
+        <PreventivoEditModal
+          title="Salva e invia (sessione di prova)"
+          onClose={() => setInviaOpen(false)}
+          confirmLabel={saving ? "Invio…" : "Invia in prova"}
+          confirmDisabled={saving}
+          onConfirm={() => {
+            void onConfermaInvioProva();
+          }}
+        >
+          <p className="text-sm text-slate-600">
+            Per ora l’invio resta in sessione provvisoria: registra lo stato
+            «inviato» e non spedisce email reali. Serve a testare il flusso.
+          </p>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Destinatario (email)</span>
+            <input
+              type="email"
+              value={invioEmail}
+              onChange={(e) => setInvioEmail(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              placeholder="email@cliente.it"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Oggetto</span>
+            <input
+              value={invioOggetto}
+              onChange={(e) => setInvioOggetto(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Messaggio</span>
+            <textarea
+              value={invioMessaggio}
+              onChange={(e) => setInvioMessaggio(e.target.value)}
+              rows={5}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>

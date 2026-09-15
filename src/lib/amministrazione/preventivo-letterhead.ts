@@ -58,6 +58,7 @@ export type DestinatarioPreventivo = {
   partitaIva: string;
   codiceFiscale: string;
   codiceTarga: string;
+  email: string;
   sede: SedeCliente;
 };
 
