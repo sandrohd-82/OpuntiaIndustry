@@ -17,7 +17,7 @@ export const AREA_ROUTES: Record<
   amministrazione: {
     path: "/app/amministrazione",
     label: "Amministrazione",
-    description: "Clienti, fornitori, schede, ordini e organigramma",
+    description: "Fornitori, rubrica, schede e organigramma",
   },
   produzione: {
     path: "/app/produzione",

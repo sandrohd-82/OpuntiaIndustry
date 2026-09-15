@@ -83,20 +83,12 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
-    slug: "ordini",
-    label: "Ordini",
-    description: "Coda da processare (solo Admin)",
-    path: "/app/amministrazione/ordini",
-    children: [
-      {
-        slug: "da-processare",
-        label: "Da processare",
-        description:
-          "Ordini inseriti da passare in produzione (solo Admin)",
-        path: "/app/amministrazione/ordini/da-processare",
-        adminOnly: true,
-      },
-    ],
+    slug: "da-processare",
+    label: "Da processare",
+    description:
+      "Ordini inseriti da passare in produzione (solo Admin)",
+    path: "/app/amministrazione/ordini/da-processare",
+    adminOnly: true,
   },
   {
     slug: "statistiche",
@@ -172,6 +164,13 @@ export function resolveAmministrazionePage(segments: string[]) {
     resolveNavPage(AMMINISTRAZIONE_SECTIONS, segments) ??
     resolveNavPage([OPUNTIA_ITALIA_NAV], segments);
   if (fromTree) return fromTree;
+  if (segments[0] === "ordini" && segments[1] === "da-processare") {
+    return {
+      label: "Da processare",
+      description:
+        "Ordini inseriti da passare in produzione (solo Admin)",
+    };
+  }
   if (
     segments[0] === "schede" &&
     segments[1] === "canali-pubblicazione"
