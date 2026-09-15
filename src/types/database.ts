@@ -1382,6 +1382,10 @@ export interface PreventivoRow {
   coordinate_banca: string;
   coordinate_iban: string;
   coordinate_bic: string;
+  commerciale_riferimento_id: string | null;
+  commerciale_riferimento_nome: string;
+  commerciale_riferimento_telefono: string;
+  commerciale_riferimento_email: string;
   note: string;
   webmail_accettazione_id: string | null;
   referente_accettazione_id: string | null;

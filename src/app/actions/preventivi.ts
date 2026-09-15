@@ -31,6 +31,11 @@ import type {
   ListinoRigaCondizioneRow,
 } from "@/types/database";
 import {
+  loadPreventivoCommercialiRiferimento,
+  resolvePreventivoCommercialeRiferimento,
+  type PreventivoCommercialeRiferimento,
+} from "@/lib/amministrazione/preventivo-commerciale-riferimento";
+import {
   coordinateBancarieFallback,
   formatNumeroPreventivoDocumento,
   yearFromPreventivoData,
@@ -107,6 +112,10 @@ function mapPreventivo(
     coordinateBanca: row.coordinate_banca ?? "",
     coordinateIban: row.coordinate_iban ?? "",
     coordinateBic: row.coordinate_bic ?? "",
+    commercialeRiferimentoId: row.commerciale_riferimento_id ?? null,
+    commercialeRiferimentoNome: row.commerciale_riferimento_nome ?? "",
+    commercialeRiferimentoTelefono: row.commerciale_riferimento_telefono ?? "",
+    commercialeRiferimentoEmail: row.commerciale_riferimento_email ?? "",
     note: row.note,
     webmailAccettazioneId: row.webmail_accettazione_id,
     referenteAccettazioneId: row.referente_accettazione_id,
@@ -300,6 +309,15 @@ export async function createPreventivoAction(
       };
     }
   }
+  const riferimento = await resolvePreventivoCommercialeRiferimento(
+    input.commercialeRiferimentoId
+  );
+  if (!riferimento) {
+    return {
+      success: false,
+      error: "Seleziona un commerciale o un admin di riferimento.",
+    };
+  }
   const seq = await nextSeqAnno(input.dataPreventivo);
   const numero = formatNumeroPreventivo(
     input.dataPreventivo,
@@ -341,6 +359,10 @@ export async function createPreventivoAction(
       coordinate_bic: input.includeCoordinateBancarie
         ? input.coordinateBic ?? ""
         : "",
+      commerciale_riferimento_id: riferimento.id,
+      commerciale_riferimento_nome: riferimento.nome,
+      commerciale_riferimento_telefono: riferimento.telefono,
+      commerciale_riferimento_email: riferimento.email,
       note: input.note ?? "",
       created_by: gate.auth.userId,
       updated_by: gate.auth.userId,
@@ -394,6 +416,8 @@ export async function createPreventivoAction(
       cliente_id: input.clienteId ?? null,
       cliente_possibile_id: input.clientePossibileId ?? null,
       numero_interno: numero,
+      commerciale_riferimento_id: riferimento.id,
+      commerciale_riferimento_nome: riferimento.nome,
     },
   });
   return {
@@ -663,4 +687,27 @@ export async function getCoordinateBancarieAgrinsiciliaAction(): Promise<
   const gate = await requirePreventiviAccess();
   if (!gate.ok) return { success: false, error: gate.error };
   return { success: true, item: coordinateBancarieFallback() };
+}
+
+export async function listPreventivoCommercialiRiferimentoAction(): Promise<
+  | {
+      success: true;
+      items: PreventivoCommercialeRiferimento[];
+      defaultItem: PreventivoCommercialeRiferimento | null;
+    }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  try {
+    const items = await loadPreventivoCommercialiRiferimento();
+    const defaultItem =
+      items.find((item) => item.id === gate.auth.userId) ?? null;
+    return { success: true, items, defaultItem };
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Elenco non disponibile",
+    };
+  }
 }

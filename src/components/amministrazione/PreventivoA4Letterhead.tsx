@@ -4,19 +4,28 @@ import {
   AGRINSICILIA_LETTERHEAD,
   formatPreventivoDataIt,
 } from "@/lib/amministrazione/preventivo-letterhead";
-import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
+import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
+import {
+  PreventivoDocField,
+  PreventivoDocQa,
+} from "@/components/amministrazione/PreventivoDocPencil";
 
 type Props = {
   numero: string;
   dataPreventivo: string;
   onEditData?: () => void;
+  commerciale: PreventivoCommercialeRiferimento | null;
+  onEditCommerciale?: () => void;
 };
 
 export function PreventivoA4Letterhead({
   numero,
   dataPreventivo,
   onEditData,
+  commerciale,
+  onEditCommerciale,
 }: Props) {
+  const ph = !commerciale;
   return (
     <header>
       <div className="flex items-start justify-between">
@@ -45,6 +54,26 @@ export function PreventivoA4Letterhead({
             <p className="text-[12px] font-bold tracking-wide">
               PREVENTIVO nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
             </p>
+          </PreventivoDocField>
+          <PreventivoDocField
+            label="Modifica commerciale di riferimento"
+            onEdit={onEditCommerciale ?? (() => {})}
+            className="mt-2"
+          >
+            <p className="font-semibold">Commerciale di riferimento</p>
+            <p className={ph ? "text-slate-400" : undefined}>
+              {commerciale?.nome || "Nome Cognome"}
+            </p>
+            <PreventivoDocQa
+              className={ph ? "text-slate-400" : undefined}
+              domanda="Telefono"
+              risposta={commerciale?.telefono || "—"}
+            />
+            <PreventivoDocQa
+              className={ph ? "text-slate-400" : undefined}
+              domanda="Email"
+              risposta={commerciale?.email || "—"}
+            />
           </PreventivoDocField>
         </div>
       </div>

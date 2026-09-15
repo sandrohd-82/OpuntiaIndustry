@@ -141,6 +141,10 @@ export type Preventivo = {
   coordinateBanca: string;
   coordinateIban: string;
   coordinateBic: string;
+  commercialeRiferimentoId: string | null;
+  commercialeRiferimentoNome: string;
+  commercialeRiferimentoTelefono: string;
+  commercialeRiferimentoEmail: string;
   note: string;
   webmailAccettazioneId: string | null;
   referenteAccettazioneId: string | null;
@@ -203,6 +207,9 @@ export const createPreventivoSchema = z
     coordinateBanca: z.string().trim().max(120).optional().default(""),
     coordinateIban: z.string().trim().max(40).optional().default(""),
     coordinateBic: z.string().trim().max(20).optional().default(""),
+    commercialeRiferimentoId: z
+      .string()
+      .uuid("Seleziona il commerciale di riferimento"),
     note: z
       .string()
       .trim()

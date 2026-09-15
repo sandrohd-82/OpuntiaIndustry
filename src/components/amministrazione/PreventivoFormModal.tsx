@@ -4,6 +4,7 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
+  listPreventivoCommercialiRiferimentoAction,
   peekNextNumeroPreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
@@ -47,6 +48,7 @@ import {
   SPEDIZIONE_MARKUP_SICUREZZA_PCT,
   type PreventivoSpedizioneFonte,
 } from "@/lib/amministrazione/preventivo-spedizione";
+import type { PreventivoCommercialeRiferimento } from "@/lib/amministrazione/preventivo-commerciale-riferimento";
 import {
   AGRINSICILIA_COORDINATE,
   type DestinatarioPreventivo,
@@ -62,6 +64,7 @@ type DraftRiga = PreventivoProdottoDraft & {
 type EditKind =
   | null
   | "data"
+  | "commerciale"
   | "destinatario"
   | "prodotto"
   | "spedizione"
@@ -95,6 +98,12 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const { prodotti, ready } = useProdottiPropri();
   const [destinatario, setDestinatario] =
     useState<DestinatarioPreventivo | null>(null);
+  const [commerciale, setCommerciale] =
+    useState<PreventivoCommercialeRiferimento | null>(null);
+  const [commercialiOpts, setCommercialiOpts] = useState<
+    PreventivoCommercialeRiferimento[]
+  >([]);
+  const [draftCommercialeId, setDraftCommercialeId] = useState("");
   const [dataPreventivo, setDataPreventivo] = useState(today);
   const [numeroPreview, setNumeroPreview] = useState("N/ANNO");
   const [righe, setRighe] = useState<DraftRiga[]>([]);
@@ -160,6 +169,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    void listPreventivoCommercialiRiferimentoAction().then((res) => {
+      if (cancelled || !res.success) return;
+      setCommercialiOpts(res.items);
+      setCommerciale((prev) => prev ?? res.defaultItem);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     void peekNextNumeroPreventivoAction(dataPreventivo).then((res) => {
       if (cancelled) return;
       setNumeroPreview(res.success ? res.numero : "N/ANNO");
@@ -211,6 +232,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   function openEdit(kind: Exclude<EditKind, null>, rowKey: string | null = null) {
     setEditKey(rowKey);
     if (kind === "data") setDraftData(dataPreventivo);
+    if (kind === "commerciale") {
+      setDraftCommercialeId(commerciale?.id ?? "");
+    }
     if (kind === "spedizione") {
       setDraftConsegna(consegnaMetodo);
       setDraftNolo(spedizioneBase);
@@ -248,6 +272,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     e.preventDefault();
     if (!destinatario) {
       setFormError("Seleziona un destinatario.");
+      return;
+    }
+    if (!commerciale) {
+      setFormError("Seleziona il commerciale di riferimento.");
       return;
     }
     if (!righe.length) {
@@ -302,6 +330,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       coordinateBanca: AGRINSICILIA_COORDINATE.banca,
       coordinateIban: AGRINSICILIA_COORDINATE.iban,
       coordinateBic: AGRINSICILIA_COORDINATE.bic,
+      commercialeRiferimentoId: commerciale.id,
       note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
       righe: mapped,
     });
@@ -403,6 +432,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               numero={numeroPreview}
               dataPreventivo={dataPreventivo}
               onEditData={() => openEdit("data")}
+              commerciale={commerciale}
+              onEditCommerciale={() => openEdit("commerciale")}
             />
 
             <PreventivoDestinatarioPicker
@@ -555,6 +586,57 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           </div>
         </article>
       </form>
+
+      {editKind === "commerciale" ? (
+        <PreventivoEditModal
+          title="Commerciale di riferimento"
+          onClose={closeEdit}
+          onConfirm={() => {
+            const picked =
+              commercialiOpts.find((c) => c.id === draftCommercialeId) ?? null;
+            if (!picked) {
+              setFormError("Seleziona un commerciale o un admin.");
+              return;
+            }
+            setCommerciale(picked);
+            setFormError(null);
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Nome</span>
+            <select
+              value={draftCommercialeId}
+              onChange={(e) => setDraftCommercialeId(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona…</option>
+              {commercialiOpts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(() => {
+            const preview =
+              commercialiOpts.find((c) => c.id === draftCommercialeId) ?? null;
+            if (!preview) return null;
+            return (
+              <div className="space-y-0.5 text-sm text-slate-600">
+                <p>
+                  <span className="font-semibold">Telefono:</span>{" "}
+                  {preview.telefono || "—"}
+                </p>
+                <p>
+                  <span className="font-semibold">Email:</span>{" "}
+                  {preview.email || "—"}
+                </p>
+              </div>
+            );
+          })()}
+        </PreventivoEditModal>
+      ) : null}
 
       {editKind === "data" ? (
         <PreventivoEditModal

@@ -71,6 +71,7 @@ export function PreventivoA4PiePagina({
 }: Props) {
   return (
     <div className="flex flex-1 flex-col pt-3">
+      <div className="flex-1" aria-hidden />
       <div className="grid grid-cols-2 border border-slate-800 text-[11px] leading-normal">
         <div className="border-r border-slate-800 p-3">
           <PreventivoDocField
@@ -130,7 +131,8 @@ export function PreventivoA4PiePagina({
         </div>
       </div>
 
-      <footer className="mt-auto pt-10 text-center">
+      <div className="h-[5.5em] shrink-0" aria-hidden />
+      <footer className="text-center">
         <div className="mb-2 flex items-center justify-center gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
