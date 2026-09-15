@@ -112,6 +112,7 @@ export function PreventivoA4PiePagina({
             <PreventivoDocField
               label={`Modifica IVA (${ivaPercentuale}%)`}
               onEdit={onEditIva ?? (() => {})}
+              pencilRight
             >
               <TotaleRiga label="Totale IVA" value={totaleIva} />
             </PreventivoDocField>

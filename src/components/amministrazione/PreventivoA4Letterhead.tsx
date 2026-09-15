@@ -37,7 +37,7 @@ export function PreventivoA4Letterhead({
             className="h-auto w-full max-w-full object-contain object-left"
           />
         </div>
-        <div className="w-[50%] shrink-0 pt-[5.6em] text-right text-[11px] leading-[1.45] text-slate-900">
+        <div className="w-[50%] shrink-0 text-right text-[11px] leading-[1.45] text-slate-900">
           <p className="font-semibold">
             {AGRINSICILIA_LETTERHEAD.ragioneSociale}
           </p>
@@ -50,6 +50,7 @@ export function PreventivoA4Letterhead({
             label="Modifica data preventivo"
             onEdit={onEditData ?? (() => {})}
             className="mt-1.5"
+            pencilRight
           >
             <p className="text-[12px] font-bold tracking-wide">
               PREVENTIVO nr. {numero} del {formatPreventivoDataIt(dataPreventivo)}
@@ -59,6 +60,7 @@ export function PreventivoA4Letterhead({
             label="Modifica commerciale di riferimento"
             onEdit={onEditCommerciale ?? (() => {})}
             className="mt-2"
+            pencilRight
           >
             <p className="font-semibold">Commerciale di riferimento</p>
             <p className={ph ? "text-slate-400" : undefined}>

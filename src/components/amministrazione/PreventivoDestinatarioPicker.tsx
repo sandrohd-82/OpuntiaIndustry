@@ -91,7 +91,11 @@ export function PreventivoDestinatarioPicker({
 
   return (
     <section className="mt-5">
-      <PreventivoDocField label="Modifica destinatario" onEdit={onEdit}>
+      <PreventivoDocField
+        label="Modifica destinatario"
+        onEdit={onEdit}
+        pencilRight
+      >
         <div className="grid grid-cols-2 gap-6 text-[12px] leading-[1.45] text-slate-900">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.14em]">
