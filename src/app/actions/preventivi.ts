@@ -108,6 +108,7 @@ function mapPreventivo(
     tempiPagamentoGiorni: row.tempi_pagamento_giorni,
     tempiPagamentoNote: row.tempi_pagamento_note,
     giorniConsegna: row.giorni_consegna || "da concordare",
+    validitaGiorni: Number(row.validita_giorni ?? 15),
     includeCoordinateBancarie: Boolean(row.include_coordinate_bancarie),
     coordinateBanca: row.coordinate_banca ?? "",
     coordinateIban: row.coordinate_iban ?? "",
@@ -349,6 +350,7 @@ export async function createPreventivoAction(
       tempi_pagamento_giorni: input.tempiPagamentoGiorni ?? null,
       tempi_pagamento_note: "",
       giorni_consegna: input.giorniConsegna || "da concordare",
+      validita_giorni: input.validitaGiorni ?? 15,
       include_coordinate_bancarie: Boolean(input.includeCoordinateBancarie),
       coordinate_banca: input.includeCoordinateBancarie
         ? input.coordinateBanca ?? ""

@@ -24,7 +24,8 @@ type Props = {
   numero: string;
   dataPreventivo: string;
   ivaPercentuale?: number;
-  onEditIva?: () => void;
+  validitaGiorni?: number;
+  onEditTotali?: () => void;
   imponibile: number;
   totaleIva: number;
   totalePreventivo: number;
@@ -64,7 +65,8 @@ export function PreventivoA4PiePagina({
   numero,
   dataPreventivo,
   ivaPercentuale = PREVENTIVO_IVA_DEFAULT,
-  onEditIva,
+  validitaGiorni = PREVENTIVO_VALIDITA_GIORNI,
+  onEditTotali,
   imponibile,
   totaleIva,
   totalePreventivo,
@@ -106,29 +108,29 @@ export function PreventivoA4PiePagina({
         </div>
 
         <div className="flex flex-col p-3">
-          <p className="text-[12px] font-bold">Totali</p>
-          <div className="mt-2 space-y-1">
-            <TotaleRiga label="Imponibile" value={imponibile} />
-            <PreventivoDocField
-              label={`Modifica IVA (${ivaPercentuale}%)`}
-              onEdit={onEditIva ?? (() => {})}
-              pencilRight
-            >
-              <TotaleRiga label="Totale IVA" value={totaleIva} />
-            </PreventivoDocField>
-            <div className="border-t border-slate-800 pt-1">
-              <TotaleRiga
-                label="Totale Preventivo"
-                value={totalePreventivo}
-                strong
-              />
+          <PreventivoDocField
+            label="Modifica aliquota IVA e validità"
+            onEdit={onEditTotali ?? (() => {})}
+            pencilRight
+          >
+            <p className="text-[12px] font-bold">Totali</p>
+            <div className="my-4 flex justify-center">
+              <div className="-rotate-6 border-[2.5px] border-double border-slate-800 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800">
+                Validità preventivo {validitaGiorni} gg.
+              </div>
             </div>
-          </div>
-          <div className="mt-auto flex justify-center pt-6">
-            <div className="-rotate-6 border-[2.5px] border-double border-slate-800 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800">
-              Validità preventivo {PREVENTIVO_VALIDITA_GIORNI} gg.
+            <div className="space-y-1">
+              <TotaleRiga label="Imponibile" value={imponibile} />
+              <TotaleRiga label={`Totale IVA ${ivaPercentuale}%`} value={totaleIva} />
+              <div className="border-t border-slate-800 pt-1">
+                <TotaleRiga
+                  label="Totale Preventivo"
+                  value={totalePreventivo}
+                  strong
+                />
+              </div>
             </div>
-          </div>
+          </PreventivoDocField>
         </div>
       </div>
 

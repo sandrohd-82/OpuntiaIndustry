@@ -36,6 +36,7 @@ import {
   PREVENTIVO_CONSEGNA_LABEL,
   PREVENTIVO_IVA_DEFAULT,
   PREVENTIVO_NOTE_DEFAULT,
+  PREVENTIVO_VALIDITA_GIORNI,
   prezzoNettoRigaPreventivo,
   roundEuro,
   type Preventivo,
@@ -71,7 +72,7 @@ type EditKind =
   | "giorni"
   | "pagamento"
   | "note"
-  | "iva";
+  | "totali";
 
 type Props = {
   onClose: () => void;
@@ -123,6 +124,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [giorniConsegna, setGiorniConsegna] = useState(GIORNI_CONSEGNA_DEFAULT);
   const [note, setNote] = useState(PREVENTIVO_NOTE_DEFAULT);
   const [ivaDocumento, setIvaDocumento] = useState(PREVENTIVO_IVA_DEFAULT);
+  const [validitaGiorni, setValiditaGiorni] = useState(PREVENTIVO_VALIDITA_GIORNI);
   const [draftData, setDraftData] = useState(today);
   const [draftConsegna, setDraftConsegna] =
     useState<PreventivoConsegna>("da_concordare");
@@ -132,6 +134,9 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     useState<OrdineTipoPagamento>("anticipato");
   const [draftNote, setDraftNote] = useState(PREVENTIVO_NOTE_DEFAULT);
   const [draftIva, setDraftIva] = useState<number | "">(PREVENTIVO_IVA_DEFAULT);
+  const [draftValidita, setDraftValidita] = useState<number | "">(
+    PREVENTIVO_VALIDITA_GIORNI
+  );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -242,7 +247,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     if (kind === "giorni") setDraftGiorni(giorniConsegna);
     if (kind === "pagamento") setDraftPagamento(tipoPagamento);
     if (kind === "note") setDraftNote(note);
-    if (kind === "iva") setDraftIva(ivaDocumento);
+    if (kind === "totali") {
+      setDraftIva(ivaDocumento);
+      setDraftValidita(validitaGiorni);
+    }
     setEditKind(kind);
   }
 
@@ -331,6 +339,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       coordinateIban: AGRINSICILIA_COORDINATE.iban,
       coordinateBic: AGRINSICILIA_COORDINATE.bic,
       commercialeRiferimentoId: commerciale.id,
+      validitaGiorni,
       note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
       righe: mapped,
     });
@@ -578,7 +587,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               numero={numeroPreview}
               dataPreventivo={dataPreventivo}
               ivaPercentuale={ivaDocumento}
-              onEditIva={() => openEdit("iva")}
+              validitaGiorni={validitaGiorni}
+              onEditTotali={() => openEdit("totali")}
               imponibile={totali.imponibile}
               totaleIva={totali.iva}
               totalePreventivo={totali.totale}
@@ -809,13 +819,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         </PreventivoEditModal>
       ) : null}
 
-      {editKind === "iva" ? (
+      {editKind === "totali" ? (
         <PreventivoEditModal
-          title="IVA"
+          title="Aliquota e validità"
           onClose={closeEdit}
           onConfirm={() => {
             const n = draftIva === "" ? PREVENTIVO_IVA_DEFAULT : draftIva;
+            const v =
+              draftValidita === ""
+                ? PREVENTIVO_VALIDITA_GIORNI
+                : draftValidita;
             setIvaDocumento(Math.min(100, Math.max(0, n)));
+            setValiditaGiorni(Math.min(365, Math.max(1, Math.round(v))));
             closeEdit();
           }}
         >
@@ -826,6 +841,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
               max={100}
               value={draftIva}
               onValueChange={setDraftIva}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">
+              Validità preventivo (giorni)
+            </span>
+            <ClearableNumberInput
+              min={1}
+              max={365}
+              value={draftValidita}
+              onValueChange={setDraftValidita}
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
             />
           </label>

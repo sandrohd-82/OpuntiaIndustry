@@ -1378,6 +1378,7 @@ export interface PreventivoRow {
   tempi_pagamento_giorni: number | null;
   tempi_pagamento_note: string;
   giorni_consegna: string;
+  validita_giorni: number;
   include_coordinate_bancarie: boolean;
   coordinate_banca: string;
   coordinate_iban: string;

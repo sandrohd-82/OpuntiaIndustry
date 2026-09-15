@@ -137,6 +137,7 @@ export type Preventivo = {
   tempiPagamentoGiorni: number | null;
   tempiPagamentoNote: string;
   giorniConsegna: string;
+  validitaGiorni: number;
   includeCoordinateBancarie: boolean;
   coordinateBanca: string;
   coordinateIban: string;
@@ -203,6 +204,13 @@ export const createPreventivoSchema = z
       .max(80)
       .optional()
       .default("da concordare"),
+    validitaGiorni: z
+      .number()
+      .int()
+      .min(1, "Validità almeno 1 giorno")
+      .max(365, "Validità massimo 365 giorni")
+      .optional()
+      .default(PREVENTIVO_VALIDITA_GIORNI),
     includeCoordinateBancarie: z.boolean().optional().default(false),
     coordinateBanca: z.string().trim().max(120).optional().default(""),
     coordinateIban: z.string().trim().max(40).optional().default(""),
