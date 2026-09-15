@@ -28,7 +28,11 @@ import {
   unrestrictedAuthSettings,
 } from "@/lib/auth/data-scope";
 import { loadProfileAuthBundle } from "@/lib/auth/data-scope-enforce";
-import { isNavPathVisible, resolvePageKey } from "@/lib/auth/page-access";
+import {
+  isNavPathVisible,
+  normalizeAppPath,
+  resolvePageKey,
+} from "@/lib/auth/page-access";
 import {
   AREA_ROUTES,
   SIDEBAR_AREA_ORDER,
@@ -36,6 +40,18 @@ import {
 } from "@/lib/areas/config";
 import { isTestImpersonation } from "@/lib/areas/guard";
 import type { UserArea } from "@/types/database";
+
+function isAlreadyOnOrUnder(
+  pathname: string,
+  target: string,
+  pageKey: string
+): boolean {
+  const current = normalizeAppPath(pathname);
+  const dest = normalizeAppPath(target);
+  if (current === dest || pageKey === dest) return true;
+  if (dest !== "/app" && current.startsWith(`${dest}/`)) return true;
+  return false;
+}
 
 function filterAreasByPageAccess(
   areas: UserArea[],
@@ -100,7 +116,7 @@ export default async function AppLayout({
         !isFiscalePath(path) &&
         !isRicercaSviluppoPath(path)
     );
-    if (firstOn && firstOn !== pageKey) {
+    if (firstOn && !isAlreadyOnOrUnder(pathname, firstOn, pageKey)) {
       redirect(firstOn);
     }
     if (!auth.impersonating) notFound();
@@ -112,7 +128,7 @@ export default async function AppLayout({
     const firstOn = SIDEBAR_AREA_ORDER.map((slug) => AREA_ROUTES[slug].path).find(
       (path) => isNavPathVisible(path, pageAccess)
     );
-    if (firstOn && firstOn !== pageKey) {
+    if (firstOn && !isAlreadyOnOrUnder(pathname, firstOn, pageKey)) {
       redirect(firstOn);
     }
     if (!auth.impersonating) notFound();

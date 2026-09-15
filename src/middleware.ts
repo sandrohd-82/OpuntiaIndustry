@@ -5,6 +5,21 @@ import { TWO_FA_SESSION_COOKIE } from "@/lib/auth/constants";
 const AUTH_PATHS = ["/login"];
 const VERIFY_PATH = "/verify-email";
 
+function copySessionCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((c) => {
+    to.cookies.set(c);
+  });
+  return to;
+}
+
+function safeAppRedirect(raw: string | null): string {
+  const path = (raw ?? "").trim();
+  if (!path.startsWith("/app")) return "/app/dashboard";
+  if (path.startsWith("//")) return "/app/dashboard";
+  if (path === VERIFY_PATH || path === "/login") return "/app/dashboard";
+  return path;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const { supabaseResponse, user, statoOperativo } =
@@ -27,11 +42,7 @@ export async function middleware(request: NextRequest) {
       if (statoOperativo !== "operativo") {
         url.searchParams.set("motivo", statoOperativo);
       }
-      const res = NextResponse.redirect(url);
-      supabaseResponse.cookies.getAll().forEach((c) => {
-        res.cookies.set(c);
-      });
-      return res;
+      return copySessionCookies(supabaseResponse, NextResponse.redirect(url));
     }
     return supabaseResponse;
   }
@@ -42,23 +53,31 @@ export async function middleware(request: NextRequest) {
 
   if (user && isAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = has2faCookie ? "/app/dashboard" : VERIFY_PATH;
-    return NextResponse.redirect(url);
+    url.pathname = has2faCookie ? safeAppRedirect(
+      request.nextUrl.searchParams.get("redirect")
+    ) : VERIFY_PATH;
+    if (!has2faCookie) {
+      const next = request.nextUrl.searchParams.get("redirect");
+      if (next?.startsWith("/app")) {
+        url.searchParams.set("redirect", next);
+      }
+    } else {
+      url.searchParams.delete("redirect");
+      url.searchParams.delete("motivo");
+    }
+    return copySessionCookies(supabaseResponse, NextResponse.redirect(url));
   }
 
   if (user && isAppArea && !has2faCookie) {
     const url = request.nextUrl.clone();
     url.pathname = VERIFY_PATH;
     url.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(url);
+    return copySessionCookies(supabaseResponse, NextResponse.redirect(url));
   }
 
-  if (user && isVerifyPage && has2faCookie) {
-    const url = request.nextUrl.clone();
-    url.pathname =
-      request.nextUrl.searchParams.get("redirect") || "/app/dashboard";
-    url.searchParams.delete("redirect");
-    return NextResponse.redirect(url);
+  /** Non bounce /verify-email solo perché il cookie esiste: può essere scaduto. */
+  if (user && isVerifyPage) {
+    return supabaseResponse;
   }
 
   return supabaseResponse;

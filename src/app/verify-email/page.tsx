@@ -1,10 +1,18 @@
 import { redirect } from "next/navigation";
 import { VerifyEmailForm } from "@/components/auth/VerifyEmailForm";
-import { getAuthUser } from "@/lib/auth/session";
+import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 
 type Props = {
   searchParams: Promise<{ redirect?: string }>;
 };
+
+function safeAppRedirect(raw: string | undefined): string {
+  const path = (raw ?? "").trim();
+  if (!path.startsWith("/app") || path.startsWith("//")) {
+    return "/app/dashboard";
+  }
+  return path;
+}
 
 export default async function VerifyEmailPage({ searchParams }: Props) {
   const user = await getAuthUser();
@@ -13,7 +21,11 @@ export default async function VerifyEmailPage({ searchParams }: Props) {
   }
 
   const params = await searchParams;
-  const redirectTo = params.redirect ?? "/app/dashboard";
+  const redirectTo = safeAppRedirect(params.redirect);
+  const auth = await getAuthContext();
+  if (auth?.isSecondFactorVerified) {
+    redirect(redirectTo);
+  }
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
