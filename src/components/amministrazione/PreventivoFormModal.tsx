@@ -1,13 +1,17 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
-import { FaPlus, FaTrash } from "react-icons/fa6";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
-  getListinoPrezzoVigenteAction,
   peekNextNumeroPreventivoAction,
+  stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
+import {
+  PreventivoAggiungiProdottoModal,
+  type PreventivoProdottoDraft,
+} from "@/components/amministrazione/PreventivoAggiungiProdottoModal";
 import { PreventivoDestinatarioPicker } from "@/components/amministrazione/PreventivoDestinatarioPicker";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
@@ -16,27 +20,27 @@ import {
   type OrdineTipoPagamento,
 } from "@/lib/amministrazione/ordini";
 import {
+  CONFEZIONE_STANDARD,
   PREVENTIVO_CONSEGNA,
   PREVENTIVO_CONSEGNA_LABEL,
+  prezzoNettoRigaPreventivo,
   type Preventivo,
   type PreventivoConsegna,
 } from "@/lib/amministrazione/preventivi";
+import {
+  applicaMargineSpedizione,
+  caricoDefaultDaConsegna,
+  fonteDefaultDaConsegna,
+  SPEDIZIONE_MARKUP_SICUREZZA_PCT,
+  type PreventivoSpedizioneFonte,
+} from "@/lib/amministrazione/preventivo-spedizione";
 import type { DestinatarioPreventivo } from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 
-type DraftRiga = {
-  prodottoId: string;
-  quantita: number | "";
-  prezzoUnitario: number | "";
-  listinoId: string | null;
-  prezzoDaListino: boolean;
-  confezionamento: string;
-  disponibilita:
-    | "in_produzione"
-    | "fuori_produzione"
-    | "non_disponibile"
-    | null;
-  blocco: "fuori_produzione" | "senza_prezzo" | null;
+type DraftRiga = PreventivoProdottoDraft & {
+  key: string;
+  prodottoCodice: string;
+  prodottoNome: string;
 };
 
 type Props = {
@@ -48,17 +52,15 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function emptyRiga(): DraftRiga {
-  return {
-    prodottoId: "",
-    quantita: "",
-    prezzoUnitario: "",
-    listinoId: null,
-    prezzoDaListino: false,
-    confezionamento: "",
-    disponibilita: null,
-    blocco: null,
-  };
+function euro(n: number) {
+  return n.toLocaleString("it-IT", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function newKey() {
+  return crypto.randomUUID();
 }
 
 export function PreventivoFormModal({ onClose, onSaved }: Props) {
@@ -68,13 +70,18 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     useState<DestinatarioPreventivo | null>(null);
   const [dataPreventivo, setDataPreventivo] = useState(today);
   const [numeroPreview, setNumeroPreview] = useState("N/ANNO");
-  const [righe, setRighe] = useState<DraftRiga[]>([emptyRiga()]);
+  const [righe, setRighe] = useState<DraftRiga[]>([]);
+  const [prodottoOpen, setProdottoOpen] = useState(false);
+  const [editKey, setEditKey] = useState<string | null>(null);
   const [consegnaMetodo, setConsegnaMetodo] =
-    useState<PreventivoConsegna>("corriere_nostro");
+    useState<PreventivoConsegna>("da_concordare");
   const [spedizioneACarico, setSpedizioneACarico] = useState<
     "cliente" | "agrinsicilia" | "diviso"
-  >("agrinsicilia");
-  const [spedizioneImporto, setSpedizioneImporto] = useState<number | "">("");
+  >("cliente");
+  const [spedizioneBase, setSpedizioneBase] = useState<number | "">("");
+  const [spedizioneFonte, setSpedizioneFonte] =
+    useState<PreventivoSpedizioneFonte>("da_concordare");
+  const [spedizioneMsg, setSpedizioneMsg] = useState<string | null>(null);
   const [tipoPagamento, setTipoPagamento] =
     useState<OrdineTipoPagamento>("alla_consegna");
   const [tempiGiorni, setTempiGiorni] = useState<number | "">("");
@@ -83,9 +90,27 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const editing = editKey
+    ? (righe.find((r) => r.key === editKey) ?? null)
+    : null;
+
+  const pesoKg = useMemo(
+    () =>
+      righe.reduce(
+        (sum, r) => sum + (Number.isFinite(r.quantita) ? r.quantita : 0),
+        0
+      ),
+    [righe]
+  );
+
+  const spedizioneImporto =
+    consegnaMetodo === "corriere_nostro" && spedizioneBase !== ""
+      ? applicaMargineSpedizione(spedizioneBase)
+      : 0;
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !saving) onClose();
+      if (e.key === "Escape" && !saving && !prodottoOpen) onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -94,7 +119,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving]);
+  }, [onClose, saving, prodottoOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,42 +132,74 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     };
   }, [dataPreventivo]);
 
-  async function onProdotto(index: number, prodottoId: string) {
-    setRighe((prev) =>
-      prev.map((r, i) => (i === index ? { ...r, prodottoId } : r))
-    );
-    if (!prodottoId) return;
-    const res = await getListinoPrezzoVigenteAction(prodottoId);
-    if (!res.success) {
-      setFormError(res.error);
+  useEffect(() => {
+    if (consegnaMetodo !== "corriere_nostro") {
+      setSpedizioneMsg(null);
       return;
     }
-    const disp = res.disponibilita;
-    let blocco: DraftRiga["blocco"] = null;
-    if (disp === "fuori_produzione") blocco = "fuori_produzione";
-    else if (res.prezzo == null || res.prezzo <= 0) blocco = "senza_prezzo";
-    setRighe((prev) =>
-      prev.map((r, i) =>
-        i === index
-          ? {
-              ...r,
-              prodottoId,
-              prezzoUnitario:
-                blocco || res.prezzo == null ? "" : res.prezzo,
-              listinoId: res.listinoId,
-              prezzoDaListino: Boolean(res.prezzo && res.prezzo > 0),
-              disponibilita: disp,
-              blocco,
-            }
-          : r
-      )
-    );
+    let cancelled = false;
+    void stimaSpedizionePreventivoAction({
+      consegnaMetodo,
+      cap: destinatario?.sede.cap ?? "",
+      nazione: destinatario?.sede.nazione ?? "",
+      provincia: destinatario?.sede.provincia ?? "",
+      pesoKg,
+      importoBaseManuale: spedizioneBase === "" ? null : spedizioneBase,
+    }).then((res) => {
+      if (cancelled) return;
+      if (!res.success) {
+        setSpedizioneMsg(res.error);
+        return;
+      }
+      setSpedizioneFonte(res.stima.fonte);
+      setSpedizioneMsg(res.stima.messaggio);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [consegnaMetodo, destinatario, pesoKg, spedizioneBase]);
+
+  function onConsegna(next: PreventivoConsegna) {
+    setConsegnaMetodo(next);
+    setSpedizioneACarico(caricoDefaultDaConsegna(next));
+    setSpedizioneFonte(fonteDefaultDaConsegna(next));
+    if (next !== "corriere_nostro") {
+      setSpedizioneBase("");
+      setSpedizioneMsg(null);
+    }
+  }
+
+  function openNuovoProdotto() {
+    setEditKey(null);
+    setProdottoOpen(true);
+  }
+
+  function onConfirmProdotto(draft: PreventivoProdottoDraft) {
+    const p = prodotti.find((x) => x.id === draft.prodottoId);
+    const row: DraftRiga = {
+      ...draft,
+      key: editKey ?? newKey(),
+      prodottoCodice: p?.codice ?? "",
+      prodottoNome: p?.nome ?? "",
+    };
+    setRighe((prev) => {
+      if (editKey) {
+        return prev.map((r) => (r.key === editKey ? row : r));
+      }
+      return [...prev, row];
+    });
+    setProdottoOpen(false);
+    setEditKey(null);
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!destinatario) {
       setFormError("Seleziona un destinatario.");
+      return;
+    }
+    if (!righe.length) {
+      setFormError("Aggiungi almeno un prodotto.");
       return;
     }
     const bloccata = righe.find((r) => r.blocco);
@@ -154,19 +211,24 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       setFormError(LISTINO_CONTRATTO_MSG.senza_prezzo);
       return;
     }
-    const mapped = righe.map((r) => {
-      const p = prodotti.find((x) => x.id === r.prodottoId);
-      return {
-        prodottoId: r.prodottoId,
-        prodottoCodice: p?.codice ?? "",
-        prodottoNome: p?.nome ?? "",
-        quantita: r.quantita === "" ? 0 : r.quantita,
-        prezzoUnitario: r.prezzoUnitario === "" ? 0 : r.prezzoUnitario,
-        listinoId: r.listinoId,
-        prezzoDaListino: r.prezzoDaListino,
-        confezionamento: r.confezionamento,
-      };
-    });
+    const mapped = righe.map((r) => ({
+      prodottoId: r.prodottoId,
+      prodottoCodice: r.prodottoCodice,
+      prodottoNome: r.prodottoNome,
+      quantita: r.quantita,
+      unitaMisura: r.unitaMisura,
+      prezzoUnitario: r.prezzoUnitario,
+      ivaPercentuale: r.ivaPercentuale,
+      listinoId: r.listinoId,
+      prezzoDaListino: r.prezzoDaListino,
+      scontoExtraPct: r.scontoExtraPct,
+      confezionamento: r.confezionamento,
+      imballaggioVoceId: r.imballaggioVoceId,
+    }));
+    const base =
+      consegnaMetodo === "corriere_nostro" && spedizioneBase !== ""
+        ? spedizioneBase
+        : 0;
     setSaving(true);
     setFormError(null);
     const result = await createPreventivoAction({
@@ -178,12 +240,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       dataPreventivo,
       consegnaMetodo,
       spedizioneACarico,
-      spedizioneImporto:
-        consegnaMetodo === "corriere_nostro" && spedizioneACarico !== "cliente"
-          ? spedizioneImporto === ""
-            ? 0
-            : spedizioneImporto
-          : 0,
+      spedizioneImporto,
+      spedizioneImportoBase: base,
+      spedizioneMarkupPct: SPEDIZIONE_MARKUP_SICUREZZA_PCT,
+      spedizioneFonte,
       tipoPagamento,
       tempiPagamentoGiorni: tempiGiorni === "" ? null : tempiGiorni,
       tempiPagamentoNote: tempiNote,
@@ -198,15 +258,14 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     onSaved(result.item);
   }
 
-  const mostraCostoSpedizione =
-    consegnaMetodo === "corriere_nostro" && spedizioneACarico !== "cliente";
+  const mostraCostoSpedizione = consegnaMetodo === "corriere_nostro";
 
   return (
     <div
       className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
       role="presentation"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) onClose();
+        if (e.target === e.currentTarget && !saving && !prodottoOpen) onClose();
       }}
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
@@ -262,123 +321,103 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                   <p className="text-sm font-medium">Prodotti</p>
                   <button
                     type="button"
-                    onClick={() => setRighe((p) => [...p, emptyRiga()])}
+                    onClick={openNuovoProdotto}
                     className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium"
                   >
                     <FaPlus size={10} />
-                    Aggiungi
+                    Aggiungi prodotto
                   </button>
                 </div>
-                <div className="space-y-3">
-                  {righe.map((riga, index) => (
-                    <div
-                      key={index}
-                      className="grid gap-2 rounded border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[1fr_5.5rem_7rem_1fr_auto]"
-                    >
-                      <select
-                        required
-                        disabled={!ready}
-                        value={riga.prodottoId}
-                        onChange={(e) => void onProdotto(index, e.target.value)}
-                        className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                      >
-                        <option value="">Prodotto…</option>
-                        {prodotti.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.codice} — {p.nome}
-                          </option>
-                        ))}
-                      </select>
-                      <ClearableNumberInput
-                        required
-                        min={0}
-                        placeholder="kg"
-                        value={riga.quantita}
-                        onValueChange={(v) =>
-                          setRighe((prev) =>
-                            prev.map((r, i) =>
-                              i === index ? { ...r, quantita: v } : r
-                            )
-                          )
-                        }
-                        className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                      />
-                      <div>
-                        <ClearableNumberInput
-                          required
-                          min={0}
-                          placeholder="€/kg"
-                          value={riga.prezzoUnitario}
-                          disabled={
-                            riga.prezzoDaListino || Boolean(riga.blocco)
-                          }
-                          onValueChange={(v) =>
-                            setRighe((prev) =>
-                              prev.map((r, i) =>
-                                i === index
-                                  ? {
-                                      ...r,
-                                      prezzoUnitario: v,
-                                      prezzoDaListino: false,
-                                    }
-                                  : r
-                              )
-                            )
-                          }
-                          className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm disabled:bg-slate-100"
-                        />
-                        <p className="mt-0.5 text-[10px] text-slate-500">
-                          {riga.blocco === "fuori_produzione"
-                            ? "Fuori produzione"
-                            : riga.blocco === "senza_prezzo"
-                              ? "Imposta il prezzo in listino"
-                              : riga.disponibilita === "non_disponibile"
-                                ? "Al momento non disponibile"
-                                : riga.prezzoDaListino
-                                  ? "Da listino In Uso"
-                                  : "Manuale"}
-                        </p>
-                      </div>
-                      <input
-                        value={riga.confezionamento}
-                        onChange={(e) =>
-                          setRighe((prev) =>
-                            prev.map((r, i) =>
-                              i === index
-                                ? { ...r, confezionamento: e.target.value }
-                                : r
-                            )
-                          )
-                        }
-                        placeholder="Confezionamento"
-                        className="rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
-                      />
-                      <button
-                        type="button"
-                        disabled={righe.length === 1}
-                        onClick={() =>
-                          setRighe((prev) =>
-                            prev.filter((_, i) => i !== index)
-                          )
-                        }
-                        className="rounded p-2 text-red-600 disabled:opacity-40"
-                      >
-                        <FaTrash size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                {righe.length === 0 ? (
+                  <p className="rounded border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+                    Nessun prodotto. Usa «Aggiungi prodotto».
+                  </p>
+                ) : (
+                  <table className="w-full text-left text-[11px]">
+                    <thead className="border-b border-slate-300 text-slate-600">
+                      <tr>
+                        <th className="py-1.5 pr-2 font-medium">Prodotto</th>
+                        <th className="py-1.5 pr-2 font-medium">Qty</th>
+                        <th className="py-1.5 pr-2 font-medium">Listino</th>
+                        <th className="py-1.5 pr-2 font-medium">Extra</th>
+                        <th className="py-1.5 pr-2 font-medium">Netto</th>
+                        <th className="py-1.5 pr-2 font-medium">Conf.</th>
+                        <th className="py-1.5 font-medium" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {righe.map((riga) => {
+                        const netto = prezzoNettoRigaPreventivo(
+                          riga.prezzoUnitario,
+                          riga.scontoExtraPct
+                        );
+                        return (
+                          <tr
+                            key={riga.key}
+                            className="border-b border-slate-100"
+                          >
+                            <td className="py-1.5 pr-2">
+                              {riga.prodottoCodice} — {riga.prodottoNome}
+                            </td>
+                            <td className="py-1.5 pr-2 tabular-nums">
+                              {riga.quantita} {riga.unitaMisura}
+                            </td>
+                            <td className="py-1.5 pr-2 tabular-nums">
+                              {euro(riga.prezzoUnitario)} €
+                            </td>
+                            <td className="py-1.5 pr-2 tabular-nums">
+                              {riga.scontoExtraPct
+                                ? `${riga.scontoExtraPct} %`
+                                : "—"}
+                            </td>
+                            <td className="py-1.5 pr-2 tabular-nums font-medium">
+                              {euro(netto)} €
+                            </td>
+                            <td className="py-1.5 pr-2">
+                              {riga.confezionamento || "Standard"}
+                            </td>
+                            <td className="py-1.5 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditKey(riga.key);
+                                  setProdottoOpen(true);
+                                }}
+                                className="mr-1 rounded p-1 text-slate-600 hover:bg-slate-100"
+                                aria-label="Modifica riga"
+                              >
+                                <FaPen size={11} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setRighe((prev) =>
+                                    prev.filter((r) => r.key !== riga.key)
+                                  )
+                                }
+                                className="rounded p-1 text-red-600 hover:bg-red-50"
+                                aria-label="Rimuovi riga"
+                              >
+                                <FaTrash size={11} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm">
+                <label className="block text-sm sm:col-span-2">
                   <span className="mb-1 block font-medium">
-                    Metodo di consegna
+                    Spedizione e consegna
                   </span>
                   <select
                     value={consegnaMetodo}
                     onChange={(e) =>
-                      setConsegnaMetodo(e.target.value as PreventivoConsegna)
+                      onConsegna(e.target.value as PreventivoConsegna)
                     }
                     className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                   >
@@ -389,36 +428,35 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                     ))}
                   </select>
                 </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Spedizione a carico
-                  </span>
-                  <select
-                    value={spedizioneACarico}
-                    onChange={(e) =>
-                      setSpedizioneACarico(
-                        e.target.value as "cliente" | "agrinsicilia" | "diviso"
-                      )
-                    }
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="cliente">Cliente</option>
-                    <option value="agrinsicilia">Nostro (Agrinsicilia)</option>
-                    <option value="diviso">Diviso</option>
-                  </select>
-                </label>
                 {mostraCostoSpedizione ? (
-                  <label className="block text-sm">
-                    <span className="mb-1 block font-medium">
-                      Prezzo spedizione (€)
-                    </span>
-                    <ClearableNumberInput
-                      min={0}
-                      value={spedizioneImporto}
-                      onValueChange={setSpedizioneImporto}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <>
+                    <label className="block text-sm">
+                      <span className="mb-1 block font-medium">
+                        Nolo corriere (€)
+                      </span>
+                      <ClearableNumberInput
+                        min={0}
+                        value={spedizioneBase}
+                        onValueChange={setSpedizioneBase}
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <div className="text-sm">
+                      <p className="mb-1 font-medium">
+                        In preventivo (+{SPEDIZIONE_MARKUP_SICUREZZA_PCT}%)
+                      </p>
+                      <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 tabular-nums">
+                        {spedizioneImporto
+                          ? `${euro(spedizioneImporto)} €`
+                          : "—"}
+                      </p>
+                    </div>
+                    {spedizioneMsg ? (
+                      <p className="text-xs text-slate-500 sm:col-span-2">
+                        {spedizioneMsg}
+                      </p>
+                    ) : null}
+                  </>
                 ) : null}
                 <label className="block text-sm">
                   <span className="mb-1 block font-medium">
@@ -478,6 +516,38 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           </div>
         </article>
       </form>
+
+      {prodottoOpen ? (
+        <PreventivoAggiungiProdottoModal
+          prodotti={prodotti}
+          ready={ready}
+          initial={
+            editing
+              ? {
+                  prodottoId: editing.prodottoId,
+                  quantita: editing.quantita,
+                  scontoExtraPct: editing.scontoExtraPct,
+                  confezioneValue:
+                    editing.confezioneValue || CONFEZIONE_STANDARD,
+                  confezionamento: editing.confezionamento,
+                  imballaggioVoceId: editing.imballaggioVoceId,
+                  prezzoUnitario: editing.prezzoUnitario,
+                  ivaPercentuale: editing.ivaPercentuale,
+                  listinoId: editing.listinoId,
+                  prezzoDaListino: editing.prezzoDaListino,
+                  unitaMisura: editing.unitaMisura,
+                  disponibilita: editing.disponibilita,
+                  blocco: editing.blocco,
+                }
+              : null
+          }
+          onClose={() => {
+            setProdottoOpen(false);
+            setEditKey(null);
+          }}
+          onConfirm={onConfirmProdotto}
+        />
+      ) : null}
     </div>
   );
 }

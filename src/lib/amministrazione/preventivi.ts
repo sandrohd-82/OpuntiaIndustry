@@ -4,6 +4,14 @@ import {
   formatNumeroPreventivoDocumento,
   yearFromPreventivoData,
 } from "@/lib/amministrazione/preventivo-letterhead";
+import {
+  PREVENTIVO_SPEDIZIONE_FONTI,
+  SPEDIZIONE_MARKUP_SICUREZZA_PCT,
+  type PreventivoSpedizioneFonte,
+} from "@/lib/amministrazione/preventivo-spedizione";
+
+export { SPEDIZIONE_MARKUP_SICUREZZA_PCT };
+export type { PreventivoSpedizioneFonte };
 
 export const PREVENTIVO_STATI = [
   "creato",
@@ -22,17 +30,42 @@ export const PREVENTIVO_STATO_LABEL: Record<PreventivoStato, string> = {
 };
 
 export const PREVENTIVO_CONSEGNA = [
-  "ritiro",
-  "corriere_nostro",
+  "da_concordare",
   "corriere_cliente",
+  "corriere_nostro",
+  "ritiro",
 ] as const;
 
 export type PreventivoConsegna = (typeof PREVENTIVO_CONSEGNA)[number];
 
 export const PREVENTIVO_CONSEGNA_LABEL: Record<PreventivoConsegna, string> = {
+  da_concordare: "Da concordare",
+  corriere_cliente: "A carico dell'acquirente",
+  corriere_nostro: "A carico Agrinsicilia",
   ritiro: "Ritiro in sede",
-  corriere_nostro: "Corriere a nostro carico",
-  corriere_cliente: "Corriere a carico cliente",
+};
+
+export const CONFEZIONE_STANDARD = "standard";
+
+export type PreventivoScontisticaRiga = {
+  id: string;
+  qtyDa: number;
+  qtyA: number | null;
+  imballaggioVoceId: string;
+  imballaggioLabel: string;
+  scontoPct: number;
+  kgConfezione: number;
+  kgStandard: number | null;
+  kgForzato: boolean;
+  targa: string;
+  preview: string | null;
+};
+
+export type PreventivoConfezioneOption = {
+  value: string;
+  label: string;
+  isStandard: boolean;
+  imballaggioVoceId: string | null;
 };
 
 export type PreventivoRiga = {
@@ -46,8 +79,21 @@ export type PreventivoRiga = {
   ivaPercentuale: number;
   listinoId: string | null;
   prezzoDaListino: boolean;
+  scontoExtraPct: number;
   confezionamento: string;
+  imballaggioVoceId: string | null;
 };
+
+export function prezzoNettoRigaPreventivo(
+  prezzoListino: number,
+  scontoExtraPct: number
+): number {
+  if (!Number.isFinite(prezzoListino) || prezzoListino < 0) return 0;
+  const extra = Number.isFinite(scontoExtraPct)
+    ? Math.min(100, Math.max(0, scontoExtraPct))
+    : 0;
+  return Math.round(prezzoListino * (1 - extra / 100) * 100) / 100;
+}
 
 export type Preventivo = {
   id: string;
@@ -62,6 +108,9 @@ export type Preventivo = {
   consegnaMetodo: PreventivoConsegna;
   spedizioneACarico: "cliente" | "agrinsicilia" | "diviso";
   spedizioneImporto: number;
+  spedizioneImportoBase: number;
+  spedizioneMarkupPct: number;
+  spedizioneFonte: PreventivoSpedizioneFonte;
   tipoPagamento: OrdineTipoPagamento;
   tempiPagamentoGiorni: number | null;
   tempiPagamentoNote: string;
@@ -83,7 +132,9 @@ export const preventivoRigaSchema = z.object({
   ivaPercentuale: z.number().min(0).max(100).optional().default(22),
   listinoId: z.string().uuid().nullable().optional().default(null),
   prezzoDaListino: z.boolean().optional().default(false),
+  scontoExtraPct: z.number().min(0).max(100).optional().default(0),
   confezionamento: z.string().trim().max(400).optional().default(""),
+  imballaggioVoceId: z.string().uuid().nullable().optional().default(null),
 });
 
 export const createPreventivoSchema = z
@@ -98,6 +149,14 @@ export const createPreventivoSchema = z
     consegnaMetodo: z.enum(PREVENTIVO_CONSEGNA),
     spedizioneACarico: z.enum(["cliente", "agrinsicilia", "diviso"]),
     spedizioneImporto: z.number().min(0).optional().default(0),
+    spedizioneImportoBase: z.number().min(0).optional().default(0),
+    spedizioneMarkupPct: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .default(SPEDIZIONE_MARKUP_SICUREZZA_PCT),
+    spedizioneFonte: z.enum(PREVENTIVO_SPEDIZIONE_FONTI).optional(),
     tipoPagamento: z.enum([
       "anticipato",
       "alla_consegna",
@@ -120,5 +179,14 @@ export function formatNumeroPreventivo(
 ): string {
   return formatNumeroPreventivoDocumento(seq, yearFromPreventivoData(data));
 }
+
+export const stimaSpedizioneSchema = z.object({
+  consegnaMetodo: z.enum(PREVENTIVO_CONSEGNA),
+  cap: z.string().optional().default(""),
+  nazione: z.string().optional().default(""),
+  provincia: z.string().optional().default(""),
+  pesoKg: z.number().min(0).optional().default(0),
+  importoBaseManuale: z.number().min(0).nullable().optional(),
+});
 
 export { ORDINE_TIPI_PAGAMENTO };

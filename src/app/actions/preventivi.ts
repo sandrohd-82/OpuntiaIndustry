@@ -2,12 +2,34 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import {
+  CONFEZIONE_STANDARD,
   createPreventivoSchema,
   formatNumeroPreventivo,
+  stimaSpedizioneSchema,
   type Preventivo,
+  type PreventivoConfezioneOption,
   type PreventivoRiga,
+  type PreventivoScontisticaRiga,
   type PreventivoStato,
 } from "@/lib/amministrazione/preventivi";
+import {
+  fonteDefaultDaConsegna,
+  stimaSpedizionePreventivo,
+  type StimaSpedizioneResult,
+} from "@/lib/amministrazione/preventivo-spedizione";
+import {
+  mapListinoRigaCondizione,
+  previewScontoListino,
+} from "@/lib/ecosystem/listini";
+import {
+  imballaggiPerCondizioneListino,
+  mapImballaggioVoceRow,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
+import type {
+  ImballaggioVoceProdottoRow,
+  ImballaggioVoceRow,
+  ListinoRigaCondizioneRow,
+} from "@/types/database";
 import {
   formatNumeroPreventivoDocumento,
   yearFromPreventivoData,
@@ -48,7 +70,9 @@ function mapRiga(row: PreventivoRigaRow): PreventivoRiga {
     ivaPercentuale: Number(row.iva_percentuale),
     listinoId: row.listino_id,
     prezzoDaListino: Boolean(row.prezzo_da_listino),
+    scontoExtraPct: Number(row.sconto_extra_pct ?? 0),
     confezionamento: row.confezionamento,
+    imballaggioVoceId: row.imballaggio_voce_id ?? null,
   };
 }
 
@@ -70,6 +94,9 @@ function mapPreventivo(
     consegnaMetodo: row.consegna_metodo,
     spedizioneACarico: row.spedizione_a_carico,
     spedizioneImporto: Number(row.spedizione_importo),
+    spedizioneImportoBase: Number(row.spedizione_importo_base ?? 0),
+    spedizioneMarkupPct: Number(row.spedizione_markup_pct ?? 30),
+    spedizioneFonte: row.spedizione_fonte ?? "da_concordare",
     tipoPagamento: row.tipo_pagamento,
     tempiPagamentoGiorni: row.tempi_pagamento_giorni,
     tempiPagamentoNote: row.tempi_pagamento_note,
@@ -289,6 +316,10 @@ export async function createPreventivoAction(
       consegna_metodo: input.consegnaMetodo,
       spedizione_a_carico: input.spedizioneACarico,
       spedizione_importo: input.spedizioneImporto ?? 0,
+      spedizione_importo_base: input.spedizioneImportoBase ?? 0,
+      spedizione_markup_pct: input.spedizioneMarkupPct ?? 30,
+      spedizione_fonte:
+        input.spedizioneFonte ?? fonteDefaultDaConsegna(input.consegnaMetodo),
       tipo_pagamento: input.tipoPagamento,
       tempi_pagamento_giorni: input.tempiPagamentoGiorni ?? null,
       tempi_pagamento_note: input.tempiPagamentoNote ?? "",
@@ -316,7 +347,9 @@ export async function createPreventivoAction(
         iva_percentuale: r.ivaPercentuale ?? 22,
         listino_id: r.listinoId ?? null,
         prezzo_da_listino: Boolean(r.prezzoDaListino),
+        sconto_extra_pct: r.scontoExtraPct ?? 0,
         confezionamento: r.confezionamento ?? "",
+        imballaggio_voce_id: r.imballaggioVoceId ?? null,
         sort_order: i,
         created_by: gate.auth.userId,
         updated_by: gate.auth.userId,
@@ -403,4 +436,204 @@ export async function setPreventivoStatoAction(input: {
     success: true,
     item: mapPreventivo(header, righe.get(header.id) ?? []),
   };
+}
+
+export async function getPreventivoProdottoContestoAction(
+  prodottoId: string
+): Promise<
+  | {
+      success: true;
+      prezzo: number | null;
+      iva: number;
+      listinoId: string | null;
+      disponibilita: ListinoDisponibilita | null;
+      unitaMisura: string;
+      condizioni: PreventivoScontisticaRiga[];
+      confezioni: PreventivoConfezioneOption[];
+    }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!prodottoId) {
+    return { success: false, error: "Seleziona un prodotto" };
+  }
+  const voceRes = await queryListinoVoceVigente(prodottoId);
+  if (voceRes.error) return { success: false, error: voceRes.error };
+  const voce = voceRes.voce;
+  const supabase = await createClient();
+
+  let condizioni: PreventivoScontisticaRiga[] = [];
+  let standardImballaggioId: string | null = null;
+  if (voce) {
+    const { data: riga } = await supabase
+      .from("listini_righe")
+      .select("id, unita_misura")
+      .eq("listino_id", voce.listinoId)
+      .eq("prodotto_id", prodottoId)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle();
+    const rigaId = (riga as { id?: string } | null)?.id;
+    const umRiga =
+      (riga as { unita_misura?: string } | null)?.unita_misura === "lt"
+        ? "lt"
+        : voce.unitaMisura;
+    if (rigaId) {
+      const { data: condRows } = await supabase
+        .from("listini_righe_condizioni")
+        .select("*")
+        .eq("listino_riga_id", rigaId)
+        .is("deleted_at", null)
+        .order("qty_da", { ascending: true });
+      const rows = (condRows ?? []) as ListinoRigaCondizioneRow[];
+      const imbIds = [...new Set(rows.map((r) => r.imballaggio_voce_id))];
+      const imbMap = new Map<
+        string,
+        { codice: string; nome: string; nomeCommerciale: string }
+      >();
+      if (imbIds.length) {
+        const { data: vs } = await supabase
+          .from("imballaggi_voci")
+          .select("id, codice, nome, nome_commerciale")
+          .in("id", imbIds);
+        for (const v of vs ?? []) {
+          const row = v as {
+            id: string;
+            codice: string;
+            nome: string;
+            nome_commerciale?: string;
+          };
+          imbMap.set(row.id, {
+            codice: row.codice,
+            nome: row.nome,
+            nomeCommerciale: row.nome_commerciale ?? "",
+          });
+        }
+      }
+      condizioni = rows.map((row) => {
+        const mapped = mapListinoRigaCondizione(row, imbMap.get(row.imballaggio_voce_id));
+        const label = (
+          mapped.imballaggioNomeCommerciale ||
+          mapped.imballaggioNome ||
+          mapped.imballaggioCodice ||
+          "Confezione"
+        ).trim();
+        if (
+          !standardImballaggioId &&
+          mapped.kgStandard != null &&
+          !mapped.kgForzato
+        ) {
+          standardImballaggioId = mapped.imballaggioVoceId;
+        }
+        return {
+          id: mapped.id,
+          qtyDa: mapped.qtyDa,
+          qtyA: mapped.qtyA,
+          imballaggioVoceId: mapped.imballaggioVoceId,
+          imballaggioLabel: label,
+          scontoPct: mapped.scontoPct,
+          kgConfezione: mapped.kgConfezione,
+          kgStandard: mapped.kgStandard,
+          kgForzato: mapped.kgForzato,
+          targa: mapped.targa,
+          preview: previewScontoListino({
+            prezzo: voce.prezzo,
+            scontoPct: mapped.scontoPct,
+            qtyDa: mapped.qtyDa,
+            qtyA: mapped.qtyA,
+            unitaMisura: umRiga === "lt" ? "lt" : "kg",
+          }),
+        };
+      });
+    }
+  }
+
+  const { data: linkRows } = await supabase
+    .from("imballaggi_voci_prodotti")
+    .select("voce_id")
+    .eq("prodotto_id", prodottoId)
+    .is("deleted_at", null);
+  const voceIds = [
+    ...new Set(
+      ((linkRows ?? []) as Pick<ImballaggioVoceProdottoRow, "voce_id">[]).map(
+        (r) => r.voce_id
+      )
+    ),
+  ];
+  const extraConfezioni: PreventivoConfezioneOption[] = [];
+  if (voceIds.length) {
+    const { data: vociRows } = await supabase
+      .from("imballaggi_voci")
+      .select("*")
+      .in("id", voceIds)
+      .is("deleted_at", null);
+    const mapped = imballaggiPerCondizioneListino(
+      ((vociRows ?? []) as ImballaggioVoceRow[]).map((r) =>
+        mapImballaggioVoceRow(r, [])
+      )
+    );
+    for (const v of mapped) {
+      extraConfezioni.push({
+        value: v.id,
+        label: (v.nomeCommerciale || v.nome || v.codice).trim(),
+        isStandard: false,
+        imballaggioVoceId: v.id,
+      });
+    }
+  }
+
+  const seen = new Set<string>([CONFEZIONE_STANDARD]);
+  const confezioni: PreventivoConfezioneOption[] = [
+    {
+      value: CONFEZIONE_STANDARD,
+      label: "Standard",
+      isStandard: true,
+      imballaggioVoceId: standardImballaggioId,
+    },
+  ];
+  for (const c of condizioni) {
+    if (!c.imballaggioVoceId || seen.has(c.imballaggioVoceId)) continue;
+    seen.add(c.imballaggioVoceId);
+    confezioni.push({
+      value: c.imballaggioVoceId,
+      label: c.imballaggioLabel,
+      isStandard: false,
+      imballaggioVoceId: c.imballaggioVoceId,
+    });
+  }
+  for (const extra of extraConfezioni) {
+    if (seen.has(extra.value)) continue;
+    seen.add(extra.value);
+    confezioni.push(extra);
+  }
+
+  return {
+    success: true,
+    prezzo: voce?.prezzo ?? null,
+    iva: voce?.iva ?? 22,
+    listinoId: voce?.listinoId ?? null,
+    disponibilita: voce?.disponibilita ?? null,
+    unitaMisura: voce?.unitaMisura ?? "kg",
+    condizioni,
+    confezioni,
+  };
+}
+
+export async function stimaSpedizionePreventivoAction(
+  raw: unknown
+): Promise<
+  | { success: true; stima: StimaSpedizioneResult }
+  | { success: false; error: string }
+> {
+  const gate = await requirePreventiviAccess();
+  if (!gate.ok) return { success: false, error: gate.error };
+  const parsed = stimaSpedizioneSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati stima non validi",
+    };
+  }
+  return { success: true, stima: stimaSpedizionePreventivo(parsed.data) };
 }

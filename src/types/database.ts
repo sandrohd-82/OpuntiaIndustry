@@ -1359,9 +1359,21 @@ export interface PreventivoRow {
   stato: PreventivoStatoDb;
   documento_stato: "bozza" | "approvato" | "chiuso";
   versione: number;
-  consegna_metodo: "ritiro" | "corriere_nostro" | "corriere_cliente";
+  consegna_metodo:
+    | "da_concordare"
+    | "ritiro"
+    | "corriere_nostro"
+    | "corriere_cliente";
   spedizione_a_carico: "cliente" | "agrinsicilia" | "diviso";
   spedizione_importo: number;
+  spedizione_importo_base: number;
+  spedizione_markup_pct: number;
+  spedizione_fonte:
+    | "da_concordare"
+    | "a_carico_acquirente"
+    | "stima_api"
+    | "manuale"
+    | "ritiro";
   tipo_pagamento: OrdineTipoPagamento;
   tempi_pagamento_giorni: number | null;
   tempi_pagamento_note: string;
@@ -1392,6 +1404,7 @@ export interface PreventivoRigaRow {
   iva_percentuale: number;
   listino_id: string | null;
   prezzo_da_listino: boolean;
+  sconto_extra_pct: number;
   confezionamento: string;
   imballaggio_voce_id: string | null;
   sort_order: number;
