@@ -113,7 +113,7 @@ export function OrganigrammaElencoBoard() {
     return items.filter((p) => {
       const hay = `${p.cognome} ${p.nome} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
         .map((x) => x.nome)
-        .join(" ")} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""}`.toLowerCase();
+        .join(" ")} ${p.cellulare} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""}`.toLowerCase();
       return hay.includes(n);
     });
   }, [items, q]);
@@ -448,6 +448,7 @@ function OperatoreCreateModal({
   const [cognome, setCognome] = useState("");
   const [codiceFiscale, setCf] = useState("");
   const [cartaIdentita, setCi] = useState("");
+  const [cellulare, setCellulare] = useState("");
   const [repartoId, setRepartoId] = useState("");
   const [commercialeGrado, setCommercialeGrado] = useState("");
   const [commercialeProvvigionePct, setCommercialeProvvigionePct] =
@@ -472,6 +473,7 @@ function OperatoreCreateModal({
       cognome,
       codiceFiscale,
       cartaIdentita,
+      cellulare,
       note,
       mansioneIds,
       repartoId: repartoId || undefined,
@@ -548,6 +550,18 @@ function OperatoreCreateModal({
               value={cartaIdentita}
               onChange={(e) => setCi(e.target.value)}
               className={inputCls}
+            />
+          </label>
+          <label className="text-xs text-[var(--muted)]">
+            Cellulare
+            <input
+              value={cellulare}
+              onChange={(e) => setCellulare(e.target.value)}
+              className={inputCls}
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="+39 …"
+              maxLength={40}
             />
           </label>
           <label className="text-xs text-[var(--muted)] sm:col-span-2">

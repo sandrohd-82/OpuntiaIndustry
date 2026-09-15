@@ -91,7 +91,7 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
       .is("deleted_at", null),
     service
       .from("organigramma_persone")
-      .select("user_id, nome, cognome, commerciale_grado, reparto_id")
+      .select("user_id, nome, cognome, cellulare, commerciale_grado, reparto_id")
       .is("deleted_at", null)
       .not("user_id", "is", null),
     service
@@ -113,6 +113,7 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
     {
       nome: string;
       cognome: string;
+      cellulare: string;
       commerciale: boolean;
     }
   >();
@@ -130,6 +131,7 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
     personaByUser.set(uid, {
       nome: String((p as { nome?: string }).nome ?? ""),
       cognome: String((p as { cognome?: string }).cognome ?? ""),
+      cellulare: String((p as { cellulare?: string | null }).cellulare ?? "").trim(),
       commerciale,
     });
   }
@@ -168,7 +170,7 @@ export async function loadPreventivoCommercialiRiferimento(): Promise<
         lastName: (row as { last_name?: string | null }).last_name,
         email,
       }),
-      telefono: phones.get(id) ?? "",
+      telefono: persona?.cellulare || phones.get(id) || "",
       email,
     });
   }

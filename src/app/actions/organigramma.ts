@@ -56,7 +56,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
+  "id, nome, cognome, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -67,6 +67,7 @@ type PersonaRow = {
   cognome: string;
   codice_fiscale: string;
   carta_identita: string;
+  cellulare?: string;
   user_id: string | null;
   parent_id: string | null;
   co_parent_ids?: string[] | null;
@@ -131,6 +132,7 @@ function mapPersona(
     cognome: row.cognome,
     codiceFiscale: row.codice_fiscale ?? "",
     cartaIdentita: row.carta_identita ?? "",
+    cellulare: row.cellulare ?? "",
     userId: row.user_id,
     profilo: null,
     parentId: row.parent_id,
@@ -1215,6 +1217,7 @@ export async function createPersonaAction(
       cognome: v.cognome,
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
+      cellulare: v.cellulare ?? "",
       note: v.note ?? "",
       parent_id: v.parentId ?? null,
       reparto_id: v.repartoId ?? null,
@@ -1327,6 +1330,7 @@ export async function updatePersonaAction(
       cognome: v.cognome,
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
+      cellulare: v.cellulare ?? "",
       note: v.note ?? "",
       reparto_id: v.repartoId ?? null,
       commerciale_grado: comm.grado,

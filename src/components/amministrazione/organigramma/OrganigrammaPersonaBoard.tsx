@@ -253,6 +253,7 @@ function AnagraficaCard({
   const [cognome, setCognome] = useState(item.cognome);
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
   const [cartaIdentita, setCi] = useState(item.cartaIdentita);
+  const [cellulare, setCellulare] = useState(item.cellulare ?? "");
   const [note, setNote] = useState(item.note);
   const [repartoId, setRepartoId] = useState(item.repartoId ?? "");
   const [commercialeGrado, setCommercialeGrado] = useState(
@@ -280,6 +281,7 @@ function AnagraficaCard({
     setCognome(item.cognome);
     setCf(item.codiceFiscale);
     setCi(item.cartaIdentita);
+    setCellulare(item.cellulare ?? "");
     setNote(item.note);
     setRepartoId(item.repartoId ?? "");
     setCommercialeGrado(item.commercialeGrado ?? "");
@@ -304,6 +306,7 @@ function AnagraficaCard({
       cognome,
       codiceFiscale,
       cartaIdentita,
+      cellulare,
       note,
       mansioneIds,
       repartoId: repartoId || undefined,
@@ -438,6 +441,19 @@ function AnagraficaCard({
                 disabled={!isAdmin}
                 onChange={(e) => setCi(e.target.value)}
                 className={inputCls}
+              />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Cellulare
+              <input
+                value={cellulare}
+                disabled={!isAdmin}
+                onChange={(e) => setCellulare(e.target.value)}
+                className={inputCls}
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="+39 …"
+                maxLength={40}
               />
             </label>
             <label className="text-xs text-[var(--muted)] sm:col-span-2">

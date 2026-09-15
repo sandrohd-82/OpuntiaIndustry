@@ -156,6 +156,7 @@ function writeAnagrafica(
     [t("Nome"), t(`${p.cognome} ${p.nome}`)],
     [t("Codice fiscale"), t(p.codiceFiscale || "—")],
     [t("Carta d'identità"), t(p.cartaIdentita || "—")],
+    [t("Cellulare"), t(p.cellulare || "—")],
     [t("Banca"), t(p.bancaIstituto || "—")],
     [
       t("IBAN"),

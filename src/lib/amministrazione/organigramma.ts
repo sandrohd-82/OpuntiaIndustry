@@ -77,6 +77,7 @@ export type OrganigrammaPersona = {
   cognome: string;
   codiceFiscale: string;
   cartaIdentita: string;
+  cellulare: string;
   userId: string | null;
   profilo: OrganigrammaProfiloLink | null;
   parentId: string | null;
@@ -320,6 +321,16 @@ export const personaInputSchema = z.object({
     .optional()
     .default(""),
   cartaIdentita: z.string().trim().max(40).optional().default(""),
+  cellulare: z
+    .string()
+    .trim()
+    .max(40, "Cellulare troppo lungo")
+    .regex(
+      /^$|^[+0-9][0-9\s()./-]{5,39}$/,
+      "Cellulare non valido"
+    )
+    .optional()
+    .default(""),
   note: z.string().trim().max(2000).optional().default(""),
   mansioneIds: z.array(z.string().uuid()).optional().default([]),
   parentId: z.string().uuid().nullable().optional(),
