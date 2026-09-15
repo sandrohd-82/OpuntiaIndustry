@@ -139,13 +139,13 @@ export function PreventivoA4PiePagina({
           <img
             src={AGRINSICILIA_LETTERHEAD.logoSrc}
             alt={AGRINSICILIA_LETTERHEAD.logoAlt}
-            className="h-7 w-auto object-contain"
+            className="h-11 w-auto object-contain"
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={OPUNTIA_ITALIA_LOGO.src}
             alt={OPUNTIA_ITALIA_LOGO.alt}
-            className="h-7 w-auto object-contain"
+            className="h-11 w-auto object-contain"
           />
         </div>
         <p className="text-[10px] font-semibold leading-[1.4] text-slate-800">
