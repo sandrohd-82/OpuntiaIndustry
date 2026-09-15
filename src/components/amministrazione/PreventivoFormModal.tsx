@@ -17,7 +17,10 @@ import {
   PreventivoDestinatarioModal,
   PreventivoDestinatarioPicker,
 } from "@/components/amministrazione/PreventivoDestinatarioPicker";
-import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
+import {
+  PreventivoDocField,
+  PreventivoDocQa,
+} from "@/components/amministrazione/PreventivoDocPencil";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
@@ -505,39 +508,50 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 </button>
               ) : null}
 
-              <div className="mt-5 space-y-1 text-[11px] leading-[1.45]">
+              <PreventivoDocField
+                label="Modifica note"
+                onEdit={() => openEdit("note")}
+                className="mt-4"
+              >
+                <p className="whitespace-pre-line text-[11px] leading-[1.45] text-slate-800">
+                  {note}
+                </p>
+              </PreventivoDocField>
+
+              <div className="mt-4 space-y-1 text-[11px] leading-[1.45]">
                 <PreventivoDocField
                   label="Modifica spedizione e consegna"
                   onEdit={() => openEdit("spedizione")}
                 >
-                  <p>
-                    Spedizione e consegna: {spedizioneTesto}
-                  </p>
+                  <PreventivoDocQa
+                    domanda="Spedizione e consegna"
+                    risposta={spedizioneTesto}
+                  />
                 </PreventivoDocField>
                 <PreventivoDocField
                   label="Modifica giorni di consegna"
                   onEdit={() => openEdit("giorni")}
                 >
-                  <p>Giorni di consegna: {giorniConsegna}</p>
+                  <PreventivoDocQa
+                    domanda="Giorni di consegna"
+                    risposta={giorniConsegna}
+                  />
                 </PreventivoDocField>
               </div>
+              <div className="mt-3 h-px w-full bg-slate-900" />
             </div>
 
-            <div className="mt-auto">
-              <PreventivoA4PiePagina
-                note={note}
-                onEditNote={() => openEdit("note")}
-                tipoPagamento={tipoPagamento}
-                onEditPagamento={() => openEdit("pagamento")}
-                numero={numeroPreview}
-                dataPreventivo={dataPreventivo}
-                ivaPercentuale={ivaDocumento}
-                onEditIva={() => openEdit("iva")}
-                imponibile={totali.imponibile}
-                totaleIva={totali.iva}
-                totalePreventivo={totali.totale}
-              />
-            </div>
+            <PreventivoA4PiePagina
+              tipoPagamento={tipoPagamento}
+              onEditPagamento={() => openEdit("pagamento")}
+              numero={numeroPreview}
+              dataPreventivo={dataPreventivo}
+              ivaPercentuale={ivaDocumento}
+              onEditIva={() => openEdit("iva")}
+              imponibile={totali.imponibile}
+              totaleIva={totali.iva}
+              totalePreventivo={totali.totale}
+            />
           </div>
         </article>
       </form>

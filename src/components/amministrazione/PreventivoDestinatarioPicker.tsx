@@ -13,7 +13,10 @@ import { AZ } from "@/lib/auth/action-access";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { PossibileClienteFormModal } from "@/components/amministrazione/PossibileClienteFormModal";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
-import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
+import {
+  PreventivoDocField,
+  PreventivoDocQa,
+} from "@/components/amministrazione/PreventivoDocPencil";
 import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { FieldLoadingOverlay } from "@/components/ui/SelectMenu";
 import { useClienti } from "@/hooks/useClienti";
@@ -101,12 +104,16 @@ export function PreventivoDestinatarioPicker({
             >
               {value?.ragioneSociale || "Spett.le Ragione sociale"}
             </p>
-            <p className={ph ? "text-slate-400" : undefined}>
-              P.IVA {value?.partitaIva || "—"}
-            </p>
-            <p className={ph ? "text-slate-400" : undefined}>
-              CF {value?.codiceFiscale || "—"}
-            </p>
+            <PreventivoDocQa
+              className={ph ? "text-slate-400" : undefined}
+              domanda="P.IVA"
+              risposta={value?.partitaIva || "—"}
+            />
+            <PreventivoDocQa
+              className={ph ? "text-slate-400" : undefined}
+              domanda="CF"
+              risposta={value?.codiceFiscale || "—"}
+            />
           </div>
           <div className="pt-5 text-right uppercase">
             <p className={!addr?.via ? "text-slate-400 normal-case" : undefined}>

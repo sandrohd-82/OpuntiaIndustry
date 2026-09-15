@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { FaPen } from "react-icons/fa6";
 
 type Props = {
@@ -24,7 +25,7 @@ export function PreventivoDocPencil({ label, onClick }: Props) {
 type WrapProps = {
   label: string;
   onEdit: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 };
 
@@ -39,5 +40,22 @@ export function PreventivoDocField({
       {children}
       <PreventivoDocPencil label={label} onClick={onEdit} />
     </div>
+  );
+}
+
+/** Titolo in grassetto, risposta in peso normale (es. Spedizione e consegna: Da concordare). */
+export function PreventivoDocQa({
+  domanda,
+  risposta,
+  className = "",
+}: {
+  domanda: string;
+  risposta: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p className={className}>
+      <span className="font-semibold">{domanda}:</span> {risposta}
+    </p>
   );
 }

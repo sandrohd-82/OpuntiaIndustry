@@ -13,11 +13,12 @@ import {
 } from "@/lib/amministrazione/preventivi";
 import { formatIbanDisplay } from "@/lib/iban";
 import type { OrdineTipoPagamento } from "@/lib/amministrazione/ordini";
-import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
+import {
+  PreventivoDocField,
+  PreventivoDocQa,
+} from "@/components/amministrazione/PreventivoDocPencil";
 
 type Props = {
-  note: string;
-  onEditNote: () => void;
   tipoPagamento: OrdineTipoPagamento;
   onEditPagamento: () => void;
   numero: string;
@@ -36,9 +37,28 @@ function euro(n: number) {
   });
 }
 
+function TotaleRiga({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
+  return (
+    <div
+      className={`flex justify-between gap-3 ${strong ? "font-semibold" : ""}`}
+    >
+      <span>{label}</span>
+      <span className="tabular-nums">
+        {euro(value)} €
+      </span>
+    </div>
+  );
+}
+
 export function PreventivoA4PiePagina({
-  note,
-  onEditNote,
   tipoPagamento,
   onEditPagamento,
   numero,
@@ -50,60 +70,67 @@ export function PreventivoA4PiePagina({
   totalePreventivo,
 }: Props) {
   return (
-    <div className="mt-8">
-      <PreventivoDocField label="Modifica note" onEdit={onEditNote}>
-        <p className="whitespace-pre-line text-[11px] leading-[1.45] text-slate-800">
-          {note}
-        </p>
-      </PreventivoDocField>
-
-      <div className="mt-4 space-y-0.5 text-[11px] leading-[1.45]">
-        <PreventivoDocField
-          label="Modifica modalità di pagamento"
-          onEdit={onEditPagamento}
-        >
-          <p>
-            Modalità pagamento:{" "}
-            {labelModalitaPagamentoPreventivo(tipoPagamento)}
-          </p>
-        </PreventivoDocField>
-        <p>Banca {AGRINSICILIA_COORDINATE.banca}</p>
-        <p>IBAN: {formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}</p>
-        <p>BIC: {AGRINSICILIA_COORDINATE.bic}</p>
-        <p>Importo: {euro(totalePreventivo)} €</p>
-        <p>
-          Causale: Pagamento Preventivo n. {numero} del{" "}
-          {formatPreventivoDataIt(dataPreventivo)}
-        </p>
-        <p>Validità preventivo {PREVENTIVO_VALIDITA_GIORNI} gg.</p>
-      </div>
-
-      <div className="mt-5 flex items-start justify-between gap-4 text-[11px]">
-        <div className="w-1/2">
+    <div className="flex flex-1 flex-col pt-3">
+      <div className="grid grid-cols-2 border border-slate-800 text-[11px] leading-normal">
+        <div className="border-r border-slate-800 p-3">
           <PreventivoDocField
-            label="Modifica IVA"
-            onEdit={onEditIva ?? (() => {})}
+            label="Modifica modalità di pagamento"
+            onEdit={onEditPagamento}
           >
-            <p className="font-medium">IVA {ivaPercentuale}%</p>
+            <p className="text-[12px] font-bold">Modalità di Pagamento</p>
+            <p className="mt-0.5">{labelModalitaPagamentoPreventivo(tipoPagamento)}</p>
+            <div className="mt-2 space-y-0.5">
+              <PreventivoDocQa
+                domanda="Banca"
+                risposta={AGRINSICILIA_COORDINATE.banca}
+              />
+              <PreventivoDocQa
+                domanda="IBAN"
+                risposta={formatIbanDisplay(AGRINSICILIA_COORDINATE.iban)}
+              />
+              <PreventivoDocQa
+                domanda="BIC"
+                risposta={AGRINSICILIA_COORDINATE.bic}
+              />
+              <PreventivoDocQa
+                domanda="Importo"
+                risposta={`${euro(totalePreventivo)} €`}
+              />
+              <PreventivoDocQa
+                domanda="Causale"
+                risposta={`Pagamento Preventivo n. ${numero} del ${formatPreventivoDataIt(dataPreventivo)}.`}
+              />
+            </div>
           </PreventivoDocField>
         </div>
-        <div className="w-1/2 space-y-1">
-          <div className="flex justify-between gap-3">
-            <span>Imponibile</span>
-            <span className="tabular-nums">{euro(imponibile)} €</span>
+
+        <div className="flex flex-col p-3">
+          <p className="text-[12px] font-bold">Totali</p>
+          <div className="mt-2 space-y-1">
+            <TotaleRiga label="Imponibile" value={imponibile} />
+            <PreventivoDocField
+              label={`Modifica IVA (${ivaPercentuale}%)`}
+              onEdit={onEditIva ?? (() => {})}
+            >
+              <TotaleRiga label="Totale IVA" value={totaleIva} />
+            </PreventivoDocField>
+            <div className="border-t border-slate-800 pt-1">
+              <TotaleRiga
+                label="Totale Preventivo"
+                value={totalePreventivo}
+                strong
+              />
+            </div>
           </div>
-          <div className="flex justify-between gap-3">
-            <span>Totale IVA</span>
-            <span className="tabular-nums">{euro(totaleIva)} €</span>
-          </div>
-          <div className="flex justify-between gap-3 border-t border-slate-300 pt-1 font-semibold">
-            <span>Totale Preventivo</span>
-            <span className="tabular-nums">{euro(totalePreventivo)} €</span>
+          <div className="mt-auto flex justify-center pt-6">
+            <div className="-rotate-6 border-[2.5px] border-double border-slate-800 px-3 py-1.5 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-slate-800">
+              Validità preventivo {PREVENTIVO_VALIDITA_GIORNI} gg.
+            </div>
           </div>
         </div>
       </div>
 
-      <footer className="mt-10 text-center">
+      <footer className="mt-auto pt-10 text-center">
         <div className="mb-2 flex items-center justify-center gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
