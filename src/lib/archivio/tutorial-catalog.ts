@@ -4,7 +4,10 @@ import { ARCHIVIO_SECTIONS } from "@/lib/areas/archivio";
 import { AREA_FORNITORI_SECTIONS } from "@/lib/areas/area-fornitori";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
-import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
+import {
+  COMMERCIALE_SECTIONS,
+  commercialeLegacyPageKey,
+} from "@/lib/areas/commerciale";
 import { AREA_ROUTES } from "@/lib/areas/config";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
@@ -42,7 +45,10 @@ function defaultBlocks(input: {
   crumbs: string[];
   maturity: TutorialMaturity;
 }): TutorialBlock[] {
-  const extra = PAGE_EXTRAS[input.path] ?? [];
+  const extra =
+    PAGE_EXTRAS[input.path] ??
+    PAGE_EXTRAS[commercialeLegacyPageKey(input.path) ?? ""] ??
+    [];
   const blocks: TutorialBlock[] = [
     {
       type: "p",
@@ -264,8 +270,8 @@ function buildPageArticles(): TutorialArticle[] {
   );
   walkNav(
     COMMERCIALE_SECTIONS,
-    "nascoste",
-    "Aree nascoste o in arrivo",
+    "commerciale",
+    "Commerciale",
     ["Commerciale"],
     out,
     seen

@@ -21,9 +21,11 @@ import {
   FaIndustry,
   FaPlus,
   FaTruck,
+  FaHandshake,
   FaWrench,
 } from "react-icons/fa6";
 import { AMMINISTRAZIONE_SECTIONS } from "@/lib/areas/amministrazione";
+import { COMMERCIALE_SECTIONS } from "@/lib/areas/commerciale";
 import { CHAT_SECTIONS } from "@/lib/areas/chat";
 import { WEBMAIL_SECTIONS } from "@/lib/areas/webmail";
 import { AREA_FISCALE_SECTIONS } from "@/lib/areas/area-fiscale";
@@ -134,6 +136,8 @@ function sectionsForArea(
       return null;
     case "magazzino":
       return MAGAZZINO_SECTIONS;
+    case "commerciale":
+      return COMMERCIALE_SECTIONS;
     case "amministrazione":
       return AMMINISTRAZIONE_SECTIONS;
     case "area-fiscale":
@@ -158,6 +162,8 @@ function AreaIcon({ slug }: { slug: string }) {
   switch (slug) {
     case "dashboard":
       return <FaGaugeHigh className={cls} />;
+    case "commerciale":
+      return <FaHandshake className={cls} />;
     case "amministrazione":
       return <FaBuilding className={cls} />;
     case "ricerca-sviluppo":

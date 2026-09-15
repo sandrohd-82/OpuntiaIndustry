@@ -32,6 +32,7 @@ export const TUTORIAL_SECTIONS: TutorialSection[] = [
   { id: "guida", title: "Guida" },
   { id: "lotti", title: "Lotti e numerazioni" },
   { id: "dashboard", title: "Dashboard" },
+  { id: "commerciale", title: "Commerciale" },
   { id: "amministrazione", title: "Amministrazione" },
   { id: "web", title: "Web (Opuntia Italia e Wiki)" },
   { id: "ricerca-sviluppo", title: "Ricerca e sviluppo" },

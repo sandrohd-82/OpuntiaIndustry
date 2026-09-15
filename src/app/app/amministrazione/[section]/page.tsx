@@ -14,9 +14,12 @@ type Props = {
 };
 
 export default async function AmministrazioneSectionPage({ params }: Props) {
-  await requireAreaAccess("amministrazione");
-
   const { section } = await params;
+  if (section === "clienti") {
+    redirect("/app/commerciale/clienti");
+  }
+
+  await requireAreaAccess("amministrazione");
 
   // Compatibilità percorsi legacy
   if (section === "fatture") {
@@ -32,7 +35,7 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     redirect("/app/archivio/amministrazione/registro-accessi");
   }
   if (section === "clienti") {
-    redirect("/app/amministrazione/clienti/elenco");
+    redirect("/app/commerciale/clienti");
   }
   if (section === "fornitori") {
     redirect("/app/amministrazione/fornitori/elenco");
@@ -41,10 +44,10 @@ export default async function AmministrazioneSectionPage({ params }: Props) {
     redirect("/app/amministrazione/ordini/da-processare");
   }
   if (section === "elenco-ordini") {
-    redirect("/app/amministrazione/ordini/elenco");
+    redirect("/app/commerciale/ordini/elenco");
   }
   if (section === "ordini") {
-    redirect("/app/amministrazione/ordini/nuovo");
+    redirect("/app/amministrazione/ordini/da-processare");
   }
 
   const item = AMMINISTRAZIONE_SECTIONS.find((s) => s.slug === section);

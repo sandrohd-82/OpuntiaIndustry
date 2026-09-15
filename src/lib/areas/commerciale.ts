@@ -4,58 +4,73 @@ import {
   type NavItem,
 } from "@/lib/areas/nav-tree";
 
-/** Sottosezioni del modulo Commerciale (menu laterale) */
+/**
+ * Chiavi On/Off già esistenti (Amministrazione / Area Fiscale).
+ * I path Commerciale le riusano: i permessi operatore non cambiano.
+ */
+export const COMMERCIALE_PAGE_ALIASES: Record<string, string> = {
+  "/app/commerciale/clienti": "/app/amministrazione/clienti/elenco",
+  "/app/commerciale/possibili-clienti":
+    "/app/amministrazione/clienti/possibili",
+  "/app/commerciale/preventivi": "/app/amministrazione/ordini/preventivi",
+  "/app/commerciale/ordini/elenco": "/app/amministrazione/ordini/elenco",
+  "/app/commerciale/ordini/nuovo": "/app/amministrazione/ordini/nuovo",
+  "/app/commerciale/ordini/crea-nuovo": "/app/amministrazione/ordini/nuovo",
+  "/app/commerciale/listino": "/app/amministrazione/schede/listini-b2b",
+  "/app/commerciale/nuova-fattura": "/app/area-fiscale/fatture/nuova",
+};
+
+/** Menu Commerciale di primo livello */
 export const COMMERCIALE_SECTIONS: readonly NavItem[] = [
   {
-    slug: "webmail",
-    label: "Webmail",
-    description:
-      "Caselle Gmail/Aruba, categorie, bozze AI e invio con approvazione",
-    path: "/app/commerciale/webmail",
-  },
-  // redirect legacy → /app/webmail/caselle (gestito in page)
-  {
-    slug: "clienti-con-storico",
-    label: "Clienti con storico",
-    description: "Clienti con storico commerciale",
-    path: "/app/commerciale/clienti-con-storico",
-    children: [
-      {
-        slug: "elenco",
-        label: "Elenco",
-        description: "Elenco clienti con storico",
-        path: "/app/commerciale/clienti-con-storico/elenco",
-      },
-    ],
+    slug: "clienti",
+    label: "Clienti",
+    description: "Anagrafiche clienti attive",
+    path: "/app/commerciale/clienti",
   },
   {
-    slug: "clienti-contattati",
-    label: "Clienti contattati",
-    description: "Clienti contattati",
-    path: "/app/commerciale/clienti-contattati",
-    children: [
-      {
-        slug: "elenco",
-        label: "Elenco",
-        description: "Elenco clienti contattati",
-        path: "/app/commerciale/clienti-contattati/elenco",
-      },
-    ],
+    slug: "possibili-clienti",
+    label: "Possibili Clienti",
+    description: "Contatti e nuove aziende da valutare (lead / prospect)",
+    path: "/app/commerciale/possibili-clienti",
+  },
+  {
+    slug: "preventivi",
+    label: "Preventivi",
+    description: "Preventivi creati, inviati, accettati o respinti",
+    path: "/app/commerciale/preventivi",
   },
   {
     slug: "ordini",
     label: "Ordini",
-    description: "Crea ordini di vendita o campionatura da produrre",
+    description: "Elenco e nuovo ordine merce o campionatura",
     path: "/app/commerciale/ordini",
     children: [
       {
-        slug: "crea-nuovo",
-        label: "Crea nuovo",
-        description:
-          "Crea ordini in attesa: vendita o campionatura da produrre",
-        path: "/app/commerciale/ordini/crea-nuovo",
+        slug: "elenco",
+        label: "Elenco ordini",
+        description: "Ordini merce e campionatura",
+        path: "/app/commerciale/ordini/elenco",
+      },
+      {
+        slug: "nuovo",
+        label: "Nuovo ordine",
+        description: "Crea un ordine merce o una campionatura",
+        path: "/app/commerciale/ordini/nuovo",
       },
     ],
+  },
+  {
+    slug: "listino",
+    label: "Listino",
+    description: "Listini B2B versionati (bozza / in revisione / in uso)",
+    path: "/app/commerciale/listino",
+  },
+  {
+    slug: "nuova-fattura",
+    label: "Nuova Fattura",
+    description: "Crea e invia fattura collegata a Fatture in Cloud",
+    path: "/app/commerciale/nuova-fattura",
   },
 ] as const;
 
@@ -65,4 +80,13 @@ export function getFirstCommercialePath(): string {
 
 export function resolveCommercialePage(segments: string[]) {
   return resolveNavPage(COMMERCIALE_SECTIONS, segments);
+}
+
+export function commercialeLegacyPageKey(pathname: string): string | null {
+  const raw = pathname.split("?")[0]?.replace(/\/+$/, "") || "";
+  if (COMMERCIALE_PAGE_ALIASES[raw]) return COMMERCIALE_PAGE_ALIASES[raw];
+  for (const [from, to] of Object.entries(COMMERCIALE_PAGE_ALIASES)) {
+    if (raw.startsWith(`${from}/`)) return to;
+  }
+  return null;
 }

@@ -35,9 +35,28 @@ type Props = {
 };
 
 export default async function AmministrazioneSubPage({ params }: Props) {
-  await requireAreaAccess("amministrazione");
-
   const { section, sub } = await params;
+
+  if (section === "clienti" && sub === "elenco") {
+    redirect("/app/commerciale/clienti");
+  }
+  if (section === "clienti" && sub === "possibili") {
+    redirect("/app/commerciale/possibili-clienti");
+  }
+  if (section === "ordini" && sub === "preventivi") {
+    redirect("/app/commerciale/preventivi");
+  }
+  if (section === "ordini" && sub === "elenco") {
+    redirect("/app/commerciale/ordini/elenco");
+  }
+  if (section === "ordini" && (sub === "nuovo" || sub === "crea-nuovo")) {
+    redirect("/app/commerciale/ordini/nuovo");
+  }
+  if (section === "schede" && sub === "listini-b2b") {
+    redirect("/app/commerciale/listino");
+  }
+
+  await requireAreaAccess("amministrazione");
 
   // Legacy redirects
   if (section === "fatture") {
@@ -87,7 +106,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
     redirect(
       sub === "fornitori"
         ? "/app/amministrazione/fornitori/elenco"
-        : "/app/amministrazione/clienti/elenco"
+        : "/app/commerciale/clienti"
     );
   }
   if (section === "registro-accessi") {
@@ -197,7 +216,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           <Suspense
             fallback={
               <p className="text-sm text-[var(--muted)]">
-                Caricamento materie prime‚Ä¶
+                Caricamento materie primeù
               </p>
             }
           >
@@ -238,7 +257,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           <Suspense
             fallback={
               <p className="text-sm text-[var(--muted)]">
-                Caricamento prodotti Agrinsicilia‚Ä¶
+                Caricamento prodotti Agrinsiciliaù
               </p>
             }
           >

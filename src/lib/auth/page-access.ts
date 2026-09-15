@@ -1,3 +1,7 @@
+import {
+  COMMERCIALE_SECTIONS,
+  commercialeLegacyPageKey,
+} from "@/lib/areas/commerciale";
 import { isWebHubPath } from "@/lib/areas/web";
 import { isNavBranch, type NavItem } from "@/lib/areas/nav-tree";
 
@@ -145,23 +149,34 @@ function pathPrefixes(pathname: string): string[] {
   return out;
 }
 
-export function isAccessOffAlongPath(path: string, map: PageAccessMap): boolean {
+function flagsAlongPath(
+  path: string,
+  map: PageAccessMap
+): { on: boolean; off: boolean } {
   const areaKey = resolveAreaAccessKey(path);
-  if (map[areaKey] === false) return true;
+  let on = map[areaKey] === true;
+  let off = map[areaKey] === false;
   for (const prefix of pathPrefixes(path)) {
     const key = resolvePageKey(prefix);
-    if (map[key] === false || map[prefix] === false) return true;
+    if (map[key] === true || map[prefix] === true) on = true;
+    if (map[key] === false || map[prefix] === false) off = true;
   }
+  return { on, off };
+}
+
+export function isAccessOffAlongPath(path: string, map: PageAccessMap): boolean {
+  const raw = normalizeAppPath(path);
+  if (flagsAlongPath(raw, map).off) return true;
+  const legacy = commercialeLegacyPageKey(raw);
+  if (legacy && flagsAlongPath(legacy, map).off) return true;
   return false;
 }
 
 export function isAccessOnAlongPath(path: string, map: PageAccessMap): boolean {
-  const areaKey = resolveAreaAccessKey(path);
-  if (map[areaKey] === true) return true;
-  for (const prefix of pathPrefixes(path)) {
-    const key = resolvePageKey(prefix);
-    if (map[key] === true || map[prefix] === true) return true;
-  }
+  const raw = normalizeAppPath(path);
+  if (flagsAlongPath(raw, map).on) return true;
+  const legacy = commercialeLegacyPageKey(raw);
+  if (legacy && flagsAlongPath(legacy, map).on) return true;
   return false;
 }
 
@@ -177,6 +192,8 @@ export function normalizeAppPath(pathname: string): string {
  */
 export function resolvePageKey(pathname: string): string {
   const raw = normalizeAppPath(pathname);
+  const aliased = commercialeLegacyPageKey(raw);
+  if (aliased) return aliased;
   if (!raw.startsWith("/app")) return "/app/dashboard";
 
   if (raw.startsWith("/app/webmail/caselle")) {
@@ -288,6 +305,12 @@ export function isNavPathVisible(
     return true;
   }
   if (key === areaKey || path === areaKey) {
+    if (areaKey === "/app/commerciale") {
+      const fromChildren = COMMERCIALE_SECTIONS.some((item) =>
+        isNavPathVisible(item.path, map)
+      );
+      if (fromChildren) return true;
+    }
     return Object.entries(map).some(
       ([k, v]) =>
         v && !isActionAccessKey(k) && resolveAreaAccessKey(k) === areaKey

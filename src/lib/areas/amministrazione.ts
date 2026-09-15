@@ -11,27 +11,6 @@ import {
 /** Menu Amministrazione — struttura target OpuntiaIndustry */
 export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
   {
-    slug: "clienti",
-    label: "Elenco Clienti",
-    description: "Clienti e possibili clienti",
-    path: "/app/amministrazione/clienti",
-    children: [
-      {
-        slug: "elenco",
-        label: "Elenco Clienti",
-        description: "Anagrafiche clienti attive",
-        path: "/app/amministrazione/clienti/elenco",
-      },
-      {
-        slug: "possibili",
-        label: "Elenco Possibili clienti",
-        description:
-          "Contatti e nuove aziende da valutare (lead / prospect)",
-        path: "/app/amministrazione/clienti/possibili",
-      },
-    ],
-  },
-  {
     slug: "fornitori",
     label: "Elenco Fornitori",
     description: "Fornitori bio, non bio e candidati",
@@ -101,28 +80,14 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Catalogo movimentazione, confezione, isolamento e corrieri",
         path: "/app/amministrazione/schede/imballaggi-spedizioni",
       },
-      {
-        slug: "listini-b2b",
-        label: "Listini B2B",
-        description:
-          "Listini versionati per OpuntiaItalia (bozza / in revisione / in uso / obsoleto)",
-        path: "/app/amministrazione/schede/listini-b2b",
-      },
     ],
   },
   {
     slug: "ordini",
     label: "Ordini",
-    description: "Coda da processare, elenco e preventivi",
+    description: "Coda da processare (solo Admin)",
     path: "/app/amministrazione/ordini",
     children: [
-      {
-        slug: "nuovo",
-        label: "Nuovo ordine",
-        description:
-          "Crea un ordine merce o una campionatura da produrre / inviare",
-        path: "/app/amministrazione/ordini/nuovo",
-      },
       {
         slug: "da-processare",
         label: "Da processare",
@@ -130,19 +95,6 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
           "Ordini inseriti da passare in produzione (solo Admin)",
         path: "/app/amministrazione/ordini/da-processare",
         adminOnly: true,
-      },
-      {
-        slug: "elenco",
-        label: "Elenco ordini",
-        description: "Tutti gli ordini merce e campionatura",
-        path: "/app/amministrazione/ordini/elenco",
-      },
-      {
-        slug: "preventivi",
-        label: "Preventivi",
-        description:
-          "Preventivi creati, inviati, accettati o respinti",
-        path: "/app/amministrazione/ordini/preventivi",
       },
     ],
   },

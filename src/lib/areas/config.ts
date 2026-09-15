@@ -85,7 +85,8 @@ export const AREA_ROUTES: Record<
   commerciale: {
     path: "/app/commerciale",
     label: "Commerciale",
-    description: "Clienti con storico e clienti contattati",
+    description:
+      "Clienti, possibili clienti, preventivi, ordini, listino e nuova fattura",
   },
   acquisti: {
     path: "/app/acquisti",
@@ -108,6 +109,7 @@ export const AREA_ROUTES: Record<
 /** Aree mostrate nel menu laterale (ordine). Altre restano in RBAC ma nascoste. */
 export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
+  "commerciale",
   "amministrazione",
   "ricerca-sviluppo",
   "produzione",
@@ -125,7 +127,6 @@ export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
 
 /** Aree non mostrate nel menu (ancora raggiungibili se in permessi). */
 export const SIDEBAR_HIDDEN_AREAS: ReadonlySet<AreaSlug> = new Set([
-  "commerciale",
   "acquisti",
   "hr",
   "wikiopuntia",
