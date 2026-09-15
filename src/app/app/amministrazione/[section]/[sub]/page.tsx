@@ -216,7 +216,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           <Suspense
             fallback={
               <p className="text-sm text-[var(--muted)]">
-                Caricamento materie primeù
+                Caricamento materie prime...
               </p>
             }
           >
@@ -257,7 +257,7 @@ export default async function AmministrazioneSubPage({ params }: Props) {
           <Suspense
             fallback={
               <p className="text-sm text-[var(--muted)]">
-                Caricamento prodotti Agrinsiciliaù
+                Caricamento prodotti Agrinsicilia...
               </p>
             }
           >
