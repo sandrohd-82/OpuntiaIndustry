@@ -26,5 +26,25 @@ export function isUnrestrictedSuperadmin(auth: {
  */
 export function isAdminLikeProfile(profile: Profile): boolean {
   const code = getProfileRoleCode(profile);
-  return code === "superadmin" || code === "admin";
+  return (
+    code === "superadmin" ||
+    code === "admin" ||
+    parseProfilePotere(profile.potere) === "superadmin"
+  );
+}
+
+/** Approvazione listino: admin/superadmin sul profilo attivo o sull'attore (switch). */
+export function canApprovareListino(auth: {
+  profile: Profile;
+  actorProfile: Profile;
+  impersonating: boolean;
+}): boolean {
+  if (isUnrestrictedSuperadmin(auth)) return true;
+  if (isAdminLikeProfile(auth.profile) || isSuperadminProfile(auth.profile)) {
+    return true;
+  }
+  return (
+    isAdminLikeProfile(auth.actorProfile) ||
+    isSuperadminProfile(auth.actorProfile)
+  );
 }

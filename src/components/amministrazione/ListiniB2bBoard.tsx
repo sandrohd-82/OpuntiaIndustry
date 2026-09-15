@@ -16,6 +16,7 @@ import {
   listListinoRigheAction,
   riportaListinoInBozzaAction,
   setListinoRigaRevisioneAction,
+  setListinoRigheRevisioneBulkAction,
   updateListinoAction,
   upsertListinoRigaAction,
   upsertListinoRigaCondizioneAction,
@@ -81,7 +82,7 @@ const STATO_HELP: Record<ListinoStato, string> = {
   bozza:
     "L’operatore completa tutte le voci (prezzo oppure dichiarazione). Gli sconti sono facoltativi. Poi «Listino completo».",
   in_revisione:
-    "L’admin spunta ogni voce. Poi «Approva e metti in uso» con conferma e OTP.",
+    "Spunta ogni voce (o tutte insieme). Poi «OK, metti in uso» con conferma OTP.",
   in_uso:
     "Listino ufficiale. Resta in vigore anche dopo «Dichiara obsoleto», finché un nuovo listino non va In Uso.",
   obsoleto:
@@ -449,7 +450,10 @@ export function ListiniB2bBoard() {
 
   const selected = items.find((i) => i.id === selectedId) ?? null;
   const isBozza = selected?.stato === "bozza";
+  const inRevisione = selected?.stato === "in_revisione";
   const incompleteCount = righe.filter((r) => !rigaListinoCompleta(r)).length;
+  const checkCount = righe.filter((r) => r.revisioneApprovata).length;
+  const allChecked = righe.length > 0 && checkCount === righe.length;
   const itemsSorted = useMemo(() => {
     if (!elencoSort) return items;
     return [...items].sort((a, b) =>
@@ -494,6 +498,70 @@ export function ListiniB2bBoard() {
       else next.add(id);
       return next;
     });
+  }
+
+  function applyRigaCheck(rigaId: string, approvata: boolean) {
+    setRighe((prev) =>
+      prev.map((r) =>
+        r.id === rigaId ? { ...r, revisioneApprovata: approvata } : r
+      )
+    );
+  }
+
+  function applyAllChecks(approvata: boolean) {
+    setRighe((prev) => prev.map((r) => ({ ...r, revisioneApprovata: approvata })));
+  }
+
+  function openMettiInUso() {
+    if (!selected) return;
+    setError(null);
+    setOtp("");
+    setOtpInfo(null);
+    setOtpOpen(true);
+    startTransition(async () => {
+      const res = await sendEmailOtp("conferma");
+      if (!res.success) {
+        setError(
+          res.error ??
+            "Impossibile inviare l'OTP all'email dell'operatore."
+        );
+        return;
+      }
+      setOtpInfo("Codice OTP inviato all'email dell'operatore.");
+    });
+  }
+
+  async function toggleRigaCheck(rigaId: string, approvata: boolean) {
+    applyRigaCheck(rigaId, approvata);
+    const res = await setListinoRigaRevisioneAction({ rigaId, approvata });
+    if (!res.success) {
+      applyRigaCheck(rigaId, !approvata);
+      setError(res.error);
+    }
+  }
+
+  async function toggleAllChecks(approvata: boolean) {
+    if (!selected) return;
+    const prev = righe.map((r) => ({
+      id: r.id,
+      revisioneApprovata: r.revisioneApprovata,
+    }));
+    applyAllChecks(approvata);
+    const res = await setListinoRigheRevisioneBulkAction({
+      listinoId: selected.id,
+      approvata,
+    });
+    if (!res.success) {
+      setRighe((curr) =>
+        curr.map((r) => {
+          const old = prev.find((p) => p.id === r.id);
+          return old
+            ? { ...r, revisioneApprovata: old.revisioneApprovata }
+            : r;
+        })
+      );
+      setError(res.error);
+    }
   }
 
   function toggleExportAll() {
@@ -920,28 +988,28 @@ export function ListiniB2bBoard() {
                   <>
                     <button
                       type="button"
-                      disabled={pending}
-                      className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
-                      onClick={() => {
-                        setOtp("");
-                        setOtpInfo(null);
-                        setOtpOpen(true);
+                      disabled={pending || righe.length === 0}
+                      className="rounded-md border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium"
+                      onClick={() =>
                         startTransition(async () => {
-                          const res = await sendEmailOtp("conferma");
-                          if (!res.success) {
-                            setError(
-                              res.error ??
-                                "Impossibile inviare l'OTP all'email dell'operatore."
-                            );
-                            return;
-                          }
-                          setOtpInfo(
-                            "Codice OTP inviato all'email dell'operatore."
-                          );
-                        });
-                      }}
+                          await toggleAllChecks(!allChecked);
+                        })
+                      }
                     >
-                      Approva e metti in uso
+                      {allChecked ? "Togli tutti i check" : "Seleziona tutte le voci"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending || !allChecked}
+                      className="rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                      title={
+                        allChecked
+                          ? "Conferma e metti il listino in uso"
+                          : `Spunta tutte le voci (${checkCount}/${righe.length})`
+                      }
+                      onClick={openMettiInUso}
+                    >
+                      OK, metti in uso
                     </button>
                     <button
                       type="button"
@@ -989,6 +1057,12 @@ export function ListiniB2bBoard() {
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               {incompleteCount} voci senza prezzo: imposta € oppure dichiara
               «fuori produzione» / «al momento non disponibile».
+            </p>
+          ) : null}
+          {inRevisione && isAdmin ? (
+            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+              Check voci: {checkCount}/{righe.length}. Seleziona tutte e poi
+              «OK, metti in uso» per passare il listino in carica.
             </p>
           ) : null}
           {righe.length ? (
@@ -1061,13 +1135,27 @@ export function ListiniB2bBoard() {
                     className="px-3 py-2"
                   />
                   {selected.stato === "in_revisione" ? (
-                    <SortableTh
-                      label="Check"
-                      sortKey="check"
-                      sort={rigaSort}
-                      onSort={(k) => setRigaSort((s) => nextSortState(s, k))}
-                      className="px-3 py-2"
-                    />
+                    <th className="px-3 py-2">
+                      <label className="flex items-center gap-2 text-xs font-medium uppercase text-[var(--muted)]">
+                        <input
+                          type="checkbox"
+                          disabled={!isAdmin || righe.length === 0}
+                          checked={allChecked}
+                          ref={(el) => {
+                            if (el) {
+                              el.indeterminate =
+                                checkCount > 0 && !allChecked;
+                            }
+                          }}
+                          onChange={(e) =>
+                            startTransition(async () => {
+                              await toggleAllChecks(e.target.checked);
+                            })
+                          }
+                        />
+                        Check
+                      </label>
+                    </th>
                   ) : null}
                   <SortableTh
                     label={listinoExportI18n(selected.locale).discountHead[1]}
@@ -1134,6 +1222,11 @@ export function ListiniB2bBoard() {
                     onSaved={() => {
                       if (selectedId) void reloadRighe(selectedId);
                     }}
+                    onToggleCheck={(approvata) =>
+                      startTransition(async () => {
+                        await toggleRigaCheck(r.id, approvata);
+                      })
+                    }
                     onError={setError}
                     onAskDelete={setDeleting}
                     altriRighe={righe.filter((x) => x.id !== r.id)}
@@ -1395,6 +1488,7 @@ function RigaBlock({
   startTransition,
   selectedForExport,
   onToggleExport,
+  onToggleCheck,
 }: {
   riga: ListinoRiga;
   editable: boolean;
@@ -1412,6 +1506,7 @@ function RigaBlock({
   startTransition: (fn: () => Promise<void>) => void;
   selectedForExport: boolean;
   onToggleExport: () => void;
+  onToggleCheck: (approvata: boolean) => void;
 }) {
   const [prezzo, setPrezzo] = useState(() => bootstrapRiga(riga).prezzo);
   const [um, setUm] = useState<ListinoRigaUm>(() => bootstrapRiga(riga).um);
@@ -1629,21 +1724,9 @@ function RigaBlock({
           <td className="px-3 py-2">
             <input
               type="checkbox"
-              disabled={!isAdmin || pending}
+              disabled={!isAdmin}
               checked={riga.revisioneApprovata}
-              onChange={(e) =>
-                startTransition(async () => {
-                  const res = await setListinoRigaRevisioneAction({
-                    rigaId: riga.id,
-                    approvata: e.target.checked,
-                  });
-                  if (!res.success) {
-                    onError(res.error);
-                    return;
-                  }
-                  onSaved();
-                })
-              }
+              onChange={(e) => onToggleCheck(e.target.checked)}
             />
           </td>
         ) : null}

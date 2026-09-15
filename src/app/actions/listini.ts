@@ -4,7 +4,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineSupportReadAccess } from "@/lib/auth/ordini-access";
-import { isAdminLikeProfile } from "@/lib/auth/roles";
+import { canApprovareListino, isAdminLikeProfile } from "@/lib/auth/roles";
 import {
   GEO_CONTINENTE_LABEL,
   GEO_CONTINENTI,
@@ -326,7 +326,7 @@ export async function listListiniAction(): Promise<
         nazioniMap.get(r.listino_origine_id || r.id) ?? nazioniMap.get(r.id) ?? []
       )
     ),
-    isAdmin: isAdminLikeProfile(auth.profile),
+    isAdmin: canApprovareListino(auth),
   };
 }
 
@@ -857,7 +857,7 @@ export async function riportaListinoInBozzaAction(
   id: string
 ): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
-  if (!isAdminLikeProfile(auth.profile)) {
+  if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può riportare il listino in bozza." };
   }
   const supabase = await createClient();
@@ -906,7 +906,7 @@ export async function setListinoRigaRevisioneAction(input: {
   approvata: boolean;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
-  if (!isAdminLikeProfile(auth.profile)) {
+  if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può spuntare le voci in revisione." };
   }
   const supabase = await createClient();
@@ -939,12 +939,60 @@ export async function setListinoRigaRevisioneAction(input: {
   return { success: true };
 }
 
+export async function setListinoRigheRevisioneBulkAction(input: {
+  listinoId: string;
+  approvata: boolean;
+}): Promise<
+  { success: true; updated: number } | { success: false; error: string }
+> {
+  const { auth } = await guardAmm();
+  if (!canApprovareListino(auth)) {
+    return { success: false, error: "Solo un admin può spuntare le voci in revisione." };
+  }
+  const supabase = await createClient();
+  const { data: listino } = await supabase
+    .from("listini")
+    .select("id, stato, codice")
+    .eq("id", input.listinoId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!listino) return { success: false, error: "Listino non trovato" };
+  if ((listino as { stato: string }).stato !== "in_revisione") {
+    return { success: false, error: "Il check per voce vale solo In Revisione." };
+  }
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("listini_righe")
+    .update({
+      revisione_approvata: input.approvata,
+      revisione_approvata_at: input.approvata ? now : null,
+      revisione_approvata_by: input.approvata ? auth.userId : null,
+      updated_by: auth.userId,
+    })
+    .eq("listino_id", input.listinoId)
+    .is("deleted_at", null)
+    .select("id");
+  if (error) return { success: false, error: error.message };
+  const updated = (data ?? []).length;
+  await writeAuditLog({
+    entity_type: "listini",
+    entity_id: input.listinoId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: input.approvata
+      ? `Listino ${(listino as { codice: string }).codice}: check tutte le voci (${updated})`
+      : `Listino ${(listino as { codice: string }).codice}: rimosso check da tutte le voci`,
+    payload: { revisione_approvata: input.approvata, updated },
+  });
+  return { success: true, updated };
+}
+
 export async function approvaListinoInUsoAction(input: {
   id: string;
   otp: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await guardAmm();
-  if (!isAdminLikeProfile(auth.profile)) {
+  if (!canApprovareListino(auth)) {
     return { success: false, error: "Solo un admin può approvare e mettere In Uso." };
   }
   const otp = await verifyCurrentUserTotp(auth.userId, input.otp);
