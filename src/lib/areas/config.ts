@@ -109,8 +109,8 @@ export const AREA_ROUTES: Record<
 /** Aree mostrate nel menu laterale (ordine). Altre restano in RBAC ma nascoste. */
 export const SIDEBAR_AREA_ORDER: AreaSlug[] = [
   "dashboard",
-  "commerciale",
   "amministrazione",
+  "commerciale",
   "ricerca-sviluppo",
   "produzione",
   "action",

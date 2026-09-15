@@ -201,6 +201,14 @@ function buildPageArticles(): TutorialArticle[] {
     seen
   );
   walkNav(
+    COMMERCIALE_SECTIONS,
+    "commerciale",
+    "Commerciale",
+    ["Commerciale"],
+    out,
+    seen
+  );
+  walkNav(
     [OPUNTIA_ITALIA_NAV, CANALI_PUBBLICAZIONE_NAV, WIKI_UNDER_WEB],
     "web",
     "Web (Opuntia Italia e Wiki)",
@@ -265,14 +273,6 @@ function buildPageArticles(): TutorialArticle[] {
     "archivio",
     "Archivio",
     ["Archivio"],
-    out,
-    seen
-  );
-  walkNav(
-    COMMERCIALE_SECTIONS,
-    "commerciale",
-    "Commerciale",
-    ["Commerciale"],
     out,
     seen
   );
