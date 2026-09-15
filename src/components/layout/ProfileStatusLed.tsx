@@ -19,9 +19,15 @@ const LED_CLASS: Record<ProfileStatoOperativo, string> = {
 type Props = {
   stato: ProfileStatoOperativo;
   canChange: boolean;
+  /** Già attivato in passato: riabilitare Operativo non manda mail/avvisi. */
+  giaAttivato?: boolean;
 };
 
-export function ProfileStatusLed({ stato, canChange }: Props) {
+export function ProfileStatusLed({
+  stato,
+  canChange,
+  giaAttivato = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -63,7 +69,9 @@ export function ProfileStatusLed({ stato, canChange }: Props) {
       (stato === "test" || stato === "pre_operativo") &&
       typeof window !== "undefined" &&
       !window.confirm(
-        "Passare a Operativo? Verrà inviata una email all'operatore con il link per il primo accesso."
+        giaAttivato
+          ? "Ripristinare Operativo? Nessuna email o avviso verra inviato all'operatore."
+          : "Passare a Operativo? Verrà inviata una email all'operatore con il link per il primo accesso."
       )
     ) {
       return;

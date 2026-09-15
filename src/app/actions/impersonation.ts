@@ -291,8 +291,11 @@ export async function setProfileStatoOperativoAction(
   const activating =
     parsed.data === "operativo" &&
     (previous === "test" || previous === "pre_operativo");
+  const alreadyActive = Boolean(
+    target.attivato_at || target.password_impostata_at
+  );
 
-  if (activating) {
+  if (activating && !alreadyActive) {
     const alreadyHasPassword = Boolean(target.password_impostata_at);
     let link = "";
     if (!alreadyHasPassword) {
@@ -339,7 +342,7 @@ export async function setProfileStatoOperativoAction(
     stato_operativo_at: now,
     stato_operativo_by: gate.actorUserId,
   };
-  if (activating) {
+  if (activating && !alreadyActive) {
     updatePayload.attivato_at = now;
     updatePayload.attivato_by = gate.actorUserId;
     if (parseProfilePotere(target.potere) === "superadmin") {
@@ -368,6 +371,7 @@ export async function setProfileStatoOperativoAction(
       target_user_id: targetId,
       stato_operativo: parsed.data,
       previous,
+      email_inviata: activating && !alreadyActive,
     },
   });
 

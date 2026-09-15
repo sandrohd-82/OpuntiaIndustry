@@ -170,6 +170,9 @@ export default async function AppLayout({
         impersonating={auth.impersonating}
         actorName={actorName}
         statoOperativo={stato}
+        giaAttivato={Boolean(
+          auth.profile.attivato_at || auth.profile.password_impostata_at
+        )}
         pageAccess={pageAccess}
         testMenuMode={testMenuMode}
         applyPageFilter={applyPageFilter && !testMenuMode}

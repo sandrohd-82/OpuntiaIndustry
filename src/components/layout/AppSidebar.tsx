@@ -101,6 +101,7 @@ type Props = {
   impersonating?: boolean;
   actorName?: string;
   statoOperativo?: ProfileStatoOperativo;
+  giaAttivato?: boolean;
   pageAccess?: PageAccessMap;
   testMenuMode?: boolean;
   applyPageFilter?: boolean;
@@ -496,6 +497,7 @@ export function AppSidebar({
   impersonating = false,
   actorName = "Super Admin",
   statoOperativo = "operativo",
+  giaAttivato = false,
   pageAccess = {},
   testMenuMode = false,
   applyPageFilter = false,
@@ -755,6 +757,7 @@ export function AppSidebar({
             <ProfileStatusLed
               stato={statoOperativo}
               canChange={canCreateProfiles && impersonating}
+              giaAttivato={giaAttivato}
             />
           </div>
         ) : (
@@ -769,6 +772,7 @@ export function AppSidebar({
                   <ProfileStatusLed
                     stato={statoOperativo}
                     canChange={canCreateProfiles && impersonating}
+                    giaAttivato={giaAttivato}
                   />
                   {canImpersonate ? (
                     <ImpersonationSwitcher
