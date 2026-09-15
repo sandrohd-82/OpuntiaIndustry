@@ -47,6 +47,28 @@ export const PREVENTIVO_CONSEGNA_LABEL: Record<PreventivoConsegna, string> = {
 
 export const CONFEZIONE_STANDARD = "standard";
 
+export const GIORNI_CONSEGNA_DEFAULT = "da concordare";
+
+export const PREVENTIVO_IVA_DEFAULT = 22;
+
+export const PREVENTIVO_VALIDITA_GIORNI = 15;
+
+export const PREVENTIVO_NOTE_DEFAULT =
+  "Tutti i prodotti provengono da coltivazioni Siciliane in Biologico .\nOpuntia Italia è un Marchio registrato concesso in uso ad Agrinsicilia Coop";
+
+export function labelModalitaPagamentoPreventivo(
+  tipo: OrdineTipoPagamento
+): string {
+  if (tipo === "anticipato") return "Pagamento anticipato";
+  if (tipo === "alla_consegna") return "Pagamento alla consegna";
+  if (tipo === "posticipato") return "Pagamento posticipato";
+  return "Pagamento dilazionato";
+}
+
+export function roundEuro(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export type PreventivoScontisticaRiga = {
   id: string;
   qtyDa: number;
@@ -181,7 +203,12 @@ export const createPreventivoSchema = z
     coordinateBanca: z.string().trim().max(120).optional().default(""),
     coordinateIban: z.string().trim().max(40).optional().default(""),
     coordinateBic: z.string().trim().max(20).optional().default(""),
-    note: z.string().trim().max(4000).optional().default(""),
+    note: z
+      .string()
+      .trim()
+      .max(4000)
+      .optional()
+      .default(PREVENTIVO_NOTE_DEFAULT),
     righe: z.array(preventivoRigaSchema).min(1, "Aggiungi almeno un prodotto"),
   })
   .refine((d) => Boolean(d.clienteId || d.clientePossibileId), {
@@ -204,7 +231,5 @@ export const stimaSpedizioneSchema = z.object({
   pesoKg: z.number().min(0).optional().default(0),
   importoBaseManuale: z.number().min(0).nullable().optional(),
 });
-
-export const GIORNI_CONSEGNA_DEFAULT = "da concordare";
 
 export { ORDINE_TIPI_PAGAMENTO };

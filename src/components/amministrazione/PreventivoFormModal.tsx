@@ -4,11 +4,11 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
-  getCoordinateBancarieAgrinsiciliaAction,
   peekNextNumeroPreventivoAction,
   stimaSpedizionePreventivoAction,
 } from "@/app/actions/preventivi";
 import { PreventivoA4Letterhead } from "@/components/amministrazione/PreventivoA4Letterhead";
+import { PreventivoA4PiePagina } from "@/components/amministrazione/PreventivoA4PiePagina";
 import {
   PreventivoAggiungiProdottoModal,
   type PreventivoProdottoDraft,
@@ -25,7 +25,10 @@ import {
   GIORNI_CONSEGNA_DEFAULT,
   PREVENTIVO_CONSEGNA,
   PREVENTIVO_CONSEGNA_LABEL,
+  PREVENTIVO_IVA_DEFAULT,
+  PREVENTIVO_NOTE_DEFAULT,
   prezzoNettoRigaPreventivo,
+  roundEuro,
   type Preventivo,
   type PreventivoConsegna,
 } from "@/lib/amministrazione/preventivi";
@@ -36,9 +39,9 @@ import {
   SPEDIZIONE_MARKUP_SICUREZZA_PCT,
   type PreventivoSpedizioneFonte,
 } from "@/lib/amministrazione/preventivo-spedizione";
-import type {
-  CoordinateBancarieAgrinsicilia,
-  DestinatarioPreventivo,
+import {
+  AGRINSICILIA_COORDINATE,
+  type DestinatarioPreventivo,
 } from "@/lib/amministrazione/preventivo-letterhead";
 import { LISTINO_CONTRATTO_MSG } from "@/lib/ecosystem/listino-vigente";
 
@@ -90,10 +93,8 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [tipoPagamento, setTipoPagamento] =
     useState<OrdineTipoPagamento>("anticipato");
   const [giorniConsegna, setGiorniConsegna] = useState(GIORNI_CONSEGNA_DEFAULT);
-  const [includeCoordinate, setIncludeCoordinate] = useState(false);
-  const [coordinate, setCoordinate] =
-    useState<CoordinateBancarieAgrinsicilia | null>(null);
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(PREVENTIVO_NOTE_DEFAULT);
+  const [noteEditing, setNoteEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -138,17 +139,6 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       cancelled = true;
     };
   }, [dataPreventivo]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getCoordinateBancarieAgrinsiciliaAction().then((res) => {
-      if (cancelled || !res.success) return;
-      setCoordinate(res.item);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (consegnaMetodo !== "corriere_nostro") {
@@ -264,11 +254,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       spedizioneFonte,
       tipoPagamento,
       giorniConsegna: giorniConsegna.trim() || GIORNI_CONSEGNA_DEFAULT,
-      includeCoordinateBancarie: includeCoordinate,
-      coordinateBanca: coordinate?.banca ?? "",
-      coordinateIban: coordinate?.iban ?? "",
-      coordinateBic: coordinate?.bic ?? "",
-      note,
+      includeCoordinateBancarie: true,
+      coordinateBanca: AGRINSICILIA_COORDINATE.banca,
+      coordinateIban: AGRINSICILIA_COORDINATE.iban,
+      coordinateBic: AGRINSICILIA_COORDINATE.bic,
+      note: note.trim() || PREVENTIVO_NOTE_DEFAULT,
       righe: mapped,
     });
     setSaving(false);
@@ -280,6 +270,33 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   }
 
   const mostraCostoSpedizione = consegnaMetodo === "corriere_nostro";
+
+  const totali = useMemo(() => {
+    let imponibile = 0;
+    let iva = 0;
+    for (const r of righe) {
+      const netto = prezzoNettoRigaPreventivo(
+        r.prezzoUnitario,
+        r.scontoExtraPct
+      );
+      const imp = netto * r.quantita;
+      const aliq =
+        r.ivaPercentuale > 0 ? r.ivaPercentuale : PREVENTIVO_IVA_DEFAULT;
+      imponibile += imp;
+      iva += imp * (aliq / 100);
+    }
+    if (spedizioneImporto > 0) {
+      imponibile += spedizioneImporto;
+      iva += spedizioneImporto * (PREVENTIVO_IVA_DEFAULT / 100);
+    }
+    const impR = roundEuro(imponibile);
+    const ivaR = roundEuro(iva);
+    return {
+      imponibile: impR,
+      iva: ivaR,
+      totale: roundEuro(impR + ivaR),
+    };
+  }, [righe, spedizioneImporto]);
 
   return (
     <div
@@ -324,13 +341,11 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
           aria-labelledby={titleId}
           className="paper-invoice-sheet mx-auto w-full max-w-[210mm] bg-white text-slate-900 shadow-[0_8px_30px_rgba(15,23,42,0.18)] ring-1 ring-slate-200"
         >
-          <div className="box-border min-h-[297mm] px-[14mm] py-[12mm]">
+          <div className="box-border flex min-h-[297mm] flex-col px-[14mm] py-[12mm]">
             <PreventivoA4Letterhead
               numero={numeroPreview}
               dataPreventivo={dataPreventivo}
               onDataChange={setDataPreventivo}
-              showCoordinateBancarie={includeCoordinate}
-              coordinateBancarie={coordinate}
             />
 
             <PreventivoDestinatarioPicker
@@ -497,22 +512,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                     ))}
                   </select>
                 </label>
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    onClick={() => setIncludeCoordinate((v) => !v)}
-                    className={`w-full rounded border px-3 py-2 text-sm font-medium ${
-                      includeCoordinate
-                        ? "border-slate-800 bg-slate-800 text-white"
-                        : "border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                    }`}
-                  >
-                    {includeCoordinate
-                      ? "Togli coordinate bancarie"
-                      : "Includi coordinate bancarie"}
-                  </button>
-                </div>
-                <label className="block text-sm sm:col-span-2">
+                <label className="block text-sm">
                   <span className="mb-1 block font-medium">
                     Giorni di consegna
                   </span>
@@ -524,21 +524,26 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 </label>
               </div>
 
-              <label className="block text-sm">
-                <span className="mb-1 block font-medium">Note</span>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  rows={2}
-                  className="w-full rounded border border-slate-300 px-3 py-2"
-                />
-              </label>
-
               {formError ? (
                 <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {formError}
                 </p>
               ) : null}
+            </div>
+
+            <div className="mt-auto">
+              <PreventivoA4PiePagina
+                note={note}
+                noteEditing={noteEditing}
+                onNoteChange={setNote}
+                onToggleNoteEdit={() => setNoteEditing((v) => !v)}
+                tipoPagamento={tipoPagamento}
+                numero={numeroPreview}
+                dataPreventivo={dataPreventivo}
+                imponibile={totali.imponibile}
+                totaleIva={totali.iva}
+                totalePreventivo={totali.totale}
+              />
             </div>
           </div>
         </article>

@@ -9,6 +9,14 @@ export const AGRINSICILIA_LETTERHEAD = {
   indirizzo: "Via Giovanni Pacini, 6 - 92027 - Licata (AG)",
   partitaIva: "03031180841",
   codiceFiscale: "03031180841",
+  sito: "www.agrinsicilia.com",
+  email: "info@agrinsicilia.com",
+  cell: "+393208485846",
+} as const;
+
+export const OPUNTIA_ITALIA_LOGO = {
+  src: "/OpuntiaItalia.png",
+  alt: "Opuntia Italia",
 } as const;
 
 export type CoordinateBancarieAgrinsicilia = {
@@ -18,11 +26,25 @@ export type CoordinateBancarieAgrinsicilia = {
   intestatario: string;
 };
 
+/** Coordinate ufficiali bonifico preventivo / fattura. */
+export const AGRINSICILIA_COORDINATE: CoordinateBancarieAgrinsicilia = {
+  banca: "BCC Don Rizzo Menfi",
+  iban: "IT50L0894682990000000753139",
+  bic: "ICRAITRRQA0",
+  intestatario: AGRINSICILIA_LETTERHEAD.ragioneSociale,
+};
+
 export function coordinateBancarieFallback(): CoordinateBancarieAgrinsicilia {
   return {
-    banca: (process.env.AGRINSICILIA_BANCA ?? "BCC Don Rizzo").trim(),
-    iban: (process.env.AGRINSICILIA_IBAN ?? "").replace(/\s+/g, "").toUpperCase(),
-    bic: (process.env.AGRINSICILIA_BIC ?? "").replace(/\s+/g, "").toUpperCase(),
+    banca: (process.env.AGRINSICILIA_BANCA ?? AGRINSICILIA_COORDINATE.banca).trim(),
+    iban: (
+      process.env.AGRINSICILIA_IBAN ?? AGRINSICILIA_COORDINATE.iban
+    )
+      .replace(/\s+/g, "")
+      .toUpperCase(),
+    bic: (process.env.AGRINSICILIA_BIC ?? AGRINSICILIA_COORDINATE.bic)
+      .replace(/\s+/g, "")
+      .toUpperCase(),
     intestatario: AGRINSICILIA_LETTERHEAD.ragioneSociale,
   };
 }
