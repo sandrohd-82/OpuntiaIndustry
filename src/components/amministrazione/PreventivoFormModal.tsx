@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
-import { FaPen, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPlus, FaTrash } from "react-icons/fa6";
 import {
   createPreventivoAction,
   peekNextNumeroPreventivoAction,
@@ -13,7 +13,12 @@ import {
   PreventivoAggiungiProdottoModal,
   type PreventivoProdottoDraft,
 } from "@/components/amministrazione/PreventivoAggiungiProdottoModal";
-import { PreventivoDestinatarioPicker } from "@/components/amministrazione/PreventivoDestinatarioPicker";
+import {
+  PreventivoDestinatarioModal,
+  PreventivoDestinatarioPicker,
+} from "@/components/amministrazione/PreventivoDestinatarioPicker";
+import { PreventivoDocField } from "@/components/amministrazione/PreventivoDocPencil";
+import { PreventivoEditModal } from "@/components/amministrazione/PreventivoEditModal";
 import { ClearableNumberInput } from "@/components/ui/ClearableNumberInput";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
@@ -51,6 +56,17 @@ type DraftRiga = PreventivoProdottoDraft & {
   prodottoNome: string;
 };
 
+type EditKind =
+  | null
+  | "data"
+  | "destinatario"
+  | "prodotto"
+  | "spedizione"
+  | "giorni"
+  | "pagamento"
+  | "note"
+  | "iva";
+
 type Props = {
   onClose: () => void;
   onSaved: (item: Preventivo) => void;
@@ -79,7 +95,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
   const [dataPreventivo, setDataPreventivo] = useState(today);
   const [numeroPreview, setNumeroPreview] = useState("N/ANNO");
   const [righe, setRighe] = useState<DraftRiga[]>([]);
-  const [prodottoOpen, setProdottoOpen] = useState(false);
+  const [editKind, setEditKind] = useState<EditKind>(null);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [consegnaMetodo, setConsegnaMetodo] =
     useState<PreventivoConsegna>("da_concordare");
@@ -94,13 +110,23 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     useState<OrdineTipoPagamento>("anticipato");
   const [giorniConsegna, setGiorniConsegna] = useState(GIORNI_CONSEGNA_DEFAULT);
   const [note, setNote] = useState(PREVENTIVO_NOTE_DEFAULT);
-  const [noteEditing, setNoteEditing] = useState(false);
+  const [ivaDocumento, setIvaDocumento] = useState(PREVENTIVO_IVA_DEFAULT);
+  const [draftData, setDraftData] = useState(today);
+  const [draftConsegna, setDraftConsegna] =
+    useState<PreventivoConsegna>("da_concordare");
+  const [draftNolo, setDraftNolo] = useState<number | "">("");
+  const [draftGiorni, setDraftGiorni] = useState(GIORNI_CONSEGNA_DEFAULT);
+  const [draftPagamento, setDraftPagamento] =
+    useState<OrdineTipoPagamento>("anticipato");
+  const [draftNote, setDraftNote] = useState(PREVENTIVO_NOTE_DEFAULT);
+  const [draftIva, setDraftIva] = useState<number | "">(PREVENTIVO_IVA_DEFAULT);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const editing = editKey
     ? (righe.find((r) => r.key === editKey) ?? null)
     : null;
+  const fieldOpen = editKind != null;
 
   const pesoKg = useMemo(
     () =>
@@ -118,7 +144,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !saving && !prodottoOpen) onClose();
+      if (e.key === "Escape" && !saving && !fieldOpen) onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -127,7 +153,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, saving, prodottoOpen]);
+  }, [onClose, saving, fieldOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,19 +193,35 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     };
   }, [consegnaMetodo, destinatario, pesoKg, spedizioneBase]);
 
-  function onConsegna(next: PreventivoConsegna) {
+  function applyConsegna(next: PreventivoConsegna, nolo: number | "") {
     setConsegnaMetodo(next);
     setSpedizioneACarico(caricoDefaultDaConsegna(next));
     setSpedizioneFonte(fonteDefaultDaConsegna(next));
     if (next !== "corriere_nostro") {
       setSpedizioneBase("");
       setSpedizioneMsg(null);
+    } else {
+      setSpedizioneBase(nolo);
     }
   }
 
-  function openNuovoProdotto() {
+  function openEdit(kind: Exclude<EditKind, null>, rowKey: string | null = null) {
+    setEditKey(rowKey);
+    if (kind === "data") setDraftData(dataPreventivo);
+    if (kind === "spedizione") {
+      setDraftConsegna(consegnaMetodo);
+      setDraftNolo(spedizioneBase);
+    }
+    if (kind === "giorni") setDraftGiorni(giorniConsegna);
+    if (kind === "pagamento") setDraftPagamento(tipoPagamento);
+    if (kind === "note") setDraftNote(note);
+    if (kind === "iva") setDraftIva(ivaDocumento);
+    setEditKind(kind);
+  }
+
+  function closeEdit() {
+    setEditKind(null);
     setEditKey(null);
-    setProdottoOpen(true);
   }
 
   function onConfirmProdotto(draft: PreventivoProdottoDraft) {
@@ -196,8 +238,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       }
       return [...prev, row];
     });
-    setProdottoOpen(false);
-    setEditKey(null);
+    closeEdit();
   }
 
   async function onSubmit(e: FormEvent) {
@@ -226,7 +267,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       quantita: r.quantita,
       unitaMisura: r.unitaMisura,
       prezzoUnitario: r.prezzoUnitario,
-      ivaPercentuale: r.ivaPercentuale,
+      ivaPercentuale: r.ivaPercentuale || ivaDocumento,
       listinoId: r.listinoId,
       prezzoDaListino: r.prezzoDaListino,
       scontoExtraPct: r.scontoExtraPct,
@@ -269,7 +310,10 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
     onSaved(result.item);
   }
 
-  const mostraCostoSpedizione = consegnaMetodo === "corriere_nostro";
+  const draftNoloImporto =
+    draftConsegna === "corriere_nostro" && draftNolo !== ""
+      ? applicaMargineSpedizione(draftNolo)
+      : 0;
 
   const totali = useMemo(() => {
     let imponibile = 0;
@@ -280,14 +324,13 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         r.scontoExtraPct
       );
       const imp = netto * r.quantita;
-      const aliq =
-        r.ivaPercentuale > 0 ? r.ivaPercentuale : PREVENTIVO_IVA_DEFAULT;
+      const aliq = r.ivaPercentuale > 0 ? r.ivaPercentuale : ivaDocumento;
       imponibile += imp;
       iva += imp * (aliq / 100);
     }
     if (spedizioneImporto > 0) {
       imponibile += spedizioneImporto;
-      iva += spedizioneImporto * (PREVENTIVO_IVA_DEFAULT / 100);
+      iva += spedizioneImporto * (ivaDocumento / 100);
     }
     const impR = roundEuro(imponibile);
     const ivaR = roundEuro(iva);
@@ -296,14 +339,19 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
       iva: ivaR,
       totale: roundEuro(impR + ivaR),
     };
-  }, [righe, spedizioneImporto]);
+  }, [righe, spedizioneImporto, ivaDocumento]);
+
+  const spedizioneTesto =
+    consegnaMetodo === "corriere_nostro" && spedizioneImporto > 0
+      ? `${PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo]} · ${euro(spedizioneImporto)} €`
+      : PREVENTIVO_CONSEGNA_LABEL[consegnaMetodo];
 
   return (
     <div
       className="fixed inset-0 z-[60] overflow-y-auto bg-slate-950/65 px-3 py-6 sm:px-6"
       role="presentation"
       onClick={(e) => {
-        if (e.target === e.currentTarget && !saving && !prodottoOpen) onClose();
+        if (e.target === e.currentTarget && !saving && !fieldOpen) onClose();
       }}
     >
       <div className="mx-auto mb-4 flex max-w-[210mm] items-center justify-between gap-3 print:hidden">
@@ -330,6 +378,12 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         </div>
       </div>
 
+      {formError ? (
+        <p className="mx-auto mb-3 max-w-[210mm] rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 print:hidden">
+          {formError}
+        </p>
+      ) : null}
+
       <form
         id="preventivo-a4-form"
         onSubmit={onSubmit}
@@ -345,46 +399,44 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
             <PreventivoA4Letterhead
               numero={numeroPreview}
               dataPreventivo={dataPreventivo}
-              onDataChange={setDataPreventivo}
+              onEditData={() => openEdit("data")}
             />
 
             <PreventivoDestinatarioPicker
               value={destinatario}
               onChange={setDestinatario}
+              onEdit={() => openEdit("destinatario")}
             />
 
-            <div className="mt-8 space-y-4 border-t border-slate-200 pt-5">
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-sm font-medium">Prodotti</p>
-                  <button
-                    type="button"
-                    onClick={openNuovoProdotto}
-                    className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs font-medium"
-                  >
-                    <FaPlus size={10} />
-                    Aggiungi prodotto
-                  </button>
-                </div>
-                {righe.length === 0 ? (
-                  <p className="rounded border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
-                    Nessun prodotto. Usa «Aggiungi prodotto».
-                  </p>
-                ) : (
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="border-b border-slate-300 text-slate-600">
+            <div className="mt-8 border-t border-slate-200 pt-5">
+              <PreventivoDocField
+                label="Aggiungi o modifica prodotti"
+                onEdit={() => openEdit("prodotto")}
+              >
+                <table className="w-full text-left text-[11px]">
+                  <thead className="border-b border-slate-300 text-slate-600">
+                    <tr>
+                      <th className="py-1.5 pr-2 font-medium">Prodotto</th>
+                      <th className="py-1.5 pr-2 font-medium">Qty</th>
+                      <th className="py-1.5 pr-2 font-medium">Listino</th>
+                      <th className="py-1.5 pr-2 font-medium">Extra</th>
+                      <th className="py-1.5 pr-2 font-medium">Netto</th>
+                      <th className="py-1.5 pr-2 font-medium">Conf.</th>
+                      <th className="py-1.5 font-medium" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {righe.length === 0 ? (
                       <tr>
-                        <th className="py-1.5 pr-2 font-medium">Prodotto</th>
-                        <th className="py-1.5 pr-2 font-medium">Qty</th>
-                        <th className="py-1.5 pr-2 font-medium">Listino</th>
-                        <th className="py-1.5 pr-2 font-medium">Extra</th>
-                        <th className="py-1.5 pr-2 font-medium">Netto</th>
-                        <th className="py-1.5 pr-2 font-medium">Conf.</th>
-                        <th className="py-1.5 font-medium" />
+                        <td
+                          colSpan={7}
+                          className="py-2 text-slate-400 italic"
+                        >
+                          Descrizione prodotto, quantità, prezzo…
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {righe.map((riga) => {
+                    ) : (
+                      righe.map((riga) => {
                         const netto = prezzoNettoRigaPreventivo(
                           riga.prezzoUnitario,
                           riga.scontoExtraPct
@@ -414,17 +466,13 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                             <td className="py-1.5 pr-2">
                               {riga.confezionamento || "Standard"}
                             </td>
-                            <td className="py-1.5 text-right">
+                            <td className="py-1.5 text-right print:hidden">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setEditKey(riga.key);
-                                  setProdottoOpen(true);
-                                }}
-                                className="mr-1 rounded p-1 text-slate-600 hover:bg-slate-100"
-                                aria-label="Modifica riga"
+                                onClick={() => openEdit("prodotto", riga.key)}
+                                className="mr-1 text-[10px] text-slate-500 underline"
                               >
-                                <FaPen size={11} />
+                                modifica
                               </button>
                               <button
                                 type="button"
@@ -433,7 +481,7 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                                     prev.filter((r) => r.key !== riga.key)
                                   )
                                 }
-                                className="rounded p-1 text-red-600 hover:bg-red-50"
+                                className="text-red-600"
                                 aria-label="Rimuovi riga"
                               >
                                 <FaTrash size={11} />
@@ -441,105 +489,50 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                             </td>
                           </tr>
                         );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm sm:col-span-2">
-                  <span className="mb-1 block font-medium">
-                    Spedizione e consegna
-                  </span>
-                  <select
-                    value={consegnaMetodo}
-                    onChange={(e) =>
-                      onConsegna(e.target.value as PreventivoConsegna)
-                    }
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    {PREVENTIVO_CONSEGNA.map((c) => (
-                      <option key={c} value={c}>
-                        {PREVENTIVO_CONSEGNA_LABEL[c]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {mostraCostoSpedizione ? (
-                  <>
-                    <label className="block text-sm">
-                      <span className="mb-1 block font-medium">
-                        Nolo corriere (€)
-                      </span>
-                      <ClearableNumberInput
-                        min={0}
-                        value={spedizioneBase}
-                        onValueChange={setSpedizioneBase}
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <div className="text-sm">
-                      <p className="mb-1 font-medium">
-                        In preventivo (+{SPEDIZIONE_MARKUP_SICUREZZA_PCT}%)
-                      </p>
-                      <p className="rounded border border-slate-200 bg-slate-50 px-3 py-2 tabular-nums">
-                        {spedizioneImporto
-                          ? `${euro(spedizioneImporto)} €`
-                          : "—"}
-                      </p>
-                    </div>
-                    {spedizioneMsg ? (
-                      <p className="text-xs text-slate-500 sm:col-span-2">
-                        {spedizioneMsg}
-                      </p>
-                    ) : null}
-                  </>
-                ) : null}
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">Pagamento</span>
-                  <select
-                    value={tipoPagamento}
-                    onChange={(e) =>
-                      setTipoPagamento(e.target.value as OrdineTipoPagamento)
-                    }
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    {ORDINE_TIPI_PAGAMENTO.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block text-sm">
-                  <span className="mb-1 block font-medium">
-                    Giorni di consegna
-                  </span>
-                  <input
-                    value={giorniConsegna}
-                    onChange={(e) => setGiorniConsegna(e.target.value)}
-                    className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-              </div>
-
-              {formError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  {formError}
-                </p>
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </PreventivoDocField>
+              {righe.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openEdit("prodotto")}
+                  className="mt-1 inline-flex items-center gap-1 text-[10px] text-slate-400 print:hidden"
+                >
+                  <FaPlus size={8} />
+                  Aggiungi riga
+                </button>
               ) : null}
+
+              <div className="mt-5 space-y-1 text-[11px] leading-[1.45]">
+                <PreventivoDocField
+                  label="Modifica spedizione e consegna"
+                  onEdit={() => openEdit("spedizione")}
+                >
+                  <p>
+                    Spedizione e consegna: {spedizioneTesto}
+                  </p>
+                </PreventivoDocField>
+                <PreventivoDocField
+                  label="Modifica giorni di consegna"
+                  onEdit={() => openEdit("giorni")}
+                >
+                  <p>Giorni di consegna: {giorniConsegna}</p>
+                </PreventivoDocField>
+              </div>
             </div>
 
             <div className="mt-auto">
               <PreventivoA4PiePagina
                 note={note}
-                noteEditing={noteEditing}
-                onNoteChange={setNote}
-                onToggleNoteEdit={() => setNoteEditing((v) => !v)}
+                onEditNote={() => openEdit("note")}
                 tipoPagamento={tipoPagamento}
+                onEditPagamento={() => openEdit("pagamento")}
                 numero={numeroPreview}
                 dataPreventivo={dataPreventivo}
+                ivaPercentuale={ivaDocumento}
+                onEditIva={() => openEdit("iva")}
                 imponibile={totali.imponibile}
                 totaleIva={totali.iva}
                 totalePreventivo={totali.totale}
@@ -549,7 +542,37 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
         </article>
       </form>
 
-      {prodottoOpen ? (
+      {editKind === "data" ? (
+        <PreventivoEditModal
+          title="Data preventivo"
+          onClose={closeEdit}
+          onConfirm={() => {
+            setDataPreventivo(draftData);
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Data</span>
+            <input
+              type="date"
+              required
+              value={draftData}
+              onChange={(e) => setDraftData(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </PreventivoEditModal>
+      ) : null}
+
+      {editKind === "destinatario" ? (
+        <PreventivoDestinatarioModal
+          value={destinatario}
+          onChange={setDestinatario}
+          onClose={closeEdit}
+        />
+      ) : null}
+
+      {editKind === "prodotto" ? (
         <PreventivoAggiungiProdottoModal
           prodotti={prodotti}
           ready={ready}
@@ -573,12 +596,144 @@ export function PreventivoFormModal({ onClose, onSaved }: Props) {
                 }
               : null
           }
-          onClose={() => {
-            setProdottoOpen(false);
-            setEditKey(null);
-          }}
+          onClose={closeEdit}
           onConfirm={onConfirmProdotto}
         />
+      ) : null}
+
+      {editKind === "spedizione" ? (
+        <PreventivoEditModal
+          title="Spedizione e consegna"
+          onClose={closeEdit}
+          onConfirm={() => {
+            applyConsegna(draftConsegna, draftNolo);
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Modalità</span>
+            <select
+              value={draftConsegna}
+              onChange={(e) =>
+                setDraftConsegna(e.target.value as PreventivoConsegna)
+              }
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            >
+              {PREVENTIVO_CONSEGNA.map((c) => (
+                <option key={c} value={c}>
+                  {PREVENTIVO_CONSEGNA_LABEL[c]}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draftConsegna === "corriere_nostro" ? (
+            <>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Nolo corriere (€)</span>
+                <ClearableNumberInput
+                  min={0}
+                  value={draftNolo}
+                  onValueChange={setDraftNolo}
+                  className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                />
+              </label>
+              <p className="text-xs text-slate-500">
+                In preventivo (+{SPEDIZIONE_MARKUP_SICUREZZA_PCT}%):{" "}
+                {draftNoloImporto ? `${euro(draftNoloImporto)} €` : "—"}
+                {spedizioneMsg ? ` · ${spedizioneMsg}` : ""}
+              </p>
+            </>
+          ) : null}
+        </PreventivoEditModal>
+      ) : null}
+
+      {editKind === "giorni" ? (
+        <PreventivoEditModal
+          title="Giorni di consegna"
+          onClose={closeEdit}
+          onConfirm={() => {
+            setGiorniConsegna(draftGiorni.trim() || GIORNI_CONSEGNA_DEFAULT);
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Giorni di consegna</span>
+            <input
+              value={draftGiorni}
+              onChange={(e) => setDraftGiorni(e.target.value)}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </PreventivoEditModal>
+      ) : null}
+
+      {editKind === "pagamento" ? (
+        <PreventivoEditModal
+          title="Modalità di pagamento"
+          onClose={closeEdit}
+          onConfirm={() => {
+            setTipoPagamento(draftPagamento);
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Pagamento</span>
+            <select
+              value={draftPagamento}
+              onChange={(e) =>
+                setDraftPagamento(e.target.value as OrdineTipoPagamento)
+              }
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            >
+              {ORDINE_TIPI_PAGAMENTO.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </PreventivoEditModal>
+      ) : null}
+
+      {editKind === "note" ? (
+        <PreventivoEditModal
+          title="Note"
+          onClose={closeEdit}
+          onConfirm={() => {
+            setNote(draftNote.trim() || PREVENTIVO_NOTE_DEFAULT);
+            closeEdit();
+          }}
+        >
+          <textarea
+            value={draftNote}
+            onChange={(e) => setDraftNote(e.target.value)}
+            rows={5}
+            className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+          />
+        </PreventivoEditModal>
+      ) : null}
+
+      {editKind === "iva" ? (
+        <PreventivoEditModal
+          title="IVA"
+          onClose={closeEdit}
+          onConfirm={() => {
+            const n = draftIva === "" ? PREVENTIVO_IVA_DEFAULT : draftIva;
+            setIvaDocumento(Math.min(100, Math.max(0, n)));
+            closeEdit();
+          }}
+        >
+          <label className="block text-sm">
+            <span className="mb-1 block font-medium">Aliquota IVA (%)</span>
+            <ClearableNumberInput
+              min={0}
+              max={100}
+              value={draftIva}
+              onValueChange={setDraftIva}
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+          </label>
+        </PreventivoEditModal>
       ) : null}
     </div>
   );

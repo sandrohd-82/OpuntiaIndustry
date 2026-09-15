@@ -26,6 +26,7 @@ type Props = {
   onSave: (
     values: ClienteInput & { referenteIds: string[] }
   ) => boolean | Promise<boolean>;
+  stackTop?: boolean;
 };
 
 function sameSede(a: SedeCliente, b: SedeCliente) {
@@ -92,6 +93,7 @@ export function PossibileClienteFormModal({
   initial = null,
   onClose,
   onSave,
+  stackTop = false,
 }: Props) {
   const isEdit = mode === "edit" && Boolean(initial);
   const titleId = useId();
@@ -232,7 +234,9 @@ export function PossibileClienteFormModal({
   const dialog = (
     <div
       data-cliente-modal-root="true"
-      className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10"
+      className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 ${
+        stackTop ? "z-[110]" : "z-[90]"
+      }`}
       role="presentation"
     >
       <div

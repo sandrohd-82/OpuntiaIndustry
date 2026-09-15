@@ -46,6 +46,8 @@ type Props = {
     | Promise<boolean | { id: string }>;
   /** Sopra un’altra modale (es. ordine storico). */
   elevated?: boolean;
+  /** Sopra una seconda modale (es. destinatario preventivo). */
+  stackTop?: boolean;
   /** Documento FiC da consultare durante la sync (PDF + XML). */
   ficDocument?: { kind: FatturaKind; ficId: number } | null;
   /**
@@ -91,6 +93,7 @@ export function ClienteFormModal({
   onClose,
   onSave,
   elevated = false,
+  stackTop = false,
   ficDocument = null,
   variant = "cliente",
 }: Props) {
@@ -409,7 +412,7 @@ export function ClienteFormModal({
     <div
       data-nested-modal={elevated ? "cliente" : undefined}
       className={`fixed inset-0 flex items-start justify-center overflow-y-auto bg-slate-950/60 px-4 py-10 sm:py-14 ${
-        elevated ? "z-[90]" : "z-[60]"
+        stackTop ? "z-[110]" : elevated ? "z-[90]" : "z-[60]"
       }`}
       role="presentation"
       onClick={(e) => e.stopPropagation()}
