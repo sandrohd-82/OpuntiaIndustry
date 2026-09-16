@@ -1,4 +1,8 @@
-import type { ConfezionamentoNodoDraft } from "@/lib/amministrazione/imballaggi-spedizioni";
+import {
+  formatBloccoRiepilogo,
+  nodiToBlocchi,
+  type ConfezionamentoNodoDraft,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 
 export type FoglioLottoStampaModo = "blocco" | "collo" | "libera";
 
@@ -55,7 +59,7 @@ function colliSulPallet(root: ConfezionamentoNodoDraft): {
 }
 
 export function contaFogliBlocco(nodi: ConfezionamentoNodoDraft[]): number {
-  return nodi.reduce((s, n) => s + Math.max(qty(n), 0), 0);
+  return nodiToBlocchi(nodi).length;
 }
 
 export function contaFogliCollo(nodi: ConfezionamentoNodoDraft[]): number {
@@ -65,23 +69,14 @@ export function contaFogliCollo(nodi: ConfezionamentoNodoDraft[]): number {
 export function pagineFogliPerBlocco(
   nodi: ConfezionamentoNodoDraft[]
 ): FoglioLottoPagina[] {
-  const totBlocchi = contaFogliBlocco(nodi);
-  const out: FoglioLottoPagina[] = [];
-  let global = 0;
-  for (const root of nodi) {
-    const n = Math.max(qty(root), 0);
-    for (let i = 1; i <= n; i += 1) {
-      global += 1;
-      out.push({
-        titoloUnita: `Blocco ${i} di ${n}`,
-        dettaglioUnita: nome(root),
-        composizione: descrizioneFigli(root),
-        indice: global,
-        totale: totBlocchi,
-      });
-    }
-  }
-  return out;
+  const blocchi = nodiToBlocchi(nodi);
+  return blocchi.map((b, i) => ({
+    titoloUnita: `Blocco ${i + 1} di ${blocchi.length}`,
+    dettaglioUnita: formatBloccoRiepilogo(b, i + 1),
+    composizione: formatBloccoRiepilogo(b, i + 1),
+    indice: i + 1,
+    totale: blocchi.length,
+  }));
 }
 
 export function pagineFogliPerCollo(
@@ -111,10 +106,15 @@ export function pagineFogliPerCollo(
         const cq = Math.max(qty(child), 0);
         for (let c = 1; c <= cq; c += 1) {
           collo += 1;
+          const isoDentro = child.children.find((x) => x.stadio === "isolamento");
           out.push({
             titoloUnita: `Collo ${collo} di ${tot}`,
-            dettaglioUnita: `${nome(child)} su ${palletLabel}`,
-            composizione: `Colli su questo pallet: ${voci} (totale ${tot})`,
+            dettaglioUnita: isoDentro
+              ? `${nome(child)} con ${nome(isoDentro)} su ${palletLabel}`
+              : `${nome(child)} su ${palletLabel}`,
+            composizione: isoDentro
+              ? `${tot} colli collegati su questo pallet: ${nome(child)} con dentro ${nome(isoDentro)}`
+              : `Colli su questo pallet: ${voci} (totale ${tot})`,
             indice: 0,
             totale: 0,
           });

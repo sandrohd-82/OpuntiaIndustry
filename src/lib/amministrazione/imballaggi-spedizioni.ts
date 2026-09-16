@@ -535,12 +535,9 @@ export function formatConfezionamentoRiepilogo(
   nodi: ConfezionamentoNodoDraft[]
 ): string {
   if (!nodi.length) return "";
-  return nodi
-    .map((root) => {
-      const kids = root.children.map(formatNodoRiga).filter(Boolean);
-      const head = formatNodoRiga(root);
-      return kids.length ? `${head}: ${kids.join(" + ")}` : head;
-    })
+  return nodiToBlocchi(nodi)
+    .map((b, i) => formatBloccoRiepilogo(b, i + 1))
+    .filter(Boolean)
     .join(" · ");
 }
 
@@ -574,29 +571,39 @@ export function idsFromConfezionamento(nodi: ConfezionamentoNodoDraft[]): {
 export function validateConfezionamentoBlocchi(
   draft: ConfezionamentoNormalized
 ): string | null {
-  if (!draft.nodi.length) {
+  const blocchi = nodiToBlocchi(draft.nodi);
+  if (!blocchi.length) {
     return "Aggiungi almeno un blocco di confezionamento.";
   }
-  function walk(nodes: ConfezionamentoNodoNormalized[]): string | null {
-    for (const n of nodes) {
-      if (n.quantita <= 0) {
-        return "Ogni riga del blocco deve avere quantità maggiore di zero.";
-      }
-      if (n.stadio !== "prodotto_kg" && !n.catalogoId) {
-        return `Seleziona ${labelStadioConfezionamento(n.stadio).toLowerCase()} nel blocco.`;
-      }
-      if (
-        n.stadio === "prodotto_kg" &&
-        (n.kgProdotto == null || n.kgProdotto <= 0)
-      ) {
-        return "Indica i kg di prodotto in ogni blocco.";
-      }
-      const childErr = walk(n.children);
-      if (childErr) return childErr;
+  for (const [i, b] of blocchi.entries()) {
+    const n = i + 1;
+    if (!b.movimentazione && !b.confezionamento && !b.isolamento) {
+      return `Il blocco ${n} è vuoto. Aggiungi movimentazione, confezione o isolamento.`;
     }
-    return null;
+    if (b.movimentazione && !b.movimentazione.catalogoId) {
+      return `Seleziona la movimentazione del blocco ${n}.`;
+    }
+    if (b.confezionamento) {
+      if (!b.confezionamento.catalogoId) {
+        return `Seleziona il confezionamento del blocco ${n}.`;
+      }
+      if (voceQty(b.confezionamento) <= 0) {
+        return `Indica quanti elementi di confezione ha il blocco ${n}.`;
+      }
+    }
+    if (b.isolamento) {
+      if (!b.isolamento.catalogoId) {
+        return `Seleziona l’isolamento del blocco ${n}.`;
+      }
+      if (voceQty(b.isolamento) <= 0) {
+        return `Indica quanti elementi di isolamento ha il blocco ${n}.`;
+      }
+    }
+    if (b.collegato && (!b.confezionamento || !b.isolamento)) {
+      return `Per collegare, il blocco ${n} deve avere confezione e isolamento.`;
+    }
   }
-  return walk(draft.nodi);
+  return null;
 }
 
 export type ConfezionamentoNodoRow = {
@@ -637,4 +644,205 @@ export function draftNodiFromRows(
     }));
   }
   return build(null);
+}
+
+export type ConfezionamentoBloccoVoce = {
+  localId: string;
+  catalogoId: string | null;
+  nome: string;
+  codice: string;
+  quantita: number | "";
+};
+
+export type ConfezionamentoBlocco = {
+  localId: string;
+  movimentazione: ConfezionamentoBloccoVoce | null;
+  confezionamento: ConfezionamentoBloccoVoce | null;
+  isolamento: ConfezionamentoBloccoVoce | null;
+  collegato: boolean;
+};
+
+export function emptyBloccoVoce(): ConfezionamentoBloccoVoce {
+  return {
+    localId: newNodoLocalId(),
+    catalogoId: null,
+    nome: "",
+    codice: "",
+    quantita: 1,
+  };
+}
+
+export function emptyBlocco(): ConfezionamentoBlocco {
+  return {
+    localId: newNodoLocalId(),
+    movimentazione: null,
+    confezionamento: null,
+    isolamento: null,
+    collegato: false,
+  };
+}
+
+function voceQty(v: ConfezionamentoBloccoVoce): number {
+  return typeof v.quantita === "number" && v.quantita > 0 ? v.quantita : 0;
+}
+
+function nodoToVoce(n: ConfezionamentoNodoDraft): ConfezionamentoBloccoVoce {
+  return {
+    localId: n.localId,
+    catalogoId: n.catalogoId,
+    nome: n.nome,
+    codice: n.codice,
+    quantita: n.quantita === "" ? "" : n.quantita,
+  };
+}
+
+function voceToNodo(
+  stadio: "movimentazione" | "confezione" | "isolamento",
+  v: ConfezionamentoBloccoVoce,
+  children: ConfezionamentoNodoDraft[] = []
+): ConfezionamentoNodoDraft {
+  return {
+    localId: v.localId,
+    stadio,
+    catalogoId: v.catalogoId,
+    nome: v.nome,
+    codice: v.codice,
+    quantita: v.quantita === "" ? 1 : v.quantita,
+    kgProdotto: null,
+    children,
+  };
+}
+
+export function formatBloccoRiepilogo(
+  b: ConfezionamentoBlocco,
+  indice: number
+): string {
+  const parts: string[] = [];
+  if (b.movimentazione) {
+    parts.push(b.movimentazione.nome || "movimentazione");
+  }
+  if (b.collegato && b.confezionamento && b.isolamento) {
+    const n = voceQty(b.confezionamento) || voceQty(b.isolamento);
+    parts.push(
+      `${n} ${(b.confezionamento.nome || "confezione")} con dentro ${b.isolamento.nome || "isolamento"}`
+    );
+  } else {
+    if (b.confezionamento) {
+      parts.push(
+        `${voceQty(b.confezionamento)} ${b.confezionamento.nome || "confezione"}`
+      );
+    }
+    if (b.isolamento) {
+      parts.push(
+        `${voceQty(b.isolamento)} ${b.isolamento.nome || "isolamento"}`
+      );
+    }
+  }
+  return `Blocco ${indice}: ${parts.join(" · ") || "vuoto"}`;
+}
+
+export function nodiToBlocchi(
+  nodi: ConfezionamentoNodoDraft[]
+): ConfezionamentoBlocco[] {
+  return nodi.map((root) => {
+    if (root.stadio === "movimentazione") {
+      const conf = root.children.find((c) => c.stadio === "confezione") ?? null;
+      const isoNested =
+        conf?.children.find((c) => c.stadio === "isolamento") ?? null;
+      const isoDirect =
+        root.children.find((c) => c.stadio === "isolamento") ?? null;
+      const collegato = Boolean(conf && isoNested);
+      const isolamento = collegato
+        ? {
+            ...nodoToVoce(isoNested!),
+            quantita: conf!.quantita,
+          }
+        : isoDirect
+          ? nodoToVoce(isoDirect)
+          : null;
+      const isWrapper = !root.catalogoId && root.nome === "Blocco";
+      return {
+        localId: root.localId,
+        movimentazione: isWrapper ? null : nodoToVoce(root),
+        confezionamento: conf ? nodoToVoce(conf) : null,
+        isolamento,
+        collegato,
+      };
+    }
+    if (root.stadio === "confezione") {
+      const iso = root.children.find((c) => c.stadio === "isolamento") ?? null;
+      return {
+        localId: root.localId,
+        movimentazione: null,
+        confezionamento: nodoToVoce(root),
+        isolamento: iso
+          ? { ...nodoToVoce(iso), quantita: root.quantita }
+          : null,
+        collegato: Boolean(iso),
+      };
+    }
+    return {
+      localId: root.localId,
+      movimentazione: null,
+      confezionamento: null,
+      isolamento: root.stadio === "isolamento" ? nodoToVoce(root) : null,
+      collegato: false,
+    };
+  });
+}
+
+export function blocchiToNodi(
+  blocchi: ConfezionamentoBlocco[]
+): ConfezionamentoNodoDraft[] {
+  return blocchi.map((b) => {
+    const kids: ConfezionamentoNodoDraft[] = [];
+    if (b.collegato && b.confezionamento && b.isolamento) {
+      const isoUno: ConfezionamentoBloccoVoce = {
+        ...b.isolamento,
+        quantita: 1,
+      };
+      kids.push(voceToNodo("confezione", b.confezionamento, [
+        voceToNodo("isolamento", isoUno),
+      ]));
+    } else {
+      if (b.confezionamento) {
+        kids.push(voceToNodo("confezione", b.confezionamento));
+      }
+      if (b.isolamento) {
+        kids.push(voceToNodo("isolamento", b.isolamento));
+      }
+    }
+    if (b.movimentazione) {
+      return voceToNodo("movimentazione", {
+        ...b.movimentazione,
+        quantita: 1,
+      }, kids);
+    }
+    if (kids.length === 1) return kids[0]!;
+    return {
+      localId: b.localId,
+      stadio: "movimentazione",
+      catalogoId: null,
+      nome: "Blocco",
+      codice: "",
+      quantita: 1,
+      kgProdotto: null,
+      children: kids,
+    };
+  });
+}
+
+export function draftFromBlocchi(
+  draft: ConfezionamentoDraft,
+  blocchi: ConfezionamentoBlocco[]
+): ConfezionamentoDraft {
+  const hasPallet = blocchi.some((b) => Boolean(b.movimentazione?.catalogoId));
+  return {
+    ...draft,
+    movimentazioneModo: hasPallet ? "su_pallet" : "nessun_pallet",
+    palletCatalogoId:
+      blocchi.find((b) => b.movimentazione?.catalogoId)?.movimentazione
+        ?.catalogoId ?? null,
+    nodi: blocchiToNodi(blocchi),
+  };
 }
