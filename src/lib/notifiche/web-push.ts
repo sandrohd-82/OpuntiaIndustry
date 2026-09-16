@@ -11,17 +11,26 @@ export type PushPayload = {
   tag?: string;
 };
 
+export function getVapidPublicKey(): string | null {
+  const key = (
+    process.env.VAPID_PUBLIC_KEY ||
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
+    ""
+  ).trim();
+  return key || null;
+}
+
 function vapidReady(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
-  );
+  return Boolean(getVapidPublicKey() && process.env.VAPID_PRIVATE_KEY);
 }
 
 function configureVapid() {
+  const publicKey = getVapidPublicKey();
+  if (!publicKey || !process.env.VAPID_PRIVATE_KEY) return;
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT || "mailto:support@opuntiaindustry.com",
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
+    publicKey,
+    process.env.VAPID_PRIVATE_KEY
   );
 }
 

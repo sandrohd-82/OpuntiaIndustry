@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 import { NOTIFICA_TIPI } from "@/lib/notifiche/types";
+import { getVapidPublicKey } from "@/lib/notifiche/web-push";
 import { createClient } from "@/lib/supabase/server";
 
 const subscriptionSchema = z.object({
@@ -126,5 +127,5 @@ export async function savePushSubscriptionAction(input: unknown): Promise<
 }
 
 export async function vapidPublicKeyAction(): Promise<string | null> {
-  return process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() || null;
+  return getVapidPublicKey();
 }
