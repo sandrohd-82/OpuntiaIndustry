@@ -50,7 +50,7 @@ async function loadMappa(
   const { data: header } = await supabase
     .from("magazzino_mappe")
     .select(
-      "id, nome, versione, documento_stato, view_x, view_y, view_zoom, griglia_px, note, approved_at"
+      "id, nome, versione, documento_stato, vista_etichetta, view_x, view_y, view_zoom, griglia_px, note, approved_at"
     )
     .eq("id", id)
     .is("deleted_at", null)
@@ -67,6 +67,7 @@ async function loadMappa(
     nome: string;
     versione: number;
     documento_stato: string;
+    vista_etichetta: string;
     view_x: number;
     view_y: number;
     view_zoom: number;
@@ -79,6 +80,7 @@ async function loadMappa(
     nome: h.nome,
     versione: h.versione,
     documentoStato: parseStato(h.documento_stato),
+    vistaEtichetta: h.vista_etichetta ?? "",
     viewX: Number(h.view_x),
     viewY: Number(h.view_y),
     viewZoom: Number(h.view_zoom),
@@ -172,11 +174,18 @@ export async function salvaMappaMagazzinoAction(
       error: "La pianta è approvata. Riapri la progettazione per modificarla.",
     };
   }
+  if (input.linee.length > 0 && !input.vistaEtichetta) {
+    return {
+      success: false,
+      error: "Imposta prima il testo Vista (es. Dall’alto, Lato fronte, Lato Dx).",
+    };
+  }
 
   const { error: upErr } = await supabase
     .from("magazzino_mappe")
     .update({
       nome: input.nome?.trim() || undefined,
+      vista_etichetta: input.vistaEtichetta,
       view_x: input.viewX,
       view_y: input.viewY,
       view_zoom: input.viewZoom,
@@ -244,8 +253,12 @@ export async function salvaMappaMagazzinoAction(
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Salvata pianta magazzino (${input.linee.length} linee)`,
-    payload: { linee: input.linee.length, view_zoom: input.viewZoom },
+    summary: `Salvata pianta magazzino (${input.linee.length} linee, vista ${input.vistaEtichetta || "—"})`,
+    payload: {
+      linee: input.linee.length,
+      view_zoom: input.viewZoom,
+      vista: input.vistaEtichetta,
+    },
   });
   const mappa = await loadMappa(supabase, input.mappaId);
   if (!mappa) return { success: false, error: "Pianta salvata ma non leggibile." };
@@ -263,6 +276,19 @@ export async function approvaMappaMagazzinoAction(
     return { success: false, error: "Solo il Super Admin può approvare la pianta." };
   }
   const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select("vista_etichetta")
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const vista = ((cur as { vista_etichetta?: string } | null)?.vista_etichetta ?? "").trim();
+  if (!vista) {
+    return {
+      success: false,
+      error: "Imposta e salva il testo Vista prima di approvare.",
+    };
+  }
   const { error } = await supabase
     .from("magazzino_mappe")
     .update({

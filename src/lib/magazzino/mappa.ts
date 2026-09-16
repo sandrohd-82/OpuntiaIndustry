@@ -24,6 +24,7 @@ export type MappaMagazzino = {
   nome: string;
   versione: number;
   documentoStato: MappaDocumentoStato;
+  vistaEtichetta: string;
   viewX: number;
   viewY: number;
   viewZoom: number;
@@ -32,6 +33,14 @@ export type MappaMagazzino = {
   approvedAt: string | null;
   linee: MappaLinea[];
 };
+
+export const MAPPA_VISTA_SUGGERITE = [
+  "Dall'alto",
+  "Lato fronte",
+  "Lato Dx",
+  "Lato Sx",
+  "Retro",
+] as const;
 
 export const mappaLineaInputSchema = z.object({
   id: z.string().uuid().optional(),
@@ -46,6 +55,7 @@ export const mappaLineaInputSchema = z.object({
 export const salvaMappaSchema = z.object({
   mappaId: z.string().uuid(),
   nome: z.string().trim().min(1).max(120).optional(),
+  vistaEtichetta: z.string().trim().max(80),
   viewX: z.number().finite(),
   viewY: z.number().finite(),
   viewZoom: z.number().positive().max(20),

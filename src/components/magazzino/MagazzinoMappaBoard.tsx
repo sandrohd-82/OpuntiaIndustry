@@ -10,6 +10,7 @@ import {
 import {
   distanzaPuntoSegmento,
   MAPPA_STATO_LABEL,
+  MAPPA_VISTA_SUGGERITE,
   snapToGrid,
   type MappaLinea,
   type MappaMagazzino,
@@ -29,6 +30,7 @@ export function MagazzinoMappaBoard() {
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
+  const [vistaEtichetta, setVistaEtichetta] = useState("");
   const [spessore, setSpessore] = useState(6);
   const [tool, setTool] = useState<Tool>("linea");
   const [draftStart, setDraftStart] = useState<{ x: number; y: number } | null>(
@@ -48,6 +50,8 @@ export function MagazzinoMappaBoard() {
   const [saving, setSaving] = useState(false);
 
   const editing = Boolean(canDesign && mappa?.documentoStato === "bozza");
+  const vistaOk = vistaEtichetta.trim().length > 0;
+  const canDraw = editing && vistaOk;
 
   async function reload() {
     const res = await getMappaMagazzinoAction();
@@ -59,6 +63,7 @@ export function MagazzinoMappaBoard() {
     setMappa(res.mappa);
     setCanDesign(res.canDesign);
     setLinee(res.mappa.linee);
+    setVistaEtichetta(res.mappa.vistaEtichetta);
     setPan({ x: res.mappa.viewX, y: res.mappa.viewY });
     setZoom(res.mappa.viewZoom);
     setGriglia(res.mappa.grigliaPx);
@@ -123,7 +128,7 @@ export function MagazzinoMappaBoard() {
       x: snapToGrid(w.x, griglia),
       y: snapToGrid(w.y, griglia),
     };
-    if (!editing) {
+    if (!canDraw) {
       setSelectedId(hitLine(w.x, w.y));
       return;
     }
@@ -183,22 +188,26 @@ export function MagazzinoMappaBoard() {
 
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
+      const t = ev.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) {
+        return;
+      }
       if (ev.key === "Escape") {
         setDraftStart(null);
         setSelectedId(null);
       }
-      if ((ev.key === "Delete" || ev.key === "Backspace") && editing && selectedId) {
+      if ((ev.key === "Delete" || ev.key === "Backspace") && canDraw && selectedId) {
         setLinee((prev) => prev.filter((l) => l.id !== selectedId));
         setSelectedId(null);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editing, selectedId]);
+  }, [canDraw, selectedId]);
 
   function applySpessore(v: number) {
     setSpessore(v);
-    if (selectedId && editing) {
+    if (selectedId && canDraw) {
       setLinee((prev) =>
         prev.map((l) => (l.id === selectedId ? { ...l, spessore: v } : l))
       );
@@ -213,6 +222,7 @@ export function MagazzinoMappaBoard() {
     const persisted = new Set(mappa.linee.map((l) => l.id));
     const res = await salvaMappaMagazzinoAction({
       mappaId: mappa.id,
+      vistaEtichetta: vistaEtichetta.trim(),
       viewX: pan.x,
       viewY: pan.y,
       viewZoom: zoom,
@@ -234,6 +244,7 @@ export function MagazzinoMappaBoard() {
     }
     setMappa(res.mappa);
     setLinee(res.mappa.linee);
+    setVistaEtichetta(res.mappa.vistaEtichetta);
     setOk("Pianta salvata.");
     return true;
   }
@@ -289,11 +300,21 @@ export function MagazzinoMappaBoard() {
             {MAPPA_STATO_LABEL[mappa.documentoStato]}
           </p>
           <p className="text-xs text-[var(--muted)]">
+            {vistaOk ? (
+              <span className="font-medium text-slate-700">
+                Vista: {vistaEtichetta.trim()}
+              </span>
+            ) : editing ? (
+              "Prima imposta il testo Vista, poi traccia le linee."
+            ) : (
+              "Vista non impostata."
+            )}
+            {" · "}
             {editing
-              ? "Clicca due punti per una linea retta. Rotella = zoom. Maiusc + trascina = sposta la vista. Canc = elimina la linea selezionata."
+              ? "Clicca due punti per una linea retta. Rotella = zoom. Maiusc + trascina = sposta il foglio. Canc = elimina la linea selezionata."
               : canDesign
                 ? "Pianta in sola lettura. Riapri la progettazione per disegnare."
-                : "Vista della pianta. Solo il Super Admin può disegnare gli scaffali."}
+                : "Pianta in sola lettura. Solo il Super Admin può disegnare gli scaffali."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -318,7 +339,7 @@ export function MagazzinoMappaBoard() {
               </button>
               <button
                 type="button"
-                disabled={saving}
+                disabled={saving || !vistaOk}
                 onClick={() => void approva()}
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
@@ -330,7 +351,37 @@ export function MagazzinoMappaBoard() {
       </div>
 
       {editing ? (
-        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2">
+        <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
+          <div>
+            <label className="block text-xs font-medium">
+              Vista
+              <input
+                type="text"
+                value={vistaEtichetta}
+                onChange={(e) => setVistaEtichetta(e.target.value)}
+                placeholder="Es. Dall’alto, Lato fronte, Lato Dx"
+                maxLength={80}
+                className="mt-1 w-full max-w-md rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {MAPPA_VISTA_SUGGERITE.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setVistaEtichetta(v)}
+                  className={`rounded-full border px-2.5 py-1 text-xs ${
+                    vistaEtichetta.trim() === v
+                      ? "border-teal-600 bg-teal-50 text-teal-900"
+                      : "border-[var(--border)] bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs">
             Strumento
             <select
@@ -372,6 +423,7 @@ export function MagazzinoMappaBoard() {
           <span className="text-xs text-[var(--muted)]">
             Linee: {linee.length} · zoom {Math.round(zoom * 100)}%
           </span>
+          </div>
         </div>
       ) : null}
 
@@ -386,10 +438,22 @@ export function MagazzinoMappaBoard() {
         </p>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100">
+      <div className="relative overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100">
+        {vistaOk ? (
+          <p className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm">
+            Vista: {vistaEtichetta.trim()}
+          </p>
+        ) : editing ? (
+          <p className="pointer-events-none absolute inset-x-3 top-3 z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            Imposta prima il testo Vista (es. Dall’alto, Lato fronte, Lato Dx).
+            Poi potrai tracciare le linee.
+          </p>
+        ) : null}
         <svg
           ref={svgRef}
-          className="h-[min(72vh,720px)] w-full touch-none cursor-crosshair bg-slate-50"
+          className={`h-[min(72vh,720px)] w-full touch-none bg-slate-50 ${
+            canDraw ? "cursor-crosshair" : "cursor-default"
+          }`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={() => setPanning(null)}
@@ -435,7 +499,7 @@ export function MagazzinoMappaBoard() {
                 strokeLinecap="square"
               />
             ))}
-            {editing && draftStart && snappedCursor ? (
+            {canDraw && draftStart && snappedCursor ? (
               <line
                 x1={draftStart.x}
                 y1={draftStart.y}
@@ -447,7 +511,7 @@ export function MagazzinoMappaBoard() {
                 strokeLinecap="square"
               />
             ) : null}
-            {editing && snappedCursor ? (
+            {canDraw && snappedCursor ? (
               <circle
                 cx={snappedCursor.x}
                 cy={snappedCursor.y}
