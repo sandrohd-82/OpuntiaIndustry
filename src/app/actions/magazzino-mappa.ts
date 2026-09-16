@@ -7,6 +7,7 @@ import {
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_STATI,
   normalizzaColoreLinea,
+  parseScalaUnita,
   salvaMappaSchema,
   type MappaDocumentoStato,
   type MappaLinea,
@@ -54,7 +55,7 @@ async function loadMappa(
   const { data: header } = await supabase
     .from("magazzino_mappe")
     .select(
-      "id, nome, versione, documento_stato, vista_etichetta, view_x, view_y, view_zoom, griglia_px, note, approved_at"
+      "id, nome, versione, documento_stato, vista_etichetta, scala_valore, scala_unita, view_x, view_y, view_zoom, griglia_px, note, approved_at"
     )
     .eq("id", id)
     .is("deleted_at", null)
@@ -72,6 +73,8 @@ async function loadMappa(
     versione: number;
     documento_stato: string;
     vista_etichetta: string;
+    scala_valore: number | string;
+    scala_unita: string;
     view_x: number;
     view_y: number;
     view_zoom: number;
@@ -85,6 +88,8 @@ async function loadMappa(
     versione: h.versione,
     documentoStato: parseStato(h.documento_stato),
     vistaEtichetta: h.vista_etichetta ?? "",
+    scalaValore: Number(h.scala_valore) > 0 ? Number(h.scala_valore) : 10,
+    scalaUnita: parseScalaUnita(h.scala_unita),
     viewX: Number(h.view_x),
     viewY: Number(h.view_y),
     viewZoom: Number(h.view_zoom),
@@ -190,6 +195,8 @@ export async function salvaMappaMagazzinoAction(
     .update({
       nome: input.nome?.trim() || undefined,
       vista_etichetta: input.vistaEtichetta,
+      scala_valore: input.scalaValore,
+      scala_unita: input.scalaUnita,
       view_x: input.viewX,
       view_y: input.viewY,
       view_zoom: input.viewZoom,
@@ -258,11 +265,13 @@ export async function salvaMappaMagazzinoAction(
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Salvata pianta magazzino (${input.linee.length} linee, vista ${input.vistaEtichetta || "—"})`,
+    summary: `Salvata pianta magazzino (${input.linee.length} linee, vista ${input.vistaEtichetta || "—"}, scala ${input.scalaValore} ${input.scalaUnita})`,
     payload: {
       linee: input.linee.length,
       view_zoom: input.viewZoom,
       vista: input.vistaEtichetta,
+      scala_valore: input.scalaValore,
+      scala_unita: input.scalaUnita,
     },
   });
   const mappa = await loadMappa(supabase, input.mappaId);

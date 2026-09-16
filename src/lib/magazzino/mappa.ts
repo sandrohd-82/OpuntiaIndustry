@@ -42,12 +42,19 @@ export function normalizzaColoreLinea(value: string): string {
   return MAPPA_LINEA_COLORE_DEFAULT;
 }
 
+export const MAPPA_SCALA_UNITA = ["cm", "m"] as const;
+export type MappaScalaUnita = (typeof MAPPA_SCALA_UNITA)[number];
+
+export type MappaPunto = { x: number; y: number };
+
 export type MappaMagazzino = {
   id: string;
   nome: string;
   versione: number;
   documentoStato: MappaDocumentoStato;
   vistaEtichetta: string;
+  scalaValore: number;
+  scalaUnita: MappaScalaUnita;
   viewX: number;
   viewY: number;
   viewZoom: number;
@@ -84,6 +91,8 @@ export const salvaMappaSchema = z.object({
   mappaId: z.string().uuid(),
   nome: z.string().trim().min(1).max(120).optional(),
   vistaEtichetta: z.string().trim().max(80),
+  scalaValore: z.number().positive().max(10000),
+  scalaUnita: z.enum(MAPPA_SCALA_UNITA),
   viewX: z.number().finite(),
   viewY: z.number().finite(),
   viewZoom: z.number().positive().max(20),
@@ -96,6 +105,103 @@ export type SalvaMappaInput = z.infer<typeof salvaMappaSchema>;
 export function snapToGrid(value: number, grid: number): number {
   if (grid <= 0) return value;
   return Math.round(value / grid) * grid;
+}
+
+export function parseScalaUnita(v: string): MappaScalaUnita {
+  return v === "m" ? "m" : "cm";
+}
+
+export function quadratiTraPunti(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  griglia: number
+): number {
+  if (griglia <= 0) return 0;
+  return Math.hypot(x2 - x1, y2 - y1) / griglia;
+}
+
+function formatNumeroMisura(n: number): string {
+  const r = Math.round(n * 100) / 100;
+  return r.toLocaleString("it-IT", { maximumFractionDigits: 2 });
+}
+
+export function formattaQuadrati(n: number): string {
+  const r = Math.round(n * 10) / 10;
+  if (Math.abs(r - Math.round(r)) < 0.05) return String(Math.round(r));
+  return r.toLocaleString("it-IT", { maximumFractionDigits: 1 });
+}
+
+export function formattaLunghezzaReale(
+  quadrati: number,
+  valore: number,
+  unita: MappaScalaUnita
+): string {
+  if (!(valore > 0) || !(quadrati > 0)) return "0";
+  const raw = quadrati * valore;
+  if (unita === "m") {
+    if (raw >= 1) return `${formatNumeroMisura(raw)} m`;
+    return `${formatNumeroMisura(raw * 100)} cm`;
+  }
+  if (raw >= 100) return `${formatNumeroMisura(raw / 100)} m`;
+  return `${formatNumeroMisura(raw)} cm`;
+}
+
+export function formattaMisuraSegmento(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  griglia: number,
+  valore: number,
+  unita: MappaScalaUnita
+): string {
+  const q = quadratiTraPunti(x1, y1, x2, y2, griglia);
+  if (q <= 0) return "";
+  return `${formattaQuadrati(q)} quadrati · ${formattaLunghezzaReale(q, valore, unita)}`;
+}
+
+/** 0 = destra, 90 = basso, 180 = sinistra, 270 = alto (coordinate schermo). */
+export function headingCardinale(from: MappaPunto, to: MappaPunto): number {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return 0;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 0 : 180;
+  return dy >= 0 ? 90 : 270;
+}
+
+export function ruotaHeading(heading: number, senso: 1 | -1): number {
+  return (((heading + 90 * senso) % 360) + 360) % 360;
+}
+
+export function puntoDopoQuadrati(
+  from: MappaPunto,
+  heading: number,
+  quadrati: number,
+  griglia: number
+): MappaPunto {
+  const rad = (heading * Math.PI) / 180;
+  return {
+    x: snapToGrid(from.x + Math.cos(rad) * quadrati * griglia, griglia),
+    y: snapToGrid(from.y + Math.sin(rad) * quadrati * griglia, griglia),
+  };
+}
+
+export function verticiRettangolo(
+  origine: MappaPunto,
+  heading0: number,
+  latoA: number,
+  latoB: number,
+  senso: 1 | -1,
+  griglia: number
+): MappaPunto[] {
+  const h1 = heading0;
+  const h2 = ruotaHeading(h1, senso);
+  const p1 = puntoDopoQuadrati(origine, h1, latoA, griglia);
+  const p2 = puntoDopoQuadrati(p1, h2, latoB, griglia);
+  const p3 = puntoDopoQuadrati(p2, ruotaHeading(h2, senso), latoA, griglia);
+  return [origine, p1, p2, p3];
 }
 
 export function distanzaPuntoSegmento(

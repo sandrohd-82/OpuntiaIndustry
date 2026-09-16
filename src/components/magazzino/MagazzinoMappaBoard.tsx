@@ -9,20 +9,53 @@ import {
 } from "@/app/actions/magazzino-mappa";
 import {
   distanzaPuntoSegmento,
+  formattaLunghezzaReale,
+  formattaMisuraSegmento,
+  formattaQuadrati,
+  headingCardinale,
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_LINEA_COLORI,
   MAPPA_STATO_LABEL,
   MAPPA_VISTA_SUGGERITE,
   normalizzaColoreLinea,
+  puntoDopoQuadrati,
+  ruotaHeading,
   snapToGrid,
+  verticiRettangolo,
   type MappaLinea,
   type MappaMagazzino,
+  type MappaPunto,
+  type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
 
-type Tool = "linea" | "seleziona";
+type Tool = "linea" | "seleziona" | "rettangolo" | "poligono";
+
+type FormaStato = {
+  tipo: "rettangolo" | "poligono";
+  vertici: MappaPunto[];
+  lati: number[];
+  senso: 1 | -1;
+};
 
 function newLocalId(): string {
   return crypto.randomUUID();
+}
+
+function headingForma(
+  forma: FormaStato,
+  cursor: MappaPunto | null
+): number {
+  const from = forma.vertici[forma.vertici.length - 1];
+  if (!from) return 0;
+  if (forma.tipo === "rettangolo" && forma.vertici.length >= 2) {
+    const h0 = headingCardinale(forma.vertici[0]!, forma.vertici[1]!);
+    let h = h0;
+    for (let i = 0; i < forma.lati.length; i += 1) {
+      h = ruotaHeading(h, forma.senso);
+    }
+    return h;
+  }
+  return headingCardinale(from, cursor ?? { x: from.x + 1, y: from.y });
 }
 
 export function MagazzinoMappaBoard() {
@@ -34,13 +67,15 @@ export function MagazzinoMappaBoard() {
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
   const [vistaEtichetta, setVistaEtichetta] = useState("");
+  const [scalaValore, setScalaValore] = useState(10);
+  const [scalaUnita, setScalaUnita] = useState<MappaScalaUnita>("cm");
   const [spessore, setSpessore] = useState(6);
   const [colore, setColore] = useState(MAPPA_LINEA_COLORE_DEFAULT);
   const [tool, setTool] = useState<Tool>("linea");
-  const [draftStart, setDraftStart] = useState<{ x: number; y: number } | null>(
-    null
-  );
-  const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null);
+  const [draftStart, setDraftStart] = useState<MappaPunto | null>(null);
+  const [forma, setForma] = useState<FormaStato | null>(null);
+  const [quadratiLato, setQuadratiLato] = useState(4);
+  const [cursor, setCursor] = useState<MappaPunto | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panning, setPanning] = useState<{
     sx: number;
@@ -56,6 +91,7 @@ export function MagazzinoMappaBoard() {
   const editing = Boolean(canDesign && mappa?.documentoStato === "bozza");
   const vistaOk = vistaEtichetta.trim().length > 0;
   const canDraw = editing && vistaOk;
+  const scalaOk = scalaValore > 0;
 
   async function reload() {
     const res = await getMappaMagazzinoAction();
@@ -68,6 +104,8 @@ export function MagazzinoMappaBoard() {
     setCanDesign(res.canDesign);
     setLinee(res.mappa.linee);
     setVistaEtichetta(res.mappa.vistaEtichetta);
+    setScalaValore(res.mappa.scalaValore);
+    setScalaUnita(res.mappa.scalaUnita);
     setPan({ x: res.mappa.viewX, y: res.mappa.viewY });
     setZoom(res.mappa.viewZoom);
     setGriglia(res.mappa.grigliaPx);
@@ -86,10 +124,7 @@ export function MagazzinoMappaBoard() {
     return () => svg.removeEventListener("wheel", onNativeWheel);
   }, [ready]);
 
-  function worldFromEvent(e: React.PointerEvent | React.WheelEvent): {
-    x: number;
-    y: number;
-  } | null {
+  function worldFromEvent(e: React.PointerEvent | React.WheelEvent): MappaPunto | null {
     const svg = svgRef.current;
     if (!svg) return null;
     const r = svg.getBoundingClientRect();
@@ -119,6 +154,52 @@ export function MagazzinoMappaBoard() {
     return best?.id ?? null;
   }
 
+  function addLinea(a: MappaPunto, b: MappaPunto): string {
+    const linea: MappaLinea = {
+      id: newLocalId(),
+      x1: a.x,
+      y1: a.y,
+      x2: b.x,
+      y2: b.y,
+      spessore,
+      colore,
+      sortOrder: linee.length,
+    };
+    setLinee((prev) => [...prev, linea]);
+    setSelectedId(linea.id);
+    return linea.id;
+  }
+
+  const latoBloccato = useMemo(() => {
+    if (!forma || forma.tipo !== "rettangolo") return null;
+    if (forma.lati.length === 2) return forma.lati[0] ?? null;
+    if (forma.lati.length === 3) return forma.lati[1] ?? null;
+    return null;
+  }, [forma]);
+
+  const quadratiCorrenti =
+    latoBloccato != null ? latoBloccato : Math.max(1, Math.round(quadratiLato) || 1);
+
+  const previewForma = useMemo(() => {
+    if (!forma || !canDraw) return null;
+    const from = forma.vertici[forma.vertici.length - 1];
+    if (!from) return null;
+    const heading = headingForma(forma, snappedCursor);
+    const n = quadratiCorrenti;
+    const to = puntoDopoQuadrati(from, heading, n, griglia);
+    let ghost: MappaPunto[] = [];
+    if (forma.tipo === "rettangolo") {
+      const h0 =
+        forma.vertici.length >= 2
+          ? headingCardinale(forma.vertici[0]!, forma.vertici[1]!)
+          : heading;
+      const a = forma.lati[0] ?? n;
+      const b = forma.lati[1] ?? (forma.lati.length === 0 ? n : n);
+      ghost = verticiRettangolo(forma.vertici[0]!, h0, a, b, forma.senso, griglia);
+    }
+    return { from, to, heading, ghost };
+  }, [forma, canDraw, snappedCursor, quadratiCorrenti, griglia]);
+
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
       e.preventDefault();
@@ -147,25 +228,27 @@ export function MagazzinoMappaBoard() {
       setDraftStart(null);
       return;
     }
+    if (tool === "rettangolo" || tool === "poligono") {
+      if (!forma) {
+        setForma({
+          tipo: tool,
+          vertici: [snap],
+          lati: [],
+          senso: 1,
+        });
+        setSelectedId(null);
+        setDraftStart(null);
+      }
+      return;
+    }
     if (!draftStart) {
       setDraftStart(snap);
       setSelectedId(null);
       return;
     }
     if (draftStart.x === snap.x && draftStart.y === snap.y) return;
-    const linea: MappaLinea = {
-      id: newLocalId(),
-      x1: draftStart.x,
-      y1: draftStart.y,
-      x2: snap.x,
-      y2: snap.y,
-      spessore,
-      colore,
-      sortOrder: linee.length,
-    };
-    setLinee((prev) => [...prev, linea]);
+    addLinea(draftStart, snap);
     setDraftStart(null);
-    setSelectedId(linea.id);
   }
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
@@ -194,24 +277,68 @@ export function MagazzinoMappaBoard() {
     setZoom(next);
   }
 
+  function resetDisegno() {
+    setDraftStart(null);
+    setForma(null);
+    setSelectedId(null);
+  }
+
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
       const t = ev.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) {
+        if (ev.key === "Enter" && forma && canDraw) {
+          ev.preventDefault();
+          avantiLato();
+        }
         return;
       }
       if (ev.key === "Escape") {
-        setDraftStart(null);
-        setSelectedId(null);
+        resetDisegno();
       }
-      if ((ev.key === "Delete" || ev.key === "Backspace") && canDraw && selectedId) {
+      if ((ev.key === "Delete" || ev.key === "Backspace") && canDraw && selectedId && !forma) {
         setLinee((prev) => prev.filter((l) => l.id !== selectedId));
         setSelectedId(null);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [canDraw, selectedId]);
+  });
+
+  function avantiLato() {
+    if (!forma || !canDraw) return;
+    const from = forma.vertici[forma.vertici.length - 1];
+    if (!from) return;
+    const n = quadratiCorrenti;
+    if (n < 1) return;
+    const heading = headingForma(forma, snappedCursor);
+    const to = puntoDopoQuadrati(from, heading, n, griglia);
+    if (to.x === from.x && to.y === from.y) return;
+    addLinea(from, to);
+    const nextVertici = [...forma.vertici, to];
+    const nextLati = [...forma.lati, n];
+    if (forma.tipo === "rettangolo" && nextLati.length >= 4) {
+      const origine = nextVertici[0]!;
+      if (to.x !== origine.x || to.y !== origine.y) {
+        addLinea(to, origine);
+      }
+      setForma(null);
+      setOk("Rettangolo chiuso.");
+      return;
+    }
+    setForma({ ...forma, vertici: nextVertici, lati: nextLati });
+  }
+
+  function chiudiPoligono() {
+    if (!forma || forma.tipo !== "poligono" || forma.vertici.length < 3) return;
+    const last = forma.vertici[forma.vertici.length - 1]!;
+    const first = forma.vertici[0]!;
+    if (last.x !== first.x || last.y !== first.y) {
+      addLinea(last, first);
+    }
+    setForma(null);
+    setOk("Poligono chiuso.");
+  }
 
   function applySpessore(v: number) {
     setSpessore(v);
@@ -241,6 +368,8 @@ export function MagazzinoMappaBoard() {
     const res = await salvaMappaMagazzinoAction({
       mappaId: mappa.id,
       vistaEtichetta: vistaEtichetta.trim(),
+      scalaValore,
+      scalaUnita,
       viewX: pan.x,
       viewY: pan.y,
       viewZoom: zoom,
@@ -264,6 +393,8 @@ export function MagazzinoMappaBoard() {
     setMappa(res.mappa);
     setLinee(res.mappa.linee);
     setVistaEtichetta(res.mappa.vistaEtichetta);
+    setScalaValore(res.mappa.scalaValore);
+    setScalaUnita(res.mappa.scalaUnita);
     setOk("Pianta salvata.");
     return true;
   }
@@ -299,6 +430,58 @@ export function MagazzinoMappaBoard() {
   const gridPatternId = "mappa-grid";
   const worldSize = 4000;
 
+  const misuraTesto = useMemo(() => {
+    if (previewForma) {
+      return formattaMisuraSegmento(
+        previewForma.from.x,
+        previewForma.from.y,
+        previewForma.to.x,
+        previewForma.to.y,
+        griglia,
+        scalaValore,
+        scalaUnita
+      );
+    }
+    if (draftStart && snappedCursor) {
+      return formattaMisuraSegmento(
+        draftStart.x,
+        draftStart.y,
+        snappedCursor.x,
+        snappedCursor.y,
+        griglia,
+        scalaValore,
+        scalaUnita
+      );
+    }
+    if (selectedId) {
+      const l = linee.find((x) => x.id === selectedId);
+      if (l) {
+        return formattaMisuraSegmento(
+          l.x1,
+          l.y1,
+          l.x2,
+          l.y2,
+          griglia,
+          scalaValore,
+          scalaUnita
+        );
+      }
+    }
+    return "";
+  }, [
+    previewForma,
+    draftStart,
+    snappedCursor,
+    selectedId,
+    linee,
+    griglia,
+    scalaValore,
+    scalaUnita,
+  ]);
+
+  const latoIndice = forma ? forma.lati.length + 1 : 0;
+  const latoTotale = forma?.tipo === "rettangolo" ? 4 : null;
+
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">Caricamento mappa…</p>;
   }
@@ -329,8 +512,10 @@ export function MagazzinoMappaBoard() {
               "Vista non impostata."
             )}
             {" · "}
+            1 quadrato = {scalaValore} {scalaUnita}
+            {" · "}
             {editing
-              ? "Clicca due punti per una linea retta. Seleziona una linea per cambiarne colore o spessore. Rotella = zoom. Maiusc + trascina = sposta il foglio. Canc = elimina."
+              ? "Traccia a mano, oppure rettangolo/poligono lato per lato con Avanti. Rotella = zoom. Maiusc + trascina = sposta il foglio."
               : canDesign
                 ? "Pianta in sola lettura. Riapri la progettazione per disegnare."
                 : "Pianta in sola lettura. Solo il Super Admin può disegnare gli scaffali."}
@@ -358,7 +543,7 @@ export function MagazzinoMappaBoard() {
               </button>
               <button
                 type="button"
-                disabled={saving || !vistaOk}
+                disabled={saving || !vistaOk || !scalaOk}
                 onClick={() => void approva()}
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
@@ -400,72 +585,177 @@ export function MagazzinoMappaBoard() {
               ))}
             </div>
           </div>
+
           <div className="flex flex-wrap items-end gap-3">
-          <label className="text-xs">
-            Strumento
-            <select
-              value={tool}
-              onChange={(e) => {
-                setTool(e.target.value as Tool);
-                setDraftStart(null);
-              }}
-              className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
-            >
-              <option value="linea">Traccia linea</option>
-              <option value="seleziona">Seleziona</option>
-            </select>
-          </label>
-          <label className="text-xs">
-            Spessore linea
-            <input
-              type="range"
-              min={1}
-              max={40}
-              step={1}
-              value={spessore}
-              onChange={(e) => applySpessore(Number(e.target.value))}
-              className="ml-2 align-middle"
-            />
-            <span className="ml-2 font-mono text-sm">{spessore} px</span>
-          </label>
-          <label className="text-xs">
-            Colore linea
-            <input
-              type="color"
-              value={colore}
-              onChange={(e) => applyColore(e.target.value)}
-              className="ml-2 h-8 w-10 cursor-pointer rounded border border-[var(--border)] bg-white p-0.5 align-middle"
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-1">
-            {MAPPA_LINEA_COLORI.map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-label={`Colore ${c}`}
-                onClick={() => applyColore(c)}
-                className={`h-6 w-6 rounded-full border ${
-                  colore === c ? "ring-2 ring-teal-600 ring-offset-1" : "border-slate-300"
-                }`}
-                style={{ backgroundColor: c }}
+            <label className="text-xs font-medium">
+              1 quadrato =
+              <input
+                type="number"
+                min={0.01}
+                step="any"
+                value={scalaValore}
+                onChange={(e) =>
+                  setScalaValore(Math.max(0.01, Number(e.target.value) || 10))
+                }
+                className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
               />
-            ))}
+            </label>
+            <label className="text-xs">
+              Unità
+              <select
+                value={scalaUnita}
+                onChange={(e) => setScalaUnita(e.target.value as MappaScalaUnita)}
+                className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
+              >
+                <option value="cm">cm</option>
+                <option value="m">m</option>
+              </select>
+            </label>
+            <label className="text-xs">
+              Strumento
+              <select
+                value={tool}
+                onChange={(e) => {
+                  setTool(e.target.value as Tool);
+                  setDraftStart(null);
+                  setForma(null);
+                }}
+                className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
+              >
+                <option value="linea">Traccia linea</option>
+                <option value="rettangolo">Rettangolo / quadrato</option>
+                <option value="poligono">Poligono</option>
+                <option value="seleziona">Seleziona</option>
+              </select>
+            </label>
+            <label className="text-xs">
+              Spessore linea
+              <input
+                type="range"
+                min={1}
+                max={40}
+                step={1}
+                value={spessore}
+                onChange={(e) => applySpessore(Number(e.target.value))}
+                className="ml-2 align-middle"
+              />
+              <span className="ml-2 font-mono text-sm">{spessore} px</span>
+            </label>
+            <label className="text-xs">
+              Colore linea
+              <input
+                type="color"
+                value={colore}
+                onChange={(e) => applyColore(e.target.value)}
+                className="ml-2 h-8 w-10 cursor-pointer rounded border border-[var(--border)] bg-white p-0.5 align-middle"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-1">
+              {MAPPA_LINEA_COLORI.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Colore ${c}`}
+                  onClick={() => applyColore(c)}
+                  className={`h-6 w-6 rounded-full border ${
+                    colore === c ? "ring-2 ring-teal-600 ring-offset-1" : "border-slate-300"
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            <label className="text-xs">
+              Griglia
+              <input
+                type="number"
+                min={5}
+                max={80}
+                value={griglia}
+                onChange={(e) => setGriglia(Math.max(5, Number(e.target.value) || 20))}
+                className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1 text-sm"
+              />
+            </label>
+            <span className="text-xs text-[var(--muted)]">
+              Linee: {linee.length} · zoom {Math.round(zoom * 100)}%
+            </span>
           </div>
-          <label className="text-xs">
-            Griglia
-            <input
-              type="number"
-              min={5}
-              max={80}
-              value={griglia}
-              onChange={(e) => setGriglia(Math.max(5, Number(e.target.value) || 20))}
-              className="ml-1 w-16 rounded border border-[var(--border)] px-2 py-1 text-sm"
-            />
-          </label>
-          <span className="text-xs text-[var(--muted)]">
-            Linee: {linee.length} · zoom {Math.round(zoom * 100)}%
-          </span>
-          </div>
+
+          {canDraw && (tool === "rettangolo" || tool === "poligono") ? (
+            <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2">
+              {!forma ? (
+                <p className="text-sm text-teal-950">
+                  Clicca il primo angolo. Poi muovi il mouse per la direzione del lato
+                  evidenziato, indica i quadrati e premi Avanti.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-teal-950">
+                    {forma.tipo === "rettangolo"
+                      ? `Lato ${latoIndice} di ${latoTotale}`
+                      : `Lato ${latoIndice}`}
+                    {" · "}
+                    {formattaQuadrati(quadratiCorrenti)} quadrati ·{" "}
+                    {formattaLunghezzaReale(quadratiCorrenti, scalaValore, scalaUnita)}
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-xs">
+                      Quadrati di questo lato
+                      <input
+                        type="number"
+                        min={1}
+                        max={500}
+                        disabled={latoBloccato != null}
+                        value={quadratiCorrenti}
+                        onChange={(e) =>
+                          setQuadratiLato(Math.max(1, Math.round(Number(e.target.value) || 1)))
+                        }
+                        className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm disabled:bg-slate-100"
+                      />
+                    </label>
+                    {forma.tipo === "rettangolo" && forma.lati.length === 0 ? (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-teal-700 px-2 py-1 text-xs font-medium text-teal-900 hover:bg-white"
+                        onClick={() =>
+                          setForma({ ...forma, senso: forma.senso === 1 ? -1 : 1 })
+                        }
+                      >
+                        Inverti senso
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => avantiLato()}
+                      className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white"
+                    >
+                      Avanti
+                    </button>
+                    {forma.tipo === "poligono" && forma.vertici.length >= 3 ? (
+                      <button
+                        type="button"
+                        onClick={() => chiudiPoligono()}
+                        className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-white"
+                      >
+                        Chiudi forma
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setForma(null)}
+                      className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                    >
+                      Annulla forma
+                    </button>
+                  </div>
+                  {latoBloccato != null ? (
+                    <p className="text-xs text-teal-900">
+                      Questo lato ripete il lato opposto per chiudere il rettangolo.
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -489,6 +779,11 @@ export function MagazzinoMappaBoard() {
           <p className="pointer-events-none absolute inset-x-3 top-3 z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Imposta prima il testo Vista (es. Dall’alto, Lato fronte, Lato Dx).
             Poi potrai tracciare le linee.
+          </p>
+        ) : null}
+        {misuraTesto ? (
+          <p className="pointer-events-none absolute bottom-3 left-3 z-10 rounded bg-white/95 px-2.5 py-1.5 text-sm font-semibold text-slate-900 shadow-sm">
+            {misuraTesto}
           </p>
         ) : null}
         <svg
@@ -553,7 +848,29 @@ export function MagazzinoMappaBoard() {
                 />
               </g>
             ))}
-            {canDraw && draftStart && snappedCursor ? (
+            {previewForma && previewForma.ghost.length === 4 ? (
+              <polygon
+                points={previewForma.ghost
+                  .map((p) => `${p.x},${p.y}`)
+                  .join(" ")}
+                fill="rgba(15,118,110,0.08)"
+                stroke="#0f766e"
+                strokeWidth={Math.max(1, 1.5 / zoom)}
+                strokeDasharray={`${8 / zoom} ${6 / zoom}`}
+              />
+            ) : null}
+            {previewForma ? (
+              <line
+                x1={previewForma.from.x}
+                y1={previewForma.from.y}
+                x2={previewForma.to.x}
+                y2={previewForma.to.y}
+                stroke="#f59e0b"
+                strokeWidth={spessore + Math.max(3, 6 / zoom)}
+                strokeLinecap="square"
+              />
+            ) : null}
+            {canDraw && !forma && draftStart && snappedCursor ? (
               <line
                 x1={draftStart.x}
                 y1={draftStart.y}
@@ -573,6 +890,17 @@ export function MagazzinoMappaBoard() {
                 fill={colore}
               />
             ) : null}
+            {forma
+              ? forma.vertici.map((p, i) => (
+                  <circle
+                    key={`${p.x}-${p.y}-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    r={Math.max(3, 5 / zoom)}
+                    fill="#0f766e"
+                  />
+                ))
+              : null}
           </g>
         </svg>
       </div>
