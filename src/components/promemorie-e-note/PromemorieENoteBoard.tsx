@@ -133,7 +133,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   useEffect(() => {
     if (kind !== "attivita") return;
     const supabase = createClient();
-    void listPeerCandidates(supabase, userId).then((p) =>
+    void listPeerCandidates(supabase, userId, { includeSelf: true }).then((p) =>
       setPeers(p.map((x) => ({ id: x.id, name: x.name })))
     );
   }, [kind, userId]);
@@ -554,14 +554,30 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                     collegamenti={a.collegamenti ?? []}
                   />
                   {a.mentionUserIds.length > 0 ? (
-                    <p className="mt-1 text-xs text-sky-800">
-                      Utenti:{" "}
-                      {a.mentionUserIds
-                        .map((id) => {
-                          const p = peers.find((x) => x.id === id);
-                          return p ? `@${p.name}` : id.slice(0, 6);
-                        })
-                        .join(", ")}
+                    <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-[var(--muted)]">Partecipanti</span>
+                      {a.mentionUserIds.map((id) => {
+                        const fromCol = (a.collegamenti ?? []).find(
+                          (c) => c.kind === "operatore" && c.entityId === id
+                        );
+                        const name =
+                          fromCol?.entityLabel.trim() ||
+                          peers.find((x) => x.id === id)?.name ||
+                          (id === userId ? "Tu" : null);
+                        const mine = id === userId;
+                        return (
+                          <span
+                            key={id}
+                            className={
+                              mine
+                                ? "rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-800"
+                                : "rounded-full bg-sky-50 px-2 py-0.5 font-medium text-sky-800"
+                            }
+                          >
+                            {name || "Operatore"}
+                          </span>
+                        );
+                      })}
                     </p>
                   ) : null}
                 </>

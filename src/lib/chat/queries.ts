@@ -234,20 +234,24 @@ export async function listChatContacts(
   });
 }
 
-/** Colleghi attivi (profili) per avviare chat — escluso self */
+/** Colleghi attivi (profili) per avviare chat — di default escluso self */
 export async function listPeerCandidates(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  opts?: { includeSelf?: boolean }
 ): Promise<
   { id: string; name: string; email: string; chatStatus: ChatStatus }[]
 > {
-  const { data, error } = await supabase
+  let query = supabase
     .from("profiles")
     .select("id, email, full_name, first_name, last_name, chat_status, is_active")
     .eq("is_active", true)
-    .neq("id", userId)
     .order("full_name", { ascending: true })
     .limit(200);
+  if (!opts?.includeSelf) {
+    query = query.neq("id", userId);
+  }
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   return ((data ?? []) as ProfileLite[]).map((p) => ({
     id: p.id,
