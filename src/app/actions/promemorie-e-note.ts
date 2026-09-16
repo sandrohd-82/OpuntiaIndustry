@@ -48,6 +48,8 @@ import {
   persistAttivitaMentions,
 } from "@/lib/promemorie-e-note/attivita-collegamenti-db";
 import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
+import { notifyAttivitaCoinvolti } from "@/lib/notifiche/dispatch";
+import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
@@ -344,7 +346,7 @@ export async function createAttivitaPnAction(input: {
       input.peers ?? []
     ),
   ]);
-  await persistAttivitaMentions({
+  const mentions = await persistAttivitaMentions({
     supabase,
     attivitaId: String(data.id),
     userId: auth.userId,
@@ -357,7 +359,7 @@ export async function createAttivitaPnAction(input: {
     luogo: String(data.luogo ?? ""),
     dueAt: String(data.due_at),
     stato: data.stato as PnAttivita["stato"],
-    mentionUserIds: [...mentionIds],
+    mentionUserIds: mentions.all,
     collegamenti,
     createdAt: String(data.created_at),
   };
@@ -367,6 +369,14 @@ export async function createAttivitaPnAction(input: {
     titolo: item.titolo,
     collegamenti,
     action: "create",
+  });
+  await notifyAttivitaCoinvolti({
+    actorId: auth.userId,
+    actorName: formatOperatorShortName(auth.profile),
+    recipientIds: mentions.added,
+    attivitaId: item.id,
+    titolo: item.titolo,
+    nuova: true,
   });
   return { success: true, item };
 }
@@ -423,7 +433,7 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
       ...operatorIdsFromCollegamenti(collegamenti),
     ]),
   ];
-  await persistAttivitaMentions({
+  const mentions = await persistAttivitaMentions({
     supabase,
     attivitaId: String(data.id),
     userId: auth.userId,
@@ -436,7 +446,7 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     luogo: String(data.luogo ?? ""),
     dueAt: String(data.due_at),
     stato: data.stato as PnAttivita["stato"],
-    mentionUserIds: mentionIds,
+    mentionUserIds: mentions.all,
     collegamenti,
     createdAt: String(data.created_at ?? current.created_at),
   };
@@ -446,6 +456,14 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     titolo: item.titolo,
     collegamenti,
     action: "update",
+  });
+  await notifyAttivitaCoinvolti({
+    actorId: auth.userId,
+    actorName: formatOperatorShortName(auth.profile),
+    recipientIds: mentions.added,
+    attivitaId: item.id,
+    titolo: item.titolo,
+    nuova: false,
   });
   return { success: true, item };
 }

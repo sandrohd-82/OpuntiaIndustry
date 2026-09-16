@@ -39,6 +39,7 @@ import {
 } from "@/lib/areas/config";
 import {
   applyDaProcessareBadge,
+  applyPnAttivitaUnreadBadge,
   filterNavByAdminOnly,
   isNavBranch,
   openKeysFromPathname,
@@ -47,6 +48,9 @@ import {
 } from "@/lib/areas/nav-tree";
 import { countOrdiniDaProcessareAction } from "@/app/actions/ordini";
 import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav";
+import { countUnreadNotificheAction } from "@/app/actions/notifiche";
+import { NOTIFICHE_NAV_EVENT } from "@/lib/notifiche/nav-event";
+import { createClient } from "@/lib/supabase/client";
 import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
 import {
   mergeProduzioneNavWithAree,
@@ -240,7 +244,9 @@ function NavBadgeDot({ badge }: { badge: NavBadge }) {
   return (
     <span
       className="ml-auto inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-semibold text-white"
-      title={`${n} da processare (passare in produzione)`}
+      title={
+        badge.title ?? `${n} da processare (passare in produzione)`
+      }
     >
       {n > 99 ? "99+" : n}
     </span>
@@ -512,6 +518,7 @@ export function AppSidebar({
     null
   );
   const [daProcessareCount, setDaProcessareCount] = useState(0);
+  const [pnAttivitaUnread, setPnAttivitaUnread] = useState(0);
   const sortedAreas = useMemo(() => sortAreasForSidebar(areas), [areas]);
   const showWeb = useMemo(
     () =>
@@ -573,6 +580,48 @@ export function AppSidebar({
       window.removeEventListener("focus", loadCount);
     };
   }, [hasAmministrazione, isAdminLike]);
+
+  const hasPn = areas.some((a) => a.slug === "promemorie-e-note");
+  useEffect(() => {
+    if (!hasPn) {
+      setPnAttivitaUnread(0);
+      return;
+    }
+    let cancelled = false;
+    function loadUnread() {
+      void countUnreadNotificheAction("attivita")
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setPnAttivitaUnread(res.totale);
+        })
+        .catch(() => {
+          /* badge opzionale */
+        });
+    }
+    loadUnread();
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`app-notifiche-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "app_notifiche",
+          filter: `recipient_id=eq.${userId}`,
+        },
+        loadUnread
+      )
+      .subscribe();
+    window.addEventListener(NOTIFICHE_NAV_EVENT, loadUnread);
+    window.addEventListener("focus", loadUnread);
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+      window.removeEventListener(NOTIFICHE_NAV_EVENT, loadUnread);
+      window.removeEventListener("focus", loadUnread);
+    };
+  }, [hasPn, userId]);
 
   const hasProduzione = areas.some((a) => a.slug === "produzione");
   useEffect(() => {
@@ -879,7 +928,12 @@ export function AppSidebar({
             const treeSections =
               area.slug === "amministrazione" && treeSectionsFiltered
                 ? applyDaProcessareBadge(treeSectionsFiltered, daProcessareCount)
-                : treeSectionsFiltered;
+                : area.slug === "promemorie-e-note" && treeSectionsFiltered
+                  ? applyPnAttivitaUnreadBadge(
+                      treeSectionsFiltered,
+                      pnAttivitaUnread
+                    )
+                  : treeSectionsFiltered;
             const toneChildren = toneChildrenForArea(area.slug);
             const areaTone = testMenuMode
               ? area.slug === "webmail" && webmailGrantTone
@@ -926,6 +980,15 @@ export function AppSidebar({
                     label={area.name}
                     active={active}
                     rail={collapsed}
+                    badge={
+                      area.slug === "promemorie-e-note" && pnAttivitaUnread > 0
+                        ? {
+                            kind: "count",
+                            count: pnAttivitaUnread,
+                            title: "Attività in cui sei stato coinvolto",
+                          }
+                        : undefined
+                    }
                     extra={extra}
                     tone={areaTone}
                     areaAccess={areaAccess}

@@ -95,7 +95,7 @@ export async function persistAttivitaMentions(input: {
   attivitaId: string;
   userId: string;
   userIds: string[];
-}): Promise<string[]> {
+}): Promise<{ all: string[]; added: string[] }> {
   const ids = [...new Set(input.userIds.filter(Boolean))];
   const { data: existing } = await input.supabase
     .from("pn_attivita_mentions")
@@ -129,7 +129,7 @@ export async function persistAttivitaMentions(input: {
       }))
     );
   }
-  return ids;
+  return { all: ids, added: toInsert };
 }
 
 export async function auditCollegamentiChange(input: {

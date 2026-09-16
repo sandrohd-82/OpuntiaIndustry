@@ -9,6 +9,7 @@ import {
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
+import { PushNotificationsProvider } from "@/components/layout/PushNotificationsProvider";
 import {
   PROFILE_GERARCHIA_LABELS,
   parseProfileGerarchia,
@@ -231,6 +232,7 @@ export default async function AppLayout({
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
+      <PushNotificationsProvider />
     </div>
     </SensitiveAuthProvider>
   );

@@ -1,6 +1,6 @@
 export type NavBadge =
   | { kind: "status"; active: boolean }
-  | { kind: "count"; count: number };
+  | { kind: "count"; count: number; title?: string };
 
 export type NavLeaf = {
   slug: string;
@@ -128,6 +128,29 @@ export function filterNavByAdminOnly(
     out.push(item);
   }
   return out;
+}
+
+/** Badge non lette su Promemorie e note → Attività → Elenco. */
+export function applyPnAttivitaUnreadBadge(
+  items: readonly NavItem[],
+  count: number
+): NavItem[] {
+  if (count <= 0) return [...items];
+  const badge: NavBadge = {
+    kind: "count",
+    count,
+    title: "Attività in cui sei stato coinvolto",
+  };
+  return items.map((item) => {
+    if (item.slug !== "attivita" || !isNavBranch(item)) return item;
+    return {
+      ...item,
+      badge,
+      children: item.children.map((child) =>
+        child.slug === "elenco" ? { ...child, badge } : child
+      ),
+    };
+  });
 }
 
 /** Applica il contatore «Da processare» sul ramo omonimo. */
