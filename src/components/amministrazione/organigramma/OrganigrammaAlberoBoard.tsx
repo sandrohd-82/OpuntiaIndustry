@@ -17,6 +17,10 @@ import {
   type AlberoNodo,
   type OrganigrammaPersona,
 } from "@/lib/amministrazione/organigramma";
+import {
+  FluidaLinkBadge,
+  isFluidaLinked,
+} from "@/components/amministrazione/organigramma/FluidaLinkBadge";
 
 function wouldCycle(
   personaId: string,
@@ -1049,6 +1053,9 @@ function PersonaCard({
       >
         {node.cognome} {node.nome}
       </Link>
+      <div className="mt-1">
+        <FluidaLinkBadge linked={isFluidaLinked(node)} compact />
+      </div>
       <span className="mt-0.5 block text-[11px] leading-snug text-[var(--muted)]">
         {ruolo}
       </span>

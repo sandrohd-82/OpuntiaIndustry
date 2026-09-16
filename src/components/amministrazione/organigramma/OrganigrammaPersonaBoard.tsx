@@ -42,6 +42,10 @@ import {
 } from "@/components/amministrazione/organigramma/FotoTesseraBox";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
+  FluidaLinkBadge,
+  isFluidaLinked,
+} from "@/components/amministrazione/organigramma/FluidaLinkBadge";
+import {
   COMMERCIALE_GRADI,
   COMMERCIALE_GRADO_LABELS,
   isRepartoCommerciale,
@@ -363,7 +367,10 @@ function AnagraficaCard({
           />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold">{personaLabel(item)}</h2>
+          <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold">
+            {personaLabel(item)}
+            <FluidaLinkBadge linked={isFluidaLinked(item)} />
+          </h2>
           <p className="text-xs text-[var(--muted)]">
             {item.inForza ? "In forza" : "Non lavora più in azienda"}
             {item.cessatoAt
@@ -448,7 +455,6 @@ function AnagraficaCard({
               <span className="mt-0.5 block text-[10px]">
                 6 caratteri univoci. Fluida usa questo codice per capire chi
                 ha timbrato.
-                {item.fluidaContractId ? " Collegata a Fluida." : ""}
               </span>
             </label>
             <label className="text-xs text-[var(--muted)]">

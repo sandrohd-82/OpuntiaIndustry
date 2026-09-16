@@ -86,7 +86,13 @@ export async function syncPresenzeAction(
 }
 
 export async function linkFluidaOperatoriAction(): Promise<
-  | { success: true; matched: number; pushed: number }
+  | {
+      success: true;
+      matched: number;
+      pushed: number;
+      fluidaCount: number;
+      unmatchedFluida: string[];
+    }
   | { success: false; error: string }
 > {
   const { auth } = await requireAnyAreaAccess(["amministrazione", "hr"]);

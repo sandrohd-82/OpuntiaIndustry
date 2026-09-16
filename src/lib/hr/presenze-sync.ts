@@ -39,12 +39,22 @@ const SELECT_COLS =
 
 type PersonaLink = {
   id: string;
+  nome: string;
+  cognome: string;
   codice_fiscale: string;
   matricola: string;
   fluida_user_id: string | null;
   fluida_contract_id: string | null;
   user_id: string | null;
 };
+
+function normName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+}
 
 export function mapPresenzaRow(row: PresenzaRow): PresenzaGiorno {
   return {
@@ -75,10 +85,12 @@ async function loadPersone(
 ): Promise<PersonaLink[]> {
   const { data } = await service
     .from("organigramma_persone")
-    .select("id, codice_fiscale, matricola, fluida_user_id, fluida_contract_id, user_id")
+    .select("id, nome, cognome, codice_fiscale, matricola, fluida_user_id, fluida_contract_id, user_id")
     .is("deleted_at", null);
   return ((data ?? []) as PersonaLink[]).map((p) => ({
     ...p,
+    nome: p.nome ?? "",
+    cognome: p.cognome ?? "",
     codice_fiscale: normCf(p.codice_fiscale ?? ""),
     matricola: normalizeMatricola(p.matricola),
     fluida_user_id: p.fluida_user_id || null,
@@ -114,6 +126,8 @@ function matchPersona(
     badgeId: string;
     fiscalCode: string;
     email: string;
+    firstName?: string;
+    lastName?: string;
     matricolaHint?: string;
   }
 ): PersonaLink | null {
@@ -144,6 +158,14 @@ function matchPersona(
     const byMail = persone.find((p) => p.user_id && emails.get(p.user_id) === email);
     if (byMail) return byMail;
   }
+  const first = normName(row.firstName ?? "");
+  const last = normName(row.lastName ?? "");
+  if (first && last) {
+    const byName = persone.filter(
+      (p) => normName(p.nome) === first && normName(p.cognome) === last
+    );
+    if (byName.length === 1) return byName[0] ?? null;
+  }
   return null;
 }
 
@@ -151,7 +173,13 @@ export async function linkFluidaOperatori(opts: {
   actorId?: string | null;
   pushBadges?: boolean;
 }): Promise<
-  | { success: true; matched: number; pushed: number }
+  | {
+      success: true;
+      matched: number;
+      pushed: number;
+      fluidaCount: number;
+      unmatchedFluida: string[];
+    }
   | { success: false; error: string }
 > {
   const env = peekFluidaEnv();
@@ -180,6 +208,7 @@ export async function linkFluidaOperatori(opts: {
   const now = new Date().toISOString();
   let matched = 0;
   let pushed = 0;
+  const unmatchedFluida: string[] = [];
 
   for (const contract of contracts) {
     const persona = matchPersona(persone, emails, {
@@ -188,9 +217,16 @@ export async function linkFluidaOperatori(opts: {
       badgeId: contract.badgeId || contract.registerId || contract.refCode,
       fiscalCode: contract.fiscalCode,
       email: contract.email,
+      firstName: contract.firstName,
+      lastName: contract.lastName,
       matricolaHint: contract.registerId || contract.refCode,
     });
-    if (!persona) continue;
+    if (!persona) {
+      unmatchedFluida.push(
+        contract.fullName || contract.email || `contratto ${contract.id.slice(0, 8)}`
+      );
+      continue;
+    }
     matched += 1;
     const patch: Record<string, unknown> = {
       updated_by: opts.actorId ?? null,
@@ -228,10 +264,22 @@ export async function linkFluidaOperatori(opts: {
     action: "update",
     actor_id: opts.actorId ?? null,
     summary: `Collegamento Fluida: ${matched} operatori, ${pushed} matricole inviate`,
-    payload: { matched, pushed, provider: "fluida" },
+    payload: {
+      matched,
+      pushed,
+      fluidaCount: contracts.length,
+      unmatchedFluida,
+      provider: "fluida",
+    },
   });
 
-  return { success: true, matched, pushed };
+  return {
+    success: true,
+    matched,
+    pushed,
+    fluidaCount: contracts.length,
+    unmatchedFluida,
+  };
 }
 
 export async function syncPresenzeGiorno(opts: {
@@ -291,6 +339,8 @@ export async function syncPresenzeGiorno(opts: {
       badgeId: row.badgeId,
       fiscalCode: row.fiscalCode,
       email: row.email,
+      firstName: row.firstName,
+      lastName: row.lastName,
     });
     if (
       persona &&

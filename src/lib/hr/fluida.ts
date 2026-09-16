@@ -251,8 +251,14 @@ async function fluidaRequest(
 }
 
 function authError(status: number, detail: string): never {
+  const low = detail.toLowerCase();
+  if (low.includes("app not found")) {
+    throw new Error(
+      "Fluida non riconosce la API Key (app not found). In Fluida: Azienda → Impostazioni → Generali → API. Apri la chiave (clic sul nome), verifica che sia Abilitata, copia il campo API Key (non il Company ID e non un utente) in FLUIDA_API_KEY e il Company ID in FLUIDA_COMPANY_ID. Permessi: Contract = Write, Stamping = Read. Poi riavvia il server e premi Collega Fluida."
+    );
+  }
   throw new Error(
-    `Fluida ha rifiutato la chiave API (${status}). Controlla FLUIDA_API_KEY, FLUIDA_COMPANY_ID e i permessi read:contract, write:contract, read:stamping. ${detail}`
+    `Fluida ha rifiutato la chiave API (${status}). Controlla FLUIDA_API_KEY, FLUIDA_COMPANY_ID e i permessi Contract Write e Stamping Read.`
   );
 }
 

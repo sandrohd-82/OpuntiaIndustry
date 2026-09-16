@@ -34,6 +34,7 @@ export function PresenzeBoard() {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [configured, setConfigured] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const giornoRef = useRef(giorno);
   giornoRef.current = giorno;
@@ -129,9 +130,16 @@ export function PresenzeBoard() {
                   const res = await linkFluidaOperatoriAction();
                   if (!res.success) {
                     setError(res.error);
+                    setInfo(null);
                     return;
                   }
                   setError(null);
+                  const leftover = res.unmatchedFluida.length
+                    ? ` Non abbinati: ${res.unmatchedFluida.join(", ")}.`
+                    : "";
+                  setInfo(
+                    `Fluida ha ${res.fluidaCount} persone. Collegate: ${res.matched}. Matricole inviate: ${res.pushed}.${leftover}`
+                  );
                   load(giorno || undefined);
                 });
               }}
@@ -154,6 +162,11 @@ export function PresenzeBoard() {
         </div>
       ) : null}
 
+      {info ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          {info}
+        </div>
+      ) : null}
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}

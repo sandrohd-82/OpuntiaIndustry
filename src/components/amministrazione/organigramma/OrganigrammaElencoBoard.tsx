@@ -42,6 +42,11 @@ import {
 } from "@/lib/auth/stato-operativo";
 import { FileDropZone } from "@/components/ui/FileDropZone";
 import {
+  FluidaLinkBadge,
+  isFluidaLinked,
+} from "@/components/amministrazione/organigramma/FluidaLinkBadge";
+import { linkFluidaOperatoriAction } from "@/app/actions/presenze";
+import {
   certificatoAlertLabel,
   docTipoLabel,
   personaLabel,
@@ -64,6 +69,7 @@ export function OrganigrammaElencoBoard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fluidaMsg, setFluidaMsg] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showMansione, setShowMansione] = useState(false);
@@ -113,7 +119,9 @@ export function OrganigrammaElencoBoard() {
     return items.filter((p) => {
       const hay = `${p.cognome} ${p.nome} ${p.matricola} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
         .map((x) => x.nome)
-        .join(" ")} ${p.cellulare} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""}`.toLowerCase();
+        .join(" ")} ${p.cellulare} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""} ${
+        isFluidaLinked(p) ? "fluida collegato" : "fluida no non collegato"
+      }`.toLowerCase();
       return hay.includes(n);
     });
   }, [items, q]);
@@ -132,7 +140,8 @@ export function OrganigrammaElencoBoard() {
     <div className="space-y-4">
       <p className="text-sm text-[var(--muted)]">
         Anagrafica distinta dal login. Ogni operatore può comparire nell’albero e
-        ricevere mansioni, documenti e autorizzazioni alle postazioni.
+        ricevere mansioni, documenti e autorizzazioni alle postazioni. La colonna
+        Fluida indica se la persona è abbinata a un contratto Fluida.
       </p>
 
       <div className="flex flex-wrap items-end gap-2">
@@ -182,6 +191,33 @@ export function OrganigrammaElencoBoard() {
             >
               Importa da profili
             </button>
+            <ActionGate actionKey={AZ.sincronizzaPresenze}>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  setError(null);
+                  setFluidaMsg(null);
+                  start(async () => {
+                    const res = await linkFluidaOperatoriAction();
+                    if (!res.success) {
+                      setError(res.error);
+                      return;
+                    }
+                    const leftover = res.unmatchedFluida.length
+                      ? ` Non abbinati su Fluida: ${res.unmatchedFluida.join(", ")}.`
+                      : "";
+                    setFluidaMsg(
+                      `Fluida ha ${res.fluidaCount} persone. Collegate: ${res.matched}.${leftover}`
+                    );
+                    reload();
+                  });
+                }}
+                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50"
+              >
+                Collega Fluida
+              </button>
+            </ActionGate>
           </>
         ) : null}
       </div>
@@ -189,6 +225,11 @@ export function OrganigrammaElencoBoard() {
       {error ? (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
+        </p>
+      ) : null}
+      {fluidaMsg ? (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          {fluidaMsg}
         </p>
       ) : null}
       {alerts.length ? (
@@ -242,6 +283,7 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Provvigione</th>
               <th className="px-4 py-2.5">Mansioni</th>
               <th className="px-4 py-2.5">Matricola</th>
+              <th className="px-4 py-2.5">Fluida</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">In azienda</th>
               <th className="px-4 py-2.5">Profilo gestionale</th>
@@ -252,7 +294,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={13} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -281,6 +323,9 @@ export function OrganigrammaElencoBoard() {
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs tracking-wide">
                     {p.matricola || "—"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <FluidaLinkBadge linked={isFluidaLinked(p)} compact />
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs">
                     {p.codiceFiscale || "—"}
