@@ -6,13 +6,30 @@ import {
   type NotificaTipo,
 } from "@/lib/notifiche/types";
 import { sendWebPushToUsers } from "@/lib/notifiche/web-push";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+
+async function notificheWriteClient(): Promise<{
+  user: Awaited<ReturnType<typeof createClient>>;
+  service: ReturnType<typeof createServiceClient> | null;
+}> {
+  const user = await createClient();
+  try {
+    return { user, service: createServiceClient() };
+  } catch (err) {
+    console.error("[dispatchNotifiche] service client", err);
+    return { user, service: null };
+  }
+}
 
 export async function dispatchNotifiche(
   input: CreateNotificaInput & { actorId: string }
 ): Promise<{ created: number; pushed: number }> {
   const parsed = createNotificaSchema.safeParse(input);
   if (!parsed.success) {
+    console.error(
+      "[dispatchNotifiche] zod",
+      parsed.error.issues.map((i) => i.message).join("; ")
+    );
     return { created: 0, pushed: 0 };
   }
   const recipients = [
@@ -20,10 +37,11 @@ export async function dispatchNotifiche(
   ];
   if (!recipients.length) return { created: 0, pushed: 0 };
 
-  const service = createServiceClient();
+  const { user, service } = await notificheWriteClient();
+  const reader = service ?? user;
   let existing = new Set<string>();
   if (parsed.data.entityId) {
-    const { data } = await service
+    const { data } = await reader
       .from("app_notifiche")
       .select("recipient_id")
       .eq("tipo", parsed.data.tipo)
@@ -51,7 +69,11 @@ export async function dispatchNotifiche(
     updated_by: input.actorId,
   }));
 
-  const { error } = await service.from("app_notifiche").insert(rows);
+  let error = (await user.from("app_notifiche").insert(rows)).error;
+  if (error && service) {
+    console.error("[app_notifiche insert user]", error.message);
+    error = (await service.from("app_notifiche").insert(rows)).error;
+  }
   if (error) {
     console.error("[app_notifiche insert]", error.message);
     return { created: 0, pushed: 0 };

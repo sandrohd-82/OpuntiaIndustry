@@ -121,13 +121,17 @@ export async function persistAttivitaMentions(input: {
   const have = new Set(open.map((r) => r.user_id));
   const toInsert = ids.filter((id) => !have.has(id));
   if (toInsert.length) {
-    await input.supabase.from("pn_attivita_mentions").insert(
+    const { error } = await input.supabase.from("pn_attivita_mentions").insert(
       toInsert.map((user_id) => ({
         attivita_id: input.attivitaId,
         user_id,
         created_by: input.userId,
       }))
     );
+    if (error) {
+      console.error("[pn_attivita_mentions insert]", error.message);
+      return { all: ids.filter((id) => have.has(id)), added: [] };
+    }
   }
   return { all: ids, added: toInsert };
 }

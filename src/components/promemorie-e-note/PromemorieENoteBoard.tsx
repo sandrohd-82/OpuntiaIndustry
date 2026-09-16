@@ -11,6 +11,9 @@ import {
   listNotePnAction,
   listPromemoriaAction,
 } from "@/app/actions/promemorie-e-note";
+import { markNotificheReadAction } from "@/app/actions/notifiche";
+import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
+import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
 import { listPeerCandidates } from "@/lib/chat/queries";
 import {
   combineDateAndTime,
@@ -119,6 +122,11 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
 
   useEffect(() => {
     if (mode !== "nuova") reload();
+    if (kind === "attivita" && mode === "elenco") {
+      void markNotificheReadAction({ tipo: "attivita" }).then((res) => {
+        if (res.success) notifyNotificheNav();
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, mode]);
 
@@ -152,6 +160,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           luogo,
           dueAt: dueIso,
           peers,
+          mentionUserIds: operatorIdsFromCollegamenti(collegamenti),
           collegamenti,
         });
         if (!res.success) {
@@ -498,6 +507,8 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                             luogo: editLuogo,
                             dueAt: new Date(editDueAt).toISOString(),
                             stato: editStato,
+                            mentionUserIds:
+                              operatorIdsFromCollegamenti(editCollegamenti),
                             collegamenti: editCollegamenti,
                           });
                           if (!res.success) {
