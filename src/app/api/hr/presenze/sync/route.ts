@@ -15,7 +15,7 @@ function cronAuthorized(request: Request): boolean {
 }
 
 /**
- * Sync timbrature del giorno da Dipendenti in Cloud → dipendenti_presenze.
+ * Sync timbrature del giorno da Fluida → dipendenti_presenze.
  * Autenticazione: sessione admin/HR oppure Authorization: Bearer CRON_SECRET.
  */
 export async function POST(request: Request) {

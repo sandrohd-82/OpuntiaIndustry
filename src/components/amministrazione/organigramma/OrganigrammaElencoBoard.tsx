@@ -111,7 +111,7 @@ export function OrganigrammaElencoBoard() {
     const n = q.trim().toLowerCase();
     if (!n) return items;
     return items.filter((p) => {
-      const hay = `${p.cognome} ${p.nome} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
+      const hay = `${p.cognome} ${p.nome} ${p.matricola} ${p.codiceFiscale} ${p.repartoNome} ${p.mansioni
         .map((x) => x.nome)
         .join(" ")} ${p.cellulare} ${p.profilo?.email ?? ""} ${p.profilo?.stato ?? ""}`.toLowerCase();
       return hay.includes(n);
@@ -142,7 +142,7 @@ export function OrganigrammaElencoBoard() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className={inputCls}
-            placeholder="Cognome, nome, reparto, mansione…"
+            placeholder="Cognome, nome, matricola, reparto…"
           />
         </label>
         {isAdmin ? (
@@ -241,6 +241,7 @@ export function OrganigrammaElencoBoard() {
               <th className="px-4 py-2.5">Grado</th>
               <th className="px-4 py-2.5">Provvigione</th>
               <th className="px-4 py-2.5">Mansioni</th>
+              <th className="px-4 py-2.5">Matricola</th>
               <th className="px-4 py-2.5">Codice fiscale</th>
               <th className="px-4 py-2.5">In azienda</th>
               <th className="px-4 py-2.5">Profilo gestionale</th>
@@ -251,7 +252,7 @@ export function OrganigrammaElencoBoard() {
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="px-4 py-6 text-[var(--muted)]">
+                <td colSpan={12} className="px-4 py-6 text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessun operatore in organigramma."}
@@ -277,6 +278,9 @@ export function OrganigrammaElencoBoard() {
                   </td>
                   <td className="px-4 py-2.5 text-[var(--muted)]">
                     {p.mansioni.map((m) => m.nome).join(", ") || "—"}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs tracking-wide">
+                    {p.matricola || "—"}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs">
                     {p.codiceFiscale || "—"}
@@ -522,6 +526,10 @@ function OperatoreCreateModal({
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--border)] bg-white p-5 shadow-lg">
         <h2 className="text-base font-semibold">Nuovo operatore</h2>
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          La matricola (targa a 6 caratteri) viene assegnata in automatico al
+          salvataggio. Serve all’app Fluida per riconoscere chi timbra.
+        </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-xs text-[var(--muted)]">
             Nome

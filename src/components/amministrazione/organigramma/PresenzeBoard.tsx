@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import { FaArrowsRotate, FaUserCheck, FaUserClock, FaUserXmark } from "react-icons/fa6";
 import {
   getPresenzeEnvAction,
+  linkFluidaOperatoriAction,
   listPresenzeOggiAction,
   syncPresenzeAction,
 } from "@/app/actions/presenze";
@@ -92,7 +93,8 @@ export function PresenzeBoard() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--muted)]">
-            Timbrature da Dipendenti in Cloud. Default: oggi. Aggiornamento
+            Timbrature da Fluida (Zucchetti). Ogni operatore è riconosciuto
+            dalla matricola a 6 caratteri. Default: oggi. Aggiornamento
             automatico ogni 15 minuti + pulsante manuale.
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
@@ -119,16 +121,34 @@ export function PresenzeBoard() {
               <FaArrowsRotate size={13} className={pending ? "animate-spin" : ""} />
               Sincronizza presenze
             </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => {
+                startTransition(async () => {
+                  const res = await linkFluidaOperatoriAction();
+                  if (!res.success) {
+                    setError(res.error);
+                    return;
+                  }
+                  setError(null);
+                  load(giorno || undefined);
+                });
+              }}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-60"
+            >
+              Invia matricole a Fluida
+            </button>
           </ActionGate>
         </div>
       </div>
 
       {!configured ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Manca la configurazione Dipendenti in Cloud sul server. Incolla
-          <code className="mx-1 rounded bg-white px-1">DIPENDENTI_IN_CLOUD_API_KEY</code>
+          Manca la configurazione Fluida sul server. Incolla
+          <code className="mx-1 rounded bg-white px-1">FLUIDA_API_KEY</code>
           e
-          <code className="mx-1 rounded bg-white px-1">DIPENDENTI_IN_CLOUD_COMPANY_ID</code>
+          <code className="mx-1 rounded bg-white px-1">FLUIDA_COMPANY_ID</code>
           in <code className="rounded bg-white px-1">.env.local</code> e su Vercel,
           poi fai Redeploy.
         </div>
@@ -168,6 +188,7 @@ export function PresenzeBoard() {
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
             <tr>
               <th className="px-4 py-3 font-medium">Dipendente</th>
+              <th className="px-4 py-3 font-medium">Matricola</th>
               <th className="px-4 py-3 font-medium">Codice fiscale</th>
               <th className="px-4 py-3 font-medium">Ingresso</th>
               <th className="px-4 py-3 font-medium">Uscita</th>
@@ -178,7 +199,7 @@ export function PresenzeBoard() {
           <tbody>
             {items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-[var(--muted)]">
+                <td colSpan={7} className="px-4 py-10 text-center text-[var(--muted)]">
                   {pending
                     ? "Caricamento…"
                     : "Nessuna presenza per questo giorno. Sincronizza per scaricare le timbrature."}
@@ -188,6 +209,9 @@ export function PresenzeBoard() {
               items.map((row) => (
                 <tr key={row.id} className="border-t border-[var(--border)]">
                   <td className="px-4 py-3 font-medium">{row.nomeCompleto}</td>
+                  <td className="px-4 py-3 font-mono text-xs tracking-wide">
+                    {row.matricola || "—"}
+                  </td>
                   <td className="px-4 py-3 tabular-nums text-[var(--muted)]">
                     {row.codiceFiscale || "—"}
                   </td>

@@ -18,6 +18,7 @@ export type PresenzaGiorno = {
   cognome: string;
   nomeCompleto: string;
   codiceFiscale: string;
+  matricola: string;
   personaId: string | null;
   ingressoAt: string | null;
   uscitaAt: string | null;
@@ -34,9 +35,12 @@ export const listPresenzeSchema = z.object({
 });
 
 export function presenzaMatchKey(opts: {
+  matricola?: string;
   codiceFiscale: string;
   dipendenteEsternoId: string;
 }): string {
+  const mat = (opts.matricola ?? "").trim().toUpperCase();
+  if (mat) return `mat:${mat}`;
   const cf = opts.codiceFiscale.trim().toUpperCase().replace(/\s+/g, "");
   if (cf) return `cf:${cf}`;
   const ext = opts.dipendenteEsternoId.trim();

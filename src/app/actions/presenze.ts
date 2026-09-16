@@ -3,13 +3,14 @@
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
 import { isAdminLikeProfile } from "@/lib/auth/roles";
 import { todayRomeDate } from "@/lib/auth/data-scope";
-import { peekDicEnv } from "@/lib/hr/dipendenti-in-cloud";
+import { peekFluidaEnv } from "@/lib/hr/fluida";
 import {
   listPresenzeSchema,
   summarizePresenze,
   type PresenzaGiorno,
 } from "@/lib/hr/presenze";
 import {
+  linkFluidaOperatori,
   listPresenzeGiorno,
   syncPresenzeGiorno,
 } from "@/lib/hr/presenze-sync";
@@ -17,12 +18,14 @@ import {
 export async function getPresenzeEnvAction(): Promise<{
   configured: boolean;
   companyIdPreview: string;
+  provider: "fluida";
 }> {
   await requireAnyAreaAccess(["amministrazione", "hr"]);
-  const env = peekDicEnv();
+  const env = peekFluidaEnv();
   return {
     configured: env.hasKey && env.hasCompanyId,
     companyIdPreview: env.companyIdPreview,
+    provider: "fluida",
   };
 }
 
@@ -80,4 +83,18 @@ export async function syncPresenzeAction(
     giorno: parsed.data.giorno || todayRomeDate(),
     actorId: auth.userId,
   });
+}
+
+export async function linkFluidaOperatoriAction(): Promise<
+  | { success: true; matched: number; pushed: number }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess(["amministrazione", "hr"]);
+  if (!isAdminLikeProfile(auth.profile)) {
+    return {
+      success: false,
+      error: "Solo amministratore o Super Admin può collegare Fluida.",
+    };
+  }
+  return linkFluidaOperatori({ actorId: auth.userId, pushBadges: true });
 }

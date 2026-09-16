@@ -138,13 +138,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/amministrazione/organigramma/elenco-e-mansioni": [
     {
       type: "p",
-      text: "Persone interne: mansioni, documenti, contratti, foto tessera. Da qui puoi creare il profilo per entrare nel gestionale. I turni e i permessi di area partono da queste schede.",
+      text: "Persone interne: mansioni, documenti, contratti, foto tessera e matricola (targa a 6 caratteri) per le timbrature Fluida. Da qui puoi creare il profilo per entrare nel gestionale.",
     },
   ],
   "/app/amministrazione/organigramma/presenze": [
     {
       type: "p",
-      text: "Dashboard timbrature da Dipendenti in Cloud: chi è presente, ingressi/uscite e ore del giorno. Sincronizza per aggiornare; il cron aggiorna da solo ogni 15 minuti.",
+      text: "Dashboard timbrature da Fluida (Zucchetti): chi è presente, ingressi/uscite e ore del giorno. Ogni operatore ha una matricola a 6 caratteri (targa) usata dal badge. Sincronizza per aggiornare; il cron aggiorna da solo ogni 15 minuti.",
     },
   ],
   "/app/produzione/foglio-ingresso-mp/nuovo": [

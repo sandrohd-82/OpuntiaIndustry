@@ -75,6 +75,9 @@ export type OrganigrammaPersona = {
   id: string;
   nome: string;
   cognome: string;
+  matricola: string;
+  fluidaContractId: string | null;
+  fluidaUserId: string | null;
   codiceFiscale: string;
   cartaIdentita: string;
   cellulare: string;
@@ -346,6 +349,12 @@ export const personaInputSchema = z.object({
   bancaBic: z.string().optional().nullable(),
   bancaIstituto: z.string().trim().max(80).optional().default(""),
   bancaIntestatario: z.string().trim().max(120).optional().default(""),
+  matricola: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^$|^[A-HJ-NP-Z2-9]{6}$/, "Matricola: 6 caratteri (lettere e numeri).")
+    .optional(),
 });
 
 export const personaUpdateSchema = personaInputSchema.extend({

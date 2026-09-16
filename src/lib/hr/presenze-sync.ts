@@ -1,9 +1,13 @@
 import { todayRomeDate } from "@/lib/auth/data-scope";
 import {
-  fetchDicAttendances,
-  fetchDicEmployees,
-  peekDicEnv,
-} from "@/lib/hr/dipendenti-in-cloud";
+  fetchFluidaAttendances,
+  fetchFluidaContracts,
+  peekFluidaEnv,
+  pushFluidaMatricola,
+  type FluidaAttendance,
+  type FluidaContract,
+} from "@/lib/hr/fluida";
+import { isValidMatricola, normalizeMatricola } from "@/lib/hr/matricola";
 import {
   computeMinuti,
   computeStato,
@@ -21,6 +25,7 @@ type PresenzaRow = {
   cognome: string;
   nome_completo: string;
   codice_fiscale: string;
+  matricola?: string | null;
   persona_id: string | null;
   ingresso_at: string | null;
   uscita_at: string | null;
@@ -30,7 +35,16 @@ type PresenzaRow = {
 };
 
 const SELECT_COLS =
-  "id, giorno, match_key, dipendente_esterno_id, nome, cognome, nome_completo, codice_fiscale, persona_id, ingresso_at, uscita_at, minuti_lavorati, stato, last_synced_at";
+  "id, giorno, match_key, dipendente_esterno_id, nome, cognome, nome_completo, codice_fiscale, matricola, persona_id, ingresso_at, uscita_at, minuti_lavorati, stato, last_synced_at";
+
+type PersonaLink = {
+  id: string;
+  codice_fiscale: string;
+  matricola: string;
+  fluida_user_id: string | null;
+  fluida_contract_id: string | null;
+  user_id: string | null;
+};
 
 export function mapPresenzaRow(row: PresenzaRow): PresenzaGiorno {
   return {
@@ -42,6 +56,7 @@ export function mapPresenzaRow(row: PresenzaRow): PresenzaGiorno {
     cognome: row.cognome ?? "",
     nomeCompleto: row.nome_completo || `${row.nome} ${row.cognome}`.trim(),
     codiceFiscale: row.codice_fiscale ?? "",
+    matricola: row.matricola ?? "",
     personaId: row.persona_id,
     ingressoAt: row.ingresso_at,
     uscitaAt: row.uscita_at,
@@ -51,26 +66,172 @@ export function mapPresenzaRow(row: PresenzaRow): PresenzaGiorno {
   };
 }
 
-async function loadPersonaByCf(
-  service: ReturnType<typeof createServiceClient>,
-  fiscalCodes: string[]
-): Promise<Map<string, string>> {
-  const cfs = [...new Set(fiscalCodes.map((c) => c.toUpperCase()).filter(Boolean))];
-  const map = new Map<string, string>();
-  if (cfs.length === 0) return map;
+function normCf(value: string): string {
+  return value.toUpperCase().replace(/\s+/g, "");
+}
+
+async function loadPersone(
+  service: ReturnType<typeof createServiceClient>
+): Promise<PersonaLink[]> {
   const { data } = await service
     .from("organigramma_persone")
-    .select("id, codice_fiscale")
-    .is("deleted_at", null)
-    .in("codice_fiscale", cfs);
+    .select("id, codice_fiscale, matricola, fluida_user_id, fluida_contract_id, user_id")
+    .is("deleted_at", null);
+  return ((data ?? []) as PersonaLink[]).map((p) => ({
+    ...p,
+    codice_fiscale: normCf(p.codice_fiscale ?? ""),
+    matricola: normalizeMatricola(p.matricola),
+    fluida_user_id: p.fluida_user_id || null,
+    fluida_contract_id: p.fluida_contract_id || null,
+    user_id: p.user_id || null,
+  }));
+}
+
+async function loadEmailsByUserId(
+  service: ReturnType<typeof createServiceClient>,
+  userIds: string[]
+): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!ids.length) return map;
+  const { data } = await service.from("profiles").select("id, email").in("id", ids);
   for (const row of data ?? []) {
-    const cf = String((row as { codice_fiscale?: string }).codice_fiscale ?? "")
-      .toUpperCase()
-      .replace(/\s+/g, "");
     const id = String((row as { id?: string }).id ?? "");
-    if (cf && id) map.set(cf, id);
+    const email = String((row as { email?: string }).email ?? "")
+      .trim()
+      .toLowerCase();
+    if (id && email) map.set(id, email);
   }
   return map;
+}
+
+function matchPersona(
+  persone: PersonaLink[],
+  emails: Map<string, string>,
+  row: {
+    contractId: string;
+    userId: string;
+    badgeId: string;
+    fiscalCode: string;
+    email: string;
+    matricolaHint?: string;
+  }
+): PersonaLink | null {
+  const cf = normCf(row.fiscalCode);
+  const badge = normalizeMatricola(row.badgeId);
+  const hint = normalizeMatricola(row.matricolaHint ?? "");
+  const email = row.email.trim().toLowerCase();
+
+  if (row.contractId) {
+    const byContract = persone.find((p) => p.fluida_contract_id === row.contractId);
+    if (byContract) return byContract;
+  }
+  if (row.userId) {
+    const byUser = persone.find((p) => p.fluida_user_id === row.userId);
+    if (byUser) return byUser;
+  }
+  for (const code of [hint, badge]) {
+    if (isValidMatricola(code)) {
+      const byMat = persone.find((p) => p.matricola === code);
+      if (byMat) return byMat;
+    }
+  }
+  if (cf) {
+    const byCf = persone.find((p) => p.codice_fiscale === cf);
+    if (byCf) return byCf;
+  }
+  if (email) {
+    const byMail = persone.find((p) => p.user_id && emails.get(p.user_id) === email);
+    if (byMail) return byMail;
+  }
+  return null;
+}
+
+export async function linkFluidaOperatori(opts: {
+  actorId?: string | null;
+  pushBadges?: boolean;
+}): Promise<
+  | { success: true; matched: number; pushed: number }
+  | { success: false; error: string }
+> {
+  const env = peekFluidaEnv();
+  if (!env.hasKey || !env.hasCompanyId) {
+    return {
+      success: false,
+      error: "Configura FLUIDA_API_KEY e FLUIDA_COMPANY_ID sul server.",
+    };
+  }
+  let contracts: FluidaContract[];
+  try {
+    contracts = await fetchFluidaContracts();
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : "Collegamento Fluida fallito.",
+    };
+  }
+
+  const service = createServiceClient();
+  const persone = await loadPersone(service);
+  const emails = await loadEmailsByUserId(
+    service,
+    persone.map((p) => p.user_id ?? "")
+  );
+  const now = new Date().toISOString();
+  let matched = 0;
+  let pushed = 0;
+
+  for (const contract of contracts) {
+    const persona = matchPersona(persone, emails, {
+      contractId: contract.id,
+      userId: contract.userId,
+      badgeId: contract.badgeId || contract.registerId || contract.refCode,
+      fiscalCode: contract.fiscalCode,
+      email: contract.email,
+      matricolaHint: contract.registerId || contract.refCode,
+    });
+    if (!persona) continue;
+    matched += 1;
+    const patch: Record<string, unknown> = {
+      updated_by: opts.actorId ?? null,
+      updated_at: now,
+    };
+    if (persona.fluida_contract_id !== contract.id) {
+      patch.fluida_contract_id = contract.id;
+    }
+    if (contract.userId && persona.fluida_user_id !== contract.userId) {
+      patch.fluida_user_id = contract.userId;
+    }
+    if (Object.keys(patch).length > 2) {
+      const { error } = await service
+        .from("organigramma_persone")
+        .update(patch)
+        .eq("id", persona.id)
+        .is("deleted_at", null);
+      if (error) return { success: false, error: error.message };
+      persona.fluida_contract_id = contract.id;
+      persona.fluida_user_id = contract.userId || persona.fluida_user_id;
+    }
+    if (opts.pushBadges && persona.matricola) {
+      try {
+        await pushFluidaMatricola(contract.id, persona.matricola);
+        pushed += 1;
+      } catch (err) {
+        console.error("[fluida] push matricola", persona.matricola, err);
+      }
+    }
+  }
+
+  await service.from("audit_log").insert({
+    entity_type: "organigramma_persone",
+    entity_id: opts.actorId ?? persone[0]?.id ?? crypto.randomUUID(),
+    action: "update",
+    actor_id: opts.actorId ?? null,
+    summary: `Collegamento Fluida: ${matched} operatori, ${pushed} matricole inviate`,
+    payload: { matched, pushed, provider: "fluida" },
+  });
+
+  return { success: true, matched, pushed };
 }
 
 export async function syncPresenzeGiorno(opts: {
@@ -80,51 +241,86 @@ export async function syncPresenzeGiorno(opts: {
   | { success: true; giorno: string; fetched: number; upserted: number }
   | { success: false; error: string }
 > {
-  const env = peekDicEnv();
+  const env = peekFluidaEnv();
   if (!env.hasKey || !env.hasCompanyId) {
     return {
       success: false,
-      error:
-        "Configura DIPENDENTI_IN_CLOUD_API_KEY e DIPENDENTI_IN_CLOUD_COMPANY_ID sul server.",
+      error: "Configura FLUIDA_API_KEY e FLUIDA_COMPANY_ID sul server.",
     };
   }
   const giorno = opts.giorno || todayRomeDate();
-  let attendances;
+  let attendances: FluidaAttendance[];
+  let contracts: FluidaContract[];
   try {
-    attendances = await fetchDicAttendances(giorno);
+    const fetched = await fetchFluidaAttendances(giorno);
+    attendances = fetched.attendances;
+    contracts = fetched.contracts;
   } catch (e) {
     return {
       success: false,
-      error: e instanceof Error ? e.message : "Sync Dipendenti in Cloud fallita.",
+      error: e instanceof Error ? e.message : "Sync Fluida fallita.",
     };
   }
 
-  const byKey = new Map<
-    string,
-    {
-      dipendenteEsternoId: string;
-      nome: string;
-      cognome: string;
-      nomeCompleto: string;
-      codiceFiscale: string;
-      ingressoAt: string | null;
-      uscitaAt: string | null;
-      minuti: number | null;
-      raw: Record<string, unknown>;
-    }
-  >();
+  const service = createServiceClient();
+  const persone = await loadPersone(service);
+  const emails = await loadEmailsByUserId(
+    service,
+    persone.map((p) => p.user_id ?? "")
+  );
+
+  type PresenzaAccum = {
+    dipendenteEsternoId: string;
+    nome: string;
+    cognome: string;
+    nomeCompleto: string;
+    codiceFiscale: string;
+    matricola: string;
+    personaId: string | null;
+    ingressoAt: string | null;
+    uscitaAt: string | null;
+    minuti: number | null;
+    raw: Record<string, unknown>;
+  };
+  const byKey = new Map<string, PresenzaAccum>();
 
   for (const row of attendances) {
-    const codiceFiscale = row.fiscalCode.toUpperCase().replace(/\s+/g, "");
-    if (!codiceFiscale && !row.employeeId) continue;
+    const persona = matchPersona(persone, emails, {
+      contractId: row.contractId,
+      userId: row.userId,
+      badgeId: row.badgeId,
+      fiscalCode: row.fiscalCode,
+      email: row.email,
+    });
+    if (
+      persona &&
+      row.contractId &&
+      (persona.fluida_contract_id !== row.contractId ||
+        (row.userId && persona.fluida_user_id !== row.userId))
+    ) {
+      await service
+        .from("organigramma_persone")
+        .update({
+          fluida_contract_id: row.contractId,
+          fluida_user_id: row.userId || persona.fluida_user_id,
+          updated_by: opts.actorId ?? null,
+        })
+        .eq("id", persona.id)
+        .is("deleted_at", null);
+      persona.fluida_contract_id = row.contractId;
+      if (row.userId) persona.fluida_user_id = row.userId;
+    }
+    const codiceFiscale = normCf(row.fiscalCode || persona?.codice_fiscale || "");
+    const matricola = persona?.matricola || normalizeMatricola(row.badgeId);
+    if (!codiceFiscale && !row.contractId && !matricola) continue;
     const key = presenzaMatchKey({
+      matricola,
       codiceFiscale,
-      dipendenteEsternoId: row.employeeId,
+      dipendenteEsternoId: row.contractId || row.userId,
     });
     const prev = byKey.get(key);
     const ingressoAt =
-      !prev?.ingressoAt ||
-      (row.clockIn && row.clockIn < prev.ingressoAt)
+      !prev?.ingressoAt || (row.clockIn && row.clockIn < prev.ingressoAt)
         ? row.clockIn
         : prev.ingressoAt;
     const uscitaAt =
@@ -132,49 +328,22 @@ export async function syncPresenzeGiorno(opts: {
         ? row.clockOut
         : prev.uscitaAt;
     byKey.set(key, {
-      dipendenteEsternoId: row.employeeId || prev?.dipendenteEsternoId || "",
+      dipendenteEsternoId: row.contractId || prev?.dipendenteEsternoId || "",
       nome: row.firstName || prev?.nome || "",
       cognome: row.lastName || prev?.cognome || "",
-      nomeCompleto: row.fullName || prev?.nomeCompleto || "",
+      nomeCompleto:
+        row.fullName ||
+        prev?.nomeCompleto ||
+        `${row.firstName} ${row.lastName}`.trim(),
       codiceFiscale,
+      matricola,
+      personaId: persona?.id ?? prev?.personaId ?? null,
       ingressoAt,
       uscitaAt,
       minuti: row.minutes ?? prev?.minuti ?? null,
       raw: row.raw,
     });
   }
-
-  try {
-    const employees = await fetchDicEmployees();
-    for (const emp of employees) {
-      const codiceFiscale = emp.fiscalCode.toUpperCase().replace(/\s+/g, "");
-      if (!codiceFiscale && !emp.id) continue;
-      const key = presenzaMatchKey({
-        codiceFiscale,
-        dipendenteEsternoId: emp.id,
-      });
-      if (byKey.has(key)) continue;
-      byKey.set(key, {
-        dipendenteEsternoId: emp.id,
-        nome: emp.firstName,
-        cognome: emp.lastName,
-        nomeCompleto: emp.fullName,
-        codiceFiscale,
-        ingressoAt: null,
-        uscitaAt: null,
-        minuti: null,
-        raw: emp.raw,
-      });
-    }
-  } catch {
-    /* elenco dipendenti opzionale */
-  }
-
-  const service = createServiceClient();
-  const personaByCf = await loadPersonaByCf(
-    service,
-    [...byKey.values()].map((r) => r.codiceFiscale)
-  );
 
   const { data: existing } = await service
     .from("dipendenti_presenze")
@@ -206,13 +375,13 @@ export async function syncPresenzeGiorno(opts: {
       nome_completo:
         row.nomeCompleto || `${row.nome} ${row.cognome}`.trim() || "Dipendente",
       codice_fiscale: row.codiceFiscale,
-      persona_id: row.codiceFiscale
-        ? personaByCf.get(row.codiceFiscale) ?? null
-        : null,
+      matricola: row.matricola,
+      persona_id: row.personaId,
       ingresso_at: row.ingressoAt,
       uscita_at: row.uscitaAt,
       minuti_lavorati: minuti,
       stato,
+      fonte: "fluida",
       raw: row.raw,
       last_synced_at: now,
       updated_by: opts.actorId ?? null,
@@ -245,8 +414,14 @@ export async function syncPresenzeGiorno(opts: {
     entity_id: giorno,
     action: "presenze_sync",
     actor_id: opts.actorId ?? null,
-    summary: `Sync presenze ${giorno}: ${upserted} schede`,
-    payload: { giorno, fetched: attendances.length, upserted },
+    summary: `Sync presenze Fluida ${giorno}: ${upserted} schede`,
+    payload: {
+      giorno,
+      fetched: attendances.length,
+      upserted,
+      contracts: contracts.length,
+      provider: "fluida",
+    },
   });
 
   return {

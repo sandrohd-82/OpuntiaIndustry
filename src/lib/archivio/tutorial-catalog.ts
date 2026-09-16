@@ -312,7 +312,7 @@ function buildPageArticles(): TutorialArticle[] {
     "nascoste",
     "Aree nascoste o in arrivo",
     "/app/hr",
-    "Area HR: reindirizza a Amministrazione → Organigramma → Presenze (timbrature Dipendenti in Cloud).",
+    "Area HR: reindirizza a Amministrazione → Organigramma → Presenze (timbrature Fluida).",
     out,
     seen
   );

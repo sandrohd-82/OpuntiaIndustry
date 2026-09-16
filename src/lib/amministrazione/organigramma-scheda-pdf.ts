@@ -154,6 +154,7 @@ function writeAnagrafica(
   y += 4;
   const rows: Array<[string, string]> = [
     [t("Nome"), t(`${p.cognome} ${p.nome}`)],
+    [t("Matricola / targa"), t(p.matricola || "—")],
     [t("Codice fiscale"), t(p.codiceFiscale || "—")],
     [t("Carta d'identità"), t(p.cartaIdentita || "—")],
     [t("Cellulare"), t(p.cellulare || "—")],

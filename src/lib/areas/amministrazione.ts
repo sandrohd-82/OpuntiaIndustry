@@ -148,7 +148,7 @@ export const AMMINISTRAZIONE_SECTIONS: readonly NavItem[] = [
         slug: "presenze",
         label: "Presenze",
         description:
-          "Timbrature ingresso/uscita da Dipendenti in Cloud",
+          "Timbrature ingresso/uscita da Fluida (Zucchetti)",
         path: "/app/amministrazione/organigramma/presenze",
       },
     ],

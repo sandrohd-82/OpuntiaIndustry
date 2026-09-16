@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { todayRomeDate } from "@/lib/auth/data-scope";
-import { peekDicEnv } from "@/lib/hr/dipendenti-in-cloud";
+import { peekFluidaEnv } from "@/lib/hr/fluida";
 import { syncPresenzeGiorno } from "@/lib/hr/presenze-sync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * Cron Vercel: aggiorna le timbrature di oggi.
+ * Cron Vercel: aggiorna le timbrature di oggi da Fluida.
  * Header: Authorization: Bearer $CRON_SECRET
  */
 export async function GET(request: Request) {
@@ -22,10 +22,10 @@ export async function GET(request: Request) {
   if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (process.env.DIPENDENTI_IN_CLOUD_SYNC_ENABLED === "false") {
+  if (process.env.FLUIDA_SYNC_ENABLED === "false") {
     return NextResponse.json({ ok: true, skipped: true });
   }
-  const env = peekDicEnv();
+  const env = peekFluidaEnv();
   if (!env.hasKey || !env.hasCompanyId) {
     return NextResponse.json({ ok: true, skipped: true, reason: "env" });
   }

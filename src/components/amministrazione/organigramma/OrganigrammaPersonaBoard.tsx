@@ -251,6 +251,7 @@ function AnagraficaCard({
 }) {
   const [nome, setNome] = useState(item.nome);
   const [cognome, setCognome] = useState(item.cognome);
+  const [matricola, setMatricola] = useState(item.matricola ?? "");
   const [codiceFiscale, setCf] = useState(item.codiceFiscale);
   const [cartaIdentita, setCi] = useState(item.cartaIdentita);
   const [cellulare, setCellulare] = useState(item.cellulare ?? "");
@@ -279,6 +280,7 @@ function AnagraficaCard({
   useEffect(() => {
     setNome(item.nome);
     setCognome(item.cognome);
+    setMatricola(item.matricola ?? "");
     setCf(item.codiceFiscale);
     setCi(item.cartaIdentita);
     setCellulare(item.cellulare ?? "");
@@ -304,6 +306,7 @@ function AnagraficaCard({
       id: item.id,
       nome,
       cognome,
+      matricola,
       codiceFiscale,
       cartaIdentita,
       cellulare,
@@ -423,6 +426,30 @@ function AnagraficaCard({
                 onChange={(e) => setCognome(e.target.value)}
                 className={inputCls}
               />
+            </label>
+            <label className="text-xs text-[var(--muted)]">
+              Matricola / targa timbrature
+              <input
+                value={matricola}
+                disabled={!isAdmin}
+                onChange={(e) =>
+                  setMatricola(
+                    e.target.value
+                      .toUpperCase()
+                      .replace(/[^A-HJ-NP-Z2-9]/g, "")
+                      .slice(0, 6)
+                  )
+                }
+                className={`${inputCls} font-mono tracking-widest`}
+                maxLength={6}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <span className="mt-0.5 block text-[10px]">
+                6 caratteri univoci. Fluida usa questo codice per capire chi
+                ha timbrato.
+                {item.fluidaContractId ? " Collegata a Fluida." : ""}
+              </span>
             </label>
             <label className="text-xs text-[var(--muted)]">
               Codice fiscale

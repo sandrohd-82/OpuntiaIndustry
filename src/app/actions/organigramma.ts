@@ -50,13 +50,18 @@ import {
   parseProvvigionePctInput,
 } from "@/lib/auth/commerciale";
 import { parseBicInput, parseIbanInput } from "@/lib/iban";
+import {
+  generateMatricola,
+  isValidMatricola,
+  normalizeMatricola,
+} from "@/lib/hr/matricola";
 import { eventoLineaLabel } from "@/lib/produzione/macchinari";
 import { parseProfileStatoOperativo } from "@/lib/auth/stato-operativo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 const BUCKET = "organigramma-docs";
 const PERSONA_COLS =
-  "id, nome, cognome, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
+  "id, nome, cognome, matricola, fluida_user_id, fluida_contract_id, codice_fiscale, carta_identita, cellulare, user_id, parent_id, co_parent_ids, sort_order, foto_path, documento_stato, note, reparto_id, commerciale_grado, commerciale_provvigione_pct, banca_iban, banca_bic, banca_istituto, banca_intestatario, albero_etichetta, albero_gap_dopo, in_forza, cessato_at";
 
 const DOC_COLS =
   "id, persona_id, tipo, titolo, periodo, note, file_name, mime, created_at, certificato_catalogo_id, data_rilascio, validita_anni, data_scadenza";
@@ -65,6 +70,9 @@ type PersonaRow = {
   id: string;
   nome: string;
   cognome: string;
+  matricola?: string | null;
+  fluida_user_id?: string | null;
+  fluida_contract_id?: string | null;
   codice_fiscale: string;
   carta_identita: string;
   cellulare?: string;
@@ -120,6 +128,55 @@ function actorNome(profile: { full_name?: string | null; email?: string }): stri
   return profile.full_name?.trim() || profile.email || "Operatore";
 }
 
+async function usedMatricole(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  exceptId?: string
+): Promise<Set<string>> {
+  let q = supabase
+    .from("organigramma_persone")
+    .select("id, matricola")
+    .is("deleted_at", null)
+    .not("matricola", "is", null);
+  if (exceptId) q = q.neq("id", exceptId);
+  const { data } = await q;
+  return new Set(
+    ((data ?? []) as Array<{ matricola?: string | null }>)
+      .map((r) => normalizeMatricola(r.matricola))
+      .filter(Boolean)
+  );
+}
+
+async function resolveMatricola(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  preferred: string | undefined,
+  exceptId?: string
+): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
+  const used = await usedMatricole(supabase, exceptId);
+  const want = preferred ? normalizeMatricola(preferred) : "";
+  if (want) {
+    if (!isValidMatricola(want)) {
+      return {
+        ok: false,
+        error: "Matricola: 6 caratteri con lettere e numeri (senza 0, O, 1, I).",
+      };
+    }
+    if (used.has(want)) {
+      return { ok: false, error: `La matricola ${want} è già assegnata.` };
+    }
+    return { ok: true, value: want };
+  }
+  return { ok: true, value: generateMatricola(used) };
+}
+
+function uniqueConstraintError(message: string | undefined): string | null {
+  const msg = (message ?? "").toLowerCase();
+  if (!msg.includes("23505") && !msg.includes("duplicate") && !msg.includes("unique")) {
+    return null;
+  }
+  if (msg.includes("matricola")) return "Matricola già assegnata a un altro operatore.";
+  return "Codice fiscale già presente.";
+}
+
 function mapPersona(
   row: PersonaRow,
   mansioni: OrganigrammaMansione[] = [],
@@ -130,6 +187,9 @@ function mapPersona(
     id: row.id,
     nome: row.nome,
     cognome: row.cognome,
+    matricola: (row.matricola ?? "").toUpperCase(),
+    fluidaContractId: row.fluida_contract_id ?? null,
+    fluidaUserId: row.fluida_user_id ?? null,
     codiceFiscale: row.codice_fiscale ?? "",
     cartaIdentita: row.carta_identita ?? "",
     cellulare: row.cellulare ?? "",
@@ -1210,11 +1270,17 @@ export async function createPersonaAction(
   if (!comm.ok) return { success: false, error: comm.error };
   const banca = resolveCampiBancari(v);
   if (!banca.ok) return { success: false, error: banca.error };
+  const mat = await resolveMatricola(supabase, v.matricola);
+  if (!mat.ok) return { success: false, error: mat.error };
+  const now = new Date().toISOString();
   const { data, error } = await supabase
     .from("organigramma_persone")
     .insert({
       nome: v.nome,
       cognome: v.cognome,
+      matricola: mat.value,
+      matricola_assegnata_at: now,
+      matricola_assegnata_by: auth.userId,
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
       cellulare: v.cellulare ?? "",
@@ -1233,10 +1299,13 @@ export async function createPersonaAction(
     .select(PERSONA_COLS)
     .single();
   if (error || !data) {
-    if (error?.code === "23505") {
-      return { success: false, error: "Codice fiscale già presente." };
-    }
-    return { success: false, error: error?.message ?? "Salvataggio fallito." };
+    return {
+      success: false,
+      error:
+        uniqueConstraintError(error?.message) ??
+        error?.message ??
+        "Salvataggio fallito.",
+    };
   }
   const row = data as PersonaRow;
   await setMansioni(row.id, v.mansioneIds ?? [], auth.userId);
@@ -1245,14 +1314,15 @@ export async function createPersonaAction(
     azione: "create",
     actorId: auth.userId,
     actorNome: actorNome(auth.profile),
-    note: `Creata anagrafica ${v.cognome} ${v.nome}`,
+    note: `Creata anagrafica ${v.cognome} ${v.nome} · matricola ${mat.value}`,
   });
   await writeAuditLog({
     entity_type: "organigramma_persone",
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
-    summary: `Creato operatore ${v.cognome} ${v.nome}`,
+    summary: `Creato operatore ${v.cognome} ${v.nome} (${mat.value})`,
+    payload: { matricola: mat.value },
   });
   if (comm.grado && comm.provvigionePct != null) {
     await writeAuditLog({
@@ -1313,10 +1383,24 @@ export async function updatePersonaAction(
   if (!banca.ok) return { success: false, error: banca.error };
   const { data: prev } = await supabase
     .from("organigramma_persone")
-    .select("commerciale_provvigione_pct, banca_iban")
+    .select("commerciale_provvigione_pct, banca_iban, matricola")
     .eq("id", v.id)
     .is("deleted_at", null)
     .maybeSingle();
+  const prevMatricola = normalizeMatricola(
+    (prev as { matricola?: string | null } | null)?.matricola
+  );
+  const nextMatricolaRaw = v.matricola ? normalizeMatricola(v.matricola) : prevMatricola;
+  let nextMatricola = prevMatricola;
+  if (nextMatricolaRaw && nextMatricolaRaw !== prevMatricola) {
+    const mat = await resolveMatricola(supabase, nextMatricolaRaw, v.id);
+    if (!mat.ok) return { success: false, error: mat.error };
+    nextMatricola = mat.value;
+  } else if (!prevMatricola) {
+    const mat = await resolveMatricola(supabase, undefined, v.id);
+    if (!mat.ok) return { success: false, error: mat.error };
+    nextMatricola = mat.value;
+  }
   const prevPct = parseProvvigionePctInput(prev?.commerciale_provvigione_pct);
   const prevIban = String(
     (prev as { banca_iban?: string | null } | null)?.banca_iban ?? ""
@@ -1328,6 +1412,13 @@ export async function updatePersonaAction(
     .update({
       nome: v.nome,
       cognome: v.cognome,
+      matricola: nextMatricola || null,
+      ...(nextMatricola && nextMatricola !== prevMatricola
+        ? {
+            matricola_assegnata_at: new Date().toISOString(),
+            matricola_assegnata_by: auth.userId,
+          }
+        : {}),
       codice_fiscale: v.codiceFiscale ?? "",
       carta_identita: v.cartaIdentita ?? "",
       cellulare: v.cellulare ?? "",
@@ -1346,10 +1437,13 @@ export async function updatePersonaAction(
     .select(PERSONA_COLS)
     .single();
   if (error || !data) {
-    if (error?.code === "23505") {
-      return { success: false, error: "Codice fiscale già presente." };
-    }
-    return { success: false, error: error?.message ?? "Aggiornamento fallito." };
+    return {
+      success: false,
+      error:
+        uniqueConstraintError(error?.message) ??
+        error?.message ??
+        "Aggiornamento fallito.",
+    };
   }
   await setMansioni(v.id, v.mansioneIds ?? [], auth.userId);
   await recordAttivita({
@@ -1364,7 +1458,14 @@ export async function updatePersonaAction(
     entity_id: v.id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Aggiornato operatore ${v.cognome} ${v.nome}`,
+    summary:
+      nextMatricola && nextMatricola !== prevMatricola
+        ? `Aggiornato operatore ${v.cognome} ${v.nome} · matricola ${prevMatricola || "—"} → ${nextMatricola}`
+        : `Aggiornato operatore ${v.cognome} ${v.nome}`,
+    payload:
+      nextMatricola && nextMatricola !== prevMatricola
+        ? { matricola_da: prevMatricola || null, matricola_a: nextMatricola }
+        : undefined,
   });
   const row = data as PersonaRow;
   await syncProfiloCommercialeCampi(
@@ -1550,11 +1651,16 @@ export async function importPersoneDaProfiliAction(): Promise<
       p.last_name.trim() ||
       (p.full_name ?? "").split(" ").slice(1).join(" ") ||
       "Cognome";
+    const mat = await resolveMatricola(supabase, undefined);
+    if (!mat.ok) continue;
     const { data } = await supabase
       .from("organigramma_persone")
       .insert({
         nome,
         cognome,
+        matricola: mat.value,
+        matricola_assegnata_at: new Date().toISOString(),
+        matricola_assegnata_by: auth.userId,
         user_id: p.id,
         created_by: auth.userId,
         updated_by: auth.userId,
