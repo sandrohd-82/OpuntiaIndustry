@@ -4,18 +4,31 @@
  * Company ID da Azienda → Impostazioni → Generali → API.
  */
 
+function cleanEnvValue(value: string): string {
+  return value.trim().replace(/^["']|["']$/g, "").trim();
+}
+
 function readServerEnv(name: string): string {
   const direct = process.env[name];
-  if (typeof direct === "string" && direct.trim()) return direct.trim();
+  if (typeof direct === "string" && cleanEnvValue(direct)) {
+    return cleanEnvValue(direct);
+  }
   const all = process.env;
   const match = Object.keys(all).find(
     (k) => k.trim().toUpperCase() === name.toUpperCase()
   );
   if (match) {
     const v = all[match];
-    if (typeof v === "string" && v.trim()) return v.trim();
+    if (typeof v === "string" && cleanEnvValue(v)) return cleanEnvValue(v);
   }
   return "";
+}
+
+function maskSecret(value: string): string {
+  const v = value.trim();
+  if (!v) return "(vuoto)";
+  if (v.length <= 8) return `${v.length} caratteri`;
+  return `${v.slice(0, 4)}…${v.slice(-4)}`;
 }
 
 const DEFAULT_API_BASE = "https://api.fluida.io";
@@ -24,6 +37,7 @@ export function peekFluidaEnv(): {
   hasKey: boolean;
   hasCompanyId: boolean;
   keyLength: number;
+  keyPreview: string;
   companyIdPreview: string;
   apiBase: string;
 } {
@@ -34,7 +48,8 @@ export function peekFluidaEnv(): {
     hasKey: key.length > 0,
     hasCompanyId: company.length > 0,
     keyLength: key.length,
-    companyIdPreview: company || "(vuoto)",
+    keyPreview: maskSecret(key),
+    companyIdPreview: maskSecret(company),
     apiBase,
   };
 }
@@ -251,14 +266,21 @@ async function fluidaRequest(
 }
 
 function authError(status: number, detail: string): never {
+  const env = peekFluidaEnv();
+  const used = `Chiave usata dal server: API Key ${env.keyPreview}, Company ID ${env.companyIdPreview}.`;
   const low = detail.toLowerCase();
   if (low.includes("app not found")) {
     throw new Error(
-      "Fluida non riconosce la API Key (app not found). In Fluida: Azienda → Impostazioni → Generali → API. Apri la chiave (clic sul nome), verifica che sia Abilitata, copia il campo API Key (non il Company ID e non un utente) in FLUIDA_API_KEY e il Company ID in FLUIDA_COMPANY_ID. Permessi: Contract = Write, Stamping = Read. Poi riavvia il server e premi Collega Fluida."
+      `Fluida non riconosce la API Key (app not found). ${used} Apri la chiave in Fluida (Azienda → Impostazioni → Generali → API → clic sul nome) e ricopia il campo API Key.`
+    );
+  }
+  if (low.includes("unauthorized")) {
+    throw new Error(
+      `Fluida ha riconosciuto la API Key ma ha risposto Unauthorized. ${used} Non è lo scambio delle chiavi. Nella stessa schermata della chiave: 1) ricopia il Company ID (deve coincidere con ${env.companyIdPreview}); 2) sui permessi Custom accendi anche Company = Read o Write (oltre a Contract = Write e Stamping = Read). In test va bene Permessi Completi. Salva, poi riavvia il server o fai Redeploy su Vercel.`
     );
   }
   throw new Error(
-    `Fluida ha rifiutato la chiave API (${status}). Controlla FLUIDA_API_KEY, FLUIDA_COMPANY_ID e i permessi Contract Write e Stamping Read.`
+    `Fluida ha rifiutato la chiave API (${status}). ${used} Controlla che la chiave sia Abilitata e che Company, Contract e Stamping non siano Disabled.`
   );
 }
 

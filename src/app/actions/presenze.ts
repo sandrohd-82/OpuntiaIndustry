@@ -17,6 +17,7 @@ import {
 
 export async function getPresenzeEnvAction(): Promise<{
   configured: boolean;
+  keyPreview: string;
   companyIdPreview: string;
   provider: "fluida";
 }> {
@@ -24,6 +25,7 @@ export async function getPresenzeEnvAction(): Promise<{
   const env = peekFluidaEnv();
   return {
     configured: env.hasKey && env.hasCompanyId,
+    keyPreview: env.keyPreview,
     companyIdPreview: env.companyIdPreview,
     provider: "fluida",
   };
