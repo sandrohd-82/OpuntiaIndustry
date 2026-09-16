@@ -110,6 +110,12 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     ],
   },
   {
+    slug: "mappa",
+    label: "Mappa Magazzino",
+    description: "Pianta e scaffalatura disegnata",
+    path: "/app/magazzino/mappa",
+  },
+  {
     slug: "note-di-acquisto",
     label: "Note di acquisto",
     description: "Note di acquisto magazzino",

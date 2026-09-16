@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { MagazzinoMappaBoard } from "@/components/magazzino/MagazzinoMappaBoard";
 import { MagazzinoPanoramicaBoard } from "@/components/magazzino/MagazzinoPanoramicaBoard";
 import {
   MAGAZZINO_SECTIONS,
@@ -55,6 +56,17 @@ export default async function MagazzinoSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <MagazzinoPanoramicaBoard />
+        </div>
+      </>
+    );
+  }
+
+  if (section === "mappa") {
+    return (
+      <>
+        <AppHeader title={page.label} subtitle={page.description} />
+        <div className="p-6">
+          <MagazzinoMappaBoard />
         </div>
       </>
     );

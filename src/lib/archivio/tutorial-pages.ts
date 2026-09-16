@@ -213,6 +213,12 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       text: "Comandi IoT sugli essiccatori (accendi/spegni, stato). Lo spostamento sulla mappa lo fa solo il Super Admin non impersonato. Il resto delle voci Action è ancora in costruzione.",
     },
   ],
+  "/app/magazzino/mappa": [
+    {
+      type: "p",
+      text: "Pianta del magazzino. Il Super Admin traccia scaffali con linee rette e spessore, salva la vista e approva. Gli altri vedono la pianta approvata. Qui non si spostano ancora i lotti.",
+    },
+  ],
   "/app/magazzino/panoramica": [
     {
       type: "p",
