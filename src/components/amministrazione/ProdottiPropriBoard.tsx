@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import {
+  FaChevronDown,
+  FaChevronUp,
   FaFilePdf,
   FaMagnifyingGlass,
   FaPen,
   FaPlus,
   FaTrash,
 } from "react-icons/fa6";
+import { ProdottiPropriLottiExpand } from "@/components/amministrazione/ProdottiPropriLottiExpand";
 import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoProprioFormModal";
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
@@ -88,7 +91,9 @@ export function ProdottiPropriBoard({
   const [filters, setFilters] = useState<ProdottiPropriFilters>(
     emptyProdottiPropriFilters()
   );
+  const [lottiAperti, setLottiAperti] = useState<Record<string, boolean>>({});
   const filtersActive = hasActiveProdottiPropriFilters(filters);
+  const elencoColSpan = showGiacenza ? 8 : 6;
 
   useEffect(() => {
     if (searchParams.get("nuovo") === "1") {
@@ -153,7 +158,7 @@ export function ProdottiPropriBoard({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
           {showGiacenza
-            ? "Elenco prodotti Agrinsicilia con la quantità presente in magazzino in questo momento (carichi e prelievi)."
+            ? "Elenco prodotti Agrinsicilia con la quantità in magazzino. La freccia a destra apre i lotti del prodotto."
             : "Elenco prodotti Agrinsicilia con targa libera, filtri e controllo anti-duplicato sul nome."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -278,11 +283,15 @@ export function ProdottiPropriBoard({
                 <th className="px-4 py-3 font-medium">Tipologia</th>
                 <th className="px-4 py-3 font-medium">Note</th>
                 <th className="px-4 py-3 text-right font-medium" />
+                {showGiacenza ? (
+                  <th className="px-2 py-3 text-right font-medium">Lotti</th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
               {filtered.map((m) => (
-                <tr key={m.id} className="border-t border-[var(--border)]">
+                <Fragment key={m.id}>
+                <tr className="border-t border-[var(--border)]">
                   <td className="px-4 py-3">
                     <span className="font-mono text-sm font-semibold tracking-wide text-slate-800">
                       {m.codice}
@@ -350,7 +359,40 @@ export function ProdottiPropriBoard({
                       </button>
                     </div>
                   </td>
+                  {showGiacenza ? (
+                    <td className="px-2 py-3 text-right">
+                      <button
+                        type="button"
+                        aria-expanded={Boolean(lottiAperti[m.id])}
+                        aria-label={
+                          lottiAperti[m.id]
+                            ? "Chiudi lotti"
+                            : "Apri lotti del prodotto"
+                        }
+                        onClick={() =>
+                          setLottiAperti((prev) => ({
+                            ...prev,
+                            [m.id]: !prev[m.id],
+                          }))
+                        }
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-700 hover:bg-slate-100"
+                      >
+                        {lottiAperti[m.id] ? (
+                          <FaChevronUp size={14} />
+                        ) : (
+                          <FaChevronDown size={14} />
+                        )}
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
+                {showGiacenza && lottiAperti[m.id] ? (
+                  <ProdottiPropriLottiExpand
+                    prodottoId={m.id}
+                    colSpan={elencoColSpan}
+                  />
+                ) : null}
+                </Fragment>
               ))}
             </tbody>
           </table>

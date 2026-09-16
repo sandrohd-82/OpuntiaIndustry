@@ -1129,7 +1129,10 @@ export async function movimentoManualeAgrinsiciliaAction(
       note: input.note.trim(),
       foglio_ingresso_mp_id: foglioMp?.id ?? null,
       lotto_esterno_id: lottoEsternoId,
-      is_test: false,
+      confezione_id: input.confezioneId ?? null,
+      isolamento_id: input.isolamentoId ?? null,
+      confez_isolamento_rimandato:
+        !input.confezioneId || !input.isolamentoId,
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -1174,6 +1177,10 @@ export async function movimentoManualeAgrinsiciliaAction(
       foglio_ingresso_mp_codice: foglioMp?.codice ?? null,
       lotto_esterno_id: lottoEsternoId,
       lotto_uscita_codice: lottoUscitaCodice,
+      confezione_id: input.confezioneId ?? null,
+      isolamento_id: input.isolamentoId ?? null,
+      confez_isolamento_rimandato:
+        !input.confezioneId || !input.isolamentoId,
     },
   });
 

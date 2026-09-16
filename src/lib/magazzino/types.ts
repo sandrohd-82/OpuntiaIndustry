@@ -291,6 +291,9 @@ export const movimentoManualeSchema = z
     foglioId: z.string().uuid().nullable().optional(),
     motivoSenzaFoglio: z.enum(MOTIVO_SENZA_FOGLIO).nullable().optional(),
     note: z.string().trim().max(1000).optional().default(""),
+    confezioneId: z.string().uuid().nullable().optional(),
+    isolamentoId: z.string().uuid().nullable().optional(),
+    rimandaConfezIsolamento: z.boolean().optional().default(false),
     associaLottoUscita: z.boolean().optional().default(false),
     lottoUscitaAnteprima: z
       .string()
@@ -321,6 +324,14 @@ export const movimentoManualeSchema = z
         path: ["note"],
       });
     }
+    if (!val.rimandaConfezIsolamento && (!val.confezioneId || !val.isolamentoId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Seleziona confezionamento e isolamento, oppure spunta «Completa in un secondo momento».",
+        path: ["confezioneId"],
+      });
+    }
     if (val.associaLottoUscita) {
       const ante = (val.lottoUscitaAnteprima ?? "").trim().toUpperCase();
       if (!ante || !isValidLottoUscita(ante)) {
@@ -343,6 +354,84 @@ export type FoglioApertoOption = {
   lottoLabel: string;
   lottoUscitaCodice: string | null;
   stato: "aperto" | "chiuso";
+};
+
+export type ImballaggioMagazzinoOpt = {
+  id: string;
+  codice: string;
+  nome: string;
+  stadio: "confezione" | "isolamento";
+  doppioRuolo: boolean;
+};
+
+export type LottoAgrinsiciliaElencoRiga = {
+  lottoCodice: string;
+  prodottoId: string;
+  quantitaKg: number;
+  ultimoAt: string;
+  foglioCodice: string | null;
+  foglioIngressoCodice: string | null;
+  lottoUscitaCodice: string | null;
+  confezioneNome: string | null;
+  isolamentoNome: string | null;
+  daCompletareCi: boolean;
+};
+
+export type LottoTimelineEvento = {
+  at: string;
+  titolo: string;
+  dettaglio: string;
+  operatore: string | null;
+};
+
+export type LottoAgrinsiciliaDettaglio = {
+  lottoCodice: string;
+  prodottoId: string;
+  prodottoCodice: string;
+  prodottoNome: string;
+  quantitaKg: number;
+  unita: MagazzinoCaricoUnita;
+  daCompletareCi: boolean;
+  confezioneId: string | null;
+  isolamentoId: string | null;
+  confezioneNome: string | null;
+  isolamentoNome: string | null;
+  foglio: {
+    id: string;
+    codice: string;
+    stato: string;
+    lottoLabel: string | null;
+    startedAt: string | null;
+    closedAt: string | null;
+  } | null;
+  foglioIngresso: {
+    id: string;
+    codice: string;
+    lottoMp: string | null;
+    documentoStato: string;
+    origine: string | null;
+    operatoreMuletto: string | null;
+    arrivatoAt: string | null;
+    confirmedAt: string | null;
+    closedAt: string | null;
+  } | null;
+  lottoEsterno: {
+    id: string;
+    codice: string;
+    settimana: number | null;
+    anno: number | null;
+    publicToken: string | null;
+  } | null;
+  movimenti: Array<{
+    id: string;
+    createdAt: string;
+    tipo: string;
+    quantitaKg: number;
+    unita: string;
+    note: string;
+    operatore: string | null;
+  }>;
+  timeline: LottoTimelineEvento[];
 };
 
 export type MovimentoAgrinsiciliaRiga = {
