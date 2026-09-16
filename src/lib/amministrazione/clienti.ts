@@ -14,6 +14,11 @@ import {
   matchesCommercialeArea,
 } from "@/lib/auth/commerciale";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
+import {
+  provinciaInRegione,
+  regioneOfProvincia,
+  sameProvincia,
+} from "@/lib/address/province-regioni";
 
 export type SedeCliente = SedeFornitore;
 
@@ -244,6 +249,8 @@ export type ClientiVolumeFilter = "" | "0" | "1-3" | "4+";
 
 export type ClientiFilters = {
   letter: string;
+  regione: string;
+  provincia: string;
   citta: string;
   query: string;
   volume: ClientiVolumeFilter;
@@ -256,6 +263,8 @@ export function emptyClientiFilters(
 ): ClientiFilters {
   return {
     letter: "",
+    regione: "",
+    provincia: "",
     citta: "",
     query: "",
     volume: "",
@@ -270,6 +279,8 @@ export function hasActiveClientiFilters(
   const empty = emptyClientiFilters(baseline);
   return (
     Boolean(filters.letter) ||
+    Boolean(filters.regione?.trim()) ||
+    Boolean(filters.provincia?.trim()) ||
     Boolean(filters.citta.trim()) ||
     Boolean(filters.query.trim()) ||
     Boolean(filters.volume) ||
@@ -295,8 +306,12 @@ export type AnagraficaFiltroInput = {
   email?: string;
   telefono?: string;
   sedeAmministrativa: { citta: string; provincia?: string };
-  sedeMagazzino?: { citta: string };
-  consegneAltraAzienda?: Array<{ ragioneSociale?: string; citta: string }>;
+  sedeMagazzino?: { citta: string; provincia?: string };
+  consegneAltraAzienda?: Array<{
+    ragioneSociale?: string;
+    citta: string;
+    provincia?: string;
+  }>;
   prodottiAcquistati?: string[];
   prodottiInteressati?: string[];
   commercialeId: string | null;
@@ -320,12 +335,57 @@ function matchesVolume(count: number, volume: ClientiVolumeFilter): boolean {
   return true;
 }
 
+function anagraficaProvince(cliente: AnagraficaFiltroInput): string[] {
+  return [
+    cliente.sedeAmministrativa.provincia,
+    cliente.sedeMagazzino?.provincia,
+    ...(cliente.consegneAltraAzienda ?? []).map((sede) => sede.provincia),
+  ]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function anagraficaCitta(cliente: AnagraficaFiltroInput): string[] {
+  return [
+    cliente.sedeAmministrativa.citta,
+    cliente.sedeMagazzino?.citta,
+    ...(cliente.consegneAltraAzienda ?? []).map((sede) => sede.citta),
+  ]
+    .map((value) => value?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function clienteMatchesGeo(
+  cliente: AnagraficaFiltroInput,
+  filters: Pick<ClientiFilters, "regione" | "provincia" | "citta">
+): boolean {
+  const province = anagraficaProvince(cliente);
+  const regione = filters.regione?.trim() ?? "";
+  const provincia = filters.provincia?.trim() ?? "";
+  const citta = normalizeSearch(filters.citta);
+
+  if (regione && !province.some((value) => provinciaInRegione(value, regione))) {
+    return false;
+  }
+  if (provincia && !province.some((value) => sameProvincia(value, provincia))) {
+    return false;
+  }
+  if (
+    citta &&
+    !anagraficaCitta(cliente).some((value) =>
+      normalizeSearch(value).includes(citta)
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function filterClienti<T extends AnagraficaFiltroInput>(
   clienti: T[],
   filters: ClientiFilters
 ): T[] {
   const letter = filters.letter.trim().toUpperCase();
-  const cittaQ = normalizeSearch(filters.citta);
   const q = normalizeSearch(filters.query);
 
   return clienti.filter((c) => {
@@ -334,20 +394,7 @@ export function filterClienti<T extends AnagraficaFiltroInput>(
       if (initial !== letter) return false;
     }
 
-    if (cittaQ) {
-      const cittaAmm = normalizeSearch(c.sedeAmministrativa.citta);
-      const cittaMag = normalizeSearch(c.sedeMagazzino?.citta ?? "");
-      const cittaConsegne = (c.consegneAltraAzienda ?? []).some((consegna) =>
-        normalizeSearch(consegna.citta).includes(cittaQ)
-      );
-      if (
-        !cittaAmm.includes(cittaQ) &&
-        !cittaMag.includes(cittaQ) &&
-        !cittaConsegne
-      ) {
-        return false;
-      }
-    }
+    if (!clienteMatchesGeo(c, filters)) return false;
 
     if (q) {
       const haystack = [
@@ -360,10 +407,12 @@ export function filterClienti<T extends AnagraficaFiltroInput>(
         c.sedeAmministrativa.citta,
         c.sedeAmministrativa.provincia ?? "",
         c.sedeMagazzino?.citta ?? "",
+        c.sedeMagazzino?.provincia ?? "",
         commercialeAssegnazioneSearchText(c),
         ...(c.consegneAltraAzienda ?? []).flatMap((consegna) => [
           consegna.ragioneSociale ?? "",
           consegna.citta,
+          consegna.provincia ?? "",
         ]),
         ...prodottiOf(c),
       ]
@@ -384,16 +433,39 @@ export function filterClienti<T extends AnagraficaFiltroInput>(
   });
 }
 
-export function uniqueClientiCitta(clienti: AnagraficaFiltroInput[]): string[] {
+export function uniqueClientiCitta(
+  clienti: AnagraficaFiltroInput[],
+  geo?: Pick<ClientiFilters, "regione" | "provincia">
+): string[] {
   const set = new Set<string>();
   for (const c of clienti) {
-    const a = c.sedeAmministrativa.citta.trim();
-    const m = (c.sedeMagazzino?.citta ?? "").trim();
-    if (a) set.add(a);
-    if (m) set.add(m);
-    for (const consegna of c.consegneAltraAzienda ?? []) {
-      const citta = consegna.citta.trim();
-      if (citta) set.add(citta);
+    if (geo && !clienteMatchesGeo(c, { ...geo, citta: "" })) continue;
+    for (const citta of anagraficaCitta(c)) set.add(citta);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "it"));
+}
+
+export function uniqueClientiProvince(
+  clienti: AnagraficaFiltroInput[],
+  regione = ""
+): string[] {
+  const set = new Set<string>();
+  const wanted = regione.trim();
+  for (const c of clienti) {
+    for (const provincia of anagraficaProvince(c)) {
+      if (wanted && !provinciaInRegione(provincia, wanted)) continue;
+      set.add(provincia);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, "it"));
+}
+
+export function uniqueClientiRegioni(clienti: AnagraficaFiltroInput[]): string[] {
+  const set = new Set<string>();
+  for (const c of clienti) {
+    for (const provincia of anagraficaProvince(c)) {
+      const regione = regioneOfProvincia(provincia);
+      if (regione) set.add(regione);
     }
   }
   return [...set].sort((a, b) => a.localeCompare(b, "it"));
@@ -422,7 +494,9 @@ export function suggestClienti(
         c.codiceFiscale,
         c.email ?? "",
         c.sedeAmministrativa.citta,
+        c.sedeAmministrativa.provincia ?? "",
         c.sedeMagazzino?.citta ?? "",
+        c.sedeMagazzino?.provincia ?? "",
         commercialeAssegnazioneSearchText(c),
         ...(c.consegneAltraAzienda ?? []).map((x) => x.ragioneSociale ?? ""),
       ];

@@ -4,10 +4,17 @@ import { useMemo, useState } from "react";
 import { FaChevronUp, FaFilter, FaXmark } from "react-icons/fa6";
 import { CommercialeAreaFilterSelect } from "@/components/amministrazione/CommercialeAreaFilterSelect";
 import {
+  provinciaInRegione,
+  regioneOfProvincia,
+} from "@/lib/address/province-regioni";
+import {
   CLIENTI_ALPHABET,
   emptyClientiFilters,
   hasActiveClientiFilters,
   suggestClienti,
+  uniqueClientiCitta,
+  uniqueClientiProvince,
+  uniqueClientiRegioni,
   type AnagraficaFiltroInput,
   type ClientiFilters,
   type ClientiVolumeFilter,
@@ -36,14 +43,13 @@ export function ClientiFiltersPanel({
   value,
   onChange,
   clienti,
-  cittaOptions,
   resultCount,
   totalCount,
   onCollapse,
   onPickSuggestion,
   hideVolume = false,
   hint,
-  queryPlaceholder = "Ragione sociale, targa, città…",
+  queryPlaceholder = "Ragione sociale, targa, città, provincia…",
   hideCommercialeArea = false,
   areaFilterOptions,
   includeAziendaArea = true,
@@ -63,6 +69,57 @@ export function ClientiFiltersPanel({
     () => suggestClienti(clienti, value.query, 8),
     [clienti, value.query]
   );
+
+  const regioneOptions = useMemo(() => uniqueClientiRegioni(clienti), [clienti]);
+  const provinciaOptions = useMemo(
+    () => uniqueClientiProvince(clienti, value.regione),
+    [clienti, value.regione]
+  );
+  const cittaVisibili = useMemo(
+    () =>
+      uniqueClientiCitta(clienti, {
+        regione: value.regione,
+        provincia: value.provincia,
+      }),
+    [clienti, value.regione, value.provincia]
+  );
+
+  function setRegione(regione: string) {
+    const keepProvincia =
+      Boolean(regione) &&
+      Boolean(value.provincia) &&
+      provinciaInRegione(value.provincia, regione);
+    const provincia = keepProvincia ? value.provincia : "";
+    const cittaAncoraValide = uniqueClientiCitta(clienti, {
+      regione,
+      provincia,
+    });
+    const keepCitta =
+      Boolean(value.citta) &&
+      cittaAncoraValide.some((citta) => citta === value.citta);
+    patch({
+      regione,
+      provincia,
+      citta: keepCitta ? value.citta : "",
+    });
+  }
+
+  function setProvincia(provincia: string) {
+    const mapped = provincia ? regioneOfProvincia(provincia) : null;
+    const regione = mapped ?? value.regione;
+    const cittaAncoraValide = uniqueClientiCitta(clienti, {
+      regione,
+      provincia,
+    });
+    const keepCitta =
+      Boolean(value.citta) &&
+      cittaAncoraValide.some((citta) => citta === value.citta);
+    patch({
+      provincia,
+      regione,
+      citta: keepCitta ? value.citta : "",
+    });
+  }
 
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -106,7 +163,7 @@ export function ClientiFiltersPanel({
 
       <p className="mt-1 text-xs text-[var(--muted)]">
         {hint ??
-          "Filtra per alfabeto, città, area commerciale, ricerca o volume. L’export PDF usa l’elenco risultante o la selezione."}
+          "Filtra per alfabeto, regione, provincia, città, area commerciale, ricerca o volume. L’export PDF usa l’elenco risultante o la selezione."}
       </p>
 
       <div className="mt-3">
@@ -144,17 +201,7 @@ export function ClientiFiltersPanel({
         </div>
       </div>
 
-      <div
-        className={`mt-4 grid gap-3 sm:grid-cols-2 ${
-          hideCommercialeArea
-            ? hideVolume
-              ? "lg:grid-cols-2"
-              : "lg:grid-cols-3"
-            : hideVolume
-              ? "lg:grid-cols-3"
-              : "lg:grid-cols-4"
-        }`}
-      >
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {hideCommercialeArea ? null : (
           <CommercialeAreaFilterSelect
             value={value.commercialeArea}
@@ -166,6 +213,40 @@ export function ClientiFiltersPanel({
         )}
         <label className="block text-sm">
           <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Regione
+          </span>
+          <select
+            value={value.regione ?? ""}
+            onChange={(e) => setRegione(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            <option value="">Tutte le regioni</option>
+            {regioneOptions.map((regione) => (
+              <option key={regione} value={regione}>
+                {regione}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Provincia
+          </span>
+          <select
+            value={value.provincia ?? ""}
+            onChange={(e) => setProvincia(e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+          >
+            <option value="">Tutte le province</option>
+            {provinciaOptions.map((provincia) => (
+              <option key={provincia} value={provincia}>
+                {provincia}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
             Città
           </span>
           <select
@@ -174,7 +255,7 @@ export function ClientiFiltersPanel({
             className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
           >
             <option value="">Tutte le città</option>
-            {cittaOptions.map((citta) => (
+            {cittaVisibili.map((citta) => (
               <option key={citta} value={citta}>
                 {citta}
               </option>

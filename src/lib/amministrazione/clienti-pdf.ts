@@ -37,6 +37,10 @@ function describeExport(
 
   const lines: string[] = [];
   if (filters.letter) lines.push(`Iniziale ragione sociale: ${filters.letter}`);
+  if (filters.regione?.trim()) lines.push(`Regione: ${filters.regione.trim()}`);
+  if (filters.provincia?.trim()) {
+    lines.push(`Provincia: ${filters.provincia.trim()}`);
+  }
   if (filters.citta.trim()) lines.push(`Città: ${filters.citta.trim()}`);
   if (filters.query.trim()) {
     lines.push(`Ricerca: “${filters.query.trim()}”`);

@@ -382,8 +382,8 @@ export function PossibiliClientiBoard() {
           areaFilterOptions={areaFilterOptions}
           includeAziendaArea={includeAziendaArea}
           defaultCommercialeArea={defaultCommercialeArea}
-          hint="Filtra per alfabeto, città, area commerciale (Azienda, R. Pisano, …) o ricerca istantanea."
-          queryPlaceholder="Ragione sociale, P.IVA, città…"
+          hint="Filtra per alfabeto, regione, provincia, città, area commerciale (Azienda, R. Pisano, …) o ricerca istantanea."
+          queryPlaceholder="Ragione sociale, P.IVA, città, provincia…"
         />
       ) : null}
 
