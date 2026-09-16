@@ -6,6 +6,7 @@ import type {
   ProdottiPropriTextField,
 } from "@/lib/amministrazione/prodotti-propri";
 import { emptyProdottiPropriFilters } from "@/lib/amministrazione/prodotti-propri";
+import type { CatalogoSettore } from "@/lib/amministrazione/prodotti-settori";
 
 type Props = {
   value: ProdottiPropriFilters;
@@ -13,6 +14,7 @@ type Props = {
   resultCount: number;
   totalCount: number;
   onCollapse?: () => void;
+  settori?: CatalogoSettore[];
 };
 
 export function ProdottiPropriFiltersPanel({
@@ -21,6 +23,7 @@ export function ProdottiPropriFiltersPanel({
   resultCount,
   totalCount,
   onCollapse,
+  settori = [],
 }: Props) {
   function patch(partial: Partial<ProdottiPropriFilters>) {
     onChange({ ...value, ...partial });
@@ -30,7 +33,8 @@ export function ProdottiPropriFiltersPanel({
     Boolean(value.codice.trim()) ||
     Boolean(value.textQuery.trim()) ||
     !value.showBio ||
-    !value.showConvenzionale;
+    !value.showConvenzionale ||
+    value.settoreIds.length > 0;
 
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
@@ -67,7 +71,7 @@ export function ProdottiPropriFiltersPanel({
       </div>
 
       <p className="mt-1 text-xs text-[var(--muted)]">
-        Filtra per targa (libera), testo e tipologia bio/convenzionale.
+        Filtra per targa, settore, testo e tipologia bio/convenzionale.
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -112,6 +116,43 @@ export function ProdottiPropriFiltersPanel({
           </div>
         </div>
       </div>
+
+      {settori.length > 0 ? (
+        <div className="mt-3">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+            Settore
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {settori.map((s) => {
+              const on = value.settoreIds.includes(s.id);
+              return (
+                <label
+                  key={s.id}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium ${
+                    on
+                      ? "border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,white)] text-[var(--primary)]"
+                      : "border-[var(--border)] bg-white text-slate-700"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={(e) =>
+                      patch({
+                        settoreIds: e.target.checked
+                          ? [...value.settoreIds, s.id]
+                          : value.settoreIds.filter((id) => id !== s.id),
+                      })
+                    }
+                    className="rounded border-[var(--border)]"
+                  />
+                  {s.nome}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto]">
         <label className="block text-sm">

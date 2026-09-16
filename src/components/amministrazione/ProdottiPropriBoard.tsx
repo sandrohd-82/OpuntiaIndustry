@@ -15,6 +15,7 @@ import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoP
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { setProdottiPropriAttivitaAction } from "@/app/actions/attivita";
+import { listCatalogoSettoriAction } from "@/app/actions/prodotti-settori";
 import { listProdottiPropriMagazzinoAction } from "@/app/actions/magazzino";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
@@ -25,6 +26,7 @@ import {
   type ProdottiPropriFilters,
 } from "@/lib/amministrazione/prodotti-propri";
 import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-pdf";
+import type { CatalogoSettore } from "@/lib/amministrazione/prodotti-settori";
 import {
   formatQuantitaCarico,
   unitaStockDaCarico,
@@ -77,6 +79,7 @@ export function ProdottiPropriBoard({
   const [giacenze, setGiacenze] = useState<Record<string, GiacenzaRiga>>({});
   const [giacenzeReady, setGiacenzeReady] = useState(!showGiacenza);
   const [giacenzaError, setGiacenzaError] = useState<string | null>(null);
+  const [settoriCatalog, setSettoriCatalog] = useState<CatalogoSettore[]>([]);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProdottoProprio | null>(null);
   const [deleting, setDeleting] = useState<ProdottoProprio | null>(null);
@@ -92,6 +95,16 @@ export function ProdottiPropriBoard({
       setCreating(true);
     }
   }, [searchParams]);
+
+  function refreshSettori() {
+    void listCatalogoSettoriAction().then((res) => {
+      if (res.success) setSettoriCatalog(res.settori);
+    });
+  }
+
+  useEffect(() => {
+    refreshSettori();
+  }, []);
 
   useEffect(() => {
     if (!showGiacenza) {
@@ -217,6 +230,7 @@ export function ProdottiPropriBoard({
           resultCount={filtered.length}
           totalCount={prodotti.length}
           onCollapse={() => setFiltersOpen(false)}
+          settori={settoriCatalog}
         />
       )}
 
@@ -257,6 +271,7 @@ export function ProdottiPropriBoard({
               <tr>
                 <th className="px-4 py-3 font-medium">Codice</th>
                 <th className="px-4 py-3 font-medium">Nome</th>
+                <th className="px-4 py-3 font-medium">Settori</th>
                 {showGiacenza ? (
                   <th className="px-4 py-3 font-medium">Quantità in magazzino</th>
                 ) : null}
@@ -274,6 +289,22 @@ export function ProdottiPropriBoard({
                     </span>
                   </td>
                   <td className="px-4 py-3 font-medium">{m.nome}</td>
+                  <td className="px-4 py-3">
+                    {(m.settori ?? []).length === 0 ? (
+                      <span className="text-[var(--muted)]">—</span>
+                    ) : (
+                      <span className="flex flex-wrap gap-1">
+                        {m.settori.map((s) => (
+                          <span
+                            key={s.id}
+                            className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-800"
+                          >
+                            {s.nome}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </td>
                   {showGiacenza ? (
                     <td className="px-4 py-3 tabular-nums">
                       <GiacenzaCell row={giacenze[m.id]} />
@@ -348,6 +379,7 @@ export function ProdottiPropriBoard({
                 return;
               }
               setSaveError(null);
+              refreshSettori();
               setCreating(false);
             } else {
               setSaveError(created.error);
@@ -379,6 +411,7 @@ export function ProdottiPropriBoard({
                 return;
               }
               setSaveError(null);
+              refreshSettori();
               setEditing(null);
             } else {
               setSaveError(updated.error);

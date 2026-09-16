@@ -16,6 +16,11 @@ import {
   type ProdottoProprioInput,
 } from "@/lib/amministrazione/prodotti-propri";
 import type { Attivita } from "@/lib/amministrazione/attivita";
+import {
+  createCatalogoSettoreAction,
+  listCatalogoSettoriAction,
+} from "@/app/actions/prodotti-settori";
+import type { CatalogoSettore } from "@/lib/amministrazione/prodotti-settori";
 
 type Tipologia = "bio" | "convenzionale";
 
@@ -58,9 +63,17 @@ export function ProdottoProprioFormModal({
   const [attivitaLinks, setAttivitaLinks] = useState<
     Array<{ attivitaId: string; obbligatoria: boolean }>
   >([]);
+  const [settoriCatalog, setSettoriCatalog] = useState<CatalogoSettore[]>([]);
+  const [settoreIds, setSettoreIds] = useState<string[]>(
+    initial?.settori?.map((s) => s.id) ?? []
+  );
+  const [nuovoSettore, setNuovoSettore] = useState("");
+  const [addingSettore, setAddingSettore] = useState(false);
 
   useEffect(() => {
     void (async () => {
+      const settori = await listCatalogoSettoriAction();
+      if (settori.success) setSettoriCatalog(settori.settori);
       const all = await listAttivitaAction();
       if (all.success) setAttivitaCatalog(all.attivita);
       if (initial?.id) {
@@ -142,6 +155,7 @@ export function ProdottoProprioFormModal({
     setTipologia(m.isBio ? "bio" : "convenzionale");
     if (!isEdit) setCodice("");
     setModelloUsato(`${m.codice} — ${m.nome}`);
+    setSettoreIds(m.settori?.map((s) => s.id) ?? []);
     setAckSimili(false);
     setFormError(null);
     setModelloOpen(false);
@@ -182,6 +196,7 @@ export function ProdottoProprioFormModal({
         note: note.trim(),
         isBio: tipologia === "bio",
         attivitaLinks,
+        settoreIds,
       });
     } finally {
       setSaving(false);
@@ -238,7 +253,7 @@ export function ProdottoProprioFormModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
+        className="w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold">
@@ -388,6 +403,83 @@ export function ProdottoProprioFormModal({
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
             />
           </label>
+
+          <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+            <legend className="px-1 text-sm font-medium">
+              Settori di appartenenza
+            </legend>
+            <p className="text-xs text-[var(--muted)]">
+              Un prodotto può appartenere a più settori. Spunta quelli
+              giusti; puoi anche aggiungerne uno nuovo.
+            </p>
+            {settoriCatalog.length === 0 ? (
+              <p className="text-xs text-amber-800">
+                Nessun settore in catalogo. Aggiungine uno sotto.
+              </p>
+            ) : (
+              <ul className="grid gap-1.5 sm:grid-cols-2">
+                {settoriCatalog.map((s) => (
+                  <li key={s.id}>
+                    <label className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-white px-2 py-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={settoreIds.includes(s.id)}
+                        onChange={() => {
+                          setSettoreIds((prev) =>
+                            prev.includes(s.id)
+                              ? prev.filter((id) => id !== s.id)
+                              : [...prev, s.id]
+                          );
+                        }}
+                        className="rounded border-[var(--border)]"
+                      />
+                      <span>{s.nome}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2 pt-1">
+              <input
+                value={nuovoSettore}
+                onChange={(e) => setNuovoSettore(e.target.value)}
+                placeholder="Nuovo settore…"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 text-sm outline-none focus:border-[var(--primary)]"
+              />
+              <button
+                type="button"
+                disabled={addingSettore || !nuovoSettore.trim()}
+                onClick={async () => {
+                  setAddingSettore(true);
+                  setFormError(null);
+                  const res = await createCatalogoSettoreAction({
+                    nome: nuovoSettore,
+                  });
+                  setAddingSettore(false);
+                  if (!res.success) {
+                    setFormError(res.error);
+                    return;
+                  }
+                  setSettoriCatalog((prev) =>
+                    [...prev, res.settore].sort((a, b) =>
+                      a.sortOrder === b.sortOrder
+                        ? a.nome.localeCompare(b.nome, "it")
+                        : a.sortOrder - b.sortOrder
+                    )
+                  );
+                  setSettoreIds((prev) =>
+                    prev.includes(res.settore.id)
+                      ? prev
+                      : [...prev, res.settore.id]
+                  );
+                  setNuovoSettore("");
+                }}
+                className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                {addingSettore ? "…" : "Aggiungi"}
+              </button>
+            </div>
+          </fieldset>
 
           <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
             <legend className="px-1 text-sm font-medium">

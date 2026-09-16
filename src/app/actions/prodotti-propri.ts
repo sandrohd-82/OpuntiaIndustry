@@ -13,6 +13,10 @@ import { writeAuditLog } from "@/lib/audit";
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { requireOrdineSupportReadAccess } from "@/lib/auth/ordini-access";
+import {
+  loadSettoriByProdottoIds,
+  syncProdottoSettori,
+} from "@/app/actions/prodotti-settori";
 import type {
   ProdottoProprioInsert,
   ProdottoProprioRow,
@@ -73,9 +77,14 @@ export async function listProdottiPropriAction(): Promise<
 
   if (error) return { success: false, error: error.message };
 
+  const rows = (data ?? []) as ProdottoProprioRow[];
+  const settoriByProdotto = await loadSettoriByProdottoIds(rows.map((r) => r.id));
+
   return {
     success: true,
-    prodotti: ((data ?? []) as ProdottoProprioRow[]).map(mapProdottoProprioRow),
+    prodotti: rows.map((row) =>
+      mapProdottoProprioRow(row, settoriByProdotto.get(row.id) ?? [])
+    ),
   };
 }
 
@@ -131,18 +140,34 @@ export async function createProdottoProprioAction(
   }
 
   const row = data as ProdottoProprioRow;
+  const sync = await syncProdottoSettori({
+    prodottoId: row.id,
+    settoreIds: normalized.settoreIds ?? [],
+    userId: auth.userId,
+  });
+  if (!sync.success) {
+    return { success: false, error: sync.error };
+  }
+  const settoriByProdotto = await loadSettoriByProdottoIds([row.id]);
   await writeAuditLog({
     entity_type: "prodotti_propri",
     entity_id: row.id,
     action: "create",
     actor_id: auth.userId,
     summary: `Creato prodotto proprio ${row.codice}`,
-    payload: { codice: row.codice, nome: row.nome },
+    payload: {
+      codice: row.codice,
+      nome: row.nome,
+      settoreIds: normalized.settoreIds ?? [],
+    },
   });
 
   return {
     success: true,
-    prodotto: mapProdottoProprioRow(row),
+    prodotto: mapProdottoProprioRow(
+      row,
+      settoriByProdotto.get(row.id) ?? []
+    ),
   };
 }
 
@@ -199,18 +224,34 @@ export async function updateProdottoProprioAction(
   }
 
   const row = data as ProdottoProprioRow;
+  const sync = await syncProdottoSettori({
+    prodottoId: id,
+    settoreIds: normalized.settoreIds ?? [],
+    userId: auth.userId,
+  });
+  if (!sync.success) {
+    return { success: false, error: sync.error };
+  }
+  const settoriByProdotto = await loadSettoriByProdottoIds([id]);
   await writeAuditLog({
     entity_type: "prodotti_propri",
     entity_id: id,
     action: "update",
     actor_id: auth.userId,
     summary: `Aggiornato prodotto proprio ${row.codice}`,
-    payload: { codice: row.codice, nome: row.nome },
+    payload: {
+      codice: row.codice,
+      nome: row.nome,
+      settoreIds: normalized.settoreIds ?? [],
+    },
   });
 
   return {
     success: true,
-    prodotto: mapProdottoProprioRow(row),
+    prodotto: mapProdottoProprioRow(
+      row,
+      settoriByProdotto.get(id) ?? []
+    ),
   };
 }
 

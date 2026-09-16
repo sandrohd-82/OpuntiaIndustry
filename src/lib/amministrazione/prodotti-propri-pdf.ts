@@ -5,6 +5,7 @@ import {
   type ProdottoProprio,
   type ProdottiPropriFilters,
 } from "@/lib/amministrazione/prodotti-propri";
+import { formatSettoriProdotto } from "@/lib/amministrazione/prodotti-settori";
 import {
   formatQuantitaCarico,
   unitaStockDaCarico,
@@ -43,6 +44,10 @@ function describeFilters(filters: ProdottiPropriFilters): string[] {
 
   const codice = filters.codice.trim();
   if (codice) lines.push(`Targa/codice contiene: “${codice}”`);
+
+  if ((filters.settoreIds ?? []).length > 0) {
+    lines.push(`Settori selezionati: ${filters.settoreIds.length}`);
+  }
 
   const text = filters.textQuery.trim();
   if (text) {
@@ -110,17 +115,32 @@ export function exportProdottiPropriPdf(
     startY: y,
     head: [
       withQty
-        ? ["Codice", "Nome", "Quantità in magazzino", "Tipologia", "Note"]
-        : ["Codice", "Nome", "Tipologia", "Note"],
+        ? [
+            "Codice",
+            "Nome",
+            "Settori",
+            "Quantità in magazzino",
+            "Tipologia",
+            "Note",
+          ]
+        : ["Codice", "Nome", "Settori", "Tipologia", "Note"],
     ],
     body: prodotti.map((p) => {
       const g = giacenze?.[p.id];
       const qty = g
         ? formatQuantitaCarico(g.giacenzaKg, unitaStockDaCarico(g.unitaScheda))
         : "0 kg";
+      const settori = formatSettoriProdotto(p.settori);
       return withQty
-        ? [p.codice, p.nome, qty, p.isBio ? "Bio" : "Convenzionale", p.note || "—"]
-        : [p.codice, p.nome, p.isBio ? "Bio" : "Convenzionale", p.note || "—"];
+        ? [
+            p.codice,
+            p.nome,
+            settori,
+            qty,
+            p.isBio ? "Bio" : "Convenzionale",
+            p.note || "—",
+          ]
+        : [p.codice, p.nome, settori, p.isBio ? "Bio" : "Convenzionale", p.note || "—"];
     }),
     styles: {
       font: "helvetica",
@@ -137,17 +157,19 @@ export function exportProdottiPropriPdf(
     alternateRowStyles: { fillColor: [248, 250, 252] },
     columnStyles: withQty
       ? {
-          0: { cellWidth: 28, fontStyle: "bold" },
-          1: { cellWidth: 42 },
+          0: { cellWidth: 22, fontStyle: "bold" },
+          1: { cellWidth: 36 },
           2: { cellWidth: 32 },
-          3: { cellWidth: 26 },
-          4: { cellWidth: "auto" },
+          3: { cellWidth: 28 },
+          4: { cellWidth: 22 },
+          5: { cellWidth: "auto" },
         }
       : {
-          0: { cellWidth: 32, fontStyle: "bold" },
-          1: { cellWidth: 50 },
-          2: { cellWidth: 28 },
-          3: { cellWidth: "auto" },
+          0: { cellWidth: 26, fontStyle: "bold" },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 36 },
+          3: { cellWidth: 24 },
+          4: { cellWidth: "auto" },
         },
     margin: { left: marginX, right: marginX },
   });

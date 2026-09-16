@@ -865,6 +865,34 @@ export interface AttivitaTempoOpzioneInsert {
   updated_by?: string | null;
 }
 
+export interface CatalogoSettoreRow {
+  id: string;
+  slug: string;
+  nome: string;
+  sort_order: number;
+  attivo: boolean;
+  versione: number;
+  documento_stato: "bozza" | "approvato" | "chiuso";
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
+export interface ProdottoProprioSettoreRow {
+  id: string;
+  prodotto_id: string;
+  settore_id: string;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
+}
+
 export interface ProdottoProprioAttivitaRow {
   id: string;
   prodotto_id: string;
@@ -2618,6 +2646,21 @@ export interface Database {
         Row: ProdottoProprioRow;
         Insert: ProdottoProprioInsert;
         Update: ProdottoProprioUpdate;
+        Relationships: [];
+      };
+      catalogo_settori: {
+        Row: CatalogoSettoreRow;
+        Insert: Partial<CatalogoSettoreRow> & { slug: string; nome: string };
+        Update: Partial<CatalogoSettoreRow>;
+        Relationships: [];
+      };
+      prodotti_propri_settori: {
+        Row: ProdottoProprioSettoreRow;
+        Insert: Partial<ProdottoProprioSettoreRow> & {
+          prodotto_id: string;
+          settore_id: string;
+        };
+        Update: Partial<ProdottoProprioSettoreRow>;
         Relationships: [];
       };
       listini: {

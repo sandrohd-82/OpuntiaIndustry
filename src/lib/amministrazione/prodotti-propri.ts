@@ -1,4 +1,5 @@
 import type { ProdottoProprioRow } from "@/types/database";
+import type { ProdottoSettore } from "@/lib/amministrazione/prodotti-settori";
 
 /** Targa completamente libera: lettere, cifre e - _ / (case-sensitive). */
 export const CODICE_PRODOTTO_PROPRIO_RE = /^[A-Za-z0-9\-_\/]+$/;
@@ -12,6 +13,7 @@ export type ProdottoProprio = {
   note: string;
   isBio: boolean;
   createdAt: string;
+  settori: ProdottoSettore[];
 };
 
 export type ProdottoAttivitaLinkInput = {
@@ -28,6 +30,8 @@ export type ProdottoProprioInput = {
   attivitaIds?: string[];
   /** Attività oltre la lavorazione (ordine = sort). */
   attivitaLinks?: ProdottoAttivitaLinkInput[];
+  /** Settori di appartenenza (checkbox, anche più di uno). */
+  settoreIds?: string[];
 };
 
 export function sanitizeCodiceProdottoProprio(value: string): string {
@@ -46,10 +50,14 @@ export function normalizeProdottoProprioInput(
     nome: input.nome.trim(),
     note: input.note?.trim() ?? "",
     isBio: Boolean(input.isBio),
+    settoreIds: [...new Set((input.settoreIds ?? []).filter(Boolean))],
   };
 }
 
-export function mapProdottoProprioRow(row: ProdottoProprioRow): ProdottoProprio {
+export function mapProdottoProprioRow(
+  row: ProdottoProprioRow,
+  settori: ProdottoSettore[] = []
+): ProdottoProprio {
   return {
     id: row.id,
     codice: row.codice,
@@ -57,6 +65,7 @@ export function mapProdottoProprioRow(row: ProdottoProprioRow): ProdottoProprio 
     note: row.note ?? "",
     isBio: Boolean(row.is_bio),
     createdAt: row.created_at,
+    settori,
   };
 }
 
@@ -210,6 +219,7 @@ export type ProdottiPropriFilters = {
   textField: ProdottiPropriTextField;
   showBio: boolean;
   showConvenzionale: boolean;
+  settoreIds: string[];
 };
 
 export function emptyProdottiPropriFilters(): ProdottiPropriFilters {
@@ -219,6 +229,7 @@ export function emptyProdottiPropriFilters(): ProdottiPropriFilters {
     textField: "nome",
     showBio: true,
     showConvenzionale: true,
+    settoreIds: [],
   };
 }
 
@@ -227,7 +238,8 @@ export function hasActiveProdottiPropriFilters(filters: ProdottiPropriFilters): 
     Boolean(filters.codice.trim()) ||
     Boolean(filters.textQuery.trim()) ||
     !filters.showBio ||
-    !filters.showConvenzionale
+    !filters.showConvenzionale ||
+    (filters.settoreIds ?? []).length > 0
   );
 }
 
@@ -256,6 +268,11 @@ export function filterProdottiPropri(
       if (filters.textField === "nome" && !nomeHit) return false;
       if (filters.textField === "note" && !noteHit) return false;
       if (filters.textField === "entrambi" && !nomeHit && !noteHit) return false;
+    }
+
+    if ((filters.settoreIds ?? []).length > 0) {
+      const have = new Set((m.settori ?? []).map((s) => s.id));
+      if (!filters.settoreIds.some((id) => have.has(id))) return false;
     }
 
     return true;
