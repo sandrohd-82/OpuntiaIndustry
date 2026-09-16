@@ -9,12 +9,12 @@ import {
   listImballaggiCatalogoMagazzinoAction,
 } from "@/app/actions/magazzino-lotti";
 import { ConfezionamentoBlocchiEditor } from "@/components/magazzino/ConfezionamentoBlocchiEditor";
+import { StampaFogliLottoModal } from "@/components/magazzino/StampaFogliLottoModal";
 import {
   emptyConfezionamentoDraft,
   type ConfezionamentoDraft,
   type ImballaggioVoce,
 } from "@/lib/amministrazione/imballaggi-spedizioni";
-import { stampaFoglioLottoAgrinsicilia } from "@/lib/magazzino/stampa-foglio-lotto-agrinsicilia";
 import { publicLottoUrl } from "@/lib/produzione/lotti-esterni";
 import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
 import type { LottoAgrinsiciliaDettaglio } from "@/lib/magazzino/types";
@@ -39,6 +39,7 @@ export function LottoAgrinsiciliaDettaglioBoard({
     emptyConfezionamentoDraft()
   );
   const [savingCi, setSavingCi] = useState(false);
+  const [stampaOpen, setStampaOpen] = useState(false);
 
   async function reload() {
     const [d, cat] = await Promise.all([
@@ -120,11 +121,11 @@ export function LottoAgrinsiciliaDettaglioBoard({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => stampaFoglioLottoAgrinsicilia(lotto)}
+            onClick={() => setStampaOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white"
           >
             <FaPrint size={13} />
-            Stampa foglio lotto
+            Stampa fogli lotto
           </button>
           {lotto.lottoEsterno ? (
             <button
@@ -287,6 +288,14 @@ export function LottoAgrinsiciliaDettaglioBoard({
           ))}
         </ol>
       </section>
+
+      {stampaOpen ? (
+        <StampaFogliLottoModal
+          lotto={lotto}
+          nodi={lotto.confezionamento?.nodi ?? []}
+          onClose={() => setStampaOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

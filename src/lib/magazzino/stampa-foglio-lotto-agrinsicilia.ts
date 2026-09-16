@@ -1,3 +1,4 @@
+import type { FoglioLottoPagina } from "@/lib/magazzino/fogli-lotto-blocchi";
 import type { LottoAgrinsiciliaDettaglio } from "@/lib/magazzino/types";
 
 function escapeHtml(value: string): string {
@@ -13,36 +14,31 @@ function dt(value: string | null | undefined): string {
   return new Date(value).toLocaleString("it-IT");
 }
 
-export function stampaFoglioLottoAgrinsicilia(lotto: LottoAgrinsiciliaDettaglio): void {
-  const html = `<!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="utf-8" />
-  <title>Foglio lotto ${escapeHtml(lotto.lottoCodice)}</title>
-  <style>
-    @page { size: A4 portrait; margin: 12mm; }
-    body { font-family: system-ui, sans-serif; color: #0f172a; font-size: 12px; }
-    h1 { font-size: 18px; margin: 0 0 4px; }
-    .code { font-family: ui-monospace, monospace; font-size: 16px; letter-spacing: .04em; }
-    h2 { font-size: 13px; margin: 16px 0 6px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-    th { color: #64748b; font-weight: 600; font-size: 10px; text-transform: uppercase; }
-    .muted { color: #64748b; }
-    .badge { display: inline-block; border: 1px solid #f59e0b; color: #92400e; padding: 1px 6px; border-radius: 4px; font-size: 10px; }
-    .cut { margin-top: 18px; border-top: 1px dashed #94a3b8; padding-top: 10px; }
-  </style>
-</head>
-<body>
-  <p class="muted">OpuntiaIndustry · Foglio lotto da attaccare al prodotto</p>
+function paginaHtml(
+  lotto: LottoAgrinsiciliaDettaglio,
+  pagina: FoglioLottoPagina,
+  isLast: boolean
+): string {
+  return `<section class="sheet${isLast ? " last" : ""}">
+  <p class="muted">OpuntiaIndustry · Foglio lotto da attaccare</p>
+  <p class="unit">${escapeHtml(pagina.titoloUnita)}${
+    pagina.totale > 1
+      ? ` · foglio ${pagina.indice}/${pagina.totale}`
+      : ""
+  }</p>
   <h1 class="code">${escapeHtml(lotto.lottoCodice)}</h1>
   <p><strong>${escapeHtml(lotto.prodottoCodice)}</strong> — ${escapeHtml(lotto.prodottoNome)}</p>
-  <p>Quantità: <strong>${lotto.quantitaKg.toLocaleString("it-IT")} ${escapeHtml(lotto.unita)}</strong>
+  <p>Quantità lotto: <strong>${lotto.quantitaKg.toLocaleString("it-IT")} ${escapeHtml(lotto.unita)}</strong>
     ${lotto.daCompletareCi ? ' <span class="badge">C/I da completare</span>' : ""}</p>
-  <p>Confezione: ${escapeHtml(lotto.confezioneNome || "—")} · Isolamento: ${escapeHtml(lotto.isolamentoNome || "—")}</p>
+  <p>${escapeHtml(pagina.dettaglioUnita)}</p>
+  ${
+    pagina.composizione
+      ? `<p><strong>Composizione:</strong> ${escapeHtml(pagina.composizione)}</p>`
+      : ""
+  }
   ${
     lotto.confezionamentoRiepilogo
-      ? `<p><strong>Blocchi:</strong> ${escapeHtml(lotto.confezionamentoRiepilogo)}</p>`
+      ? `<p class="muted">Tutti i blocchi: ${escapeHtml(lotto.confezionamentoRiepilogo)}</p>`
       : ""
   }
 
@@ -88,10 +84,55 @@ export function stampaFoglioLottoAgrinsicilia(lotto: LottoAgrinsiciliaDettaglio)
   </table>
 
   <div class="cut">
-    <p class="muted">Ritaglia e attacca sul contenitore / bancale del prodotto.</p>
+    <p class="muted">Ritaglia e attacca sul contenitore / bancale.</p>
     <p class="code">${escapeHtml(lotto.lottoCodice)}</p>
+    <p>${escapeHtml(pagina.titoloUnita)} · ${escapeHtml(pagina.dettaglioUnita)}</p>
     <p>${escapeHtml(lotto.prodottoCodice)} · ${lotto.quantitaKg.toLocaleString("it-IT")} ${escapeHtml(lotto.unita)}</p>
   </div>
+</section>`;
+}
+
+export function stampaFogliLottoAgrinsicilia(
+  lotto: LottoAgrinsiciliaDettaglio,
+  pagine: FoglioLottoPagina[]
+): void {
+  const sheets = pagine.length
+    ? pagine
+    : [
+        {
+          titoloUnita: "Foglio lotto",
+          dettaglioUnita: lotto.confezioneNome
+            ? `${lotto.confezioneNome} · ${lotto.isolamentoNome ?? "—"}`
+            : "Senza blocchi",
+          composizione: lotto.confezionamentoRiepilogo ?? "",
+          indice: 1,
+          totale: 1,
+        },
+      ];
+  const html = `<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Fogli lotto ${escapeHtml(lotto.lottoCodice)} (${sheets.length})</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    body { font-family: system-ui, sans-serif; color: #0f172a; font-size: 12px; margin: 0; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .code { font-family: ui-monospace, monospace; font-size: 16px; letter-spacing: .04em; }
+    h2 { font-size: 13px; margin: 16px 0 6px; border-bottom: 1px solid #cbd5e1; padding-bottom: 3px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    th { color: #64748b; font-weight: 600; font-size: 10px; text-transform: uppercase; }
+    .muted { color: #64748b; }
+    .badge { display: inline-block; border: 1px solid #f59e0b; color: #92400e; padding: 1px 6px; border-radius: 4px; font-size: 10px; }
+    .unit { font-weight: 700; margin: 0 0 6px; }
+    .cut { margin-top: 18px; border-top: 1px dashed #94a3b8; padding-top: 10px; }
+    .sheet { page-break-after: always; padding-bottom: 8px; }
+    .sheet.last { page-break-after: auto; }
+  </style>
+</head>
+<body>
+  ${sheets.map((p, i) => paginaHtml(lotto, p, i === sheets.length - 1)).join("\n")}
   <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`;
@@ -99,4 +140,10 @@ export function stampaFoglioLottoAgrinsicilia(lotto: LottoAgrinsiciliaDettaglio)
   if (!w) return;
   w.document.write(html);
   w.document.close();
+}
+
+export function stampaFoglioLottoAgrinsicilia(
+  lotto: LottoAgrinsiciliaDettaglio
+): void {
+  stampaFogliLottoAgrinsicilia(lotto, []);
 }
