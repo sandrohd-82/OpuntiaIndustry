@@ -16,8 +16,31 @@ export type MappaLinea = {
   x2: number;
   y2: number;
   spessore: number;
+  colore: string;
   sortOrder: number;
 };
+
+export const MAPPA_LINEA_COLORE_DEFAULT = "#0f172a";
+
+export const MAPPA_LINEA_COLORI = [
+  "#0f172a",
+  "#b91c1c",
+  "#1d4ed8",
+  "#15803d",
+  "#a16207",
+  "#7c3aed",
+  "#c2410c",
+  "#0f766e",
+] as const;
+
+export function normalizzaColoreLinea(value: string): string {
+  const t = value.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(t)) return t.toLowerCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(t)) {
+    return `#${t[1]}${t[1]}${t[2]}${t[2]}${t[3]}${t[3]}`.toLowerCase();
+  }
+  return MAPPA_LINEA_COLORE_DEFAULT;
+}
 
 export type MappaMagazzino = {
   id: string;
@@ -49,6 +72,11 @@ export const mappaLineaInputSchema = z.object({
   x2: z.number().finite(),
   y2: z.number().finite(),
   spessore: z.number().positive().max(80),
+  colore: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => normalizzaColoreLinea(v ?? MAPPA_LINEA_COLORE_DEFAULT)),
   sortOrder: z.number().int().nonnegative().optional(),
 });
 

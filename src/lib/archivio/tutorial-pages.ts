@@ -216,7 +216,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. Il Super Admin prima imposta il testo Vista (es. Dall’alto, Lato fronte, Lato Dx), poi traccia scaffali con linee rette e spessore e approva. Gli altri vedono la pianta approvata. Qui non si spostano ancora i lotti.",
+      text: "Pianta del magazzino. Il Super Admin prima imposta il testo Vista (es. Dall’alto, Lato fronte, Lato Dx), poi traccia scaffali con linee rette, spessore e colore e approva. Gli altri vedono la pianta approvata. Qui non si spostano ancora i lotti.",
     },
   ],
   "/app/magazzino/panoramica": [

@@ -9,8 +9,11 @@ import {
 } from "@/app/actions/magazzino-mappa";
 import {
   distanzaPuntoSegmento,
+  MAPPA_LINEA_COLORE_DEFAULT,
+  MAPPA_LINEA_COLORI,
   MAPPA_STATO_LABEL,
   MAPPA_VISTA_SUGGERITE,
+  normalizzaColoreLinea,
   snapToGrid,
   type MappaLinea,
   type MappaMagazzino,
@@ -32,6 +35,7 @@ export function MagazzinoMappaBoard() {
   const [griglia, setGriglia] = useState(20);
   const [vistaEtichetta, setVistaEtichetta] = useState("");
   const [spessore, setSpessore] = useState(6);
+  const [colore, setColore] = useState(MAPPA_LINEA_COLORE_DEFAULT);
   const [tool, setTool] = useState<Tool>("linea");
   const [draftStart, setDraftStart] = useState<{ x: number; y: number } | null>(
     null
@@ -136,7 +140,10 @@ export function MagazzinoMappaBoard() {
       const id = hitLine(w.x, w.y);
       setSelectedId(id);
       const sel = linee.find((l) => l.id === id);
-      if (sel) setSpessore(sel.spessore);
+      if (sel) {
+        setSpessore(sel.spessore);
+        setColore(sel.colore);
+      }
       setDraftStart(null);
       return;
     }
@@ -153,6 +160,7 @@ export function MagazzinoMappaBoard() {
       x2: snap.x,
       y2: snap.y,
       spessore,
+      colore,
       sortOrder: linee.length,
     };
     setLinee((prev) => [...prev, linea]);
@@ -214,6 +222,16 @@ export function MagazzinoMappaBoard() {
     }
   }
 
+  function applyColore(v: string) {
+    const next = normalizzaColoreLinea(v);
+    setColore(next);
+    if (selectedId && canDraw) {
+      setLinee((prev) =>
+        prev.map((l) => (l.id === selectedId ? { ...l, colore: next } : l))
+      );
+    }
+  }
+
   async function persist(): Promise<boolean> {
     if (!mappa) return false;
     setSaving(true);
@@ -234,6 +252,7 @@ export function MagazzinoMappaBoard() {
         x2: l.x2,
         y2: l.y2,
         spessore: l.spessore,
+        colore: l.colore,
         sortOrder: i,
       })),
     });
@@ -311,7 +330,7 @@ export function MagazzinoMappaBoard() {
             )}
             {" · "}
             {editing
-              ? "Clicca due punti per una linea retta. Rotella = zoom. Maiusc + trascina = sposta il foglio. Canc = elimina la linea selezionata."
+              ? "Clicca due punti per una linea retta. Seleziona una linea per cambiarne colore o spessore. Rotella = zoom. Maiusc + trascina = sposta il foglio. Canc = elimina."
               : canDesign
                 ? "Pianta in sola lettura. Riapri la progettazione per disegnare."
                 : "Pianta in sola lettura. Solo il Super Admin può disegnare gli scaffali."}
@@ -410,6 +429,29 @@ export function MagazzinoMappaBoard() {
             <span className="ml-2 font-mono text-sm">{spessore} px</span>
           </label>
           <label className="text-xs">
+            Colore linea
+            <input
+              type="color"
+              value={colore}
+              onChange={(e) => applyColore(e.target.value)}
+              className="ml-2 h-8 w-10 cursor-pointer rounded border border-[var(--border)] bg-white p-0.5 align-middle"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-1">
+            {MAPPA_LINEA_COLORI.map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Colore ${c}`}
+                onClick={() => applyColore(c)}
+                className={`h-6 w-6 rounded-full border ${
+                  colore === c ? "ring-2 ring-teal-600 ring-offset-1" : "border-slate-300"
+                }`}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </div>
+          <label className="text-xs">
             Griglia
             <input
               type="number"
@@ -488,16 +530,28 @@ export function MagazzinoMappaBoard() {
               fill={`url(#${gridPatternId})`}
             />
             {linee.map((l) => (
-              <line
-                key={l.id}
-                x1={l.x1}
-                y1={l.y1}
-                x2={l.x2}
-                y2={l.y2}
-                stroke={l.id === selectedId ? "#0f766e" : "#0f172a"}
-                strokeWidth={l.spessore}
-                strokeLinecap="square"
-              />
+              <g key={l.id}>
+                {l.id === selectedId ? (
+                  <line
+                    x1={l.x1}
+                    y1={l.y1}
+                    x2={l.x2}
+                    y2={l.y2}
+                    stroke="#f59e0b"
+                    strokeWidth={l.spessore + Math.max(4, 8 / zoom)}
+                    strokeLinecap="square"
+                  />
+                ) : null}
+                <line
+                  x1={l.x1}
+                  y1={l.y1}
+                  x2={l.x2}
+                  y2={l.y2}
+                  stroke={l.colore || MAPPA_LINEA_COLORE_DEFAULT}
+                  strokeWidth={l.spessore}
+                  strokeLinecap="square"
+                />
+              </g>
             ))}
             {canDraw && draftStart && snappedCursor ? (
               <line
@@ -505,7 +559,7 @@ export function MagazzinoMappaBoard() {
                 y1={draftStart.y}
                 x2={snappedCursor.x}
                 y2={snappedCursor.y}
-                stroke="#0f766e"
+                stroke={colore}
                 strokeWidth={spessore}
                 strokeDasharray="8 6"
                 strokeLinecap="square"
@@ -516,7 +570,7 @@ export function MagazzinoMappaBoard() {
                 cx={snappedCursor.x}
                 cy={snappedCursor.y}
                 r={Math.max(3, 6 / zoom)}
-                fill="#0f766e"
+                fill={colore}
               />
             ) : null}
           </g>

@@ -4,7 +4,9 @@ import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import {
+  MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_STATI,
+  normalizzaColoreLinea,
   salvaMappaSchema,
   type MappaDocumentoStato,
   type MappaLinea,
@@ -24,6 +26,7 @@ function mapLinea(r: {
   x2: number | string;
   y2: number | string;
   spessore: number | string;
+  colore?: string | null;
   sort_order: number;
 }): MappaLinea {
   return {
@@ -33,6 +36,7 @@ function mapLinea(r: {
     x2: Number(r.x2),
     y2: Number(r.y2),
     spessore: Number(r.spessore),
+    colore: normalizzaColoreLinea(r.colore ?? MAPPA_LINEA_COLORE_DEFAULT),
     sortOrder: r.sort_order,
   };
 }
@@ -58,7 +62,7 @@ async function loadMappa(
   if (!header) return null;
   const { data: linee } = await supabase
     .from("magazzino_mappa_linee")
-    .select("id, x1, y1, x2, y2, spessore, sort_order")
+    .select("id, x1, y1, x2, y2, spessore, colore, sort_order")
     .eq("mappa_id", id)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
@@ -228,6 +232,7 @@ export async function salvaMappaMagazzinoAction(
       x2: linea.x2,
       y2: linea.y2,
       spessore: linea.spessore,
+      colore: linea.colore,
       sort_order: linea.sortOrder ?? i,
       updated_by: auth.userId,
     };
