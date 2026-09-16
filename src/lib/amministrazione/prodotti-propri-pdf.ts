@@ -5,6 +5,16 @@ import {
   type ProdottoProprio,
   type ProdottiPropriFilters,
 } from "@/lib/amministrazione/prodotti-propri";
+import {
+  formatQuantitaCarico,
+  unitaStockDaCarico,
+  type MagazzinoCaricoUnita,
+} from "@/lib/magazzino/types";
+
+export type ProdottiPropriPdfGiacenza = {
+  giacenzaKg: number;
+  unitaScheda: MagazzinoCaricoUnita;
+};
 
 function formatDateTime(date = new Date()): string {
   return date.toLocaleString("it-IT", {
@@ -54,8 +64,11 @@ function safeFilenamePart(value: string): string {
 
 export function exportProdottiPropriPdf(
   prodotti: ProdottoProprio[],
-  filters: ProdottiPropriFilters
+  filters: ProdottiPropriFilters,
+  options?: { giacenze?: Record<string, ProdottiPropriPdfGiacenza> }
 ): void {
+  const giacenze = options?.giacenze;
+  const withQty = Boolean(giacenze);
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const marginX = 14;
@@ -63,7 +76,11 @@ export function exportProdottiPropriPdf(
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("Prodotti propri", marginX, y);
+  doc.text(
+    withQty ? "Elenco e quantità presenti — Agrinsicilia" : "Prodotti propri",
+    marginX,
+    y
+  );
   y += 7;
 
   doc.setFont("helvetica", "normal");
@@ -91,13 +108,20 @@ export function exportProdottiPropriPdf(
 
   autoTable(doc, {
     startY: y,
-    head: [["Codice", "Nome", "Tipologia", "Note"]],
-    body: prodotti.map((p) => [
-      p.codice,
-      p.nome,
-      p.isBio ? "Bio" : "Convenzionale",
-      p.note || "—",
-    ]),
+    head: [
+      withQty
+        ? ["Codice", "Nome", "Quantità in magazzino", "Tipologia", "Note"]
+        : ["Codice", "Nome", "Tipologia", "Note"],
+    ],
+    body: prodotti.map((p) => {
+      const g = giacenze?.[p.id];
+      const qty = g
+        ? formatQuantitaCarico(g.giacenzaKg, unitaStockDaCarico(g.unitaScheda))
+        : "0 kg";
+      return withQty
+        ? [p.codice, p.nome, qty, p.isBio ? "Bio" : "Convenzionale", p.note || "—"]
+        : [p.codice, p.nome, p.isBio ? "Bio" : "Convenzionale", p.note || "—"];
+    }),
     styles: {
       font: "helvetica",
       fontSize: 9,
@@ -111,12 +135,20 @@ export function exportProdottiPropriPdf(
       fontStyle: "bold",
     },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: {
-      0: { cellWidth: 32, fontStyle: "bold" },
-      1: { cellWidth: 50 },
-      2: { cellWidth: 28 },
-      3: { cellWidth: "auto" },
-    },
+    columnStyles: withQty
+      ? {
+          0: { cellWidth: 28, fontStyle: "bold" },
+          1: { cellWidth: 42 },
+          2: { cellWidth: 32 },
+          3: { cellWidth: 26 },
+          4: { cellWidth: "auto" },
+        }
+      : {
+          0: { cellWidth: 32, fontStyle: "bold" },
+          1: { cellWidth: 50 },
+          2: { cellWidth: 28 },
+          3: { cellWidth: "auto" },
+        },
     margin: { left: marginX, right: marginX },
   });
 
@@ -137,5 +169,7 @@ export function exportProdottiPropriPdf(
   const suffix = hasActiveProdottiPropriFilters(filters)
     ? "_filtrati"
     : "_completi";
-  doc.save(`prodotti-propri${suffix}_${safeFilenamePart(stamp)}.pdf`);
+  doc.save(
+    `${withQty ? "elenco-quantita-agrinsicilia" : "prodotti-propri"}${suffix}_${safeFilenamePart(stamp)}.pdf`
+  );
 }

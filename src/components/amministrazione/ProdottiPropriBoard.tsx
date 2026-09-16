@@ -15,6 +15,7 @@ import { ProdottoProprioFormModal } from "@/components/amministrazione/ProdottoP
 import { ProdottiPropriFiltersPanel } from "@/components/amministrazione/ProdottiPropriFiltersPanel";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import { setProdottiPropriAttivitaAction } from "@/app/actions/attivita";
+import { listProdottiPropriMagazzinoAction } from "@/app/actions/magazzino";
 import { useProdottiPropri } from "@/hooks/useProdottiPropri";
 import {
   emptyProdottiPropriFilters,
@@ -24,8 +25,42 @@ import {
   type ProdottiPropriFilters,
 } from "@/lib/amministrazione/prodotti-propri";
 import { exportProdottiPropriPdf } from "@/lib/amministrazione/prodotti-propri-pdf";
+import {
+  formatQuantitaCarico,
+  unitaStockDaCarico,
+  type MagazzinoCaricoUnita,
+} from "@/lib/magazzino/types";
 
-export function ProdottiPropriBoard() {
+type GiacenzaRiga = {
+  giacenzaKg: number;
+  unitaScheda: MagazzinoCaricoUnita;
+};
+
+function formatGiacenzaElenco(row: GiacenzaRiga): string {
+  return formatQuantitaCarico(
+    row.giacenzaKg,
+    unitaStockDaCarico(row.unitaScheda)
+  );
+}
+
+function GiacenzaCell({ row }: { row?: GiacenzaRiga }) {
+  const qty = row?.giacenzaKg ?? 0;
+  return (
+    <span
+      className={
+        qty > 0 ? "font-semibold text-slate-900" : "text-[var(--muted)]"
+      }
+    >
+      {row ? formatGiacenzaElenco(row) : "0 kg"}
+    </span>
+  );
+}
+
+export function ProdottiPropriBoard({
+  showGiacenza = false,
+}: {
+  showGiacenza?: boolean;
+}) {
   const pathname = usePathname();
   const nuovoProprioKey = pathname.startsWith("/app/magazzino")
     ? AZ.nuovoProdottoProprioMag
@@ -39,6 +74,9 @@ export function ProdottiPropriBoard() {
     updateProdotto,
     removeProdotto,
   } = useProdottiPropri();
+  const [giacenze, setGiacenze] = useState<Record<string, GiacenzaRiga>>({});
+  const [giacenzeReady, setGiacenzeReady] = useState(!showGiacenza);
+  const [giacenzaError, setGiacenzaError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<ProdottoProprio | null>(null);
   const [deleting, setDeleting] = useState<ProdottoProprio | null>(null);
@@ -55,15 +93,44 @@ export function ProdottiPropriBoard() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!showGiacenza) {
+      setGiacenzeReady(true);
+      return;
+    }
+    let cancelled = false;
+    void listProdottiPropriMagazzinoAction().then((res) => {
+      if (cancelled) return;
+      if (res.success) {
+        const next: Record<string, GiacenzaRiga> = {};
+        for (const p of res.prodotti) {
+          next[p.id] = {
+            giacenzaKg: p.giacenzaKg,
+            unitaScheda: p.unitaScheda,
+          };
+        }
+        setGiacenze(next);
+        setGiacenzaError(null);
+      } else {
+        setGiacenzaError(res.error);
+      }
+      setGiacenzeReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showGiacenza]);
+
   const filtered = useMemo(
     () => filterProdottiPropri(prodotti, filters),
     [prodotti, filters]
   );
 
-  if (!ready) {
+  if (!ready || !giacenzeReady) {
     return (
       <p className="text-sm text-[var(--muted)]">
-        Caricamento prodotti Agrinsicilia…
+        Caricamento prodotti Agrinsicilia
+        {showGiacenza ? " e quantità in magazzino" : ""}…
       </p>
     );
   }
@@ -72,8 +139,9 @@ export function ProdottiPropriBoard() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[var(--muted)]">
-          Elenco prodotti Agrinsicilia con targa libera, filtri e controllo
-          anti-duplicato sul nome.
+          {showGiacenza
+            ? "Elenco prodotti Agrinsicilia con la quantità presente in magazzino in questo momento (carichi e prelievi)."
+            : "Elenco prodotti Agrinsicilia con targa libera, filtri e controllo anti-duplicato sul nome."}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {prodotti.length > 0 && (
@@ -99,7 +167,11 @@ export function ProdottiPropriBoard() {
           {filtered.length > 0 && (
             <button
               type="button"
-              onClick={() => exportProdottiPropriPdf(filtered, filters)}
+              onClick={() =>
+                exportProdottiPropriPdf(filtered, filters, {
+                  giacenze: showGiacenza ? giacenze : undefined,
+                })
+              }
               title={
                 filtersActive
                   ? `Esporta PDF dei ${filtered.length} prodotti filtrati`
@@ -132,9 +204,9 @@ export function ProdottiPropriBoard() {
         </div>
       </div>
 
-      {(error || saveError) && (
+      {(error || saveError || giacenzaError) && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {saveError || error}
+          {saveError || error || giacenzaError}
         </p>
       )}
 
@@ -185,6 +257,9 @@ export function ProdottiPropriBoard() {
               <tr>
                 <th className="px-4 py-3 font-medium">Codice</th>
                 <th className="px-4 py-3 font-medium">Nome</th>
+                {showGiacenza ? (
+                  <th className="px-4 py-3 font-medium">Quantità in magazzino</th>
+                ) : null}
                 <th className="px-4 py-3 font-medium">Tipologia</th>
                 <th className="px-4 py-3 font-medium">Note</th>
                 <th className="px-4 py-3 text-right font-medium" />
@@ -199,6 +274,11 @@ export function ProdottiPropriBoard() {
                     </span>
                   </td>
                   <td className="px-4 py-3 font-medium">{m.nome}</td>
+                  {showGiacenza ? (
+                    <td className="px-4 py-3 tabular-nums">
+                      <GiacenzaCell row={giacenze[m.id]} />
+                    </td>
+                  ) : null}
                   <td className="px-4 py-3 text-xs">
                     {m.isBio ? (
                       <span className="font-medium text-emerald-700">

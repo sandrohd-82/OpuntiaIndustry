@@ -161,7 +161,7 @@ export default async function MagazzinoSubPage({ params }: Props) {
               <p className="text-sm text-[var(--muted)]">Caricamento…</p>
             }
           >
-            <ProdottiPropriBoard />
+            <ProdottiPropriBoard showGiacenza />
           </Suspense>
         </div>
       </>
