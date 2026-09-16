@@ -7,20 +7,23 @@ import {
   listProdottiPropriMagazzinoAction,
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
-import { listImballaggiCiMagazzinoAction } from "@/app/actions/magazzino-lotti";
+import { listImballaggiCatalogoMagazzinoAction } from "@/app/actions/magazzino-lotti";
 import { anteprimaLottoUscitaAction } from "@/app/actions/lotti-esterni";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
+import { ConfezionamentoBlocchiEditor } from "@/components/magazzino/ConfezionamentoBlocchiEditor";
 import { LottoAgrinsiciliaModal } from "@/components/magazzino/LottoAgrinsiciliaModal";
+import { emptyConfezionamentoDraft } from "@/lib/amministrazione/imballaggi-spedizioni";
+import type { ConfezionamentoDraft, ImballaggioVoce } from "@/lib/amministrazione/imballaggi-spedizioni";
 import { lottoMaskPlaceholder } from "@/lib/magazzino/lotto-agrinsicilia";
 import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
 import {
   formatQuantitaCarico,
   MAGAZZINO_CARICO_UNITA_OPTIONS,
   MOTIVO_SENZA_FOGLIO_LABEL,
+  quantitaStockDaCarico,
   unitaStockDaCarico,
   type FoglioApertoOption,
   type MagazzinoCaricoUnita,
-  type ImballaggioMagazzinoOpt,
   type MotivoSenzaFoglio,
   type MovimentoAgrinsiciliaRiga,
 } from "@/lib/magazzino/types";
@@ -56,10 +59,10 @@ export function MagazzinoInserisciQuantitaBoard() {
     anno: number;
   } | null>(null);
   const [lottoUscitaBusy, setLottoUscitaBusy] = useState(false);
-  const [confezioni, setConfezioni] = useState<ImballaggioMagazzinoOpt[]>([]);
-  const [isolamenti, setIsolamenti] = useState<ImballaggioMagazzinoOpt[]>([]);
-  const [confezioneId, setConfezioneId] = useState("");
-  const [isolamentoId, setIsolamentoId] = useState("");
+  const [catalogoImballaggi, setCatalogoImballaggi] = useState<ImballaggioVoce[]>([]);
+  const [confDraft, setConfDraft] = useState<ConfezionamentoDraft>(
+    emptyConfezionamentoDraft()
+  );
   const [rimandaCi, setRimandaCi] = useState(false);
   const printRootRef = useRef<HTMLDivElement>(null);
 
@@ -68,15 +71,12 @@ export function MagazzinoInserisciQuantitaBoard() {
       listProdottiPropriMagazzinoAction(),
       listFogliApertiMagazzinoAction(),
       listMovimentiAgrinsiciliaAction(),
-      listImballaggiCiMagazzinoAction(),
+      listImballaggiCatalogoMagazzinoAction(),
     ]);
     if (p.success) setProdotti(p.prodotti);
     if (f.success) setFogli(f.items);
     if (m.success) setMovimenti(m.items);
-    if (ci.success) {
-      setConfezioni(ci.confezioni);
-      setIsolamenti(ci.isolamenti);
-    }
+    if (ci.success) setCatalogoImballaggi(ci.voci);
     if (!p.success) setError(p.error);
     else if (!f.success) setError(f.error);
     else if (!m.success) setError(m.error);
@@ -140,9 +140,9 @@ export function MagazzinoInserisciQuantitaBoard() {
       setError("Apri la composizione e conferma il lotto di lavorazione.");
       return;
     }
-    if (!rimandaCi && (!confezioneId || !isolamentoId)) {
+    if (!rimandaCi && confDraft.nodi.length === 0) {
       setError(
-        "Seleziona confezionamento e isolamento, oppure spunta «Completa in un secondo momento»."
+        "Aggiungi almeno un blocco di confezionamento, oppure spunta «Completa in un secondo momento»."
       );
       return;
     }
@@ -157,9 +157,8 @@ export function MagazzinoInserisciQuantitaBoard() {
         foglioId: collegaFoglio ? foglioId || null : null,
         motivoSenzaFoglio: collegaFoglio ? null : motivo,
         note,
-        confezioneId: confezioneId || null,
-        isolamentoId: isolamentoId || null,
         rimandaConfezIsolamento: rimandaCi,
+        confezionamento: confDraft,
         associaLottoUscita: Boolean(lottoUscita),
         lottoUscitaAnteprima: lottoUscita?.codice ?? null,
       });
@@ -186,8 +185,7 @@ export function MagazzinoInserisciQuantitaBoard() {
       setLottoCodice("");
       setLottoUscita(null);
       setNote("");
-      setConfezioneId("");
-      setIsolamentoId("");
+      setConfDraft(emptyConfezionamentoDraft());
       setRimandaCi(false);
       await reload();
     } catch (err) {
@@ -319,64 +317,21 @@ export function MagazzinoInserisciQuantitaBoard() {
           />
         </label>
 
-        <fieldset className="space-y-3 rounded-xl border border-[var(--border)] bg-slate-50/70 p-4">
-          <legend className="px-1 text-sm font-medium">
-            Confezionamento e isolamento
-          </legend>
-          <p className="text-xs text-[var(--muted)]">
-            Obbligatorio per chiudere la scheda. Puoi rimandarlo: la quantità
-            si salva lo stesso.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Tipo di confezionamento</span>
-              <select
-                value={confezioneId}
-                onChange={(e) => setConfezioneId(e.target.value)}
-                disabled={rimandaCi}
-                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm disabled:opacity-60"
-              >
-                <option value="">Seleziona…</option>
-                {confezioni.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.codice} — {c.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Isolamento</span>
-              <select
-                value={isolamentoId}
-                onChange={(e) => setIsolamentoId(e.target.value)}
-                disabled={rimandaCi}
-                className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm disabled:opacity-60"
-              >
-                <option value="">Seleziona…</option>
-                {isolamenti.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.codice} — {c.nome}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          {confezioni.length === 0 && isolamenti.length === 0 ? (
-            <p className="text-xs text-amber-800">
-              Catalogo imballaggi vuoto. Spunta «Completa in un secondo
-              momento» oppure chiedi ad Amministrazione di inserire le voci.
-            </p>
-          ) : null}
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={rimandaCi}
-              onChange={(e) => setRimandaCi(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>Completa in un secondo momento (non blocca il carico)</span>
-          </label>
-        </fieldset>
+        <ConfezionamentoBlocchiEditor
+          conf={confDraft}
+          onChange={setConfDraft}
+          catalogo={catalogoImballaggi}
+          prodotto={
+            selected
+              ? { id: selected.id, codice: selected.codice, nome: selected.nome }
+              : null
+          }
+          kgCarico={
+            quantita === "" ? 0 : quantitaStockDaCarico(quantita, unitaMisura)
+          }
+          rimanda={rimandaCi}
+          onRimandaChange={setRimandaCi}
+        />
 
         <fieldset className="space-y-2">
           <legend className="text-sm font-medium">Foglio di lavorazione</legend>

@@ -40,6 +40,11 @@ export function stampaFoglioLottoAgrinsicilia(lotto: LottoAgrinsiciliaDettaglio)
   <p>Quantità: <strong>${lotto.quantitaKg.toLocaleString("it-IT")} ${escapeHtml(lotto.unita)}</strong>
     ${lotto.daCompletareCi ? ' <span class="badge">C/I da completare</span>' : ""}</p>
   <p>Confezione: ${escapeHtml(lotto.confezioneNome || "—")} · Isolamento: ${escapeHtml(lotto.isolamentoNome || "—")}</p>
+  ${
+    lotto.confezionamentoRiepilogo
+      ? `<p><strong>Blocchi:</strong> ${escapeHtml(lotto.confezionamentoRiepilogo)}</p>`
+      : ""
+  }
 
   <h2>Foglio ingresso materia prima</h2>
   ${

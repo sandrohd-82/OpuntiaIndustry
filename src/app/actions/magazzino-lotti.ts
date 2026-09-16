@@ -3,6 +3,19 @@
 import { createClient } from "@/lib/supabase/server";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import {
+  draftNodiFromRows,
+  formatConfezionamentoRiepilogo,
+  idsFromConfezionamento,
+  mapImballaggioVoceRow,
+  normalizeConfezionamentoDraft,
+  parseImballaggioProdottoUm,
+  totaleKgConfezionati,
+  validateConfezionamentoBlocchi,
+  type ConfezionamentoDraft,
+  type ConfezionamentoNodoRow,
+  type ImballaggioVoce,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 import { isMagazzinoCaricoUnita } from "@/lib/magazzino/types";
 import type {
   ImballaggioMagazzinoOpt,
@@ -11,6 +24,7 @@ import type {
   LottoTimelineEvento,
   MagazzinoCaricoUnita,
 } from "@/lib/magazzino/types";
+import type { ImballaggioVoceRow } from "@/types/database";
 
 const CATALOG_PROPRIO = "prodotto_proprio";
 
@@ -47,37 +61,223 @@ async function nomiProfili(
   return map;
 }
 
-export async function listImballaggiCiMagazzinoAction(): Promise<
-  | { success: true; confezioni: ImballaggioMagazzinoOpt[]; isolamenti: ImballaggioMagazzinoOpt[] }
+export async function listImballaggiCatalogoMagazzinoAction(): Promise<
+  | { success: true; voci: ImballaggioVoce[] }
   | { success: false; error: string }
 > {
   await requireAreaAccess("magazzino");
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("imballaggi_voci")
-    .select("id, codice, nome, stadio, doppio_ruolo")
+    .select("*")
     .is("deleted_at", null)
-    .in("stadio", ["confezione", "isolamento"])
     .order("sort_order", { ascending: true })
     .order("nome", { ascending: true });
   if (error) return { success: false, error: error.message };
-  const items = ((data ?? []) as Array<{
-    id: string;
-    codice: string;
-    nome: string;
-    stadio: "confezione" | "isolamento";
-    doppio_ruolo: boolean | null;
-  }>).map((r) => ({
-    id: r.id,
-    codice: r.codice,
-    nome: r.nome,
-    stadio: r.stadio,
-    doppioRuolo: Boolean(r.doppio_ruolo),
-  }));
+  const rows = (data ?? []) as ImballaggioVoceRow[];
+  const ids = rows.map((r) => r.id);
+  const links = new Map<string, ImballaggioVoce["prodotti"]>();
+  if (ids.length) {
+    const { data: linkRows } = await supabase
+      .from("imballaggi_voci_prodotti")
+      .select("voce_id, prodotto_id, max_kg, unita_misura")
+      .in("voce_id", ids)
+      .is("deleted_at", null);
+    for (const r of (linkRows ?? []) as Array<{
+      voce_id: string;
+      prodotto_id: string;
+      max_kg: number;
+      unita_misura: string | null;
+    }>) {
+      const list = links.get(r.voce_id) ?? [];
+      list.push({
+        prodottoId: r.prodotto_id,
+        maxKg: Number(r.max_kg),
+        unitaMisura: parseImballaggioProdottoUm(r.unita_misura),
+      });
+      links.set(r.voce_id, list);
+    }
+  }
+  return {
+    success: true,
+    voci: rows.map((r) => mapImballaggioVoceRow(r, links.get(r.id) ?? [])),
+  };
+}
+
+/** @deprecated usa listImballaggiCatalogoMagazzinoAction */
+export async function listImballaggiCiMagazzinoAction(): Promise<
+  | { success: true; confezioni: ImballaggioMagazzinoOpt[]; isolamenti: ImballaggioMagazzinoOpt[] }
+  | { success: false; error: string }
+> {
+  const res = await listImballaggiCatalogoMagazzinoAction();
+  if (!res.success) return res;
+  const items: ImballaggioMagazzinoOpt[] = res.voci
+    .filter(
+      (v): v is ImballaggioVoce & { stadio: "confezione" | "isolamento" } =>
+        v.stadio === "confezione" || v.stadio === "isolamento"
+    )
+    .map((v) => ({
+      id: v.id,
+      codice: v.codice,
+      nome: v.nome,
+      stadio: v.stadio,
+      doppioRuolo: v.doppioRuolo,
+    }));
   return {
     success: true,
     confezioni: items.filter((i) => i.stadio === "confezione" || i.doppioRuolo),
     isolamenti: items.filter((i) => i.stadio === "isolamento" || i.doppioRuolo),
+  };
+}
+
+export async function upsertMagazzinoConfezionamentoLotto(input: {
+  prodottoId: string;
+  lottoCodice: string;
+  movimentoId?: string | null;
+  kgCarico: number;
+  draft: ConfezionamentoDraft;
+  rimandato: boolean;
+}): Promise<
+  | {
+      success: true;
+      confezioneId: string | null;
+      isolamentoId: string | null;
+      riepilogo: string;
+    }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("magazzino");
+  const norm = normalizeConfezionamentoDraft(input.draft);
+  if (!input.rimandato) {
+    const err = validateConfezionamentoBlocchi(norm);
+    if (err) return { success: false, error: err };
+  }
+  const kgConf = totaleKgConfezionati(norm.nodi);
+  const kgDelta = Math.round((input.kgCarico - kgConf) * 1000) / 1000;
+  const riepilogo = formatConfezionamentoRiepilogo(norm.nodi);
+  const ids = idsFromConfezionamento(norm.nodi);
+  const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("magazzino_confezionamento")
+    .select("id, versione")
+    .eq("prodotto_id", input.prodottoId)
+    .eq("lotto_codice", input.lottoCodice)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const prev = existing as { id: string; versione: number } | null;
+  const headerPayload = {
+    prodotto_id: input.prodottoId,
+    lotto_codice: input.lottoCodice,
+    movimento_id: input.movimentoId ?? null,
+    movimentazione_modo: norm.movimentazioneModo,
+    pallet_catalogo_id: norm.palletCatalogoId,
+    pallet_misure_custom: norm.palletMisureCustom.trim(),
+    kg_carico: input.kgCarico,
+    kg_confezionati: kgConf,
+    kg_delta: kgDelta,
+    coerenza_ignorata: norm.coerenzaIgnorata || Math.abs(kgDelta) > 0.001,
+    rimandato: input.rimandato,
+    riepilogo,
+    note: norm.note.trim(),
+    documento_stato: input.rimandato || !norm.nodi.length ? "bozza" : "approvato",
+    updated_by: auth.userId,
+  };
+  let headerId: string;
+  if (prev) {
+    const { error } = await supabase
+      .from("magazzino_confezionamento")
+      .update({ ...headerPayload, versione: (prev.versione ?? 1) + 1 })
+      .eq("id", prev.id);
+    if (error) return { success: false, error: error.message };
+    headerId = prev.id;
+    const now = new Date().toISOString();
+    await supabase
+      .from("magazzino_confezionamento_nodi")
+      .update({
+        deleted_at: now,
+        deleted_by: auth.userId,
+        updated_by: auth.userId,
+      })
+      .eq("confezionamento_id", headerId)
+      .is("deleted_at", null);
+  } else {
+    const { data, error } = await supabase
+      .from("magazzino_confezionamento")
+      .insert({ ...headerPayload, versione: 1, created_by: auth.userId })
+      .select("id")
+      .single();
+    if (error || !data) {
+      return { success: false, error: error?.message ?? "Header confezionamento non salvato." };
+    }
+    headerId = (data as { id: string }).id;
+  }
+
+  async function insertNodi(
+    nodes: typeof norm.nodi,
+    parentId: string | null,
+    sortBase: number
+  ): Promise<string | null> {
+    let sort = sortBase;
+    for (const n of nodes) {
+      const { data: nodoRow, error: nodoErr } = await supabase
+        .from("magazzino_confezionamento_nodi")
+        .insert({
+          confezionamento_id: headerId,
+          parent_id: parentId,
+          stadio: n.stadio,
+          catalogo_id: n.catalogoId,
+          nome_snapshot: n.nome,
+          codice_snapshot: n.codice,
+          quantita: n.quantita,
+          kg_prodotto: n.stadio === "prodotto_kg" ? n.kgProdotto : null,
+          sort_order: sort,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .select("id")
+        .single();
+      if (nodoErr || !nodoRow) {
+        return nodoErr?.message ?? "Nodo confezionamento non salvato.";
+      }
+      sort += 1;
+      if (n.children.length) {
+        const childErr = await insertNodi(
+          n.children,
+          (nodoRow as { id: string }).id,
+          0
+        );
+        if (childErr) return childErr;
+      }
+    }
+    return null;
+  }
+
+  if (!input.rimandato && norm.nodi.length) {
+    const nodiErr = await insertNodi(norm.nodi, null, 0);
+    if (nodiErr) return { success: false, error: nodiErr };
+  }
+
+  await writeAuditLog({
+    entity_type: "magazzino_confezionamento",
+    entity_id: headerId,
+    action: prev ? "update" : "create",
+    actor_id: auth.userId,
+    summary: input.rimandato
+      ? `Confezionamento lotto ${input.lottoCodice} rimandato`
+      : `Confezionamento lotto ${input.lottoCodice}: ${riepilogo}`,
+    payload: {
+      lotto_codice: input.lottoCodice,
+      prodotto_id: input.prodottoId,
+      rimandato: input.rimandato,
+      riepilogo,
+    },
+  });
+
+  return {
+    success: true,
+    confezioneId: ids.confezioneId,
+    isolamentoId: ids.isolamentoId,
+    riepilogo,
   };
 }
 
@@ -136,6 +336,7 @@ export async function listLottiAgrinsiciliaProdottoAction(
         confezioneNome: (conf as { nome?: string } | null)?.nome ?? null,
         isolamentoNome: (iso as { nome?: string } | null)?.nome ?? null,
         daCompletareCi: daCompletare,
+        confezionamentoRiepilogo: null,
       });
     } else {
       prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
@@ -155,11 +356,39 @@ export async function listLottiAgrinsiciliaProdottoAction(
     }
   }
 
+  const lotti = [...byLotto.values()].sort((a, b) =>
+    b.ultimoAt.localeCompare(a.ultimoAt)
+  );
+  if (lotti.length) {
+    const { data: headers } = await supabase
+      .from("magazzino_confezionamento")
+      .select("lotto_codice, riepilogo, rimandato, documento_stato")
+      .eq("prodotto_id", prodottoId)
+      .in(
+        "lotto_codice",
+        lotti.map((l) => l.lottoCodice)
+      )
+      .is("deleted_at", null);
+    for (const h of (headers ?? []) as Array<{
+      lotto_codice: string;
+      riepilogo: string;
+      rimandato: boolean;
+      documento_stato: string;
+    }>) {
+      const row = byLotto.get(h.lotto_codice);
+      if (!row) continue;
+      row.confezionamentoRiepilogo = h.riepilogo || null;
+      if (h.rimandato || h.documento_stato === "bozza" || !h.riepilogo) {
+        row.daCompletareCi = true;
+      } else {
+        row.daCompletareCi = false;
+      }
+    }
+  }
+
   return {
     success: true,
-    lotti: [...byLotto.values()].sort((a, b) =>
-      b.ultimoAt.localeCompare(a.ultimoAt)
-    ),
+    lotti,
   };
 }
 
@@ -395,9 +624,52 @@ export async function getLottoAgrinsiciliaDettaglioAction(input: {
   const quantitaKg = Math.round(
     movimenti.reduce((s, m) => s + (Number(m.quantita_kg) || 0), 0) * 1000
   ) / 1000;
-  const daCompletareCi = movimenti.some(
-    (m) => m.confez_isolamento_rimandato || !m.confezione_id || !m.isolamento_id
-  );
+  const { data: header } = await supabase
+    .from("magazzino_confezionamento")
+    .select(
+      "id, movimentazione_modo, pallet_catalogo_id, pallet_misure_custom, note, coerenza_ignorata, rimandato, riepilogo, documento_stato"
+    )
+    .eq("prodotto_id", first.prodotto_id)
+    .eq("lotto_codice", lottoCodice)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const headerRow = header as {
+    id: string;
+    movimentazione_modo: "su_pallet" | "nessun_pallet";
+    pallet_catalogo_id: string | null;
+    pallet_misure_custom: string;
+    note: string;
+    coerenza_ignorata: boolean;
+    rimandato: boolean;
+    riepilogo: string;
+    documento_stato: string;
+  } | null;
+  let confezionamento: ConfezionamentoDraft | null = null;
+  if (headerRow) {
+    const { data: nodoRows } = await supabase
+      .from("magazzino_confezionamento_nodi")
+      .select(
+        "id, parent_id, stadio, catalogo_id, nome_snapshot, codice_snapshot, quantita, kg_prodotto, sort_order"
+      )
+      .eq("confezionamento_id", headerRow.id)
+      .is("deleted_at", null);
+    confezionamento = {
+      movimentazioneModo: headerRow.movimentazione_modo,
+      palletCatalogoId: headerRow.pallet_catalogo_id,
+      palletMisureCustom: headerRow.pallet_misure_custom ?? "",
+      nodi: draftNodiFromRows((nodoRows ?? []) as ConfezionamentoNodoRow[]),
+      coerenzaIgnorata: headerRow.coerenza_ignorata,
+      note: headerRow.note ?? "",
+    };
+  }
+  const daCompletareCi = headerRow
+    ? headerRow.rimandato ||
+      headerRow.documento_stato === "bozza" ||
+      !headerRow.riepilogo
+    : movimenti.some(
+        (m) =>
+          m.confez_isolamento_rimandato || !m.confezione_id || !m.isolamento_id
+      );
   const unita: MagazzinoCaricoUnita = isMagazzinoCaricoUnita(last.unita)
     ? last.unita
     : "kg";
@@ -419,6 +691,8 @@ export async function getLottoAgrinsiciliaDettaglioAction(input: {
       confezioneNome:
         (confRes.data as { nome?: string } | null)?.nome ?? null,
       isolamentoNome: (isoRes.data as { nome?: string } | null)?.nome ?? null,
+      confezionamentoRiepilogo: headerRow?.riepilogo || null,
+      confezionamento,
       foglio: foglio
         ? {
             id: foglio.id,
@@ -468,47 +742,45 @@ export async function getLottoAgrinsiciliaDettaglioAction(input: {
 export async function completaConfezIsolamentoLottoAction(input: {
   lottoCodice: string;
   prodottoId: string;
-  confezioneId: string;
-  isolamentoId: string;
+  confezionamento: ConfezionamentoDraft;
 }): Promise<{ success: true } | { success: false; error: string }> {
   const { auth } = await requireAreaAccess("magazzino");
-  if (!input.confezioneId || !input.isolamentoId) {
-    return {
-      success: false,
-      error: "Seleziona sia il confezionamento sia l’isolamento.",
-    };
-  }
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data: movs } = await supabase
+    .from("magazzino_movimenti")
+    .select("id, quantita_kg")
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .eq("prodotto_id", input.prodottoId)
+    .eq("lotto_codice", input.lottoCodice)
+    .is("deleted_at", null);
+  const movimenti = (movs ?? []) as Array<{ id: string; quantita_kg: number }>;
+  if (!movimenti.length) {
+    return { success: false, error: "Nessun movimento da aggiornare." };
+  }
+  const kgCarico = Math.round(
+    movimenti.reduce((s, m) => s + (Number(m.quantita_kg) || 0), 0) * 1000
+  ) / 1000;
+  const saved = await upsertMagazzinoConfezionamentoLotto({
+    prodottoId: input.prodottoId,
+    lottoCodice: input.lottoCodice,
+    movimentoId: movimenti[0]!.id,
+    kgCarico,
+    draft: input.confezionamento,
+    rimandato: false,
+  });
+  if (!saved.success) return saved;
+  const { error } = await supabase
     .from("magazzino_movimenti")
     .update({
-      confezione_id: input.confezioneId,
-      isolamento_id: input.isolamentoId,
+      confezione_id: saved.confezioneId,
+      isolamento_id: saved.isolamentoId,
       confez_isolamento_rimandato: false,
       updated_by: auth.userId,
     })
     .eq("catalog_kind", CATALOG_PROPRIO)
     .eq("prodotto_id", input.prodottoId)
     .eq("lotto_codice", input.lottoCodice)
-    .is("deleted_at", null)
-    .select("id");
+    .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
-  const ids = (data ?? []) as Array<{ id: string }>;
-  if (!ids.length) {
-    return { success: false, error: "Nessun movimento da aggiornare." };
-  }
-  await writeAuditLog({
-    entity_type: "magazzino_movimenti",
-    entity_id: ids[0]!.id,
-    action: "update",
-    actor_id: auth.userId,
-    summary: `Completati confezione/isolamento lotto ${input.lottoCodice}`,
-    payload: {
-      lotto_codice: input.lottoCodice,
-      confezione_id: input.confezioneId,
-      isolamento_id: input.isolamentoId,
-      movimenti: ids.map((r) => r.id),
-    },
-  });
   return { success: true };
 }

@@ -455,3 +455,186 @@ export const confezionamentoDraftSchema = z.object({
   coerenzaIgnorata: z.boolean(),
   note: z.string(),
 });
+
+export function updateNodoInTree(
+  nodes: ConfezionamentoNodoDraft[],
+  localId: string,
+  patch: Partial<ConfezionamentoNodoDraft>
+): ConfezionamentoNodoDraft[] {
+  return nodes.map((n) => {
+    if (n.localId === localId) return { ...n, ...patch };
+    return { ...n, children: updateNodoInTree(n.children, localId, patch) };
+  });
+}
+
+export function removeNodoFromTree(
+  nodes: ConfezionamentoNodoDraft[],
+  localId: string
+): ConfezionamentoNodoDraft[] {
+  return nodes
+    .filter((n) => n.localId !== localId)
+    .map((n) => ({
+      ...n,
+      children: removeNodoFromTree(n.children, localId),
+    }));
+}
+
+export function addChildToNode(
+  nodes: ConfezionamentoNodoDraft[],
+  parentId: string,
+  child: ConfezionamentoNodoDraft
+): ConfezionamentoNodoDraft[] {
+  return nodes.map((n) => {
+    if (n.localId === parentId) {
+      return { ...n, children: [...n.children, child] };
+    }
+    return {
+      ...n,
+      children: addChildToNode(n.children, parentId, child),
+    };
+  });
+}
+
+export function labelStadioConfezionamento(
+  stadio: OrdineConfezionamentoNodoStadio
+): string {
+  if (stadio === "movimentazione") return "Movimentazione";
+  if (stadio === "confezione") return "Confezione";
+  if (stadio === "isolamento") return "Isolamento";
+  return "Prodotto (kg)";
+}
+
+/** Catalogo magazzino: tutte le voci dello stadio (non solo quelle legate al listino). */
+export function filterVociForMagazzinoStadio(
+  voci: ImballaggioVoce[],
+  stadio: ImballaggioStadio
+): ImballaggioVoce[] {
+  if (stadio === "movimentazione") {
+    return voci.filter((v) => v.stadio === "movimentazione");
+  }
+  if (stadio === "confezione") {
+    return voci.filter((v) => v.stadio === "confezione");
+  }
+  return voci.filter((v) => v.stadio === "isolamento" && !v.doppioRuolo);
+}
+
+function nodoQty(n: ConfezionamentoNodoDraft): number {
+  return typeof n.quantita === "number" && n.quantita > 0 ? n.quantita : 0;
+}
+
+function formatNodoRiga(n: ConfezionamentoNodoDraft): string {
+  const q = nodoQty(n);
+  if (n.stadio === "prodotto_kg") {
+    const kg = typeof n.kgProdotto === "number" ? n.kgProdotto : 0;
+    return `${q}× ${kg} kg`;
+  }
+  return `${q} ${n.nome || n.stadio}`;
+}
+
+export function formatConfezionamentoRiepilogo(
+  nodi: ConfezionamentoNodoDraft[]
+): string {
+  if (!nodi.length) return "";
+  return nodi
+    .map((root) => {
+      const kids = root.children.map(formatNodoRiga).filter(Boolean);
+      const head = formatNodoRiga(root);
+      return kids.length ? `${head}: ${kids.join(" + ")}` : head;
+    })
+    .join(" · ");
+}
+
+export function idsFromConfezionamento(nodi: ConfezionamentoNodoDraft[]): {
+  movimentazioneId: string | null;
+  confezioneId: string | null;
+  isolamentoId: string | null;
+} {
+  let movimentazioneId: string | null = null;
+  let confezioneId: string | null = null;
+  let isolamentoId: string | null = null;
+  function walk(nodes: ConfezionamentoNodoDraft[]) {
+    for (const n of nodes) {
+      if (n.stadio === "movimentazione" && n.catalogoId && !movimentazioneId) {
+        movimentazioneId = n.catalogoId;
+      }
+      if (n.stadio === "confezione" && n.catalogoId && !confezioneId) {
+        confezioneId = n.catalogoId;
+      }
+      if (n.stadio === "isolamento" && n.catalogoId && !isolamentoId) {
+        isolamentoId = n.catalogoId;
+      }
+      walk(n.children);
+    }
+  }
+  walk(nodi);
+  if (!isolamentoId && confezioneId) isolamentoId = confezioneId;
+  return { movimentazioneId, confezioneId, isolamentoId };
+}
+
+export function validateConfezionamentoBlocchi(
+  draft: ConfezionamentoNormalized
+): string | null {
+  if (!draft.nodi.length) {
+    return "Aggiungi almeno un blocco di confezionamento.";
+  }
+  function walk(nodes: ConfezionamentoNodoNormalized[]): string | null {
+    for (const n of nodes) {
+      if (n.quantita <= 0) {
+        return "Ogni riga del blocco deve avere quantità maggiore di zero.";
+      }
+      if (n.stadio !== "prodotto_kg" && !n.catalogoId) {
+        return `Seleziona ${labelStadioConfezionamento(n.stadio).toLowerCase()} nel blocco.`;
+      }
+      if (
+        n.stadio === "prodotto_kg" &&
+        (n.kgProdotto == null || n.kgProdotto <= 0)
+      ) {
+        return "Indica i kg di prodotto in ogni blocco.";
+      }
+      const childErr = walk(n.children);
+      if (childErr) return childErr;
+    }
+    return null;
+  }
+  return walk(draft.nodi);
+}
+
+export type ConfezionamentoNodoRow = {
+  id: string;
+  parent_id: string | null;
+  stadio: OrdineConfezionamentoNodoStadio;
+  catalogo_id: string | null;
+  nome_snapshot: string;
+  codice_snapshot: string;
+  quantita: number;
+  kg_prodotto: number | null;
+  sort_order: number;
+};
+
+export function draftNodiFromRows(
+  rows: ConfezionamentoNodoRow[]
+): ConfezionamentoNodoDraft[] {
+  const byParent = new Map<string | null, ConfezionamentoNodoRow[]>();
+  for (const r of rows) {
+    const key = r.parent_id;
+    const list = byParent.get(key) ?? [];
+    list.push(r);
+    byParent.set(key, list);
+  }
+  for (const list of byParent.values()) {
+    list.sort((a, b) => a.sort_order - b.sort_order);
+  }
+  function build(parentId: string | null): ConfezionamentoNodoDraft[] {
+    return (byParent.get(parentId) ?? []).map((r) => ({
+      localId: r.id,
+      stadio: r.stadio,
+      catalogoId: r.catalogo_id,
+      nome: r.nome_snapshot,
+      codice: r.codice_snapshot,
+      quantita: Number(r.quantita) || 1,
+      kgProdotto: r.kg_prodotto == null ? null : Number(r.kg_prodotto),
+      children: build(r.id),
+    }));
+  }
+  return build(null);
+}

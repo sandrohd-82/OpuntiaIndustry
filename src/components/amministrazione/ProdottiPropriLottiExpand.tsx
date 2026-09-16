@@ -87,7 +87,8 @@ export function ProdottiPropriLottiExpand({
                       </span>
                     ) : (
                       <span>
-                        {l.confezioneNome ?? "—"} · {l.isolamentoNome ?? "—"}
+                        {l.confezionamentoRiepilogo ||
+                          `${l.confezioneNome ?? "—"} · ${l.isolamentoNome ?? "—"}`}
                       </span>
                     )}
                   </td>

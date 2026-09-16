@@ -2,6 +2,8 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { upsertMagazzinoConfezionamentoLotto } from "@/app/actions/magazzino-lotti";
+import { idsFromConfezionamento } from "@/lib/amministrazione/imballaggi-spedizioni";
 import {
   computeSemaforo,
   categoriaRequiresMagazzino,
@@ -1131,8 +1133,7 @@ export async function movimentoManualeAgrinsiciliaAction(
       lotto_esterno_id: lottoEsternoId,
       confezione_id: input.confezioneId ?? null,
       isolamento_id: input.isolamentoId ?? null,
-      confez_isolamento_rimandato:
-        !input.confezioneId || !input.isolamentoId,
+      confez_isolamento_rimandato: Boolean(input.rimandaConfezIsolamento),
       created_by: auth.userId,
       updated_by: auth.userId,
     })
@@ -1151,6 +1152,42 @@ export async function movimentoManualeAgrinsiciliaAction(
         updated_at: new Date().toISOString(),
       })
       .eq("id", foglioMp.id);
+  }
+
+  let confezRiepilogo = "";
+  if (input.confezionamento || input.rimandaConfezIsolamento) {
+    const derived = input.confezionamento
+      ? idsFromConfezionamento(input.confezionamento.nodi)
+      : { confezioneId: null, isolamentoId: null };
+    const saved = await upsertMagazzinoConfezionamentoLotto({
+      prodottoId: input.prodottoId,
+      lottoCodice,
+      movimentoId: mov.id,
+      kgCarico: qtyStock,
+      draft: input.confezionamento ?? {
+        movimentazioneModo: "su_pallet",
+        palletCatalogoId: null,
+        palletMisureCustom: "",
+        nodi: [],
+        coerenzaIgnorata: false,
+        note: "",
+      },
+      rimandato: Boolean(input.rimandaConfezIsolamento),
+    });
+    if (saved.success) {
+      confezRiepilogo = saved.riepilogo;
+      await supabase
+        .from("magazzino_movimenti")
+        .update({
+          confezione_id: saved.confezioneId ?? derived.confezioneId,
+          isolamento_id: saved.isolamentoId ?? derived.isolamentoId,
+          confez_isolamento_rimandato: Boolean(
+            input.rimandaConfezIsolamento
+          ),
+          updated_by: auth.userId,
+        })
+        .eq("id", mov.id);
+    }
   }
 
   void writeAuditLog({
@@ -1179,8 +1216,8 @@ export async function movimentoManualeAgrinsiciliaAction(
       lotto_uscita_codice: lottoUscitaCodice,
       confezione_id: input.confezioneId ?? null,
       isolamento_id: input.isolamentoId ?? null,
-      confez_isolamento_rimandato:
-        !input.confezioneId || !input.isolamentoId,
+      confez_isolamento_rimandato: Boolean(input.rimandaConfezIsolamento),
+      confezionamento_riepilogo: confezRiepilogo || null,
     },
   });
 

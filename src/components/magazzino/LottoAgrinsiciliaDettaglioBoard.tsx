@@ -6,15 +6,18 @@ import { FaArrowLeft, FaPrint } from "react-icons/fa6";
 import {
   completaConfezIsolamentoLottoAction,
   getLottoAgrinsiciliaDettaglioAction,
-  listImballaggiCiMagazzinoAction,
+  listImballaggiCatalogoMagazzinoAction,
 } from "@/app/actions/magazzino-lotti";
+import { ConfezionamentoBlocchiEditor } from "@/components/magazzino/ConfezionamentoBlocchiEditor";
+import {
+  emptyConfezionamentoDraft,
+  type ConfezionamentoDraft,
+  type ImballaggioVoce,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 import { stampaFoglioLottoAgrinsicilia } from "@/lib/magazzino/stampa-foglio-lotto-agrinsicilia";
 import { publicLottoUrl } from "@/lib/produzione/lotti-esterni";
 import { stampaSchedaLottoUscita } from "@/lib/produzione/stampa-scheda-lotto-uscita";
-import type {
-  ImballaggioMagazzinoOpt,
-  LottoAgrinsiciliaDettaglio,
-} from "@/lib/magazzino/types";
+import type { LottoAgrinsiciliaDettaglio } from "@/lib/magazzino/types";
 
 function dt(value: string | null | undefined): string {
   if (!value) return "—";
@@ -31,16 +34,16 @@ export function LottoAgrinsiciliaDettaglioBoard({
   const [lotto, setLotto] = useState<LottoAgrinsiciliaDettaglio | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [confezioni, setConfezioni] = useState<ImballaggioMagazzinoOpt[]>([]);
-  const [isolamenti, setIsolamenti] = useState<ImballaggioMagazzinoOpt[]>([]);
-  const [confezioneId, setConfezioneId] = useState("");
-  const [isolamentoId, setIsolamentoId] = useState("");
+  const [catalogo, setCatalogo] = useState<ImballaggioVoce[]>([]);
+  const [confDraft, setConfDraft] = useState<ConfezionamentoDraft>(
+    emptyConfezionamentoDraft()
+  );
   const [savingCi, setSavingCi] = useState(false);
 
   async function reload() {
     const [d, cat] = await Promise.all([
       getLottoAgrinsiciliaDettaglioAction({ lottoCodice, prodottoId }),
-      listImballaggiCiMagazzinoAction(),
+      listImballaggiCatalogoMagazzinoAction(),
     ]);
     if (!d.success) {
       setError(d.error);
@@ -48,13 +51,9 @@ export function LottoAgrinsiciliaDettaglioBoard({
       return;
     }
     setLotto(d.lotto);
-    setConfezioneId(d.lotto.confezioneId ?? "");
-    setIsolamentoId(d.lotto.isolamentoId ?? "");
+    setConfDraft(d.lotto.confezionamento ?? emptyConfezionamentoDraft());
     setError(null);
-    if (cat.success) {
-      setConfezioni(cat.confezioni);
-      setIsolamenti(cat.isolamenti);
-    }
+    if (cat.success) setCatalogo(cat.voci);
   }
 
   useEffect(() => {
@@ -69,8 +68,7 @@ export function LottoAgrinsiciliaDettaglioBoard({
     const res = await completaConfezIsolamentoLottoAction({
       lottoCodice: lotto.lottoCodice,
       prodottoId: lotto.prodottoId,
-      confezioneId,
-      isolamentoId,
+      confezionamento: confDraft,
     });
     setSavingCi(false);
     if (!res.success) {
@@ -160,57 +158,37 @@ export function LottoAgrinsiciliaDettaglioBoard({
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
-        <h3 className="text-sm font-semibold">Confezionamento e isolamento</h3>
+      <section className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4">
         {lotto.daCompletareCi ? (
-          <p className="mt-1 text-xs text-amber-800">
-            Campo obbligatorio ancora da completare. Il carico quantità è già
-            valido.
+          <p className="text-xs text-amber-800">
+            Blocchi ancora da completare. Il carico quantità è già valido.
           </p>
-        ) : (
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {lotto.confezioneNome ?? "—"} · {lotto.isolamentoNome ?? "—"}
+        ) : lotto.confezionamentoRiepilogo ? (
+          <p className="text-xs text-slate-700">
+            {lotto.confezionamentoRiepilogo}
           </p>
-        )}
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="mb-1 block font-medium">Confezionamento</span>
-            <select
-              value={confezioneId}
-              onChange={(e) => setConfezioneId(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            >
-              <option value="">Seleziona…</option>
-              {confezioni.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.codice} — {c.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block font-medium">Isolamento</span>
-            <select
-              value={isolamentoId}
-              onChange={(e) => setIsolamentoId(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            >
-              <option value="">Seleziona…</option>
-              {isolamenti.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.codice} — {c.nome}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        ) : null}
+        <ConfezionamentoBlocchiEditor
+          conf={confDraft}
+          onChange={setConfDraft}
+          catalogo={catalogo}
+          prodotto={{
+            id: lotto.prodottoId,
+            codice: lotto.prodottoCodice,
+            nome: lotto.prodottoNome,
+          }}
+          kgCarico={lotto.quantitaKg}
+          rimanda={false}
+          onRimandaChange={() => undefined}
+          showRimanda={false}
+        />
         <button
           type="button"
-          disabled={savingCi || !confezioneId || !isolamentoId}
+          disabled={savingCi || confDraft.nodi.length === 0}
           onClick={() => void salvaCi()}
-          className="mt-3 rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+          className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
         >
-          {savingCi ? "Salvataggio…" : "Salva confezione e isolamento"}
+          {savingCi ? "Salvataggio…" : "Salva blocchi di confezionamento"}
         </button>
       </section>
 

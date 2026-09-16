@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  confezionamentoDraftSchema,
+  normalizeConfezionamentoDraft,
+  validateConfezionamentoBlocchi,
+} from "@/lib/amministrazione/imballaggi-spedizioni";
 import { isValidLottoAgrinsicilia } from "@/lib/magazzino/lotto-agrinsicilia";
 import { isValidLottoUscita } from "@/lib/produzione/lotti-esterni";
 
@@ -294,6 +299,7 @@ export const movimentoManualeSchema = z
     confezioneId: z.string().uuid().nullable().optional(),
     isolamentoId: z.string().uuid().nullable().optional(),
     rimandaConfezIsolamento: z.boolean().optional().default(false),
+    confezionamento: confezionamentoDraftSchema.optional(),
     associaLottoUscita: z.boolean().optional().default(false),
     lottoUscitaAnteprima: z
       .string()
@@ -324,13 +330,26 @@ export const movimentoManualeSchema = z
         path: ["note"],
       });
     }
-    if (!val.rimandaConfezIsolamento && (!val.confezioneId || !val.isolamentoId)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          "Seleziona confezionamento e isolamento, oppure spunta «Completa in un secondo momento».",
-        path: ["confezioneId"],
-      });
+    if (!val.rimandaConfezIsolamento) {
+      if (!val.confezionamento) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Compila i blocchi di confezionamento, oppure spunta «Completa in un secondo momento».",
+          path: ["confezionamento"],
+        });
+      } else {
+        const err = validateConfezionamentoBlocchi(
+          normalizeConfezionamentoDraft(val.confezionamento)
+        );
+        if (err) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: err,
+            path: ["confezionamento"],
+          });
+        }
+      }
     }
     if (val.associaLottoUscita) {
       const ante = (val.lottoUscitaAnteprima ?? "").trim().toUpperCase();
@@ -375,6 +394,7 @@ export type LottoAgrinsiciliaElencoRiga = {
   confezioneNome: string | null;
   isolamentoNome: string | null;
   daCompletareCi: boolean;
+  confezionamentoRiepilogo: string | null;
 };
 
 export type LottoTimelineEvento = {
@@ -396,6 +416,8 @@ export type LottoAgrinsiciliaDettaglio = {
   isolamentoId: string | null;
   confezioneNome: string | null;
   isolamentoNome: string | null;
+  confezionamentoRiepilogo: string | null;
+  confezionamento: import("@/lib/amministrazione/imballaggi-spedizioni").ConfezionamentoDraft | null;
   foglio: {
     id: string;
     codice: string;
