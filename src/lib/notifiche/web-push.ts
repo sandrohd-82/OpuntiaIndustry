@@ -1,6 +1,9 @@
 import webpush from "web-push";
+import { getVapidPublicKey } from "@/lib/notifiche/vapid-env";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { NotificaTipo } from "@/lib/notifiche/types";
+
+export { getVapidPublicKey } from "@/lib/notifiche/vapid-env";
 
 export type PushPayload = {
   tipo: NotificaTipo;
@@ -10,15 +13,6 @@ export type PushPayload = {
   entityId?: string;
   tag?: string;
 };
-
-export function getVapidPublicKey(): string | null {
-  const key = (
-    process.env.VAPID_PUBLIC_KEY ||
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ||
-    ""
-  ).trim();
-  return key || null;
-}
 
 function vapidReady(): boolean {
   return Boolean(getVapidPublicKey() && process.env.VAPID_PRIVATE_KEY);

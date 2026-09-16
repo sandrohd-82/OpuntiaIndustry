@@ -78,6 +78,7 @@ import { BrandLogoOnDark } from "@/components/branding/BrandLogoOnDark";
 import { ImpersonationSwitcher } from "@/components/layout/ImpersonationSwitcher";
 import { MenuAreaAccessToggle } from "@/components/layout/MenuAreaAccessToggle";
 import { ProfileStatusLed } from "@/components/layout/ProfileStatusLed";
+import { EnablePcNotificationsButton } from "@/components/layout/PushNotificationsProvider";
 import {
   filterNavByPageAccess,
   isNavPathVisible,
@@ -834,6 +835,7 @@ export function AppSidebar({
                 <p className="truncate text-xs leading-tight text-[var(--sidebar-muted)]">
                   {roleName}
                 </p>
+                <EnablePcNotificationsButton compact />
               </div>
               <p className="relative left-[-15%] w-[115%] text-3xl font-bold leading-none tracking-wide">
                 Industry

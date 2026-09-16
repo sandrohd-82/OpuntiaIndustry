@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { getAuthContext, getAuthUser } from "@/lib/auth/session";
 import { NOTIFICA_TIPI } from "@/lib/notifiche/types";
-import { getVapidPublicKey } from "@/lib/notifiche/web-push";
+import { getVapidPublicKey } from "@/lib/notifiche/vapid-env";
 import { createClient } from "@/lib/supabase/server";
 
 const subscriptionSchema = z.object({

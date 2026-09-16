@@ -88,6 +88,7 @@ export async function notifyAttivitaCoinvolti(input: {
   titolo: string;
   nuova: boolean;
 }): Promise<void> {
+  try {
   const tipo: NotificaTipo = "attivita";
   await dispatchNotifiche({
     actorId: input.actorId,
@@ -100,4 +101,7 @@ export async function notifyAttivitaCoinvolti(input: {
     entityId: input.attivitaId,
     payload: { titolo: input.titolo },
   });
+  } catch (err) {
+    console.error("[notifyAttivitaCoinvolti]", err);
+  }
 }

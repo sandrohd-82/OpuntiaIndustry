@@ -37,11 +37,106 @@ async function subscribePush(publicKey: string): Promise<boolean> {
   return res.success;
 }
 
-export function PushNotificationsProvider() {
-  const [needConsent, setNeedConsent] = useState(false);
+function canUseNotifications(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "Notification" in window &&
+    "serviceWorker" in navigator
+  );
+}
+
+export function EnablePcNotificationsButton({
+  compact = false,
+}: {
+  compact?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!canUseNotifications()) return;
+    if (Notification.permission === "granted") return;
+    setVisible(true);
+  }, []);
+
+  async function enable() {
+    setBusy(true);
+    setError(null);
+    try {
+      if (!canUseNotifications()) {
+        setError("Questo browser non supporta le notifiche.");
+        return;
+      }
+      const key = await vapidPublicKeyAction();
+      if (!key) {
+        setError(
+          "Manca la chiave su Vercel (VAPID_PUBLIC_KEY). Salvala e fai Redeploy."
+        );
+        return;
+      }
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") {
+        setError("Hai cliccato Blocca. Dal lucchetto del sito metti Consentile.");
+        return;
+      }
+      const ok = await subscribePush(key);
+      if (!ok) {
+        setError("Attivazione non riuscita. Ricarica la pagina.");
+        return;
+      }
+      setVisible(false);
+    } catch {
+      setError("Il browser ha rifiutato le notifiche.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!visible && !error) return null;
+
+  if (compact) {
+    return (
+      <div className="min-w-0">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void enable()}
+          className="rounded bg-teal-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-teal-500 disabled:opacity-50"
+          title="Attiva le notifiche sul PC"
+        >
+          Notifiche
+        </button>
+        {error ? (
+          <p className="mt-0.5 max-w-[11rem] text-[9px] leading-tight text-amber-200">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg print:hidden">
+      <p className="font-medium text-slate-900">Notifiche sul PC</p>
+      <p className="mt-1 text-xs text-slate-600">
+        Clicca per far comparire la domanda del browser (Windows o Mac). Senza
+        questo clic il sistema non può chiedere il consenso da solo.
+      </p>
+      {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void enable()}
+        className="mt-3 rounded-md bg-teal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+      >
+        Attiva notifiche
+      </button>
+    </div>
+  );
+}
+
+export function PushNotificationsProvider() {
   useEffect(() => {
     function onMessage(ev: MessageEvent) {
       const href = ev.data?.href;
@@ -54,21 +149,14 @@ export function PushNotificationsProvider() {
 
     let cancelled = false;
     void (async () => {
-      if (!("Notification" in window) || !("serviceWorker" in navigator)) {
-        return;
-      }
-      const key = await vapidPublicKeyAction();
-      if (!key || cancelled) return;
-      if (Notification.permission === "granted") {
-        try {
-          await subscribePush(key);
-        } catch {
-          /* ignore */
-        }
-        return;
-      }
-      if (Notification.permission === "default") {
-        setNeedConsent(true);
+      if (!canUseNotifications()) return;
+      if (Notification.permission !== "granted") return;
+      try {
+        const key = await vapidPublicKeyAction();
+        if (!key || cancelled) return;
+        await subscribePush(key);
+      } catch {
+        /* ignore */
       }
     })();
 
@@ -78,51 +166,5 @@ export function PushNotificationsProvider() {
     };
   }, []);
 
-  async function enable() {
-    setBusy(true);
-    setError(null);
-    try {
-      const key = await vapidPublicKeyAction();
-      if (!key) {
-        setError("Notifiche PC non configurate (VAPID).");
-        return;
-      }
-      const perm = await Notification.requestPermission();
-      if (perm !== "granted") {
-        setNeedConsent(false);
-        return;
-      }
-      const ok = await subscribePush(key);
-      if (!ok) setError("Impossibile attivare le notifiche su questo browser.");
-      else setNeedConsent(false);
-    } catch {
-      setError("Il browser ha rifiutato le notifiche.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!needConsent && !error) return null;
-
-  return (
-    <div className="fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg print:hidden">
-      <p className="font-medium text-slate-900">Notifiche sul PC</p>
-      <p className="mt-1 text-xs text-slate-600">
-        Windows e Mac: il gestionale può avvisarti (attività, mail, chat,
-        scadenze) anche se la scheda è in secondo piano. Serve solo il consenso
-        del browser, senza installare programmi.
-      </p>
-      {error ? <p className="mt-2 text-xs text-red-700">{error}</p> : null}
-      {needConsent ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void enable()}
-          className="mt-3 rounded-md bg-teal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50"
-        >
-          Attiva notifiche
-        </button>
-      ) : null}
-    </div>
-  );
+  return <EnablePcNotificationsButton />;
 }

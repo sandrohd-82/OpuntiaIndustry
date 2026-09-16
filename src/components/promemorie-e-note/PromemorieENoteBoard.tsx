@@ -33,8 +33,6 @@ import {
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
 import { createClient } from "@/lib/supabase/client";
-import { markNotificheReadAction } from "@/app/actions/notifiche";
-import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
 
 type Kind = "promemoria" | "attivita" | "note";
 type Mode = "nuova" | "elenco" | "calendario";
@@ -122,13 +120,6 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   useEffect(() => {
     if (mode !== "nuova") reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, mode]);
-
-  useEffect(() => {
-    if (kind !== "attivita" || mode !== "elenco") return;
-    void markNotificheReadAction({ tipo: "attivita" }).then((res) => {
-      if (res.success) notifyNotificheNav();
-    });
   }, [kind, mode]);
 
   useEffect(() => {
