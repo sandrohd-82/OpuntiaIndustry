@@ -16,6 +16,8 @@ export type ActionAccessItem = {
   area: string;
   /** Se presente, l’azione sta negli ambiti anagrafica (non in «Azioni di creazione»). */
   privilegeKind?: AnagraficaPrivilegeKind;
+  /** Off di default; On solo con doppia conferma del Super Admin. */
+  requiresDoubleConfirm?: boolean;
 };
 
 function item(
@@ -23,7 +25,8 @@ function item(
   path: string,
   slug: string,
   label: string,
-  privilegeKind?: AnagraficaPrivilegeKind
+  privilegeKind?: AnagraficaPrivilegeKind,
+  requiresDoubleConfirm?: boolean
 ): ActionAccessItem {
   return {
     key: `${ACTION_ACCESS_KEY_PREFIX}${path}/${slug}`,
@@ -31,6 +34,7 @@ function item(
     label,
     area,
     privilegeKind,
+    requiresDoubleConfirm,
   };
 }
 
@@ -150,6 +154,14 @@ export const ACTION_ACCESS_CATALOG: readonly ActionAccessItem[] = [
     "elabora-contabilita",
     "Elabora contabilità (commercialista / Super Admin)"
   ),
+  item(
+    "Area fiscale",
+    "/app/area-fiscale",
+    "modifica-fattura",
+    "Modifica fattura (emesse, ricevute, note di credito)",
+    undefined,
+    true
+  ),
 
   item("WebMail", "/app/webmail/impostazioni", "nuova-casella", "Nuova casella"),
 ] as const;
@@ -244,6 +256,7 @@ export const AZ = {
   aggiungiAdempimento:
     "action:/app/area-fiscale/dati-e-calcoli/iva-e-imposte/aggiungi-adempimento",
   elaboraContabilita: "action:/app/area-fiscale/elabora-contabilita",
+  modificaFattura: "action:/app/area-fiscale/modifica-fattura",
   nuovaCasella: "action:/app/webmail/impostazioni/nuova-casella",
 } as const;
 
@@ -306,6 +319,24 @@ export function canElaboraContabilitaAccess(opts: {
   return opts.actionAccess[AZ.elaboraContabilita] === true;
 }
 
+/** Deny-by-default: Super Admin reale, oppure On esplicito (doppia conferma). */
+export function canModificaFatturaAccess(opts: {
+  isSuperadminSelf: boolean;
+  actionAccess: PageAccessMap;
+}): boolean {
+  if (opts.isSuperadminSelf) return true;
+  return isPrivilegedActionOn(opts.actionAccess, AZ.modificaFattura);
+}
+
+export function actionRequiresDoubleConfirm(actionKey: string): boolean {
+  return ACTION_ACCESS_CATALOG.some(
+    (row) => row.key === actionKey && row.requiresDoubleConfirm
+  );
+}
+
+export const DOUBLE_CONFIRM_ACTION_ITEMS: readonly ActionAccessItem[] =
+  ACTION_ACCESS_CATALOG.filter((row) => row.requiresDoubleConfirm);
+
 export function toneForAction(
   map: PageAccessMap,
   actionKey: string
@@ -316,7 +347,7 @@ export function toneForAction(
 
 export function groupActionCatalog(
   items: readonly ActionAccessItem[] = ACTION_ACCESS_CATALOG.filter(
-    (row) => !row.privilegeKind
+    (row) => !row.privilegeKind && !row.requiresDoubleConfirm
   )
 ): Array<{ area: string; items: ActionAccessItem[] }> {
   const groups: Array<{ area: string; items: ActionAccessItem[] }> = [];

@@ -31,6 +31,7 @@ import {
   type FatturaRinumeraRow,
 } from "@/lib/amministrazione/fatture-rinumerazione";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { assertModificaFatturaPrivilege } from "@/lib/auth/fattura-privileges-server";
 import { todayRomeDate } from "@/lib/auth/data-scope";
 import {
   loadOwnedAziendaIds,
@@ -1564,6 +1565,10 @@ export async function updateFatturaAction(
   formData: FormData
 ): Promise<FattureActionResult> {
   const { auth } = await requireAreaAccess("amministrazione");
+  const editGate = await assertModificaFatturaPrivilege();
+  if (!editGate.ok) {
+    return { success: false, error: editGate.error };
+  }
   const supabase = await createClient();
 
   let payload: unknown;
@@ -1840,6 +1845,7 @@ export async function updateFatturaAction(
           fattura_collegata_id: input.fatturaCollegataId ?? null,
           fattura_sostitutiva_id: input.fatturaSostitutivaId ?? null,
           modalita_collegamento: input.modalitaCollegamento,
+          via: editGate.via,
         },
       });
 
@@ -2065,6 +2071,7 @@ export async function updateFatturaAction(
         dilazioni: input.dilazioni.length,
         natura_documento: input.naturaDocumento ?? "saldo",
         prodotti_aggiunti_scheda: prodottiAggiuntiScheda,
+        via: editGate.via,
       },
     });
 

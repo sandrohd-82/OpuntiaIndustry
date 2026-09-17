@@ -12,6 +12,7 @@ import {
 import {
   ACTION_ACCESS_CATALOG,
   ANAGRAFICA_PRIVILEGE_BLOCKS,
+  DOUBLE_CONFIRM_ACTION_ITEMS,
   groupActionCatalog,
   toneForAction,
 } from "@/lib/auth/action-access";
@@ -150,6 +151,9 @@ export function ImpostaAutorizzazioniButton({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [fiscaleUnlockStep, setFiscaleUnlockStep] = useState<0 | 1 | 2 | 3>(0);
   const [rsUnlockStep, setRsUnlockStep] = useState<0 | 1 | 2>(0);
+  const [doubleConfirmStep, setDoubleConfirmStep] = useState<
+    Record<string, 0 | 1 | 2>
+  >({});
   const [showFiscaleTable, setShowFiscaleTable] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -165,7 +169,9 @@ export function ImpostaAutorizzazioniButton({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const catalog = ACTION_ACCESS_CATALOG.filter((row) => !row.privilegeKind);
+    const catalog = ACTION_ACCESS_CATALOG.filter(
+      (row) => !row.privilegeKind && !row.requiresDoubleConfirm
+    );
     if (!q) return catalog;
     return catalog.filter(
       (row) =>
@@ -199,10 +205,21 @@ export function ImpostaAutorizzazioniButton({
     });
   }
 
-  function setVisibile(actionKey: string, visibile: boolean) {
-    run(`action:${actionKey}`, () => setActionAccessAction(actionKey, visibile), () => {
-      setLocalActions((prev) => ({ ...prev, [actionKey]: visibile }));
-    });
+  function setVisibile(
+    actionKey: string,
+    visibile: boolean,
+    confirms?: { confirm1: boolean; confirm2: boolean }
+  ) {
+    run(
+      `action:${actionKey}`,
+      () => setActionAccessAction(actionKey, visibile, confirms),
+      () => {
+        setLocalActions((prev) => ({ ...prev, [actionKey]: visibile }));
+        if (visibile) {
+          setDoubleConfirmStep((prev) => ({ ...prev, [actionKey]: 0 }));
+        }
+      }
+    );
   }
 
   function setScope(scopeKey: string, mode: DataScopeMode) {
@@ -751,6 +768,137 @@ export function ImpostaAutorizzazioniButton({
                       </div>
                     )}
                   </section>
+
+                  {DOUBLE_CONFIRM_ACTION_ITEMS.length > 0 ? (
+                    <section className="rounded-xl border-2 border-red-800 bg-red-50/70 p-4">
+                      <h3 className="text-sm font-bold uppercase tracking-wide text-red-950">
+                        Privilegi con doppia conferma
+                      </h3>
+                      <p className="mt-1 text-xs text-red-900">
+                        Off di default. Il Super Admin modifica sempre le
+                        fatture. Accendere On su un operatore richiede due
+                        conferme e resta in audit.
+                      </p>
+                      <ul className="mt-3 space-y-3">
+                        {DOUBLE_CONFIRM_ACTION_ITEMS.map((row) => {
+                          const tone = toneForAction(actionMap, row.key);
+                          const step = doubleConfirmStep[row.key] ?? 0;
+                          const rowPending =
+                            pending && pendingKey === `action:${row.key}`;
+                          return (
+                            <li
+                              key={row.key}
+                              className="rounded-lg border border-red-200 bg-white p-3"
+                            >
+                              <p className="text-sm font-medium text-slate-900">
+                                {row.label}
+                              </p>
+                              <p className="mt-0.5 font-mono text-[11px] text-slate-500">
+                                {row.path}
+                              </p>
+                              {tone === "on" ? (
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                    On
+                                  </span>
+                                  <button
+                                    type="button"
+                                    disabled={rowPending}
+                                    onClick={() =>
+                                      setVisibile(row.key, false)
+                                    }
+                                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                  >
+                                    Revoca
+                                  </button>
+                                </div>
+                              ) : step === 0 ? (
+                                <button
+                                  type="button"
+                                  className="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
+                                  onClick={() =>
+                                    setDoubleConfirmStep((prev) => ({
+                                      ...prev,
+                                      [row.key]: 1,
+                                    }))
+                                  }
+                                >
+                                  Sblocca privilegio
+                                </button>
+                              ) : step === 1 ? (
+                                <div className="mt-3 space-y-2">
+                                  <p className="text-sm text-slate-700">
+                                    Confermi di autorizzare questo profilo a
+                                    modificare fatture già registrate?
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border px-3 py-1.5 text-xs"
+                                      onClick={() =>
+                                        setDoubleConfirmStep((prev) => ({
+                                          ...prev,
+                                          [row.key]: 0,
+                                        }))
+                                      }
+                                    >
+                                      Annulla
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
+                                      onClick={() =>
+                                        setDoubleConfirmStep((prev) => ({
+                                          ...prev,
+                                          [row.key]: 2,
+                                        }))
+                                      }
+                                    >
+                                      Confermo (1/2)
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-3 space-y-2">
+                                  <p className="text-sm text-slate-700">
+                                    Conferma definitiva: l’operazione viene
+                                    registrata in audit.
+                                  </p>
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border px-3 py-1.5 text-xs"
+                                      onClick={() =>
+                                        setDoubleConfirmStep((prev) => ({
+                                          ...prev,
+                                          [row.key]: 0,
+                                        }))
+                                      }
+                                    >
+                                      Annulla
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={rowPending}
+                                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                                      onClick={() =>
+                                        setVisibile(row.key, true, {
+                                          confirm1: true,
+                                          confirm2: true,
+                                        })
+                                      }
+                                    >
+                                      Conferma definitiva
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ) : null}
                 </div>
               ) : (
                 <>

@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioView } from "@/components/amministrazione/FatturaDettaglioView";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { PaperInvoiceViewer } from "@/components/PaperInvoiceViewer";
+import { AZ } from "@/lib/auth/action-access";
 import type { Fattura } from "@/lib/amministrazione/fatture";
 
 type Props = {
@@ -14,6 +16,8 @@ type Props = {
 
 export function FatturaDettaglioClient({ initial }: Props) {
   const router = useRouter();
+  const { privilegedAllowed } = useActionAccess();
+  const canModifica = privilegedAllowed(AZ.modificaFattura);
   const [fattura, setFattura] = useState(initial);
   const [editing, setEditing] = useState(false);
   const [collegata, setCollegata] = useState<Fattura | null>(null);
@@ -94,13 +98,20 @@ export function FatturaDettaglioClient({ initial }: Props) {
       <FatturaDettaglioView
         fattura={fattura}
         layoutWidth="full"
-        onEdit={() => {
-          void (async () => {
-            const res = await getFatturaByIdAction(fattura.kind, fattura.id);
-            if (res.success) setFattura(res.fattura);
-            setEditing(true);
-          })();
-        }}
+        onEdit={
+          canModifica
+            ? () => {
+                void (async () => {
+                  const res = await getFatturaByIdAction(
+                    fattura.kind,
+                    fattura.id
+                  );
+                  if (res.success) setFattura(res.fattura);
+                  setEditing(true);
+                })();
+              }
+            : undefined
+        }
       />
 
       {fattura.kind === "ricevuta" ? (

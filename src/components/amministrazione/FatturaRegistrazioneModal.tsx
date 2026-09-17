@@ -48,6 +48,8 @@ import {
   InvoiceAiMatchBadge,
 } from "@/components/amministrazione/InvoiceAIMatchModal";
 import { ModificaArticoloRigaModal } from "@/components/amministrazione/ModificaArticoloRigaModal";
+import { useActionAccess } from "@/components/layout/ActionAccessProvider";
+import { AZ } from "@/lib/auth/action-access";
 import {
   buildNuovoArticoloDraft,
   isSpedizioneLikeDescrizione,
@@ -299,6 +301,7 @@ export function FatturaRegistrazioneModal({
   stackTop = false,
 }: Props) {
   const titleId = useId();
+  const { privilegedAllowed } = useActionAccess();
   const isEdit = Boolean(initial?.id);
   const seed = seedFromInitialOrPrefill(initial, prefill);
   const { prodotti, addProdotto, refresh } = useProdottiPropri();
@@ -1639,6 +1642,13 @@ export function FatturaRegistrazioneModal({
       );
       if (!ok) return;
       confermaScartoFic = true;
+    }
+
+    if (isEdit && !privilegedAllowed(AZ.modificaFattura)) {
+      setFormError(
+        "La modifica di una fattura è consentita solo al Super Admin o a un operatore con il privilegio «Modifica fattura»."
+      );
+      return;
     }
 
     setSaving(true);

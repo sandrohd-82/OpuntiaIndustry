@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaRegistrazioneModal } from "@/components/amministrazione/FatturaRegistrazioneModal";
+import { useActionAccess } from "@/components/layout/ActionAccessProvider";
 import { formatDateIt, formatEuro, type Fattura } from "@/lib/amministrazione/fatture";
+import { AZ } from "@/lib/auth/action-access";
 import { hasNestedModalOpen } from "@/lib/ui/nested-modal";
 
 type Props = {
@@ -22,6 +24,8 @@ export function DocumentiCatalogoQueueModal({
   onFinished,
   onPaused,
 }: Props) {
+  const { privilegedAllowed } = useActionAccess();
+  const canModifica = privilegedAllowed(AZ.modificaFattura);
   const [queue, setQueue] = useState(fatture);
   const [index, setIndex] = useState(0);
   const [updatedCount, setUpdatedCount] = useState(0);
@@ -47,6 +51,13 @@ export function DocumentiCatalogoQueueModal({
     setEditing(null);
     setLoading(true);
     setLoadError(null);
+    if (!canModifica) {
+      setLoading(false);
+      setLoadError(
+        "La modifica di una fattura è consentita solo al Super Admin o a un operatore con il privilegio «Modifica fattura»."
+      );
+      return;
+    }
     void (async () => {
       const res = await getFatturaByIdAction("ricevuta", current.id);
       if (cancelled) return;
@@ -61,7 +72,7 @@ export function DocumentiCatalogoQueueModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al cambio documento
-  }, [current?.id]);
+  }, [current?.id, canModifica]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

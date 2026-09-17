@@ -79,6 +79,18 @@ export function ActionGate({
   return children;
 }
 
+export function PrivilegedActionGate({
+  actionKey,
+  children,
+}: {
+  actionKey: string;
+  children: ReactNode;
+}) {
+  const { privilegedAllowed } = useActionAccess();
+  if (!privilegedAllowed(actionKey)) return null;
+  return children;
+}
+
 export function useAnagraficaPrivileges(kind: AnagraficaPrivilegeKind) {
   const { privilegedAllowed, userId, bypassPrivileges } = useActionAccess();
   const keys = ANAGRAFICA_ACTION_KEYS[kind];

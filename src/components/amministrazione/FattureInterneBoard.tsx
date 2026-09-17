@@ -8,7 +8,11 @@ import {
   useTransition,
 } from "react";
 import { FaArrowsRotate, FaCalculator, FaPlus } from "react-icons/fa6";
-import { ActionGate } from "@/components/layout/ActionAccessProvider";
+import {
+  ActionGate,
+  PrivilegedActionGate,
+  useActionAccess,
+} from "@/components/layout/ActionAccessProvider";
 import { useSensitiveAuth } from "@/components/layout/SensitiveAuthProvider";
 import { AZ } from "@/lib/auth/action-access";
 import {
@@ -106,6 +110,8 @@ function sortValue(f: Fattura, key: SortKey): string | number {
 
 export function FattureInterneBoard({ kind }: Props) {
   const { canElaboraContabilita } = useSensitiveAuth();
+  const { privilegedAllowed } = useActionAccess();
+  const canModifica = privilegedAllowed(AZ.modificaFattura);
   const registraKey =
     kind === "nota_credito"
       ? AZ.registraNotaCredito
@@ -352,6 +358,7 @@ export function FattureInterneBoard({ kind }: Props) {
             <span className="font-semibold">{codaCatalogoCount}</span> documenti
             da aggiornare dopo modifica/eliminazione catalogo (come sync).
           </p>
+          <PrivilegedActionGate actionKey={AZ.modificaFattura}>
           <button
             type="button"
             onClick={() => {
@@ -373,6 +380,7 @@ export function FattureInterneBoard({ kind }: Props) {
           >
             Apri coda
           </button>
+          </PrivilegedActionGate>
         </div>
       ) : null}
 
@@ -662,9 +670,11 @@ export function FattureInterneBoard({ kind }: Props) {
                 <th className="px-4 py-3 font-medium text-[var(--muted)]">
                   FiC
                 </th>
-                <th className="px-4 py-3 text-right font-medium text-[var(--muted)]">
-                  Azioni
-                </th>
+                {canModifica ? (
+                  <th className="px-4 py-3 text-right font-medium text-[var(--muted)]">
+                    Azioni
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border)]">
@@ -748,25 +758,27 @@ export function FattureInterneBoard({ kind }: Props) {
                       }
                     />
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void (async () => {
-                          setError(null);
-                          const res = await getFatturaByIdAction(f.kind, f.id);
-                          if (!res.success) {
-                            setError(res.error);
-                            return;
-                          }
-                          setEditing(res.fattura);
-                        })();
-                      }}
-                      className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                    >
-                      Modifica
-                    </button>
-                  </td>
+                  {canModifica ? (
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void (async () => {
+                            setError(null);
+                            const res = await getFatturaByIdAction(f.kind, f.id);
+                            if (!res.success) {
+                              setError(res.error);
+                              return;
+                            }
+                            setEditing(res.fattura);
+                          })();
+                        }}
+                        className="rounded-lg border border-[var(--border)] bg-white px-2.5 py-1 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                      >
+                        Modifica
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>

@@ -3,6 +3,7 @@ import { getFatturaByIdAction } from "@/app/actions/fatture";
 import { FatturaDettaglioClient } from "@/components/amministrazione/FatturaDettaglioClient";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { requireAreaAccess } from "@/lib/areas/guard";
+import { canCurrentUserModificaFattura } from "@/lib/auth/fattura-privileges-server";
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 
 type Props = {
@@ -31,6 +32,7 @@ export default async function FatturaDettaglioPage({ params }: Props) {
 
   const result = await getFatturaByIdAction(kind, id);
   if (!result.success) notFound();
+  const canEdit = await canCurrentUserModificaFattura();
 
   const title =
     kind === "nota_credito"
@@ -39,10 +41,11 @@ export default async function FatturaDettaglioPage({ params }: Props) {
         ? "Dettaglio fattura emessa"
         : "Dettaglio fattura ricevuta";
 
-  const subtitle =
-    kind === "nota_credito"
+  const subtitle = canEdit
+    ? kind === "nota_credito"
       ? `Modificabile · anteprima fatture collegate · ${result.fattura.numeroInterno}`
-      : `Modificabile · condizioni (sconti, prezzi, IVA spedizione) — ${result.fattura.numeroInterno}`;
+      : `Modificabile · condizioni (sconti, prezzi, IVA spedizione) — ${result.fattura.numeroInterno}`
+    : `Sola lettura · ${result.fattura.numeroInterno}`;
 
   return (
     <>

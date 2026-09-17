@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthUser, getProfile } from "@/lib/auth/session";
-import { ACTION_ACCESS_KEY_SET } from "@/lib/auth/action-access";
+import {
+  ACTION_ACCESS_KEY_SET,
+  actionRequiresDoubleConfirm,
+} from "@/lib/auth/action-access";
 import {
   isActionAccessKey,
   isChildPageKeyOfSubtree,
@@ -327,7 +330,8 @@ export async function clearPageAccessKeyAction(
 
 export async function setActionAccessAction(
   actionKeyRaw: string,
-  visibile: boolean
+  visibile: boolean,
+  confirms?: { confirm1?: boolean; confirm2?: boolean }
 ): Promise<{ success: true; actionKey: string } | { success: false; error: string }> {
   const gate = await requireRealSuperadmin();
   if (!gate.ok) return { success: false, error: gate.error };
@@ -343,6 +347,16 @@ export async function setActionAccessAction(
   const actionKey = String(actionKeyRaw ?? "").trim();
   if (!ACTION_ACCESS_KEY_SET.has(actionKey)) {
     return { success: false, error: "Azione non valida." };
+  }
+
+  const needsDoubleConfirm = visibile && actionRequiresDoubleConfirm(actionKey);
+  if (needsDoubleConfirm) {
+    if (confirms?.confirm1 !== true || confirms?.confirm2 !== true) {
+      return {
+        success: false,
+        error: "Serve la doppia conferma per accendere questo privilegio.",
+      };
+    }
   }
 
   const service = createServiceClient();
@@ -377,10 +391,24 @@ export async function setActionAccessAction(
   await service.from("audit_log").insert({
     entity_type: "profile_page_access",
     entity_id: targetId,
-    action: visibile ? "action_on" : "action_off",
+    action: visibile
+      ? needsDoubleConfirm
+        ? "action_on_double_confirm"
+        : "action_on"
+      : "action_off",
     actor_id: gate.actorUserId,
-    summary: `Azione ${actionKey} ${visibile ? "On" : "Off"}`,
-    payload: { page_key: actionKey, visibile, target_user_id: targetId },
+    summary: visibile
+      ? needsDoubleConfirm
+        ? `Privilegio ${actionKey} On (doppia conferma)`
+        : `Azione ${actionKey} On`
+      : `Azione ${actionKey} Off`,
+    payload: {
+      page_key: actionKey,
+      visibile,
+      target_user_id: targetId,
+      double_confirm: needsDoubleConfirm,
+      granted_by: needsDoubleConfirm ? gate.actorUserId : undefined,
+    },
   });
 
   revalidatePath("/", "layout");
