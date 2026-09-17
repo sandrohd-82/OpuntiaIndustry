@@ -45,13 +45,21 @@ export function WebmailSyncModal({
     setError(null);
     setAccounts([]);
     startTransition(async () => {
-      const res = await previewWebmailSyncAction(accountId);
-      if (!res.success) {
-        setError(res.error);
-        return;
+      try {
+        const res = await previewWebmailSyncAction(accountId);
+        if (!res.success) {
+          setError(res.error);
+          return;
+        }
+        setBatchSize(res.batchSize);
+        setAccounts(res.accounts);
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Errore imprevisto durante il controllo IMAP. Riprova."
+        );
       }
-      setBatchSize(res.batchSize);
-      setAccounts(res.accounts);
     });
   }, [open, accountId]);
 

@@ -1903,16 +1903,27 @@ export async function previewWebmailSyncAction(accountId?: string): Promise<
     }
   | { success: false; error: string }
 > {
-  await requireWebmailAccess();
-  const service = createServiceClient();
-  const res = await previewWebmailAccounts(service, accountId || undefined);
-  if (!res.success) return res;
-  return {
-    success: true,
-    totalMissing: res.totalMissing,
-    batchSize: WEBMAIL_SYNC_SAFE_BATCH,
-    accounts: res.accounts,
-  };
+  try {
+    await requireWebmailAccess();
+    const service = createServiceClient();
+    const res = await previewWebmailAccounts(service, accountId || undefined);
+    if (!res.success) return res;
+    return {
+      success: true,
+      totalMissing: res.totalMissing,
+      batchSize: WEBMAIL_SYNC_SAFE_BATCH,
+      accounts: res.accounts,
+    };
+  } catch (e) {
+    console.error("[previewWebmailSyncAction]", e);
+    return {
+      success: false,
+      error:
+        e instanceof Error
+          ? e.message
+          : "Errore imprevisto durante il controllo delle caselle.",
+    };
+  }
 }
 
 export async function runWebmailSyncAction(

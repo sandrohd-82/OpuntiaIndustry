@@ -87,6 +87,16 @@ function formatImapSyncError(
     }
     return bits.join(" ");
   }
+  if (/unexpected response/i.test(`${base} ${responseText}`)) {
+    return [
+      `Il server IMAP ha chiuso la richiesta in modo incompleto (${account.email_address}).`,
+      "Succede spesso se si prova una cartella Inviate o Spam assente.",
+      "Riprova: ora si usano solo le cartelle elencate dal server.",
+      responseText ? `Dettaglio: ${responseText}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
   return responseText ? `${base}: ${responseText}` : base;
 }
 
@@ -631,40 +641,106 @@ export const IMAP_SPAM_CANDIDATES = [
   "Junk E-mail",
 ];
 
+function mailboxPath(box: {
+  path?: string;
+  pathAsListed?: string;
+  name?: string;
+}): string {
+  return String(box.path ?? box.pathAsListed ?? box.name ?? "").trim();
+}
+
+function mailboxFlags(
+  box: { flags?: Iterable<string> | string[] | Set<string> }
+): string[] {
+  const raw = box.flags;
+  if (!raw) return [];
+  if (raw instanceof Set) return [...raw].map((f) => String(f).toLowerCase());
+  if (Array.isArray(raw)) return raw.map((f) => String(f).toLowerCase());
+  try {
+    return [...(raw as Iterable<string>)].map((f) => String(f).toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+function isSelectableListedMailbox(box: {
+  path?: string;
+  pathAsListed?: string;
+  name?: string;
+  flags?: Iterable<string> | string[] | Set<string>;
+}): boolean {
+  if (!mailboxPath(box)) return false;
+  const flags = mailboxFlags(box);
+  return !flags.some(
+    (f) => f.includes("noselect") || f.includes("nonexistent")
+  );
+}
+
+function mailboxLeafName(path: string): string {
+  const parts = path.split(/[/\\[\].]+/).filter(Boolean);
+  return (parts[parts.length - 1] ?? path).trim();
+}
+
+type ListedImapBox = {
+  path?: string;
+  pathAsListed?: string;
+  name?: string;
+  flags?: Iterable<string> | string[] | Set<string>;
+  specialUse?: string | null;
+};
+
+const listedMailboxesCache = new WeakMap<ImapFlow, Promise<ListedImapBox[]>>();
+
+async function listSelectableMailboxes(
+  client: ImapFlow
+): Promise<ListedImapBox[]> {
+  const cached = listedMailboxesCache.get(client);
+  if (cached) return cached;
+  const pending = (async () => {
+    try {
+      const boxes = await client.list();
+      return (boxes ?? []).filter(isSelectableListedMailbox);
+    } catch (error) {
+      console.error("[webmail imap list]", error);
+      return [];
+    }
+  })();
+  listedMailboxesCache.set(client, pending);
+  return pending;
+}
+
+function pickListedMailbox(
+  boxes: ListedImapBox[],
+  specialUse: string,
+  leafExact: RegExp,
+  leafLoose: RegExp
+): string | null {
+  const special = boxes.find(
+    (box) => String(box.specialUse ?? "").toLowerCase() === specialUse
+  );
+  if (special) return mailboxPath(special);
+
+  const exact = boxes.find((box) =>
+    leafExact.test(mailboxLeafName(mailboxPath(box)))
+  );
+  if (exact) return mailboxPath(exact);
+
+  const loose = boxes.find((box) =>
+    leafLoose.test(mailboxLeafName(mailboxPath(box)))
+  );
+  return loose ? mailboxPath(loose) : null;
+}
+
 async function resolveImapSpamMailbox(
   client: ImapFlow
 ): Promise<string | null> {
-  for (const name of IMAP_SPAM_CANDIDATES) {
-    try {
-      const lock = await client.getMailboxLock(name);
-      lock.release();
-      return name;
-    } catch {
-      // cartella assente su questo provider
-    }
-  }
-  try {
-    const boxes = await client.list();
-    for (const box of boxes) {
-      const path = String(
-        (box as { path?: string }).path ??
-          (box as { name?: string }).name ??
-          ""
-      );
-      const special = String(
-        (box as { specialUse?: string }).specialUse ?? ""
-      );
-      if (
-        special.toLowerCase() === "\\junk" ||
-        /(?:^|[/.])(spam|junk)(?:$|[/.])/i.test(path)
-      ) {
-        return path;
-      }
-    }
-  } catch {
-    // list non disponibile
-  }
-  return null;
+  const boxes = await listSelectableMailboxes(client);
+  return pickListedMailbox(
+    boxes,
+    "\\junk",
+    /^(spam|junk|junk e-mail|bulk mail)$/i,
+    /^(spam|junk)$/i
+  );
 }
 
 async function importSpamMailbox(
@@ -689,50 +765,59 @@ async function importSpamMailbox(
     skipped: 0,
     pending: 0,
   };
-  const spamBox = await resolveImapSpamMailbox(client);
-  if (!spamBox) return empty;
-
-  const lock = await client.getMailboxLock(spamBox);
   try {
-    const since = resolveWebmailSyncSince(account.sync_since);
-    const uids = await client.search({ since }, { uid: true });
-    const all = (uids || []).map((u) => String(u));
-    const existingSet = await loadExistingUids(
-      supabase,
-      account.id,
-      all,
-      "JUNK"
-    );
-    let missing = all.filter((uid) => !existingSet.has(uid));
-    if (options.newMailOnly) {
-      const maxUid = await loadMaxFolderUid(supabase, account.id, "JUNK");
-      missing = missing.filter((uid) => {
-        const n = Number(uid);
-        return Number.isFinite(n) && n > maxUid;
-      });
+    const spamBox = await resolveImapSpamMailbox(client);
+    if (!spamBox) return empty;
+
+    const lock = await client.getMailboxLock(spamBox);
+    try {
+      const since = resolveWebmailSyncSince(account.sync_since);
+      const uids = await client.search({ since }, { uid: true });
+      const all = (uids || []).map((u) => String(u));
+      const existingSet = await loadExistingUids(
+        supabase,
+        account.id,
+        all,
+        "JUNK"
+      );
+      let missing = all.filter((uid) => !existingSet.has(uid));
+      if (options.newMailOnly) {
+        const maxUid = await loadMaxFolderUid(supabase, account.id, "JUNK");
+        missing = missing.filter((uid) => {
+          const n = Number(uid);
+          return Number.isFinite(n) && n > maxUid;
+        });
+      }
+      const picked = pickMissingBatch(
+        missing,
+        existingSet,
+        options.mode,
+        options.batchLimit
+      );
+      const importedRes = await importInboxUidList(
+        supabase,
+        account,
+        client,
+        picked.list,
+        blacklist,
+        { folder: "JUNK", asSpam: true }
+      );
+      return {
+        imported: importedRes.imported,
+        importedIds: importedRes.importedIds,
+        skipped: all.length - missing.length,
+        pending: picked.pending,
+      };
+    } finally {
+      try {
+        lock.release();
+      } catch {
+        /* sessione IMAP già chiusa */
+      }
     }
-    const picked = pickMissingBatch(
-      missing,
-      existingSet,
-      options.mode,
-      options.batchLimit
-    );
-    const importedRes = await importInboxUidList(
-      supabase,
-      account,
-      client,
-      picked.list,
-      blacklist,
-      { folder: "JUNK", asSpam: true }
-    );
-    return {
-      imported: importedRes.imported,
-      importedIds: importedRes.importedIds,
-      skipped: all.length - missing.length,
-      pending: picked.pending,
-    };
-  } finally {
-    lock.release();
+  } catch (error) {
+    console.error("[webmail import spam]", account.email_address, error);
+    return empty;
   }
 }
 
@@ -752,44 +837,16 @@ export const IMAP_SENT_CANDIDATES = [
   "Inviati",
 ];
 
-function mailboxPath(box: {
-  path?: string;
-  name?: string;
-  specialUse?: string;
-}): string {
-  return String(box.path ?? box.name ?? "");
-}
-
 async function resolveImapSentMailbox(
   client: ImapFlow
 ): Promise<string | null> {
-  try {
-    const boxes = await client.list();
-    for (const box of boxes) {
-      const path = mailboxPath(box);
-      const special = String(box.specialUse ?? "").toLowerCase();
-      if (
-        special === "\\sent" ||
-        /(?:^|[/.[\]])(sent|inviata|inviate|inviati|posta inviata|elementi inviati)(?:$|[/.[\]])/i.test(
-          path
-        )
-      ) {
-        return path;
-      }
-    }
-  } catch {
-    // list non disponibile
-  }
-  for (const name of IMAP_SENT_CANDIDATES) {
-    try {
-      const lock = await client.getMailboxLock(name);
-      lock.release();
-      return name;
-    } catch {
-      // cartella assente su questo provider
-    }
-  }
-  return null;
+  const boxes = await listSelectableMailboxes(client);
+  return pickListedMailbox(
+    boxes,
+    "\\sent",
+    /^(sent|sent items|sent mail|sent messages|posta inviata|elementi inviati|inviata|inviate|inviati)$/i,
+    /^(sent|inviata|inviate|inviati)$/i
+  );
 }
 
 async function countMailboxMissing(
@@ -827,7 +884,11 @@ async function countMailboxMissing(
       olderAvailable: older.list.length,
     };
   } finally {
-    lock.release();
+    try {
+      lock.release();
+    } catch {
+      /* sessione IMAP già chiusa */
+    }
   }
 }
 
@@ -853,54 +914,63 @@ async function importSentMailbox(
     skipped: 0,
     pending: 0,
   };
-  const sentBox = await resolveImapSentMailbox(client);
-  if (!sentBox) return empty;
-
-  const lock = await client.getMailboxLock(sentBox);
   try {
-    const since = resolveWebmailSyncSince(account.sync_since);
-    const uids = await client.search({ since }, { uid: true });
-    const all = (uids || []).map((u) => String(u));
-    const existingSet = await loadExistingUids(
-      supabase,
-      account.id,
-      all,
-      WEBMAIL_SENT_FOLDER
-    );
-    let missing = all.filter((uid) => !existingSet.has(uid));
-    if (options.newMailOnly) {
-      const maxUid = await loadMaxFolderUid(
+    const sentBox = await resolveImapSentMailbox(client);
+    if (!sentBox) return empty;
+
+    const lock = await client.getMailboxLock(sentBox);
+    try {
+      const since = resolveWebmailSyncSince(account.sync_since);
+      const uids = await client.search({ since }, { uid: true });
+      const all = (uids || []).map((u) => String(u));
+      const existingSet = await loadExistingUids(
         supabase,
         account.id,
+        all,
         WEBMAIL_SENT_FOLDER
       );
-      missing = missing.filter((uid) => {
-        const n = Number(uid);
-        return Number.isFinite(n) && n > maxUid;
-      });
+      let missing = all.filter((uid) => !existingSet.has(uid));
+      if (options.newMailOnly) {
+        const maxUid = await loadMaxFolderUid(
+          supabase,
+          account.id,
+          WEBMAIL_SENT_FOLDER
+        );
+        missing = missing.filter((uid) => {
+          const n = Number(uid);
+          return Number.isFinite(n) && n > maxUid;
+        });
+      }
+      const picked = pickMissingBatch(
+        missing,
+        existingSet,
+        options.mode,
+        options.batchLimit
+      );
+      const importedRes = await importInboxUidList(
+        supabase,
+        account,
+        client,
+        picked.list,
+        blacklist,
+        { folder: WEBMAIL_SENT_FOLDER, asSent: true }
+      );
+      return {
+        imported: importedRes.imported,
+        importedIds: importedRes.importedIds,
+        skipped: all.length - missing.length,
+        pending: picked.pending,
+      };
+    } finally {
+      try {
+        lock.release();
+      } catch {
+        /* sessione IMAP già chiusa */
+      }
     }
-    const picked = pickMissingBatch(
-      missing,
-      existingSet,
-      options.mode,
-      options.batchLimit
-    );
-    const importedRes = await importInboxUidList(
-      supabase,
-      account,
-      client,
-      picked.list,
-      blacklist,
-      { folder: WEBMAIL_SENT_FOLDER, asSent: true }
-    );
-    return {
-      imported: importedRes.imported,
-      importedIds: importedRes.importedIds,
-      skipped: all.length - missing.length,
-      pending: picked.pending,
-    };
-  } finally {
-    lock.release();
+  } catch (error) {
+    console.error("[webmail import sent]", account.email_address, error);
+    return empty;
   }
 }
 
@@ -1377,21 +1447,35 @@ export async function previewWebmailAccount(
       "INBOX",
       "INBOX"
     );
-    const sentBox = await resolveImapSentMailbox(client);
-    const sent = sentBox
-      ? await countMailboxMissing(
+    const emptySent = {
+      missing: 0,
+      importedInScope: 0,
+      olderAvailable: 0,
+    };
+    let sent = emptySent;
+    let sentUnavailable = true;
+    try {
+      const sentBox = await resolveImapSentMailbox(client);
+      if (sentBox) {
+        sent = await countMailboxMissing(
           supabase,
           account,
           client,
           sentBox,
           WEBMAIL_SENT_FOLDER
-        )
-      : { missing: 0, importedInScope: 0, olderAvailable: 0 };
+        );
+        sentUnavailable = false;
+      }
+    } catch (error) {
+      console.error("[webmail preview sent]", account.email_address, error);
+      sent = emptySent;
+      sentUnavailable = true;
+    }
     return {
       missing: inbox.missing + sent.missing,
       inboxMissing: inbox.missing,
       sentMissing: sent.missing,
-      sentUnavailable: !sentBox,
+      sentUnavailable,
       importedInScope: inbox.importedInScope + sent.importedInScope,
       olderAvailable: inbox.olderAvailable,
       sentOlderAvailable: sent.olderAvailable,
