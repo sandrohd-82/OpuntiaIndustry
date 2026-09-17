@@ -10,6 +10,7 @@ import {
   updateAttivitaPnAction,
   listNotePnAction,
   listPromemoriaAction,
+  updatePromemoriaAction,
 } from "@/app/actions/promemorie-e-note";
 import { markNotificheReadAction } from "@/app/actions/notifiche";
 import { notifyNotificheNav } from "@/lib/notifiche/nav-event";
@@ -29,9 +30,14 @@ import {
 } from "@/components/promemorie-e-note/MentionDescriptionField";
 import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import {
+  PnAvvisiField,
+  etichettaAvvisi,
+} from "@/components/promemorie-e-note/PnAvvisiField";
+import {
   dayKeyFromIso,
   monthKeyFromIso,
   type PnAttivita,
+  type PnAvviso,
   type PnNota,
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
@@ -83,7 +89,10 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [collegamenti, setCollegamenti] = useState<PnAttivitaCollegamento[]>(
     []
   );
+  const [avvisi, setAvvisi] = useState<PnAvviso[]>([]);
   const [editing, setEditing] = useState<PnAttivita | null>(null);
+  const [editingPromemoria, setEditingPromemoria] =
+    useState<PnPromemoria | null>(null);
   const [editTitolo, setEditTitolo] = useState("");
   const [editDescrizione, setEditDescrizione] = useState("");
   const [editLuogo, setEditLuogo] = useState("");
@@ -92,6 +101,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   const [editCollegamenti, setEditCollegamenti] = useState<
     PnAttivitaCollegamento[]
   >([]);
+  const [editAvvisi, setEditAvvisi] = useState<PnAvviso[]>([]);
 
   function reload() {
     startTransition(async () => {
@@ -147,6 +157,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           descrizione,
           dueAt: dueIso,
           collegamenti,
+          avvisi,
         });
         if (!res.success) {
           setError(res.error);
@@ -162,6 +173,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           peers,
           mentionUserIds: operatorIdsFromCollegamenti(collegamenti),
           collegamenti,
+          avvisi,
         });
         if (!res.success) {
           setError(res.error);
@@ -198,6 +210,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       setLuogo("");
       setBody("");
       setCollegamenti([]);
+      setAvvisi([]);
     });
   }
 
@@ -312,6 +325,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                 onChange={(e) => setDueAt(e.target.value)}
                 className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
               />
+              <PnAvvisiField value={avvisi} onChange={setAvvisi} />
             </>
           ) : null}
           <button
@@ -394,35 +408,110 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
       {kind === "promemoria" ? (
         <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)] bg-[var(--card)]">
           {promemoria.map((p) => (
-            <li
-              key={p.id}
-              className="flex flex-wrap items-center gap-3 px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{p.titolo}</p>
-                <p className="text-xs text-[var(--muted)]">
-                  {formatWhen(p.dueAt)} · {p.stato}
-                </p>
-                {p.descrizione ? (
-                  <p className="mt-1 text-sm text-slate-700">{p.descrizione}</p>
-                ) : null}
-              </div>
-              {p.stato === "attivo" ? (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    startTransition(async () => {
-                      const res = await completePromemoriaAction(p.id);
-                      if (!res.success) setError(res.error);
-                      else reload();
-                    });
-                  }}
-                  className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
-                >
-                  Completa
-                </button>
-              ) : null}
+            <li key={p.id} className="px-4 py-3">
+              {editingPromemoria?.id === p.id ? (
+                <div className="space-y-2">
+                  <input
+                    value={editTitolo}
+                    onChange={(e) => setEditTitolo(e.target.value.slice(0, 200))}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                  <MentionDescriptionField
+                    value={editDescrizione}
+                    onChange={setEditDescrizione}
+                    collegamenti={editCollegamenti}
+                    onCollegamentiChange={setEditCollegamenti}
+                  />
+                  <input
+                    type="datetime-local"
+                    value={editDueAt}
+                    onChange={(e) => setEditDueAt(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                  />
+                  <PnAvvisiField value={editAvvisi} onChange={setEditAvvisi} />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingPromemoria(null)}
+                      className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pending || !editTitolo.trim()}
+                      onClick={() => {
+                        startTransition(async () => {
+                          const res = await updatePromemoriaAction({
+                            id: p.id,
+                            titolo: editTitolo,
+                            descrizione: editDescrizione,
+                            dueAt: new Date(editDueAt).toISOString(),
+                            collegamenti: editCollegamenti,
+                            avvisi: editAvvisi,
+                          });
+                          if (!res.success) {
+                            setError(res.error);
+                            return;
+                          }
+                          setEditingPromemoria(null);
+                          reload();
+                        });
+                      }}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      {pending ? "Salvataggio…" : "Salva"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{p.titolo}</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      {formatWhen(p.dueAt)} · {p.stato}
+                      {etichettaAvvisi(p.avvisi)
+                        ? ` · Avvisi: ${etichettaAvvisi(p.avvisi)}`
+                        : ""}
+                    </p>
+                    {p.descrizione ? (
+                      <p className="mt-1 text-sm text-slate-700">{p.descrizione}</p>
+                    ) : null}
+                  </div>
+                  {p.stato === "attivo" ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPromemoria(p);
+                          setEditTitolo(p.titolo);
+                          setEditDescrizione(p.descrizione);
+                          setEditDueAt(toLocalInputValue(new Date(p.dueAt)));
+                          setEditCollegamenti([]);
+                          setEditAvvisi(p.avvisi ?? []);
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                      >
+                        Modifica
+                      </button>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => {
+                          startTransition(async () => {
+                            const res = await completePromemoriaAction(p.id);
+                            if (!res.success) setError(res.error);
+                            else reload();
+                          });
+                        }}
+                        className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
+                      >
+                        Completa
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              )}
             </li>
           ))}
           {promemoria.length === 0 ? (
@@ -462,6 +551,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                     onChange={(e) => setEditDueAt(e.target.value)}
                     className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
                   />
+                  <PnAvvisiField value={editAvvisi} onChange={setEditAvvisi} />
                   <select
                     value={editStato}
                     onChange={(e) =>
@@ -497,6 +587,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                             mentionUserIds:
                               operatorIdsFromCollegamenti(editCollegamenti),
                             collegamenti: editCollegamenti,
+                            avvisi: editAvvisi,
                           });
                           if (!res.success) {
                             setError(res.error);
@@ -526,6 +617,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                         setEditDueAt(toLocalInputValue(new Date(a.dueAt)));
                         setEditStato(a.stato);
                         setEditCollegamenti(a.collegamenti ?? []);
+                        setEditAvvisi(a.avvisi ?? []);
                       }}
                       className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs"
                     >
@@ -535,6 +627,9 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
                   <p className="text-xs text-[var(--muted)]">
                     {formatWhen(a.dueAt)}
                     {a.luogo ? ` · ${a.luogo}` : ""} · {a.stato}
+                    {etichettaAvvisi(a.avvisi)
+                      ? ` · Avvisi: ${etichettaAvvisi(a.avvisi)}`
+                      : ""}
                   </p>
                   <MentionDescriptionView
                     text={a.descrizione}

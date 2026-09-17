@@ -18,13 +18,29 @@ self.addEventListener("push", (event) => {
   const href = data.href || "/app/dashboard";
   const tipo = data.tipo || "sistema";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.body || "",
-      data: { href, tipo },
-      tag: data.tag || `oi-${tipo}`,
-      renotify: true,
-      icon: "/Favicon.jpg",
-    })
+    (async () => {
+      const list = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of list) {
+        client.postMessage({
+          type: "oi-notifica-push",
+          title,
+          body: data.body || "",
+          href,
+          tipo,
+          entityId: data.entityId || "",
+        });
+      }
+      await self.registration.showNotification(title, {
+        body: data.body || "",
+        data: { href, tipo },
+        tag: data.tag || `oi-${tipo}`,
+        renotify: true,
+        icon: "/Favicon.jpg",
+      });
+    })()
   );
 });
 

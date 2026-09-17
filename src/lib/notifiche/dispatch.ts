@@ -22,7 +22,7 @@ async function notificheWriteClient(): Promise<{
 }
 
 export async function dispatchNotifiche(
-  input: CreateNotificaInput & { actorId: string }
+  input: CreateNotificaInput & { actorId: string; includeActor?: boolean }
 ): Promise<{ created: number; pushed: number }> {
   const parsed = createNotificaSchema.safeParse(input);
   if (!parsed.success) {
@@ -33,7 +33,11 @@ export async function dispatchNotifiche(
     return { created: 0, pushed: 0 };
   }
   const recipients = [
-    ...new Set(parsed.data.recipientIds.filter((id) => id !== input.actorId)),
+    ...new Set(
+      parsed.data.recipientIds.filter(
+        (id) => input.includeActor || id !== input.actorId
+      )
+    ),
   ];
   if (!recipients.length) return { created: 0, pushed: 0 };
 
@@ -125,5 +129,47 @@ export async function notifyAttivitaCoinvolti(input: {
   });
   } catch (err) {
     console.error("[notifyAttivitaCoinvolti]", err);
+  }
+}
+
+export async function notifyPnAvviso(input: {
+  actorId: string;
+  recipientIds: string[];
+  avvisoId: string;
+  origineTipo: "attivita" | "promemoria";
+  origineId: string;
+  titolo: string;
+  dueAt: string;
+  offsetValore: number;
+  offsetUnita: string;
+}): Promise<{ created: number; pushed: number }> {
+  const href =
+    input.origineTipo === "attivita"
+      ? "/app/promemorie-e-note/attivita/elenco"
+      : "/app/promemorie-e-note/promemoria/elenco";
+  const unita = input.offsetUnita;
+  try {
+    return await dispatchNotifiche({
+      actorId: input.actorId,
+      includeActor: true,
+      recipientIds: input.recipientIds,
+      tipo: "avviso",
+      title: "Sveglia",
+      body: `Avvisami ${input.offsetValore} ${unita} prima: «${input.titolo}»`,
+      href,
+      entityType: "pn_evento_avvisi",
+      entityId: input.avvisoId,
+      payload: {
+        origineTipo: input.origineTipo,
+        origineId: input.origineId,
+        titolo: input.titolo,
+        dueAt: input.dueAt,
+        offsetValore: input.offsetValore,
+        offsetUnita: input.offsetUnita,
+      },
+    });
+  } catch (err) {
+    console.error("[notifyPnAvviso]", err);
+    return { created: 0, pushed: 0 };
   }
 }

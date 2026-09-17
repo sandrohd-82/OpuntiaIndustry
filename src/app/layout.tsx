@@ -16,6 +16,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: `${BRAND_NAME} — Gestionale aziendale`,
   description: "Piattaforma gestionale con accesso per ruoli e aree",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: BRAND_NAME,
+    statusBarStyle: "default",
+  },
   icons: {
     icon: [{ url: BRAND_FAVICON, type: "image/jpeg" }],
     shortcut: BRAND_FAVICON,

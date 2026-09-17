@@ -9,7 +9,10 @@ import {
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
-import { PushNotificationsProvider } from "@/components/layout/PushNotificationsProvider";
+import {
+  NotificationConsentBanner,
+  PushNotificationsProvider,
+} from "@/components/layout/PushNotificationsProvider";
 import {
   PROFILE_GERARCHIA_LABELS,
   parseProfileGerarchia,
@@ -177,6 +180,7 @@ export default async function AppLayout({
       settings={authSettings}
       canElaboraContabilita={canElaboraContabilita}
     >
+    <PushNotificationsProvider>
     <div className="flex min-h-screen">
       <AppSidebar
         areas={menuAreas}
@@ -197,6 +201,7 @@ export default async function AppLayout({
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
+        <NotificationConsentBanner />
         <ActionAccessProvider
           actionAccess={actionAccess}
           testMenuMode={testMenuMode}
@@ -232,8 +237,8 @@ export default async function AppLayout({
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
-      <PushNotificationsProvider />
     </div>
+    </PushNotificationsProvider>
     </SensitiveAuthProvider>
   );
 }

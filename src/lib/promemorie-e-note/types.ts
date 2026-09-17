@@ -19,12 +19,30 @@ export const pnEntityTypeSchema = z.enum([
 ]);
 export type PnEntityType = z.infer<typeof pnEntityTypeSchema>;
 
+export const PN_AVVISO_UNITA = ["minuti", "ore", "giorni"] as const;
+export type PnAvvisoUnita = (typeof PN_AVVISO_UNITA)[number];
+
+export type PnAvviso = {
+  id?: string;
+  offsetValore: number;
+  offsetUnita: PnAvvisoUnita;
+  notifyAt?: string;
+  sentAt?: string | null;
+};
+
+export const pnAvvisoInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  offsetValore: z.coerce.number().int().min(1).max(999),
+  offsetUnita: z.enum(PN_AVVISO_UNITA),
+});
+
 export type PnPromemoria = {
   id: string;
   titolo: string;
   descrizione: string;
   dueAt: string;
   stato: "attivo" | "completato" | "archiviato";
+  avvisi: PnAvviso[];
   createdAt: string;
 };
 
@@ -37,6 +55,7 @@ export type PnAttivita = {
   stato: "pianificata" | "in_corso" | "completata" | "archiviata";
   mentionUserIds: string[];
   collegamenti: PnAttivitaCollegamento[];
+  avvisi: PnAvviso[];
   createdAt: string;
 };
 
@@ -130,6 +149,16 @@ export const pnAttivitaCollegamentoSchema = z.object({
 
 export const createPromemoriaConCollegamentiSchema = createPromemoriaSchema.extend({
   collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+  avvisi: z.array(pnAvvisoInputSchema).max(8).optional().default([]),
+});
+
+export const updatePromemoriaSchema = z.object({
+  id: z.string().uuid(),
+  titolo: z.string().trim().min(1).max(200),
+  descrizione: z.string().trim().max(2000).optional().default(""),
+  dueAt: z.string().min(1),
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+  avvisi: z.array(pnAvvisoInputSchema).max(8).optional().default([]),
 });
 
 export const createAttivitaSchema = z.object({
@@ -139,6 +168,7 @@ export const createAttivitaSchema = z.object({
   dueAt: z.string().min(1),
   mentionUserIds: z.array(z.string().uuid()).optional().default([]),
   collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+  avvisi: z.array(pnAvvisoInputSchema).max(8).optional().default([]),
 });
 
 export const updateAttivitaSchema = z.object({
@@ -152,6 +182,7 @@ export const updateAttivitaSchema = z.object({
     .optional(),
   mentionUserIds: z.array(z.string().uuid()).optional().default([]),
   collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+  avvisi: z.array(pnAvvisoInputSchema).max(8).optional().default([]),
 });
 
 export const createNotaSchema = z.object({

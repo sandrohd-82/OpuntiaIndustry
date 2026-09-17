@@ -32,6 +32,7 @@ import {
   createNotaSchema,
   createPromemoriaConCollegamentiSchema,
   updateAttivitaSchema,
+  updatePromemoriaSchema,
   updateNotaSchema,
   type ClientePossibile,
   type PnAttivita,
@@ -42,6 +43,10 @@ import {
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { syncTimelinePnCopieDaCollegamenti } from "@/lib/amministrazione/timeline-pn-copie";
+import {
+  loadAvvisiByOrigineIds,
+  persistEventoAvvisi,
+} from "@/lib/promemorie-e-note/avvisi-db";
 import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import {
   auditCollegamentiChange,
@@ -208,6 +213,8 @@ export async function listPromemoriaAction(): Promise<
     .neq("stato", "archiviato")
     .order("due_at", { ascending: true });
   if (error) return { success: false, error: error.message };
+  const ids = (data ?? []).map((r) => String(r.id));
+  const avvisiMap = await loadAvvisiByOrigineIds(supabase, "promemoria", ids);
   return {
     success: true,
     items: (data ?? []).map((r) => ({
@@ -216,6 +223,7 @@ export async function listPromemoriaAction(): Promise<
       descrizione: String(r.descrizione ?? ""),
       dueAt: String(r.due_at),
       stato: r.stato as PnPromemoria["stato"],
+      avvisi: avvisiMap.get(String(r.id)) ?? [],
       createdAt: String(r.created_at),
     })),
   };
@@ -248,12 +256,21 @@ export async function createPromemoriaAction(input: unknown): Promise<
   if (error || !data) {
     return { success: false, error: error?.message ?? "Creazione fallita" };
   }
+  const avvisi = await persistEventoAvvisi({
+    supabase,
+    userId: auth.userId,
+    origineTipo: "promemoria",
+    origineId: String(data.id),
+    dueAt: String(data.due_at),
+    avvisi: parsed.data.avvisi ?? [],
+  });
   const item: PnPromemoria = {
     id: String(data.id),
     titolo: String(data.titolo),
     descrizione: String(data.descrizione ?? ""),
     dueAt: String(data.due_at),
     stato: data.stato as PnPromemoria["stato"],
+    avvisi,
     createdAt: String(data.created_at),
   };
   await writeAuditLog({
@@ -290,6 +307,61 @@ export async function completePromemoriaAction(
   return { success: true };
 }
 
+export async function updatePromemoriaAction(input: unknown): Promise<
+  { success: true; item: PnPromemoria } | { success: false; error: string }
+> {
+  const { auth } = await guardPn();
+  const parsed = updatePromemoriaSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati non validi",
+    };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("pn_promemoria")
+    .update({
+      titolo: parsed.data.titolo,
+      descrizione: parsed.data.descrizione ?? "",
+      due_at: parsed.data.dueAt,
+      updated_by: auth.userId,
+    })
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .select("id, titolo, descrizione, due_at, stato, created_at")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Aggiornamento fallito" };
+  }
+  const avvisi = await persistEventoAvvisi({
+    supabase,
+    userId: auth.userId,
+    origineTipo: "promemoria",
+    origineId: String(data.id),
+    dueAt: String(data.due_at),
+    avvisi: parsed.data.avvisi ?? [],
+  });
+  const item: PnPromemoria = {
+    id: String(data.id),
+    titolo: String(data.titolo),
+    descrizione: String(data.descrizione ?? ""),
+    dueAt: String(data.due_at),
+    stato: data.stato as PnPromemoria["stato"],
+    avvisi,
+    createdAt: String(data.created_at),
+  };
+  await writeAuditLog({
+    entity_type: "pn_promemoria",
+    entity_id: item.id,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Promemoria aggiornato: ${item.titolo}`,
+    payload: { avvisi: avvisi.length },
+  });
+  return { success: true, item };
+}
+
 // —— Attività ——
 export async function listAttivitaPnAction(): Promise<
   { success: true; items: PnAttivita[] } | { success: false; error: string }
@@ -319,6 +391,7 @@ export async function listAttivitaPnAction(): Promise<
     }
   }
   const collegamentiMap = await loadCollegamentiByAttivitaIds(supabase, ids);
+  const avvisiMap = await loadAvvisiByOrigineIds(supabase, "attivita", ids);
   return {
     success: true,
     items: (data ?? []).map((r) => ({
@@ -330,6 +403,7 @@ export async function listAttivitaPnAction(): Promise<
       stato: r.stato as PnAttivita["stato"],
       mentionUserIds: mentions.get(String(r.id)) ?? [],
       collegamenti: collegamentiMap.get(String(r.id)) ?? [],
+      avvisi: avvisiMap.get(String(r.id)) ?? [],
       createdAt: String(r.created_at),
     })),
   };
@@ -343,6 +417,7 @@ export async function createAttivitaPnAction(input: {
   mentionUserIds?: string[];
   peers?: { id: string; name: string }[];
   collegamenti?: unknown;
+  avvisi?: unknown;
 }): Promise<
   { success: true; item: PnAttivita } | { success: false; error: string }
 > {
@@ -392,6 +467,14 @@ export async function createAttivitaPnAction(input: {
     userId: auth.userId,
     userIds: [...mentionIds],
   });
+  const avvisi = await persistEventoAvvisi({
+    supabase,
+    userId: auth.userId,
+    origineTipo: "attivita",
+    origineId: String(data.id),
+    dueAt: String(data.due_at),
+    avvisi: parsed.data.avvisi ?? [],
+  });
   const item: PnAttivita = {
     id: String(data.id),
     titolo: String(data.titolo),
@@ -401,6 +484,7 @@ export async function createAttivitaPnAction(input: {
     stato: data.stato as PnAttivita["stato"],
     mentionUserIds: mentions.all,
     collegamenti,
+    avvisi,
     createdAt: String(data.created_at),
   };
   await auditCollegamentiChange({
@@ -488,6 +572,14 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     userId: auth.userId,
     userIds: mentionIds,
   });
+  const avvisi = await persistEventoAvvisi({
+    supabase,
+    userId: auth.userId,
+    origineTipo: "attivita",
+    origineId: String(data.id),
+    dueAt: String(data.due_at),
+    avvisi: parsed.data.avvisi ?? [],
+  });
   const item: PnAttivita = {
     id: String(data.id),
     titolo: String(data.titolo),
@@ -497,6 +589,7 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     stato: data.stato as PnAttivita["stato"],
     mentionUserIds: mentions.all,
     collegamenti,
+    avvisi,
     createdAt: String(data.created_at ?? current.created_at),
   };
   await auditCollegamentiChange({
