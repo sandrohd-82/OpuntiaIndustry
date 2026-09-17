@@ -53,6 +53,7 @@ import {
   WebmailSyncModal,
   type WebmailSyncChoice,
 } from "@/components/webmail/WebmailSyncModal";
+import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { BusyBanner, BusySpinner } from "@/components/ui/BusyIndicator";
 import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
@@ -2073,6 +2074,7 @@ export function WebmailBoard({
                             className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
                           />
                         </label>
+                        <CanaleAttenzioneBanners emails={[replyTo]} />
                         <label className="block text-sm">
                           <span className="mb-1 block text-xs font-medium">
                             Oggetto
@@ -2132,6 +2134,9 @@ export function WebmailBoard({
                           </div>
                         ) : (
                           <>
+                            <CanaleAttenzioneBanners
+                              emails={[selected?.fromAddress ?? ""]}
+                            />
                             <p className="text-xs text-[var(--muted)]">
                               Intent: {bozza.intent}
                               {bozza.confidence != null

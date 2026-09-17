@@ -11,6 +11,7 @@ import { CatalogoOffertaTags } from "@/components/amministrazione/CatalogoOffert
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { FornitoreDiTags } from "@/components/amministrazione/FornitoreDiTags";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
+import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import {
   listEntityReferentiAction,
   syncEntityReferentiAction,
@@ -504,32 +505,29 @@ export function FornitoreFormModal({
                 </div>
               ) : null}
             </div>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Mail</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">Telefono</span>
-              <input
-                value={telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">PEC</span>
-              <input
-                type="email"
-                value={pec}
-                onChange={(e) => setPec(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
+            <CanaleInputRow
+              label="Mail"
+              canale="email"
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={setEmail}
+            />
+            <CanaleInputRow
+              label="Telefono"
+              canale="telefono"
+              inputMode="tel"
+              value={telefono}
+              onChange={setTelefono}
+            />
+            <CanaleInputRow
+              label="PEC"
+              canale="email"
+              type="email"
+              inputMode="email"
+              value={pec}
+              onChange={setPec}
+            />
             <label className="block text-sm">
               <span className="mb-1 block font-medium">SDI</span>
               <input

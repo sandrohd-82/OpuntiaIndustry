@@ -9,6 +9,7 @@ import {
   listRubricaTimelineAction,
   listWebmailMessagesLiteAction,
 } from "@/app/actions/rubrica";
+import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
 import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
 import { ActionGate } from "@/components/layout/ActionAccessProvider";
@@ -234,6 +235,12 @@ export function RubricaBoard() {
               <p className="text-xs text-[var(--muted)]">
                 {[c.telefono, c.email].filter(Boolean).join(" · ")}
               </p>
+              <div className="mt-1">
+                <CanaleReadonlyActions
+                  email={c.email}
+                  telefono={c.telefono}
+                />
+              </div>
             </div>
             <button
               type="button"

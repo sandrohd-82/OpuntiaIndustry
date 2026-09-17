@@ -7,6 +7,7 @@ import {
   listAziendeRubricaPickerAction,
   listRubricaMansioniAction,
 } from "@/app/actions/rubrica";
+import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaMansioneCreateModal } from "@/components/amministrazione/RubricaMansioneCreateModal";
 import { SelectMenu } from "@/components/ui/SelectMenu";
 import {
@@ -215,23 +216,21 @@ export function RubricaContattoFormModal({
               className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
             />
           </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Telefono</span>
-            <input
-              value={telefono}
-              onChange={(e) => setTelefono(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium">Mail</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-            />
-          </label>
+          <CanaleInputRow
+            label="Telefono"
+            canale="telefono"
+            inputMode="tel"
+            value={telefono}
+            onChange={setTelefono}
+          />
+          <CanaleInputRow
+            label="Mail"
+            canale="email"
+            type="email"
+            inputMode="email"
+            value={email}
+            onChange={setEmail}
+          />
 
           <label className="block text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Referente *</span>

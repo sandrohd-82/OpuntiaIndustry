@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { FaPlus, FaTrash } from "react-icons/fa6";
+import {
+  CanaleAttenzioneButton,
+  CanaleCallButton,
+  CanaleMailButton,
+} from "@/components/amministrazione/CanaleAttenzioneControls";
 import { CONTATTI_GENERICI_REMINDER } from "@/lib/amministrazione/contatti-generici";
+import type { ContattoCanaleKind } from "@/lib/amministrazione/contatto-canale-attenzione";
 
 type Kind = "telefono" | "mail" | "sito";
 
@@ -36,18 +42,20 @@ function ExtraList({
   type,
   inputMode,
   placeholder,
+  canale,
 }: {
   values: string[];
   onChange: (next: string[]) => void;
   type?: "email" | "text";
   inputMode?: "tel" | "url" | "email";
   placeholder?: string;
+  canale?: ContattoCanaleKind;
 }) {
   if (values.length === 0) return null;
   return (
     <div className="space-y-2">
       {values.map((value, index) => (
-        <div key={`${index}`} className="flex gap-2">
+        <div key={`${index}`} className="flex items-center gap-2">
           <input
             type={type ?? "text"}
             inputMode={inputMode}
@@ -60,6 +68,16 @@ function ExtraList({
             }}
             className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
           />
+          {canale ? (
+            <>
+              <CanaleAttenzioneButton canale={canale} valore={value} />
+              {canale === "telefono" ? (
+                <CanaleCallButton valore={value} />
+              ) : (
+                <CanaleMailButton valore={value} />
+              )}
+            </>
+          ) : null}
           <button
             type="button"
             title="Rimuovi campo"
@@ -98,25 +116,27 @@ export function AnagraficaContattiGenericiFields({
     reminderRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [reminderTick]);
 
-  const inputClass =
-    "w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]";
-
   return (
     <div className="space-y-3 sm:col-span-2">
-      <label className="block text-sm">
+      <div className="block text-sm">
         <span className="mb-1 block font-medium">Mail</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => onEmailChange(e.target.value)}
-          className={inputClass}
-        />
-      </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => onEmailChange(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+          />
+          <CanaleAttenzioneButton canale="email" valore={email} />
+          <CanaleMailButton valore={email} />
+        </div>
+      </div>
       <ExtraList
         values={emailExtra}
         onChange={onEmailExtraChange}
         type="email"
         inputMode="email"
+        canale="email"
       />
       <button
         type="button"
@@ -127,18 +147,23 @@ export function AnagraficaContattiGenericiFields({
         {ADD_LABEL.mail}
       </button>
 
-      <label className="block text-sm">
+      <div className="block text-sm">
         <span className="mb-1 block font-medium">Telefono</span>
-        <input
-          value={telefono}
-          onChange={(e) => onTelefonoChange(e.target.value)}
-          className={inputClass}
-        />
-      </label>
+        <div className="flex items-center gap-2">
+          <input
+            value={telefono}
+            onChange={(e) => onTelefonoChange(e.target.value)}
+            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
+          />
+          <CanaleAttenzioneButton canale="telefono" valore={telefono} />
+          <CanaleCallButton valore={telefono} />
+        </div>
+      </div>
       <ExtraList
         values={telefonoExtra}
         onChange={onTelefonoExtraChange}
         inputMode="tel"
+        canale="telefono"
       />
       <button
         type="button"
@@ -159,7 +184,7 @@ export function AnagraficaContattiGenericiFields({
           placeholder="https://"
           value={sitoWeb}
           onChange={(e) => onSitoWebChange(e.target.value)}
-          className={inputClass}
+          className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
         />
       </label>
       <ExtraList

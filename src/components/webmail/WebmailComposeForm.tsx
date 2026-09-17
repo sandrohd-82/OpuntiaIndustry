@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useEffect, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   sendWebmailNuovaMailAction,
   translateWebmailTextAction,
 } from "@/app/actions/webmail";
+import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { WEBMAIL_TRANSLATE_LANGS } from "@/lib/webmail/translate-langs";
 
 type Props = {
@@ -22,6 +23,11 @@ export function WebmailComposeForm({
   const router = useRouter();
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("to");
+    if (q) setTo(q);
+  }, []);
   const [subject, setSubject] = useState("");
   const [bodyText, setBodyText] = useState("");
   const [outboundLang, setOutboundLang] = useState("en");
@@ -110,6 +116,7 @@ export function WebmailComposeForm({
           className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
         />
       </label>
+      <CanaleAttenzioneBanners emails={[to, cc]} />
       <label className="block text-sm">
         <span className="mb-1 block font-medium">Cc</span>
         <input

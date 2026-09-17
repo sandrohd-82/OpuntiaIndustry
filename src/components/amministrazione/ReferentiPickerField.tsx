@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { FaPlus, FaTrash, FaBook } from "react-icons/fa6";
 import { listRubricaContattiAction } from "@/app/actions/rubrica";
+import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { RubricaContattoFormModal } from "@/components/amministrazione/RubricaContattoFormModal";
 import {
   displayContattoName,
@@ -73,10 +74,16 @@ export function ReferentiPickerField({
             key={r.id}
             className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm"
           >
-            <span>
+            <span className="min-w-0">
               {displayContattoName(r)}
               {r.telefono ? ` · ${r.telefono}` : ""}
               {r.mansione ? ` · ${r.mansione}` : ""}
+              <span className="mt-1 block">
+                <CanaleReadonlyActions
+                  email={r.email}
+                  telefono={r.telefono}
+                />
+              </span>
             </span>
             <button
               type="button"

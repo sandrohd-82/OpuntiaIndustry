@@ -3125,6 +3125,42 @@ export interface Database {
           },
         ];
       };
+      contatto_canale_attenzioni: {
+        Row: {
+          id: string;
+          canale: "email" | "telefono";
+          valore_normalizzato: string;
+          valore_display: string;
+          clausola: string;
+          created_by: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          canale: "email" | "telefono";
+          valore_normalizzato: string;
+          valore_display?: string;
+          clausola: string;
+          created_by?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Update: {
+          valore_display?: string;
+          clausola?: string;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       v_catalogo_b2b: {

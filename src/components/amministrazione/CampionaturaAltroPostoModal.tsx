@@ -3,6 +3,7 @@
 import { useId, useState, type FormEvent } from "react";
 import { createReferenteRicezioneMerceAction } from "@/app/actions/campionature";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import { CanaleInputRow } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { formatIndirizzoSede } from "@/lib/amministrazione/campionature";
 import { emptySede } from "@/lib/amministrazione/fornitori";
 
@@ -161,34 +162,21 @@ export function CampionaturaAltroPostoModal({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">
-                Cellulare{" "}
-                <span className="font-normal text-[var(--muted)]">
-                  (consigliato)
-                </span>
-              </span>
-              <input
-                type="tel"
-                value={telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="mb-1 block font-medium">
-                Email{" "}
-                <span className="font-normal text-[var(--muted)]">
-                  (consigliata)
-                </span>
-              </span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 outline-none focus:border-[var(--primary)]"
-              />
-            </label>
+            <CanaleInputRow
+              label="Cellulare (consigliato)"
+              canale="telefono"
+              inputMode="tel"
+              value={telefono}
+              onChange={setTelefono}
+            />
+            <CanaleInputRow
+              label="Email (consigliata)"
+              canale="email"
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={setEmail}
+            />
           </div>
 
           <AddressSedeFields
