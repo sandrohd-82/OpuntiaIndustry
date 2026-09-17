@@ -15,6 +15,7 @@ import {
 import { ImportaRiferimentiVista } from "@/components/magazzino/ImportaRiferimentiVista";
 import { CopiaAreaGuidata } from "@/components/magazzino/CopiaAreaGuidata";
 import { ElencoAreeMappa } from "@/components/magazzino/ElencoAreeMappa";
+import { ElencoImportiMappa } from "@/components/magazzino/ElencoImportiMappa";
 import { MAGAZZINO_MAPPE_NAV_EVENT } from "@/lib/areas/magazzino";
 import {
   MAPPA_MENU_NAV_EVENT,
@@ -60,7 +61,6 @@ import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubic
 import {
   dettaglioAngoliImporto,
   dettaglioLatiImporto,
-  etichettaAsseOrigine,
   xGuidaDest,
   type MappaRiferimentoGruppo,
 } from "@/lib/magazzino/riferimenti";
@@ -880,10 +880,6 @@ export function MagazzinoMappaBoard({
     ? aree.find((a) => a.id === selectedAreaId) ?? null
     : null;
 
-  const selectedRif = selectedRifId
-    ? riferimenti.find((g) => g.id === selectedRifId) ?? null
-    : null;
-
   const parentOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [];
     for (const a of aree) {
@@ -922,6 +918,48 @@ export function MagazzinoMappaBoard({
       x: box.width / 2 - cx * zoom,
       y: box.height / 2 - cy * zoom,
     });
+  }
+
+  function selezionaImporto(id: string | null) {
+    setSelectedRifId(id);
+    setSelectedAreaId(null);
+    setAreaEditOpen(false);
+    setSelectedId(null);
+    if (!id) return;
+    const g = riferimenti.find((x) => x.id === id);
+    const box = svgWrapRef.current?.getBoundingClientRect();
+    if (!g || !box || box.width < 40 || box.height < 40) return;
+    const cx = g.destX + g.destWidth / 2;
+    const cy = g.destY + g.destHeight / 2;
+    setPan({
+      x: box.width / 2 - cx * zoom,
+      y: box.height / 2 - cy * zoom,
+    });
+  }
+
+  function cambiaDestImporto(
+    id: string,
+    patch: { xQ?: number; yQ?: number; wQ?: number; hQ?: number }
+  ) {
+    const cell = Math.max(griglia, 1);
+    setRiferimenti((prev) =>
+      prev.map((g) => {
+        if (g.id !== id) return g;
+        const xQ = patch.xQ ?? g.destX / cell;
+        const yQ = patch.yQ ?? g.destY / cell;
+        const wQ = Math.max(1, patch.wQ ?? g.destWidth / cell);
+        const hQ = Math.max(1, patch.hQ ?? g.destHeight / cell);
+        return {
+          ...g,
+          destX: xQ * cell,
+          destY: yQ * cell,
+          destWidth: wQ * cell,
+          destHeight: hQ * cell,
+          limiteWidthQ: wQ,
+          limiteHeightQ: hQ,
+        };
+      })
+    );
   }
 
   function applicaCopiaArea(r: {
@@ -1035,7 +1073,7 @@ export function MagazzinoMappaBoard({
     }
   }
 
-  async function persist(): Promise<boolean> {
+  async function persist(nextRif?: MappaRiferimentoGruppo[]): Promise<boolean> {
     if (!mappa) return false;
     setSaving(true);
     setError(null);
@@ -1074,7 +1112,7 @@ export function MagazzinoMappaBoard({
         width: a.width,
         height: a.height,
       })),
-      riferimenti: riferimenti.map((g) => ({
+      riferimenti: (nextRif ?? riferimenti).map((g) => ({
         id: g.id,
         asseId: g.asseId || undefined,
         mappaOrigineId: g.mappaOrigineId,
@@ -2017,116 +2055,6 @@ export function MagazzinoMappaBoard({
         </div>
       ) : null}
 
-      {selectedRif ? (
-        <div className="shrink-0 rounded-xl border border-amber-400 bg-amber-50 px-3 py-2">
-          <p className="text-sm font-semibold text-amber-950">
-            Guida da {selectedRif.mappaOrigineEtichetta}
-          </p>
-          <p className="text-xs text-amber-900">
-            {etichettaAsseOrigine(selectedRif.asseOrigine)} copiata ·{" "}
-            {formattaQuadrati(selectedRif.limiteWidthQ)} ×{" "}
-            {formattaQuadrati(selectedRif.limiteHeightQ)} quadrati ·{" "}
-            {selectedRif.punti.length} punti. Seleziona e trascina il rettangolo.
-          </p>
-          <ul className="mt-2 space-y-0.5 text-xs text-amber-950">
-            {dettaglioAngoliImporto(selectedRif).map((a) => (
-              <li key={`ang-${a.n}`}>{a.testo}</li>
-            ))}
-            {dettaglioLatiImporto(selectedRif).map((l) => (
-              <li key={`lato-${l.da}-${l.a}`}>{l.testo}</li>
-            ))}
-          </ul>
-          {canDraw ? (
-            <div className="mt-2 flex flex-wrap items-end gap-3">
-              <label className="text-xs">
-                Altezza (quadrati)
-                <input
-                  type="number"
-                  min={1}
-                  value={Math.max(1, Math.round(selectedRif.destHeight / griglia))}
-                  onChange={(e) => {
-                    const q = Math.max(1, Math.round(Number(e.target.value) || 1));
-                    setRiferimenti((prev) =>
-                      prev.map((g) =>
-                        g.id === selectedRif.id
-                          ? {
-                              ...g,
-                              limiteHeightQ: q,
-                              destHeight: q * griglia,
-                            }
-                          : g
-                      )
-                    );
-                  }}
-                  className="ml-1 w-20 rounded border border-amber-400 bg-white px-2 py-1 text-sm"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={() => {
-                  setRiferimenti((prev) => prev.filter((g) => g.id !== selectedRif.id));
-                  setSelectedRifId(null);
-                }}
-                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
-              >
-                Elimina importo
-              </button>
-            </div>
-          ) : null}
-          {selectedRif.punti.length ? (
-            <ul className="mt-2 space-y-1 text-xs text-amber-950">
-              {selectedRif.punti.map((p) => (
-                <li key={p.id} className="flex flex-wrap items-center gap-2">
-                  {canDraw ? (
-                    <input
-                      value={p.etichetta}
-                      onChange={(e) =>
-                        setRiferimenti((prev) =>
-                          prev.map((g) =>
-                            g.id === selectedRif.id
-                              ? {
-                                  ...g,
-                                  punti: g.punti.map((x) =>
-                                    x.id === p.id ? { ...x, etichetta: e.target.value } : x
-                                  ),
-                                }
-                              : g
-                          )
-                        )
-                      }
-                      className="w-40 rounded border border-amber-300 bg-white px-1.5 py-0.5"
-                    />
-                  ) : (
-                    <span>{p.etichetta}</span>
-                  )}
-                  <span>
-                    {formattaQuadrati(p.offsetQuadrati)} q ·{" "}
-                    {formattaLunghezzaReale(p.offsetQuadrati, scalaValore, scalaUnita)}
-                  </span>
-                  {canDraw ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRiferimenti((prev) =>
-                          prev.map((g) =>
-                            g.id === selectedRif.id
-                              ? { ...g, punti: g.punti.filter((x) => x.id !== p.id) }
-                              : g
-                          )
-                        )
-                      }
-                      className="text-rose-700 hover:underline"
-                    >
-                      togli
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
-
       {selectedLine ? (
         <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
           <p className="text-sm font-semibold text-amber-950">Linea selezionata</p>
@@ -2610,6 +2538,58 @@ export function MagazzinoMappaBoard({
         </div>
         </MagazzinoMappaRighelli>
       </div>
+      {mode === "editor" || riferimenti.length > 0 ? (
+      <ElencoImportiMappa
+        importi={riferimenti}
+        selectedId={selectedRifId}
+        griglia={griglia}
+        scalaValore={scalaValore}
+        scalaUnita={scalaUnita}
+        canEdit={canDraw}
+        onSelect={(id) => selezionaImporto(id)}
+        onModifica={(id) => {
+          if (selectedRifId === id) setSelectedRifId(null);
+          else selezionaImporto(id);
+        }}
+        onElimina={(id) => {
+          const next = riferimenti.filter((g) => g.id !== id);
+          setRiferimenti(next);
+          if (selectedRifId === id) setSelectedRifId(null);
+          if (canDraw) void persist(next);
+        }}
+        onCambiaDest={(id, patch) => cambiaDestImporto(id, patch)}
+        onCambiaPunto={(gruppoId, puntoId, patch) => {
+          setRiferimenti((prev) =>
+            prev.map((g) =>
+              g.id === gruppoId
+                ? {
+                    ...g,
+                    punti: g.punti.map((p) =>
+                      p.id === puntoId
+                        ? {
+                            ...p,
+                            etichetta: patch.etichetta ?? p.etichetta,
+                            offsetQuadrati:
+                              patch.offsetQuadrati ?? p.offsetQuadrati,
+                          }
+                        : p
+                    ),
+                  }
+                : g
+            )
+          );
+        }}
+        onEliminaPunto={(gruppoId, puntoId) => {
+          const next = riferimenti.map((g) =>
+            g.id === gruppoId
+              ? { ...g, punti: g.punti.filter((p) => p.id !== puntoId) }
+              : g
+          );
+          setRiferimenti(next);
+          if (canDraw) void persist(next);
+        }}
+      />
+      ) : null}
       <ElencoAreeMappa
         aree={aree}
         selectedId={selectedAreaId}
@@ -2669,7 +2649,9 @@ export function MagazzinoMappaBoard({
             setLinee(next.linee);
             setAree(next.aree ?? []);
             setRiferimenti(next.riferimenti ?? []);
-            setOk("Riferimenti importati. Trascina il quadrato limite e salva la bozza.");
+            const ultimo = (next.riferimenti ?? []).at(-1);
+            if (ultimo) setSelectedRifId(ultimo.id);
+            setOk("Importo in elenco provvisorio. Puoi modificarlo o toglierlo, poi salva la bozza.");
           }}
         />
       ) : null}
