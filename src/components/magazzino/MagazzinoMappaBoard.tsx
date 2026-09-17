@@ -8,6 +8,7 @@ import {
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
 import {
+  accavallamentoPuntoSuLinee,
   calcolaFoglioMappa,
   distanzaPuntoSegmento,
   formattaLunghezzaReale,
@@ -23,10 +24,12 @@ import {
   MAPPA_ZOOM_MAX,
   MAPPA_ZOOM_MIN,
   normalizzaColoreLinea,
+  puntiRiferimentoLinea,
   puntoDopoQuadrati,
   ruotaHeading,
   snapToGrid,
   verticiRettangolo,
+  type AccavallamentoLinea,
   type FoglioMappa,
   type MappaLinea,
   type MappaMagazzino,
@@ -152,8 +155,12 @@ export function MagazzinoMappaBoard() {
     };
   }, [cursor, griglia]);
 
+  function tolleranzaLinea(): number {
+    return Math.max(10 / zoom, griglia * 0.35);
+  }
+
   function hitLine(wx: number, wy: number): string | null {
-    const tol = Math.max(8 / zoom, 4);
+    const tol = tolleranzaLinea();
     let best: { id: string; d: number } | null = null;
     for (const l of linee) {
       const d = distanzaPuntoSegmento(wx, wy, l.x1, l.y1, l.x2, l.y2);
@@ -163,6 +170,24 @@ export function MagazzinoMappaBoard() {
       }
     }
     return best?.id ?? null;
+  }
+
+  function risolviPuntoDisegno(w: MappaPunto): {
+    punto: MappaPunto;
+    acc: AccavallamentoLinea | null;
+  } {
+    const acc = accavallamentoPuntoSuLinee(
+      w,
+      linee,
+      griglia,
+      tolleranzaLinea(),
+      null
+    );
+    if (acc) return { punto: acc.hit, acc };
+    return {
+      punto: { x: snapToGrid(w.x, griglia), y: snapToGrid(w.y, griglia) },
+      acc: null,
+    };
   }
 
   function fitToFoglio(target: FoglioMappa) {
@@ -262,10 +287,7 @@ export function MagazzinoMappaBoard() {
     if (e.button !== 0) return;
     const w = worldFromEvent(e);
     if (!w) return;
-    const snap = {
-      x: snapToGrid(w.x, griglia),
-      y: snapToGrid(w.y, griglia),
-    };
+    const { punto: snap } = risolviPuntoDisegno(w);
     if (!canDraw) {
       setSelectedId(hitLine(w.x, w.y));
       return;
@@ -394,13 +416,61 @@ export function MagazzinoMappaBoard() {
   }
 
   function applySpessore(v: number) {
-    setSpessore(v);
+    const next = Number.isFinite(v) && v > 0 ? v : 0.01;
+    setSpessore(next);
     if (selectedId && canDraw) {
       setLinee((prev) =>
-        prev.map((l) => (l.id === selectedId ? { ...l, spessore: v } : l))
+        prev.map((l) => (l.id === selectedId ? { ...l, spessore: next } : l))
       );
     }
   }
+
+  const selectedLine = selectedId
+    ? linee.find((l) => l.id === selectedId) ?? null
+    : null;
+
+  const disegnoCursor = useMemo(() => {
+    if (!cursor) return null;
+    return risolviPuntoDisegno(cursor);
+  }, [cursor, linee, griglia, zoom]);
+
+  const accavallamentiVisibili = useMemo(() => {
+    const out: { kind: "inizio" | "fine"; acc: AccavallamentoLinea }[] = [];
+    const startP =
+      draftStart ??
+      previewForma?.from ??
+      (forma ? forma.vertici[forma.vertici.length - 1] : null);
+    const endP = previewForma?.to ?? (draftStart ? disegnoCursor?.punto : null);
+    if (startP) {
+      const acc = accavallamentoPuntoSuLinee(
+        startP,
+        linee,
+        griglia,
+        tolleranzaLinea(),
+        null
+      );
+      if (acc) out.push({ kind: "inizio", acc });
+    }
+    if (endP) {
+      const acc = accavallamentoPuntoSuLinee(
+        endP,
+        linee,
+        griglia,
+        tolleranzaLinea(),
+        null
+      );
+      if (acc) out.push({ kind: "fine", acc });
+    }
+    return out;
+  }, [
+    draftStart,
+    previewForma,
+    forma,
+    disegnoCursor,
+    linee,
+    griglia,
+    zoom,
+  ]);
 
   function applyColore(v: string) {
     const next = normalizzaColoreLinea(v);
@@ -701,17 +771,15 @@ export function MagazzinoMappaBoard() {
               </select>
             </label>
             <label className="text-xs">
-              Spessore linea
+              Spessore
               <input
-                type="range"
-                min={1}
-                max={40}
-                step={1}
+                type="number"
+                min={0.01}
+                step="any"
                 value={spessore}
                 onChange={(e) => applySpessore(Number(e.target.value))}
-                className="ml-2 align-middle"
+                className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
               />
-              <span className="ml-2 font-mono text-sm">{spessore} px</span>
             </label>
             <label className="text-xs">
               Colore linea
@@ -840,6 +908,38 @@ export function MagazzinoMappaBoard() {
         </div>
       ) : null}
 
+      {selectedLine ? (
+        <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
+          <p className="text-sm font-semibold text-amber-950">Linea selezionata</p>
+          <div className="mt-1 flex flex-wrap items-end gap-4">
+            <p className="text-sm text-amber-950">
+              <span className="font-medium">Lunghezza: </span>
+              {formattaMisuraSegmento(
+                selectedLine.x1,
+                selectedLine.y1,
+                selectedLine.x2,
+                selectedLine.y2,
+                griglia,
+                scalaValore,
+                scalaUnita
+              ) || "—"}
+            </p>
+            <label className="text-xs font-medium text-amber-950">
+              Spessore
+              <input
+                type="number"
+                min={0.01}
+                step="any"
+                value={selectedLine.spessore}
+                onChange={(e) => applySpessore(Number(e.target.value))}
+                disabled={!canDraw}
+                className="ml-1 w-24 rounded border border-amber-400 bg-white px-2 py-1 text-sm disabled:opacity-60"
+              />
+            </label>
+          </div>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
@@ -946,6 +1046,17 @@ export function MagazzinoMappaBoard() {
                   strokeWidth={l.spessore}
                   strokeLinecap="square"
                 />
+                {puntiRiferimentoLinea(l).map((r) => (
+                  <circle
+                    key={`${l.id}-${r.t}`}
+                    cx={r.punto.x}
+                    cy={r.punto.y}
+                    r={Math.max(2.2, (r.t === 0.5 ? 5 : 3.4) / zoom)}
+                    fill={r.t === 0.5 ? "#be123c" : "#1d4ed8"}
+                    stroke="#ffffff"
+                    strokeWidth={Math.max(0.6, 1.2 / zoom)}
+                  />
+                ))}
               </g>
             ))}
             {previewForma && previewForma.ghost.length === 4 ? (
@@ -970,26 +1081,37 @@ export function MagazzinoMappaBoard() {
                 strokeLinecap="square"
               />
             ) : null}
-            {canDraw && !forma && draftStart && snappedCursor ? (
+            {canDraw && !forma && draftStart && (disegnoCursor?.punto ?? snappedCursor) ? (
               <line
                 x1={draftStart.x}
                 y1={draftStart.y}
-                x2={snappedCursor.x}
-                y2={snappedCursor.y}
+                x2={(disegnoCursor?.punto ?? snappedCursor)!.x}
+                y2={(disegnoCursor?.punto ?? snappedCursor)!.y}
                 stroke={colore}
                 strokeWidth={spessore}
                 strokeDasharray="8 6"
                 strokeLinecap="square"
               />
             ) : null}
-            {canDraw && snappedCursor ? (
+            {canDraw && (disegnoCursor?.punto ?? snappedCursor) ? (
               <circle
-                cx={snappedCursor.x}
-                cy={snappedCursor.y}
+                cx={(disegnoCursor?.punto ?? snappedCursor)!.x}
+                cy={(disegnoCursor?.punto ?? snappedCursor)!.y}
                 r={Math.max(3, 6 / zoom)}
-                fill={colore}
+                fill={disegnoCursor?.acc ? "#e11d48" : colore}
               />
             ) : null}
+            {accavallamentiVisibili.map(({ kind, acc }) => (
+              <circle
+                key={`${kind}-${acc.lineaId}`}
+                cx={acc.hit.x}
+                cy={acc.hit.y}
+                r={Math.max(5, 9 / zoom)}
+                fill="none"
+                stroke="#e11d48"
+                strokeWidth={Math.max(2, 3 / zoom)}
+              />
+            ))}
             {forma
               ? forma.vertici.map((p, i) => (
                   <circle
@@ -1003,6 +1125,39 @@ export function MagazzinoMappaBoard() {
               : null}
           </g>
         </svg>
+        {accavallamentiVisibili.map(({ kind, acc }) => {
+          const host = linee.find((l) => l.id === acc.lineaId);
+          if (!host) return null;
+          const midA = {
+            x: (host.x1 + acc.hit.x) / 2,
+            y: (host.y1 + acc.hit.y) / 2,
+          };
+          const midB = {
+            x: (host.x2 + acc.hit.x) / 2,
+            y: (host.y2 + acc.hit.y) / 2,
+          };
+          const labelA = `${formattaQuadrati(acc.qA)} q · ${formattaLunghezzaReale(acc.qA, scalaValore, scalaUnita)}`;
+          const labelB = `${formattaQuadrati(acc.qB)} q · ${formattaLunghezzaReale(acc.qB, scalaValore, scalaUnita)}`;
+          return (
+            <div key={`acc-${kind}-${acc.lineaId}`}>
+              {[
+                { p: midA, text: labelA },
+                { p: midB, text: labelB },
+              ].map((item, i) => (
+                <div
+                  key={`${kind}-${i}`}
+                  className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2 rounded-md border-2 border-rose-600 bg-rose-50 px-2 py-1 text-xs font-bold text-rose-950 shadow-md"
+                  style={{
+                    left: item.p.x * zoom + pan.x,
+                    top: item.p.y * zoom + pan.y,
+                  }}
+                >
+                  {item.text}
+                </div>
+              ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

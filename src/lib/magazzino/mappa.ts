@@ -78,7 +78,7 @@ export const mappaLineaInputSchema = z.object({
   y1: z.number().finite(),
   x2: z.number().finite(),
   y2: z.number().finite(),
-  spessore: z.number().positive().max(80),
+  spessore: z.number().positive(),
   colore: z
     .string()
     .trim()
@@ -280,6 +280,87 @@ export function calcolaFoglioMappa(
     width: lato,
     height: lato,
   };
+}
+
+export function puntoLungoSegmento(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  t: number
+): MappaPunto {
+  return { x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t };
+}
+
+export function puntiRiferimentoLinea(l: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}): { t: number; punto: MappaPunto }[] {
+  return [0.25, 0.5, 0.75].map((t) => ({
+    t,
+    punto: puntoLungoSegmento(l.x1, l.y1, l.x2, l.y2, t),
+  }));
+}
+
+export function proiezioneSuSegmento(
+  p: MappaPunto,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): { t: number; punto: MappaPunto; dist: number } {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) {
+    return {
+      t: 0,
+      punto: { x: x1, y: y1 },
+      dist: Math.hypot(p.x - x1, p.y - y1),
+    };
+  }
+  const t = Math.max(0, Math.min(1, ((p.x - x1) * dx + (p.y - y1) * dy) / len2));
+  const punto = puntoLungoSegmento(x1, y1, x2, y2, t);
+  return {
+    t,
+    punto,
+    dist: Math.hypot(p.x - punto.x, p.y - punto.y),
+  };
+}
+
+export type AccavallamentoLinea = {
+  lineaId: string;
+  hit: MappaPunto;
+  qA: number;
+  qB: number;
+};
+
+export function accavallamentoPuntoSuLinee(
+  p: MappaPunto,
+  linee: { id: string; x1: number; y1: number; x2: number; y2: number; spessore: number }[],
+  griglia: number,
+  tolleranza: number,
+  excludeId?: string | null
+): AccavallamentoLinea | null {
+  let best: AccavallamentoLinea | null = null;
+  let bestDist = tolleranza;
+  for (const l of linee) {
+    if (excludeId && l.id === excludeId) continue;
+    const pr = proiezioneSuSegmento(p, l.x1, l.y1, l.x2, l.y2);
+    const extra = (l.spessore || 0) / 2;
+    if (pr.dist <= bestDist + extra) {
+      bestDist = pr.dist;
+      best = {
+        lineaId: l.id,
+        hit: pr.punto,
+        qA: quadratiTraPunti(l.x1, l.y1, pr.punto.x, pr.punto.y, griglia),
+        qB: quadratiTraPunti(pr.punto.x, pr.punto.y, l.x2, l.y2, griglia),
+      };
+    }
+  }
+  return best;
 }
 
 export function distanzaPuntoSegmento(
