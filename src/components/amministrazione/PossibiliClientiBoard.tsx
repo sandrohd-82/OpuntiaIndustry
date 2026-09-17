@@ -29,8 +29,11 @@ import {
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
+import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
 import { ClientiFiltersPanel } from "@/components/amministrazione/ClientiFiltersPanel";
+import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { SoftDeleteConfirmModal } from "@/components/amministrazione/SoftDeleteConfirmModal";
 import {
@@ -40,7 +43,6 @@ import {
   hasActiveClientiFilters,
   uniqueClientiCitta,
   type ClientiFilters,
-  type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import {
@@ -54,22 +56,6 @@ function statoLabel(stato: ClientePossibile["stato"]) {
   if (stato === "in_contatto") return "in contatto";
   if (stato === "scartato") return "scartato";
   return "da valutare";
-}
-
-function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-        {title}
-      </p>
-      <p className="mt-1 text-sm">
-        {sede.indirizzo || "—"}
-        <br />
-        {[sede.cap, sede.citta, sede.provincia].filter(Boolean).join(" ")}
-        {sede.nazione ? ` — ${sede.nazione}` : ""}
-      </p>
-    </div>
-  );
 }
 
 function PossibileClienteRow({
@@ -187,77 +173,35 @@ function PossibileClienteRow({
       {open ? (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SedeDetail
-                title="Sede Amministrativa"
-                sede={lead.sedeAmministrativa}
-              />
-              <SedeDetail title="Sede Magazzino" sede={lead.sedeMagazzino} />
-              <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Consegne presso altre aziende
-                </p>
-                {lead.consegneAltraAzienda.length === 0 ? (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuna</p>
-                ) : (
-                  <ul className="mt-2 space-y-3">
-                    {lead.consegneAltraAzienda.map((consegna, index) => (
-                      <li
-                        key={`${consegna.ragioneSociale}-${index}`}
-                        className="rounded-lg border border-[var(--border)] bg-white px-3 py-2.5"
-                      >
-                        <p className="text-sm font-semibold">
-                          {consegna.ragioneSociale}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--muted)]">
-                          {consegna.indirizzo || "—"}
-                          <br />
-                          {[consegna.cap, consegna.citta, consegna.provincia]
-                            .filter(Boolean)
-                            .join(" ")}
-                          {consegna.nazione ? ` — ${consegna.nazione}` : ""}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Trattativa
-                </p>
-                <p className="mt-1">
-                  <TrattativaBadge value={lead.trattativa} />
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Commerciale
-                </p>
-                <p className="mt-1 text-sm">
-                  {formatCommercialeAssegnazione(lead)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Prodotti interessati
-                </p>
-                {lead.prodottiInteressati.length === 0 ? (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
-                ) : (
-                  <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    {lead.prodottiInteressati.map((code) => (
-                      <li key={code}>
-                        <ProdottoProprioProductTag
-                          code={code}
-                          prodotto={prodottiByCode.get(code) ?? null}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            <AnagraficaSchedaDetail
+              prodottiByCode={prodottiByCode}
+              model={{
+                id: lead.id,
+                kind: "cliente_possibile",
+                ragioneSociale: lead.ragioneSociale,
+                partitaIva: lead.partitaIva,
+                codiceFiscale: lead.codiceFiscale,
+                isPrivato: lead.isPrivato,
+                email: lead.email,
+                pec: lead.pec,
+                sdiCode: lead.sdiCode,
+                telefono: lead.telefono,
+                sitoWeb: lead.sitoWeb,
+                emailGeneriche: lead.emailGeneriche,
+                telefoniGenerici: lead.telefoniGenerici,
+                sitiWebGenerici: lead.sitiWebGenerici,
+                sedeAmministrativa: lead.sedeAmministrativa,
+                sedeMagazzino: lead.sedeMagazzino,
+                consegneAltraAzienda: lead.consegneAltraAzienda,
+                prodotti: lead.prodottiInteressati,
+                prodottiLabel: "Prodotti interessati",
+                commercialeLabel: formatCommercialeAssegnazione(lead),
+                trattativa: lead.trattativa,
+                statoLabel: statoLabel(lead.stato),
+                referente: lead.referente,
+                noteInterne: lead.noteInterne,
+              }}
+            />
           </td>
         </tr>
       ) : null}
@@ -273,6 +217,9 @@ export function PossibiliClientiBoard() {
   const [editingLead, setEditingLead] = useState<ClientePossibile | null>(null);
   const [timelineFor, setTimelineFor] = useState<ClientePossibile | null>(null);
   const [deleting, setDeleting] = useState<ClientePossibile | null>(null);
+  const [duplicati, setDuplicati] = useState<AnagraficaDuplicatoHit[] | null>(
+    null
+  );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<ClientiFilters>(emptyClientiFilters());
   const [lineageIds, setLineageIds] = useState<string[]>([]);
@@ -466,6 +413,7 @@ export function PossibiliClientiBoard() {
           onSave={async (values) => {
             const res = await createClientePossibileAction(values);
             if (!res.success) {
+              if (res.duplicati?.length) setDuplicati(res.duplicati);
               setError(res.error);
               return false;
             }
@@ -525,6 +473,13 @@ export function PossibiliClientiBoard() {
             setDeleting(null);
             reload();
           }}
+        />
+      ) : null}
+
+      {duplicati ? (
+        <AnagraficaDuplicatiBlockModal
+          matches={duplicati}
+          onClose={() => setDuplicati(null)}
         />
       ) : null}
     </div>

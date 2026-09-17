@@ -3161,6 +3161,54 @@ export interface Database {
         };
         Relationships: [];
       };
+      clienti_cancellazioni: {
+        Row: {
+          id: string;
+          cliente_id: string;
+          codice_targa: string;
+          ragione_sociale: string;
+          stato: "prenotata" | "approvata" | "rifiutata";
+          motivo: string;
+          conferma_prenotazione: string;
+          requested_by: string | null;
+          requested_at: string;
+          resolved_by: string | null;
+          resolved_at: string | null;
+          nota_esito: string;
+          created_by: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          cliente_id: string;
+          codice_targa?: string;
+          ragione_sociale?: string;
+          stato: "prenotata" | "approvata" | "rifiutata";
+          motivo?: string;
+          conferma_prenotazione?: string;
+          requested_by?: string | null;
+          requested_at?: string;
+          resolved_by?: string | null;
+          resolved_at?: string | null;
+          nota_esito?: string;
+          created_by?: string | null;
+          updated_by?: string | null;
+        };
+        Update: {
+          stato?: "prenotata" | "approvata" | "rifiutata";
+          resolved_by?: string | null;
+          resolved_at?: string | null;
+          nota_esito?: string;
+          updated_by?: string | null;
+          deleted_at?: string | null;
+          deleted_by?: string | null;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       v_catalogo_b2b: {

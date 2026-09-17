@@ -63,6 +63,16 @@ export function canDeleteAnagraficaRecord(opts: {
   return opts.editOthers;
 }
 
+/** Possibile cliente: solo chi l’ha inserito, oppure Super Admin (bypass). */
+export function canDeletePossibileClienteRecord(opts: {
+  bypass: boolean;
+  userId: string;
+  createdBy: string | null | undefined;
+}): boolean {
+  if (opts.bypass) return true;
+  return Boolean(opts.createdBy && opts.createdBy === opts.userId);
+}
+
 /** Timeline/fatture: sempre sulle proprie (caricate o collegate); azione On = anche le altre. */
 export function canViewAnagraficaTimeline(opts: {
   bypass: boolean;
@@ -116,6 +126,22 @@ export function evaluateAnagraficaPrivilege(opts: {
     return {
       ok: false,
       error: "Non puoi modificare schede create da altri operatori.",
+    };
+  }
+  if (opts.kind === "cliente_possibile") {
+    if (
+      canDeletePossibileClienteRecord({
+        bypass: false,
+        userId: opts.userId,
+        createdBy: opts.createdBy,
+      })
+    ) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error:
+        "Solo chi ha inserito il possibile cliente può eliminarlo (oppure Super Admin).",
     };
   }
   if (

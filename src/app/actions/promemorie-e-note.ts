@@ -1,8 +1,10 @@
 "use server";
 
 import { notFound, redirect } from "next/navigation";
+import { findAnagraficaDuplicati } from "@/app/actions/anagrafica-duplicati";
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { assertAnagraficaPrivilege } from "@/lib/auth/anagrafica-privileges-server";
 import {
   loadCommercialeLabels,
@@ -1225,7 +1227,7 @@ export async function createClientePossibileAction(
   input: ClienteInput | unknown
 ): Promise<
   | { success: true; item: ClientePossibile }
-  | { success: false; error: string }
+  | { success: false; error: string; duplicati?: AnagraficaDuplicatoHit[] }
 > {
   const { auth } = await requireAnyAreaAccess([
     "amministrazione",
@@ -1271,6 +1273,19 @@ export async function createClientePossibileAction(
   });
   const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) return { success: false, error: fiscalErr };
+
+  const dup = await findAnagraficaDuplicati(normalized);
+  if (!dup.success) return { success: false, error: dup.error };
+  if (dup.matches.length > 0) {
+    const top = dup.matches[0];
+    return {
+      success: false,
+      error: top.exactFiscal
+        ? `Scheda già presente: ${top.ragioneSociale}. Non si può creare un duplicato.`
+        : `Somiglianza ${Math.round(top.score * 100)}% con ${top.ragioneSociale}. Creazione bloccata.`,
+      duplicati: dup.matches,
+    };
+  }
   // Sedi facoltative sul lead: se aperte e parziali, già validate dal form
 
   const referenteIds = (
@@ -1568,7 +1583,10 @@ export async function softDeleteClientePossibileAction(input: {
   id: string;
   confermaTestuale: string;
 }): Promise<{ success: true } | { success: false; error: string }> {
-  const { auth } = await guardAdmin();
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+  ]);
   const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti_possibili")

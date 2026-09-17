@@ -9,6 +9,7 @@ import {
 import {
   ANAGRAFICA_ACTION_KEYS,
   canDeleteAnagraficaRecord,
+  canDeletePossibileClienteRecord,
   canEditAnagraficaRecord,
   canViewAnagraficaTimeline,
 } from "@/lib/auth/anagrafica-privileges";
@@ -118,13 +119,19 @@ export function useAnagraficaPrivileges(kind: AnagraficaPrivilegeKind) {
       createdBy: string | null | undefined,
       treatAsOwn = false
     ) =>
-      canDeleteAnagraficaRecord({
-        bypass: bypassPrivileges,
-        userId,
-        createdBy,
-        treatAsOwn,
-        canDelete: privilegedAllowed(keys.elimina),
-        editOthers: privilegedAllowed(keys.modificaAltrui),
-      }),
+      kind === "cliente_possibile"
+        ? canDeletePossibileClienteRecord({
+            bypass: bypassPrivileges,
+            userId,
+            createdBy,
+          })
+        : canDeleteAnagraficaRecord({
+            bypass: bypassPrivileges,
+            userId,
+            createdBy,
+            treatAsOwn,
+            canDelete: privilegedAllowed(keys.elimina),
+            editOthers: privilegedAllowed(keys.modificaAltrui),
+          }),
   };
 }

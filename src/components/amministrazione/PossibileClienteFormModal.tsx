@@ -3,7 +3,10 @@
 import { useEffect, useId, useState, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { FaChevronDown, FaPlus, FaTrash, FaXmark } from "react-icons/fa6";
+import { checkAnagraficaDuplicatiAction } from "@/app/actions/anagrafica-duplicati";
 import { listEntityReferentiAction } from "@/app/actions/rubrica";
+import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
+import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
 import { ReferentiPickerField } from "@/components/amministrazione/ReferentiPickerField";
 import { CommercialeAssignField } from "@/components/amministrazione/CommercialeAssignField";
@@ -155,6 +158,9 @@ export function PossibileClienteFormModal({
   );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [duplicati, setDuplicati] = useState<AnagraficaDuplicatoHit[] | null>(
+    null
+  );
 
   useEffect(() => {
     if (!initial?.id) return;
@@ -231,6 +237,20 @@ export function PossibileClienteFormModal({
     if (!values) return;
     setSaving(true);
     try {
+      if (!isEdit) {
+        const dup = await checkAnagraficaDuplicatiAction(values);
+        if (!dup.success) {
+          setFormError(dup.error);
+          return;
+        }
+        if (dup.matches.length > 0) {
+          setDuplicati(dup.matches);
+          setFormError(
+            "Creazione bloccata: esiste già una scheda uguale o simile almeno all’85%."
+          );
+          return;
+        }
+      }
       const ok = await onSave(values);
       if (!ok) setFormError("Salvataggio non riuscito. Controlla i dati.");
     } finally {
@@ -543,5 +563,15 @@ export function PossibileClienteFormModal({
   );
 
   if (typeof document === "undefined") return null;
-  return createPortal(dialog, document.body);
+  return (
+    <>
+      {createPortal(dialog, document.body)}
+      {duplicati ? (
+        <AnagraficaDuplicatiBlockModal
+          matches={duplicati}
+          onClose={() => setDuplicati(null)}
+        />
+      ) : null}
+    </>
+  );
 }

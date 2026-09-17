@@ -182,6 +182,21 @@ export async function listClientiAction(): Promise<
       .flatMap((r) => [r.commerciale_id ?? "", r.created_by ?? ""])
       .filter(Boolean)
   );
+  const prenotate = new Map<string, string>();
+  if (rows.length > 0) {
+    const { data: canc } = await supabase
+      .from("clienti_cancellazioni")
+      .select("id, cliente_id")
+      .eq("stato", "prenotata")
+      .is("deleted_at", null)
+      .in(
+        "cliente_id",
+        rows.map((r) => r.id)
+      );
+    for (const row of canc ?? []) {
+      prenotate.set(String(row.cliente_id), String(row.id));
+    }
+  }
   return {
     success: true,
     clienti: rows.map((row) => {
@@ -196,6 +211,8 @@ export async function listClientiAction(): Promise<
         grado: resolved.commercialeGrado,
       });
       cliente.commercialeId = resolved.commercialeId;
+      cliente.cancellazioneId = prenotate.get(row.id) ?? null;
+      cliente.cancellazionePrenotata = prenotate.has(row.id);
       return cliente;
     }),
   };
@@ -463,22 +480,121 @@ export async function updateClienteAction(
   };
 }
 
-export async function softDeleteClienteAction(input: {
+async function applyClienteSoftDelete(opts: {
   id: string;
   confermaTestuale: string;
+  actorId: string;
+  existing: {
+    codice_targa: unknown;
+    ragione_sociale: unknown;
+  };
 }): Promise<
   | { success: true; mode: "archived" | "soft_deleted" }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("amministrazione");
   const supabase = await createClient();
+  const codice = String(opts.existing.codice_targa);
+  const expected = fraseConfermaSoftDelete(codice);
+  if (opts.confermaTestuale.trim() !== expected) {
+    return {
+      success: false,
+      error: `Per confermare digita esattamente: ${expected}`,
+    };
+  }
 
+  const { count, error: actError } = await supabase
+    .from("ordini")
+    .select("id", { count: "exact", head: true })
+    .eq("cliente_id", opts.id)
+    .is("deleted_at", null);
+  if (actError) return { success: false, error: actError.message };
+
+  if ((count ?? 0) === 0) {
+    const { data: archived, error: rpcError } = await supabase.rpc(
+      "archive_unused_cliente",
+      {
+        p_id: opts.id,
+        p_motivo: "eliminata",
+        p_note: "Eliminazione scheda senza attività",
+        p_actor: opts.actorId,
+      }
+    );
+    if (rpcError) {
+      if (!rpcError.message.includes("HAS_ACTIVITY")) {
+        return { success: false, error: rpcError.message };
+      }
+    } else {
+      const payload = (archived ?? {}) as {
+        archivio_id?: string;
+        former_codice_targa?: string;
+      };
+      await writeAuditLog({
+        entity_type: "clienti_archivio",
+        entity_id: payload.archivio_id ?? opts.id,
+        action: "soft_delete",
+        actor_id: opts.actorId,
+        summary: `Cliente ${codice} archiviato (targa liberata)`,
+        payload: {
+          former_codice_targa: codice,
+          ragione_sociale: opts.existing.ragione_sociale,
+          conferma: expected,
+        },
+      });
+      return { success: true, mode: "archived" };
+    }
+  }
+
+  const { error } = await supabase
+    .from("clienti")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: opts.actorId,
+      updated_by: opts.actorId,
+    })
+    .eq("id", opts.id)
+    .is("deleted_at", null);
+
+  if (error) return { success: false, error: error.message };
+
+  await writeAuditLog({
+    entity_type: "clienti",
+    entity_id: opts.id,
+    action: "soft_delete",
+    actor_id: opts.actorId,
+    summary: `Soft delete cliente ${codice} (con attività — targa bloccata)`,
+    payload: {
+      codice_targa: codice,
+      ragione_sociale: opts.existing.ragione_sociale,
+      conferma: expected,
+    },
+  });
+
+  return { success: true, mode: "soft_deleted" };
+}
+
+export type ClienteCancellazionePrenotata = {
+  id: string;
+  clienteId: string;
+  codiceTarga: string;
+  ragioneSociale: string;
+  requestedAt: string;
+  requestedBy: string | null;
+};
+
+export async function prenotaCancellazioneClienteAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<{ success: true; cancellazioneId: string } | { success: false; error: string }> {
+  const { auth } = await requireAnyAreaAccess([
+    "amministrazione",
+    "commerciale",
+  ]);
+  const supabase = await createClient();
   const { data: existing, error: loadError } = await supabase
     .from("clienti")
     .select("id, codice_targa, ragione_sociale, created_by, commerciale_id, deleted_at")
     .eq("id", input.id)
     .maybeSingle();
-
   if (loadError) return { success: false, error: loadError.message };
   if (!existing || existing.deleted_at) {
     return { success: false, error: "Cliente non trovato." };
@@ -502,76 +618,191 @@ export async function softDeleteClienteAction(input: {
     };
   }
 
-  const { count, error: actError } = await supabase
-    .from("ordini")
-    .select("id", { count: "exact", head: true })
+  const { data: already } = await supabase
+    .from("clienti_cancellazioni")
+    .select("id")
     .eq("cliente_id", input.id)
-    .is("deleted_at", null);
-  if (actError) return { success: false, error: actError.message };
-
-  if ((count ?? 0) === 0) {
-    const { data: archived, error: rpcError } = await supabase.rpc(
-      "archive_unused_cliente",
-      {
-        p_id: input.id,
-        p_motivo: "eliminata",
-        p_note: "Eliminazione scheda senza attività",
-        p_actor: auth.userId,
-      }
-    );
-    if (rpcError) {
-      if (rpcError.message.includes("HAS_ACTIVITY")) {
-        // fall through to soft delete
-      } else {
-        return { success: false, error: rpcError.message };
-      }
-    } else {
-      const payload = (archived ?? {}) as {
-        archivio_id?: string;
-        former_codice_targa?: string;
-      };
-      await writeAuditLog({
-        entity_type: "clienti_archivio",
-        entity_id: payload.archivio_id ?? input.id,
-        action: "soft_delete",
-        actor_id: auth.userId,
-        summary: `Cliente ${codice} archiviato (targa liberata)`,
-        payload: {
-          former_codice_targa: codice,
-          ragione_sociale: existing.ragione_sociale,
-          conferma: expected,
-        },
-      });
-      return { success: true, mode: "archived" };
-    }
+    .eq("stato", "prenotata")
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (already?.id) {
+    return { success: true, cancellazioneId: String(already.id) };
   }
 
-  const { error } = await supabase
-    .from("clienti")
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: auth.userId,
+  const { data, error } = await supabase
+    .from("clienti_cancellazioni")
+    .insert({
+      cliente_id: input.id,
+      codice_targa: codice,
+      ragione_sociale: String(existing.ragione_sociale ?? ""),
+      stato: "prenotata",
+      conferma_prenotazione: expected,
+      requested_by: auth.userId,
+      created_by: auth.userId,
       updated_by: auth.userId,
     })
-    .eq("id", input.id)
-    .is("deleted_at", null);
+    .select("id")
+    .single();
+  if (error || !data) {
+    return { success: false, error: error?.message ?? "Prenotazione non riuscita." };
+  }
 
+  await writeAuditLog({
+    entity_type: "clienti_cancellazioni",
+    entity_id: String(data.id),
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Prenotata cancellazione cliente ${codice}`,
+    payload: {
+      cliente_id: input.id,
+      codice_targa: codice,
+      ragione_sociale: existing.ragione_sociale,
+    },
+  });
+  return { success: true, cancellazioneId: String(data.id) };
+}
+
+export async function listCancellazioniClientePrenotateAction(): Promise<
+  | { success: true; items: ClienteCancellazionePrenotata[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clienti_cancellazioni")
+    .select(
+      "id, cliente_id, codice_targa, ragione_sociale, requested_at, requested_by"
+    )
+    .eq("stato", "prenotata")
+    .is("deleted_at", null)
+    .order("requested_at", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  return {
+    success: true,
+    items: (data ?? []).map((r) => ({
+      id: String(r.id),
+      clienteId: String(r.cliente_id),
+      codiceTarga: String(r.codice_targa ?? ""),
+      ragioneSociale: String(r.ragione_sociale ?? ""),
+      requestedAt: String(r.requested_at ?? ""),
+      requestedBy: r.requested_by ? String(r.requested_by) : null,
+    })),
+  };
+}
+
+export async function confermaCancellazioneClienteAction(input: {
+  cancellazioneId: string;
+  confermaTestuale: string;
+}): Promise<
+  | { success: true; mode: "archived" | "soft_deleted" }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  if (!isSuperadminProfile(auth.profile) || auth.impersonating) {
+    return {
+      success: false,
+      error: "Solo un Super Admin può confermare la cancellazione di un cliente.",
+    };
+  }
+  const supabase = await createClient();
+  const { data: pratica, error: loadError } = await supabase
+    .from("clienti_cancellazioni")
+    .select("id, cliente_id, codice_targa, ragione_sociale, stato, deleted_at")
+    .eq("id", input.cancellazioneId)
+    .maybeSingle();
+  if (loadError) return { success: false, error: loadError.message };
+  if (!pratica || pratica.deleted_at || pratica.stato !== "prenotata") {
+    return { success: false, error: "Prenotazione non trovata o già chiusa." };
+  }
+
+  const applied = await applyClienteSoftDelete({
+    id: String(pratica.cliente_id),
+    confermaTestuale: input.confermaTestuale,
+    actorId: auth.userId,
+    existing: {
+      codice_targa: pratica.codice_targa,
+      ragione_sociale: pratica.ragione_sociale,
+    },
+  });
+  if (!applied.success) return applied;
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("clienti_cancellazioni")
+    .update({
+      stato: "approvata",
+      resolved_by: auth.userId,
+      resolved_at: now,
+      updated_by: auth.userId,
+    })
+    .eq("id", pratica.id)
+    .eq("stato", "prenotata");
   if (error) return { success: false, error: error.message };
 
   await writeAuditLog({
-    entity_type: "clienti",
-    entity_id: input.id,
-    action: "soft_delete",
+    entity_type: "clienti_cancellazioni",
+    entity_id: String(pratica.id),
+    action: "approve",
     actor_id: auth.userId,
-    summary: `Soft delete cliente ${codice} (con attività — targa bloccata)`,
+    summary: `Super Admin ha confermato la cancellazione di ${pratica.codice_targa}`,
     payload: {
-      codice_targa: codice,
-      ragione_sociale: existing.ragione_sociale,
-      conferma: expected,
+      cliente_id: pratica.cliente_id,
+      mode: applied.mode,
     },
   });
+  return applied;
+}
 
-  return { success: true, mode: "soft_deleted" };
+export async function rifiutaCancellazioneClienteAction(input: {
+  cancellazioneId: string;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAnyAreaAccess(["amministrazione", "commerciale"]);
+  if (!isSuperadminProfile(auth.profile) || auth.impersonating) {
+    return {
+      success: false,
+      error: "Solo un Super Admin può rifiutare la prenotazione.",
+    };
+  }
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("clienti_cancellazioni")
+    .update({
+      stato: "rifiutata",
+      resolved_by: auth.userId,
+      resolved_at: now,
+      updated_by: auth.userId,
+      nota_esito: "Rifiutata da Super Admin",
+    })
+    .eq("id", input.cancellazioneId)
+    .eq("stato", "prenotata")
+    .is("deleted_at", null)
+    .select("id, cliente_id, codice_targa")
+    .maybeSingle();
+  if (error) return { success: false, error: error.message };
+  if (!data) return { success: false, error: "Prenotazione non trovata." };
+
+  await writeAuditLog({
+    entity_type: "clienti_cancellazioni",
+    entity_id: String(data.id),
+    action: "reject",
+    actor_id: auth.userId,
+    summary: `Super Admin ha rifiutato la cancellazione di ${data.codice_targa}`,
+    payload: { cliente_id: data.cliente_id },
+  });
+  return { success: true };
+}
+
+export async function softDeleteClienteAction(input: {
+  id: string;
+  confermaTestuale: string;
+}): Promise<
+  | { success: true; mode: "prenotata" | "archived" | "soft_deleted" }
+  | { success: false; error: string }
+> {
+  const res = await prenotaCancellazioneClienteAction(input);
+  if (!res.success) return res;
+  return { success: true, mode: "prenotata" };
 }
 
 async function mapClienteWithLabel(

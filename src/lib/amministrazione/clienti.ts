@@ -53,6 +53,9 @@ export type Cliente = {
   commercialeGrado: "senior" | "professional" | "executive" | null;
   /** Solo possibile cliente: stato trattativa commerciale. */
   trattativa?: ClientePossibileTrattativa;
+  /** Prenotazione cancellazione in attesa di Super Admin. */
+  cancellazionePrenotata?: boolean;
+  cancellazioneId?: string | null;
 };
 
 export type ClienteInput = {
@@ -246,6 +249,8 @@ export function mapClienteRow(
       typeof commerciale === "object" && commerciale
         ? (commerciale.grado ?? null)
         : null,
+    cancellazionePrenotata: false,
+    cancellazioneId: null,
   };
 }
 

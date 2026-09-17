@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createClienteAction,
   listClientiAction,
-  softDeleteClienteAction,
+  prenotaCancellazioneClienteAction,
   updateClienteAction,
 } from "@/app/actions/clienti";
 import type { Cliente, ClienteInput } from "@/lib/amministrazione/clienti";
@@ -56,12 +56,25 @@ export function useClienti() {
     id: string,
     confermaTestuale: string
   ): Promise<{ success: true } | { success: false; error: string }> {
-    const result = await softDeleteClienteAction({ id, confermaTestuale });
+    const result = await prenotaCancellazioneClienteAction({
+      id,
+      confermaTestuale,
+    });
     if (!result.success) {
       setError(result.error);
       return { success: false, error: result.error };
     }
-    setClienti((prev) => prev.filter((item) => item.id !== id));
+    setClienti((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              cancellazionePrenotata: true,
+              cancellazioneId: result.cancellazioneId,
+            }
+          : item
+      )
+    );
     setError(null);
     return { success: true };
   }

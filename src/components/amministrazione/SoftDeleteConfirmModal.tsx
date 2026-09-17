@@ -8,6 +8,9 @@ type Props = {
   confirmCode: string;
   onClose: () => void;
   onConfirm: (confermaTestuale: string) => Promise<void> | void;
+  title?: string;
+  confirmLabel?: string;
+  description?: string;
 };
 
 export function SoftDeleteConfirmModal({
@@ -15,6 +18,9 @@ export function SoftDeleteConfirmModal({
   confirmCode,
   onClose,
   onConfirm,
+  title,
+  confirmLabel,
+  description,
 }: Props) {
   const titleId = useId();
   const [step, setStep] = useState<1 | 2>(1);
@@ -69,18 +75,22 @@ export function SoftDeleteConfirmModal({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="text-lg font-semibold text-red-700">
-          Elimina {entityLabel}
+          {title ?? `Elimina ${entityLabel}`}
         </h2>
 
         {step === 1 ? (
           <>
             <p className="mt-2 text-sm text-[var(--muted)]">
-              Stai per eliminare{" "}
-              <span className="font-mono font-semibold text-slate-800">
-                {confirmCode}
-              </span>
-              . Soft delete ISO 9001: i dati restano in archivio e in audit log,
-              non vengono cancellati fisicamente.
+              {description ?? (
+                <>
+                  Stai per eliminare{" "}
+                  <span className="font-mono font-semibold text-slate-800">
+                    {confirmCode}
+                  </span>
+                  . Soft delete ISO 9001: i dati restano in archivio e in audit
+                  log, non vengono cancellati fisicamente.
+                </>
+              )}
             </p>
             <p className="mt-3 text-sm font-medium text-slate-800">
               Confermi di voler procedere?
@@ -107,9 +117,22 @@ export function SoftDeleteConfirmModal({
             <p className="text-sm text-[var(--muted)]">
               Seconda conferma: digita la frase seguente:
             </p>
-            <p className="rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm font-semibold text-slate-900">
-              {expected}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="flex-1 rounded-lg bg-slate-100 px-3 py-2 font-mono text-sm font-semibold text-slate-900">
+                {expected}
+              </p>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-2.5 py-2 text-xs font-medium hover:bg-slate-50"
+                onClick={() => {
+                  void navigator.clipboard.writeText(expected).catch(() => {
+                    setError("Copia non riuscita: digita la frase a mano.");
+                  });
+                }}
+              >
+                Copia
+              </button>
+            </div>
             <label className="block text-sm">
               <span className="mb-1 block font-medium">Conferma testuale</span>
               <input
@@ -139,7 +162,7 @@ export function SoftDeleteConfirmModal({
                 disabled={busy}
                 className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
               >
-                {busy ? "Eliminazione…" : "Elimina"}
+                {busy ? "Attendere…" : confirmLabel ?? "Elimina"}
               </button>
             </div>
           </form>

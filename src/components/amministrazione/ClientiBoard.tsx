@@ -17,7 +17,15 @@ import { rinumeraTutteFattureEmesseAction } from "@/app/actions/fatture";
 import { startFattureEmesseSyncAction } from "@/app/actions/fatture-sync";
 import { listProdottiPropriAction } from "@/app/actions/prodotti-propri";
 import {
+  confermaCancellazioneClienteAction,
+  listCancellazioniClientePrenotateAction,
+  rifiutaCancellazioneClienteAction,
+  type ClienteCancellazionePrenotata,
+} from "@/app/actions/clienti";
+import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
+import {
   ActionGate,
+  useActionAccess,
   useAnagraficaPrivileges,
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
@@ -44,49 +52,38 @@ import {
   uniqueClientiCitta,
   type Cliente,
   type ClientiFilters,
-  type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import { exportClientiPdf } from "@/lib/amministrazione/clienti-pdf";
 import type { FatturaSyncQueueItem } from "@/lib/amministrazione/fatture-sync";
 import type { PdfDetailLevel } from "@/lib/amministrazione/pdf-export";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 
-function SedeDetail({ title, sede }: { title: string; sede: SedeCliente }) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-        {title}
-      </p>
-      <p className="mt-1 text-sm">
-        {sede.indirizzo || "—"}
-        <br />
-        {[sede.cap, sede.citta, sede.provincia].filter(Boolean).join(" ")}
-        {sede.nazione ? ` — ${sede.nazione}` : ""}
-      </p>
-    </div>
-  );
-}
-
 function ClienteRow({
   cliente,
   onEdit,
   onDelete,
+  onConfirmCancellazione,
+  onRifiutaCancellazione,
   onTimeline,
   prodottiByCode,
   selectMode,
   selected,
   onToggleSelect,
   lineageIds,
+  isSuperAdmin,
 }: {
   cliente: Cliente;
   onEdit: (cliente: Cliente) => void;
   onDelete: (cliente: Cliente) => void;
+  onConfirmCancellazione: (cliente: Cliente) => void;
+  onRifiutaCancellazione: (cliente: Cliente) => void;
   onTimeline: (cliente: Cliente) => void;
   prodottiByCode: Map<string, ProdottoProprio>;
   selectMode: boolean;
   selected: boolean;
   onToggleSelect: (id: string) => void;
   lineageIds: string[];
+  isSuperAdmin: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const priv = useAnagraficaPrivileges("cliente");
@@ -129,6 +126,11 @@ function ClienteRow({
               </span>
             ) : null}
             {cliente.ragioneSociale}
+            {cliente.cancellazionePrenotata ? (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
+                Canc. prenotata
+              </span>
+            ) : null}
           </span>
         </td>
         <td className="px-4 py-3 tabular-nums">
@@ -191,15 +193,33 @@ function ClienteRow({
               Modifica
             </button>
             ) : null}
-            {canDelete ? (
+            {canDelete && !cliente.cancellazionePrenotata ? (
             <button
               type="button"
               onClick={() => onDelete(cliente)}
               className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
             >
               <FaTrash size={11} />
-              Elimina
+              Prenota canc.
             </button>
+            ) : null}
+            {isSuperAdmin && cliente.cancellazionePrenotata ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onConfirmCancellazione(cliente)}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                >
+                  Conferma canc.
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRifiutaCancellazione(cliente)}
+                  className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                >
+                  Rifiuta
+                </button>
+              </>
             ) : null}
             <button
               type="button"
@@ -228,64 +248,33 @@ function ClienteRow({
               </button>
             </div>
             ) : null}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SedeDetail
-                title="Sede Amministrativa"
-                sede={cliente.sedeAmministrativa}
-              />
-              <SedeDetail
-                title="Sede Magazzino"
-                sede={cliente.sedeMagazzino}
-              />
-              <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Consegne presso altre aziende
-                </p>
-                {cliente.consegneAltraAzienda.length === 0 ? (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuna</p>
-                ) : (
-                  <ul className="mt-2 space-y-3">
-                    {cliente.consegneAltraAzienda.map((consegna, index) => (
-                      <li
-                        key={`${consegna.ragioneSociale}-${index}`}
-                        className="rounded-lg border border-[var(--border)] bg-white px-3 py-2.5"
-                      >
-                        <p className="text-sm font-semibold">
-                          {consegna.ragioneSociale}
-                        </p>
-                        <p className="mt-1 text-sm text-[var(--muted)]">
-                          {consegna.indirizzo || "—"}
-                          <br />
-                          {[consegna.cap, consegna.citta, consegna.provincia]
-                            .filter(Boolean)
-                            .join(" ")}
-                          {consegna.nazione ? ` — ${consegna.nazione}` : ""}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="sm:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Prodotti Acquistati
-                </p>
-                {cliente.prodottiAcquistati.length === 0 ? (
-                  <p className="mt-1 text-sm text-[var(--muted)]">Nessuno</p>
-                ) : (
-                  <ul className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
-                    {cliente.prodottiAcquistati.map((code) => (
-                      <li key={code}>
-                        <ProdottoProprioProductTag
-                          code={code}
-                          prodotto={prodottiByCode.get(code) ?? null}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            <AnagraficaSchedaDetail
+              prodottiByCode={prodottiByCode}
+              model={{
+                id: cliente.id,
+                kind: "cliente",
+                codiceTarga: cliente.codiceTarga,
+                ragioneSociale: cliente.ragioneSociale,
+                partitaIva: cliente.partitaIva,
+                codiceFiscale: cliente.codiceFiscale,
+                isPrivato: cliente.isPrivato,
+                email: cliente.email,
+                pec: cliente.pec,
+                sdiCode: cliente.sdiCode,
+                telefono: cliente.telefono,
+                sitoWeb: cliente.sitoWeb,
+                emailGeneriche: cliente.emailGeneriche,
+                telefoniGenerici: cliente.telefoniGenerici,
+                sitiWebGenerici: cliente.sitiWebGenerici,
+                sedeAmministrativa: cliente.sedeAmministrativa,
+                sedeMagazzino: cliente.sedeMagazzino,
+                consegneAltraAzienda: cliente.consegneAltraAzienda,
+                prodotti: cliente.prodottiAcquistati,
+                prodottiLabel: "Prodotti acquistati",
+                commercialeLabel: formatCommercialeAssegnazione(cliente),
+                cancellazionePrenotata: cliente.cancellazionePrenotata,
+              }}
+            />
           </td>
         </tr>
       )}
@@ -303,10 +292,15 @@ export function ClientiBoard() {
     removeCliente,
     refresh,
   } = useClienti();
+  const { bypassPrivileges } = useActionAccess();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cliente | null>(null);
   const [timelineFor, setTimelineFor] = useState<Cliente | null>(null);
   const [deleting, setDeleting] = useState<Cliente | null>(null);
+  const [confirmingCanc, setConfirmingCanc] = useState<Cliente | null>(null);
+  const [pendingCanc, setPendingCanc] = useState<
+    ClienteCancellazionePrenotata[]
+  >([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [prodottiByCode, setProdottiByCode] = useState<
     Map<string, ProdottoProprio>
@@ -373,6 +367,12 @@ export function ClientiBoard() {
       if (!result.success) return;
       setProdottiByCode(new Map(result.prodotti.map((p) => [p.codice, p])));
     })();
+  }, [clienti]);
+
+  useEffect(() => {
+    void listCancellazioniClientePrenotateAction().then((res) => {
+      if (res.success) setPendingCanc(res.items);
+    });
   }, [clienti]);
 
   useEffect(() => {
@@ -561,6 +561,14 @@ export function ClientiBoard() {
         </p>
       )}
 
+      {bypassPrivileges && pendingCanc.length > 0 ? (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {pendingCanc.length === 1
+            ? `1 cancellazione cliente da confermare (${pendingCanc[0].codiceTarga} — ${pendingCanc[0].ragioneSociale}).`
+            : `${pendingCanc.length} cancellazioni cliente da confermare. Usa Conferma canc. sulla riga.`}
+        </p>
+      ) : null}
+
       {syncItems && syncItems.length > 0 ? (
         <FatturaSyncQueueModal
           items={syncItems}
@@ -705,7 +713,31 @@ export function ClientiBoard() {
                     setSaveError(null);
                     setDeleting(item);
                   }}
+                  onConfirmCancellazione={(item) => {
+                    setSaveError(null);
+                    setConfirmingCanc(item);
+                  }}
+                  onRifiutaCancellazione={(item) => {
+                    if (
+                      !item.cancellazioneId ||
+                      !window.confirm(
+                        `Rifiutare la prenotazione di cancellazione di ${item.codiceTarga}?`
+                      )
+                    ) {
+                      return;
+                    }
+                    void rifiutaCancellazioneClienteAction({
+                      cancellazioneId: item.cancellazioneId,
+                    }).then((res) => {
+                      if (!res.success) {
+                        setSaveError(res.error);
+                        return;
+                      }
+                      void refresh();
+                    });
+                  }}
                   lineageIds={lineageIds}
+                  isSuperAdmin={bypassPrivileges}
                 />
               ))}
             </tbody>
@@ -763,6 +795,9 @@ export function ClientiBoard() {
         <SoftDeleteConfirmModal
           entityLabel="cliente"
           confirmCode={deleting.codiceTarga}
+          title="Prenota cancellazione cliente"
+          confirmLabel="Prenota"
+          description={`La scheda ${deleting.codiceTarga} non verrà eliminata ora. Si prenota la cancellazione: solo un Super Admin potrà confermarla. Soft delete ISO 9001, nessun delete fisico.`}
           onClose={() => setDeleting(null)}
           onConfirm={async (confermaTestuale) => {
             const result = await removeCliente(deleting.id, confermaTestuale);
@@ -773,6 +808,28 @@ export function ClientiBoard() {
           }}
         />
       )}
+
+      {confirmingCanc && confirmingCanc.cancellazioneId ? (
+        <SoftDeleteConfirmModal
+          entityLabel="cliente"
+          confirmCode={confirmingCanc.codiceTarga}
+          title="Conferma cancellazione cliente"
+          confirmLabel="Conferma eliminazione"
+          description={`Confermi da Super Admin la cancellazione prenotata di ${confirmingCanc.codiceTarga} — ${confirmingCanc.ragioneSociale}. Soft delete ISO 9001.`}
+          onClose={() => setConfirmingCanc(null)}
+          onConfirm={async (confermaTestuale) => {
+            const result = await confermaCancellazioneClienteAction({
+              cancellazioneId: confirmingCanc.cancellazioneId as string,
+              confermaTestuale,
+            });
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+            setConfirmingCanc(null);
+            void refresh();
+          }}
+        />
+      ) : null}
 
       {pdfDetailOpen && (
         <PdfExportDetailModal
