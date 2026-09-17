@@ -269,6 +269,36 @@ export function verticiRettangoloDaAngoli(
   ];
 }
 
+export type SegnoAsse = 1 | -1;
+
+export function segniRettangolo(from: MappaPunto, to: MappaPunto): {
+  sx: SegnoAsse;
+  sy: SegnoAsse;
+} {
+  return {
+    sx: to.x < from.x ? -1 : 1,
+    sy: to.y < from.y ? -1 : 1,
+  };
+}
+
+export function etichettaSensoRettangolo(sx: SegnoAsse, sy: SegnoAsse): string {
+  return `${sx < 0 ? "sinistra" : "destra"} e ${sy < 0 ? "alto" : "basso"}`;
+}
+
+export function puntoOppostoRettangolo(
+  origin: MappaPunto,
+  sx: SegnoAsse,
+  sy: SegnoAsse,
+  wQ: number,
+  hQ: number,
+  griglia: number
+): MappaPunto {
+  return {
+    x: origin.x + sx * Math.max(1, wQ) * griglia,
+    y: origin.y + sy * Math.max(1, hQ) * griglia,
+  };
+}
+
 export function rettangoloHaArea(a: MappaPunto, b: MappaPunto, griglia: number): boolean {
   return (
     Math.abs(a.x - b.x) >= griglia * 0.5 && Math.abs(a.y - b.y) >= griglia * 0.5

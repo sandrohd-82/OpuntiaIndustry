@@ -216,7 +216,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. In alto e a sinistra del foglio c’è un righello numerato: al movimento del cursore un pallino e le due misure opposte (quadrati × scala). Il rettangolo si stira con l’angolo opposto che segue il mouse fino al bordo del foglio. I colori si scelgono dalla palette o da un colore libero. Ogni linea ha pallini a un quarto, a metà e a tre quarti. Qui non si spostano ancora i lotti.",
+      text: "Pianta del magazzino. In alto e a sinistra del foglio c’è un righello numerato. Per il rettangolo: primo click = partenza, secondo click = senso, poi le misure nei campi o con altri click. I colori si scelgono dalla palette o da un colore libero. Ogni linea ha pallini a un quarto, a metà e a tre quarti. Qui non si spostano ancora i lotti.",
     },
   ],
   "/app/magazzino/panoramica": [
