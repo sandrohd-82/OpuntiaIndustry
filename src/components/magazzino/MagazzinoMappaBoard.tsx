@@ -387,14 +387,18 @@ export function MagazzinoMappaBoard() {
           ev.preventDefault();
           avantiLato();
         }
+        if (ev.key === "Delete") {
+          ev.preventDefault();
+          eliminaLineaSelezionata();
+        }
         return;
       }
       if (ev.key === "Escape") {
         resetDisegno();
       }
-      if ((ev.key === "Delete" || ev.key === "Backspace") && canDraw && selectedId && !forma) {
-        setLinee((prev) => prev.filter((l) => l.id !== selectedId));
-        setSelectedId(null);
+      if (ev.key === "Delete" || ev.key === "Backspace") {
+        ev.preventDefault();
+        eliminaLineaSelezionata();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -434,6 +438,12 @@ export function MagazzinoMappaBoard() {
     }
     setForma(null);
     setOk("Poligono chiuso.");
+  }
+
+  function eliminaLineaSelezionata() {
+    if (!canDraw || !selectedId || forma) return;
+    setLinee((prev) => prev.filter((l) => l.id !== selectedId));
+    setSelectedId(null);
   }
 
   function applySpessore(v: number) {
@@ -968,6 +978,15 @@ export function MagazzinoMappaBoard() {
                 className="ml-1 w-24 rounded border border-amber-400 bg-white px-2 py-1 text-sm disabled:opacity-60"
               />
             </label>
+            {canDraw ? (
+              <button
+                type="button"
+                onClick={() => eliminaLineaSelezionata()}
+                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
+              >
+                Elimina linea
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
