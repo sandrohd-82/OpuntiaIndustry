@@ -280,16 +280,30 @@ export function MagazzinoMappaBoard() {
   const extraPunti = useMemo(() => {
     const p: MappaPunto[] = [];
     if (forma) p.push(...forma.vertici);
+    if (
+      forma?.tipo === "rettangolo" &&
+      forma.fase === "misure" &&
+      (forma.latoA != null || forma.latoB != null) &&
+      forma.opposto
+    ) {
+      p.push(forma.opposto, ...verticiRettangoloDaAngoli(forma.vertici[0]!, forma.opposto, griglia));
+    }
     if (previewForma && forma?.tipo !== "rettangolo") {
       p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
     }
     return p;
-  }, [forma, previewForma]);
+  }, [forma, previewForma, griglia]);
 
-  const latoPianificatoPx =
-    canDraw && (tool === "poligono" || forma?.tipo === "poligono")
-      ? quadratiCorrenti * griglia
-      : 0;
+  const latoPianificatoPx = (() => {
+    if (!canDraw) return 0;
+    if (forma?.tipo === "rettangolo" && forma.fase === "misure") {
+      return Math.max(forma.latoA ?? 0, forma.latoB ?? 0) * griglia;
+    }
+    if (tool === "poligono" || forma?.tipo === "poligono") {
+      return quadratiCorrenti * griglia;
+    }
+    return 0;
+  })();
 
   const foglio = useMemo(
     () =>
@@ -349,8 +363,8 @@ export function MagazzinoMappaBoard() {
       if (forma.tipo === "rettangolo") {
         const origine = forma.vertici[0];
         if (!origine) return;
-        const p = clampPuntoNelFoglio(snap, foglio, griglia);
         if (forma.fase === "senso") {
+          const p = clampPuntoNelFoglio(snap, foglio, griglia);
           const { sx, sy } = segniRettangolo(origine, p);
           setForma({
             ...forma,
@@ -363,37 +377,40 @@ export function MagazzinoMappaBoard() {
           });
           return;
         }
+        const misura = {
+          x: snapToGrid(snap.x, griglia),
+          y: snapToGrid(snap.y, griglia),
+        };
         if (forma.latoA == null) {
-          const wQ = Math.max(1, Math.round(Math.abs(p.x - origine.x) / griglia));
+          const wQ = Math.max(1, Math.round(Math.abs(misura.x - origine.x) / griglia));
           const hQ =
             forma.latoB ??
-            Math.max(1, Math.round(Math.abs(p.y - origine.y) / griglia));
-          const opposto = clampPuntoNelFoglio(
-            puntoOppostoRettangolo(origine, forma.sx, forma.sy, wQ, hQ, griglia),
-            foglio,
+            Math.max(1, Math.round(Math.abs(misura.y - origine.y) / griglia));
+          const opposto = puntoOppostoRettangolo(
+            origine,
+            forma.sx,
+            forma.sy,
+            wQ,
+            hQ,
             griglia
           );
           setForma({ ...forma, latoA: wQ, opposto });
           return;
         }
         if (forma.latoB == null) {
-          const hQ = Math.max(1, Math.round(Math.abs(p.y - origine.y) / griglia));
-          const opposto = clampPuntoNelFoglio(
-            puntoOppostoRettangolo(
-              origine,
-              forma.sx,
-              forma.sy,
-              forma.latoA,
-              hQ,
-              griglia
-            ),
-            foglio,
+          const hQ = Math.max(1, Math.round(Math.abs(misura.y - origine.y) / griglia));
+          const opposto = puntoOppostoRettangolo(
+            origine,
+            forma.sx,
+            forma.sy,
+            forma.latoA,
+            hQ,
             griglia
           );
           confermaRettangolo(origine, opposto);
           return;
         }
-        confermaRettangolo(origine, forma.opposto ?? p);
+        confermaRettangolo(origine, forma.opposto ?? misura);
       }
       return;
     }
@@ -423,9 +440,19 @@ export function MagazzinoMappaBoard() {
     if (forma.tipo === "rettangolo") {
       const origine = forma.vertici[0];
       if (!origine) return;
-      const p = clampPuntoNelFoglio(risolviPuntoDisegno(w).punto, foglio, griglia);
+      const raw = risolviPuntoDisegno(w).punto;
+      if (forma.fase === "misure" && forma.latoA != null && forma.latoB != null) {
+        return;
+      }
+      const p =
+        forma.fase === "senso"
+          ? clampPuntoNelFoglio(raw, foglio, griglia)
+          : { x: snapToGrid(raw.x, griglia), y: snapToGrid(raw.y, griglia) };
       setForma((prev) => {
         if (!prev || prev.tipo !== "rettangolo") return prev;
+        if (prev.fase === "misure" && prev.latoA != null && prev.latoB != null) {
+          return prev;
+        }
         const segni =
           prev.fase === "senso" ? segniRettangolo(origine, p) : { sx: prev.sx, sy: prev.sy };
         const wQ =
@@ -436,11 +463,14 @@ export function MagazzinoMappaBoard() {
           prev.fase === "misure" && prev.latoB != null
             ? prev.latoB
             : Math.max(1, Math.round(Math.abs(p.y - origine.y) / griglia));
-        const opposto = clampPuntoNelFoglio(
-          puntoOppostoRettangolo(origine, segni.sx, segni.sy, wQ, hQ, griglia),
-          foglio,
-          griglia
-        );
+        const opposto =
+          prev.fase === "senso"
+            ? clampPuntoNelFoglio(
+                puntoOppostoRettangolo(origine, segni.sx, segni.sy, wQ, hQ, griglia),
+                foglio,
+                griglia
+              )
+            : puntoOppostoRettangolo(origine, segni.sx, segni.sy, wQ, hQ, griglia);
         if (
           prev.opposto &&
           prev.opposto.x === opposto.x &&
@@ -546,11 +576,7 @@ export function MagazzinoMappaBoard() {
     if (!o) return;
     const w = Math.max(1, Math.round(wQ));
     const h = Math.max(1, Math.round(hQ));
-    const next = clampPuntoNelFoglio(
-      puntoOppostoRettangolo(o, forma.sx, forma.sy, w, h, griglia),
-      foglio,
-      griglia
-    );
+    const next = puntoOppostoRettangolo(o, forma.sx, forma.sy, w, h, griglia);
     setForma({
       ...forma,
       latoA: w,
