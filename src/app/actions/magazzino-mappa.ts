@@ -14,6 +14,7 @@ import {
   normalizzaColoreLinea,
   parseScalaUnita,
   salvaMappaSchema,
+  salvaNomeAreaMappaSchema,
   slugMappaArea,
   type CollegaMappaInput,
   type MappaDocumentoStato,
@@ -22,6 +23,7 @@ import {
   type MappaMagazzino,
   type MappaNavItem,
   type SalvaMappaInput,
+  type SalvaNomeAreaMappaInput,
 } from "@/lib/magazzino/mappa";
 import {
   etichettaUbicazione,
@@ -1102,6 +1104,163 @@ function gruppoToInput(g: MappaRiferimentoGruppo): MappaRiferimentoGruppoInput {
   };
 }
 
+async function applicaNomeAreaMappa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string,
+  nomeArea: string,
+  userId: string
+): Promise<string | null> {
+  const nome = nomeArea.trim();
+  if (!nome) return "Il nome area è obbligatorio.";
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select("id, nome, luogo_nome, menu_nodo_id")
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = cur as {
+    id: string;
+    nome?: string;
+    luogo_nome?: string | null;
+    menu_nodo_id?: string | null;
+  } | null;
+  if (!row) return "Pianta non trovata.";
+  const { error: upErr } = await supabase
+    .from("magazzino_mappe")
+    .update({
+      nome,
+      luogo_nome: nome,
+      updated_by: userId,
+    })
+    .eq("id", mappaId)
+    .is("deleted_at", null);
+  if (upErr) return upErr.message;
+
+  if (row.menu_nodo_id) {
+    const { data: nodo } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, parent_id, area_slug, etichetta, slug, tipo, versione")
+      .eq("id", row.menu_nodo_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const n = nodo as {
+      id: string;
+      parent_id: string | null;
+      area_slug: string;
+      etichetta: string;
+      slug: string;
+      tipo: string;
+      versione?: number;
+    } | null;
+    if (n && n.etichetta !== nome) {
+      let clash = supabase
+        .from("mappa_menu_nodi")
+        .select("id")
+        .eq("area_slug", n.area_slug)
+        .ilike("etichetta", nome)
+        .neq("id", n.id)
+        .is("deleted_at", null);
+      clash = n.parent_id
+        ? clash.eq("parent_id", n.parent_id)
+        : clash.is("parent_id", null);
+      const { data: esistente } = await clash.maybeSingle();
+      if (esistente) {
+        return `Il nome «${nome}» è già usato allo stesso livello.`;
+      }
+      const newSlug = slugMenuVoce(nome);
+      let slugClash = supabase
+        .from("mappa_menu_nodi")
+        .select("id")
+        .eq("area_slug", n.area_slug)
+        .eq("slug", newSlug)
+        .neq("id", n.id)
+        .is("deleted_at", null);
+      slugClash = n.parent_id
+        ? slugClash.eq("parent_id", n.parent_id)
+        : slugClash.is("parent_id", null);
+      const { data: slugEsistente } = await slugClash.maybeSingle();
+      const { error: nErr } = await supabase
+        .from("mappa_menu_nodi")
+        .update({
+          etichetta: nome,
+          slug: slugEsistente ? n.slug : newSlug,
+          versione: (n.versione ?? 1) + 1,
+          updated_by: userId,
+        })
+        .eq("id", n.id)
+        .is("deleted_at", null);
+      if (nErr) {
+        return nErr.message.includes("mag_menu_")
+          ? `Il nome «${nome}» è già usato allo stesso livello.`
+          : nErr.message;
+      }
+      await supabase
+        .from("magazzino_mappe")
+        .update({ luogo_nome: nome, nome, updated_by: userId })
+        .eq("menu_nodo_id", n.id)
+        .is("deleted_at", null);
+      const { data: mappePosto } = await supabase
+        .from("magazzino_mappe")
+        .select("id")
+        .eq("menu_nodo_id", n.id)
+        .is("deleted_at", null);
+      const ids = ((mappePosto ?? []) as { id: string }[]).map((m) => m.id);
+      if (ids.length) {
+        await supabase
+          .from("magazzino_ubicazioni")
+          .update({ luogo_nome: nome, updated_by: userId })
+          .in("mappa_origine_id", ids)
+          .is("deleted_at", null);
+      }
+    }
+  } else {
+    await supabase
+      .from("magazzino_ubicazioni")
+      .update({ luogo_nome: nome, updated_by: userId })
+      .eq("mappa_origine_id", mappaId)
+      .is("deleted_at", null);
+  }
+  return null;
+}
+
+export async function salvaNomeAreaMappaAction(
+  raw: SalvaNomeAreaMappaInput
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può modificare il nome area." };
+  }
+  const parsed = salvaNomeAreaMappaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Nome area non valido.",
+    };
+  }
+  const supabase = await createClient();
+  const err = await applicaNomeAreaMappa(
+    supabase,
+    parsed.data.mappaId,
+    parsed.data.nomeArea,
+    auth.userId
+  );
+  if (err) return { success: false, error: err };
+  const mappa = await loadMappa(supabase, parsed.data.mappaId);
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: parsed.data.mappaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Nome area aggiornato a «${parsed.data.nomeArea.trim()}»`,
+    payload: { nome_area: parsed.data.nomeArea.trim() },
+  });
+  if (!mappa) return { success: false, error: "Nome salvato, pianta non leggibile." };
+  return { success: true, mappa };
+}
+
 export async function salvaMappaMagazzinoAction(
   raw: SalvaMappaInput
 ): Promise<
@@ -1146,10 +1305,19 @@ export async function salvaMappaMagazzinoAction(
     };
   }
 
+  if (input.nome?.trim()) {
+    const nomeErr = await applicaNomeAreaMappa(
+      supabase,
+      input.mappaId,
+      input.nome,
+      auth.userId
+    );
+    if (nomeErr) return { success: false, error: nomeErr };
+  }
+
   const { error: upErr } = await supabase
     .from("magazzino_mappe")
     .update({
-      nome: input.nome?.trim() || undefined,
       vista_etichetta: input.vistaEtichetta,
       scala_valore: input.scalaValore,
       scala_unita: input.scalaUnita,
@@ -1611,6 +1779,7 @@ export async function collegaMappaAdAreaAction(
     .update({
       documento_stato: "approvato",
       area_codice: input.areaSlug,
+      nome: luogo,
       luogo_nome: luogo,
       menu_nodo_id: resolved.postoId,
       vista_etichetta: vista,
@@ -1759,7 +1928,7 @@ export async function rinominaPercorsoMappaAction(
     if (nodo.tipo === "luogo") {
       await supabase
         .from("magazzino_mappe")
-        .update({ luogo_nome: nuovo, updated_by: auth.userId })
+        .update({ luogo_nome: nuovo, nome: nuovo, updated_by: auth.userId })
         .eq("menu_nodo_id", nodo.id)
         .is("deleted_at", null);
       const { data: mappePosto } = await supabase
@@ -1843,6 +2012,7 @@ export async function spostaMappaPercorsoAction(
     .from("magazzino_mappe")
     .update({
       area_codice: input.areaSlug,
+      nome: resolved.luogo,
       luogo_nome: resolved.luogo,
       menu_nodo_id: resolved.postoId,
       updated_by: auth.userId,

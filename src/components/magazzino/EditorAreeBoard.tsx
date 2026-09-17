@@ -88,7 +88,7 @@ export function EditorAreeBoard() {
           <table className="min-w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-600">
               <tr>
-                <th className="px-3 py-2 font-medium">Nome bozza</th>
+                <th className="px-3 py-2 font-medium">Nome Area</th>
                 <th className="px-3 py-2 font-medium">Stato</th>
                 <th className="px-3 py-2 font-medium">Collegamento</th>
                 <th className="px-3 py-2 font-medium">v</th>
@@ -99,7 +99,9 @@ export function EditorAreeBoard() {
             <tbody>
               {items.map((it) => (
                 <tr key={it.id} className="border-t border-[var(--border)]">
-                  <td className="px-3 py-2 font-medium">{it.nome}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {it.luogoNome || it.nome}
+                  </td>
                   <td className="px-3 py-2">
                     {MAPPA_STATO_LABEL[it.documentoStato]}
                   </td>

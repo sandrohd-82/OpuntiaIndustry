@@ -195,6 +195,13 @@ export const creaMappaBozzaSchema = z.object({
   nome: z.string().trim().min(1).max(120).optional(),
 });
 
+export const salvaNomeAreaMappaSchema = z.object({
+  mappaId: z.string().uuid(),
+  nomeArea: z.string().trim().min(1).max(120),
+});
+
+export type SalvaNomeAreaMappaInput = z.infer<typeof salvaNomeAreaMappaSchema>;
+
 export type SalvaMappaInput = z.infer<typeof salvaMappaSchema>;
 export type CreaMappaBozzaInput = z.infer<typeof creaMappaBozzaSchema>;
 

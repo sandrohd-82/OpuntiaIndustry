@@ -9,6 +9,7 @@ import {
   rinominaPercorsoMappaAction,
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
+  salvaNomeAreaMappaAction,
   spostaMappaPercorsoAction,
 } from "@/app/actions/magazzino-mappa";
 import { ImportaRiferimentiVista } from "@/components/magazzino/ImportaRiferimentiVista";
@@ -217,8 +218,8 @@ export function MagazzinoMappaBoard({
     setLinee(res.mappa.linee);
     setAree(res.mappa.aree ?? []);
     setRiferimenti(res.mappa.riferimenti ?? []);
-    setNomePianta(res.mappa.nome);
-    setLuogoNome(res.mappa.luogoNome);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
@@ -1102,8 +1103,8 @@ export function MagazzinoMappaBoard({
     setLinee(res.mappa.linee);
     setAree(res.mappa.aree ?? []);
     setRiferimenti(res.mappa.riferimenti ?? []);
-    setNomePianta(res.mappa.nome);
-    setLuogoNome(res.mappa.luogoNome);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
@@ -1113,6 +1114,32 @@ export function MagazzinoMappaBoard({
 
   async function salva() {
     await persist();
+  }
+
+  async function applicaNomeAreaCampo() {
+    if (!mappa || !canDesign) return;
+    const next = nomePianta.trim();
+    if (!next) return;
+    const attuale = (mappa.luogoNome || mappa.nome).trim();
+    if (next === attuale) return;
+    if (editing) return;
+    setSaving(true);
+    setError(null);
+    const res = await salvaNomeAreaMappaAction({
+      mappaId: mappa.id,
+      nomeArea: next,
+    });
+    setSaving(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setMappa(res.mappa);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
+    setOk(`Nome area aggiornato: ${res.mappa.luogoNome || res.mappa.nome}.`);
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
+    window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
   }
 
   async function caricaPercorsoAperto(mappaId: string) {
@@ -1181,7 +1208,8 @@ export function MagazzinoMappaBoard({
       return;
     }
     setMappa(res.mappa);
-    setLuogoNome(res.mappa.luogoNome);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setCollegaOpen(false);
     setPercorsoIniziale(null);
@@ -1206,7 +1234,8 @@ export function MagazzinoMappaBoard({
       return;
     }
     setMappa(res.mappa);
-    setLuogoNome(res.mappa.luogoNome);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
     setCollegaOpen(false);
     setPercorsoIniziale(null);
     setOk(`Nomi aggiornati: ${res.mappa.percorsoEtichetta}.`);
@@ -1237,7 +1266,8 @@ export function MagazzinoMappaBoard({
       return;
     }
     setMappa(res.mappa);
-    setLuogoNome(res.mappa.luogoNome);
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setCollegaOpen(false);
     setPercorsoIniziale(null);
@@ -1370,7 +1400,7 @@ export function MagazzinoMappaBoard({
                 Elenco bozze
               </Link>
             ) : null}
-            {mappa.nome} · v{mappa.versione} ·{" "}
+            {mappa.luogoNome || mappa.nome} · v{mappa.versione} ·{" "}
             {MAPPA_STATO_LABEL[mappa.documentoStato]}
             {mappa.percorsoEtichetta
               ? ` · ${mappa.percorsoEtichetta}`
@@ -1457,15 +1487,20 @@ export function MagazzinoMappaBoard({
         </div>
       </div>
 
-      {editing ? (
+      {mode === "editor" && canDesign ? (
         <div className="shrink-0 space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium">
-              Nome bozza
+              Nome Area
               <input
                 type="text"
                 value={nomePianta}
-                onChange={(e) => setNomePianta(e.target.value)}
+                onChange={(e) => {
+                  setNomePianta(e.target.value);
+                  setLuogoNome(e.target.value);
+                }}
+                onBlur={() => void applicaNomeAreaCampo()}
+                placeholder="Es. Magazzino 1"
                 maxLength={120}
                 className="mt-1 w-full rounded border border-[var(--border)] px-2 py-1.5 text-sm"
               />
@@ -1478,19 +1513,16 @@ export function MagazzinoMappaBoard({
                 </p>
               </div>
             ) : (
-              <label className="block text-xs font-medium">
-                Nome posto (per importare da un&apos;altra vista)
-                <input
-                  type="text"
-                  value={luogoNome}
-                  onChange={(e) => setLuogoNome(e.target.value)}
-                  placeholder="Es. Magazzino 1"
-                  maxLength={120}
-                  className="mt-1 w-full rounded border border-[var(--border)] px-2 py-1.5 text-sm"
-                />
-              </label>
+              <p className="self-end text-xs text-[var(--muted)]">
+                Questo è il nome dell&apos;area nel menu. Si conferma con Collega.
+              </p>
             )}
           </div>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div className="shrink-0 space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
           <div>
             <label className="block text-xs font-medium">
               Vista
