@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   formattaMisuraQuadrati,
   passoRighelloQuadrati,
@@ -9,8 +9,8 @@ import {
   type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
 
-export const RIGHELLO_H = 32;
-export const RIGHELLO_W = 72;
+export const RIGHELLO_H = 44;
+export const RIGHELLO_W = 88;
 
 function tickValues(from: number, to: number, step: number): number[] {
   if (!(step > 0) || to <= from) return [];
@@ -31,6 +31,7 @@ export function MagazzinoMappaRighelli({
   scalaValore,
   scalaUnita,
   cursore,
+  children,
 }: {
   foglio: FoglioMappa;
   pan: { x: number; y: number };
@@ -39,6 +40,7 @@ export function MagazzinoMappaRighelli({
   scalaValore: number;
   scalaUnita: MappaScalaUnita;
   cursore: MappaPunto | null;
+  children: ReactNode;
 }) {
   const passoQ = passoRighelloQuadrati(griglia, zoom);
   const passoPx = passoQ * griglia;
@@ -78,116 +80,120 @@ export function MagazzinoMappaRighelli({
   const label = (q: number) => formattaMisuraQuadrati(q, scalaValore, scalaUnita);
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-20">
-      <div
-        className="absolute left-0 top-0 z-30 bg-slate-800"
-        style={{ width: RIGHELLO_W, height: RIGHELLO_H }}
-      />
+    <div
+      className="grid h-full min-h-0 w-full min-w-0"
+      style={{
+        gridTemplateColumns: `${RIGHELLO_W}px minmax(0, 1fr)`,
+        gridTemplateRows: `${RIGHELLO_H}px minmax(0, 1fr)`,
+      }}
+    >
+      <div className="flex items-center justify-center border-b border-r border-slate-600 bg-slate-950 px-1 text-center text-[9px] font-semibold leading-tight text-amber-300">
+        1 q = {scalaValore} {scalaUnita}
+      </div>
 
-      <div
-        className="absolute right-0 top-0 overflow-hidden border-b border-slate-400 bg-amber-50"
-        style={{ left: RIGHELLO_W, height: RIGHELLO_H }}
-      >
+      <div className="relative overflow-hidden border-b border-slate-600 bg-slate-900">
         {ticksX.map((wx) => {
-          const x = sx(wx) - RIGHELLO_W;
+          const x = sx(wx);
           const q = (wx - foglio.x) / griglia;
+          const major = Math.abs(q % (passoQ * 5)) < 1e-6;
           return (
-            <div key={`hx-${wx}`} className="absolute top-0 h-full" style={{ left: x }}>
-              <div className="h-2 w-px bg-slate-700" />
-              <p className="-translate-x-1/2 whitespace-nowrap text-[9px] font-medium text-slate-800">
+            <div
+              key={`hx-${wx}`}
+              className="absolute bottom-0"
+              style={{ left: x, transform: "translateX(-50%)" }}
+            >
+              <p
+                className={`mb-0.5 text-center text-[10px] leading-none ${
+                  major ? "font-bold text-white" : "font-medium text-slate-200"
+                }`}
+              >
                 {Math.round(q)}
               </p>
+              <div
+                className={`mx-auto w-px ${major ? "h-3 bg-white" : "h-2 bg-slate-300"}`}
+              />
             </div>
           );
         })}
+        {cursore && cx != null ? (
+          <>
+            <div
+              className="absolute top-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-rose-600 shadow-[0_0_0_2px_#881337]"
+              style={{ left: cx }}
+            />
+            {sulFoglio ? (
+              <>
+                <p
+                  className="absolute top-1 z-20 -translate-x-full rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md"
+                  style={{ left: cx - 12 }}
+                >
+                  {label(qLeft)}
+                </p>
+                <p
+                  className="absolute top-1 z-20 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md"
+                  style={{ left: cx + 12 }}
+                >
+                  {label(qRight)}
+                </p>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
-      <div
-        className="absolute bottom-0 left-0 overflow-hidden border-r border-slate-400 bg-amber-50"
-        style={{ top: RIGHELLO_H, width: RIGHELLO_W }}
-      >
+      <div className="relative overflow-hidden border-r border-slate-600 bg-slate-900">
         {ticksY.map((wy) => {
-          const y = sy(wy) - RIGHELLO_H;
+          const y = sy(wy);
           const q = (wy - foglio.y) / griglia;
+          const major = Math.abs(q % (passoQ * 5)) < 1e-6;
           return (
             <div
               key={`hy-${wy}`}
-              className="absolute left-0 w-full"
-              style={{ top: y }}
+              className="absolute right-0 flex items-center"
+              style={{ top: y, transform: "translateY(-50%)" }}
             >
-              <div className="ml-auto h-px w-2 bg-slate-700" />
-              <p className="absolute left-0.5 top-0 -translate-y-1/2 text-[9px] font-medium leading-none text-slate-800">
+              <p
+                className={`mr-1 w-[68px] text-right text-[10px] leading-none ${
+                  major ? "font-bold text-white" : "font-medium text-slate-200"
+                }`}
+              >
                 {Math.round(q)}
               </p>
+              <div
+                className={`h-px ${major ? "w-3 bg-white" : "w-2 bg-slate-300"}`}
+              />
             </div>
           );
         })}
+        {cursore && cy != null ? (
+          <>
+            <div
+              className="absolute left-1/2 z-10 h-7 w-7 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-rose-600 shadow-[0_0_0_2px_#881337]"
+              style={{ top: cy }}
+            />
+            {sulFoglio ? (
+              <>
+                <p
+                  className="absolute left-1 z-20 w-[80px] -translate-y-full rounded bg-rose-600 px-1 py-0.5 text-center text-[9px] font-bold leading-tight text-white shadow-md"
+                  style={{ top: cy - 16 }}
+                >
+                  {label(qTop)}
+                </p>
+                <p
+                  className="absolute left-1 z-20 w-[80px] rounded bg-rose-600 px-1 py-0.5 text-center text-[9px] font-bold leading-tight text-white shadow-md"
+                  style={{ top: cy + 16 }}
+                >
+                  {label(qBottom)}
+                </p>
+              </>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
-      {cursore && cx != null && cy != null ? (
-        <>
-          <div
-            className="absolute z-40 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-rose-600 shadow-md"
-            style={{ left: cx, top: RIGHELLO_H / 2 }}
-          />
-          <div
-            className="absolute z-40 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-rose-600 shadow-md"
-            style={{ left: RIGHELLO_W / 2, top: cy }}
-          />
-          {sulFoglio ? (
-            <>
-              <p
-                className="absolute z-40 -translate-y-1/2 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md"
-                style={{
-                  top: RIGHELLO_H / 2,
-                  right: `calc(100% - ${cx}px + 14px)`,
-                  maxWidth: 220,
-                }}
-              >
-                {label(qLeft)}
-              </p>
-              <p
-                className="absolute z-40 -translate-y-1/2 rounded bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md"
-                style={{
-                  top: RIGHELLO_H / 2,
-                  left: cx + 14,
-                  maxWidth: 220,
-                }}
-              >
-                {label(qRight)}
-              </p>
-              <p
-                className="absolute z-40 left-1 w-[68px] -translate-y-full rounded bg-rose-600 px-1 py-0.5 text-center text-[9px] font-bold leading-tight text-white shadow-md"
-                style={{ top: cy - 14 }}
-              >
-                {label(qTop)}
-              </p>
-              <p
-                className="absolute z-40 left-1 w-[68px] rounded bg-rose-600 px-1 py-0.5 text-center text-[9px] font-bold leading-tight text-white shadow-md"
-                style={{ top: cy + 14 }}
-              >
-                {label(qBottom)}
-              </p>
-              <div
-                className="absolute border-l-2 border-dashed border-rose-500/90"
-                style={{
-                  left: cx,
-                  top: RIGHELLO_H,
-                  height: Math.max(0, cy - RIGHELLO_H),
-                }}
-              />
-              <div
-                className="absolute border-t-2 border-dashed border-rose-500/90"
-                style={{
-                  top: cy,
-                  left: RIGHELLO_W,
-                  width: Math.max(0, cx - RIGHELLO_W),
-                }}
-              />
-            </>
-          ) : null}
-        </>
-      ) : null}
+      <div className="relative min-h-0 min-w-0 overflow-hidden bg-slate-200">
+        {children}
+      </div>
     </div>
   );
 }

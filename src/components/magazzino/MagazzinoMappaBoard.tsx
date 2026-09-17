@@ -7,11 +7,7 @@ import {
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
-import {
-  MagazzinoMappaRighelli,
-  RIGHELLO_H,
-  RIGHELLO_W,
-} from "@/components/magazzino/MagazzinoMappaRighelli";
+import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
 import {
   accavallamentoPuntoSuLinee,
   calcolaFoglioMappa,
@@ -72,13 +68,14 @@ function headingForma(
   return headingCardinale(from, cursor ?? { x: from.x + 1, y: from.y });
 }
 
-const FOGLIO_PAD_X = RIGHELLO_W + 12;
-const FOGLIO_PAD_TOP = RIGHELLO_H + 12;
+const FOGLIO_PAD_X = 16;
+const FOGLIO_PAD_TOP = 16;
 const FOGLIO_PAD_BOTTOM = 52;
 
 export function MagazzinoMappaBoard() {
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const svgWrapRef = useRef<HTMLDivElement>(null);
   const [canvasBox, setCanvasBox] = useState({ w: 0, h: 0 });
   const [mappa, setMappa] = useState<MappaMagazzino | null>(null);
   const [canDesign, setCanDesign] = useState(false);
@@ -196,7 +193,9 @@ export function MagazzinoMappaBoard() {
   }
 
   function fitToFoglio(target: FoglioMappa) {
-    const box = canvasWrapRef.current?.getBoundingClientRect();
+    const box =
+      svgWrapRef.current?.getBoundingClientRect() ??
+      canvasWrapRef.current?.getBoundingClientRect();
     const width = box?.width || canvasBox.w;
     const height = box?.height || canvasBox.h;
     if (width < 80 || height < 80) return;
@@ -559,7 +558,7 @@ export function MagazzinoMappaBoard() {
   const foglioKey = `${Math.round(foglio.width)}x${Math.round(foglio.height)}@${griglia}|${Math.round(canvasBox.w)}x${Math.round(canvasBox.h)}`;
 
   useEffect(() => {
-    const el = canvasWrapRef.current;
+    const el = svgWrapRef.current ?? canvasWrapRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect;
@@ -968,19 +967,14 @@ export function MagazzinoMappaBoard() {
           scalaValore={scalaValore}
           scalaUnita={scalaUnita}
           cursore={disegnoCursor?.punto ?? snappedCursor}
-        />
+        >
+        <div ref={svgWrapRef} className="absolute inset-0">
         {vistaOk ? (
-          <p
-            className="pointer-events-none absolute z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm"
-            style={{ left: RIGHELLO_W + 8, top: RIGHELLO_H + 6 }}
-          >
+          <p className="pointer-events-none absolute left-2 top-2 z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm">
             Vista: {vistaEtichetta.trim()}
           </p>
         ) : editing ? (
-          <p
-            className="pointer-events-none absolute z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
-            style={{ left: RIGHELLO_W + 8, top: RIGHELLO_H + 6, right: 12 }}
-          >
+          <p className="pointer-events-none absolute left-2 right-3 top-2 z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             Imposta prima il testo Vista (es. Dall’alto, Lato fronte, Lato Dx).
             Poi potrai tracciare le linee.
           </p>
@@ -997,6 +991,22 @@ export function MagazzinoMappaBoard() {
         >
           Adatta al foglio
         </button>
+        {disegnoCursor?.punto ?? snappedCursor ? (
+          <>
+            <div
+              className="pointer-events-none absolute top-0 z-[5] h-full w-0 border-l-2 border-dashed border-rose-500/80"
+              style={{
+                left: (disegnoCursor?.punto ?? snappedCursor)!.x * zoom + pan.x,
+              }}
+            />
+            <div
+              className="pointer-events-none absolute left-0 z-[5] h-0 w-full border-t-2 border-dashed border-rose-500/80"
+              style={{
+                top: (disegnoCursor?.punto ?? snappedCursor)!.y * zoom + pan.y,
+              }}
+            />
+          </>
+        ) : null}
         <svg
           ref={svgRef}
           className={`h-full w-full touch-none bg-slate-200 ${
@@ -1178,6 +1188,8 @@ export function MagazzinoMappaBoard() {
             </div>
           );
         })}
+        </div>
+        </MagazzinoMappaRighelli>
       </div>
     </div>
   );
