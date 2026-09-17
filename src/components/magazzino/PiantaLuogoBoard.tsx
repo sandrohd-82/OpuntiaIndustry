@@ -7,6 +7,7 @@ import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio"
 
 export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const n = luogo.mappe.length;
+  const griglia = classiGrigliaViste(n);
   const aree = areeElencoConsultazione(
     unisciAreePiante(luogo.mappe.map((m) => m.aree ?? []))
   );
@@ -17,11 +18,11 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   return (
     <div className="space-y-4">
       <div
-        className={`grid gap-3 ${classiGrigliaViste(n)}`}
-        style={n >= 2 ? { minHeight: n === 4 ? "36rem" : "20rem" } : undefined}
+        className={griglia.contenitore}
+        style={n >= 3 ? { minHeight: n === 4 ? "36rem" : "20rem" } : undefined}
       >
         {luogo.mappe.map((m) => (
-          <div key={m.id} className={n === 4 ? "min-h-72" : "min-h-64"}>
+          <div key={m.id} className={griglia.cella}>
             <PiantaVistaRitaglio mappa={m} />
           </div>
         ))}

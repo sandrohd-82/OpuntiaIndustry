@@ -474,13 +474,30 @@ export function ritaglioDisegnoMappa(
   };
 }
 
-export function classiGrigliaViste(n: number): string {
-  if (n <= 1) return "grid-cols-1";
-  if (n === 2) return "grid-cols-1 md:grid-cols-2";
-  if (n === 3) return "grid-cols-1 md:grid-cols-3";
-  if (n === 4) return "grid-cols-1 md:grid-cols-2";
-  if (n <= 6) return "grid-cols-1 md:grid-cols-3";
-  return "grid-cols-1 md:grid-cols-2";
+/** 1–2 viste: 33% ciascuna, blocco centrato. 3: 33% a riga. 4: 50% su due righe. */
+export function classiGrigliaViste(n: number): { contenitore: string; cella: string } {
+  if (n <= 1) {
+    return {
+      contenitore: "grid grid-cols-6 gap-3",
+      cella: "col-span-2 col-start-3 min-h-64",
+    };
+  }
+  if (n === 2) {
+    return {
+      contenitore: "grid grid-cols-6 gap-3",
+      cella: "col-span-2 min-h-64 first:col-start-2",
+    };
+  }
+  if (n === 3) {
+    return { contenitore: "grid grid-cols-1 gap-3 md:grid-cols-3", cella: "min-h-64" };
+  }
+  if (n === 4) {
+    return { contenitore: "grid grid-cols-1 gap-3 md:grid-cols-2", cella: "min-h-72" };
+  }
+  if (n <= 6) {
+    return { contenitore: "grid grid-cols-1 gap-3 md:grid-cols-3", cella: "min-h-64" };
+  }
+  return { contenitore: "grid grid-cols-1 gap-3 md:grid-cols-2", cella: "min-h-64" };
 }
 
 export function calcolaFoglioMappa(
