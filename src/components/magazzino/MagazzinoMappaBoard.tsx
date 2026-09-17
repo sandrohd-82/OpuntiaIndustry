@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import Link from "next/link";
 import {
   collegaMappaAdAreaAction,
@@ -127,6 +133,44 @@ const FOGLIO_PAD_X = 16;
 const FOGLIO_PAD_TOP = 16;
 const FOGLIO_PAD_BOTTOM = 52;
 
+type SpostaDir = "up" | "down" | "left" | "right";
+
+function MappaSpostaFreccePad({
+  onNudge,
+}: {
+  onNudge: (dir: SpostaDir) => void;
+}) {
+  const btn =
+    "min-w-[5.5rem] rounded-lg border border-indigo-400 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50 active:bg-indigo-100";
+  return (
+    <div
+      className="inline-grid grid-cols-3 gap-1"
+      role="group"
+      aria-label="Sposta selezione"
+    >
+      <span />
+      <button type="button" className={btn} onClick={() => onNudge("up")}>
+        ▲ Sopra
+      </button>
+      <span />
+      <button type="button" className={btn} onClick={() => onNudge("left")}>
+        ◀ Sinistra
+      </button>
+      <span className="self-center text-center text-[10px] font-medium uppercase tracking-wide text-indigo-700">
+        Sposta
+      </span>
+      <button type="button" className={btn} onClick={() => onNudge("right")}>
+        Destra ▶
+      </button>
+      <span />
+      <button type="button" className={btn} onClick={() => onNudge("down")}>
+        ▼ Sotto
+      </button>
+      <span />
+    </div>
+  );
+}
+
 export function MagazzinoMappaBoard({
   mappaId,
   mode = "editor",
@@ -179,6 +223,15 @@ export function MagazzinoMappaBoard({
     sy: number;
     ax: number;
     ay: number;
+  } | null>(null);
+  const [dragLine, setDragLine] = useState<{
+    id: string;
+    sx: number;
+    sy: number;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
   } | null>(null);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
@@ -501,12 +554,22 @@ export function MagazzinoMappaBoard({
     }
     if (tool === "seleziona") {
       setSelectedAreaId(null);
+      setSelectedRifId(null);
       const id = hitLine(w.x, w.y);
       setSelectedId(id);
       const sel = linee.find((l) => l.id === id);
       if (sel) {
         setSpessore(sel.spessore);
         setColore(sel.colore);
+        setDragLine({
+          id: sel.id,
+          sx: w.x,
+          sy: w.y,
+          x1: sel.x1,
+          y1: sel.y1,
+          x2: sel.x2,
+          y2: sel.y2,
+        });
       }
       setDraftStart(null);
       return;
@@ -628,6 +691,24 @@ export function MagazzinoMappaBoard({
       );
       return;
     }
+    if (dragLine && w && canDraw) {
+      const dx = snapToGrid(w.x - dragLine.sx, griglia);
+      const dy = snapToGrid(w.y - dragLine.sy, griglia);
+      setLinee((prev) =>
+        prev.map((l) =>
+          l.id === dragLine.id
+            ? {
+                ...l,
+                x1: dragLine.x1 + dx,
+                y1: dragLine.y1 + dy,
+                x2: dragLine.x2 + dx,
+                y2: dragLine.y2 + dy,
+              }
+            : l
+        )
+      );
+      return;
+    }
     if (!forma || !w) return;
     const from = forma.vertici[forma.vertici.length - 1];
     if (!from) return;
@@ -711,6 +792,7 @@ export function MagazzinoMappaBoard({
     setSelectedId(null);
     setPendingArea(null);
     setDragArea(null);
+    setDragLine(null);
   }
 
   useEffect(() => {
@@ -735,6 +817,21 @@ export function MagazzinoMappaBoard({
         ev.preventDefault();
         eliminaLineaSelezionata();
         eliminaAreaSelezionata();
+      }
+      if (tool === "seleziona" && canDraw) {
+        if (ev.key === "ArrowUp") {
+          ev.preventDefault();
+          nudgeSelected("up");
+        } else if (ev.key === "ArrowDown") {
+          ev.preventDefault();
+          nudgeSelected("down");
+        } else if (ev.key === "ArrowLeft") {
+          ev.preventDefault();
+          nudgeSelected("left");
+        } else if (ev.key === "ArrowRight") {
+          ev.preventDefault();
+          nudgeSelected("right");
+        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -1022,6 +1119,143 @@ export function MagazzinoMappaBoard({
   const selectedLine = selectedId
     ? linee.find((l) => l.id === selectedId) ?? null
     : null;
+  const selectedRif = selectedRifId
+    ? riferimenti.find((g) => g.id === selectedRifId) ?? null
+    : null;
+
+  function deltaSposta(dir: SpostaDir): { dx: number; dy: number } {
+    const g = Math.max(1, griglia);
+    if (dir === "up") return { dx: 0, dy: -g };
+    if (dir === "down") return { dx: 0, dy: g };
+    if (dir === "left") return { dx: -g, dy: 0 };
+    return { dx: g, dy: 0 };
+  }
+
+  function clampDeltaNelFoglio(
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+    dx: number,
+    dy: number
+  ): { dx: number; dy: number } {
+    let ndx = dx;
+    let ndy = dy;
+    if (minX + ndx < foglio.x) ndx = foglio.x - minX;
+    if (maxX + ndx > foglio.x + foglio.width) ndx = foglio.x + foglio.width - maxX;
+    if (minY + ndy < foglio.y) ndy = foglio.y - minY;
+    if (maxY + ndy > foglio.y + foglio.height) ndy = foglio.y + foglio.height - maxY;
+    return { dx: ndx, dy: ndy };
+  }
+
+  function nudgeSelected(dir: SpostaDir) {
+    if (!canDraw || tool !== "seleziona") return;
+    const { dx, dy } = deltaSposta(dir);
+    if (dx === 0 && dy === 0) return;
+
+    if (selectedLine) {
+      const minX = Math.min(selectedLine.x1, selectedLine.x2);
+      const maxX = Math.max(selectedLine.x1, selectedLine.x2);
+      const minY = Math.min(selectedLine.y1, selectedLine.y2);
+      const maxY = Math.max(selectedLine.y1, selectedLine.y2);
+      const safe = clampDeltaNelFoglio(minX, minY, maxX, maxY, dx, dy);
+      if (safe.dx === 0 && safe.dy === 0) return;
+      setLinee((prev) =>
+        prev.map((l) =>
+          l.id === selectedLine.id
+            ? {
+                ...l,
+                x1: l.x1 + safe.dx,
+                y1: l.y1 + safe.dy,
+                x2: l.x2 + safe.dx,
+                y2: l.y2 + safe.dy,
+              }
+            : l
+        )
+      );
+      return;
+    }
+
+    if (selectedArea) {
+      const safe = clampDeltaNelFoglio(
+        selectedArea.x,
+        selectedArea.y,
+        selectedArea.x + selectedArea.width,
+        selectedArea.y + selectedArea.height,
+        dx,
+        dy
+      );
+      if (safe.dx === 0 && safe.dy === 0) return;
+      setAree((prev) =>
+        prev.map((a) =>
+          a.id === selectedArea.id
+            ? { ...a, x: a.x + safe.dx, y: a.y + safe.dy }
+            : a
+        )
+      );
+      return;
+    }
+
+    if (selectedRif) {
+      const pts = estremiCalcoDest(selectedRif);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const safe = clampDeltaNelFoglio(
+        Math.min(...xs, selectedRif.destX),
+        Math.min(...ys, selectedRif.destY),
+        Math.max(...xs, selectedRif.destX + selectedRif.destWidth),
+        Math.max(...ys, selectedRif.destY + selectedRif.destHeight),
+        dx,
+        dy
+      );
+      if (safe.dx === 0 && safe.dy === 0) return;
+      setRiferimenti((prev) =>
+        prev.map((g) =>
+          g.id === selectedRif.id
+            ? { ...g, destX: g.destX + safe.dx, destY: g.destY + safe.dy }
+            : g
+        )
+      );
+    }
+  }
+
+  const showSpostaFrecce = Boolean(
+    canDraw &&
+      tool === "seleziona" &&
+      (selectedLine || selectedArea || selectedRif)
+  );
+
+  const selezioneBounds = useMemo(() => {
+    if (selectedLine) {
+      const x = Math.min(selectedLine.x1, selectedLine.x2);
+      const y = Math.min(selectedLine.y1, selectedLine.y2);
+      return {
+        x,
+        y,
+        w: Math.max(Math.abs(selectedLine.x2 - selectedLine.x1), 1),
+        h: Math.max(Math.abs(selectedLine.y2 - selectedLine.y1), 1),
+      };
+    }
+    if (selectedArea) {
+      return {
+        x: selectedArea.x,
+        y: selectedArea.y,
+        w: selectedArea.width,
+        h: selectedArea.height,
+      };
+    }
+    if (selectedRif) {
+      const pts = estremiCalcoDest(selectedRif);
+      const xs = pts.map((p) => p.x);
+      const ys = pts.map((p) => p.y);
+      const x = Math.min(...xs, selectedRif.destX);
+      const y = Math.min(...ys, selectedRif.destY);
+      const x2 = Math.max(...xs, selectedRif.destX + selectedRif.destWidth);
+      const y2 = Math.max(...ys, selectedRif.destY + selectedRif.destHeight);
+      return { x, y, w: Math.max(1, x2 - x), h: Math.max(1, y2 - y) };
+    }
+    return null;
+  }, [selectedLine, selectedArea, selectedRif]);
 
   const disegnoCursor = useMemo(() => {
     if (!cursor) return null;
@@ -2060,6 +2294,25 @@ export function MagazzinoMappaBoard({
         </div>
       ) : null}
 
+      {showSpostaFrecce ? (
+        <div className="shrink-0 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2">
+          <p className="text-sm font-semibold text-indigo-950">
+            Sposta{" "}
+            {selectedLine
+              ? "linea"
+              : selectedArea
+                ? `area ${selectedArea.codice}`
+                : "elemento"}
+          </p>
+          <p className="mt-0.5 text-xs text-indigo-900">
+            Ogni click (o tasto freccia) sposta di un quadrato.
+          </p>
+          <div className="mt-2">
+            <MappaSpostaFreccePad onNudge={nudgeSelected} />
+          </div>
+        </div>
+      ) : null}
+
       {selectedLine ? (
         <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
           <p className="text-sm font-semibold text-amber-950">Linea selezionata</p>
@@ -2148,6 +2401,46 @@ export function MagazzinoMappaBoard({
         >
           Adatta al foglio
         </button>
+        {showSpostaFrecce && selezioneBounds ? (
+          <div className="pointer-events-none absolute inset-0 z-20">
+            {(["up", "down", "left", "right"] as const).map((dir) => {
+              const left = selezioneBounds.x * zoom + pan.x;
+              const top = selezioneBounds.y * zoom + pan.y;
+              const w = selezioneBounds.w * zoom;
+              const h = selezioneBounds.h * zoom;
+              const cx = left + w / 2;
+              const cy = top + h / 2;
+              const gap = 10;
+              const style: CSSProperties =
+                dir === "up"
+                  ? { left: cx, top: top - gap, transform: "translate(-50%, -100%)" }
+                  : dir === "down"
+                    ? { left: cx, top: top + h + gap, transform: "translate(-50%, 0)" }
+                    : dir === "left"
+                      ? { left: left - gap, top: cy, transform: "translate(-100%, -50%)" }
+                      : { left: left + w + gap, top: cy, transform: "translate(0, -50%)" };
+              const label =
+                dir === "up"
+                  ? "▲ Sopra"
+                  : dir === "down"
+                    ? "▼ Sotto"
+                    : dir === "left"
+                      ? "◀ Sinistra"
+                      : "Destra ▶";
+              return (
+                <button
+                  key={dir}
+                  type="button"
+                  style={style}
+                  onClick={() => nudgeSelected(dir)}
+                  className="pointer-events-auto absolute rounded-md border border-indigo-500 bg-white/95 px-2 py-1 text-[11px] font-semibold text-indigo-950 shadow-md hover:bg-indigo-50"
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {disegnoCursor?.punto ?? snappedCursor ? (
           <>
             <div
@@ -2167,7 +2460,11 @@ export function MagazzinoMappaBoard({
         <svg
           ref={svgRef}
           className={`h-full w-full touch-none bg-slate-200 ${
-            canDraw ? "cursor-crosshair" : "cursor-default"
+            canDraw && tool === "seleziona"
+              ? "cursor-move"
+              : canDraw
+                ? "cursor-crosshair"
+                : "cursor-default"
           }`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -2175,10 +2472,11 @@ export function MagazzinoMappaBoard({
             setPanning(null);
             setDragArea(null);
             setDragRif(null);
+            setDragLine(null);
           }}
           onPointerLeave={() => {
             setPanning(null);
-            if (!forma && !draftStart && !dragArea) setCursor(null);
+            if (!forma && !draftStart && !dragArea && !dragLine) setCursor(null);
           }}
           onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
