@@ -10,7 +10,10 @@ export type AziendaTimelineKind =
   | "ordine"
   | "campionatura"
   | "fattura_emessa"
-  | "fattura_ricevuta";
+  | "fattura_ricevuta"
+  | "copia_nota"
+  | "copia_attivita"
+  | "copia_promemoria";
 
 export type AziendaTimelineItem = {
   id: string;
@@ -40,6 +43,11 @@ export type AziendaTimelineItem = {
 export const TIMELINE_FILTER_GROUPS = [
   { key: "webmail", label: "Mail", kinds: ["webmail"] },
   { key: "nota", label: "Note", kinds: ["nota"] },
+  {
+    key: "pn",
+    label: "Promemoria e note",
+    kinds: ["copia_nota", "copia_attivita", "copia_promemoria"],
+  },
   { key: "fattura", label: "Fatture", kinds: ["fattura_emessa", "fattura_ricevuta"] },
   { key: "ordine", label: "Ordini", kinds: ["ordine"] },
   { key: "campionatura", label: "Campionature", kinds: ["campionatura"] },
@@ -54,6 +62,7 @@ export function emptyTimelineKindFiltersOn(): TimelineKindFilters {
   return {
     webmail: true,
     nota: true,
+    pn: true,
     fattura: true,
     ordine: true,
     campionatura: true,
@@ -65,6 +74,13 @@ export function timelineFilterKeyForKind(
   kind: AziendaTimelineKind
 ): TimelineFilterKey {
   if (kind === "fattura_emessa" || kind === "fattura_ricevuta") return "fattura";
+  if (
+    kind === "copia_nota" ||
+    kind === "copia_attivita" ||
+    kind === "copia_promemoria"
+  ) {
+    return "pn";
+  }
   return kind;
 }
 

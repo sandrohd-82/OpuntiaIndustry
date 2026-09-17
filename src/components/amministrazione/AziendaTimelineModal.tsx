@@ -10,12 +10,15 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  collegaPnATimelineAction,
   linkWebmailToAziendaTimelineAction,
   listAziendaTimelineAction,
   listAziendaTimelineMailHintsAction,
+  listPnPerTimelineAction,
   searchWebmailForAziendaTimelineAction,
   type AziendaTimelineMailHint,
   type AziendaTimelineMailHit,
+  type TimelinePnPickItem,
 } from "@/app/actions/azienda-timeline";
 import { createNotaPnAction, updateNotaPnAction } from "@/app/actions/promemorie-e-note";
 import { NotaBozzaFillEditor } from "@/components/promemorie-e-note/NotaBozzaFillEditor";
@@ -87,6 +90,9 @@ const KIND_LABEL: Record<AziendaTimelineKind, string> = {
   campionatura: "Campionatura",
   fattura_emessa: "Fattura emessa",
   fattura_ricevuta: "Fattura ricevuta",
+  copia_nota: "Nota (copia)",
+  copia_attivita: "Attività",
+  copia_promemoria: "Promemoria",
 };
 
 const KIND_CLASS: Record<AziendaTimelineKind, string> = {
@@ -97,6 +103,9 @@ const KIND_CLASS: Record<AziendaTimelineKind, string> = {
   campionatura: "bg-lime-100 text-lime-900",
   fattura_emessa: "bg-teal-100 text-teal-800",
   fattura_ricevuta: "bg-orange-100 text-orange-900",
+  copia_nota: "bg-amber-50 text-amber-900",
+  copia_attivita: "bg-indigo-100 text-indigo-900",
+  copia_promemoria: "bg-rose-100 text-rose-900",
 };
 
 const KIND_DOT: Record<AziendaTimelineKind, string> = {
@@ -107,7 +116,18 @@ const KIND_DOT: Record<AziendaTimelineKind, string> = {
   campionatura: "bg-lime-500",
   fattura_emessa: "bg-teal-500",
   fattura_ricevuta: "bg-orange-500",
+  copia_nota: "bg-amber-400",
+  copia_attivita: "bg-indigo-500",
+  copia_promemoria: "bg-rose-500",
 };
+
+function isCopiaPn(kind: AziendaTimelineKind): boolean {
+  return (
+    kind === "copia_nota" ||
+    kind === "copia_attivita" ||
+    kind === "copia_promemoria"
+  );
+}
 
 export type TimelinePickMode =
   | {
@@ -153,6 +173,7 @@ function TimelineCard({
   onVisualizza?: (item: AziendaTimelineItem) => void;
 }) {
   const isNota = item.kind === "nota";
+  const showBody = isNota || isCopiaPn(item.kind);
   return (
     <article
       className={`relative rounded-xl border border-[var(--border)] bg-white px-4 py-3 text-sm shadow-sm ${
@@ -206,7 +227,7 @@ function TimelineCard({
           </button>
         </div>
       ) : null}
-      {isNota ? (
+      {showBody ? (
         <div
           className={`mt-2 ${
             align === "left" ? "md:text-left" : ""
@@ -414,7 +435,7 @@ export function AziendaTimelineModal({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [panel, setPanel] = useState<"none" | "nota" | "mail">(
+  const [panel, setPanel] = useState<"none" | "nota" | "mail" | "pn">(
     pickMode?.purpose === "campionatura-mail" ||
     pickMode?.purpose === "ordine-accettazione-mail"
       ? "mail"
@@ -495,8 +516,14 @@ export function AziendaTimelineModal({
   const [selectedMail, setSelectedMail] = useState<AziendaTimelineMailHit | null>(
     null
   );
+  const [pnItems, setPnItems] = useState<TimelinePnPickItem[]>([]);
+  const [pnLoading, setPnLoading] = useState(false);
+  const [pnFiltro, setPnFiltro] = useState<
+    "tutti" | "nota" | "attivita" | "promemoria"
+  >("tutti");
+  const [pnQuery, setPnQuery] = useState("");
   const [kindFilters, setKindFilters] = useState<TimelineKindFilters>(
-    emptyTimelineKindFiltersOn
+    emptyTimelineKindFiltersOn()
   );
   const [visualizza, setVisualizza] = useState<TimelineVisualizzaTarget | null>(
     null
@@ -537,6 +564,19 @@ export function AziendaTimelineModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- solo all'apertura pannello
   }, [panel, aziendaTipo, aziendaId]);
 
+  useEffect(() => {
+    if (panel !== "pn") return;
+    setPnLoading(true);
+    void listPnPerTimelineAction().then((res) => {
+      setPnLoading(false);
+      if (res.success) setPnItems(res.items);
+      else {
+        setPnItems([]);
+        setError(res.error);
+      }
+    });
+  }, [panel]);
+
   async function runMailSearch(query: string) {
     setMailSearching(true);
     const res = await searchWebmailForAziendaTimelineAction({
@@ -566,6 +606,7 @@ export function AziendaTimelineModal({
       (group) =>
         group.key === "webmail" ||
         group.key === "nota" ||
+        group.key === "pn" ||
         group.key === "fattura" ||
         present.has(group.key)
     );
@@ -753,6 +794,51 @@ export function AziendaTimelineModal({
     });
   }
 
+  function pnAlreadyOnTimeline(p: TimelinePnPickItem): boolean {
+    if (
+      p.origineTipo === "nota" &&
+      items.some((i) => i.kind === "nota" && i.notaId === p.id)
+    ) {
+      return true;
+    }
+    const kind =
+      p.origineTipo === "nota"
+        ? "copia_nota"
+        : p.origineTipo === "attivita"
+          ? "copia_attivita"
+          : "copia_promemoria";
+    return items.some(
+      (i) =>
+        i.kind === kind &&
+        (i.sourceId === p.id || i.id === `pn-att:${p.id}`)
+    );
+  }
+
+  function collegaPn(p: TimelinePnPickItem) {
+    setError(null);
+    setInfo(null);
+    startTransition(async () => {
+      const res = await collegaPnATimelineAction({
+        aziendaTipo,
+        aziendaId,
+        origineTipo: p.origineTipo,
+        origineId: p.id,
+      });
+      if (!res.success) {
+        setError(res.error);
+        return;
+      }
+      const etichetta =
+        p.origineTipo === "attivita"
+          ? "Attività"
+          : p.origineTipo === "promemoria"
+            ? "Promemoria"
+            : "Nota";
+      setInfo(`${etichetta} copiata in timeline (non è un nuovo record).`);
+      await reload();
+    });
+  }
+
   function confirmPickedMail() {
     if (
       !selectedMail ||
@@ -825,7 +911,7 @@ export function AziendaTimelineModal({
                   ? "Collega la mail WebMail di accettazione del preventivo."
                 : pickMode?.purpose === "campionatura-mail"
                   ? "Collega la mail WebMail della richiesta di campionatura."
-                  : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note o collegare mail WebMail."}
+                  : "Asse dal basso (passato) all’alto (recente). Puoi aggiungere note, collegare mail o copiare Promemoria, Attività e Note già create."}
             </p>
             {presentFilterGroups.length > 0 ? (
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -890,6 +976,15 @@ export function AziendaTimelineModal({
               className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-950 hover:bg-sky-100"
             >
               + Mail
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setPanel((p) => (p === "pn" ? "none" : "pn"))
+              }
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-950 hover:bg-indigo-100"
+            >
+              + Promemoria e note
             </button>
             <button
               type="button"
@@ -1159,6 +1254,105 @@ export function AziendaTimelineModal({
           </div>
         ) : null}
 
+        {panel === "pn" ? (
+          <div className="shrink-0 border-b border-[var(--border)] bg-indigo-50/80 px-5 py-4 sm:px-8">
+            <p className="text-sm font-medium text-indigo-950">
+              Collega Promemoria, Attività o Note già create
+            </p>
+            <p className="mt-0.5 text-xs text-indigo-900/80">
+              Inserisce una copia in timeline (titolo, testo e data/ora
+              originali). Non crea un nuovo record in Promemoria e note.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {(
+                [
+                  ["tutti", "Tutti"],
+                  ["nota", "Note"],
+                  ["attivita", "Attività"],
+                  ["promemoria", "Promemoria"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setPnFiltro(key)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                    pnFiltro === key
+                      ? "border-indigo-400 bg-white text-indigo-950"
+                      : "border-indigo-200 bg-indigo-100/60 text-indigo-800"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+              <input
+                value={pnQuery}
+                onChange={(e) => setPnQuery(e.target.value)}
+                placeholder="Cerca titolo o testo…"
+                className="min-w-[12rem] flex-1 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-sm"
+              />
+            </div>
+            <ul className="mt-3 max-h-[min(28rem,55vh)] space-y-1.5 overflow-y-auto">
+              {pnLoading ? (
+                <li className="text-xs text-[var(--muted)]">Caricamento…</li>
+              ) : (
+                pnItems
+                  .filter((p) =>
+                    pnFiltro === "tutti" ? true : p.origineTipo === pnFiltro
+                  )
+                  .filter((p) => {
+                    const q = pnQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      p.titolo.toLowerCase().includes(q) ||
+                      p.testo.toLowerCase().includes(q)
+                    );
+                  })
+                  .map((p) => {
+                    const already = pnAlreadyOnTimeline(p);
+                    const tipo =
+                      p.origineTipo === "attivita"
+                        ? "Attività"
+                        : p.origineTipo === "promemoria"
+                          ? "Promemoria"
+                          : "Nota";
+                    return (
+                      <li
+                        key={`${p.origineTipo}:${p.id}`}
+                        className="flex items-start justify-between gap-3 rounded-lg border border-indigo-100 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-800">
+                            {tipo}
+                            <span className="ml-2 font-normal normal-case text-slate-500">
+                              {new Date(p.occurredAt).toLocaleString("it-IT")}
+                            </span>
+                          </p>
+                          <p className="mt-0.5 truncate text-sm font-medium text-slate-900">
+                            {p.titolo}
+                          </p>
+                          {p.testo ? (
+                            <p className="mt-0.5 line-clamp-2 text-xs text-[var(--muted)]">
+                              {p.testo}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={pending || already}
+                          onClick={() => collegaPn(p)}
+                          className="shrink-0 rounded-lg bg-indigo-700 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                        >
+                          {already ? "Già in timeline" : "Collega copia"}
+                        </button>
+                      </li>
+                    );
+                  })
+              )}
+            </ul>
+          </div>
+        ) : null}
+
         {(error || info) && (
           <div className="shrink-0 px-5 pt-3 sm:px-8">
             {error ? (
@@ -1181,7 +1375,8 @@ export function AziendaTimelineModal({
             </p>
           ) : items.length === 0 ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">
-              Nessuna attività. Usa + Nota o + Mail per iniziare.
+              Nessuna attività. Usa + Nota, + Mail o + Promemoria e note per
+              iniziare.
             </p>
           ) : displayItems.length === 0 ? (
             <p className="py-16 text-center text-sm text-[var(--muted)]">

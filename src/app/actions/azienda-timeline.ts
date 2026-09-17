@@ -10,6 +10,10 @@ import {
 } from "@/lib/auth/anagrafica-privileges-server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
+import {
+  upsertTimelinePnCopia,
+  type TimelinePnOrigine,
+} from "@/lib/amministrazione/timeline-pn-copie";
 import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";
 
 const inputSchema = z.object({
@@ -370,6 +374,85 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
+  {
+    const { data: copie } = await service
+      .from("azienda_timeline_pn_copie")
+      .select("id, origine_tipo, origine_id, occurred_at, titolo, testo")
+      .eq("azienda_tipo", aziendaTipo)
+      .eq("azienda_id", aziendaId)
+      .is("deleted_at", null)
+      .limit(400);
+    const copiaKeys = new Set<string>();
+    for (const r of copie ?? []) {
+      const when = r.occurred_at as string | null;
+      if (!when) continue;
+      const origine = String(r.origine_tipo) as TimelinePnOrigine;
+      copiaKeys.add(`${origine}:${r.origine_id}`);
+      const kind =
+        origine === "attivita"
+          ? "copia_attivita"
+          : origine === "promemoria"
+            ? "copia_promemoria"
+            : "copia_nota";
+      const testo = String(r.testo ?? "");
+      pushSorted(items, {
+        id: `pn-copia:${r.id}`,
+        kind,
+        occurredAt: when,
+        title: String(r.titolo || etichettaPnOrigine(origine)).trim(),
+        subtitle: testo.slice(0, 140),
+        sourceId: String(r.origine_id),
+        href: "/app/promemorie-e-note",
+        notaBody: testo,
+        notaBodyRich: testo,
+      });
+    }
+
+    const mentionKind =
+      aziendaTipo === "cliente"
+        ? "cliente"
+        : aziendaTipo === "cliente_possibile"
+          ? "cliente_possibile"
+          : "fornitore";
+    const { data: cols } = await service
+      .from("pn_attivita_collegamenti")
+      .select("attivita_id")
+      .eq("kind", mentionKind)
+      .eq("entity_id", aziendaId)
+      .is("deleted_at", null)
+      .limit(200);
+    const attivitaIds = [
+      ...new Set(
+        (cols ?? [])
+          .map((r) => String(r.attivita_id))
+          .filter((id) => id && !copiaKeys.has(`attivita:${id}`))
+      ),
+    ];
+    if (attivitaIds.length) {
+      const { data: att } = await service
+        .from("pn_attivita")
+        .select("id, titolo, descrizione, due_at, created_at")
+        .in("id", attivitaIds)
+        .is("deleted_at", null);
+      for (const r of att ?? []) {
+        const when = (r.due_at as string | null) || (r.created_at as string | null);
+        if (!when) continue;
+        const testo = String(r.descrizione ?? "");
+        pushSorted(items, {
+          id: `pn-att:${r.id}`,
+          kind: "copia_attivita",
+          occurredAt: when,
+          title: String(r.titolo || "Attività").trim(),
+          subtitle: testo.slice(0, 140),
+          sourceId: String(r.id),
+          href: "/app/promemorie-e-note",
+          notaBody: testo,
+          notaBodyRich: testo,
+        });
+      }
+    }
+  }
+
   if (aziendaTipo === "fornitore") {
     const { data } = await service
       .from("fatture_ricevute")
@@ -563,5 +646,163 @@ export async function linkWebmailToAziendaTimelineAction(
     },
   });
 
+  return { success: true };
+}
+
+function etichettaPnOrigine(tipo: TimelinePnOrigine): string {
+  if (tipo === "attivita") return "Attività";
+  if (tipo === "promemoria") return "Promemoria";
+  return "Nota";
+}
+
+export type TimelinePnPickItem = {
+  id: string;
+  origineTipo: TimelinePnOrigine;
+  titolo: string;
+  testo: string;
+  occurredAt: string;
+};
+
+export async function listPnPerTimelineAction(): Promise<
+  | { success: true; items: TimelinePnPickItem[] }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("amministrazione");
+  const service = createServiceClient();
+  const items: TimelinePnPickItem[] = [];
+
+  const { data: note } = await service
+    .from("pn_note")
+    .select("id, titolo, body, due_at, created_at")
+    .is("deleted_at", null)
+    .eq("stato", "attiva")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  for (const r of note ?? []) {
+    items.push({
+      id: String(r.id),
+      origineTipo: "nota",
+      titolo: String(r.titolo || "Nota").trim() || "Nota",
+      testo: String(r.body ?? ""),
+      occurredAt: String(r.due_at || r.created_at),
+    });
+  }
+
+  const { data: att } = await service
+    .from("pn_attivita")
+    .select("id, titolo, descrizione, due_at, created_at")
+    .is("deleted_at", null)
+    .neq("stato", "archiviata")
+    .order("due_at", { ascending: false })
+    .limit(200);
+  for (const r of att ?? []) {
+    items.push({
+      id: String(r.id),
+      origineTipo: "attivita",
+      titolo: String(r.titolo || "Attività").trim() || "Attività",
+      testo: String(r.descrizione ?? ""),
+      occurredAt: String(r.due_at || r.created_at),
+    });
+  }
+
+  const { data: pro } = await service
+    .from("pn_promemoria")
+    .select("id, titolo, descrizione, due_at, created_at")
+    .is("deleted_at", null)
+    .neq("stato", "archiviato")
+    .order("due_at", { ascending: false })
+    .limit(200);
+  for (const r of pro ?? []) {
+    items.push({
+      id: String(r.id),
+      origineTipo: "promemoria",
+      titolo: String(r.titolo || "Promemoria").trim() || "Promemoria",
+      testo: String(r.descrizione ?? ""),
+      occurredAt: String(r.due_at || r.created_at),
+    });
+  }
+
+  items.sort((a, b) => {
+    const ta = new Date(a.occurredAt).getTime();
+    const tb = new Date(b.occurredAt).getTime();
+    return tb - ta;
+  });
+  return { success: true, items };
+}
+
+const collegaPnSchema = z.object({
+  aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
+  aziendaId: z.string().uuid(),
+  origineTipo: z.enum(["nota", "attivita", "promemoria"]),
+  origineId: z.string().uuid(),
+});
+
+export async function collegaPnATimelineAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = collegaPnSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+  const service = createServiceClient();
+  const { aziendaTipo, aziendaId, origineTipo, origineId } = parsed.data;
+
+  let titolo = etichettaPnOrigine(origineTipo);
+  let testo = "";
+  let occurredAt = "";
+
+  if (origineTipo === "nota") {
+    const { data } = await service
+      .from("pn_note")
+      .select("titolo, body, due_at, created_at")
+      .eq("id", origineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { success: false, error: "Nota non trovata." };
+    titolo = String(data.titolo || "Nota").trim() || "Nota";
+    testo = String(data.body ?? "");
+    occurredAt = String(data.due_at || data.created_at);
+  } else if (origineTipo === "attivita") {
+    const { data } = await service
+      .from("pn_attivita")
+      .select("titolo, descrizione, due_at, created_at")
+      .eq("id", origineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { success: false, error: "Attività non trovata." };
+    titolo = String(data.titolo || "Attività").trim() || "Attività";
+    testo = String(data.descrizione ?? "");
+    occurredAt = String(data.due_at || data.created_at);
+  } else {
+    const { data } = await service
+      .from("pn_promemoria")
+      .select("titolo, descrizione, due_at, created_at")
+      .eq("id", origineId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (!data) return { success: false, error: "Promemoria non trovato." };
+    titolo = String(data.titolo || "Promemoria").trim() || "Promemoria";
+    testo = String(data.descrizione ?? "");
+    occurredAt = String(data.due_at || data.created_at);
+  }
+
+  const id = await upsertTimelinePnCopia(service, auth.userId, {
+    aziendaTipo,
+    aziendaId,
+    origineTipo,
+    origineId,
+    occurredAt,
+    titolo,
+    testo,
+  });
+  if (!id) return { success: false, error: "Copia in timeline non salvata." };
+
+  await writeAuditLog({
+    entity_type: "azienda_timeline_pn_copie",
+    entity_id: id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Copia ${origineTipo} in timeline ${aziendaTipo}`,
+    payload: { aziendaId, origineTipo, origineId },
+  });
   return { success: true };
 }

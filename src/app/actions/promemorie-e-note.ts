@@ -30,7 +30,7 @@ import {
   createClientePossibileSchema,
   createNotaBozzaSchema,
   createNotaSchema,
-  createPromemoriaSchema,
+  createPromemoriaConCollegamentiSchema,
   updateAttivitaSchema,
   updateNotaSchema,
   type ClientePossibile,
@@ -40,7 +40,9 @@ import {
   type PnPromemoria,
 } from "@/lib/promemorie-e-note/types";
 import { normalizeContattiGenerici } from "@/lib/amministrazione/contatti-generici";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { syncTimelinePnCopieDaCollegamenti } from "@/lib/amministrazione/timeline-pn-copie";
+import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import {
   auditCollegamentiChange,
   loadCollegamentiByAttivitaIds,
@@ -55,6 +57,35 @@ import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
   "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_by, created_at, updated_at, commerciale_id";
+
+async function syncPnMentionsToTimeline(input: {
+  userId: string;
+  origineTipo: "nota" | "attivita" | "promemoria";
+  origineId: string;
+  occurredAt: string;
+  titolo: string;
+  testo: string;
+  collegamenti: PnAttivitaCollegamento[] | unknown;
+}) {
+  const collegamenti = Array.isArray(input.collegamenti)
+    ? (input.collegamenti as PnAttivitaCollegamento[])
+    : [];
+  if (collegamenti.length === 0 || !input.occurredAt) return;
+  try {
+    await syncTimelinePnCopieDaCollegamenti({
+      supabase: createServiceClient(),
+      userId: input.userId,
+      origineTipo: input.origineTipo,
+      origineId: input.origineId,
+      occurredAt: input.occurredAt,
+      titolo: input.titolo,
+      testo: input.testo,
+      collegamenti,
+    });
+  } catch (e) {
+    console.error("[timeline-pn-copie]", e);
+  }
+}
 
 function mapConsegnaLead(
   row: ClienteConsegnaAltraAziendaRow | Record<string, unknown>
@@ -194,7 +225,7 @@ export async function createPromemoriaAction(input: unknown): Promise<
   { success: true; item: PnPromemoria } | { success: false; error: string }
 > {
   const { auth } = await guardPn();
-  const parsed = createPromemoriaSchema.safeParse(input);
+  const parsed = createPromemoriaConCollegamentiSchema.safeParse(input);
   if (!parsed.success) {
     return {
       success: false,
@@ -232,6 +263,15 @@ export async function createPromemoriaAction(input: unknown): Promise<
     actor_id: auth.userId,
     summary: `Promemoria: ${item.titolo}`,
     payload: {},
+  });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "promemoria",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo,
+    testo: item.descrizione,
+    collegamenti: parsed.data.collegamenti ?? [],
   });
   return { success: true, item };
 }
@@ -378,6 +418,15 @@ export async function createAttivitaPnAction(input: {
     titolo: item.titolo,
     nuova: true,
   });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "attivita",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo,
+    testo: item.descrizione,
+    collegamenti,
+  });
   return { success: true, item };
 }
 
@@ -464,6 +513,15 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     attivitaId: item.id,
     titolo: item.titolo,
     nuova: false,
+  });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "attivita",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo,
+    testo: item.descrizione,
+    collegamenti,
   });
   return { success: true, item };
 }
@@ -686,6 +744,15 @@ export async function createNotaPnAction(input: unknown): Promise<
       tracking_ids: trackingIds,
     },
   });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "nota",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo || "Nota",
+    testo: item.body,
+    collegamenti: d.collegamenti ?? [],
+  });
   return { success: true, item };
 }
 
@@ -855,6 +922,15 @@ export async function updateNotaPnAction(input: unknown): Promise<
       linked_attivita_id: item.linkedAttivitaId,
       previous_body_preview: String(existing.body ?? "").slice(0, 200),
     },
+  });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "nota",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo || "Nota",
+    testo: item.body,
+    collegamenti: d.collegamenti ?? [],
   });
   return { success: true, item };
 }

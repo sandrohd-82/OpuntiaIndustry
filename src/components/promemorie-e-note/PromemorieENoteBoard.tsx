@@ -131,7 +131,6 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
   }, [kind, mode]);
 
   useEffect(() => {
-    if (kind !== "attivita") return;
     const supabase = createClient();
     void listPeerCandidates(supabase, userId, { includeSelf: true }).then((p) =>
       setPeers(p.map((x) => ({ id: x.id, name: x.name })))
@@ -147,6 +146,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           titolo,
           descrizione,
           dueAt: dueIso,
+          collegamenti,
         });
         if (!res.success) {
           setError(res.error);
@@ -180,6 +180,7 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           createAttivita: notaExtras.createAttivita,
           linkedPromemoriaId: notaExtras.linkedPromemoriaId,
           linkedAttivitaId: notaExtras.linkedAttivitaId,
+          collegamenti,
         });
         if (!res.success) {
           setError(res.error);
@@ -259,11 +260,13 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
           {kind === "note" ? (
             <>
               <label className="block text-xs font-medium">Testo nota</label>
-              <textarea
+              <MentionDescriptionField
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={setBody}
+                collegamenti={collegamenti}
+                onCollegamentiChange={setCollegamenti}
                 rows={4}
-                className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
+                placeholder="Testo nota… @C- cliente, @Pc- possibile cliente, Leggenda @ per i comandi"
               />
               <label className="block text-xs font-medium">Colore</label>
               <select
@@ -282,29 +285,13 @@ export function PromemorieENoteBoard({ kind, mode, userId }: Props) {
               <NotaFormExtras value={notaExtras} onChange={setNotaExtras} />
             </>
           ) : (
-            <>
-              {kind === "attivita" ? (
-                <MentionDescriptionField
-                  value={descrizione}
-                  onChange={setDescrizione}
-                  collegamenti={collegamenti}
-                  onCollegamentiChange={setCollegamenti}
-                  placeholder="Dettagli… @ per operatori, @P- prodotti, Leggenda @ per tutti i comandi"
-                />
-              ) : (
-                <>
-                  <label className="block text-xs font-medium">
-                    Descrizione
-                  </label>
-                  <textarea
-                    value={descrizione}
-                    onChange={(e) => setDescrizione(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
-                  />
-                </>
-              )}
-            </>
+            <MentionDescriptionField
+              value={descrizione}
+              onChange={setDescrizione}
+              collegamenti={collegamenti}
+              onCollegamentiChange={setCollegamenti}
+              placeholder="Dettagli… @C- cliente, @Pc- possibile cliente, Leggenda @ per i comandi"
+            />
           )}
           {kind === "attivita" ? (
             <>

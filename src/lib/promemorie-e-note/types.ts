@@ -128,6 +128,10 @@ export const pnAttivitaCollegamentoSchema = z.object({
   meta: z.record(z.string(), z.unknown()).optional().default({}),
 });
 
+export const createPromemoriaConCollegamentiSchema = createPromemoriaSchema.extend({
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
+});
+
 export const createAttivitaSchema = z.object({
   titolo: z.string().trim().min(1).max(200),
   descrizione: z.string().trim().max(5000).optional().default(""),
@@ -170,6 +174,7 @@ export const createNotaSchema = z.object({
   linkedPromemoriaId: z.string().uuid().nullable().optional(),
   linkedAttivitaId: z.string().uuid().nullable().optional(),
   bozzaId: z.string().uuid().nullable().optional(),
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
   allegati: z
     .array(
       z.object({
@@ -219,6 +224,7 @@ export const updateNotaSchema = z.object({
   createAttivita: z.boolean().optional().default(false),
   linkedPromemoriaId: z.string().uuid().nullable().optional(),
   linkedAttivitaId: z.string().uuid().nullable().optional(),
+  collegamenti: z.array(pnAttivitaCollegamentoSchema).max(80).optional().default([]),
   allegati: z
     .array(
       z.object({
