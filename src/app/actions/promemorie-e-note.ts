@@ -46,6 +46,7 @@ import { syncTimelinePnCopieDaCollegamenti } from "@/lib/amministrazione/timelin
 import {
   loadAvvisiByOrigineIds,
   persistEventoAvvisi,
+  ricalcolaNotifyAtPerOrigine,
 } from "@/lib/promemorie-e-note/avvisi-db";
 import type { PnAttivitaCollegamento } from "@/lib/promemorie-e-note/mention-tokens";
 import {
@@ -55,7 +56,10 @@ import {
   persistAttivitaMentions,
 } from "@/lib/promemorie-e-note/attivita-collegamenti-db";
 import { operatorIdsFromCollegamenti } from "@/lib/promemorie-e-note/mention-tokens";
-import { notifyAttivitaCoinvolti } from "@/lib/notifiche/dispatch";
+import {
+  notifyAttivitaCoinvolti,
+  notifyPnCoinvolti,
+} from "@/lib/notifiche/dispatch";
 import { formatOperatorShortName } from "@/lib/auth/operator-short-name";
 import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
@@ -204,7 +208,7 @@ function parseMentionIdsFromText(
 export async function listPromemoriaAction(): Promise<
   { success: true; items: PnPromemoria[] } | { success: false; error: string }
 > {
-  await guardPn();
+  const { auth } = await guardPn();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("pn_promemoria")
@@ -214,7 +218,12 @@ export async function listPromemoriaAction(): Promise<
     .order("due_at", { ascending: true });
   if (error) return { success: false, error: error.message };
   const ids = (data ?? []).map((r) => String(r.id));
-  const avvisiMap = await loadAvvisiByOrigineIds(supabase, "promemoria", ids);
+  const avvisiMap = await loadAvvisiByOrigineIds(
+    supabase,
+    "promemoria",
+    ids,
+    auth.userId
+  );
   return {
     success: true,
     items: (data ?? []).map((r) => ({
@@ -259,6 +268,7 @@ export async function createPromemoriaAction(input: unknown): Promise<
   const avvisi = await persistEventoAvvisi({
     supabase,
     userId: auth.userId,
+    destinatarioId: auth.userId,
     origineTipo: "promemoria",
     origineId: String(data.id),
     dueAt: String(data.due_at),
@@ -281,6 +291,16 @@ export async function createPromemoriaAction(input: unknown): Promise<
     summary: `Promemoria: ${item.titolo}`,
     payload: {},
   });
+  const collegamenti = parsed.data.collegamenti ?? [];
+  await notifyPnCoinvolti({
+    actorId: auth.userId,
+    actorName: formatOperatorShortName(auth.profile),
+    recipientIds: operatorIdsFromCollegamenti(collegamenti),
+    kind: "promemoria",
+    entityId: item.id,
+    titolo: item.titolo,
+    nuova: true,
+  });
   await syncPnMentionsToTimeline({
     userId: auth.userId,
     origineTipo: "promemoria",
@@ -288,7 +308,7 @@ export async function createPromemoriaAction(input: unknown): Promise<
     occurredAt: item.dueAt || item.createdAt,
     titolo: item.titolo,
     testo: item.descrizione,
-    collegamenti: parsed.data.collegamenti ?? [],
+    collegamenti,
   });
   return { success: true, item };
 }
@@ -319,6 +339,12 @@ export async function updatePromemoriaAction(input: unknown): Promise<
     };
   }
   const supabase = await createClient();
+  const { data: prevDue } = await supabase
+    .from("pn_promemoria")
+    .select("due_at")
+    .eq("id", parsed.data.id)
+    .is("deleted_at", null)
+    .maybeSingle();
   const { data, error } = await supabase
     .from("pn_promemoria")
     .update({
@@ -334,9 +360,18 @@ export async function updatePromemoriaAction(input: unknown): Promise<
   if (error || !data) {
     return { success: false, error: error?.message ?? "Aggiornamento fallito" };
   }
+  if (String(prevDue?.due_at ?? "") !== String(data.due_at)) {
+    await ricalcolaNotifyAtPerOrigine({
+      origineTipo: "promemoria",
+      origineId: String(data.id),
+      dueAt: String(data.due_at),
+      actorId: auth.userId,
+    });
+  }
   const avvisi = await persistEventoAvvisi({
     supabase,
     userId: auth.userId,
+    destinatarioId: auth.userId,
     origineTipo: "promemoria",
     origineId: String(data.id),
     dueAt: String(data.due_at),
@@ -359,6 +394,25 @@ export async function updatePromemoriaAction(input: unknown): Promise<
     summary: `Promemoria aggiornato: ${item.titolo}`,
     payload: { avvisi: avvisi.length },
   });
+  const collegamenti = parsed.data.collegamenti ?? [];
+  await notifyPnCoinvolti({
+    actorId: auth.userId,
+    actorName: formatOperatorShortName(auth.profile),
+    recipientIds: operatorIdsFromCollegamenti(collegamenti),
+    kind: "promemoria",
+    entityId: item.id,
+    titolo: item.titolo,
+    nuova: false,
+  });
+  await syncPnMentionsToTimeline({
+    userId: auth.userId,
+    origineTipo: "promemoria",
+    origineId: item.id,
+    occurredAt: item.dueAt || item.createdAt,
+    titolo: item.titolo,
+    testo: item.descrizione,
+    collegamenti,
+  });
   return { success: true, item };
 }
 
@@ -366,7 +420,7 @@ export async function updatePromemoriaAction(input: unknown): Promise<
 export async function listAttivitaPnAction(): Promise<
   { success: true; items: PnAttivita[] } | { success: false; error: string }
 > {
-  await guardPn();
+  const { auth } = await guardPn();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("pn_attivita")
@@ -391,7 +445,12 @@ export async function listAttivitaPnAction(): Promise<
     }
   }
   const collegamentiMap = await loadCollegamentiByAttivitaIds(supabase, ids);
-  const avvisiMap = await loadAvvisiByOrigineIds(supabase, "attivita", ids);
+  const avvisiMap = await loadAvvisiByOrigineIds(
+    supabase,
+    "attivita",
+    ids,
+    auth.userId
+  );
   return {
     success: true,
     items: (data ?? []).map((r) => ({
@@ -470,6 +529,7 @@ export async function createAttivitaPnAction(input: {
   const avvisi = await persistEventoAvvisi({
     supabase,
     userId: auth.userId,
+    destinatarioId: auth.userId,
     origineTipo: "attivita",
     origineId: String(data.id),
     dueAt: String(data.due_at),
@@ -528,7 +588,7 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
   const supabase = await createClient();
   const { data: current, error: readErr } = await supabase
     .from("pn_attivita")
-    .select("id, versione, created_at")
+    .select("id, versione, created_at, due_at")
     .eq("id", parsed.data.id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -572,9 +632,18 @@ export async function updateAttivitaPnAction(input: unknown): Promise<
     userId: auth.userId,
     userIds: mentionIds,
   });
+  if (String(current.due_at ?? "") !== String(data.due_at)) {
+    await ricalcolaNotifyAtPerOrigine({
+      origineTipo: "attivita",
+      origineId: String(data.id),
+      dueAt: String(data.due_at),
+      actorId: auth.userId,
+    });
+  }
   const avvisi = await persistEventoAvvisi({
     supabase,
     userId: auth.userId,
+    destinatarioId: auth.userId,
     origineTipo: "attivita",
     origineId: String(data.id),
     dueAt: String(data.due_at),
@@ -746,6 +815,15 @@ export async function createNotaPnAction(input: unknown): Promise<
       summary: `Promemoria da nota: ${titoloBase}`,
       payload: { from_nota: true },
     });
+    await notifyPnCoinvolti({
+      actorId: auth.userId,
+      actorName: formatOperatorShortName(auth.profile),
+      recipientIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
+      kind: "promemoria",
+      entityId: linkedPromemoriaId,
+      titolo: titoloBase,
+      nuova: true,
+    });
   }
 
   if (d.createAttivita && !linkedAttivitaId) {
@@ -771,6 +849,19 @@ export async function createNotaPnAction(input: unknown): Promise<
       };
     }
     linkedAttivitaId = String(a.id);
+    const collegamenti = await persistAttivitaCollegamenti({
+      supabase,
+      attivitaId: linkedAttivitaId,
+      userId: auth.userId,
+      descrizione: d.body,
+      collegamenti: d.collegamenti ?? [],
+    });
+    const mentions = await persistAttivitaMentions({
+      supabase,
+      attivitaId: linkedAttivitaId,
+      userId: auth.userId,
+      userIds: operatorIdsFromCollegamenti(collegamenti),
+    });
     await writeAuditLog({
       entity_type: "pn_attivita",
       entity_id: linkedAttivitaId,
@@ -778,6 +869,14 @@ export async function createNotaPnAction(input: unknown): Promise<
       actor_id: auth.userId,
       summary: `Evento da nota: ${titoloBase}`,
       payload: { from_nota: true },
+    });
+    await notifyAttivitaCoinvolti({
+      actorId: auth.userId,
+      actorName: formatOperatorShortName(auth.profile),
+      recipientIds: mentions.added,
+      attivitaId: linkedAttivitaId,
+      titolo: titoloBase,
+      nuova: true,
     });
   }
 
@@ -920,6 +1019,15 @@ export async function updateNotaPnAction(input: unknown): Promise<
       summary: `Promemoria da modifica nota: ${titoloBase}`,
       payload: { from_nota: d.id },
     });
+    await notifyPnCoinvolti({
+      actorId: auth.userId,
+      actorName: formatOperatorShortName(auth.profile),
+      recipientIds: operatorIdsFromCollegamenti(d.collegamenti ?? []),
+      kind: "promemoria",
+      entityId: linkedPromemoriaId,
+      titolo: titoloBase,
+      nuova: true,
+    });
   }
 
   if (d.createAttivita && !linkedAttivitaId) {
@@ -945,6 +1053,19 @@ export async function updateNotaPnAction(input: unknown): Promise<
       };
     }
     linkedAttivitaId = String(a.id);
+    const collegamenti = await persistAttivitaCollegamenti({
+      supabase,
+      attivitaId: linkedAttivitaId,
+      userId: auth.userId,
+      descrizione: d.body,
+      collegamenti: d.collegamenti ?? [],
+    });
+    const mentions = await persistAttivitaMentions({
+      supabase,
+      attivitaId: linkedAttivitaId,
+      userId: auth.userId,
+      userIds: operatorIdsFromCollegamenti(collegamenti),
+    });
     await writeAuditLog({
       entity_type: "pn_attivita",
       entity_id: linkedAttivitaId,
@@ -952,6 +1073,14 @@ export async function updateNotaPnAction(input: unknown): Promise<
       actor_id: auth.userId,
       summary: `Evento da modifica nota: ${titoloBase}`,
       payload: { from_nota: d.id },
+    });
+    await notifyAttivitaCoinvolti({
+      actorId: auth.userId,
+      actorName: formatOperatorShortName(auth.profile),
+      recipientIds: mentions.added,
+      attivitaId: linkedAttivitaId,
+      titolo: titoloBase,
+      nuova: true,
     });
   }
 

@@ -3,7 +3,6 @@ import {
   createNotificaSchema,
   NOTIFICA_TIPO_TITLES,
   type CreateNotificaInput,
-  type NotificaTipo,
 } from "@/lib/notifiche/types";
 import { sendWebPushToUsers } from "@/lib/notifiche/web-push";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
@@ -106,6 +105,41 @@ export async function dispatchNotifiche(
   return { created: toInsert.length, pushed };
 }
 
+export async function notifyPnCoinvolti(input: {
+  actorId: string;
+  actorName: string;
+  recipientIds: string[];
+  kind: "attivita" | "promemoria";
+  entityId: string;
+  titolo: string;
+  nuova: boolean;
+}): Promise<void> {
+  try {
+    const isAtt = input.kind === "attivita";
+    await dispatchNotifiche({
+      actorId: input.actorId,
+      recipientIds: input.recipientIds,
+      tipo: "attivita",
+      title: input.nuova
+        ? isAtt
+          ? "Nuova attività"
+          : "Nuovo promemoria"
+        : isAtt
+          ? "Attività aggiornata"
+          : "Promemoria aggiornato",
+      body: `${input.actorName} ti ha coinvolto in «${input.titolo}»`,
+      href: isAtt
+        ? "/app/promemorie-e-note/attivita/elenco"
+        : "/app/promemorie-e-note/promemoria/elenco",
+      entityType: isAtt ? "pn_attivita" : "pn_promemoria",
+      entityId: input.entityId,
+      payload: { titolo: input.titolo, kind: input.kind },
+    });
+  } catch (err) {
+    console.error("[notifyPnCoinvolti]", err);
+  }
+}
+
 export async function notifyAttivitaCoinvolti(input: {
   actorId: string;
   actorName: string;
@@ -114,22 +148,15 @@ export async function notifyAttivitaCoinvolti(input: {
   titolo: string;
   nuova: boolean;
 }): Promise<void> {
-  try {
-  const tipo: NotificaTipo = "attivita";
-  await dispatchNotifiche({
+  await notifyPnCoinvolti({
     actorId: input.actorId,
+    actorName: input.actorName,
     recipientIds: input.recipientIds,
-    tipo,
-    title: input.nuova ? "Nuova attività" : "Attività aggiornata",
-    body: `${input.actorName} ti ha coinvolto in «${input.titolo}»`,
-    href: "/app/promemorie-e-note/attivita/elenco",
-    entityType: "pn_attivita",
+    kind: "attivita",
     entityId: input.attivitaId,
-    payload: { titolo: input.titolo },
+    titolo: input.titolo,
+    nuova: input.nuova,
   });
-  } catch (err) {
-    console.error("[notifyAttivitaCoinvolti]", err);
-  }
 }
 
 export async function notifyPnAvviso(input: {

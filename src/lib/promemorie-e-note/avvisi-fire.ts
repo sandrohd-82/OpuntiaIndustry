@@ -21,7 +21,7 @@ export async function fireDuePnAvvisi(input: {
   const { data: rows } = await service
     .from("pn_evento_avvisi")
     .select(
-      "id, origine_tipo, origine_id, offset_valore, offset_unita, notify_at, created_by"
+      "id, origine_tipo, origine_id, offset_valore, offset_unita, notify_at, created_by, destinatario_id"
     )
     .is("deleted_at", null)
     .is("sent_at", null)
@@ -37,6 +37,9 @@ export async function fireDuePnAvvisi(input: {
       r.origine_tipo === "promemoria" ? "promemoria" : "attivita";
     const origineId = String(r.origine_id);
     const createdBy = r.created_by ? String(r.created_by) : null;
+    const destinatario = r.destinatario_id
+      ? String(r.destinatario_id)
+      : createdBy;
     const parentTable =
       origineTipo === "attivita" ? "pn_attivita" : "pn_promemoria";
     const { data: parent } = await service
@@ -58,9 +61,13 @@ export async function fireDuePnAvvisi(input: {
       await markAvvisoSent(service, id, input.actorId);
       continue;
     }
-    const claimed = await markAvvisoSent(service, id, input.actorId ?? createdBy);
+    const claimed = await markAvvisoSent(
+      service,
+      id,
+      input.actorId ?? destinatario
+    );
     if (!claimed) continue;
-    const recipients = createdBy ? [createdBy] : [];
+    const recipients = destinatario ? [destinatario] : [];
     if (!recipients.length) {
       fired += 1;
       continue;
@@ -110,9 +117,9 @@ export async function listPendingAvvisiForUser(input: {
   const { data } = await service
     .from("pn_evento_avvisi")
     .select(
-      "id, origine_tipo, origine_id, offset_valore, offset_unita, notify_at, created_by"
+      "id, origine_tipo, origine_id, offset_valore, offset_unita, notify_at, created_by, destinatario_id"
     )
-    .eq("created_by", input.userId)
+    .eq("destinatario_id", input.userId)
     .is("deleted_at", null)
     .is("sent_at", null)
     .lte("notify_at", horizon)

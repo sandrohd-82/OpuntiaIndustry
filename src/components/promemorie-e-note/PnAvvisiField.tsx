@@ -32,8 +32,9 @@ export function PnAvvisiField({ value, onChange }: Props) {
     <div className="space-y-2">
       <p className="text-xs font-medium">Avvisami prima dell&apos;evento</p>
       <p className="text-[11px] text-slate-500">
-        Una o più sveglie. Esempio: Avvisami 3 giorni prima, 1 ora prima, 5
-        minuti prima.
+        Solo le tue sveglie: gli altri operatori collegati impostano le
+        proprie, senza toccare le tue. Esempio: Avvisami 3 giorni prima, 1 ora
+        prima, 5 minuti prima.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {QUICK.map((q) => (

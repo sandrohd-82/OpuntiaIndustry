@@ -28,6 +28,7 @@ export type PnAvviso = {
   offsetUnita: PnAvvisoUnita;
   notifyAt?: string;
   sentAt?: string | null;
+  destinatarioId?: string;
 };
 
 export const pnAvvisoInputSchema = z.object({
