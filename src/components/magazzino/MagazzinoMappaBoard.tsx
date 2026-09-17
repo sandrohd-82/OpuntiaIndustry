@@ -45,6 +45,7 @@ type FormaStato = {
   vertici: MappaPunto[];
   lati: number[];
   senso: 1 | -1;
+  heading: number;
 };
 
 function newLocalId(): string {
@@ -56,7 +57,7 @@ function headingForma(
   cursor: MappaPunto | null
 ): number {
   const from = forma.vertici[forma.vertici.length - 1];
-  if (!from) return 0;
+  if (!from) return forma.heading;
   if (forma.tipo === "rettangolo" && forma.vertici.length >= 2) {
     const h0 = headingCardinale(forma.vertici[0]!, forma.vertici[1]!);
     let h = h0;
@@ -65,7 +66,13 @@ function headingForma(
     }
     return h;
   }
-  return headingCardinale(from, cursor ?? { x: from.x + 1, y: from.y });
+  if (
+    cursor &&
+    (Math.abs(cursor.x - from.x) > 0.0001 || Math.abs(cursor.y - from.y) > 0.0001)
+  ) {
+    return headingCardinale(from, cursor);
+  }
+  return forma.heading;
 }
 
 const FOGLIO_PAD_X = 16;
@@ -314,6 +321,7 @@ export function MagazzinoMappaBoard() {
           vertici: [snap],
           lati: [],
           senso: 1,
+          heading: 0,
         });
         setSelectedId(null);
         setDraftStart(null);
@@ -340,6 +348,15 @@ export function MagazzinoMappaBoard() {
     }
     const w = worldFromEvent(e);
     setCursor(w);
+    if (!forma || !w) return;
+    const from = forma.vertici[forma.vertici.length - 1];
+    if (!from) return;
+    if (forma.tipo === "rettangolo" && forma.vertici.length >= 2) return;
+    if (Math.abs(w.x - from.x) < 0.0001 && Math.abs(w.y - from.y) < 0.0001) return;
+    const h = headingCardinale(from, w);
+    if (h !== forma.heading) {
+      setForma((prev) => (prev ? { ...prev, heading: h } : prev));
+    }
   }
 
   function onWheel(e: React.WheelEvent<SVGSVGElement>) {
@@ -627,6 +644,15 @@ export function MagazzinoMappaBoard() {
 
   const latoIndice = forma ? forma.lati.length + 1 : 0;
   const latoTotale = forma?.tipo === "rettangolo" ? 4 : null;
+  const headingCorrente = forma ? headingForma(forma, snappedCursor) : 0;
+  const versoLabel =
+    headingCorrente === 180
+      ? "sinistra"
+      : headingCorrente === 90
+        ? "basso"
+        : headingCorrente === 270
+          ? "alto"
+          : "destra";
 
   if (!ready) {
     return <p className="text-sm text-[var(--muted)]">Caricamento mappa…</p>;
@@ -847,6 +873,8 @@ export function MagazzinoMappaBoard() {
                       ? `Lato ${latoIndice} di ${latoTotale}`
                       : `Lato ${latoIndice}`}
                     {" · "}
+                    verso {versoLabel}
+                    {" · "}
                     {formattaQuadrati(quadratiCorrenti)} quadrati ·{" "}
                     {formattaLunghezzaReale(quadratiCorrenti, scalaValore, scalaUnita)}
                   </p>
@@ -1017,7 +1045,7 @@ export function MagazzinoMappaBoard() {
           onPointerUp={() => setPanning(null)}
           onPointerLeave={() => {
             setPanning(null);
-            setCursor(null);
+            if (!forma && !draftStart) setCursor(null);
           }}
           onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
