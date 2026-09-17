@@ -683,10 +683,15 @@ export function WebmailBoard({
 
   function runSyncChoice(choice: WebmailSyncChoice) {
     const accountId = accountFilter || undefined;
+    const folders = {
+      inbox: choice.inbox,
+      sent: choice.sent,
+      junk: false,
+    };
     const gapMs = 2000;
     startTransition(async () => {
       try {
-        if (choice === "all") {
+        if (choice.mode === "all") {
           let imported = 0;
           const importedIds: string[] = [];
           let round = 0;
@@ -694,7 +699,11 @@ export function WebmailBoard({
             setSyncProgress(
               `Richiesta ${round + 1}: importazione di massimo 40 mail…`
             );
-            const res = await runWebmailSyncAction(accountId, "recent");
+            const res = await runWebmailSyncAction(
+              accountId,
+              "recent",
+              folders
+            );
             if (!res.success) {
               setError(res.error);
               if (importedIds.length > 0) {
@@ -732,7 +741,8 @@ export function WebmailBoard({
 
         const res = await runWebmailSyncAction(
           accountId,
-          choice === "older" ? "older" : "recent"
+          choice.mode === "older" ? "older" : "recent",
+          folders
         );
         if (!res.success) {
           setError(res.error);

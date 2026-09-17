@@ -137,12 +137,32 @@ export const WEBMAIL_SYNC_SAFE_BATCH = 40;
 export const WEBMAIL_LIVE_UID_WINDOW = 40;
 export const WEBMAIL_LIVE_IDLE_MS = 25_000;
 
+export type WebmailSyncFolders = {
+  inbox?: boolean;
+  sent?: boolean;
+  junk?: boolean;
+};
+
+export function resolveWebmailSyncFolders(
+  folders?: WebmailSyncFolders
+): { inbox: boolean; sent: boolean; junk: boolean } {
+  return {
+    inbox: folders?.inbox !== false,
+    sent: folders?.sent !== false,
+    junk: folders?.junk !== false,
+  };
+}
+
 export type WebmailSyncPreviewAccount = {
   accountId: string;
   email: string;
   missing: number;
+  inboxMissing: number;
+  sentMissing: number;
+  sentUnavailable: boolean;
   importedInScope: number;
   olderAvailable: number;
+  sentOlderAvailable: number;
 };
 
 function pickMissingBatch(
@@ -718,42 +738,39 @@ async function importSpamMailbox(
 
 export const IMAP_SENT_CANDIDATES = [
   "Sent",
+  "Sent Mail",
   "Sent Items",
   "Sent Messages",
   "INBOX.Sent",
   "INBOX/Sent",
   "[Gmail]/Sent Mail",
   "Posta inviata",
+  "Posta Inviata",
+  "Elementi inviati",
   "Inviata",
+  "Inviate",
   "Inviati",
 ];
+
+function mailboxPath(box: {
+  path?: string;
+  name?: string;
+  specialUse?: string;
+}): string {
+  return String(box.path ?? box.name ?? "");
+}
 
 async function resolveImapSentMailbox(
   client: ImapFlow
 ): Promise<string | null> {
-  for (const name of IMAP_SENT_CANDIDATES) {
-    try {
-      const lock = await client.getMailboxLock(name);
-      lock.release();
-      return name;
-    } catch {
-      // cartella assente su questo provider
-    }
-  }
   try {
     const boxes = await client.list();
     for (const box of boxes) {
-      const path = String(
-        (box as { path?: string }).path ??
-          (box as { name?: string }).name ??
-          ""
-      );
-      const special = String(
-        (box as { specialUse?: string }).specialUse ?? ""
-      );
+      const path = mailboxPath(box);
+      const special = String(box.specialUse ?? "").toLowerCase();
       if (
-        special.toLowerCase() === "\\sent" ||
-        /(?:^|[/.[\]])(sent|inviata|inviati|posta inviata)(?:$|[/.[\]])/i.test(
+        special === "\\sent" ||
+        /(?:^|[/.[\]])(sent|inviata|inviate|inviati|posta inviata|elementi inviati)(?:$|[/.[\]])/i.test(
           path
         )
       ) {
@@ -763,7 +780,55 @@ async function resolveImapSentMailbox(
   } catch {
     // list non disponibile
   }
+  for (const name of IMAP_SENT_CANDIDATES) {
+    try {
+      const lock = await client.getMailboxLock(name);
+      lock.release();
+      return name;
+    } catch {
+      // cartella assente su questo provider
+    }
+  }
   return null;
+}
+
+async function countMailboxMissing(
+  supabase: Service,
+  account: AccountRow,
+  client: ImapFlow,
+  imapBox: string,
+  storeFolder: string
+): Promise<{
+  missing: number;
+  importedInScope: number;
+  olderAvailable: number;
+}> {
+  const lock = await client.getMailboxLock(imapBox);
+  try {
+    const since = resolveWebmailSyncSince(account.sync_since);
+    const uids = await client.search({ since }, { uid: true });
+    const all = (uids || []).map((u) => String(u));
+    const existingSet = await loadExistingUids(
+      supabase,
+      account.id,
+      all,
+      storeFolder
+    );
+    const missing = all.filter((uid) => !existingSet.has(uid));
+    const older = pickMissingBatch(
+      missing,
+      existingSet,
+      "older",
+      WEBMAIL_SYNC_SAFE_BATCH
+    );
+    return {
+      missing: missing.length,
+      importedInScope: existingSet.size,
+      olderAvailable: older.list.length,
+    };
+  } finally {
+    lock.release();
+  }
 }
 
 async function importSentMailbox(
@@ -851,6 +916,7 @@ export async function syncWebmailAccount(
     mode?: WebmailSyncMode;
     /** Solo UID più alti di quelli già in archivio (cron / nuove arrivate). */
     newMailOnly?: boolean;
+    folders?: WebmailSyncFolders;
   }
 ): Promise<SyncWebmailResult> {
   const limit = options?.limit ?? WEBMAIL_SYNC_SAFE_BATCH;
@@ -860,6 +926,7 @@ export async function syncWebmailAccount(
   );
   const mode: WebmailSyncMode = options?.mode === "older" ? "older" : "recent";
   const newMailOnly = Boolean(options?.newMailOnly);
+  const folders = resolveWebmailSyncFolders(options?.folders);
 
   let imported = 0;
   let skipped = 0;
@@ -898,56 +965,68 @@ export async function syncWebmailAccount(
     let all: string[] = [];
     let pending = 0;
 
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const uids = await client.search({ since }, { uid: true });
-      all = (uids || []).map((u) => String(u));
+    if (folders.inbox) {
+      const lock = await client.getMailboxLock("INBOX");
+      try {
+        const uids = await client.search({ since }, { uid: true });
+        all = (uids || []).map((u) => String(u));
 
-      const existingSet = await loadExistingUids(supabase, account.id, all);
-      let missing = all.filter((uid) => !existingSet.has(uid));
-      if (newMailOnly) {
-        const maxUid = await loadMaxInboxUid(supabase, account.id);
-        missing = missing.filter((uid) => {
-          const n = Number(uid);
-          return Number.isFinite(n) && n > maxUid;
-        });
+        const existingSet = await loadExistingUids(supabase, account.id, all);
+        let missing = all.filter((uid) => !existingSet.has(uid));
+        if (newMailOnly) {
+          const maxUid = await loadMaxInboxUid(supabase, account.id);
+          missing = missing.filter((uid) => {
+            const n = Number(uid);
+            return Number.isFinite(n) && n > maxUid;
+          });
+        }
+        skipped = all.length - missing.length;
+        const picked = pickMissingBatch(missing, existingSet, mode, batchLimit);
+        const list = picked.list;
+        pending = picked.pending;
+
+        const importedRes = await importInboxUidList(
+          supabase,
+          account,
+          client,
+          list,
+          blacklist
+        );
+        imported = importedRes.imported;
+        importedIds.push(...importedRes.importedIds);
+      } finally {
+        lock.release();
       }
-      skipped = all.length - missing.length;
-      const picked = pickMissingBatch(missing, existingSet, mode, batchLimit);
-      const list = picked.list;
-      pending = picked.pending;
-
-      const importedRes = await importInboxUidList(
-        supabase,
-        account,
-        client,
-        list,
-        blacklist
-      );
-      imported = importedRes.imported;
-      importedIds.push(...importedRes.importedIds);
-    } finally {
-      lock.release();
     }
 
-    const spamRes = await importSpamMailbox(
-      supabase,
-      account,
-      client,
-      blacklist,
-      { batchLimit, mode, newMailOnly }
-    );
+    const spamRes = folders.junk
+      ? await importSpamMailbox(supabase, account, client, blacklist, {
+          batchLimit,
+          mode,
+          newMailOnly,
+        })
+      : {
+          imported: 0,
+          importedIds: [] as string[],
+          skipped: 0,
+          pending: 0,
+        };
     imported += spamRes.imported;
     importedIds.push(...spamRes.importedIds);
     skipped += spamRes.skipped;
 
-    const sentRes = await importSentMailbox(
-      supabase,
-      account,
-      client,
-      blacklist,
-      { batchLimit, mode, newMailOnly }
-    );
+    const sentRes = folders.sent
+      ? await importSentMailbox(supabase, account, client, blacklist, {
+          batchLimit,
+          mode,
+          newMailOnly,
+        })
+      : {
+          imported: 0,
+          importedIds: [] as string[],
+          skipped: 0,
+          pending: 0,
+        };
     imported += sentRes.imported;
     importedIds.push(...sentRes.importedIds);
     skipped += sentRes.skipped;
@@ -1291,27 +1370,32 @@ export async function previewWebmailAccount(
 
   try {
     await client.connect();
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const since = resolveWebmailSyncSince(account.sync_since);
-      const uids = await client.search({ since }, { uid: true });
-      const all = (uids || []).map((u) => String(u));
-      const existingSet = await loadExistingUids(supabase, account.id, all);
-      const missing = all.filter((uid) => !existingSet.has(uid));
-      const older = pickMissingBatch(
-        missing,
-        existingSet,
-        "older",
-        WEBMAIL_SYNC_SAFE_BATCH
-      );
-      return {
-        missing: missing.length,
-        importedInScope: existingSet.size,
-        olderAvailable: older.list.length,
-      };
-    } finally {
-      lock.release();
-    }
+    const inbox = await countMailboxMissing(
+      supabase,
+      account,
+      client,
+      "INBOX",
+      "INBOX"
+    );
+    const sentBox = await resolveImapSentMailbox(client);
+    const sent = sentBox
+      ? await countMailboxMissing(
+          supabase,
+          account,
+          client,
+          sentBox,
+          WEBMAIL_SENT_FOLDER
+        )
+      : { missing: 0, importedInScope: 0, olderAvailable: 0 };
+    return {
+      missing: inbox.missing + sent.missing,
+      inboxMissing: inbox.missing,
+      sentMissing: sent.missing,
+      sentUnavailable: !sentBox,
+      importedInScope: inbox.importedInScope + sent.importedInScope,
+      olderAvailable: inbox.olderAvailable,
+      sentOlderAvailable: sent.olderAvailable,
+    };
   } catch (e) {
     return { error: formatImapSyncError(e, account) };
   } finally {
@@ -1363,8 +1447,12 @@ export async function previewWebmailAccounts(
       accountId: row.id,
       email: row.email_address,
       missing: res.missing,
+      inboxMissing: res.inboxMissing,
+      sentMissing: res.sentMissing,
+      sentUnavailable: res.sentUnavailable,
       importedInScope: res.importedInScope,
       olderAvailable: res.olderAvailable,
+      sentOlderAvailable: res.sentOlderAvailable,
     });
   }
   return { success: true, totalMissing, accounts };
@@ -1584,6 +1672,7 @@ export async function syncAllWebmailAccounts(
     mode?: WebmailSyncMode;
     limit?: number;
     newMailOnly?: boolean;
+    folders?: WebmailSyncFolders;
   }
 ): Promise<{
   accounts: number;

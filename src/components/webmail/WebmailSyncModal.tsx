@@ -4,7 +4,13 @@ import { useEffect, useState, useTransition } from "react";
 import { previewWebmailSyncAction } from "@/app/actions/webmail";
 import type { WebmailSyncPreviewAccount } from "@/lib/webmail/sync";
 
-export type WebmailSyncChoice = "all" | "recent" | "older";
+export type WebmailSyncModeChoice = "all" | "recent" | "older";
+
+export type WebmailSyncChoice = {
+  mode: WebmailSyncModeChoice;
+  inbox: boolean;
+  sent: boolean;
+};
 
 type Props = {
   open: boolean;
@@ -23,8 +29,9 @@ export function WebmailSyncModal({
   onClose,
   onConfirm,
 }: Props) {
-  const [choice, setChoice] = useState<WebmailSyncChoice>("recent");
-  const [totalMissing, setTotalMissing] = useState(0);
+  const [choice, setChoice] = useState<WebmailSyncModeChoice>("recent");
+  const [syncInbox, setSyncInbox] = useState(true);
+  const [syncSent, setSyncSent] = useState(true);
   const [batchSize, setBatchSize] = useState(40);
   const [accounts, setAccounts] = useState<WebmailSyncPreviewAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -33,28 +40,36 @@ export function WebmailSyncModal({
   useEffect(() => {
     if (!open) return;
     setChoice("recent");
+    setSyncInbox(true);
+    setSyncSent(true);
     setError(null);
     setAccounts([]);
-    setTotalMissing(0);
     startTransition(async () => {
       const res = await previewWebmailSyncAction(accountId);
       if (!res.success) {
         setError(res.error);
         return;
       }
-      setTotalMissing(res.totalMissing);
       setBatchSize(res.batchSize);
       setAccounts(res.accounts);
-      if (res.accounts.every((a) => a.olderAvailable === 0)) {
-        setChoice("recent");
-      }
     });
   }, [open, accountId]);
 
   if (!open) return null;
 
-  const olderAvailable = accounts.reduce((n, a) => n + a.olderAvailable, 0);
+  const inboxMissing = accounts.reduce((n, a) => n + (a.inboxMissing ?? 0), 0);
+  const sentMissing = accounts.reduce((n, a) => n + (a.sentMissing ?? 0), 0);
+  const sentUnavailable = accounts.every((a) => a.sentUnavailable);
+  const selectedMissing =
+    (syncInbox ? inboxMissing : 0) + (syncSent ? sentMissing : 0);
+  const olderAvailable = accounts.reduce((n, a) => {
+    let extra = 0;
+    if (syncInbox) extra += a.olderAvailable ?? 0;
+    if (syncSent) extra += a.sentOlderAvailable ?? 0;
+    return n + extra;
+  }, 0);
   const loading = pending && accounts.length === 0 && !error;
+  const canStart = selectedMissing > 0 && (syncInbox || syncSent);
 
   return (
     <div
@@ -73,7 +88,7 @@ export function WebmailSyncModal({
 
         {loading ? (
           <p className="mt-3 text-sm text-[var(--muted)]">
-            Controllo quante mail ci sono da sincronizzare…
+            Controllo In arrivo e Inviate…
           </p>
         ) : null}
 
@@ -85,23 +100,72 @@ export function WebmailSyncModal({
 
         {!loading && !error ? (
           <div className="mt-3 space-y-3">
-            <p className="text-sm">
-              Ci sono <strong>{totalMissing}</strong> mail da sincronizzare
-              {accounts.length > 1 ? " sulle caselle selezionate" : ""}.
+            <p className="text-sm text-[var(--muted)]">
+              Seleziona cosa importare. Il sistema ha già contato le mail non
+              presenti nel gestionale.
             </p>
+            <fieldset className="space-y-2" disabled={running}>
+              <legend className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Cartelle
+              </legend>
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-[var(--border)] px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={syncInbox}
+                  onChange={(e) => setSyncInbox(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium">Ricevute</span>
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    {inboxMissing} mail da sincronizzare
+                  </span>
+                </span>
+              </label>
+              <label
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 ${
+                  sentUnavailable
+                    ? "cursor-not-allowed border-[var(--border)] opacity-60"
+                    : "cursor-pointer border-[var(--border)]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={syncSent && !sentUnavailable}
+                  disabled={sentUnavailable}
+                  onChange={(e) => setSyncSent(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium">Inviate</span>
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    {sentUnavailable
+                      ? "Cartella Inviate non trovata su questa casella IMAP."
+                      : `${sentMissing} mail da sincronizzare`}
+                  </span>
+                </span>
+              </label>
+            </fieldset>
+
             {accounts.length > 1 ? (
               <ul className="text-xs text-[var(--muted)]">
                 {accounts.map((a) => (
                   <li key={a.accountId}>
-                    {a.email}: {a.missing} da importare
+                    {a.email}: ricevute {a.inboxMissing ?? 0}, inviate{" "}
+                    {a.sentMissing ?? 0}
+                    {a.sentUnavailable ? " (senza cartella inviate)" : ""}
                   </li>
                 ))}
               </ul>
             ) : null}
 
-            {totalMissing === 0 ? (
+            <p className="text-sm">
+              Totale selezionato: <strong>{selectedMissing}</strong> mail
+            </p>
+
+            {selectedMissing === 0 ? (
               <p className="text-sm text-[var(--muted)]">
-                Nessuna nuova mail da importare.
+                Nessuna nuova mail da importare nelle cartelle scelte.
               </p>
             ) : (
               <fieldset className="space-y-2" disabled={running}>
@@ -121,9 +185,8 @@ export function WebmailSyncModal({
                       Importa tutto
                     </span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Il sistema importa in sicurezza: al massimo {batchSize}{" "}
-                      mail per richiesta, con un’attesa minima fra una
-                      richiesta e l’altra.
+                      Massimo {batchSize} mail per richiesta, con attesa fra
+                      una richiesta e l’altra.
                     </span>
                   </span>
                 </label>
@@ -140,8 +203,8 @@ export function WebmailSyncModal({
                       Importa solo le più recenti
                     </span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Importa le {Math.min(batchSize, totalMissing)} mail più
-                      recenti non ancora presenti.
+                      Fino a {Math.min(batchSize, selectedMissing)} mail per
+                      cartella selezionata.
                     </span>
                   </span>
                 </label>
@@ -162,13 +225,13 @@ export function WebmailSyncModal({
                   />
                   <span>
                     <span className="block text-sm font-medium">
-                      Importa un blocco di {batchSize} mail antecedenti
+                      Importa un blocco antecedente
                     </span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Importa un blocco di {batchSize} mail antecedenti a
-                      quelle già importate
+                      Fino a {batchSize} mail più vecchie di quelle già
+                      importate
                       {olderAvailable === 0
-                        ? " (nessun blocco antecedente disponibile)."
+                        ? " (nessun blocco antecedente)."
                         : "."}
                     </span>
                   </span>
@@ -191,16 +254,22 @@ export function WebmailSyncModal({
             onClick={onClose}
             className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm"
           >
-            {totalMissing === 0 && !loading ? "Chiudi" : "Annulla"}
+            {selectedMissing === 0 && !loading ? "Chiudi" : "Annulla"}
           </button>
-          {totalMissing > 0 && !error ? (
+          {canStart && !error ? (
             <button
               type="button"
               disabled={running || loading}
-              onClick={() => onConfirm(choice)}
+              onClick={() =>
+                onConfirm({
+                  mode: choice,
+                  inbox: syncInbox,
+                  sent: syncSent && !sentUnavailable,
+                })
+              }
               className="rounded-lg bg-[var(--primary)] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {running ? "Importazione…" : "Avvia"}
+              {running ? "Importazione…" : "Sincronizza"}
             </button>
           ) : null}
         </div>

@@ -37,6 +37,7 @@ import {
   syncAllWebmailAccounts,
   syncWebmailAccount,
   WEBMAIL_SYNC_SAFE_BATCH,
+  type WebmailSyncFolders,
   type WebmailSyncMode,
   type WebmailSyncPreviewAccount,
 } from "@/lib/webmail/sync";
@@ -1916,7 +1917,8 @@ export async function previewWebmailSyncAction(accountId?: string): Promise<
 
 export async function runWebmailSyncAction(
   accountId?: string,
-  mode: WebmailSyncMode = "recent"
+  mode: WebmailSyncMode = "recent",
+  folders?: WebmailSyncFolders
 ): Promise<
   | {
       success: true;
@@ -1931,7 +1933,7 @@ export async function runWebmailSyncAction(
   try {
     await requireWebmailAccess();
     const service = createServiceClient();
-    const opts = { mode, limit: WEBMAIL_SYNC_SAFE_BATCH };
+    const opts = { mode, limit: WEBMAIL_SYNC_SAFE_BATCH, folders };
     if (accountId) {
       const { data: account, error } = await service
         .from("webmail_accounts")
