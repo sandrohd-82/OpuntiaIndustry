@@ -573,6 +573,44 @@ export async function listMappaMenuFigliAction(
   return { success: true, items };
 }
 
+export async function listMappaMenuLuoghiAction(
+  areaSlug: string
+): Promise<
+  | { success: true; items: MappaMenuOpzione[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess([
+    "strumenti",
+    "magazzino",
+    "produzione",
+    "amministrazione",
+    "commerciale",
+    "action",
+    "area-fiscale",
+    "promemorie-e-note",
+    "area-fornitori",
+    "ricerca-sviluppo",
+  ]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, etichetta, slug, tipo")
+    .eq("area_slug", areaSlug)
+    .eq("tipo", "luogo")
+    .is("deleted_at", null)
+    .order("etichetta", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const items: MappaMenuOpzione[] = (
+    (data ?? []) as { id: string; etichetta: string; slug: string; tipo: string }[]
+  ).map((n) => ({
+    id: n.id,
+    etichetta: n.etichetta,
+    slug: n.slug,
+    tipo: "luogo",
+  }));
+  return { success: true, items };
+}
+
 export async function getMappaByIdAction(
   mappaId: string
 ): Promise<
@@ -1426,13 +1464,60 @@ async function ensureMenuNodo(
   if (existingId) {
     const { data } = await supabase
       .from("mappa_menu_nodi")
-      .select("id, parent_id, area_slug")
+      .select("id, parent_id, area_slug, tipo, etichetta, versione")
       .eq("id", existingId)
       .is("deleted_at", null)
       .maybeSingle();
-    const row = data as { id: string; parent_id: string | null; area_slug: string } | null;
-    if (!row || row.area_slug !== areaSlug) {
-      return { error: "Voce di menu non valida per quest'area." };
+    const row = data as {
+      id: string;
+      parent_id: string | null;
+      area_slug: string;
+      tipo: string;
+      etichetta: string;
+      versione?: number;
+    } | null;
+    if (!row) {
+      return { error: "Voce di menu non valida." };
+    }
+    const stessoPadre =
+      (row.parent_id ?? null) === (parentId ?? null) && row.area_slug === areaSlug;
+    if (stessoPadre) return { id: row.id };
+    if (row.tipo !== "luogo") {
+      if (row.area_slug !== areaSlug) {
+        return { error: "Voce di menu non valida per quest'area." };
+      }
+      return { id: row.id };
+    }
+    let clash = supabase
+      .from("mappa_menu_nodi")
+      .select("id")
+      .eq("area_slug", areaSlug)
+      .ilike("etichetta", row.etichetta)
+      .neq("id", row.id)
+      .is("deleted_at", null);
+    clash = parentId ? clash.eq("parent_id", parentId) : clash.is("parent_id", null);
+    const { data: esistente } = await clash.maybeSingle();
+    if (esistente) {
+      return {
+        error: `Sotto «${etichetta.trim() || row.etichetta}» esiste già un’area con questo nome.`,
+      };
+    }
+    const { error: moveErr } = await supabase
+      .from("mappa_menu_nodi")
+      .update({
+        parent_id: parentId,
+        area_slug: areaSlug,
+        versione: (row.versione ?? 1) + 1,
+        updated_by: userId,
+      })
+      .eq("id", row.id)
+      .is("deleted_at", null);
+    if (moveErr) {
+      return {
+        error: moveErr.message.includes("mag_menu_")
+          ? "Questo nome area è già presente sotto il nuovo sotto-livello."
+          : moveErr.message,
+      };
     }
     return { id: row.id };
   }

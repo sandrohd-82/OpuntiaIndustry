@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listMappaMenuFigliAction } from "@/app/actions/magazzino-mappa";
+import {
+  listMappaMenuFigliAction,
+  listMappaMenuLuoghiAction,
+} from "@/app/actions/magazzino-mappa";
 import {
   areePrimoLivelloMappa,
   sezioniStaticheArea,
@@ -62,6 +65,7 @@ export function CollegaMappaPercorsoModal({
   const [postoNome, setPostoNome] = useState(luogoBozza);
   const [nomiEdit, setNomiEdit] = useState<{ id: string; etichetta: string }[]>([]);
   const [figli, setFigli] = useState<FigliCache>({});
+  const [luoghiCreati, setLuoghiCreati] = useState<MappaMenuOpzione[]>([]);
 
   function applicaIniziale() {
     const p = percorsoIniziale;
@@ -101,14 +105,18 @@ export function CollegaMappaPercorsoModal({
 
   useEffect(() => {
     if (!open) return;
-    setIntenzione("nomi");
+    setIntenzione(variant === "modifica" ? "percorso" : "nomi");
     setFigli({});
+    setLuoghiCreati([]);
     applicaIniziale();
-  }, [open, luogoBozza, percorsoIniziale]);
+  }, [open, luogoBozza, percorsoIniziale, variant]);
 
   useEffect(() => {
     if (!open || !areaSlug) return;
     void caricaFigli(areaSlug, null);
+    void listMappaMenuLuoghiAction(areaSlug).then((res) => {
+      if (res.success) setLuoghiCreati(res.items);
+    });
   }, [open, areaSlug]);
 
   useEffect(() => {
@@ -161,13 +169,31 @@ export function CollegaMappaPercorsoModal({
   }
 
   function opzioniPosto(): MappaMenuOpzione[] {
-    if (!areaSlug) return [];
+    const byId = new Map<string, MappaMenuOpzione>();
     const last = livelli[livelli.length - 1];
-    if (!last || last.mode === "crea" || last.nodoId.startsWith("static:")) {
-      return [];
+    if (
+      areaSlug &&
+      last &&
+      last.mode === "select" &&
+      last.nodoId &&
+      !last.nodoId.startsWith("static:")
+    ) {
+      const key = `${areaSlug}|${last.nodoId}`;
+      for (const i of (figli[key] ?? []).filter((x) => x.tipo === "luogo")) {
+        byId.set(i.id, i);
+      }
     }
-    const key = `${areaSlug}|${last.nodoId}`;
-    return (figli[key] ?? []).filter((i) => i.tipo === "luogo");
+    for (const i of luoghiCreati) byId.set(i.id, i);
+    const iniziale = percorsoIniziale?.nodi.find((n) => n.tipo === "luogo");
+    if (iniziale && !byId.has(iniziale.id)) {
+      byId.set(iniziale.id, {
+        id: iniziale.id,
+        etichetta: iniziale.etichetta,
+        slug: iniziale.slug,
+        tipo: "luogo",
+      });
+    }
+    return [...byId.values()].sort((a, b) => a.etichetta.localeCompare(b.etichetta, "it"));
   }
 
   function setLivello(index: number, next: Livello) {
@@ -176,9 +202,24 @@ export function CollegaMappaPercorsoModal({
       copy[index] = next;
       return copy;
     });
-    setPostoNodoId("");
     if (next.mode === "select" && next.nodoId && !next.nodoId.startsWith("static:") && areaSlug) {
       void caricaFigli(areaSlug, next.nodoId);
+    }
+  }
+
+  function aggiungiSottoLivello() {
+    setIntenzione("percorso");
+    setLivelli((prev) => [
+      ...prev,
+      { mode: "crea", nodoId: "", etichetta: "", slug: "" },
+    ]);
+    if (percorsoIniziale) {
+      const posto = percorsoIniziale.nodi.find((n) => n.tipo === "luogo");
+      if (posto) {
+        setPostoMode("select");
+        setPostoNodoId(posto.id);
+        setPostoNome(posto.etichetta);
+      }
     }
   }
 
@@ -269,7 +310,7 @@ export function CollegaMappaPercorsoModal({
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {variant === "modifica"
-                ? "Correggi solo i nomi oppure sposta la pianta su un altro percorso. Il disegno non si riapre."
+                ? "Correggi i nomi, aggiungi sotto-livelli e scegli un’area già creata o una nuova. Il disegno non si riapre."
                 : "Scegli o crea ogni livello. L’ultimo è il posto: se esiste già, questa pianta diventa un’altra vista."}
             </p>
           </div>
@@ -304,7 +345,7 @@ export function CollegaMappaPercorsoModal({
                 checked={intenzione === "percorso"}
                 onChange={() => setIntenzione("percorso")}
               />
-              Cambia percorso
+              Sotto-livelli e percorso
             </label>
           </div>
         ) : null}
@@ -348,6 +389,13 @@ export function CollegaMappaPercorsoModal({
                 {a}
               </p>
             ))}
+            <button
+              type="button"
+              onClick={() => aggiungiSottoLivello()}
+              className="text-sm font-medium text-teal-800 hover:underline"
+            >
+              + Aggiungi sotto-livello
+            </button>
           </div>
         ) : (
           <div className="mt-4 space-y-4">
@@ -390,7 +438,7 @@ export function CollegaMappaPercorsoModal({
                         })
                       }
                     />
-                    Seleziona
+                    Sotto-livello esistente
                   </label>
                   <label className="flex items-center gap-1">
                     <input
@@ -406,7 +454,7 @@ export function CollegaMappaPercorsoModal({
                         })
                       }
                     />
-                    Crea
+                    Nuovo sotto-livello
                   </label>
                 </div>
                 {liv.mode === "select" ? (
@@ -449,21 +497,33 @@ export function CollegaMappaPercorsoModal({
               </div>
             ))}
 
-            <button
-              type="button"
-              onClick={() =>
-                setLivelli((prev) => [
-                  ...prev,
-                  { mode: "crea", nodoId: "", etichetta: "", slug: "" },
-                ])
-              }
-              className="text-sm font-medium text-teal-800 hover:underline"
-            >
-              + Aggiungi un livello
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => aggiungiSottoLivello()}
+                className="text-sm font-medium text-teal-800 hover:underline"
+              >
+                + Aggiungi sotto-livello
+              </button>
+              {livelli.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setLivelli((prev) => prev.slice(0, -1))}
+                  className="text-sm text-slate-600 hover:underline"
+                >
+                  Rimuovi ultimo sotto-livello
+                </button>
+              ) : null}
+            </div>
+            <p className="text-xs text-slate-600">
+              Puoi accodare più sotto-livelli. In fondo scegli un&apos;area già creata
+              oppure un nome nuovo.
+            </p>
 
             <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2">
-              <p className="text-xs font-medium text-teal-900">Ultimo livello — Posto / area</p>
+              <p className="text-xs font-medium text-teal-900">
+                Ultimo livello — Nome area
+              </p>
               <div className="mt-2 flex flex-wrap gap-3 text-sm">
                 <label className="flex items-center gap-1">
                   <input
@@ -472,7 +532,7 @@ export function CollegaMappaPercorsoModal({
                     onChange={() => setPostoMode("select")}
                     disabled={opzioniPosto().length === 0}
                   />
-                  Seleziona posto esistente
+                  Nome area creata
                 </label>
                 <label className="flex items-center gap-1">
                   <input
@@ -480,16 +540,22 @@ export function CollegaMappaPercorsoModal({
                     checked={postoMode === "crea"}
                     onChange={() => setPostoMode("crea")}
                   />
-                  Inserisci nome nuovo
+                  Nuova area
                 </label>
               </div>
+              {postoMode === "select" &&
+              livelli.some((l) => l.mode === "crea" && l.etichetta.trim()) ? (
+                <p className="mt-2 text-xs text-teal-900">
+                  L&apos;area creata verrà spostata sotto il nuovo sotto-livello.
+                </p>
+              ) : null}
               {postoMode === "select" ? (
                 <select
                   value={postoNodoId}
                   onChange={(e) => setPostoNodoId(e.target.value)}
                   className="mt-2 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
                 >
-                  <option value="">Scegli posto…</option>
+                  <option value="">Scegli area creata…</option>
                   {opzioniPosto().map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.etichetta}
