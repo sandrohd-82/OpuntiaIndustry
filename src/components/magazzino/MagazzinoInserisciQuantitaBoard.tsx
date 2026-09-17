@@ -8,6 +8,7 @@ import {
   movimentoManualeAgrinsiciliaAction,
 } from "@/app/actions/magazzino";
 import { listImballaggiCatalogoMagazzinoAction } from "@/app/actions/magazzino-lotti";
+import { listUbicazioniRiponibiliAction } from "@/app/actions/magazzino-mappa";
 import { anteprimaLottoUscitaAction } from "@/app/actions/lotti-esterni";
 import { BarcodePreview } from "@/components/magazzino/BarcodePreview";
 import { ConfezionamentoBlocchiEditor } from "@/components/magazzino/ConfezionamentoBlocchiEditor";
@@ -27,6 +28,7 @@ import {
   type MotivoSenzaFoglio,
   type MovimentoAgrinsiciliaRiga,
 } from "@/lib/magazzino/types";
+import type { UbicazioneElenco } from "@/lib/magazzino/ubicazioni";
 
 type ProdottoOpt = {
   id: string;
@@ -64,19 +66,24 @@ export function MagazzinoInserisciQuantitaBoard() {
     emptyConfezionamentoDraft()
   );
   const [rimandaCi, setRimandaCi] = useState(false);
+  const [ubicazioni, setUbicazioni] = useState<UbicazioneElenco[]>([]);
+  const [ubicazioneId, setUbicazioneId] = useState("");
+  const [rimandaUbi, setRimandaUbi] = useState(false);
   const printRootRef = useRef<HTMLDivElement>(null);
 
   async function reload() {
-    const [p, f, m, ci] = await Promise.all([
+    const [p, f, m, ci, ub] = await Promise.all([
       listProdottiPropriMagazzinoAction(),
       listFogliApertiMagazzinoAction(),
       listMovimentiAgrinsiciliaAction(),
       listImballaggiCatalogoMagazzinoAction(),
+      listUbicazioniRiponibiliAction(),
     ]);
     if (p.success) setProdotti(p.prodotti);
     if (f.success) setFogli(f.items);
     if (m.success) setMovimenti(m.items);
     if (ci.success) setCatalogoImballaggi(ci.voci);
+    if (ub.success) setUbicazioni(ub.items);
     if (!p.success) setError(p.error);
     else if (!f.success) setError(f.error);
     else if (!m.success) setError(m.error);
@@ -158,6 +165,8 @@ export function MagazzinoInserisciQuantitaBoard() {
         motivoSenzaFoglio: collegaFoglio ? null : motivo,
         note,
         rimandaConfezIsolamento: rimandaCi,
+        ubicazioneId: rimandaUbi ? null : ubicazioneId || null,
+        rimandaUbicazione: rimandaUbi || !ubicazioneId,
         confezionamento: confDraft,
         associaLottoUscita: Boolean(lottoUscita),
         lottoUscitaAnteprima: lottoUscita?.codice ?? null,
@@ -187,6 +196,8 @@ export function MagazzinoInserisciQuantitaBoard() {
       setNote("");
       setConfDraft(emptyConfezionamentoDraft());
       setRimandaCi(false);
+      setUbicazioneId("");
+      setRimandaUbi(false);
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Salvataggio non riuscito.");
@@ -316,6 +327,36 @@ export function MagazzinoInserisciQuantitaBoard() {
             className="w-full cursor-pointer rounded-lg border border-[var(--border)] bg-white px-3 py-2 font-mono text-sm"
           />
         </label>
+
+        <fieldset className="space-y-2 rounded-lg border border-[var(--border)] p-3">
+          <legend className="px-1 text-sm font-medium">Posto in magazzino</legend>
+          <p className="text-xs text-[var(--muted)]">
+            Registrazione del posto riponibile (colonna + ripiano). Si può completare dopo: la
+            quantità si salva comunque.
+          </p>
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rimandaUbi}
+              onChange={(e) => setRimandaUbi(e.target.checked)}
+            />
+            <span>Completa il posto in un secondo momento</span>
+          </label>
+          {!rimandaUbi ? (
+            <select
+              value={ubicazioneId}
+              onChange={(e) => setUbicazioneId(e.target.value)}
+              className="w-full rounded-lg border border-[var(--border)] bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Seleziona posto (facoltativo)</option>
+              {ubicazioni.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.etichetta}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </fieldset>
 
         <ConfezionamentoBlocchiEditor
           conf={confDraft}

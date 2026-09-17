@@ -298,6 +298,8 @@ export const movimentoManualeSchema = z
     note: z.string().trim().max(1000).optional().default(""),
     confezioneId: z.string().uuid().nullable().optional(),
     isolamentoId: z.string().uuid().nullable().optional(),
+    ubicazioneId: z.string().uuid().nullable().optional(),
+    rimandaUbicazione: z.boolean().optional().default(false),
     rimandaConfezIsolamento: z.boolean().optional().default(false),
     confezionamento: confezionamentoDraftSchema.optional(),
     associaLottoUscita: z.boolean().optional().default(false),

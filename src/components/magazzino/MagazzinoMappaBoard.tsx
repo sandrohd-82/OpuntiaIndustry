@@ -44,8 +44,9 @@ import {
   type MappaPunto,
   type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
+import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
 
-type Tool = "linea" | "seleziona" | "rettangolo" | "poligono";
+type Tool = "linea" | "seleziona" | "rettangolo" | "poligono" | "area";
 
 type FormaStato = {
   tipo: "rettangolo" | "poligono";
@@ -106,6 +107,24 @@ export function MagazzinoMappaBoard({
   const [mappa, setMappa] = useState<MappaMagazzino | null>(null);
   const [canDesign, setCanDesign] = useState(false);
   const [linee, setLinee] = useState<MappaLinea[]>([]);
+  const [aree, setAree] = useState<MappaAreaDisegnata[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const [pendingArea, setPendingArea] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [areaCodice, setAreaCodice] = useState("");
+  const [areaNome, setAreaNome] = useState("");
+  const [areaParentId, setAreaParentId] = useState<string>("");
+  const [dragArea, setDragArea] = useState<{
+    id: string;
+    sx: number;
+    sy: number;
+    ax: number;
+    ay: number;
+  } | null>(null);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
@@ -151,6 +170,7 @@ export function MagazzinoMappaBoard({
     setMappa(res.mappa);
     setCanDesign(mode === "editor" && res.canDesign);
     setLinee(res.mappa.linee);
+    setAree(res.mappa.aree ?? []);
     setNomePianta(res.mappa.nome);
     setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
@@ -205,6 +225,16 @@ export function MagazzinoMappaBoard({
       }
     }
     return best?.id ?? null;
+  }
+
+  function hitArea(wx: number, wy: number): string | null {
+    for (let i = aree.length - 1; i >= 0; i -= 1) {
+      const a = aree[i]!;
+      if (wx >= a.x && wx <= a.x + a.width && wy >= a.y && wy <= a.y + a.height) {
+        return a.id;
+      }
+    }
+    return null;
   }
 
   function risolviPuntoDisegno(w: MappaPunto): {
@@ -306,8 +336,17 @@ export function MagazzinoMappaBoard({
     if (previewForma && forma?.tipo !== "rettangolo") {
       p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
     }
+    for (const a of aree) {
+      p.push({ x: a.x, y: a.y }, { x: a.x + a.width, y: a.y + a.height });
+    }
+    if (pendingArea) {
+      p.push(
+        { x: pendingArea.x, y: pendingArea.y },
+        { x: pendingArea.x + pendingArea.width, y: pendingArea.y + pendingArea.height }
+      );
+    }
     return p;
-  }, [forma, previewForma, griglia]);
+  }, [forma, previewForma, griglia, aree, pendingArea]);
 
   const latoPianificatoPx = (() => {
     if (!canDraw) return 0;
@@ -342,10 +381,31 @@ export function MagazzinoMappaBoard({
     if (!w) return;
     const { punto: snap } = risolviPuntoDisegno(w);
     if (!canDraw) {
+      const aid = hitArea(w.x, w.y);
+      if (aid) {
+        setSelectedAreaId(aid);
+        setSelectedId(null);
+        return;
+      }
+      setSelectedAreaId(null);
       setSelectedId(hitLine(w.x, w.y));
       return;
     }
+    if (!forma && !pendingArea) {
+      const aid = hitArea(w.x, w.y);
+      if (aid && (tool === "seleziona" || tool === "area")) {
+        const a = aree.find((x) => x.id === aid);
+        setSelectedAreaId(aid);
+        setSelectedId(null);
+        if (a) {
+          setDragArea({ id: aid, sx: w.x, sy: w.y, ax: a.x, ay: a.y });
+        }
+        if (tool === "seleziona") return;
+        return;
+      }
+    }
     if (tool === "seleziona") {
+      setSelectedAreaId(null);
       const id = hitLine(w.x, w.y);
       setSelectedId(id);
       const sel = linee.find((l) => l.id === id);
@@ -356,10 +416,10 @@ export function MagazzinoMappaBoard({
       setDraftStart(null);
       return;
     }
-    if (tool === "rettangolo" || tool === "poligono") {
+    if (tool === "rettangolo" || tool === "poligono" || tool === "area") {
       if (!forma) {
         setForma({
-          tipo: tool,
+          tipo: tool === "poligono" ? "poligono" : "rettangolo",
           vertici: [snap],
           lati: [],
           senso: 1,
@@ -449,6 +509,18 @@ export function MagazzinoMappaBoard({
     }
     const w = worldFromEvent(e);
     setCursor(w);
+    if (dragArea && w && canDraw) {
+      const dx = snapToGrid(w.x - dragArea.sx, griglia);
+      const dy = snapToGrid(w.y - dragArea.sy, griglia);
+      setAree((prev) =>
+        prev.map((a) =>
+          a.id === dragArea.id
+            ? { ...a, x: dragArea.ax + dx, y: dragArea.ay + dy }
+            : a
+        )
+      );
+      return;
+    }
     if (!forma || !w) return;
     const from = forma.vertici[forma.vertici.length - 1];
     if (!from) return;
@@ -530,6 +602,8 @@ export function MagazzinoMappaBoard({
     setDraftStart(null);
     setForma(null);
     setSelectedId(null);
+    setPendingArea(null);
+    setDragArea(null);
   }
 
   useEffect(() => {
@@ -543,6 +617,7 @@ export function MagazzinoMappaBoard({
         if (ev.key === "Delete") {
           ev.preventDefault();
           eliminaLineaSelezionata();
+          eliminaAreaSelezionata();
         }
         return;
       }
@@ -552,6 +627,7 @@ export function MagazzinoMappaBoard({
       if (ev.key === "Delete" || ev.key === "Backspace") {
         ev.preventDefault();
         eliminaLineaSelezionata();
+        eliminaAreaSelezionata();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -561,6 +637,22 @@ export function MagazzinoMappaBoard({
   function confermaRettangolo(a: MappaPunto, b: MappaPunto) {
     if (!canDraw || !rettangoloHaArea(a, b, griglia)) return;
     const v = verticiRettangoloDaAngoli(a, b, griglia);
+    if (tool === "area") {
+      const xs = v.map((p) => p.x);
+      const ys = v.map((p) => p.y);
+      setPendingArea({
+        x: Math.min(...xs),
+        y: Math.min(...ys),
+        width: Math.max(...xs) - Math.min(...xs),
+        height: Math.max(...ys) - Math.min(...ys),
+      });
+      setForma(null);
+      setAreaCodice("");
+      setAreaNome("");
+      setAreaParentId("");
+      setOk("Imposta codice e nome del posto, poi Salva area.");
+      return;
+    }
     const nuovi: MappaLinea[] = [];
     for (let i = 0; i < 4; i += 1) {
       const p = v[i]!;
@@ -641,6 +733,75 @@ export function MagazzinoMappaBoard({
     setSelectedId(null);
   }
 
+  function eliminaAreaSelezionata() {
+    if (!canDraw || !selectedAreaId || forma || pendingArea) return;
+    setAree((prev) => prev.filter((a) => a.id !== selectedAreaId));
+    setSelectedAreaId(null);
+  }
+
+  function salvaAreaPendente() {
+    if (!pendingArea || !canDraw) return;
+    const codice = areaCodice.trim();
+    const nome = areaNome.trim();
+    if (!codice || !nome) {
+      setError("Codice e nome dell'area sono obbligatori.");
+      return;
+    }
+    const parentArea = aree.find(
+      (a) => a.id === areaParentId || a.ubicazioneId === areaParentId
+    );
+    const parentUb = (mappa?.ubicazioni ?? []).find((u) => u.id === areaParentId);
+    const parentCodice = parentArea?.codice ?? parentUb?.codice ?? "";
+    const codiceFinale = parentCodice ? codicePostoFiglio(parentCodice, codice) : codice;
+    const nuova: MappaAreaDisegnata = {
+      id: newLocalId(),
+      ubicazioneId: "",
+      codice: codiceFinale,
+      nome,
+      parentId: areaParentId || null,
+      x: pendingArea.x,
+      y: pendingArea.y,
+      width: pendingArea.width,
+      height: pendingArea.height,
+    };
+    setAree((prev) => [...prev, nuova]);
+    setSelectedAreaId(nuova.id);
+    setPendingArea(null);
+    setError(null);
+    setOk("Area creata. Salva la bozza per registrarla nel gestionale.");
+  }
+
+  const selectedArea = selectedAreaId
+    ? aree.find((a) => a.id === selectedAreaId) ?? null
+    : null;
+
+  const parentOptions = useMemo(() => {
+    const opts: { id: string; label: string }[] = [];
+    for (const a of aree) {
+      opts.push({
+        id: a.ubicazioneId || a.id,
+        label: `${a.codice} — ${a.nome}`,
+      });
+    }
+    for (const u of mappa?.ubicazioni ?? []) {
+      if (opts.some((o) => o.id === u.id)) continue;
+      opts.push({ id: u.id, label: u.etichetta });
+    }
+    return opts;
+  }, [aree, mappa?.ubicazioni]);
+
+  function figliSenzaForma(parent: MappaAreaDisegnata) {
+    const parentKey = parent.ubicazioneId || parent.id;
+    const disegnati = new Set(
+      aree.map((a) => a.ubicazioneId || a.id).filter(Boolean)
+    );
+    return (mappa?.ubicazioni ?? []).filter(
+      (u) =>
+        (u.parentId === parentKey || u.parentId === parent.ubicazioneId) &&
+        !disegnati.has(u.id)
+    );
+  }
+
   function applySpessore(v: number) {
     const next = Number.isFinite(v) && v > 0 ? v : 0.01;
     setSpessore(next);
@@ -714,6 +875,8 @@ export function MagazzinoMappaBoard({
     setError(null);
     setOk(null);
     const persisted = new Set(mappa.linee.map((l) => l.id));
+    const persistedAree = new Set((mappa.aree ?? []).map((a) => a.id));
+    const persistedUbi = new Set((mappa.aree ?? []).map((a) => a.ubicazioneId));
     const res = await salvaMappaMagazzinoAction({
       mappaId: mappa.id,
       nome: nomePianta.trim() || mappa.nome,
@@ -734,6 +897,17 @@ export function MagazzinoMappaBoard({
         colore: l.colore,
         sortOrder: i,
       })),
+      aree: aree.map((a) => ({
+        id: persistedAree.has(a.id) ? a.id : undefined,
+        ubicazioneId: persistedUbi.has(a.ubicazioneId) ? a.ubicazioneId : undefined,
+        codice: a.codice,
+        nome: a.nome,
+        parentId: a.parentId || null,
+        x: a.x,
+        y: a.y,
+        width: a.width,
+        height: a.height,
+      })),
     });
     setSaving(false);
     if (!res.success) {
@@ -742,6 +916,7 @@ export function MagazzinoMappaBoard({
     }
     setMappa(res.mappa);
     setLinee(res.mappa.linee);
+    setAree(res.mappa.aree ?? []);
     setNomePianta(res.mappa.nome);
     setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
@@ -1053,8 +1228,9 @@ export function MagazzinoMappaBoard({
               >
                 <option value="linea">Traccia linea</option>
                 <option value="rettangolo">Rettangolo / quadrato</option>
+                <option value="area">Crea area / posto</option>
                 <option value="poligono">Poligono</option>
-                <option value="seleziona">Seleziona</option>
+                <option value="seleziona">Seleziona e sposta</option>
               </select>
             </label>
             <label className="text-xs">
@@ -1096,11 +1272,13 @@ export function MagazzinoMappaBoard({
             </button>
           </div>
 
-          {canDraw && (tool === "rettangolo" || tool === "poligono") ? (
+          {canDraw && (tool === "rettangolo" || tool === "poligono" || tool === "area") ? (
             <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2">
               {!forma ? (
                 <p className="text-sm text-teal-950">
-                  {tool === "rettangolo"
+                  {tool === "area"
+                    ? "Crea un rettangolo (primo click partenza, secondo click senso, poi misure). Poi assegna codice e nome: sarà un posto riponibile collegato a questa pianta."
+                    : tool === "rettangolo"
                     ? "Primo click: punto di partenza. Secondo click: blocca il senso (destra/sinistra e alto/basso). Poi le misure, nei campi o con altri click sul foglio."
                     : "Clicca il primo angolo. Poi muovi il mouse per la direzione del lato, indica i quadrati e premi Avanti."}
                 </p>
@@ -1201,7 +1379,7 @@ export function MagazzinoMappaBoard({
                       disabled={forma.fase !== "misure" || !forma.opposto}
                       className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                     >
-                      Conferma rettangolo
+                      {tool === "area" ? "Conferma area" : "Conferma rettangolo"}
                     </button>
                     <button
                       type="button"
@@ -1265,6 +1443,141 @@ export function MagazzinoMappaBoard({
               )}
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {pendingArea && canDraw ? (
+        <div className="shrink-0 rounded-xl border border-teal-300 bg-teal-50 px-3 py-2">
+          <p className="text-sm font-semibold text-teal-950">Nuova area riponibile</p>
+          <p className="text-xs text-teal-900">
+            {formattaQuadrati(pendingArea.width / griglia)} ×{" "}
+            {formattaQuadrati(pendingArea.height / griglia)} quadrati
+          </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <label className="text-xs">
+              Codice (es. A, A1, 1)
+              <input
+                value={areaCodice}
+                onChange={(e) => setAreaCodice(e.target.value.toUpperCase())}
+                className="ml-1 w-24 rounded border border-[var(--border)] px-2 py-1 text-sm uppercase"
+              />
+            </label>
+            <label className="text-xs">
+              Nome
+              <input
+                value={areaNome}
+                onChange={(e) => setAreaNome(e.target.value)}
+                className="ml-1 w-48 rounded border border-[var(--border)] px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs">
+              Dentro (colonna / area madre)
+              <select
+                value={areaParentId}
+                onChange={(e) => setAreaParentId(e.target.value)}
+                className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
+              >
+                <option value="">Nessuna (area principale)</option>
+                {parentOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => salvaAreaPendente()}
+              className="rounded-lg bg-teal-800 px-3 py-1.5 text-sm font-medium text-white"
+            >
+              Salva area
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingArea(null)}
+              className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-white"
+            >
+              Annulla
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedArea ? (
+        <div className="shrink-0 rounded-xl border border-teal-400 bg-teal-50 px-3 py-2">
+          <p className="text-sm font-semibold text-teal-950">
+            Area {selectedArea.codice} — {selectedArea.nome}
+          </p>
+          {canDraw ? (
+            <div className="mt-2 flex flex-wrap items-end gap-3">
+              <label className="text-xs">
+                Codice
+                <input
+                  value={selectedArea.codice}
+                  onChange={(e) =>
+                    setAree((prev) =>
+                      prev.map((a) =>
+                        a.id === selectedArea.id
+                          ? { ...a, codice: e.target.value.toUpperCase() }
+                          : a
+                      )
+                    )
+                  }
+                  className="ml-1 w-24 rounded border border-[var(--border)] px-2 py-1 text-sm uppercase"
+                />
+              </label>
+              <label className="text-xs">
+                Nome
+                <input
+                  value={selectedArea.nome}
+                  onChange={(e) =>
+                    setAree((prev) =>
+                      prev.map((a) =>
+                        a.id === selectedArea.id ? { ...a, nome: e.target.value } : a
+                      )
+                    )
+                  }
+                  className="ml-1 w-48 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs">
+                Dentro
+                <select
+                  value={selectedArea.parentId ?? ""}
+                  onChange={(e) =>
+                    setAree((prev) =>
+                      prev.map((a) =>
+                        a.id === selectedArea.id
+                          ? { ...a, parentId: e.target.value || null }
+                          : a
+                      )
+                    )
+                  }
+                  className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                >
+                  <option value="">Nessuna</option>
+                  {parentOptions
+                    .filter((o) => o.id !== selectedArea.id && o.id !== selectedArea.ubicazioneId)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => eliminaAreaSelezionata()}
+                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
+              >
+                Elimina area
+              </button>
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-teal-900">
+              Posto riponibile. I figli di altre viste compaiono come etichette all&apos;interno.
+            </p>
+          )}
         </div>
       ) : null}
 
@@ -1379,10 +1692,13 @@ export function MagazzinoMappaBoard({
           }`}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={() => setPanning(null)}
+          onPointerUp={() => {
+            setPanning(null);
+            setDragArea(null);
+          }}
           onPointerLeave={() => {
             setPanning(null);
-            if (!forma && !draftStart) setCursor(null);
+            if (!forma && !draftStart && !dragArea) setCursor(null);
           }}
           onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
@@ -1419,6 +1735,54 @@ export function MagazzinoMappaBoard({
               stroke="#334155"
               strokeWidth={Math.max(1, 2 / zoom)}
             />
+            {aree.map((a) => {
+              const kids = figliSenzaForma(a);
+              const sel = a.id === selectedAreaId;
+              return (
+                <g key={a.id}>
+                  <rect
+                    x={a.x}
+                    y={a.y}
+                    width={a.width}
+                    height={a.height}
+                    fill={sel ? "rgba(13,148,136,0.22)" : "rgba(13,148,136,0.10)"}
+                    stroke={sel ? "#0f766e" : "#0d9488"}
+                    strokeWidth={Math.max(1.2, 2 / zoom)}
+                  />
+                  <text
+                    x={a.x + 6}
+                    y={a.y + 16}
+                    fill="#134e4a"
+                    fontSize={Math.max(11, 12 / zoom)}
+                    fontWeight={600}
+                  >
+                    {a.codice}
+                  </text>
+                  {kids.length ? (
+                    <text
+                      x={a.x + 6}
+                      y={a.y + 32}
+                      fill="#0f766e"
+                      fontSize={Math.max(9, 10 / zoom)}
+                    >
+                      {kids.map((k) => k.codice).join(" · ")}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+            {pendingArea ? (
+              <rect
+                x={pendingArea.x}
+                y={pendingArea.y}
+                width={pendingArea.width}
+                height={pendingArea.height}
+                fill="rgba(245,158,11,0.16)"
+                stroke="#d97706"
+                strokeDasharray={`${6 / zoom} ${4 / zoom}`}
+                strokeWidth={Math.max(1.2, 2 / zoom)}
+              />
+            ) : null}
             {linee.map((l) => (
               <g key={l.id}>
                 {l.id === selectedId ? (

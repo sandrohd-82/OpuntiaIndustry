@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  mappaAreaInputSchema,
+  type MappaAreaDisegnata,
+  type UbicazioneElenco,
+} from "@/lib/magazzino/ubicazioni";
 
 export const MAPPA_STATI = ["bozza", "approvato", "chiuso"] as const;
 export type MappaDocumentoStato = (typeof MAPPA_STATI)[number];
@@ -96,6 +101,8 @@ export type MappaMagazzino = {
   approvedAt: string | null;
   collegataAt: string | null;
   linee: MappaLinea[];
+  aree: MappaAreaDisegnata[];
+  ubicazioni: UbicazioneElenco[];
 };
 
 export type MappaElencoItem = {
@@ -164,6 +171,7 @@ export const salvaMappaSchema = z.object({
   viewZoom: z.number().min(0.01).max(20),
   grigliaPx: z.number().positive().max(200).optional(),
   linee: z.array(mappaLineaInputSchema).max(2000),
+  aree: z.array(mappaAreaInputSchema).max(500).optional(),
 });
 
 export const collegaMappaSchema = z.object({
