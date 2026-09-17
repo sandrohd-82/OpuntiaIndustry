@@ -91,7 +91,7 @@ export default async function MagazzinoSubPage({ params }: Props) {
           )}
           subtitle={`Pianta v${res.mappa.versione} · sola consultazione`}
         />
-        <div className="flex h-[calc(100dvh-6.75rem)] min-h-[28rem] min-w-0 flex-col px-4 pb-3 pt-2">
+        <div className="min-w-0 px-4 pb-8 pt-2">
           <MagazzinoMappaBoard mappaId={res.mappa.id} mode="lettura" />
         </div>
       </>

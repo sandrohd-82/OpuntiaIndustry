@@ -22,7 +22,7 @@ export default async function StrumentiEditorAreePage({ params }: Props) {
         title="Editor di aree"
         subtitle="Bozza: salva senza cancellare le altre. Collega ad area per pubblicarla in Magazzino."
       />
-      <div className="flex h-[calc(100dvh-6.75rem)] min-h-[28rem] min-w-0 flex-col px-4 pb-3 pt-2">
+      <div className="min-w-0 px-4 pb-8 pt-2">
         <MagazzinoMappaBoard mappaId={id} mode="editor" />
       </div>
     </>

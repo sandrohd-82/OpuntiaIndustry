@@ -38,14 +38,14 @@ export function ElencoAreeMappa({
   const g = Math.max(griglia, 1);
 
   return (
-    <div className="shrink-0 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)]">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--card)]">
       <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
         <p className="text-sm font-semibold">Aree / posti di questa pianta</p>
         <p className="text-xs text-[var(--muted)]">
           Clic sulla riga: accende il posto e mostra i dati.
         </p>
       </div>
-      <div className="max-h-44 overflow-auto">
+      <div>
         <table className="min-w-full text-left text-sm">
           <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-600">
             <tr>

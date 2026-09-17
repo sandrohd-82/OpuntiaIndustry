@@ -1225,7 +1225,7 @@ export function MagazzinoMappaBoard({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
+    <div className="flex flex-col gap-2">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">
@@ -1313,7 +1313,7 @@ export function MagazzinoMappaBoard({
       </div>
 
       {editing ? (
-        <div className="max-h-[42%] shrink-0 space-y-3 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
+        <div className="shrink-0 space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-xs font-medium">
               Nome bozza
@@ -1985,7 +1985,7 @@ export function MagazzinoMappaBoard({
 
       <div
         ref={canvasWrapRef}
-        className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100"
+        className="relative h-[70dvh] min-h-[28rem] shrink-0 overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100"
       >
         <MagazzinoMappaRighelli
           foglio={foglio}
