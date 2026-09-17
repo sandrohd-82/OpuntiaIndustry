@@ -37,8 +37,6 @@ import {
   etichettaAsseImporto,
   etichettaAsseOrigine,
   importaRiferimentiSchema,
-  puntiDaGeometriaOrigine,
-  unisciPuntiImporto,
   type ImportaRiferimentiInput,
   type MappaAsseOrigine,
   type MappaRiferimentoGruppo,
@@ -1186,22 +1184,7 @@ export async function importaRiferimentiDaVistaAction(
     return { success: false, error: "Importo consentito solo su una bozza." };
   }
   if (!src) return { success: false, error: "Pianta di origine non trovata." };
-  const limiteOrigine = {
-    x: input.origineX,
-    y: input.origineY,
-    width: input.origineW,
-    height: input.origineH,
-  };
-  const punti = unisciPuntiImporto(
-    puntiDaGeometriaOrigine(
-      src.linee ?? [],
-      src.aree ?? [],
-      limiteOrigine,
-      input.asseOrigine as MappaAsseOrigine,
-      src.grigliaPx
-    ),
-    input.punti
-  );
+  const punti = input.punti;
   const gruppo: MappaRiferimentoGruppoInput = {
     mappaOrigineId: input.mappaOrigineId,
     asseOrigine: input.asseOrigine,

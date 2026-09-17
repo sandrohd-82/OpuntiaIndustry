@@ -154,6 +154,58 @@ export function xGuidaDest(
   return Math.min(maxX, Math.max(gruppo.destX, gruppo.destX + offsetQuadrati * g));
 }
 
+export function yGuidaDest(
+  gruppo: Pick<MappaRiferimentoGruppo, "destY" | "destHeight">,
+  offsetQuadrati: number,
+  griglia: number
+): number {
+  const g = griglia > 0 ? griglia : 20;
+  const maxY = gruppo.destY + gruppo.destHeight;
+  return Math.min(maxY, Math.max(gruppo.destY, gruppo.destY + offsetQuadrati * g));
+}
+
+/** Stessa linea della preview: verticale se asse X, orizzontale se asse Y. */
+export function segmentoGuidaDest(
+  gruppo: Pick<
+    MappaRiferimentoGruppo,
+    "asseOrigine" | "destX" | "destY" | "destWidth" | "destHeight"
+  >,
+  offsetQuadrati: number,
+  griglia: number
+): { x1: number; y1: number; x2: number; y2: number } {
+  if (gruppo.asseOrigine === "y") {
+    const y = yGuidaDest(gruppo, offsetQuadrati, griglia);
+    return {
+      x1: gruppo.destX,
+      y1: y,
+      x2: gruppo.destX + gruppo.destWidth,
+      y2: y,
+    };
+  }
+  const x = xGuidaDest(gruppo, offsetQuadrati, griglia);
+  return {
+    x1: x,
+    y1: gruppo.destY,
+    x2: x,
+    y2: gruppo.destY + gruppo.destHeight,
+  };
+}
+
+export function misureRettangoloDestImporto(
+  asse: MappaAsseOrigine,
+  copiatoQ: number,
+  secondoQ: number,
+  griglia: number
+): { destWidth: number; destHeight: number } {
+  const g = griglia > 0 ? griglia : 20;
+  const copiato = Math.max(1, copiatoQ) * g;
+  const secondo = Math.max(1, secondoQ) * g;
+  if (asse === "y") {
+    return { destWidth: secondo, destHeight: copiato };
+  }
+  return { destWidth: copiato, destHeight: secondo };
+}
+
 export function etichettaAsseOrigine(asse: MappaAsseOrigine): string {
   return asse === "x" ? "Larghezza (orizzontale)" : "Profondità (verticale)";
 }
@@ -199,9 +251,13 @@ export function grigliaOrigineImporto(
 }
 
 export function grigliaDestImporto(
-  g: Pick<MappaRiferimentoGruppo, "destWidth" | "limiteWidthQ">
+  g: Pick<
+    MappaRiferimentoGruppo,
+    "asseOrigine" | "destWidth" | "destHeight" | "limiteWidthQ"
+  >
 ): number {
-  if (g.limiteWidthQ > 0 && g.destWidth > 0) return g.destWidth / g.limiteWidthQ;
+  const px = g.asseOrigine === "y" ? g.destHeight : g.destWidth;
+  if (g.limiteWidthQ > 0 && px > 0) return px / g.limiteWidthQ;
   return 20;
 }
 

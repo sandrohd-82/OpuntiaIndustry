@@ -19,10 +19,9 @@ import {
   etichettaAsseOrigine,
   etichettaPuntoDaCoordinate,
   misuraAsseQuadrati,
+  misureRettangoloDestImporto,
   offsetSuLimite,
-  puntiDaGeometriaOrigine,
   rettangoloLimiteDisegno,
-  unisciPuntiImporto,
   type MappaAsseOrigine,
   type MappaRettangolo,
 } from "@/lib/magazzino/riferimenti";
@@ -246,7 +245,7 @@ export function ImportaRiferimentiVista({
       return { punti: [] as PuntoBozza[], angoli: [], lati: [] };
     }
     const hQ = Math.max(1, Math.round(altezzaQ));
-    const g = destGriglia > 0 ? destGriglia : 20;
+    const dest = misureRettangoloDestImporto(asse, larghezzaQ, hQ, destGriglia);
     const gruppo = {
       asseOrigine: asse,
       origineW: limite.width,
@@ -255,20 +254,11 @@ export function ImportaRiferimentiVista({
       limiteHeightQ: hQ,
       destX: 0,
       destY: 0,
-      destWidth: Math.max(1, larghezzaQ * g),
-      destHeight: hQ * g,
+      destWidth: dest.destWidth,
+      destHeight: dest.destHeight,
     };
     return {
-      punti: unisciPuntiImporto(
-        puntiDaGeometriaOrigine(
-          source.linee ?? [],
-          source.aree ?? [],
-          limite,
-          asse,
-          source.grigliaPx
-        ),
-        punti
-      ),
+      punti,
       angoli: dettaglioAngoliImporto(gruppo),
       lati: dettaglioLatiImporto(gruppo),
     };
@@ -294,7 +284,7 @@ export function ImportaRiferimentiVista({
       return;
     }
     const hQ = Math.max(1, Math.round(altezzaQ));
-    const g = destGriglia > 0 ? destGriglia : 20;
+    const dest = misureRettangoloDestImporto(asse, larghezzaQ, hQ, destGriglia);
     setBusy(true);
     setError(null);
     const res = await importaRiferimentiDaVistaAction({
@@ -309,8 +299,8 @@ export function ImportaRiferimentiVista({
       limiteHeightQ: hQ,
       destX: 0,
       destY: 0,
-      destWidth: larghezzaQ * g,
-      destHeight: hQ * g,
+      destWidth: dest.destWidth,
+      destHeight: dest.destHeight,
       punti,
     });
     setBusy(false);
@@ -436,9 +426,8 @@ export function ImportaRiferimentiVista({
               )}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              Si importano angoli, lati e estremi del disegno origine (non solo
-              la linea guida). Zoomma per i punti extra. Clic = punto con
-              coordinate da-a.
+              Ogni clic crea una sola linea guida, la stessa che finisce in
+              bozza. Zoomma per scegliere il punto con precisione.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button

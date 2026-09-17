@@ -61,7 +61,7 @@ import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubic
 import {
   dettaglioAngoliImporto,
   dettaglioLatiImporto,
-  xGuidaDest,
+  segmentoGuidaDest,
   type MappaRiferimentoGruppo,
 } from "@/lib/magazzino/riferimenti";
 
@@ -2331,26 +2331,28 @@ export function MagazzinoMappaBoard({
                     );
                   })}
                   {g.punti.map((p) => {
-                    const x = xGuidaDest(g, p.offsetQuadrati, griglia);
+                    const s = segmentoGuidaDest(g, p.offsetQuadrati, griglia);
+                    const cx = (s.x1 + s.x2) / 2;
+                    const cy = (s.y1 + s.y2) / 2;
                     return (
                       <g key={p.id}>
                         <line
-                          x1={x}
-                          y1={g.destY}
-                          x2={x}
-                          y2={g.destY + g.destHeight}
+                          x1={s.x1}
+                          y1={s.y1}
+                          x2={s.x2}
+                          y2={s.y2}
                           stroke="#b45309"
                           strokeWidth={Math.max(1.2, 2 / zoom)}
                         />
                         <circle
-                          cx={x}
-                          cy={g.destY}
+                          cx={s.x1}
+                          cy={s.y1}
                           r={Math.max(3, 4 / zoom)}
                           fill="#b45309"
                         />
                         <text
-                          x={x + 4}
-                          y={g.destY + 14}
+                          x={cx + 4}
+                          y={cy + 4}
                           fill="#78350f"
                           fontSize={Math.max(9, 10 / zoom)}
                         >
