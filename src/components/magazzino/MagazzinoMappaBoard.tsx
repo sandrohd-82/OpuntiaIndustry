@@ -196,15 +196,20 @@ export function MagazzinoMappaBoard({
   );
   const [percorsoIniziale, setPercorsoIniziale] =
     useState<MappaMenuPercorsoCaricato | null>(null);
-  const [selectedRifId, setSelectedRifId] = useState<string | null>(null);
-  const [dragRif, setDragRif] = useState<{
-    id: string;
+  const [selectedRifIds, setSelectedRifIds] = useState<string[]>([]);
+  const [selectedAreaIds, setSelectedAreaIds] = useState<string[]>([]);
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
+  const selectedRifId = selectedRifIds.at(-1) ?? null;
+  const selectedAreaId = selectedAreaIds.at(-1) ?? null;
+  const selectedId = selectedLineIds.at(-1) ?? null;
+  const [carry, setCarry] = useState<{
     sx: number;
     sy: number;
-    ax: number;
-    ay: number;
+    linee: { id: string; x1: number; y1: number; x2: number; y2: number }[];
+    aree: { id: string; x: number; y: number; width: number; height: number }[];
+    rif: { id: string; destX: number; destY: number }[];
   } | null>(null);
-  const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const carryRef = useRef<typeof carry>(null);
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [copiaOpen, setCopiaOpen] = useState(false);
   const [copiaSourceId, setCopiaSourceId] = useState<string | null>(null);
@@ -224,15 +229,6 @@ export function MagazzinoMappaBoard({
     ax: number;
     ay: number;
   } | null>(null);
-  const [dragLine, setDragLine] = useState<{
-    id: string;
-    sx: number;
-    sy: number;
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-  } | null>(null);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
@@ -248,7 +244,6 @@ export function MagazzinoMappaBoard({
   const [forma, setForma] = useState<FormaStato | null>(null);
   const [quadratiLato, setQuadratiLato] = useState(4);
   const [cursor, setCursor] = useState<MappaPunto | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panning, setPanning] = useState<{
     sx: number;
     sy: number;
@@ -267,6 +262,23 @@ export function MagazzinoMappaBoard({
   const vistaOk = vistaEtichetta.trim().length > 0;
   const canDraw = editing && vistaOk;
   const scalaOk = scalaValore > 0;
+
+  function scegliSoloLinea(id: string | null) {
+    setSelectedLineIds(id ? [id] : []);
+  }
+  function scegliSoloArea(id: string | null) {
+    setSelectedAreaIds(id ? [id] : []);
+  }
+  function scegliSoloRif(id: string | null) {
+    setSelectedRifIds(id ? [id] : []);
+  }
+  function svuotaSelezione() {
+    setSelectedLineIds([]);
+    setSelectedAreaIds([]);
+    setSelectedRifIds([]);
+    setAreaEditOpen(false);
+    setCarry(null);
+  }
 
   async function reload() {
     const res = await getMappaByIdAction(mappaId);
@@ -350,6 +362,161 @@ export function MagazzinoMappaBoard({
     return hitGruppoRiferimento(wx, wy, riferimenti, tolleranzaLinea());
   }
 
+  type HitOggetto = { kind: "linea" | "area" | "rif"; id: string };
+
+  function hitOggetto(wx: number, wy: number): HitOggetto | null {
+    const rid = hitRif(wx, wy);
+    if (rid) return { kind: "rif", id: rid };
+    const aid = hitArea(wx, wy);
+    if (aid) return { kind: "area", id: aid };
+    const lid = hitLine(wx, wy);
+    if (lid) return { kind: "linea", id: lid };
+    return null;
+  }
+
+  function oggettoGiaSelezionato(hit: HitOggetto): boolean {
+    if (hit.kind === "linea") return selectedLineIds.includes(hit.id);
+    if (hit.kind === "area") return selectedAreaIds.includes(hit.id);
+    return selectedRifIds.includes(hit.id);
+  }
+
+  function aggiungiAllaSelezione(hit: HitOggetto) {
+    if (hit.kind === "linea") {
+      setSelectedLineIds((prev) =>
+        prev.includes(hit.id) ? prev : [...prev, hit.id]
+      );
+      const sel = linee.find((l) => l.id === hit.id);
+      if (sel) {
+        setSpessore(sel.spessore);
+        setColore(sel.colore);
+      }
+      return;
+    }
+    if (hit.kind === "area") {
+      setSelectedAreaIds((prev) =>
+        prev.includes(hit.id) ? prev : [...prev, hit.id]
+      );
+      setAreaEditOpen(false);
+      return;
+    }
+    setSelectedRifIds((prev) =>
+      prev.includes(hit.id) ? prev : [...prev, hit.id]
+    );
+  }
+
+  function avviaCarry(w: MappaPunto) {
+    const next = {
+      sx: w.x,
+      sy: w.y,
+      linee: linee
+        .filter((l) => selectedLineIds.includes(l.id))
+        .map((l) => ({
+          id: l.id,
+          x1: l.x1,
+          y1: l.y1,
+          x2: l.x2,
+          y2: l.y2,
+        })),
+      aree: aree
+        .filter((a) => selectedAreaIds.includes(a.id))
+        .map((a) => ({
+          id: a.id,
+          x: a.x,
+          y: a.y,
+          width: a.width,
+          height: a.height,
+        })),
+      rif: riferimenti
+        .filter((g) => selectedRifIds.includes(g.id))
+        .map((g) => ({ id: g.id, destX: g.destX, destY: g.destY })),
+    };
+    carryRef.current = next;
+    setCarry(next);
+  }
+
+  function boundsDiCarry(c: NonNullable<typeof carry>): {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  } | null {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let found = false;
+    for (const l of c.linee) {
+      found = true;
+      minX = Math.min(minX, l.x1, l.x2);
+      minY = Math.min(minY, l.y1, l.y2);
+      maxX = Math.max(maxX, l.x1, l.x2);
+      maxY = Math.max(maxY, l.y1, l.y2);
+    }
+    for (const a of c.aree) {
+      found = true;
+      minX = Math.min(minX, a.x);
+      minY = Math.min(minY, a.y);
+      maxX = Math.max(maxX, a.x + a.width);
+      maxY = Math.max(maxY, a.y + a.height);
+    }
+    for (const g of c.rif) {
+      found = true;
+      const full = riferimenti.find((x) => x.id === g.id);
+      const w = full?.destWidth ?? 0;
+      const h = full?.destHeight ?? 0;
+      minX = Math.min(minX, g.destX);
+      minY = Math.min(minY, g.destY);
+      maxX = Math.max(maxX, g.destX + w);
+      maxY = Math.max(maxY, g.destY + h);
+    }
+    return found ? { minX, minY, maxX, maxY } : null;
+  }
+
+  function applicaCarryPunto(w: MappaPunto) {
+    const c = carryRef.current;
+    if (!c) return;
+    const rawDx = snapToGrid(w.x - c.sx, griglia);
+    const rawDy = snapToGrid(w.y - c.sy, griglia);
+    const box = boundsDiCarry(c);
+    const safe = box
+      ? clampDeltaNelFoglio(box.minX, box.minY, box.maxX, box.maxY, rawDx, rawDy)
+      : { dx: rawDx, dy: rawDy };
+    if (c.linee.length) {
+      setLinee((prev) =>
+        prev.map((l) => {
+          const s = c.linee.find((x) => x.id === l.id);
+          return s
+            ? {
+                ...l,
+                x1: s.x1 + safe.dx,
+                y1: s.y1 + safe.dy,
+                x2: s.x2 + safe.dx,
+                y2: s.y2 + safe.dy,
+              }
+            : l;
+        })
+      );
+    }
+    if (c.aree.length) {
+      setAree((prev) =>
+        prev.map((a) => {
+          const s = c.aree.find((x) => x.id === a.id);
+          return s ? { ...a, x: s.x + safe.dx, y: s.y + safe.dy } : a;
+        })
+      );
+    }
+    if (c.rif.length) {
+      setRiferimenti((prev) =>
+        prev.map((g) => {
+          const s = c.rif.find((x) => x.id === g.id);
+          return s
+            ? { ...g, destX: s.destX + safe.dx, destY: s.destY + safe.dy }
+            : g;
+        })
+      );
+    }
+  }
+
   function risolviPuntoDisegno(w: MappaPunto): {
     punto: MappaPunto;
     acc: AccavallamentoLinea | null;
@@ -409,7 +576,7 @@ export function MagazzinoMappaBoard({
       sortOrder: linee.length,
     };
     setLinee((prev) => [...prev, { ...linea, sortOrder: prev.length }]);
-    setSelectedId(linea.id);
+    scegliSoloLinea(linea.id);
     return linea.id;
   }
 
@@ -496,6 +663,25 @@ export function MagazzinoMappaBoard({
     Math.round(foglio.width / Math.max(griglia, 1))
   );
 
+  useEffect(() => {
+    carryRef.current = carry;
+  }, [carry]);
+
+  useEffect(() => {
+    if (!carry) return;
+    function onMove(e: PointerEvent) {
+      const svg = svgRef.current;
+      if (!svg) return;
+      const r = svg.getBoundingClientRect();
+      applicaCarryPunto({
+        x: (e.clientX - r.left - pan.x) / zoom,
+        y: (e.clientY - r.top - pan.y) / zoom,
+      });
+    }
+    window.addEventListener("pointermove", onMove);
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [carry, pan.x, pan.y, zoom, griglia, foglio]);
+
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
       e.preventDefault();
@@ -509,10 +695,10 @@ export function MagazzinoMappaBoard({
     if (!canDraw) {
       const rid = hitRif(w.x, w.y);
       if (rid) {
-        setSelectedRifId(rid);
-        setSelectedAreaId(null);
+        scegliSoloRif(rid);
+        scegliSoloArea(null);
         setAreaEditOpen(false);
-        setSelectedId(null);
+        scegliSoloLinea(null);
         return;
       }
       const aid = hitArea(w.x, w.y);
@@ -520,59 +706,45 @@ export function MagazzinoMappaBoard({
         selezionaArea(aid);
         return;
       }
-      setSelectedAreaId(null);
-      setSelectedRifId(null);
-      setSelectedId(hitLine(w.x, w.y));
+      scegliSoloArea(null);
+      scegliSoloRif(null);
+      scegliSoloLinea(hitLine(w.x, w.y));
       return;
     }
     if (!forma && !pendingArea && tool === "seleziona") {
-      const rid = hitRif(w.x, w.y);
-      if (rid) {
-        const g = riferimenti.find((x) => x.id === rid);
-        setSelectedRifId(rid);
-        setSelectedAreaId(null);
-        setAreaEditOpen(false);
-        setSelectedId(null);
-        if (g) setDragRif({ id: rid, sx: w.x, sy: w.y, ax: g.destX, ay: g.destY });
+      if (carry) {
+        setCarry(null);
+        carryRef.current = null;
         return;
       }
+      const hit = hitOggetto(w.x, w.y);
+      if (!hit) {
+        svuotaSelezione();
+        setDraftStart(null);
+        return;
+      }
+      if (oggettoGiaSelezionato(hit)) {
+        avviaCarry(w);
+        setDraftStart(null);
+        return;
+      }
+      aggiungiAllaSelezione(hit);
+      setDraftStart(null);
+      return;
     }
     if (!forma && !pendingArea) {
       const aid = hitArea(w.x, w.y);
-      if (aid && (tool === "seleziona" || tool === "area")) {
+      if (aid && tool === "area") {
         const a = aree.find((x) => x.id === aid);
-        setSelectedAreaId(aid);
+        scegliSoloArea(aid);
         setAreaEditOpen(false);
-        setSelectedId(null);
-        setSelectedRifId(null);
+        scegliSoloLinea(null);
+        scegliSoloRif(null);
         if (a) {
           setDragArea({ id: aid, sx: w.x, sy: w.y, ax: a.x, ay: a.y });
         }
-        if (tool === "seleziona") return;
         return;
       }
-    }
-    if (tool === "seleziona") {
-      setSelectedAreaId(null);
-      setSelectedRifId(null);
-      const id = hitLine(w.x, w.y);
-      setSelectedId(id);
-      const sel = linee.find((l) => l.id === id);
-      if (sel) {
-        setSpessore(sel.spessore);
-        setColore(sel.colore);
-        setDragLine({
-          id: sel.id,
-          sx: w.x,
-          sy: w.y,
-          x1: sel.x1,
-          y1: sel.y1,
-          x2: sel.x2,
-          y2: sel.y2,
-        });
-      }
-      setDraftStart(null);
-      return;
     }
     if (tool === "rettangolo" || tool === "poligono" || tool === "area") {
       if (!forma) {
@@ -589,7 +761,7 @@ export function MagazzinoMappaBoard({
           latoA: null,
           latoB: null,
         });
-        setSelectedId(null);
+        scegliSoloLinea(null);
         setDraftStart(null);
         return;
       }
@@ -649,7 +821,7 @@ export function MagazzinoMappaBoard({
     }
     if (!draftStart) {
       setDraftStart(snap);
-      setSelectedId(null);
+      scegliSoloLinea(null);
       return;
     }
     if (draftStart.x === snap.x && draftStart.y === snap.y) return;
@@ -667,16 +839,8 @@ export function MagazzinoMappaBoard({
     }
     const w = worldFromEvent(e);
     setCursor(w);
-    if (dragRif && w && canDraw) {
-      const dx = snapToGrid(w.x - dragRif.sx, griglia);
-      const dy = snapToGrid(w.y - dragRif.sy, griglia);
-      setRiferimenti((prev) =>
-        prev.map((g) =>
-          g.id === dragRif.id
-            ? { ...g, destX: dragRif.ax + dx, destY: dragRif.ay + dy }
-            : g
-        )
-      );
+    if (carry && w && canDraw) {
+      applicaCarryPunto(w);
       return;
     }
     if (dragArea && w && canDraw) {
@@ -687,24 +851,6 @@ export function MagazzinoMappaBoard({
           a.id === dragArea.id
             ? { ...a, x: dragArea.ax + dx, y: dragArea.ay + dy }
             : a
-        )
-      );
-      return;
-    }
-    if (dragLine && w && canDraw) {
-      const dx = snapToGrid(w.x - dragLine.sx, griglia);
-      const dy = snapToGrid(w.y - dragLine.sy, griglia);
-      setLinee((prev) =>
-        prev.map((l) =>
-          l.id === dragLine.id
-            ? {
-                ...l,
-                x1: dragLine.x1 + dx,
-                y1: dragLine.y1 + dy,
-                x2: dragLine.x2 + dx,
-                y2: dragLine.y2 + dy,
-              }
-            : l
         )
       );
       return;
@@ -789,10 +935,11 @@ export function MagazzinoMappaBoard({
   function resetDisegno() {
     setDraftStart(null);
     setForma(null);
-    setSelectedId(null);
+    scegliSoloLinea(null);
     setPendingArea(null);
     setDragArea(null);
-    setDragLine(null);
+    setCarry(null);
+    carryRef.current = null;
   }
 
   useEffect(() => {
@@ -811,6 +958,12 @@ export function MagazzinoMappaBoard({
         return;
       }
       if (ev.key === "Escape") {
+        if (carry) {
+          ev.preventDefault();
+          setCarry(null);
+          carryRef.current = null;
+          return;
+        }
         resetDisegno();
       }
       if (ev.key === "Delete" || ev.key === "Backspace") {
@@ -876,7 +1029,7 @@ export function MagazzinoMappaBoard({
       ...prev,
       ...nuovi.map((l, i) => ({ ...l, sortOrder: prev.length + i })),
     ]);
-    setSelectedId(nuovi[0]?.id ?? null);
+    scegliSoloLinea(nuovi[0]?.id ?? null);
     setForma(null);
     setOk("Rettangolo disegnato.");
   }
@@ -932,16 +1085,22 @@ export function MagazzinoMappaBoard({
   }
 
   function eliminaLineaSelezionata() {
-    if (!canDraw || !selectedId || forma) return;
-    setLinee((prev) => prev.filter((l) => l.id !== selectedId));
-    setSelectedId(null);
+    if (!canDraw || selectedLineIds.length === 0 || forma) return;
+    const ids = new Set(selectedLineIds);
+    setLinee((prev) => prev.filter((l) => !ids.has(l.id)));
+    setSelectedLineIds([]);
+    setCarry(null);
+    carryRef.current = null;
   }
 
   function eliminaAreaSelezionata() {
-    if (!canDraw || !selectedAreaId || forma || pendingArea) return;
-    setAree((prev) => prev.filter((a) => a.id !== selectedAreaId));
-    setSelectedAreaId(null);
+    if (!canDraw || selectedAreaIds.length === 0 || forma || pendingArea) return;
+    const ids = new Set(selectedAreaIds);
+    setAree((prev) => prev.filter((a) => !ids.has(a.id)));
+    setSelectedAreaIds([]);
     setAreaEditOpen(false);
+    setCarry(null);
+    carryRef.current = null;
   }
 
   function salvaAreaPendente() {
@@ -970,7 +1129,7 @@ export function MagazzinoMappaBoard({
       height: pendingArea.height,
     };
     setAree((prev) => [...prev, nuova]);
-    setSelectedAreaId(nuova.id);
+    scegliSoloArea(nuova.id);
     setPendingArea(null);
     setError(null);
     setOk("Area creata. Salva la bozza per registrarla nel gestionale.");
@@ -1004,9 +1163,9 @@ export function MagazzinoMappaBoard({
   }
 
   function selezionaArea(id: string | null, edit = false) {
-    setSelectedAreaId(id);
-    setSelectedId(null);
-    setSelectedRifId(null);
+    scegliSoloArea(id);
+    scegliSoloLinea(null);
+    scegliSoloRif(null);
     setAreaEditOpen(edit);
     if (!id) return;
     const a = aree.find((x) => x.id === id);
@@ -1021,10 +1180,10 @@ export function MagazzinoMappaBoard({
   }
 
   function selezionaImporto(id: string | null) {
-    setSelectedRifId(id);
-    setSelectedAreaId(null);
+    scegliSoloRif(id);
+    scegliSoloArea(null);
     setAreaEditOpen(false);
-    setSelectedId(null);
+    scegliSoloLinea(null);
     if (!id) return;
     const g = riferimenti.find((x) => x.id === id);
     const box = svgWrapRef.current?.getBoundingClientRect();
@@ -1083,9 +1242,9 @@ export function MagazzinoMappaBoard({
       height: r.height,
     };
     setAree((prev) => [...prev, nuova]);
-    setSelectedAreaId(nuova.id);
+    scegliSoloArea(nuova.id);
     setAreaEditOpen(false);
-    setSelectedId(null);
+    scegliSoloLinea(null);
     setOk("Copia creata accanto all'originale. Trascinala e salva la bozza.");
   }
 
@@ -1109,9 +1268,10 @@ export function MagazzinoMappaBoard({
   function applySpessore(v: number) {
     const next = Number.isFinite(v) && v > 0 ? v : 0.01;
     setSpessore(next);
-    if (selectedId && canDraw) {
+    if (selectedLineIds.length && canDraw) {
+      const ids = new Set(selectedLineIds);
       setLinee((prev) =>
-        prev.map((l) => (l.id === selectedId ? { ...l, spessore: next } : l))
+        prev.map((l) => (ids.has(l.id) ? { ...l, spessore: next } : l))
       );
     }
   }
@@ -1149,20 +1309,27 @@ export function MagazzinoMappaBoard({
   }
 
   function nudgeSelected(dir: SpostaDir) {
-    if (!canDraw || tool !== "seleziona") return;
+    if (!canDraw || tool !== "seleziona" || carry) return;
     const { dx, dy } = deltaSposta(dir);
     if (dx === 0 && dy === 0) return;
-
-    if (selectedLine) {
-      const minX = Math.min(selectedLine.x1, selectedLine.x2);
-      const maxX = Math.max(selectedLine.x1, selectedLine.x2);
-      const minY = Math.min(selectedLine.y1, selectedLine.y2);
-      const maxY = Math.max(selectedLine.y1, selectedLine.y2);
-      const safe = clampDeltaNelFoglio(minX, minY, maxX, maxY, dx, dy);
-      if (safe.dx === 0 && safe.dy === 0) return;
+    const box = selezioneBounds;
+    if (!box) return;
+    const safe = clampDeltaNelFoglio(
+      box.x,
+      box.y,
+      box.x + box.w,
+      box.y + box.h,
+      dx,
+      dy
+    );
+    if (safe.dx === 0 && safe.dy === 0) return;
+    const lineIds = new Set(selectedLineIds);
+    const areaIds = new Set(selectedAreaIds);
+    const rifIds = new Set(selectedRifIds);
+    if (lineIds.size) {
       setLinee((prev) =>
         prev.map((l) =>
-          l.id === selectedLine.id
+          lineIds.has(l.id)
             ? {
                 ...l,
                 x1: l.x1 + safe.dx,
@@ -1173,45 +1340,20 @@ export function MagazzinoMappaBoard({
             : l
         )
       );
-      return;
     }
-
-    if (selectedArea) {
-      const safe = clampDeltaNelFoglio(
-        selectedArea.x,
-        selectedArea.y,
-        selectedArea.x + selectedArea.width,
-        selectedArea.y + selectedArea.height,
-        dx,
-        dy
-      );
-      if (safe.dx === 0 && safe.dy === 0) return;
+    if (areaIds.size) {
       setAree((prev) =>
         prev.map((a) =>
-          a.id === selectedArea.id
+          areaIds.has(a.id)
             ? { ...a, x: a.x + safe.dx, y: a.y + safe.dy }
             : a
         )
       );
-      return;
     }
-
-    if (selectedRif) {
-      const pts = estremiCalcoDest(selectedRif);
-      const xs = pts.map((p) => p.x);
-      const ys = pts.map((p) => p.y);
-      const safe = clampDeltaNelFoglio(
-        Math.min(...xs, selectedRif.destX),
-        Math.min(...ys, selectedRif.destY),
-        Math.max(...xs, selectedRif.destX + selectedRif.destWidth),
-        Math.max(...ys, selectedRif.destY + selectedRif.destHeight),
-        dx,
-        dy
-      );
-      if (safe.dx === 0 && safe.dy === 0) return;
+    if (rifIds.size) {
       setRiferimenti((prev) =>
         prev.map((g) =>
-          g.id === selectedRif.id
+          rifIds.has(g.id)
             ? { ...g, destX: g.destX + safe.dx, destY: g.destY + safe.dy }
             : g
         )
@@ -1219,43 +1361,61 @@ export function MagazzinoMappaBoard({
     }
   }
 
+  const selezioneCount =
+    selectedLineIds.length + selectedAreaIds.length + selectedRifIds.length;
+
   const showSpostaFrecce = Boolean(
-    canDraw &&
-      tool === "seleziona" &&
-      (selectedLine || selectedArea || selectedRif)
+    canDraw && tool === "seleziona" && selezioneCount > 0 && !carry
   );
 
   const selezioneBounds = useMemo(() => {
-    if (selectedLine) {
-      const x = Math.min(selectedLine.x1, selectedLine.x2);
-      const y = Math.min(selectedLine.y1, selectedLine.y2);
-      return {
-        x,
-        y,
-        w: Math.max(Math.abs(selectedLine.x2 - selectedLine.x1), 1),
-        h: Math.max(Math.abs(selectedLine.y2 - selectedLine.y1), 1),
-      };
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let found = false;
+    for (const l of linee) {
+      if (!selectedLineIds.includes(l.id)) continue;
+      found = true;
+      minX = Math.min(minX, l.x1, l.x2);
+      minY = Math.min(minY, l.y1, l.y2);
+      maxX = Math.max(maxX, l.x1, l.x2);
+      maxY = Math.max(maxY, l.y1, l.y2);
     }
-    if (selectedArea) {
-      return {
-        x: selectedArea.x,
-        y: selectedArea.y,
-        w: selectedArea.width,
-        h: selectedArea.height,
-      };
+    for (const a of aree) {
+      if (!selectedAreaIds.includes(a.id)) continue;
+      found = true;
+      minX = Math.min(minX, a.x);
+      minY = Math.min(minY, a.y);
+      maxX = Math.max(maxX, a.x + a.width);
+      maxY = Math.max(maxY, a.y + a.height);
     }
-    if (selectedRif) {
-      const pts = estremiCalcoDest(selectedRif);
+    for (const g of riferimenti) {
+      if (!selectedRifIds.includes(g.id)) continue;
+      found = true;
+      const pts = estremiCalcoDest(g);
       const xs = pts.map((p) => p.x);
       const ys = pts.map((p) => p.y);
-      const x = Math.min(...xs, selectedRif.destX);
-      const y = Math.min(...ys, selectedRif.destY);
-      const x2 = Math.max(...xs, selectedRif.destX + selectedRif.destWidth);
-      const y2 = Math.max(...ys, selectedRif.destY + selectedRif.destHeight);
-      return { x, y, w: Math.max(1, x2 - x), h: Math.max(1, y2 - y) };
+      minX = Math.min(minX, ...xs, g.destX);
+      minY = Math.min(minY, ...ys, g.destY);
+      maxX = Math.max(maxX, ...xs, g.destX + g.destWidth);
+      maxY = Math.max(maxY, ...ys, g.destY + g.destHeight);
     }
-    return null;
-  }, [selectedLine, selectedArea, selectedRif]);
+    if (!found) return null;
+    return {
+      x: minX,
+      y: minY,
+      w: Math.max(1, maxX - minX),
+      h: Math.max(1, maxY - minY),
+    };
+  }, [
+    linee,
+    aree,
+    riferimenti,
+    selectedLineIds,
+    selectedAreaIds,
+    selectedRifIds,
+  ]);
 
   const disegnoCursor = useMemo(() => {
     if (!cursor) return null;
@@ -1303,9 +1463,10 @@ export function MagazzinoMappaBoard({
   function applyColore(v: string) {
     const next = normalizzaColoreLinea(v);
     setColore(next);
-    if (selectedId && canDraw) {
+    if (selectedLineIds.length && canDraw) {
+      const ids = new Set(selectedLineIds);
       setLinee((prev) =>
-        prev.map((l) => (l.id === selectedId ? { ...l, colore: next } : l))
+        prev.map((l) => (ids.has(l.id) ? { ...l, colore: next } : l))
       );
     }
   }
@@ -1865,6 +2026,8 @@ export function MagazzinoMappaBoard({
                   setTool(e.target.value as Tool);
                   setDraftStart(null);
                   setForma(null);
+                  setCarry(null);
+                  carryRef.current = null;
                 }}
                 className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
               >
@@ -1913,6 +2076,14 @@ export function MagazzinoMappaBoard({
               Adatta al foglio
             </button>
           </div>
+
+          {canDraw && tool === "seleziona" ? (
+            <p className="text-xs text-indigo-900">
+              {carry
+                ? "Oggetti attaccati al mouse. Clic sul foglio per posarli."
+                : "Primo click: seleziona (puoi cliccare altri oggetti). Secondo click sullo stesso oggetto: attacca la selezione al mouse."}
+            </p>
+          ) : null}
 
           {canDraw && (tool === "rettangolo" || tool === "poligono" || tool === "area") ? (
             <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2">
@@ -2294,18 +2465,33 @@ export function MagazzinoMappaBoard({
         </div>
       ) : null}
 
+      {canDraw && tool === "seleziona" && carry ? (
+        <div className="shrink-0 rounded-xl border border-indigo-400 bg-indigo-100 px-3 py-2">
+          <p className="text-sm font-semibold text-indigo-950">
+            {selezioneCount}{" "}
+            {selezioneCount === 1 ? "oggetto attaccato" : "oggetti attaccati"} al
+            mouse
+          </p>
+          <p className="mt-0.5 text-xs text-indigo-900">
+            Clic sul foglio per posare. Esc annulla l&apos;aggancio.
+          </p>
+        </div>
+      ) : null}
+
       {showSpostaFrecce ? (
         <div className="shrink-0 rounded-xl border border-indigo-300 bg-indigo-50 px-3 py-2">
           <p className="text-sm font-semibold text-indigo-950">
-            Sposta{" "}
-            {selectedLine
-              ? "linea"
-              : selectedArea
-                ? `area ${selectedArea.codice}`
-                : "elemento"}
+            {selezioneCount === 1
+              ? selectedLine
+                ? "Sposta linea"
+                : selectedArea
+                  ? `Sposta area ${selectedArea.codice}`
+                  : "Sposta elemento"
+              : `Sposta ${selezioneCount} oggetti`}
           </p>
           <p className="mt-0.5 text-xs text-indigo-900">
-            Ogni click (o tasto freccia) sposta di un quadrato.
+            Secondo click su un oggetto già selezionato per attaccarlo al mouse.
+            Frecce: un quadrato.
           </p>
           <div className="mt-2">
             <MappaSpostaFreccePad onNudge={nudgeSelected} />
@@ -2315,7 +2501,11 @@ export function MagazzinoMappaBoard({
 
       {selectedLine ? (
         <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
-          <p className="text-sm font-semibold text-amber-950">Linea selezionata</p>
+          <p className="text-sm font-semibold text-amber-950">
+            {selectedLineIds.length > 1
+              ? `${selectedLineIds.length} linee selezionate`
+              : "Linea selezionata"}
+          </p>
           <div className="mt-1 flex flex-wrap items-end gap-4">
             <p className="text-sm text-amber-950">
               <span className="font-medium">Lunghezza: </span>
@@ -2461,7 +2651,9 @@ export function MagazzinoMappaBoard({
           ref={svgRef}
           className={`h-full w-full touch-none bg-slate-200 ${
             canDraw && tool === "seleziona"
-              ? "cursor-move"
+              ? carry
+                ? "cursor-grabbing"
+                : "cursor-pointer"
               : canDraw
                 ? "cursor-crosshair"
                 : "cursor-default"
@@ -2471,12 +2663,10 @@ export function MagazzinoMappaBoard({
           onPointerUp={() => {
             setPanning(null);
             setDragArea(null);
-            setDragRif(null);
-            setDragLine(null);
           }}
           onPointerLeave={() => {
             setPanning(null);
-            if (!forma && !draftStart && !dragArea && !dragLine) setCursor(null);
+            if (!forma && !draftStart && !dragArea && !carry) setCursor(null);
           }}
           onWheel={onWheel}
           onContextMenu={(e) => e.preventDefault()}
@@ -2515,7 +2705,7 @@ export function MagazzinoMappaBoard({
             />
             {aree.map((a) => {
               const kids = figliSenzaForma(a);
-              const sel = a.id === selectedAreaId;
+              const sel = selectedAreaIds.includes(a.id);
               const cx = a.x + a.width / 2;
               const cy = a.y + a.height / 2;
               const targa = a.codice.trim() || a.nome.trim();
@@ -2571,7 +2761,7 @@ export function MagazzinoMappaBoard({
               );
             })}
             {riferimenti.map((g) => {
-              const sel = g.id === selectedRifId;
+              const sel = selectedRifIds.includes(g.id);
               const angoli = g.haLimite !== false ? dettaglioAngoliImporto(g) : [];
               const lati = g.haLimite !== false ? dettaglioLatiImporto(g) : [];
               const calcoSeg = segmentiCalcoDest(g);
@@ -2731,7 +2921,7 @@ export function MagazzinoMappaBoard({
             ) : null}
             {linee.map((l) => (
               <g key={l.id}>
-                {l.id === selectedId ? (
+                {selectedLineIds.includes(l.id) ? (
                   <line
                     x1={l.x1}
                     y1={l.y1}
@@ -2903,13 +3093,13 @@ export function MagazzinoMappaBoard({
         canEdit={canDraw}
         onSelect={(id) => selezionaImporto(id)}
         onModifica={(id) => {
-          if (selectedRifId === id) setSelectedRifId(null);
+          if (selectedRifId === id) scegliSoloRif(null);
           else selezionaImporto(id);
         }}
         onElimina={(id) => {
           const next = riferimenti.filter((g) => g.id !== id);
           setRiferimenti(next);
-          if (selectedRifId === id) setSelectedRifId(null);
+          if (selectedRifId === id) scegliSoloRif(null);
           if (canDraw) void persist(next);
         }}
         onCambiaDest={(id, patch) => cambiaDestImporto(id, patch)}
@@ -3006,12 +3196,12 @@ export function MagazzinoMappaBoard({
             setRiferimenti(next.riferimenti ?? []);
             if (esito.modalita === "riferimento") {
               const ultimo = (next.riferimenti ?? []).at(-1);
-              if (ultimo) setSelectedRifId(ultimo.id);
+              if (ultimo) scegliSoloRif(ultimo.id);
               setOk(
                 "Calco in elenco. Disegna sopra come su un lucido: i punti si agganciano alle guide. Poi salva la bozza."
               );
             } else {
-              setSelectedRifId(null);
+              scegliSoloRif(null);
               setOk(
                 `Importati ${esito.linee} oggett${esito.linee === 1 ? "o" : "i"} lineari e ${esito.aree} are${esito.aree === 1 ? "a" : "e"} reali. Salva la bozza per confermare.`
               );
