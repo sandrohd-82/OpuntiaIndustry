@@ -40,15 +40,33 @@ function canUsePush(): boolean {
   );
 }
 
+function sameApplicationKey(
+  existing: BufferSource | null | undefined,
+  wanted: Uint8Array
+): boolean {
+  if (!existing) return false;
+  const got =
+    existing instanceof Uint8Array
+      ? existing
+      : new Uint8Array(existing as ArrayBufferLike);
+  if (got.length !== wanted.length) return false;
+  return got.every((b, i) => b === wanted[i]);
+}
+
 async function subscribePush(publicKey: string): Promise<boolean> {
   if (!canUsePush()) return false;
   const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
   await navigator.serviceWorker.ready;
+  const wantedKey = urlBase64ToUint8Array(publicKey);
   let sub = await reg.pushManager.getSubscription();
+  if (sub && !sameApplicationKey(sub.options?.applicationServerKey, wantedKey)) {
+    await sub.unsubscribe();
+    sub = null;
+  }
   if (!sub) {
     sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
+      applicationServerKey: wantedKey as BufferSource,
     });
   }
   const json = sub.toJSON();
