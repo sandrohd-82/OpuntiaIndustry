@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listMappeCollegateAction } from "@/app/actions/magazzino-mappa";
-import { etichettaMappaCollegata, type MappaNavItem } from "@/lib/magazzino/mappa";
+import { type MappaNavItem } from "@/lib/magazzino/mappa";
 
 export function MagazzinoMappaElencoBoard() {
   const [items, setItems] = useState<MappaNavItem[]>([]);
@@ -47,13 +47,13 @@ export function MagazzinoMappaElencoBoard() {
       {items.map((it) => (
         <li key={it.slug}>
           <Link
-            href={`/app/magazzino/mappa/${it.slug}`}
+            href={`/app/pianta/${it.slug}`}
             className="block rounded-xl border border-[var(--border)] bg-[var(--card)] px-4 py-3 hover:border-teal-500"
           >
-            <p className="font-medium">
-              {etichettaMappaCollegata(it.luogoNome, it.vistaEtichetta)}
+            <p className="font-medium">{it.luogoNome}</p>
+            <p className="text-xs text-[var(--muted)]">
+              {it.viste === 1 ? "1 vista" : `${it.viste} viste`} · apri l&apos;area
             </p>
-            <p className="text-xs text-[var(--muted)]">Apri la pianta</p>
           </Link>
         </li>
       ))}

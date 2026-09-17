@@ -1,25 +1,26 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { MagazzinoMappaBoard } from "@/components/magazzino/MagazzinoMappaBoard";
-import { getMappaBySlugAction } from "@/app/actions/magazzino-mappa";
+import { PiantaLuogoBoard } from "@/components/magazzino/PiantaLuogoBoard";
+import { getPiantaLuogoBySlugAction } from "@/app/actions/magazzino-mappa";
 
 type Props = {
   params: Promise<{ slug: string }>;
 };
 
-export default async function PiantaCollegataPage({ params }: Props) {
+export default async function PiantaLuogoPage({ params }: Props) {
   const { slug } = await params;
-  const res = await getMappaBySlugAction(decodeURIComponent(slug));
+  const res = await getPiantaLuogoBySlugAction(decodeURIComponent(slug));
   if (!res.success) notFound();
+  if (res.redirectTo) redirect(`/app/pianta/${res.redirectTo}`);
 
   return (
     <>
       <AppHeader
-        title={res.mappa.percorsoEtichetta || res.mappa.luogoNome}
-        subtitle={`Pianta v${res.mappa.versione} · sola consultazione`}
+        title={res.luogo.etichetta}
+        subtitle={res.luogo.percorsoEtichetta}
       />
       <div className="min-w-0 px-4 pb-8 pt-2">
-        <MagazzinoMappaBoard mappaId={res.mappa.id} mode="lettura" />
+        <PiantaLuogoBoard luogo={res.luogo} />
       </div>
     </>
   );

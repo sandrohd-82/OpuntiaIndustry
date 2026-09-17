@@ -19,6 +19,7 @@ import {
   type CollegaMappaInput,
   type MappaDocumentoStato,
   type MappaElencoItem,
+  type PiantaLuogoPagina,
   type MappaLinea,
   type MappaMagazzino,
   type MappaNavItem,
@@ -412,28 +413,43 @@ export async function listMappeEditorAction(): Promise<
   const { data, error } = await supabase
     .from("magazzino_mappe")
     .select(
-      "id, nome, versione, documento_stato, luogo_nome, slug, vista_etichetta, updated_at"
+      "id, nome, versione, documento_stato, luogo_nome, slug, vista_etichetta, menu_nodo_id, updated_at"
     )
     .is("deleted_at", null)
     .order("updated_at", { ascending: false });
   if (error) return { success: false, error: error.message };
-  const items: MappaElencoItem[] = (
-    (data ?? []) as {
-      id: string;
-      nome: string;
-      versione: number;
-      documento_stato: string;
-      luogo_nome: string | null;
-      slug: string | null;
-      vista_etichetta: string;
-      updated_at: string;
-    }[]
-  ).map((r) => ({
+  const rows = (data ?? []) as {
+    id: string;
+    nome: string;
+    versione: number;
+    documento_stato: string;
+    luogo_nome: string | null;
+    slug: string | null;
+    vista_etichetta: string;
+    menu_nodo_id: string | null;
+    updated_at: string;
+  }[];
+  const nodoIds = [
+    ...new Set(rows.map((r) => r.menu_nodo_id).filter((id): id is string => Boolean(id))),
+  ];
+  const slugsNodo = new Map<string, string>();
+  if (nodoIds.length) {
+    const { data: nodi } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, slug")
+      .in("id", nodoIds)
+      .is("deleted_at", null);
+    for (const n of (nodi ?? []) as { id: string; slug: string }[]) {
+      slugsNodo.set(n.id, n.slug);
+    }
+  }
+  const items: MappaElencoItem[] = rows.map((r) => ({
     id: r.id,
     nome: r.nome,
     versione: r.versione,
     documentoStato: parseStato(r.documento_stato),
     luogoNome: r.luogo_nome ?? "",
+    luogoSlug: r.menu_nodo_id ? slugsNodo.get(r.menu_nodo_id) ?? null : null,
     slug: r.slug,
     vistaEtichetta: r.vista_etichetta ?? "",
     updatedAt: r.updated_at,
@@ -449,27 +465,48 @@ export async function listMappeCollegateAction(): Promise<
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("magazzino_mappe")
-    .select("slug, luogo_nome, vista_etichetta")
+    .select("slug, luogo_nome, vista_etichetta, menu_nodo_id")
     .is("deleted_at", null)
     .eq("documento_stato", "approvato")
     .neq("luogo_nome", "")
-    .not("slug", "is", null)
+    .not("menu_nodo_id", "is", null)
     .order("luogo_nome", { ascending: true });
   if (error) return { success: false, error: error.message };
-  const items: MappaNavItem[] = (
-    (data ?? []) as {
-      slug: string | null;
-      luogo_nome: string;
-      vista_etichetta: string;
-    }[]
-  )
-    .filter((r) => r.slug)
-    .map((r) => ({
-      slug: r.slug!,
+  const rows = (data ?? []) as {
+    slug: string | null;
+    luogo_nome: string;
+    vista_etichetta: string;
+    menu_nodo_id: string;
+  }[];
+  const nodoIds = [...new Set(rows.map((r) => r.menu_nodo_id))];
+  const slugsNodo = new Map<string, string>();
+  if (nodoIds.length) {
+    const { data: nodi } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, slug")
+      .in("id", nodoIds)
+      .is("deleted_at", null);
+    for (const n of (nodi ?? []) as { id: string; slug: string }[]) {
+      slugsNodo.set(n.id, n.slug);
+    }
+  }
+  const byNodo = new Map<string, MappaNavItem>();
+  for (const r of rows) {
+    const slug = slugsNodo.get(r.menu_nodo_id);
+    if (!slug) continue;
+    const prev = byNodo.get(r.menu_nodo_id);
+    if (prev) {
+      prev.viste += 1;
+      continue;
+    }
+    byNodo.set(r.menu_nodo_id, {
+      slug,
       luogoNome: r.luogo_nome,
       vistaEtichetta: r.vista_etichetta,
-    }));
-  return { success: true, items };
+      viste: 1,
+    });
+  }
+  return { success: true, items: [...byNodo.values()] };
 }
 
 export async function listMappaMenuNavAction(): Promise<
@@ -650,6 +687,109 @@ export async function getMappaBySlugAction(
   const mappa = await loadMappa(supabase, row.id);
   if (!mappa) return { success: false, error: "Pianta non trovata." };
   return { success: true, mappa };
+}
+
+export async function getPiantaLuogoBySlugAction(
+  slug: string
+): Promise<
+  | { success: true; luogo: PiantaLuogoPagina; redirectTo: string | null }
+  | { success: false; error: string }
+> {
+  const clean = slug.trim();
+  if (!clean) return { success: false, error: "Percorso pianta non valido." };
+  const supabase = await createClient();
+
+  const { data: nodi } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, etichetta, slug, area_slug")
+    .eq("slug", clean)
+    .eq("tipo", "luogo")
+    .is("deleted_at", null);
+
+  let nodo = ((nodi ?? []) as {
+    id: string;
+    etichetta: string;
+    slug: string;
+    area_slug: string;
+  }[])[0];
+
+  let redirectTo: string | null = null;
+
+  if (!nodo) {
+    const { data: header } = await supabase
+      .from("magazzino_mappe")
+      .select("id, area_codice, menu_nodo_id")
+      .eq("slug", clean)
+      .eq("documento_stato", "approvato")
+      .is("deleted_at", null)
+      .maybeSingle();
+    const mapRow = header as {
+      id: string;
+      area_codice?: string;
+      menu_nodo_id?: string | null;
+    } | null;
+    if (!mapRow?.menu_nodo_id) {
+      return { success: false, error: "Pianta non collegata o non trovata." };
+    }
+    const { data: found } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, etichetta, slug, area_slug")
+      .eq("id", mapRow.menu_nodo_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const row = found as {
+      id: string;
+      etichetta: string;
+      slug: string;
+      area_slug: string;
+    } | null;
+    if (!row) return { success: false, error: "Area di menu non trovata." };
+    nodo = row;
+    if (row.slug !== clean) redirectTo = row.slug;
+  }
+
+  const area = (nodo.area_slug || "magazzino") as AreaSlug;
+  const allowed: AreaSlug[] = [area, "strumenti"];
+  await requireAnyAreaAccess(allowed.filter((s) => s in AREA_ROUTES) as AreaSlug[]);
+
+  const { data: headers } = await supabase
+    .from("magazzino_mappe")
+    .select("id")
+    .eq("menu_nodo_id", nodo.id)
+    .eq("documento_stato", "approvato")
+    .is("deleted_at", null)
+    .order("vista_etichetta", { ascending: true });
+
+  const ids = ((headers ?? []) as { id: string }[]).map((h) => h.id);
+  const mappe: MappaMagazzino[] = [];
+  for (const id of ids) {
+    const m = await loadMappa(supabase, id);
+    if (m) mappe.push(m);
+  }
+  if (!mappe.length) {
+    return { success: false, error: "Nessuna vista collegata a quest'area." };
+  }
+
+  const percorsoEtichetta = await etichettaPercorsoNodo(
+    supabase,
+    nodo.id,
+    nodo.area_slug,
+    nodo.etichetta,
+    ""
+  );
+
+  return {
+    success: true,
+    redirectTo,
+    luogo: {
+      nodoId: nodo.id,
+      slug: nodo.slug,
+      etichetta: nodo.etichetta,
+      percorsoEtichetta: percorsoEtichetta.replace(/\s>\s\[\]$/, "").trim(),
+      areaSlug: nodo.area_slug,
+      mappe,
+    },
+  };
 }
 
 export async function creaMappaBozzaAction(

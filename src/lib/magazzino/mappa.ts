@@ -118,15 +118,26 @@ export type MappaElencoItem = {
   versione: number;
   documentoStato: MappaDocumentoStato;
   luogoNome: string;
+  luogoSlug: string | null;
   slug: string | null;
   vistaEtichetta: string;
   updatedAt: string;
+};
+
+export type PiantaLuogoPagina = {
+  nodoId: string;
+  slug: string;
+  etichetta: string;
+  percorsoEtichetta: string;
+  areaSlug: string;
+  mappe: MappaMagazzino[];
 };
 
 export type MappaNavItem = {
   slug: string;
   luogoNome: string;
   vistaEtichetta: string;
+  viste: number;
 };
 
 export function slugMappaArea(luogo: string, vista: string): string {
@@ -399,6 +410,8 @@ export const MAPPA_ZOOM_MIN = 0.01;
 export const MAPPA_ZOOM_MAX = 8;
 export const MAPPA_QUADRATI_MAX = 20000;
 /** Margine su ogni lato: 5% della linea (o del lato) più lungo. */
+export const MAPPA_RITAGLIO_PADDING_PX = 10;
+
 export const MAPPA_FOGLIO_MARGINE_PCT = 0.05;
 export const MAPPA_FOGLIO_MIN_QUADRATI = 40;
 
@@ -422,6 +435,54 @@ export function lunghezzaLineaPx(
  * Foglio quadrato che racchiude tutto il disegno.
  * Margine = 5% della lunghezza massima, su ogni lato (laterale, sopra e sotto).
  */
+export function ritaglioDisegnoMappa(
+  linee: { x1: number; y1: number; x2: number; y2: number }[],
+  aree: { x: number; y: number; width: number; height: number }[],
+  extraPunti: MappaPunto[] = [],
+  padding = MAPPA_RITAGLIO_PADDING_PX
+): FoglioMappa {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let has = false;
+  function add(x: number, y: number) {
+    has = true;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  }
+  for (const l of linee) {
+    add(l.x1, l.y1);
+    add(l.x2, l.y2);
+  }
+  for (const a of aree) {
+    add(a.x, a.y);
+    add(a.x + a.width, a.y + a.height);
+  }
+  for (const p of extraPunti) add(p.x, p.y);
+  if (!has) {
+    return { x: 0, y: 0, width: 80, height: 80 };
+  }
+  const pad = Math.max(0, padding);
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: Math.max(1, maxX - minX + pad * 2),
+    height: Math.max(1, maxY - minY + pad * 2),
+  };
+}
+
+export function classiGrigliaViste(n: number): string {
+  if (n <= 1) return "grid-cols-1";
+  if (n === 2) return "grid-cols-1 md:grid-cols-2";
+  if (n === 3) return "grid-cols-1 md:grid-cols-3";
+  if (n === 4) return "grid-cols-1 md:grid-cols-2";
+  if (n <= 6) return "grid-cols-1 md:grid-cols-3";
+  return "grid-cols-1 md:grid-cols-2";
+}
+
 export function calcolaFoglioMappa(
   linee: { x1: number; y1: number; x2: number; y2: number }[],
   extraSegmenti: { x1: number; y1: number; x2: number; y2: number }[],

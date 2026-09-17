@@ -121,12 +121,13 @@ export function EditorAreeBoard() {
                     >
                       Apri
                     </Link>
-                    {it.slug && it.documentoStato === "approvato" ? (
+                    {it.documentoStato === "approvato" &&
+                    (it.luogoSlug || it.slug) ? (
                       <Link
-                        href={`/app/magazzino/mappa/${it.slug}`}
+                        href={`/app/pianta/${it.luogoSlug || it.slug}`}
                         className="ml-3 text-sm text-slate-600 hover:underline"
                       >
-                        Vedi in Magazzino
+                        Vedi area
                       </Link>
                     ) : null}
                   </td>

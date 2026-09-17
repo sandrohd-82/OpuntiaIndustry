@@ -52,6 +52,50 @@ export const mappaAreaInputSchema = z.object({
   height: z.number().positive(),
 });
 
+export function unisciAreePiante(
+  liste: MappaAreaDisegnata[][]
+): MappaAreaDisegnata[] {
+  const byKey = new Map<string, MappaAreaDisegnata>();
+  for (const lista of liste) {
+    for (const a of lista) {
+      const key = a.ubicazioneId || a.id;
+      if (!byKey.has(key)) byKey.set(key, a);
+    }
+  }
+  return [...byKey.values()];
+}
+
+export function areeElencoConsultazione(aree: MappaAreaDisegnata[]): {
+  id: string;
+  codice: string;
+  nome: string;
+}[] {
+  const haLivelli = aree.some((a) => a.parentId);
+  const isPadre = (a: MappaAreaDisegnata) =>
+    aree.some(
+      (c) => c.parentId && (c.parentId === a.ubicazioneId || c.parentId === a.id)
+    );
+  const visibili = haLivelli ? aree.filter((a) => !isPadre(a)) : aree;
+  return visibili
+    .map((a) => {
+      const parent = aree.find(
+        (p) => p.ubicazioneId === a.parentId || p.id === a.parentId
+      );
+      const codice = haLivelli
+        ? parent
+          ? codicePostoFiglio(parent.codice, a.codice)
+          : a.codice
+        : letteraColonna(a.codice);
+      return { id: a.ubicazioneId || a.id, codice, nome: a.nome };
+    })
+    .sort((a, b) => a.codice.localeCompare(b.codice, "it"));
+}
+
+function letteraColonna(codice: string): string {
+  const m = codice.trim().match(/[A-Za-z]+$/);
+  return (m?.[0] ?? codice).toUpperCase();
+}
+
 export function codicePostoFiglio(parentCodice: string, figlio: string): string {
   const p = parentCodice.trim().toUpperCase();
   const f = figlio.trim().toUpperCase();

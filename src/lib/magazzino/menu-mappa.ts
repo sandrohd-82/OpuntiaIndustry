@@ -197,14 +197,7 @@ function nodoToNav(
 ): NavItem {
   if (n.tipo === "luogo") {
     const views = mappe.filter((m) => m.nodoId === n.id);
-    const viewItems: NavItem[] = views.map((v) => ({
-      slug: v.slug,
-      label: `${n.etichetta} [${v.vistaEtichetta}]`,
-      description: `Vista ${v.vistaEtichetta}`,
-      path: `/app/pianta/${v.slug}`,
-    }));
-    if (viewItems.length === 1) return viewItems[0]!;
-    if (viewItems.length === 0) {
+    if (views.length === 0) {
       return {
         slug: n.slug,
         label: n.etichetta,
@@ -215,9 +208,11 @@ function nodoToNav(
     return {
       slug: n.slug,
       label: n.etichetta,
-      description: "Viste del posto",
-      path: firstLeafPath(viewItems[0]!),
-      children: viewItems,
+      description:
+        views.length === 1
+          ? `Pianta ${views[0]!.vistaEtichetta}`
+          : `${views.length} viste collegate`,
+      path: `/app/pianta/${n.slug}`,
     };
   }
   if (children.length === 0) {
