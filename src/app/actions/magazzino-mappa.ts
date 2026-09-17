@@ -26,6 +26,14 @@ import {
   type MappaAreaDisegnata,
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
+import {
+  etichettaAsseOrigine,
+  importaRiferimentiSchema,
+  type ImportaRiferimentiInput,
+  type MappaAsseOrigine,
+  type MappaRiferimentoGruppo,
+  type MappaRiferimentoGruppoInput,
+} from "@/lib/magazzino/riferimenti";
 import { createClient } from "@/lib/supabase/server";
 
 function canProgettare(profile: Parameters<typeof isSuperadminProfile>[0]) {
@@ -85,7 +93,8 @@ function mapHeader(
   h: HeaderRow,
   linee: MappaLinea[],
   aree: MappaAreaDisegnata[] = [],
-  ubicazioni: UbicazioneElenco[] = []
+  ubicazioni: UbicazioneElenco[] = [],
+  riferimenti: MappaRiferimentoGruppo[] = []
 ): MappaMagazzino {
   return {
     id: h.id,
@@ -108,6 +117,7 @@ function mapHeader(
     linee,
     aree,
     ubicazioni,
+    riferimenti,
   };
 }
 
@@ -168,12 +178,106 @@ async function loadMappa(
     };
   });
   const ubicazioni = await loadUbicazioniScope(supabase, id, h.luogo_nome ?? "");
+  const riferimenti = await loadRiferimentiMappa(supabase, id);
   return mapHeader(
     h,
     ((linee ?? []) as Parameters<typeof mapLinea>[0][]).map(mapLinea),
     aree,
-    ubicazioni
+    ubicazioni,
+    riferimenti
   );
+}
+
+async function loadRiferimentiMappa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string
+): Promise<MappaRiferimentoGruppo[]> {
+  const { data } = await supabase
+    .from("magazzino_mappa_riferimenti")
+    .select(
+      "id, gruppo_id, tipo, etichetta, asse_origine, offset_quadrati, limite_width_q, limite_height_q, dest_x, dest_y, dest_width, dest_height, origine_x, origine_y, origine_w, origine_h, sort_order, mappa_origine_id"
+    )
+    .eq("mappa_id", mappaId)
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  type RifRow = {
+    id: string;
+    gruppo_id: string;
+    tipo: string;
+    etichetta: string;
+    asse_origine: string;
+    offset_quadrati: number | string;
+    limite_width_q: number | string;
+    limite_height_q: number | string;
+    dest_x: number | string;
+    dest_y: number | string;
+    dest_width: number | string;
+    dest_height: number | string;
+    origine_x: number | string;
+    origine_y: number | string;
+    origine_w: number | string;
+    origine_h: number | string;
+    sort_order: number;
+    mappa_origine_id: string;
+  };
+  const rows = (data ?? []) as RifRow[];
+  const origineIds = [...new Set(rows.map((r) => r.mappa_origine_id))];
+  const labels = new Map<string, string>();
+  if (origineIds.length) {
+    const { data: orig } = await supabase
+      .from("magazzino_mappe")
+      .select("id, nome, luogo_nome, vista_etichetta")
+      .in("id", origineIds);
+    for (const o of (orig ?? []) as {
+      id: string;
+      nome: string;
+      luogo_nome: string | null;
+      vista_etichetta: string;
+    }[]) {
+      labels.set(
+        o.id,
+        o.luogo_nome && o.vista_etichetta
+          ? etichettaMappaCollegata(o.luogo_nome, o.vista_etichetta)
+          : o.nome
+      );
+    }
+  }
+  const groups = new Map<string, MappaRiferimentoGruppo>();
+  for (const r of rows) {
+    const label = labels.get(r.mappa_origine_id) ?? "Pianta origine";
+    let g = groups.get(r.gruppo_id);
+    if (!g) {
+      g = {
+        id: r.gruppo_id,
+        asseId: "",
+        mappaOrigineId: r.mappa_origine_id,
+        mappaOrigineEtichetta: label,
+        asseOrigine: r.asse_origine === "y" ? "y" : "x",
+        limiteWidthQ: Number(r.limite_width_q),
+        limiteHeightQ: Number(r.limite_height_q),
+        destX: Number(r.dest_x),
+        destY: Number(r.dest_y),
+        destWidth: Number(r.dest_width),
+        destHeight: Number(r.dest_height),
+        origineX: Number(r.origine_x),
+        origineY: Number(r.origine_y),
+        origineW: Number(r.origine_w),
+        origineH: Number(r.origine_h),
+        punti: [],
+      };
+      groups.set(r.gruppo_id, g);
+    }
+    if (r.tipo === "asse") {
+      g.asseId = r.id;
+    } else {
+      g.punti.push({
+        id: r.id,
+        etichetta: r.etichetta || `Rif. ${g.punti.length + 1}`,
+        offsetQuadrati: Number(r.offset_quadrati),
+      });
+    }
+  }
+  return [...groups.values()];
 }
 
 async function loadUbicazioniScope(
@@ -566,6 +670,238 @@ export async function listUbicazioniRiponibiliAction(): Promise<
   };
 }
 
+function payloadRiferimentoComune(
+  g: MappaRiferimentoGruppoInput,
+  userId: string
+) {
+  return {
+    mappa_origine_id: g.mappaOrigineId,
+    asse_origine: g.asseOrigine,
+    limite_width_q: g.limiteWidthQ,
+    limite_height_q: g.limiteHeightQ,
+    dest_x: g.destX,
+    dest_y: g.destY,
+    dest_width: g.destWidth,
+    dest_height: g.destHeight,
+    origine_x: g.origineX,
+    origine_y: g.origineY,
+    origine_w: g.origineW,
+    origine_h: g.origineH,
+    updated_by: userId,
+  };
+}
+
+async function persistRiferimentiMappa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string,
+  gruppi: MappaRiferimentoGruppoInput[],
+  userId: string
+): Promise<string | null> {
+  const { data: existing } = await supabase
+    .from("magazzino_mappa_riferimenti")
+    .select("id")
+    .eq("mappa_id", mappaId)
+    .is("deleted_at", null);
+  const keep = new Set<string>();
+  for (const g of gruppi) {
+    if (g.asseId) keep.add(g.asseId);
+    for (const p of g.punti) if (p.id) keep.add(p.id);
+  }
+  const now = new Date().toISOString();
+  const toSoft = ((existing ?? []) as { id: string }[]).filter((r) => !keep.has(r.id));
+  if (toSoft.length) {
+    await supabase
+      .from("magazzino_mappa_riferimenti")
+      .update({ deleted_at: now, deleted_by: userId, updated_by: userId })
+      .in(
+        "id",
+        toSoft.map((r) => r.id)
+      );
+  }
+  for (const [gi, g] of gruppi.entries()) {
+    const gruppoId = g.id ?? crypto.randomUUID();
+    const common = payloadRiferimentoComune(g, userId);
+    const assePayload = {
+      ...common,
+      mappa_id: mappaId,
+      gruppo_id: gruppoId,
+      tipo: "asse" as const,
+      etichetta: "Quadrato limite",
+      offset_quadrati: 0,
+      sort_order: gi * 100,
+    };
+    if (g.asseId && keep.has(g.asseId)) {
+      const { error } = await supabase
+        .from("magazzino_mappa_riferimenti")
+        .update(assePayload)
+        .eq("id", g.asseId)
+        .eq("mappa_id", mappaId);
+      if (error) return error.message;
+    } else {
+      const { error } = await supabase.from("magazzino_mappa_riferimenti").insert({
+        ...assePayload,
+        created_by: userId,
+      });
+      if (error) return error.message;
+    }
+    for (const [pi, p] of g.punti.entries()) {
+      const puntoPayload = {
+        ...common,
+        mappa_id: mappaId,
+        gruppo_id: gruppoId,
+        tipo: "punto" as const,
+        etichetta: p.etichetta.trim(),
+        offset_quadrati: p.offsetQuadrati,
+        sort_order: gi * 100 + pi + 1,
+      };
+      if (p.id && keep.has(p.id)) {
+        const { error } = await supabase
+          .from("magazzino_mappa_riferimenti")
+          .update(puntoPayload)
+          .eq("id", p.id)
+          .eq("mappa_id", mappaId);
+        if (error) return error.message;
+      } else {
+        const { error } = await supabase.from("magazzino_mappa_riferimenti").insert({
+          ...puntoPayload,
+          created_by: userId,
+        });
+        if (error) return error.message;
+      }
+    }
+  }
+  return null;
+}
+
+export async function listMappeStessoLuogoAction(
+  luogoNome: string,
+  excludeId: string
+): Promise<
+  | { success: true; items: { id: string; label: string; documentoStato: string }[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["strumenti", "magazzino"]);
+  const luogo = luogoNome.trim().toLowerCase();
+  if (!luogo) return { success: true, items: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_mappe")
+    .select("id, nome, luogo_nome, vista_etichetta, documento_stato")
+    .is("deleted_at", null)
+    .neq("id", excludeId);
+  if (error) return { success: false, error: error.message };
+  const items = (
+    (data ?? []) as {
+      id: string;
+      nome: string;
+      luogo_nome: string | null;
+      vista_etichetta: string;
+      documento_stato: string;
+    }[]
+  )
+    .filter((r) => (r.luogo_nome ?? "").trim().toLowerCase() === luogo)
+    .map((r) => ({
+      id: r.id,
+      documentoStato: r.documento_stato,
+      label:
+        r.luogo_nome && r.vista_etichetta
+          ? etichettaMappaCollegata(r.luogo_nome, r.vista_etichetta)
+          : r.nome,
+    }));
+  return { success: true, items };
+}
+
+export async function importaRiferimentiDaVistaAction(
+  raw: ImportaRiferimentiInput
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può importare i riferimenti." };
+  }
+  const parsed = importaRiferimentiSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati importo non validi.",
+    };
+  }
+  const input = parsed.data;
+  if (input.mappaId === input.mappaOrigineId) {
+    return { success: false, error: "Scegli una pianta diversa da questa." };
+  }
+  const supabase = await createClient();
+  const dest = await loadMappa(supabase, input.mappaId);
+  const src = await loadMappa(supabase, input.mappaOrigineId);
+  if (!dest || dest.documentoStato !== "bozza") {
+    return { success: false, error: "Importo consentito solo su una bozza." };
+  }
+  if (!src) return { success: false, error: "Pianta di origine non trovata." };
+  const gruppo: MappaRiferimentoGruppoInput = {
+    mappaOrigineId: input.mappaOrigineId,
+    asseOrigine: input.asseOrigine,
+    limiteWidthQ: input.limiteWidthQ,
+    limiteHeightQ: input.limiteHeightQ,
+    destX: input.destX,
+    destY: input.destY,
+    destWidth: input.destWidth,
+    destHeight: input.destHeight,
+    origineX: input.origineX,
+    origineY: input.origineY,
+    origineW: input.origineW,
+    origineH: input.origineH,
+    punti: input.punti,
+  };
+  const err = await persistRiferimentiMappa(
+    supabase,
+    input.mappaId,
+    [...(dest.riferimenti ?? []).map(gruppoToInput), gruppo],
+    auth.userId
+  );
+  if (err) return { success: false, error: err };
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: input.mappaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Importati riferimenti da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${etichettaAsseOrigine(input.asseOrigine as MappaAsseOrigine)} · ${input.punti.length} punti`,
+    payload: {
+      mappa_origine_id: input.mappaOrigineId,
+      asse: input.asseOrigine,
+      punti: input.punti.length,
+    },
+  });
+  const mappa = await loadMappa(supabase, input.mappaId);
+  if (!mappa) return { success: false, error: "Importo ok, pianta non leggibile." };
+  return { success: true, mappa };
+}
+
+function gruppoToInput(g: MappaRiferimentoGruppo): MappaRiferimentoGruppoInput {
+  return {
+    id: g.id,
+    asseId: g.asseId || undefined,
+    mappaOrigineId: g.mappaOrigineId,
+    asseOrigine: g.asseOrigine,
+    limiteWidthQ: g.limiteWidthQ,
+    limiteHeightQ: g.limiteHeightQ,
+    destX: g.destX,
+    destY: g.destY,
+    destWidth: g.destWidth,
+    destHeight: g.destHeight,
+    origineX: g.origineX,
+    origineY: g.origineY,
+    origineW: g.origineW,
+    origineH: g.origineH,
+    punti: g.punti.map((p) => ({
+      id: p.id,
+      etichetta: p.etichetta,
+      offsetQuadrati: p.offsetQuadrati,
+    })),
+  };
+}
+
 export async function salvaMappaMagazzinoAction(
   raw: SalvaMappaInput
 ): Promise<
@@ -688,15 +1024,26 @@ export async function salvaMappaMagazzinoAction(
   );
   if (areeErr) return { success: false, error: areeErr };
 
+  if (input.riferimenti) {
+    const rifErr = await persistRiferimentiMappa(
+      supabase,
+      input.mappaId,
+      input.riferimenti,
+      auth.userId
+    );
+    if (rifErr) return { success: false, error: rifErr };
+  }
+
   await writeAuditLog({
     entity_type: "magazzino_mappe",
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Salvata bozza editor aree (${input.linee.length} linee, ${(input.aree ?? []).length} aree, vista ${input.vistaEtichetta || "—"})`,
+    summary: `Salvata bozza editor aree (${input.linee.length} linee, ${(input.aree ?? []).length} aree, ${(input.riferimenti ?? []).length} importi, vista ${input.vistaEtichetta || "—"})`,
     payload: {
       linee: input.linee.length,
       aree: (input.aree ?? []).length,
+      riferimenti: (input.riferimenti ?? []).length,
       vista: input.vistaEtichetta,
     },
   });

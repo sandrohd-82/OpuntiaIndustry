@@ -8,6 +8,7 @@ import {
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
+import { ImportaRiferimentiVista } from "@/components/magazzino/ImportaRiferimentiVista";
 import { MAGAZZINO_MAPPE_NAV_EVENT } from "@/lib/areas/magazzino";
 import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
@@ -45,6 +46,11 @@ import {
   type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
 import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
+import {
+  etichettaAsseOrigine,
+  xGuidaDest,
+  type MappaRiferimentoGruppo,
+} from "@/lib/magazzino/riferimenti";
 
 type Tool = "linea" | "seleziona" | "rettangolo" | "poligono" | "area";
 
@@ -108,6 +114,16 @@ export function MagazzinoMappaBoard({
   const [canDesign, setCanDesign] = useState(false);
   const [linee, setLinee] = useState<MappaLinea[]>([]);
   const [aree, setAree] = useState<MappaAreaDisegnata[]>([]);
+  const [riferimenti, setRiferimenti] = useState<MappaRiferimentoGruppo[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [selectedRifId, setSelectedRifId] = useState<string | null>(null);
+  const [dragRif, setDragRif] = useState<{
+    id: string;
+    sx: number;
+    sy: number;
+    ax: number;
+    ay: number;
+  } | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
   const [pendingArea, setPendingArea] = useState<{
     x: number;
@@ -171,6 +187,7 @@ export function MagazzinoMappaBoard({
     setCanDesign(mode === "editor" && res.canDesign);
     setLinee(res.mappa.linee);
     setAree(res.mappa.aree ?? []);
+    setRiferimenti(res.mappa.riferimenti ?? []);
     setNomePianta(res.mappa.nome);
     setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
@@ -232,6 +249,21 @@ export function MagazzinoMappaBoard({
       const a = aree[i]!;
       if (wx >= a.x && wx <= a.x + a.width && wy >= a.y && wy <= a.y + a.height) {
         return a.id;
+      }
+    }
+    return null;
+  }
+
+  function hitRif(wx: number, wy: number): string | null {
+    for (let i = riferimenti.length - 1; i >= 0; i -= 1) {
+      const g = riferimenti[i]!;
+      if (
+        wx >= g.destX &&
+        wx <= g.destX + g.destWidth &&
+        wy >= g.destY &&
+        wy <= g.destY + g.destHeight
+      ) {
+        return g.id;
       }
     }
     return null;
@@ -345,8 +377,14 @@ export function MagazzinoMappaBoard({
         { x: pendingArea.x + pendingArea.width, y: pendingArea.y + pendingArea.height }
       );
     }
+    for (const g of riferimenti) {
+      p.push(
+        { x: g.destX, y: g.destY },
+        { x: g.destX + g.destWidth, y: g.destY + g.destHeight }
+      );
+    }
     return p;
-  }, [forma, previewForma, griglia, aree, pendingArea]);
+  }, [forma, previewForma, griglia, aree, pendingArea, riferimenti]);
 
   const latoPianificatoPx = (() => {
     if (!canDraw) return 0;
@@ -381,15 +419,35 @@ export function MagazzinoMappaBoard({
     if (!w) return;
     const { punto: snap } = risolviPuntoDisegno(w);
     if (!canDraw) {
+      const rid = hitRif(w.x, w.y);
+      if (rid) {
+        setSelectedRifId(rid);
+        setSelectedAreaId(null);
+        setSelectedId(null);
+        return;
+      }
       const aid = hitArea(w.x, w.y);
       if (aid) {
         setSelectedAreaId(aid);
         setSelectedId(null);
+        setSelectedRifId(null);
         return;
       }
       setSelectedAreaId(null);
+      setSelectedRifId(null);
       setSelectedId(hitLine(w.x, w.y));
       return;
+    }
+    if (!forma && !pendingArea && tool === "seleziona") {
+      const rid = hitRif(w.x, w.y);
+      if (rid) {
+        const g = riferimenti.find((x) => x.id === rid);
+        setSelectedRifId(rid);
+        setSelectedAreaId(null);
+        setSelectedId(null);
+        if (g) setDragRif({ id: rid, sx: w.x, sy: w.y, ax: g.destX, ay: g.destY });
+        return;
+      }
     }
     if (!forma && !pendingArea) {
       const aid = hitArea(w.x, w.y);
@@ -509,6 +567,18 @@ export function MagazzinoMappaBoard({
     }
     const w = worldFromEvent(e);
     setCursor(w);
+    if (dragRif && w && canDraw) {
+      const dx = snapToGrid(w.x - dragRif.sx, griglia);
+      const dy = snapToGrid(w.y - dragRif.sy, griglia);
+      setRiferimenti((prev) =>
+        prev.map((g) =>
+          g.id === dragRif.id
+            ? { ...g, destX: dragRif.ax + dx, destY: dragRif.ay + dy }
+            : g
+        )
+      );
+      return;
+    }
     if (dragArea && w && canDraw) {
       const dx = snapToGrid(w.x - dragArea.sx, griglia);
       const dy = snapToGrid(w.y - dragArea.sy, griglia);
@@ -775,6 +845,10 @@ export function MagazzinoMappaBoard({
     ? aree.find((a) => a.id === selectedAreaId) ?? null
     : null;
 
+  const selectedRif = selectedRifId
+    ? riferimenti.find((g) => g.id === selectedRifId) ?? null
+    : null;
+
   const parentOptions = useMemo(() => {
     const opts: { id: string; label: string }[] = [];
     for (const a of aree) {
@@ -908,6 +982,27 @@ export function MagazzinoMappaBoard({
         width: a.width,
         height: a.height,
       })),
+      riferimenti: riferimenti.map((g) => ({
+        id: g.id,
+        asseId: g.asseId || undefined,
+        mappaOrigineId: g.mappaOrigineId,
+        asseOrigine: g.asseOrigine,
+        limiteWidthQ: g.limiteWidthQ,
+        limiteHeightQ: g.limiteHeightQ,
+        destX: g.destX,
+        destY: g.destY,
+        destWidth: g.destWidth,
+        destHeight: g.destHeight,
+        origineX: g.origineX,
+        origineY: g.origineY,
+        origineW: g.origineW,
+        origineH: g.origineH,
+        punti: g.punti.map((p) => ({
+          id: p.id,
+          etichetta: p.etichetta,
+          offsetQuadrati: p.offsetQuadrati,
+        })),
+      })),
     });
     setSaving(false);
     if (!res.success) {
@@ -917,6 +1012,7 @@ export function MagazzinoMappaBoard({
     setMappa(res.mappa);
     setLinee(res.mappa.linee);
     setAree(res.mappa.aree ?? []);
+    setRiferimenti(res.mappa.riferimenti ?? []);
     setNomePianta(res.mappa.nome);
     setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
@@ -1129,6 +1225,14 @@ export function MagazzinoMappaBoard({
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
                 Collega ad area
+              </button>
+              <button
+                type="button"
+                disabled={!luogoNome.trim()}
+                onClick={() => setImportOpen(true)}
+                className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
+              >
+                Importa da vista
               </button>
             </>
           ) : null}
@@ -1581,6 +1685,108 @@ export function MagazzinoMappaBoard({
         </div>
       ) : null}
 
+      {selectedRif ? (
+        <div className="shrink-0 rounded-xl border border-amber-400 bg-amber-50 px-3 py-2">
+          <p className="text-sm font-semibold text-amber-950">
+            Guida da {selectedRif.mappaOrigineEtichetta}
+          </p>
+          <p className="text-xs text-amber-900">
+            {etichettaAsseOrigine(selectedRif.asseOrigine)} copiata ·{" "}
+            {formattaQuadrati(selectedRif.limiteWidthQ)} ×{" "}
+            {formattaQuadrati(selectedRif.limiteHeightQ)} quadrati ·{" "}
+            {selectedRif.punti.length} punti. Seleziona e trascina il rettangolo.
+          </p>
+          {canDraw ? (
+            <div className="mt-2 flex flex-wrap items-end gap-3">
+              <label className="text-xs">
+                Altezza (quadrati)
+                <input
+                  type="number"
+                  min={1}
+                  value={Math.max(1, Math.round(selectedRif.destHeight / griglia))}
+                  onChange={(e) => {
+                    const q = Math.max(1, Math.round(Number(e.target.value) || 1));
+                    setRiferimenti((prev) =>
+                      prev.map((g) =>
+                        g.id === selectedRif.id
+                          ? {
+                              ...g,
+                              limiteHeightQ: q,
+                              destHeight: q * griglia,
+                            }
+                          : g
+                      )
+                    );
+                  }}
+                  className="ml-1 w-20 rounded border border-amber-400 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setRiferimenti((prev) => prev.filter((g) => g.id !== selectedRif.id));
+                  setSelectedRifId(null);
+                }}
+                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
+              >
+                Elimina importo
+              </button>
+            </div>
+          ) : null}
+          {selectedRif.punti.length ? (
+            <ul className="mt-2 space-y-1 text-xs text-amber-950">
+              {selectedRif.punti.map((p) => (
+                <li key={p.id} className="flex flex-wrap items-center gap-2">
+                  {canDraw ? (
+                    <input
+                      value={p.etichetta}
+                      onChange={(e) =>
+                        setRiferimenti((prev) =>
+                          prev.map((g) =>
+                            g.id === selectedRif.id
+                              ? {
+                                  ...g,
+                                  punti: g.punti.map((x) =>
+                                    x.id === p.id ? { ...x, etichetta: e.target.value } : x
+                                  ),
+                                }
+                              : g
+                          )
+                        )
+                      }
+                      className="w-40 rounded border border-amber-300 bg-white px-1.5 py-0.5"
+                    />
+                  ) : (
+                    <span>{p.etichetta}</span>
+                  )}
+                  <span>
+                    {formattaQuadrati(p.offsetQuadrati)} q ·{" "}
+                    {formattaLunghezzaReale(p.offsetQuadrati, scalaValore, scalaUnita)}
+                  </span>
+                  {canDraw ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRiferimenti((prev) =>
+                          prev.map((g) =>
+                            g.id === selectedRif.id
+                              ? { ...g, punti: g.punti.filter((x) => x.id !== p.id) }
+                              : g
+                          )
+                        )
+                      }
+                      className="text-rose-700 hover:underline"
+                    >
+                      togli
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
       {selectedLine ? (
         <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
           <p className="text-sm font-semibold text-amber-950">Linea selezionata</p>
@@ -1695,6 +1901,7 @@ export function MagazzinoMappaBoard({
           onPointerUp={() => {
             setPanning(null);
             setDragArea(null);
+            setDragRif(null);
           }}
           onPointerLeave={() => {
             setPanning(null);
@@ -1768,6 +1975,61 @@ export function MagazzinoMappaBoard({
                       {kids.map((k) => k.codice).join(" · ")}
                     </text>
                   ) : null}
+                </g>
+              );
+            })}
+            {riferimenti.map((g) => {
+              const sel = g.id === selectedRifId;
+              return (
+                <g key={g.id}>
+                  <rect
+                    x={g.destX}
+                    y={g.destY}
+                    width={g.destWidth}
+                    height={g.destHeight}
+                    fill={sel ? "rgba(245,158,11,0.14)" : "rgba(245,158,11,0.07)"}
+                    stroke="#d97706"
+                    strokeDasharray={`${8 / zoom} ${5 / zoom}`}
+                    strokeWidth={Math.max(1.4, 2.4 / zoom)}
+                  />
+                  <text
+                    x={g.destX + 6}
+                    y={g.destY - 6}
+                    fill="#92400e"
+                    fontSize={Math.max(10, 11 / zoom)}
+                    fontWeight={600}
+                  >
+                    Limite da {g.mappaOrigineEtichetta}
+                  </text>
+                  {g.punti.map((p) => {
+                    const x = xGuidaDest(g, p.offsetQuadrati, griglia);
+                    return (
+                      <g key={p.id}>
+                        <line
+                          x1={x}
+                          y1={g.destY}
+                          x2={x}
+                          y2={g.destY + g.destHeight}
+                          stroke="#b45309"
+                          strokeWidth={Math.max(1.2, 2 / zoom)}
+                        />
+                        <circle
+                          cx={x}
+                          cy={g.destY}
+                          r={Math.max(3, 4 / zoom)}
+                          fill="#b45309"
+                        />
+                        <text
+                          x={x + 4}
+                          y={g.destY + 14}
+                          fill="#78350f"
+                          fontSize={Math.max(9, 10 / zoom)}
+                        >
+                          {p.etichetta}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
@@ -1947,6 +2209,24 @@ export function MagazzinoMappaBoard({
         </div>
         </MagazzinoMappaRighelli>
       </div>
+      {editing ? (
+        <ImportaRiferimentiVista
+          open={importOpen}
+          destMappaId={mappa.id}
+          luogoNome={luogoNome}
+          destGriglia={griglia}
+          destScalaValore={scalaValore}
+          destScalaUnita={scalaUnita}
+          onClose={() => setImportOpen(false)}
+          onApplied={(next) => {
+            setMappa(next);
+            setLinee(next.linee);
+            setAree(next.aree ?? []);
+            setRiferimenti(next.riferimenti ?? []);
+            setOk("Riferimenti importati. Trascina il quadrato limite e salva la bozza.");
+          }}
+        />
+      ) : null}
     </div>
   );
 }

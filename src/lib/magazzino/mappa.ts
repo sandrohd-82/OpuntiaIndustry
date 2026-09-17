@@ -4,6 +4,10 @@ import {
   type MappaAreaDisegnata,
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
+import {
+  mappaRiferimentoGruppoInputSchema,
+  type MappaRiferimentoGruppo,
+} from "@/lib/magazzino/riferimenti";
 
 export const MAPPA_STATI = ["bozza", "approvato", "chiuso"] as const;
 export type MappaDocumentoStato = (typeof MAPPA_STATI)[number];
@@ -103,6 +107,7 @@ export type MappaMagazzino = {
   linee: MappaLinea[];
   aree: MappaAreaDisegnata[];
   ubicazioni: UbicazioneElenco[];
+  riferimenti: MappaRiferimentoGruppo[];
 };
 
 export type MappaElencoItem = {
@@ -172,6 +177,7 @@ export const salvaMappaSchema = z.object({
   grigliaPx: z.number().positive().max(200).optional(),
   linee: z.array(mappaLineaInputSchema).max(2000),
   aree: z.array(mappaAreaInputSchema).max(500).optional(),
+  riferimenti: z.array(mappaRiferimentoGruppoInputSchema).max(50).optional(),
 });
 
 export const collegaMappaSchema = z.object({
