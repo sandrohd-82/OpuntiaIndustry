@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   getMappaByIdAction,
   importaRiferimentiDaVistaAction,
@@ -24,6 +24,10 @@ import {
 
 type PuntoBozza = { etichetta: string; offsetQuadrati: number };
 
+const IMPORT_ZOOM_MIN = 0.2;
+const IMPORT_ZOOM_MAX = 16;
+const IMPORT_ZOOM_STEP = 1.25;
+
 export function ImportaRiferimentiVista({
   open,
   destMappaId,
@@ -44,6 +48,13 @@ export function ImportaRiferimentiVista({
   onApplied: (mappa: MappaMagazzino) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const dragMoved = useRef(false);
+  const panStart = useRef<{
+    sx: number;
+    sy: number;
+    px: number;
+    py: number;
+  } | null>(null);
   const [items, setItems] = useState<{ id: string; label: string }[]>([]);
   const [sourceId, setSourceId] = useState("");
   const [source, setSource] = useState<MappaMagazzino | null>(null);
@@ -54,6 +65,13 @@ export function ImportaRiferimentiVista({
   const [puntoLabel, setPuntoLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [trascinando, setTrascinando] = useState(false);
+  const zoomRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+  zoomRef.current = zoom;
+  panRef.current = pan;
 
   useEffect(() => {
     if (!open) return;
@@ -103,7 +121,7 @@ export function ImportaRiferimentiVista({
     : 0;
 
   const previewBox = useMemo(() => {
-    if (!source) return { x: 0, y: 0, w: 400, h: 280, z: 1 };
+    if (!source) return { x: 0, y: 0, w: 400, h: 280 };
     const pts: MappaPunto[] = [];
     for (const l of source.linee) {
       pts.push({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
@@ -117,27 +135,86 @@ export function ImportaRiferimentiVista({
         { x: limite.x + limite.width, y: limite.y + limite.height }
       );
     }
-    if (!pts.length) return { x: 0, y: 0, w: 400, h: 280, z: 1 };
+    if (!pts.length) return { x: 0, y: 0, w: 400, h: 280 };
     const minX = Math.min(...pts.map((p) => p.x));
     const minY = Math.min(...pts.map((p) => p.y));
     const maxX = Math.max(...pts.map((p) => p.x));
     const maxY = Math.max(...pts.map((p) => p.y));
     const pad = source.grigliaPx * 2;
-    const w = Math.max(40, maxX - minX + pad * 2);
-    const h = Math.max(40, maxY - minY + pad * 2);
-    const z = Math.min(1.4, 520 / w, 340 / h);
-    return { x: minX - pad, y: minY - pad, w, h, z };
+    return {
+      x: minX - pad,
+      y: minY - pad,
+      w: Math.max(40, maxX - minX + pad * 2),
+      h: Math.max(40, maxY - minY + pad * 2),
+    };
   }, [source, limite]);
 
-  function worldFromClick(e: React.MouseEvent<SVGSVGElement>): MappaPunto | null {
+  function clampZoom(value: number): number {
+    return Math.min(IMPORT_ZOOM_MAX, Math.max(IMPORT_ZOOM_MIN, value));
+  }
+
+  function worldFromEvent(
+    e: React.PointerEvent<SVGSVGElement> | React.WheelEvent<SVGSVGElement>
+  ): MappaPunto | null {
     const svg = svgRef.current;
     if (!svg) return null;
     const r = svg.getBoundingClientRect();
     return {
-      x: previewBox.x + (e.clientX - r.left) / previewBox.z,
-      y: previewBox.y + (e.clientY - r.top) / previewBox.z,
+      x: (e.clientX - r.left - panRef.current.x) / zoomRef.current,
+      y: (e.clientY - r.top - panRef.current.y) / zoomRef.current,
     };
   }
+
+  function fitPreview() {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return;
+    const pad = 16;
+    const next = clampZoom(
+      Math.min((r.width - pad * 2) / previewBox.w, (r.height - pad * 2) / previewBox.h)
+    );
+    const nextPan = {
+      x: (r.width - previewBox.w * next) / 2 - previewBox.x * next,
+      y: (r.height - previewBox.h * next) / 2 - previewBox.y * next,
+    };
+    zoomRef.current = next;
+    panRef.current = nextPan;
+    setZoom(next);
+    setPan(nextPan);
+  }
+
+  function applicaZoom(factor: number, origine?: { x: number; y: number }) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    const ox = origine?.x ?? r.width / 2;
+    const oy = origine?.y ?? r.height / 2;
+    const z = zoomRef.current;
+    const p = panRef.current;
+    const wx = (ox - p.x) / z;
+    const wy = (oy - p.y) / z;
+    const next = clampZoom(z * factor);
+    const nextPan = { x: ox - wx * next, y: oy - wy * next };
+    zoomRef.current = next;
+    panRef.current = nextPan;
+    setZoom(next);
+    setPan(nextPan);
+  }
+
+  useLayoutEffect(() => {
+    if (!open || !source) return;
+    const id = requestAnimationFrame(() => fitPreview());
+    return () => cancelAnimationFrame(id);
+  }, [open, source?.id, previewBox.x, previewBox.y, previewBox.w, previewBox.h]);
+
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || !source) return;
+    const onNativeWheel = (ev: WheelEvent) => ev.preventDefault();
+    svg.addEventListener("wheel", onNativeWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onNativeWheel);
+  }, [source]);
 
   function addPunto(p: MappaPunto) {
     if (!source || !limite) return;
@@ -296,21 +373,89 @@ export function ImportaRiferimentiVista({
               )}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              Clicca sulla pianta origine per i punti di riferimento. Cadono
-              sull&apos;asse copiato (stesso scostamento in quadrati).
+              Zoomma (rotella o +/−) per prendere i punti con precisione.
+              Trascina per spostare. Clic per il punto sull&apos;asse copiato.
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => applicaZoom(1 / IMPORT_ZOOM_STEP)}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium hover:bg-slate-50"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={() => applicaZoom(IMPORT_ZOOM_STEP)}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-sm font-medium hover:bg-slate-50"
+              >
+                +
+              </button>
+              <span className="text-xs text-slate-600">
+                zoom {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => fitPreview()}
+                className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50"
+              >
+                Adatta
+              </button>
+            </div>
             <div className="mt-2 overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
               <svg
                 ref={svgRef}
-                width={previewBox.w * previewBox.z}
-                height={previewBox.h * previewBox.z}
-                className="max-w-full cursor-crosshair bg-white"
-                onClick={(e) => {
-                  const w = worldFromClick(e);
+                className={`h-96 w-full touch-none bg-white ${
+                  trascinando ? "cursor-grabbing" : "cursor-crosshair"
+                }`}
+                onWheel={(e) => {
+                  e.preventDefault();
+                  const r = svgRef.current?.getBoundingClientRect();
+                  if (!r) return;
+                  applicaZoom(e.deltaY < 0 ? IMPORT_ZOOM_STEP : 1 / IMPORT_ZOOM_STEP, {
+                    x: e.clientX - r.left,
+                    y: e.clientY - r.top,
+                  });
+                }}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  dragMoved.current = false;
+                  panStart.current = {
+                    sx: e.clientX,
+                    sy: e.clientY,
+                    px: panRef.current.x,
+                    py: panRef.current.y,
+                  };
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  const start = panStart.current;
+                  if (!start) return;
+                  const dx = e.clientX - start.sx;
+                  const dy = e.clientY - start.sy;
+                  if (Math.hypot(dx, dy) > 4) {
+                    dragMoved.current = true;
+                    setTrascinando(true);
+                    const nextPan = { x: start.px + dx, y: start.py + dy };
+                    panRef.current = nextPan;
+                    setPan(nextPan);
+                  }
+                }}
+                onPointerUp={(e) => {
+                  if (e.button !== 0) return;
+                  const eraTrascino = dragMoved.current;
+                  panStart.current = null;
+                  setTrascinando(false);
+                  if (eraTrascino) return;
+                  const w = worldFromEvent(e);
                   if (w) addPunto(w);
                 }}
+                onPointerCancel={() => {
+                  panStart.current = null;
+                  setTrascinando(false);
+                }}
               >
-                <g transform={`translate(${-previewBox.x * previewBox.z} ${-previewBox.y * previewBox.z}) scale(${previewBox.z})`}>
+                <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
                   <rect
                     x={limite.x}
                     y={limite.y}
@@ -318,8 +463,8 @@ export function ImportaRiferimentiVista({
                     height={limite.height}
                     fill="rgba(13,148,136,0.08)"
                     stroke="#0f766e"
-                    strokeWidth={2}
-                    strokeDasharray="8 4"
+                    strokeWidth={Math.max(1.2, 2 / zoom)}
+                    strokeDasharray={`${8 / zoom} ${4 / zoom}`}
                   />
                   {source.aree.map((a) => (
                     <rect
@@ -330,7 +475,7 @@ export function ImportaRiferimentiVista({
                       height={a.height}
                       fill="rgba(13,148,136,0.10)"
                       stroke="#0d9488"
-                      strokeWidth={1}
+                      strokeWidth={Math.max(0.8, 1 / zoom)}
                     />
                   ))}
                   {source.linee.map((l) => (
@@ -362,7 +507,7 @@ export function ImportaRiferimentiVista({
                             x2={x}
                             y2={limite.y + limite.height}
                             stroke="#d97706"
-                            strokeWidth={2}
+                            strokeWidth={Math.max(1.2, 2 / zoom)}
                           />
                         ) : (
                           <line
@@ -371,15 +516,20 @@ export function ImportaRiferimentiVista({
                             x2={limite.x + limite.width}
                             y2={y}
                             stroke="#d97706"
-                            strokeWidth={2}
+                            strokeWidth={Math.max(1.2, 2 / zoom)}
                           />
                         )}
-                        <circle cx={x} cy={y} r={5} fill="#d97706" />
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={Math.max(2.4, 5 / zoom)}
+                          fill="#d97706"
+                        />
                         <text
-                          x={x + 6}
-                          y={y - 6}
+                          x={x + 6 / zoom}
+                          y={y - 6 / zoom}
                           fill="#92400e"
-                          fontSize={12}
+                          fontSize={Math.max(10, 12 / zoom)}
                           fontWeight={600}
                         >
                           {p.etichetta} · {formattaQuadrati(p.offsetQuadrati)} q
