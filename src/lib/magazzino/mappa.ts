@@ -95,7 +95,7 @@ export const salvaMappaSchema = z.object({
   scalaUnita: z.enum(MAPPA_SCALA_UNITA),
   viewX: z.number().finite(),
   viewY: z.number().finite(),
-  viewZoom: z.number().positive().max(20),
+  viewZoom: z.number().min(0.01).max(20),
   grigliaPx: z.number().positive().max(200).optional(),
   linee: z.array(mappaLineaInputSchema).max(2000),
 });
@@ -202,6 +202,69 @@ export function verticiRettangolo(
   const p2 = puntoDopoQuadrati(p1, h2, latoB, griglia);
   const p3 = puntoDopoQuadrati(p2, ruotaHeading(h2, senso), latoA, griglia);
   return [origine, p1, p2, p3];
+}
+
+export const MAPPA_ZOOM_MIN = 0.01;
+export const MAPPA_ZOOM_MAX = 8;
+export const MAPPA_QUADRATI_MAX = 20000;
+
+export type FoglioMappa = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export function lunghezzaLineaPx(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number
+): number {
+  return Math.hypot(x2 - x1, y2 - y1);
+}
+
+/** Il foglio cresce con la linea più lunga e contiene tutti i tratti. */
+export function calcolaFoglioMappa(
+  linee: { x1: number; y1: number; x2: number; y2: number }[],
+  extraPunti: MappaPunto[],
+  extraSegmenti: { x1: number; y1: number; x2: number; y2: number }[],
+  griglia: number
+): FoglioMappa {
+  const g = griglia > 0 ? griglia : 20;
+  const pad = Math.max(g * 2, 40);
+  const minLato = g * 40;
+  let longest = 0;
+  const punti: MappaPunto[] = [...extraPunti];
+  for (const l of linee) {
+    punti.push({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
+    longest = Math.max(longest, lunghezzaLineaPx(l.x1, l.y1, l.x2, l.y2));
+  }
+  for (const s of extraSegmenti) {
+    punti.push({ x: s.x1, y: s.y1 }, { x: s.x2, y: s.y2 });
+    longest = Math.max(longest, lunghezzaLineaPx(s.x1, s.y1, s.x2, s.y2));
+  }
+  const lato = Math.max(longest, minLato);
+  let minX = 0;
+  let minY = 0;
+  let maxX = lato;
+  let maxY = lato;
+  for (const p of punti) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  minX -= pad;
+  minY -= pad;
+  maxX = Math.max(maxX + pad, minX + lato + pad);
+  maxY = Math.max(maxY + pad, minY + lato + pad);
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
 }
 
 export function distanzaPuntoSegmento(

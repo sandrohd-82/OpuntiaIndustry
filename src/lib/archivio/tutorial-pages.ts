@@ -216,7 +216,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. Il Super Admin imposta Vista e la scala (quanto vale un quadrato, es. 10 cm o 1 m), poi traccia linee a mano o rettangolo/poligono lato per lato con Avanti. Ogni tratto mostra i quadrati e la lunghezza reale. Gli altri vedono la pianta approvata. Qui non si spostano ancora i lotti.",
+      text: "Pianta del magazzino. Il Super Admin imposta Vista e la scala (quanto vale un quadrato, es. 10 cm o 1 m), poi traccia linee a mano o rettangolo/poligono lato per lato con Avanti. Ogni tratto mostra i quadrati e la lunghezza reale. Il foglio si adatta alla linea più lunga; lo zoom serve per il dettaglio. Gli altri vedono la pianta approvata. Qui non si spostano ancora i lotti.",
     },
   ],
   "/app/magazzino/panoramica": [

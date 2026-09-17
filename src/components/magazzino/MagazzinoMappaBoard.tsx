@@ -8,6 +8,7 @@ import {
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
 import {
+  calcolaFoglioMappa,
   distanzaPuntoSegmento,
   formattaLunghezzaReale,
   formattaMisuraSegmento,
@@ -15,13 +16,17 @@ import {
   headingCardinale,
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_LINEA_COLORI,
+  MAPPA_QUADRATI_MAX,
   MAPPA_STATO_LABEL,
   MAPPA_VISTA_SUGGERITE,
+  MAPPA_ZOOM_MAX,
+  MAPPA_ZOOM_MIN,
   normalizzaColoreLinea,
   puntoDopoQuadrati,
   ruotaHeading,
   snapToGrid,
   verticiRettangolo,
+  type FoglioMappa,
   type MappaLinea,
   type MappaMagazzino,
   type MappaPunto,
@@ -87,6 +92,7 @@ export function MagazzinoMappaBoard() {
   const [ok, setOk] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
+  const didInitialFit = useRef(false);
 
   const editing = Boolean(canDesign && mappa?.documentoStato === "bozza");
   const vistaOk = vistaEtichetta.trim().length > 0;
@@ -154,6 +160,35 @@ export function MagazzinoMappaBoard() {
     return best?.id ?? null;
   }
 
+  function fitToFoglio(target: FoglioMappa) {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const r = svg.getBoundingClientRect();
+    if (r.width < 40 || r.height < 40) return;
+    const zx = (r.width - 96) / Math.max(target.width, 1);
+    const zy = (r.height - 96) / Math.max(target.height, 1);
+    const z = Math.min(MAPPA_ZOOM_MAX, Math.max(MAPPA_ZOOM_MIN, Math.min(zx, zy)));
+    setZoom(z);
+    setPan({
+      x: (r.width - target.width * z) / 2 - target.x * z,
+      y: (r.height - target.height * z) / 2 - target.y * z,
+    });
+  }
+
+  function puntoNelViewport(p: MappaPunto): boolean {
+    const svg = svgRef.current;
+    if (!svg) return true;
+    const r = svg.getBoundingClientRect();
+    const sx = p.x * zoom + pan.x;
+    const sy = p.y * zoom + pan.y;
+    const m = 24;
+    return sx >= m && sy >= m && sx <= r.width - m && sy <= r.height - m;
+  }
+
+  function segmentoNelViewport(a: MappaPunto, b: MappaPunto): boolean {
+    return puntoNelViewport(a) && puntoNelViewport(b);
+  }
+
   function addLinea(a: MappaPunto, b: MappaPunto): string {
     const linea: MappaLinea = {
       id: newLocalId(),
@@ -165,7 +200,16 @@ export function MagazzinoMappaBoard() {
       colore,
       sortOrder: linee.length,
     };
-    setLinee((prev) => [...prev, linea]);
+    setLinee((prev) => {
+      const next = [...prev, { ...linea, sortOrder: prev.length }];
+      requestAnimationFrame(() => {
+        const foglioNext = calcolaFoglioMappa(next, [], [], griglia);
+        if (!segmentoNelViewport(a, b)) {
+          fitToFoglio(foglioNext);
+        }
+      });
+      return next;
+    });
     setSelectedId(linea.id);
     return linea.id;
   }
@@ -199,6 +243,55 @@ export function MagazzinoMappaBoard() {
     }
     return { from, to, heading, ghost };
   }, [forma, canDraw, snappedCursor, quadratiCorrenti, griglia]);
+
+  const extraPunti = useMemo(() => {
+    const p: MappaPunto[] = [];
+    if (draftStart) p.push(draftStart);
+    if (snappedCursor) p.push(snappedCursor);
+    if (forma) p.push(...forma.vertici);
+    if (previewForma) {
+      p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
+    }
+    return p;
+  }, [draftStart, snappedCursor, forma, previewForma]);
+
+  const extraSegmenti = useMemo(() => {
+    const s: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    if (draftStart && snappedCursor) {
+      s.push({
+        x1: draftStart.x,
+        y1: draftStart.y,
+        x2: snappedCursor.x,
+        y2: snappedCursor.y,
+      });
+    }
+    if (previewForma) {
+      s.push({
+        x1: previewForma.from.x,
+        y1: previewForma.from.y,
+        x2: previewForma.to.x,
+        y2: previewForma.to.y,
+      });
+    }
+    return s;
+  }, [draftStart, snappedCursor, previewForma]);
+
+  const foglio = useMemo(
+    () => calcolaFoglioMappa(linee, extraPunti, extraSegmenti, griglia),
+    [linee, extraPunti, extraSegmenti, griglia]
+  );
+
+  const foglioQuadratiW = Math.max(1, Math.round(foglio.width / Math.max(griglia, 1)));
+  const foglioQuadratiH = Math.max(1, Math.round(foglio.height / Math.max(griglia, 1)));
+
+  useEffect(() => {
+    if (!previewForma) return;
+    if (!segmentoNelViewport(previewForma.from, previewForma.to)) {
+      fitToFoglio(foglio);
+    }
+    // Solo quando cambia la lunghezza del lato, non a ogni movimento del mouse.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quadratiCorrenti, forma?.lati.length]);
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
@@ -267,7 +360,7 @@ export function MagazzinoMappaBoard() {
     e.preventDefault();
     const w = worldFromEvent(e);
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const next = Math.min(8, Math.max(0.25, zoom * factor));
+    const next = Math.min(MAPPA_ZOOM_MAX, Math.max(MAPPA_ZOOM_MIN, zoom * factor));
     if (w) {
       setPan({
         x: e.clientX - (svgRef.current?.getBoundingClientRect().left ?? 0) - w.x * next,
@@ -428,7 +521,21 @@ export function MagazzinoMappaBoard() {
   }
 
   const gridPatternId = "mappa-grid";
-  const worldSize = 4000;
+
+  useEffect(() => {
+    if (!ready || !mappa || didInitialFit.current) return;
+    didInitialFit.current = true;
+    if (linee.length === 0) return;
+    const off = linee.some(
+      (l) =>
+        !segmentoNelViewport({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 })
+    );
+    if (off) {
+      requestAnimationFrame(() => fitToFoglio(foglio));
+    }
+    // Prima adattata al foglio se le linee salvate escono dalla vista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, mappa]);
 
   const misuraTesto = useMemo(() => {
     if (previewForma) {
@@ -676,8 +783,16 @@ export function MagazzinoMappaBoard() {
               />
             </label>
             <span className="text-xs text-[var(--muted)]">
-              Linee: {linee.length} · zoom {Math.round(zoom * 100)}%
+              Linee: {linee.length} · foglio {foglioQuadratiW}×{foglioQuadratiH}{" "}
+              quadrati · zoom {Math.round(zoom * 100)}%
             </span>
+            <button
+              type="button"
+              onClick={() => fitToFoglio(foglio)}
+              className="rounded-lg border border-[var(--border)] px-2 py-1 text-xs font-medium hover:bg-slate-50"
+            >
+              Adatta al foglio
+            </button>
           </div>
 
           {canDraw && (tool === "rettangolo" || tool === "poligono") ? (
@@ -703,7 +818,7 @@ export function MagazzinoMappaBoard() {
                       <input
                         type="number"
                         min={1}
-                        max={500}
+                        max={MAPPA_QUADRATI_MAX}
                         disabled={latoBloccato != null}
                         value={quadratiCorrenti}
                         onChange={(e) =>
@@ -786,6 +901,13 @@ export function MagazzinoMappaBoard() {
             {misuraTesto}
           </p>
         ) : null}
+        <button
+          type="button"
+          onClick={() => fitToFoglio(foglio)}
+          className="absolute bottom-3 right-3 z-10 rounded-lg border border-[var(--border)] bg-white/95 px-2.5 py-1.5 text-xs font-medium shadow-sm hover:bg-slate-50"
+        >
+          Adatta al foglio
+        </button>
         <svg
           ref={svgRef}
           className={`h-[min(72vh,720px)] w-full touch-none bg-slate-50 ${
@@ -818,11 +940,13 @@ export function MagazzinoMappaBoard() {
           </defs>
           <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
             <rect
-              x={-200}
-              y={-200}
-              width={worldSize}
-              height={worldSize}
+              x={foglio.x}
+              y={foglio.y}
+              width={foglio.width}
+              height={foglio.height}
               fill={`url(#${gridPatternId})`}
+              stroke="#94a3b8"
+              strokeWidth={Math.max(1, 2 / zoom)}
             />
             {linee.map((l) => (
               <g key={l.id}>
