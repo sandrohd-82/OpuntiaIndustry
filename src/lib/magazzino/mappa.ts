@@ -33,6 +33,36 @@ export const MAPPA_LINEA_COLORI = [
   "#0f766e",
 ] as const;
 
+export const MAPPA_LINEA_PALETTE: { hex: string; nome: string }[] = [
+  { hex: "#0f172a", nome: "Nero scaffale" },
+  { hex: "#334155", nome: "Ardesia" },
+  { hex: "#64748b", nome: "Grigio" },
+  { hex: "#94a3b8", nome: "Grigio chiaro" },
+  { hex: "#b91c1c", nome: "Rosso" },
+  { hex: "#e11d48", nome: "Rosso rosa" },
+  { hex: "#db2777", nome: "Fucsia" },
+  { hex: "#c026d3", nome: "Magenta" },
+  { hex: "#7c3aed", nome: "Viola" },
+  { hex: "#4f46e5", nome: "Indaco" },
+  { hex: "#1d4ed8", nome: "Blu" },
+  { hex: "#0284c7", nome: "Blu cielo" },
+  { hex: "#0ea5e9", nome: "Azzurro" },
+  { hex: "#06b6d4", nome: "Ciano" },
+  { hex: "#0f766e", nome: "Teal" },
+  { hex: "#0d9488", nome: "Turchese" },
+  { hex: "#15803d", nome: "Verde" },
+  { hex: "#16a34a", nome: "Verde prato" },
+  { hex: "#84cc16", nome: "Lime" },
+  { hex: "#eab308", nome: "Giallo" },
+  { hex: "#facc15", nome: "Giallo sicurezza" },
+  { hex: "#f59e0b", nome: "Ambra" },
+  { hex: "#c2410c", nome: "Arancio" },
+  { hex: "#ea580c", nome: "Arancio cantiere" },
+  { hex: "#a16207", nome: "Ocra" },
+  { hex: "#78716c", nome: "Talpa" },
+  { hex: "#be123c", nome: "Bordeaux" },
+];
+
 export function normalizzaColoreLinea(value: string): string {
   const t = value.trim();
   if (/^#[0-9A-Fa-f]{6}$/.test(t)) return t.toLowerCase();
@@ -220,6 +250,46 @@ export function verticiRettangolo(
   const p2 = puntoDopoQuadrati(p1, h2, latoB, griglia);
   const p3 = puntoDopoQuadrati(p2, ruotaHeading(h2, senso), latoA, griglia);
   return [origine, p1, p2, p3];
+}
+
+export function verticiRettangoloDaAngoli(
+  a: MappaPunto,
+  b: MappaPunto,
+  griglia: number
+): MappaPunto[] {
+  const x1 = snapToGrid(a.x, griglia);
+  const y1 = snapToGrid(a.y, griglia);
+  const x2 = snapToGrid(b.x, griglia);
+  const y2 = snapToGrid(b.y, griglia);
+  return [
+    { x: x1, y: y1 },
+    { x: x2, y: y1 },
+    { x: x2, y: y2 },
+    { x: x1, y: y2 },
+  ];
+}
+
+export function rettangoloHaArea(a: MappaPunto, b: MappaPunto, griglia: number): boolean {
+  return (
+    Math.abs(a.x - b.x) >= griglia * 0.5 && Math.abs(a.y - b.y) >= griglia * 0.5
+  );
+}
+
+export function clampPuntoNelFoglio(
+  p: MappaPunto,
+  foglio: FoglioMappa,
+  griglia: number
+): MappaPunto {
+  const minX = foglio.x;
+  const maxX = foglio.x + foglio.width;
+  const minY = foglio.y;
+  const maxY = foglio.y + foglio.height;
+  const x = snapToGrid(Math.min(maxX, Math.max(minX, p.x)), griglia);
+  const y = snapToGrid(Math.min(maxY, Math.max(minY, p.y)), griglia);
+  return {
+    x: Math.min(maxX, Math.max(minX, x)),
+    y: Math.min(maxY, Math.max(minY, y)),
+  };
 }
 
 export const MAPPA_ZOOM_MIN = 0.01;

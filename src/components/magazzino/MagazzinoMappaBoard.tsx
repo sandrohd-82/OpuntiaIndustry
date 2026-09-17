@@ -7,10 +7,12 @@ import {
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
+import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
 import {
   accavallamentoPuntoSuLinee,
   calcolaFoglioMappa,
+  clampPuntoNelFoglio,
   distanzaPuntoSegmento,
   formattaLunghezzaReale,
   formattaMisuraSegmento,
@@ -18,7 +20,6 @@ import {
   headingCardinale,
   MAPPA_FOGLIO_MARGINE_PCT,
   MAPPA_LINEA_COLORE_DEFAULT,
-  MAPPA_LINEA_COLORI,
   MAPPA_QUADRATI_MAX,
   MAPPA_STATO_LABEL,
   MAPPA_VISTA_SUGGERITE,
@@ -27,9 +28,10 @@ import {
   normalizzaColoreLinea,
   puntiRiferimentoLinea,
   puntoDopoQuadrati,
+  rettangoloHaArea,
   ruotaHeading,
   snapToGrid,
-  verticiRettangolo,
+  verticiRettangoloDaAngoli,
   type AccavallamentoLinea,
   type FoglioMappa,
   type MappaLinea,
@@ -46,6 +48,7 @@ type FormaStato = {
   lati: number[];
   senso: 1 | -1;
   heading: number;
+  opposto: MappaPunto | null;
 };
 
 function newLocalId(): string {
@@ -246,35 +249,37 @@ export function MagazzinoMappaBoard() {
 
   const previewForma = useMemo(() => {
     if (!forma || !canDraw) return null;
+    if (forma.tipo === "rettangolo") {
+      const from = forma.vertici[0];
+      if (!from) return null;
+      const to = forma.opposto;
+      if (!to) return { from, to: from, heading: forma.heading, ghost: [] as MappaPunto[] };
+      return {
+        from,
+        to,
+        heading: headingCardinale(from, to),
+        ghost: verticiRettangoloDaAngoli(from, to, griglia),
+      };
+    }
     const from = forma.vertici[forma.vertici.length - 1];
     if (!from) return null;
     const heading = headingForma(forma, snappedCursor);
     const n = quadratiCorrenti;
     const to = puntoDopoQuadrati(from, heading, n, griglia);
-    let ghost: MappaPunto[] = [];
-    if (forma.tipo === "rettangolo") {
-      const h0 =
-        forma.vertici.length >= 2
-          ? headingCardinale(forma.vertici[0]!, forma.vertici[1]!)
-          : heading;
-      const a = forma.lati[0] ?? n;
-      const b = forma.lati[1] ?? (forma.lati.length === 0 ? n : n);
-      ghost = verticiRettangolo(forma.vertici[0]!, h0, a, b, forma.senso, griglia);
-    }
-    return { from, to, heading, ghost };
+    return { from, to, heading, ghost: [] as MappaPunto[] };
   }, [forma, canDraw, snappedCursor, quadratiCorrenti, griglia]);
 
   const extraPunti = useMemo(() => {
     const p: MappaPunto[] = [];
     if (forma) p.push(...forma.vertici);
-    if (previewForma) {
+    if (previewForma && forma?.tipo !== "rettangolo") {
       p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
     }
     return p;
   }, [forma, previewForma]);
 
   const latoPianificatoPx =
-    canDraw && (tool === "rettangolo" || tool === "poligono" || forma)
+    canDraw && (tool === "poligono" || forma?.tipo === "poligono")
       ? quadratiCorrenti * griglia
       : 0;
 
@@ -322,9 +327,16 @@ export function MagazzinoMappaBoard() {
           lati: [],
           senso: 1,
           heading: 0,
+          opposto: null,
         });
         setSelectedId(null);
         setDraftStart(null);
+        return;
+      }
+      if (forma.tipo === "rettangolo") {
+        const origine = forma.vertici[0];
+        const opposto = clampPuntoNelFoglio(forma.opposto ?? snap, foglio, griglia);
+        if (origine) confermaRettangolo(origine, opposto);
       }
       return;
     }
@@ -351,7 +363,27 @@ export function MagazzinoMappaBoard() {
     if (!forma || !w) return;
     const from = forma.vertici[forma.vertici.length - 1];
     if (!from) return;
-    if (forma.tipo === "rettangolo" && forma.vertici.length >= 2) return;
+    if (forma.tipo === "rettangolo") {
+      const origine = forma.vertici[0];
+      if (!origine) return;
+      const opposto = clampPuntoNelFoglio(risolviPuntoDisegno(w).punto, foglio, griglia);
+      setForma((prev) => {
+        if (!prev) return prev;
+        if (
+          prev.opposto &&
+          prev.opposto.x === opposto.x &&
+          prev.opposto.y === opposto.y
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          opposto,
+          heading: headingCardinale(origine, opposto),
+        };
+      });
+      return;
+    }
     if (Math.abs(w.x - from.x) < 0.0001 && Math.abs(w.y - from.y) < 0.0001) return;
     const h = headingCardinale(from, w);
     if (h !== forma.heading) {
@@ -405,8 +437,58 @@ export function MagazzinoMappaBoard() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
+  function confermaRettangolo(a: MappaPunto, b: MappaPunto) {
+    if (!canDraw || !rettangoloHaArea(a, b, griglia)) return;
+    const v = verticiRettangoloDaAngoli(a, b, griglia);
+    const nuovi: MappaLinea[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const p = v[i]!;
+      const q = v[(i + 1) % 4]!;
+      nuovi.push({
+        id: newLocalId(),
+        x1: p.x,
+        y1: p.y,
+        x2: q.x,
+        y2: q.y,
+        spessore,
+        colore,
+        sortOrder: 0,
+      });
+    }
+    setLinee((prev) => [
+      ...prev,
+      ...nuovi.map((l, i) => ({ ...l, sortOrder: prev.length + i })),
+    ]);
+    setSelectedId(nuovi[0]?.id ?? null);
+    setForma(null);
+    setOk("Rettangolo disegnato.");
+  }
+
+  function setRettangoloQuadrati(wQ: number, hQ: number) {
+    if (!forma || forma.tipo !== "rettangolo") return;
+    const o = forma.vertici[0];
+    if (!o) return;
+    const cur = forma.opposto ?? { x: o.x + griglia, y: o.y + griglia };
+    const sx = Math.sign(cur.x - o.x) || 1;
+    const sy = Math.sign(cur.y - o.y) || 1;
+    const next = clampPuntoNelFoglio(
+      {
+        x: o.x + sx * Math.max(1, Math.round(wQ)) * griglia,
+        y: o.y + sy * Math.max(1, Math.round(hQ)) * griglia,
+      },
+      foglio,
+      griglia
+    );
+    setForma({ ...forma, opposto: next, heading: headingCardinale(o, next) });
+  }
+
   function avantiLato() {
     if (!forma || !canDraw) return;
+    if (forma.tipo === "rettangolo") {
+      const origine = forma.vertici[0];
+      if (origine && forma.opposto) confermaRettangolo(origine, forma.opposto);
+      return;
+    }
     const from = forma.vertici[forma.vertici.length - 1];
     if (!from) return;
     const n = quadratiCorrenti;
@@ -415,18 +497,11 @@ export function MagazzinoMappaBoard() {
     const to = puntoDopoQuadrati(from, heading, n, griglia);
     if (to.x === from.x && to.y === from.y) return;
     addLinea(from, to);
-    const nextVertici = [...forma.vertici, to];
-    const nextLati = [...forma.lati, n];
-    if (forma.tipo === "rettangolo" && nextLati.length >= 4) {
-      const origine = nextVertici[0]!;
-      if (to.x !== origine.x || to.y !== origine.y) {
-        addLinea(to, origine);
-      }
-      setForma(null);
-      setOk("Rettangolo chiuso.");
-      return;
-    }
-    setForma({ ...forma, vertici: nextVertici, lati: nextLati });
+    setForma({
+      ...forma,
+      vertici: [...forma.vertici, to],
+      lati: [...forma.lati, n],
+    });
   }
 
   function chiudiPoligono() {
@@ -604,6 +679,11 @@ export function MagazzinoMappaBoard() {
   }, [ready, foglioKey, foglio, canvasBox.w, canvasBox.h]);
 
   const misuraTesto = useMemo(() => {
+    if (forma?.tipo === "rettangolo" && forma.vertici[0] && forma.opposto) {
+      const wq = Math.abs(forma.opposto.x - forma.vertici[0].x) / griglia;
+      const hq = Math.abs(forma.opposto.y - forma.vertici[0].y) / griglia;
+      return `${formattaQuadrati(wq)} × ${formattaQuadrati(hq)} quadrati · ${formattaLunghezzaReale(wq, scalaValore, scalaUnita)} × ${formattaLunghezzaReale(hq, scalaValore, scalaUnita)}`;
+    }
     if (previewForma) {
       return formattaMisuraSegmento(
         previewForma.from.x,
@@ -642,6 +722,7 @@ export function MagazzinoMappaBoard() {
     }
     return "";
   }, [
+    forma,
     previewForma,
     draftStart,
     snappedCursor,
@@ -653,7 +734,6 @@ export function MagazzinoMappaBoard() {
   ]);
 
   const latoIndice = forma ? forma.lati.length + 1 : 0;
-  const latoTotale = forma?.tipo === "rettangolo" ? 4 : null;
   const headingCorrente = forma ? headingForma(forma, snappedCursor) : 0;
   const versoLabel =
     headingCorrente === 180
@@ -821,28 +901,8 @@ export function MagazzinoMappaBoard() {
                 className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
               />
             </label>
-            <label className="text-xs">
-              Colore linea
-              <input
-                type="color"
-                value={colore}
-                onChange={(e) => applyColore(e.target.value)}
-                className="ml-2 h-8 w-10 cursor-pointer rounded border border-[var(--border)] bg-white p-0.5 align-middle"
-              />
-            </label>
-            <div className="flex flex-wrap items-center gap-1">
-              {MAPPA_LINEA_COLORI.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`Colore ${c}`}
-                  onClick={() => applyColore(c)}
-                  className={`h-6 w-6 rounded-full border ${
-                    colore === c ? "ring-2 ring-teal-600 ring-offset-1" : "border-slate-300"
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
+            <div className="min-w-[16rem] flex-1">
+              <MagazzinoMappaPalette colore={colore} onChange={applyColore} />
             </div>
             <label className="text-xs">
               Griglia
@@ -873,15 +933,104 @@ export function MagazzinoMappaBoard() {
             <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2">
               {!forma ? (
                 <p className="text-sm text-teal-950">
-                  Clicca il primo angolo. Poi muovi il mouse per la direzione del lato
-                  evidenziato, indica i quadrati e premi Avanti.
+                  {tool === "rettangolo"
+                    ? "Clicca il primo angolo. L’angolo opposto segue il mouse fino al bordo del foglio. Clicca di nuovo per confermare."
+                    : "Clicca il primo angolo. Poi muovi il mouse per la direzione del lato, indica i quadrati e premi Avanti."}
                 </p>
+              ) : forma.tipo === "rettangolo" ? (
+                <>
+                  <p className="text-sm font-medium text-teal-950">
+                    Rettangolo{" "}
+                    {forma.opposto && forma.vertici[0]
+                      ? `${formattaQuadrati(Math.abs(forma.opposto.x - forma.vertici[0].x) / griglia)} × ${formattaQuadrati(Math.abs(forma.opposto.y - forma.vertici[0].y) / griglia)} quadrati · ${formattaLunghezzaReale(Math.abs(forma.opposto.x - forma.vertici[0].x) / griglia, scalaValore, scalaUnita)} × ${formattaLunghezzaReale(Math.abs(forma.opposto.y - forma.vertici[0].y) / griglia, scalaValore, scalaUnita)}`
+                      : "sposta il mouse per l’angolo opposto"}
+                  </p>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-xs">
+                      Quadrati larghezza
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAPPA_QUADRATI_MAX}
+                        value={
+                          forma.opposto && forma.vertici[0]
+                            ? Math.max(
+                                1,
+                                Math.round(
+                                  Math.abs(forma.opposto.x - forma.vertici[0].x) / griglia
+                                )
+                              )
+                            : 1
+                        }
+                        onChange={(e) => {
+                          const wq = Math.max(1, Math.round(Number(e.target.value) || 1));
+                          const hq =
+                            forma.opposto && forma.vertici[0]
+                              ? Math.max(
+                                  1,
+                                  Math.round(
+                                    Math.abs(forma.opposto.y - forma.vertici[0].y) / griglia
+                                  )
+                                )
+                              : 1;
+                          setRettangoloQuadrati(wq, hq);
+                        }}
+                        className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <label className="text-xs">
+                      Quadrati altezza
+                      <input
+                        type="number"
+                        min={1}
+                        max={MAPPA_QUADRATI_MAX}
+                        value={
+                          forma.opposto && forma.vertici[0]
+                            ? Math.max(
+                                1,
+                                Math.round(
+                                  Math.abs(forma.opposto.y - forma.vertici[0].y) / griglia
+                                )
+                              )
+                            : 1
+                        }
+                        onChange={(e) => {
+                          const hq = Math.max(1, Math.round(Number(e.target.value) || 1));
+                          const wq =
+                            forma.opposto && forma.vertici[0]
+                              ? Math.max(
+                                  1,
+                                  Math.round(
+                                    Math.abs(forma.opposto.x - forma.vertici[0].x) / griglia
+                                  )
+                                )
+                              : 1;
+                          setRettangoloQuadrati(wq, hq);
+                        }}
+                        className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => avantiLato()}
+                      disabled={!forma.opposto}
+                      className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      Conferma rettangolo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForma(null)}
+                      className="rounded-lg px-2 py-1 text-xs text-slate-600 hover:bg-white"
+                    >
+                      Annulla forma
+                    </button>
+                  </div>
+                </>
               ) : (
                 <>
                   <p className="text-sm font-medium text-teal-950">
-                    {forma.tipo === "rettangolo"
-                      ? `Lato ${latoIndice} di ${latoTotale}`
-                      : `Lato ${latoIndice}`}
+                    Lato {latoIndice}
                     {" · "}
                     verso {versoLabel}
                     {" · "}
@@ -903,17 +1052,6 @@ export function MagazzinoMappaBoard() {
                         className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm disabled:bg-slate-100"
                       />
                     </label>
-                    {forma.tipo === "rettangolo" && forma.lati.length === 0 ? (
-                      <button
-                        type="button"
-                        className="rounded-lg border border-teal-700 px-2 py-1 text-xs font-medium text-teal-900 hover:bg-white"
-                        onClick={() =>
-                          setForma({ ...forma, senso: forma.senso === 1 ? -1 : 1 })
-                        }
-                      >
-                        Inverti senso
-                      </button>
-                    ) : null}
                     <button
                       type="button"
                       onClick={() => avantiLato()}
@@ -921,7 +1059,7 @@ export function MagazzinoMappaBoard() {
                     >
                       Avanti
                     </button>
-                    {forma.tipo === "poligono" && forma.vertici.length >= 3 ? (
+                    {forma.vertici.length >= 3 ? (
                       <button
                         type="button"
                         onClick={() => chiudiPoligono()}
@@ -938,11 +1076,6 @@ export function MagazzinoMappaBoard() {
                       Annulla forma
                     </button>
                   </div>
-                  {latoBloccato != null ? (
-                    <p className="text-xs text-teal-900">
-                      Questo lato ripete il lato opposto per chiudere il rettangolo.
-                    </p>
-                  ) : null}
                 </>
               )}
             </div>
@@ -1141,13 +1274,13 @@ export function MagazzinoMappaBoard() {
                 points={previewForma.ghost
                   .map((p) => `${p.x},${p.y}`)
                   .join(" ")}
-                fill="rgba(15,118,110,0.08)"
-                stroke="#0f766e"
-                strokeWidth={Math.max(1, 1.5 / zoom)}
-                strokeDasharray={`${8 / zoom} ${6 / zoom}`}
+                fill="rgba(15,118,110,0.10)"
+                stroke={colore}
+                strokeWidth={spessore}
+                strokeLinecap="square"
               />
             ) : null}
-            {previewForma ? (
+            {previewForma && previewForma.ghost.length !== 4 ? (
               <line
                 x1={previewForma.from.x}
                 y1={previewForma.from.y}
