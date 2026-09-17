@@ -47,6 +47,7 @@ import {
   clienteSchedaFromPossibile,
   type ClientePossibile,
 } from "@/lib/promemorie-e-note/types";
+import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
 
 function statoLabel(stato: ClientePossibile["stato"]) {
   if (stato === "convertito") return "già cliente";
@@ -105,6 +106,9 @@ function PossibileClienteRow({
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-700">
             {statoLabel(lead.stato)}
           </span>
+        </td>
+        <td className="px-4 py-3">
+          <TrattativaBadge value={lead.trattativa} />
         </td>
         <td className="px-4 py-3 font-semibold">{lead.ragioneSociale}</td>
         <td className="px-4 py-3 tabular-nums">
@@ -182,7 +186,7 @@ function PossibileClienteRow({
       </tr>
       {open ? (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
-          <td colSpan={8} className="px-4 py-4">
+          <td colSpan={9} className="px-4 py-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <SedeDetail
                 title="Sede Amministrativa"
@@ -217,6 +221,14 @@ function PossibileClienteRow({
                     ))}
                   </ul>
                 )}
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Trattativa
+                </p>
+                <p className="mt-1">
+                  <TrattativaBadge value={lead.trattativa} />
+                </p>
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -419,6 +431,7 @@ export function PossibiliClientiBoard() {
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">Stato</th>
+                <th className="px-4 py-3 font-medium">Trattativa</th>
                 <th className="px-4 py-3 font-medium">R. Sociale</th>
                 <th className="px-4 py-3 font-medium">P. IVA / CF</th>
                 <th className="px-4 py-3 font-medium">Sede Amm.</th>

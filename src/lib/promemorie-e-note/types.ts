@@ -9,6 +9,10 @@ import {
   ATTIVITA_MENTION_KINDS,
   type PnAttivitaCollegamento,
 } from "@/lib/promemorie-e-note/mention-tokens";
+import {
+  CLIENTE_POSSIBILE_TRATTATIVE,
+  type ClientePossibileTrattativa,
+} from "@/lib/promemorie-e-note/trattativa";
 
 export const pnEntityTypeSchema = z.enum([
   "cliente",
@@ -125,6 +129,7 @@ export type ClientePossibile = {
   referente: string;
   noteInterne: string;
   stato: "da_valutare" | "in_contatto" | "convertito" | "scartato";
+  trattativa: ClientePossibileTrattativa;
   clienteId: string | null;
   createdAt: string;
   updatedAt: string;
@@ -311,6 +316,7 @@ export const createClientePossibileSchema = z.object({
   prodottiAcquistati: z.array(z.string()).optional(),
   referente: z.string().trim().max(120).optional().default(""),
   noteInterne: z.string().trim().max(2000).optional().default(""),
+  trattativa: z.enum(CLIENTE_POSSIBILE_TRATTATIVE).optional().default("da_creare"),
 });
 
 export function emptyClientePossibileSedi() {
@@ -343,6 +349,7 @@ export function clienteFromPossibile(lead: ClientePossibile): Cliente {
     commercialeId: lead.commercialeId,
     commercialeNome: lead.commercialeNome,
     commercialeGrado: lead.commercialeGrado,
+    trattativa: lead.trattativa,
   };
 }
 

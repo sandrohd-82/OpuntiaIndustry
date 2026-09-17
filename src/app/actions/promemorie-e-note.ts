@@ -25,6 +25,7 @@ import {
   type ConsegnaAltraAzienda,
 } from "@/lib/amministrazione/clienti";
 import { richToPlain } from "@/lib/promemorie-e-note/bozze";
+import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import {
   createAttivitaSchema,
   createClientePossibileSchema,
@@ -65,7 +66,7 @@ import type { ClienteConsegnaAltraAziendaRow } from "@/types/database";
 import { z } from "zod";
 
 const CLIENTI_POSSIBILI_SELECT =
-  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, cliente_id, created_by, created_at, updated_at, commerciale_id";
+  "id, ragione_sociale, partita_iva, codice_fiscale, is_privato, email, pec, sdi_code, telefono, sito_web, telefoni_generici, email_generiche, siti_web_generici, sede_amm_nazione, sede_amm_provincia, sede_amm_citta, sede_amm_cap, sede_amm_indirizzo, sede_mag_nazione, sede_mag_provincia, sede_mag_citta, sede_mag_cap, sede_mag_indirizzo, prodotti_interessati, consegne_altra_azienda, referente, note_interne, stato, trattativa, cliente_id, created_by, created_at, updated_at, commerciale_id";
 
 async function syncPnMentionsToTimeline(input: {
   userId: string;
@@ -154,6 +155,7 @@ function mapClientePossibileRow(r: Record<string, unknown>): ClientePossibile {
     referente: String(r.referente ?? ""),
     noteInterne: String(r.note_interne ?? ""),
     stato: r.stato as ClientePossibile["stato"],
+    trattativa: parseTrattativa(r.trattativa),
     clienteId: r.cliente_id ? String(r.cliente_id) : null,
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
@@ -1313,6 +1315,7 @@ export async function createClientePossibileAction(
       referente: parsed.data.referente ?? "",
       note_interne: parsed.data.noteInterne ?? "",
       stato: "da_valutare",
+      trattativa: parseTrattativa(parsed.data.trattativa),
       commerciale_id: commercialeId,
       created_by: auth.userId,
       updated_by: auth.userId,
@@ -1369,7 +1372,7 @@ export async function createClientePossibileAction(
     action: "create",
     actor_id: auth.userId,
     summary: `Possibile cliente: ${item.ragioneSociale}`,
-    payload: { referenti: referenteIds.length },
+    payload: { referenti: referenteIds.length, trattativa: item.trattativa },
   });
   return { success: true, item };
 }
@@ -1385,7 +1388,7 @@ export async function updateClientePossibileAction(
   const supabaseGate = await createClient();
   const { data: existingLead } = await supabaseGate
     .from("clienti_possibili")
-    .select("created_by, commerciale_id")
+    .select("created_by, commerciale_id, trattativa")
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1467,6 +1470,7 @@ export async function updateClientePossibileAction(
       sede_mag_indirizzo: normalized.sedeMagazzino.indirizzo,
       consegne_altra_azienda: consegneToDb(normalized.consegneAltraAzienda),
       prodotti_interessati: normalized.prodottiAcquistati,
+      trattativa: parseTrattativa(parsed.data.trattativa),
       updated_by: auth.userId,
     })
     .eq("id", id)
@@ -1542,13 +1546,20 @@ export async function updateClientePossibileAction(
     item.commercialeGrado = resolved.commercialeGrado;
   }
 
+  const trattativaPrima = parseTrattativa(existingLead?.trattativa);
   await writeAuditLog({
     entity_type: "clienti_possibili",
     entity_id: item.id,
     action: "update",
     actor_id: auth.userId,
-    summary: `Possibile cliente aggiornato: ${item.ragioneSociale}`,
-    payload: { referenti: referenteIds.length },
+    summary:
+      trattativaPrima !== item.trattativa
+        ? `Possibile cliente aggiornato: ${item.ragioneSociale} (trattativa ${trattativaPrima} → ${item.trattativa})`
+        : `Possibile cliente aggiornato: ${item.ragioneSociale}`,
+    payload: {
+      referenti: referenteIds.length,
+      trattativa: { da: trattativaPrima, a: item.trattativa },
+    },
   });
   return { success: true, item };
 }

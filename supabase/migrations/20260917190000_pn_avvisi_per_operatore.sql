@@ -64,5 +64,3 @@ create policy "pn_evento_avvisi_update"
     or destinatario_id = auth.uid()
     or destinatario_id = public.app_effective_uid()
   );
-
-notify pgrst, 'reload schema';

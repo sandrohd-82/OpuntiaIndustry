@@ -17,6 +17,8 @@ import {
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
 import type { ClientePossibile } from "@/lib/promemorie-e-note/types";
+import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
+import { TrattativaSelectField } from "@/components/amministrazione/TrattativaSelectField";
 import type { RubricaContatto } from "@/lib/rubrica/types";
 
 type Props = {
@@ -147,6 +149,9 @@ export function PossibileClienteFormModal({
     initial?.commercialeId ?? null
   );
   const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
+  const [trattativa, setTrattativa] = useState(() =>
+    parseTrattativa(initial?.trattativa)
+  );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -213,6 +218,7 @@ export function PossibileClienteFormModal({
       consegneAltraAzienda: consegneOpen ? consegne : [],
       prodottiAcquistati: [],
       referenteIds: referenti.map((r) => r.id),
+      trattativa,
       ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
     };
   }
@@ -280,6 +286,10 @@ export function PossibileClienteFormModal({
                 onCanAssign={setCanAssignCommerciale}
               />
             ) : null}
+            <TrattativaSelectField
+              value={trattativa}
+              onChange={setTrattativa}
+            />
             <p className="sm:col-span-2 text-xs text-[var(--muted)]">
               Cliente privato: <strong>NO</strong>
             </p>

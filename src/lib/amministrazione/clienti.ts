@@ -19,6 +19,7 @@ import {
   regioneOfProvincia,
   sameProvincia,
 } from "@/lib/address/province-regioni";
+import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 
 export type SedeCliente = SedeFornitore;
 
@@ -50,6 +51,8 @@ export type Cliente = {
   commercialeId: string | null;
   commercialeNome: string;
   commercialeGrado: "senior" | "professional" | "executive" | null;
+  /** Solo possibile cliente: stato trattativa commerciale. */
+  trattativa?: ClientePossibileTrattativa;
 };
 
 export type ClienteInput = {
@@ -74,6 +77,8 @@ export type ClienteInput = {
   archivioId?: string | null;
   /** Solo in modifica Super Admin: null = azienda, uuid = commerciale. */
   commercialeId?: string | null;
+  /** Solo possibile cliente. */
+  trattativa?: ClientePossibileTrattativa;
 };
 
 export { emptySede, formatSedeBreve };

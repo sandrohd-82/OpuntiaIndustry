@@ -23,6 +23,8 @@ import {
   type ConsegnaAltraAzienda,
   type SedeCliente,
 } from "@/lib/amministrazione/clienti";
+import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
+import { TrattativaSelectField } from "@/components/amministrazione/TrattativaSelectField";
 import {
   listEntityReferentiAction,
   syncEntityReferentiAction,
@@ -160,6 +162,9 @@ export function ClienteFormModal({
     initial?.commercialeId ?? null
   );
   const [canAssignCommerciale, setCanAssignCommerciale] = useState(false);
+  const [trattativa, setTrattativa] = useState(() =>
+    parseTrattativa(initial?.trattativa)
+  );
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -277,6 +282,7 @@ export function ClienteFormModal({
       prodottiAcquistati: prodotti,
       archivioId: isPossibile ? null : archivioId,
       ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
+      ...(isPossibile ? { trattativa } : {}),
     };
   }
 
@@ -503,6 +509,12 @@ export function ClienteFormModal({
                 value={commercialeId}
                 onChange={setCommercialeId}
                 onCanAssign={setCanAssignCommerciale}
+              />
+            ) : null}
+            {isPossibile ? (
+              <TrattativaSelectField
+                value={trattativa}
+                onChange={setTrattativa}
               />
             ) : null}
             <label className="flex items-center gap-2 text-sm sm:col-span-2">
