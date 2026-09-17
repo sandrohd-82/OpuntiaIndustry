@@ -61,7 +61,14 @@ import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubic
 import {
   dettaglioAngoliImporto,
   dettaglioLatiImporto,
+  estremiCalcoDest,
+  hitGruppoRiferimento,
+  lineeGuidaDaRiferimenti,
+  puntiCalcoDest,
   segmentoGuidaDest,
+  segmentiCalcoDest,
+  snapPuntoSuCalco,
+  type ImportaEsito,
   type MappaRiferimentoGruppo,
 } from "@/lib/magazzino/riferimenti";
 
@@ -287,18 +294,7 @@ export function MagazzinoMappaBoard({
   }
 
   function hitRif(wx: number, wy: number): string | null {
-    for (let i = riferimenti.length - 1; i >= 0; i -= 1) {
-      const g = riferimenti[i]!;
-      if (
-        wx >= g.destX &&
-        wx <= g.destX + g.destWidth &&
-        wy >= g.destY &&
-        wy <= g.destY + g.destHeight
-      ) {
-        return g.id;
-      }
-    }
-    return null;
+    return hitGruppoRiferimento(wx, wy, riferimenti, tolleranzaLinea());
   }
 
   function risolviPuntoDisegno(w: MappaPunto): {
@@ -313,6 +309,16 @@ export function MagazzinoMappaBoard({
       null
     );
     if (acc) return { punto: acc.hit, acc };
+    const guida = accavallamentoPuntoSuLinee(
+      w,
+      lineeGuidaDaRiferimenti(riferimenti, griglia),
+      griglia,
+      tolleranzaLinea(),
+      null
+    );
+    if (guida) return { punto: guida.hit, acc: null };
+    const calco = snapPuntoSuCalco(w, riferimenti, tolleranzaLinea());
+    if (calco) return { punto: calco, acc: null };
     return {
       punto: { x: snapToGrid(w.x, griglia), y: snapToGrid(w.y, griglia) },
       acc: null,
@@ -410,10 +416,7 @@ export function MagazzinoMappaBoard({
       );
     }
     for (const g of riferimenti) {
-      p.push(
-        { x: g.destX, y: g.destY },
-        { x: g.destX + g.destWidth, y: g.destY + g.destHeight }
-      );
+      p.push(...estremiCalcoDest(g));
     }
     return p;
   }, [forma, previewForma, griglia, aree, pendingArea, riferimenti]);
@@ -1132,6 +1135,8 @@ export function MagazzinoMappaBoard({
           etichetta: p.etichetta,
           offsetQuadrati: p.offsetQuadrati,
         })),
+        haLimite: g.haLimite,
+        calchi: g.calchi,
       })),
     });
     setSaving(false);
@@ -2269,29 +2274,79 @@ export function MagazzinoMappaBoard({
             })}
             {riferimenti.map((g) => {
               const sel = g.id === selectedRifId;
-              const angoli = dettaglioAngoliImporto(g);
-              const lati = dettaglioLatiImporto(g);
+              const angoli = g.haLimite !== false ? dettaglioAngoliImporto(g) : [];
+              const lati = g.haLimite !== false ? dettaglioLatiImporto(g) : [];
+              const calcoSeg = segmentiCalcoDest(g);
+              const calcoPts = puntiCalcoDest(g);
+              const labelPt = calcoPts[0] ?? estremiCalcoDest(g)[0];
               return (
                 <g key={g.id}>
-                  <rect
-                    x={g.destX}
-                    y={g.destY}
-                    width={g.destWidth}
-                    height={g.destHeight}
-                    fill={sel ? "rgba(245,158,11,0.14)" : "rgba(245,158,11,0.07)"}
-                    stroke="#d97706"
-                    strokeDasharray={`${8 / zoom} ${5 / zoom}`}
-                    strokeWidth={Math.max(1.4, 2.4 / zoom)}
-                  />
-                  <text
-                    x={g.destX + 6}
-                    y={g.destY - 6}
-                    fill="#92400e"
-                    fontSize={Math.max(10, 11 / zoom)}
-                    fontWeight={600}
-                  >
-                    Limite da {g.mappaOrigineEtichetta}
-                  </text>
+                  {g.haLimite !== false ? (
+                    <>
+                      <rect
+                        x={g.destX}
+                        y={g.destY}
+                        width={g.destWidth}
+                        height={g.destHeight}
+                        fill={sel ? "rgba(245,158,11,0.14)" : "rgba(245,158,11,0.07)"}
+                        stroke="#d97706"
+                        strokeDasharray={`${8 / zoom} ${5 / zoom}`}
+                        strokeWidth={Math.max(1.4, 2.4 / zoom)}
+                      />
+                      <text
+                        x={g.destX + 6}
+                        y={g.destY - 6}
+                        fill="#92400e"
+                        fontSize={Math.max(10, 11 / zoom)}
+                        fontWeight={600}
+                      >
+                        Limite da {g.mappaOrigineEtichetta}
+                      </text>
+                    </>
+                  ) : labelPt ? (
+                    <text
+                      x={labelPt.x + 6}
+                      y={labelPt.y - 6}
+                      fill="#92400e"
+                      fontSize={Math.max(10, 11 / zoom)}
+                      fontWeight={600}
+                    >
+                      Calco da {g.mappaOrigineEtichetta}
+                    </text>
+                  ) : null}
+                  {calcoSeg.map((s) => (
+                    <line
+                      key={s.id}
+                      x1={s.x1}
+                      y1={s.y1}
+                      x2={s.x2}
+                      y2={s.y2}
+                      stroke={sel ? "#ea580c" : "#d97706"}
+                      strokeDasharray={`${7 / zoom} ${4 / zoom}`}
+                      strokeWidth={Math.max(1.4, 2.2 / zoom)}
+                    />
+                  ))}
+                  {calcoPts.map((p) => (
+                    <g key={`${g.id}-pt-${p.id}`}>
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={Math.max(3.4, 5 / zoom)}
+                        fill="#b45309"
+                        stroke="#fff7ed"
+                        strokeWidth={Math.max(0.8, 1.2 / zoom)}
+                      />
+                      <text
+                        x={p.x + 6 / zoom}
+                        y={p.y - 6 / zoom}
+                        fill="#78350f"
+                        fontSize={Math.max(8, 9 / zoom)}
+                        fontWeight={600}
+                      >
+                        {p.etichetta}
+                      </text>
+                    </g>
+                  ))}
                   {angoli.map((a) => (
                     <g key={`${g.id}-ang-${a.n}`}>
                       <circle
@@ -2646,14 +2701,23 @@ export function MagazzinoMappaBoard({
           destScalaValore={scalaValore}
           destScalaUnita={scalaUnita}
           onClose={() => setImportOpen(false)}
-          onApplied={(next) => {
+          onApplied={(next, esito: ImportaEsito) => {
             setMappa(next);
             setLinee(next.linee);
             setAree(next.aree ?? []);
             setRiferimenti(next.riferimenti ?? []);
-            const ultimo = (next.riferimenti ?? []).at(-1);
-            if (ultimo) setSelectedRifId(ultimo.id);
-            setOk("Importo in elenco provvisorio. Puoi modificarlo o toglierlo, poi salva la bozza.");
+            if (esito.modalita === "riferimento") {
+              const ultimo = (next.riferimenti ?? []).at(-1);
+              if (ultimo) setSelectedRifId(ultimo.id);
+              setOk(
+                "Calco in elenco. Disegna sopra come su un lucido: i punti si agganciano alle guide. Poi salva la bozza."
+              );
+            } else {
+              setSelectedRifId(null);
+              setOk(
+                `Importati ${esito.linee} oggett${esito.linee === 1 ? "o" : "i"} lineari e ${esito.aree} are${esito.aree === 1 ? "a" : "e"} reali. Salva la bozza per confermare.`
+              );
+            }
           }}
         />
       ) : null}

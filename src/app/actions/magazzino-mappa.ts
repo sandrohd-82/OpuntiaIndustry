@@ -32,13 +32,23 @@ import {
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
 import {
+  calchiDaElementi,
   dettaglioAngoliImporto,
   dettaglioLatiImporto,
   etichettaAsseImporto,
   etichettaAsseOrigine,
   importaRiferimentiSchema,
+  misuraDestDaOrigine,
+  parseCalcoGeometria,
+  puntoOrigineSuDest,
+  rettangoloDaPunti,
+  rettangoloLimiteDisegno,
+  risolviElementiOrigine,
+  serializzaCalcoGeometria,
+  type ImportaEsito,
   type ImportaRiferimentiInput,
   type MappaAsseOrigine,
+  type MappaRettangolo,
   type MappaRiferimentoGruppo,
   type MappaRiferimentoGruppoInput,
 } from "@/lib/magazzino/riferimenti";
@@ -258,7 +268,7 @@ async function loadRiferimentiMappa(
   const { data } = await supabase
     .from("magazzino_mappa_riferimenti")
     .select(
-      "id, gruppo_id, tipo, etichetta, asse_origine, offset_quadrati, limite_width_q, limite_height_q, dest_x, dest_y, dest_width, dest_height, origine_x, origine_y, origine_w, origine_h, sort_order, mappa_origine_id"
+      "id, gruppo_id, tipo, etichetta, asse_origine, offset_quadrati, limite_width_q, limite_height_q, dest_x, dest_y, dest_width, dest_height, origine_x, origine_y, origine_w, origine_h, sort_order, mappa_origine_id, geometria"
     )
     .eq("mappa_id", mappaId)
     .is("deleted_at", null)
@@ -282,6 +292,7 @@ async function loadRiferimentiMappa(
     origine_h: number | string;
     sort_order: number;
     mappa_origine_id: string;
+    geometria?: unknown;
   };
   const rows = (data ?? []) as RifRow[];
   const origineIds = [...new Set(rows.map((r) => r.mappa_origine_id))];
@@ -327,11 +338,16 @@ async function loadRiferimentiMappa(
         origineW: Number(r.origine_w),
         origineH: Number(r.origine_h),
         punti: [],
+        haLimite: true,
+        calchi: [],
       };
       groups.set(r.gruppo_id, g);
     }
     if (r.tipo === "asse") {
       g.asseId = r.id;
+      const geo = parseCalcoGeometria(r.geometria);
+      g.haLimite = geo.haLimite;
+      g.calchi = geo.elementi;
     } else {
       g.punti.push({
         id: r.id,
@@ -1071,9 +1087,17 @@ async function persistRiferimentiMappa(
       mappa_id: mappaId,
       gruppo_id: gruppoId,
       tipo: "asse" as const,
-      etichetta: etichettaAsseImporto(g),
+      etichetta: etichettaAsseImporto({
+        ...g,
+        haLimite: g.haLimite,
+        calchi: g.calchi,
+      }),
       offset_quadrati: 0,
       sort_order: gi * 100,
+      geometria: serializzaCalcoGeometria(
+        g.haLimite !== false,
+        g.calchi ?? []
+      ),
     };
     if (g.asseId && keep.has(g.asseId)) {
       const { error } = await supabase
@@ -1159,7 +1183,7 @@ export async function listMappeStessoLuogoAction(
 export async function importaRiferimentiDaVistaAction(
   raw: ImportaRiferimentiInput
 ): Promise<
-  | { success: true; mappa: MappaMagazzino }
+  | { success: true; mappa: MappaMagazzino; esito: ImportaEsito }
   | { success: false; error: string }
 > {
   const { auth } = await requireAreaAccess("strumenti");
@@ -1184,49 +1208,292 @@ export async function importaRiferimentiDaVistaAction(
     return { success: false, error: "Importo consentito solo su una bozza." };
   }
   if (!src) return { success: false, error: "Pianta di origine non trovata." };
-  const punti = input.punti;
-  const gruppo: MappaRiferimentoGruppoInput = {
-    mappaOrigineId: input.mappaOrigineId,
-    asseOrigine: input.asseOrigine,
-    limiteWidthQ: input.limiteWidthQ,
-    limiteHeightQ: input.limiteHeightQ,
-    destX: input.destX,
-    destY: input.destY,
-    destWidth: input.destWidth,
-    destHeight: input.destHeight,
-    origineX: input.origineX,
-    origineY: input.origineY,
-    origineW: input.origineW,
-    origineH: input.origineH,
-    punti,
-  };
-  const err = await persistRiferimentiMappa(
-    supabase,
-    input.mappaId,
-    [...(dest.riferimenti ?? []).map(gruppoToInput), gruppo],
-    auth.userId
+
+  const risolti = risolviElementiOrigine(
+    input.elementi ?? [],
+    src.linee ?? [],
+    src.aree ?? []
   );
-  if (err) return { success: false, error: err };
-  const angoli = dettaglioAngoliImporto(gruppo);
-  const lati = dettaglioLatiImporto(gruppo);
+  const usaLimite = Boolean(input.usaLimite);
+  const srcG = src.grigliaPx > 0 ? src.grigliaPx : 20;
+  const destG = dest.grigliaPx > 0 ? dest.grigliaPx : 20;
+  const bboxSel = rettangoloDaPunti(puntiDiSelezione(risolti), srcG);
+  const limiteUtente: MappaRettangolo | null =
+    usaLimite &&
+    input.origineW &&
+    input.origineH &&
+    Number.isFinite(input.origineX) &&
+    Number.isFinite(input.origineY)
+      ? {
+          x: input.origineX ?? 0,
+          y: input.origineY ?? 0,
+          width: input.origineW,
+          height: input.origineH,
+        }
+      : null;
+  const origine =
+    limiteUtente ??
+    bboxSel ??
+    rettangoloLimiteDisegno(src.linee ?? [], src.aree ?? [], srcG);
+  if (!origine) {
+    return {
+      success: false,
+      error: "Seleziona almeno un punto, una linea o un quadrato sulla pianta origine.",
+    };
+  }
+  const misuraSel = misuraDestDaOrigine(origine, destG, srcG);
+  const asse = (input.asseOrigine ?? "x") as MappaAsseOrigine;
+  const destRect: MappaRettangolo = {
+    x: input.destX ?? 0,
+    y: input.destY ?? 0,
+    width: input.destWidth ?? misuraSel.destWidth,
+    height: input.destHeight ?? misuraSel.destHeight,
+  };
+  const limiteWidthQ = input.limiteWidthQ ?? misuraSel.wQ;
+  const limiteHeightQ = input.limiteHeightQ ?? misuraSel.hQ;
+  const calchi = calchiDaElementi(risolti, origine);
+  const puntiAsse = usaLimite ? (input.punti ?? []) : [];
+
+  const esito: ImportaEsito = {
+    modalita: input.modalita,
+    linee: 0,
+    aree: 0,
+    calchi: 0,
+  };
+
+  if (input.modalita === "oggetto") {
+    const nuoveLinee: Array<{
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      spessore: number;
+      colore: string;
+    }> = [];
+    const nuoveAree: Array<{
+      codice: string;
+      nome: string;
+      parentId: string | null;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    const tick = destG * 0.35;
+    for (const e of risolti) {
+      if (e.tipo === "linea") {
+        const a = puntoOrigineSuDest({ x: e.x1, y: e.y1 }, origine, destRect);
+        const b = puntoOrigineSuDest({ x: e.x2, y: e.y2 }, origine, destRect);
+        nuoveLinee.push({
+          x1: a.x,
+          y1: a.y,
+          x2: b.x,
+          y2: b.y,
+          spessore: e.spessore,
+          colore: e.colore,
+        });
+      } else if (e.tipo === "rettangolo") {
+        const a = puntoOrigineSuDest({ x: e.x, y: e.y }, origine, destRect);
+        const b = puntoOrigineSuDest(
+          { x: e.x + e.width, y: e.y + e.height },
+          origine,
+          destRect
+        );
+        nuoveAree.push({
+          codice: e.codice,
+          nome: e.nome,
+          parentId: e.parentId,
+          x: Math.min(a.x, b.x),
+          y: Math.min(a.y, b.y),
+          width: Math.max(destG, Math.abs(b.x - a.x)),
+          height: Math.max(destG, Math.abs(b.y - a.y)),
+        });
+      } else {
+        const p = puntoOrigineSuDest({ x: e.x, y: e.y }, origine, destRect);
+        nuoveLinee.push(
+          {
+            x1: p.x - tick,
+            y1: p.y,
+            x2: p.x + tick,
+            y2: p.y,
+            spessore: 2,
+            colore: MAPPA_LINEA_COLORE_DEFAULT,
+          },
+          {
+            x1: p.x,
+            y1: p.y - tick,
+            x2: p.x,
+            y2: p.y + tick,
+            spessore: 2,
+            colore: MAPPA_LINEA_COLORE_DEFAULT,
+          }
+        );
+      }
+    }
+    const lineErr = await appendLineeMappa(
+      supabase,
+      input.mappaId,
+      nuoveLinee,
+      auth.userId
+    );
+    if (lineErr) return { success: false, error: lineErr };
+    if (nuoveAree.length) {
+      const areeErr = await persistAreeMappa(
+        supabase,
+        input.mappaId,
+        [
+          ...dest.aree.map((a) => ({
+            id: a.id,
+            ubicazioneId: a.ubicazioneId,
+            codice: a.codice,
+            nome: a.nome,
+            parentId: a.parentId,
+            x: a.x,
+            y: a.y,
+            width: a.width,
+            height: a.height,
+          })),
+          ...nuoveAree,
+        ],
+        auth.userId
+      );
+      if (areeErr) return { success: false, error: areeErr };
+    }
+    esito.linee = nuoveLinee.length;
+    esito.aree = nuoveAree.length;
+  } else {
+    const gruppo: MappaRiferimentoGruppoInput = {
+      mappaOrigineId: input.mappaOrigineId,
+      asseOrigine: asse,
+      limiteWidthQ,
+      limiteHeightQ,
+      destX: destRect.x,
+      destY: destRect.y,
+      destWidth: destRect.width,
+      destHeight: destRect.height,
+      origineX: origine.x,
+      origineY: origine.y,
+      origineW: origine.width,
+      origineH: origine.height,
+      punti: puntiAsse,
+      haLimite: usaLimite,
+      calchi,
+    };
+    const err = await persistRiferimentiMappa(
+      supabase,
+      input.mappaId,
+      [...(dest.riferimenti ?? []).map(gruppoToInput), gruppo],
+      auth.userId
+    );
+    if (err) return { success: false, error: err };
+    esito.calchi = calchi.length;
+  }
+
+  const angoli = dettaglioAngoliImporto({
+    asseOrigine: asse,
+    origineW: origine.width,
+    origineH: origine.height,
+    limiteWidthQ,
+    limiteHeightQ,
+    destX: destRect.x,
+    destY: destRect.y,
+    destWidth: destRect.width,
+    destHeight: destRect.height,
+  });
+  const lati = dettaglioLatiImporto({
+    asseOrigine: asse,
+    origineW: origine.width,
+    origineH: origine.height,
+    limiteWidthQ,
+    limiteHeightQ,
+    destX: destRect.x,
+    destY: destRect.y,
+    destWidth: destRect.width,
+    destHeight: destRect.height,
+  });
   await writeAuditLog({
     entity_type: "magazzino_mappe",
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Importati riferimenti da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${etichettaAsseOrigine(input.asseOrigine as MappaAsseOrigine)} · ${punti.length} punti · 4 angoli`,
+    summary:
+      input.modalita === "oggetto"
+        ? `Importati oggetti reali da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${esito.linee} linee · ${esito.aree} aree`
+        : `Importato calco/riferimento da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${esito.calchi} elementi`,
     payload: {
       mappa_origine_id: input.mappaOrigineId,
-      asse: input.asseOrigine,
-      punti: punti.length,
-      punti_manuali: input.punti.length,
-      angoli: angoli.map((a) => a.testo),
-      lati: lati.map((l) => l.testo),
+      modalita: input.modalita,
+      usa_limite: usaLimite,
+      asse,
+      calchi: esito.calchi,
+      linee: esito.linee,
+      aree: esito.aree,
+      punti_asse: puntiAsse.length,
+      angoli: usaLimite ? angoli.map((a) => a.testo) : [],
+      lati: usaLimite ? lati.map((l) => l.testo) : [],
     },
   });
   const mappa = await loadMappa(supabase, input.mappaId);
   if (!mappa) return { success: false, error: "Importo ok, pianta non leggibile." };
-  return { success: true, mappa };
+  return { success: true, mappa, esito };
+}
+
+function puntiDiSelezione(
+  risolti: ReturnType<typeof risolviElementiOrigine>
+): { x: number; y: number }[] {
+  const pts: { x: number; y: number }[] = [];
+  for (const e of risolti) {
+    if (e.tipo === "punto") pts.push({ x: e.x, y: e.y });
+    else if (e.tipo === "linea") {
+      pts.push({ x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 });
+    } else {
+      pts.push({ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height });
+    }
+  }
+  return pts;
+}
+
+async function appendLineeMappa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string,
+  linee: Array<{
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    spessore: number;
+    colore: string;
+  }>,
+  userId: string
+): Promise<string | null> {
+  if (!linee.length) return null;
+  const { data } = await supabase
+    .from("magazzino_mappa_linee")
+    .select("sort_order")
+    .eq("mappa_id", mappaId)
+    .is("deleted_at", null);
+  const maxSort = ((data ?? []) as { sort_order: number }[]).reduce(
+    (m, r) => Math.max(m, Number(r.sort_order) || 0),
+    -1
+  );
+  let sort = maxSort + 1;
+  for (const l of linee) {
+    const { error } = await supabase.from("magazzino_mappa_linee").insert({
+      mappa_id: mappaId,
+      x1: l.x1,
+      y1: l.y1,
+      x2: l.x2,
+      y2: l.y2,
+      spessore: l.spessore,
+      colore: normalizzaColoreLinea(l.colore),
+      sort_order: sort,
+      created_by: userId,
+      updated_by: userId,
+    });
+    if (error) return error.message;
+    sort += 1;
+  }
+  return null;
 }
 
 function gruppoToInput(g: MappaRiferimentoGruppo): MappaRiferimentoGruppoInput {
@@ -1250,6 +1517,8 @@ function gruppoToInput(g: MappaRiferimentoGruppo): MappaRiferimentoGruppoInput {
       etichetta: p.etichetta,
       offsetQuadrati: p.offsetQuadrati,
     })),
+    haLimite: g.haLimite,
+    calchi: g.calchi,
   };
 }
 

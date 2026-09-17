@@ -97,9 +97,12 @@ export function ElencoImportiMappa({
                   {imp.mappaOrigineEtichetta || "Vista origine"}
                 </span>
                 <span className="text-xs text-slate-600">
-                  {etichettaAsseOrigine(imp.asseOrigine)} ·{" "}
-                  {formattaQuadrati(wq)} × {formattaQuadrati(hq)} q ·{" "}
-                  {imp.punti.length} porzioni
+                  {imp.haLimite === false
+                    ? "Calco / riferimento"
+                    : etichettaAsseOrigine(imp.asseOrigine)}{" "}
+                  · {formattaQuadrati(wq)} × {formattaQuadrati(hq)} q ·{" "}
+                  {(imp.calchi ?? []).length} elementi
+                  {imp.punti.length ? ` · ${imp.punti.length} porzioni` : ""}
                 </span>
                 <span
                   className="flex shrink-0 gap-3"
@@ -189,6 +192,27 @@ export function ElencoImportiMappa({
                     </div>
                   ) : null}
 
+                  {(imp.calchi ?? []).length ? (
+                    <div>
+                      <p className="text-xs font-semibold text-amber-950">
+                        Elementi calco
+                      </p>
+                      <ul className="mt-1 space-y-0.5 text-xs text-amber-950">
+                        {(imp.calchi ?? []).map((c, i) => (
+                          <li key={c.id ?? `${c.tipo}-${i}`}>
+                            {c.tipo === "punto"
+                              ? "Punto"
+                              : c.tipo === "linea"
+                                ? "Linea"
+                                : "Quadrato"}{" "}
+                            · {c.etichetta}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {imp.haLimite !== false ? (
                   <div>
                     <p className="text-xs font-semibold text-amber-950">
                       Angoli e lati
@@ -202,6 +226,7 @@ export function ElencoImportiMappa({
                       ))}
                     </ul>
                   </div>
+                  ) : null}
 
                   <div>
                     <p className="text-xs font-semibold text-amber-950">

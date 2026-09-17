@@ -2,7 +2,13 @@ import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
 } from "@/lib/magazzino/mappa";
-import { dettaglioAngoliImporto, segmentoGuidaDest } from "@/lib/magazzino/riferimenti";
+import {
+  dettaglioAngoliImporto,
+  estremiCalcoDest,
+  puntiCalcoDest,
+  segmentoGuidaDest,
+  segmentiCalcoDest,
+} from "@/lib/magazzino/riferimenti";
 
 function fontTarga(width: number, height: number, testo: string): number {
   const lato = Math.min(width, height);
@@ -11,10 +17,7 @@ function fontTarga(width: number, height: number, testo: string): number {
 }
 
 export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
-  const extra = (mappa.riferimenti ?? []).flatMap((g) => [
-    { x: g.destX, y: g.destY },
-    { x: g.destX + g.destWidth, y: g.destY + g.destHeight },
-  ]);
+  const extra = (mappa.riferimenti ?? []).flatMap((g) => estremiCalcoDest(g));
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
   const g = Math.max(mappa.grigliaPx, 1);
 
@@ -38,31 +41,50 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
           />
           {(mappa.riferimenti ?? []).map((rif) => (
             <g key={rif.id}>
-              <rect
-                x={rif.destX}
-                y={rif.destY}
-                width={rif.destWidth}
-                height={rif.destHeight}
-                fill="none"
-                stroke="#d97706"
-                strokeDasharray="6 4"
-                strokeWidth={1.4}
-              />
-              {dettaglioAngoliImporto(rif).map((a) => (
-                <g key={`${rif.id}-ang-${a.n}`}>
-                  <circle cx={a.destX} cy={a.destY} r={3.2} fill="#b45309" />
-                  <text
-                    x={a.destX + (a.n === 2 || a.n === 4 ? -4 : 4)}
-                    y={a.destY + (a.n === 3 || a.n === 4 ? 11 : -4)}
-                    textAnchor={a.n === 2 || a.n === 4 ? "end" : "start"}
-                    fill="#78350f"
-                    fontSize={9}
-                    fontWeight={600}
-                  >
-                    {a.testo}
-                  </text>
-                </g>
+              {rif.haLimite !== false ? (
+                <rect
+                  x={rif.destX}
+                  y={rif.destY}
+                  width={rif.destWidth}
+                  height={rif.destHeight}
+                  fill="none"
+                  stroke="#d97706"
+                  strokeDasharray="6 4"
+                  strokeWidth={1.4}
+                />
+              ) : null}
+              {segmentiCalcoDest(rif).map((s) => (
+                <line
+                  key={s.id}
+                  x1={s.x1}
+                  y1={s.y1}
+                  x2={s.x2}
+                  y2={s.y2}
+                  stroke="#d97706"
+                  strokeDasharray="6 4"
+                  strokeWidth={1.4}
+                />
               ))}
+              {puntiCalcoDest(rif).map((p) => (
+                <circle key={p.id} cx={p.x} cy={p.y} r={3.2} fill="#b45309" />
+              ))}
+              {rif.haLimite !== false
+                ? dettaglioAngoliImporto(rif).map((a) => (
+                    <g key={`${rif.id}-ang-${a.n}`}>
+                      <circle cx={a.destX} cy={a.destY} r={3.2} fill="#b45309" />
+                      <text
+                        x={a.destX + (a.n === 2 || a.n === 4 ? -4 : 4)}
+                        y={a.destY + (a.n === 3 || a.n === 4 ? 11 : -4)}
+                        textAnchor={a.n === 2 || a.n === 4 ? "end" : "start"}
+                        fill="#78350f"
+                        fontSize={9}
+                        fontWeight={600}
+                      >
+                        {a.testo}
+                      </text>
+                    </g>
+                  ))
+                : null}
               {rif.punti.map((p) => {
                 const s = segmentoGuidaDest(rif, p.offsetQuadrati, g);
                 return (
