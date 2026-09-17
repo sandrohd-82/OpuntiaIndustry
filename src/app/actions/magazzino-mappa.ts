@@ -37,10 +37,15 @@ import {
   type MappaRiferimentoGruppoInput,
 } from "@/lib/magazzino/riferimenti";
 import {
+  MAPPA_MENU_SEED_MAPPA_ID,
+  rinominaPercorsoMappaSchema,
   slugMenuVoce,
   type MappaMenuFogliaNav,
   type MappaMenuNodo,
   type MappaMenuOpzione,
+  type MappaMenuPercorsoCaricato,
+  type MappaMenuPercorsoNodo,
+  type RinominaPercorsoMappaInput,
 } from "@/lib/magazzino/menu-mappa";
 import { createClient } from "@/lib/supabase/server";
 
@@ -1209,6 +1214,205 @@ export async function salvaMappaMagazzinoAction(
   return { success: true, mappa };
 }
 
+type MenuNodoRiga = {
+  id: string;
+  parent_id: string | null;
+  area_slug: string;
+  etichetta: string;
+  slug: string;
+  tipo: string;
+  versione?: number;
+};
+
+async function loadCatenaNodi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  startId: string
+): Promise<MenuNodoRiga[]> {
+  const catena: MenuNodoRiga[] = [];
+  let current: string | null = startId;
+  for (let i = 0; i < 10 && current; i += 1) {
+    const { data } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, parent_id, area_slug, etichetta, slug, tipo, versione")
+      .eq("id", current)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const row = data as MenuNodoRiga | null;
+    if (!row) break;
+    catena.unshift(row);
+    current = row.parent_id;
+  }
+  return catena;
+}
+
+async function altreMappePerNodi(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  areaSlug: string,
+  nodoIds: string[],
+  excludeMappaId: string
+): Promise<Record<string, number>> {
+  const { data: allNodi } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, parent_id")
+    .eq("area_slug", areaSlug)
+    .is("deleted_at", null);
+  const nodi = (allNodi ?? []) as { id: string; parent_id: string | null }[];
+  const { data: maps } = await supabase
+    .from("magazzino_mappe")
+    .select("id, menu_nodo_id")
+    .is("deleted_at", null)
+    .not("menu_nodo_id", "is", null)
+    .neq("id", excludeMappaId);
+  const children = new Map<string, string[]>();
+  for (const n of nodi) {
+    const p = n.parent_id ?? "";
+    const list = children.get(p) ?? [];
+    list.push(n.id);
+    children.set(p, list);
+  }
+  function subtree(id: string): Set<string> {
+    const s = new Set<string>([id]);
+    const stack = [id];
+    while (stack.length) {
+      const cur = stack.pop()!;
+      for (const ch of children.get(cur) ?? []) {
+        if (!s.has(ch)) {
+          s.add(ch);
+          stack.push(ch);
+        }
+      }
+    }
+    return s;
+  }
+  const counts: Record<string, number> = {};
+  for (const id of nodoIds) {
+    const sub = subtree(id);
+    counts[id] = (
+      (maps ?? []) as { id: string; menu_nodo_id: string | null }[]
+    ).filter((m) => m.menu_nodo_id && sub.has(m.menu_nodo_id)).length;
+  }
+  return counts;
+}
+
+async function risolviPercorsoMenu(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: CollegaMappaInput,
+  userId: string
+): Promise<{ postoId: string; luogo: string; nodoIds: string[] } | { error: string }> {
+  let parentId: string | null = null;
+  const nodoIds: string[] = [];
+  for (const ramo of input.rami) {
+    const got = await ensureMenuNodo(
+      supabase,
+      input.areaSlug,
+      parentId,
+      "ramo",
+      ramo.etichetta,
+      ramo.slug,
+      userId,
+      ramo.nodoId
+    );
+    if ("error" in got) return { error: got.error };
+    parentId = got.id;
+    nodoIds.push(got.id);
+  }
+  const posto = await ensureMenuNodo(
+    supabase,
+    input.areaSlug,
+    parentId,
+    "luogo",
+    input.posto.etichetta,
+    undefined,
+    userId,
+    input.posto.nodoId
+  );
+  if ("error" in posto) return { error: posto.error };
+  nodoIds.push(posto.id);
+  return {
+    postoId: posto.id,
+    luogo: input.posto.etichetta.trim(),
+    nodoIds,
+  };
+}
+
+async function softDeleteNodiOrfani(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nodeIds: string[],
+  userId: string
+) {
+  const now = new Date().toISOString();
+  for (const id of [...nodeIds].reverse()) {
+    if (id === MAPPA_MENU_SEED_MAPPA_ID) continue;
+    const { count: maps } = await supabase
+      .from("magazzino_mappe")
+      .select("id", { count: "exact", head: true })
+      .eq("menu_nodo_id", id)
+      .is("deleted_at", null);
+    const { count: kids } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id", { count: "exact", head: true })
+      .eq("parent_id", id)
+      .is("deleted_at", null);
+    if ((maps ?? 0) > 0 || (kids ?? 0) > 0) continue;
+    await supabase
+      .from("mappa_menu_nodi")
+      .update({
+        deleted_at: now,
+        deleted_by: userId,
+        updated_by: userId,
+      })
+      .eq("id", id)
+      .is("deleted_at", null);
+  }
+}
+
+export async function getMappaMenuPercorsoAction(
+  mappaId: string
+): Promise<
+  | { success: true; percorso: MappaMenuPercorsoCaricato }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può modificare il percorso." };
+  }
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("magazzino_mappe")
+    .select("id, area_codice, menu_nodo_id")
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = data as {
+    id: string;
+    area_codice?: string;
+    menu_nodo_id?: string | null;
+  } | null;
+  if (!row?.menu_nodo_id) {
+    return { success: false, error: "Questa pianta non ha ancora un percorso di menu." };
+  }
+  const catena = await loadCatenaNodi(supabase, row.menu_nodo_id);
+  if (!catena.length) {
+    return { success: false, error: "Percorso di menu non trovato." };
+  }
+  const areaSlug = row.area_codice || catena[0]?.area_slug || "magazzino";
+  const counts = await altreMappePerNodi(
+    supabase,
+    areaSlug,
+    catena.map((n) => n.id),
+    mappaId
+  );
+  const nodi: MappaMenuPercorsoNodo[] = catena.map((n) => ({
+    id: n.id,
+    parentId: n.parent_id,
+    etichetta: n.etichetta,
+    slug: n.slug,
+    tipo: n.tipo === "luogo" ? "luogo" : "ramo",
+    altreMappe: counts[n.id] ?? 0,
+  }));
+  return { success: true, percorso: { areaSlug, nodi } };
+}
+
 async function ensureMenuNodo(
   supabase: Awaited<ReturnType<typeof createClient>>,
   areaSlug: string,
@@ -1311,34 +1515,10 @@ export async function collegaMappaAdAreaAction(
   if (row.documento_stato !== "bozza") {
     return { success: false, error: "Questa pianta è già collegata. Riapri per modificarla." };
   }
-  let parentId: string | null = null;
-  for (const ramo of input.rami) {
-    const got = await ensureMenuNodo(
-      supabase,
-      input.areaSlug,
-      parentId,
-      "ramo",
-      ramo.etichetta,
-      ramo.slug,
-      auth.userId,
-      ramo.nodoId
-    );
-    if ("error" in got) return { success: false, error: got.error };
-    parentId = got.id;
-  }
-  const posto = await ensureMenuNodo(
-    supabase,
-    input.areaSlug,
-    parentId,
-    "luogo",
-    input.posto.etichetta,
-    undefined,
-    auth.userId,
-    input.posto.nodoId
-  );
-  if ("error" in posto) return { success: false, error: posto.error };
+  const resolved = await risolviPercorsoMenu(supabase, input, auth.userId);
+  if ("error" in resolved) return { success: false, error: resolved.error };
   const vista = input.vistaEtichetta.trim();
-  const luogo = input.posto.etichetta.trim();
+  const luogo = resolved.luogo;
   const baseSlug = slugMappaArea(luogo, vista);
   const slug = await slugLibero(supabase, baseSlug, input.mappaId);
   const { error } = await supabase
@@ -1347,7 +1527,7 @@ export async function collegaMappaAdAreaAction(
       documento_stato: "approvato",
       area_codice: input.areaSlug,
       luogo_nome: luogo,
-      menu_nodo_id: posto.id,
+      menu_nodo_id: resolved.postoId,
       vista_etichetta: vista,
       slug,
       approved_at: new Date().toISOString(),
@@ -1388,10 +1568,241 @@ export async function collegaMappaAdAreaAction(
       luogo,
       vista,
       slug,
-      menu_nodo_id: posto.id,
+      menu_nodo_id: resolved.postoId,
     },
   });
   if (!mappa) return { success: false, error: "Collegamento ok, pianta non leggibile." };
+  return { success: true, mappa };
+}
+
+export async function rinominaPercorsoMappaAction(
+  raw: RinominaPercorsoMappaInput
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può rinominare il percorso." };
+  }
+  const parsed = rinominaPercorsoMappaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Nomi percorso non validi.",
+    };
+  }
+  const input = parsed.data;
+  const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select("id, menu_nodo_id, area_codice")
+    .eq("id", input.mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = cur as {
+    id: string;
+    menu_nodo_id?: string | null;
+    area_codice?: string;
+  } | null;
+  if (!row?.menu_nodo_id) {
+    return { success: false, error: "Questa pianta non ha un percorso da rinominare." };
+  }
+  const catena = await loadCatenaNodi(supabase, row.menu_nodo_id);
+  const idsOk = new Set(catena.map((n) => n.id));
+  const prima = catena.map((n) => n.etichetta);
+  const cambi: { id: string; da: string; a: string; tipo: string }[] = [];
+
+  for (const item of input.nodi) {
+    if (!idsOk.has(item.nodoId)) {
+      return { success: false, error: "Una voce non appartiene al percorso di questa pianta." };
+    }
+    const nodo = catena.find((n) => n.id === item.nodoId);
+    if (!nodo) continue;
+    const nuovo = item.etichetta.trim();
+    if (nuovo.toLowerCase() === nodo.etichetta.trim().toLowerCase() && nuovo === nodo.etichetta) {
+      continue;
+    }
+    let clash = supabase
+      .from("mappa_menu_nodi")
+      .select("id")
+      .eq("area_slug", nodo.area_slug)
+      .ilike("etichetta", nuovo)
+      .neq("id", nodo.id)
+      .is("deleted_at", null);
+    clash = nodo.parent_id
+      ? clash.eq("parent_id", nodo.parent_id)
+      : clash.is("parent_id", null);
+    const { data: esistente } = await clash.maybeSingle();
+    if (esistente) {
+      return {
+        success: false,
+        error: `Il nome «${nuovo}» è già usato allo stesso livello.`,
+      };
+    }
+    const newSlug = slugMenuVoce(nuovo);
+    let slugClash = supabase
+      .from("mappa_menu_nodi")
+      .select("id")
+      .eq("area_slug", nodo.area_slug)
+      .eq("slug", newSlug)
+      .neq("id", nodo.id)
+      .is("deleted_at", null);
+    slugClash = nodo.parent_id
+      ? slugClash.eq("parent_id", nodo.parent_id)
+      : slugClash.is("parent_id", null);
+    const { data: slugEsistente } = await slugClash.maybeSingle();
+    const { error } = await supabase
+      .from("mappa_menu_nodi")
+      .update({
+        etichetta: nuovo,
+        slug: slugEsistente ? nodo.slug : newSlug,
+        versione: (nodo.versione ?? 1) + 1,
+        updated_by: auth.userId,
+      })
+      .eq("id", nodo.id)
+      .is("deleted_at", null);
+    if (error) {
+      if (error.message.includes("mag_menu_")) {
+        return {
+          success: false,
+          error: `Il nome «${nuovo}» è già usato allo stesso livello.`,
+        };
+      }
+      return { success: false, error: error.message };
+    }
+    if (nodo.tipo === "luogo") {
+      await supabase
+        .from("magazzino_mappe")
+        .update({ luogo_nome: nuovo, updated_by: auth.userId })
+        .eq("menu_nodo_id", nodo.id)
+        .is("deleted_at", null);
+      const { data: mappePosto } = await supabase
+        .from("magazzino_mappe")
+        .select("id")
+        .eq("menu_nodo_id", nodo.id)
+        .is("deleted_at", null);
+      const ids = ((mappePosto ?? []) as { id: string }[]).map((m) => m.id);
+      if (ids.length) {
+        await supabase
+          .from("magazzino_ubicazioni")
+          .update({ luogo_nome: nuovo, updated_by: auth.userId })
+          .in("mappa_origine_id", ids)
+          .is("deleted_at", null);
+      }
+    }
+    cambi.push({ id: nodo.id, da: nodo.etichetta, a: nuovo, tipo: nodo.tipo });
+  }
+
+  const mappa = await loadMappa(supabase, input.mappaId);
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: input.mappaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: cambi.length
+      ? `Rinominato percorso pianta: ${cambi.map((c) => `${c.da} → ${c.a}`).join(", ")}`
+      : "Percorso pianta invariato (nessun nome modificato)",
+    payload: {
+      prima,
+      cambi,
+      dopo: mappa?.percorsoEtichetta,
+    },
+  });
+  if (!mappa) return { success: false, error: "Nomi salvati, pianta non leggibile." };
+  return { success: true, mappa };
+}
+
+export async function spostaMappaPercorsoAction(
+  raw: CollegaMappaInput
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può spostare il percorso." };
+  }
+  const parsed = collegaMappaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Percorso non valido.",
+    };
+  }
+  const input = parsed.data;
+  if (!(input.areaSlug in AREA_ROUTES)) {
+    return { success: false, error: "Area di primo livello non valida." };
+  }
+  const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select("id, menu_nodo_id, vista_etichetta, area_codice")
+    .eq("id", input.mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = cur as {
+    id: string;
+    menu_nodo_id?: string | null;
+    vista_etichetta?: string;
+    area_codice?: string;
+  } | null;
+  if (!row) return { success: false, error: "Pianta non trovata." };
+  const oldChain = row.menu_nodo_id
+    ? (await loadCatenaNodi(supabase, row.menu_nodo_id)).map((n) => n.id)
+    : [];
+  const resolved = await risolviPercorsoMenu(supabase, input, auth.userId);
+  if ("error" in resolved) return { success: false, error: resolved.error };
+  const vista = (input.vistaEtichetta || row.vista_etichetta || "").trim();
+  const { error } = await supabase
+    .from("magazzino_mappe")
+    .update({
+      area_codice: input.areaSlug,
+      luogo_nome: resolved.luogo,
+      menu_nodo_id: resolved.postoId,
+      updated_by: auth.userId,
+    })
+    .eq("id", input.mappaId)
+    .is("deleted_at", null);
+  if (error) {
+    if (error.message.includes("magazzino_mappe_collegata_nodo_vista")) {
+      return {
+        success: false,
+        error: `Esiste già una pianta con vista «${vista}» su questo posto.`,
+      };
+    }
+    return { success: false, error: error.message };
+  }
+  await supabase
+    .from("magazzino_ubicazioni")
+    .update({
+      luogo_nome: resolved.luogo,
+      updated_by: auth.userId,
+    })
+    .eq("mappa_origine_id", input.mappaId)
+    .is("deleted_at", null);
+  const stillUsed = new Set(resolved.nodoIds);
+  await softDeleteNodiOrfani(
+    supabase,
+    oldChain.filter((id) => !stillUsed.has(id)),
+    auth.userId
+  );
+  const mappa = await loadMappa(supabase, input.mappaId);
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: input.mappaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Spostata pianta su ${mappa?.percorsoEtichetta || resolved.luogo}`,
+    payload: {
+      da: oldChain,
+      a: resolved.nodoIds,
+      area: input.areaSlug,
+      luogo: resolved.luogo,
+      menu_nodo_id: resolved.postoId,
+    },
+  });
+  if (!mappa) return { success: false, error: "Spostamento ok, pianta non leggibile." };
   return { success: true, mappa };
 }
 

@@ -182,8 +182,14 @@ export const salvaMappaSchema = z.object({
   riferimenti: z.array(mappaRiferimentoGruppoInputSchema).max(50).optional(),
 });
 
-export { collegaMappaPercorsoSchema as collegaMappaSchema } from "@/lib/magazzino/menu-mappa";
-export type { CollegaMappaPercorsoInput as CollegaMappaInput } from "@/lib/magazzino/menu-mappa";
+export {
+  collegaMappaPercorsoSchema as collegaMappaSchema,
+  rinominaPercorsoMappaSchema,
+} from "@/lib/magazzino/menu-mappa";
+export type {
+  CollegaMappaPercorsoInput as CollegaMappaInput,
+  RinominaPercorsoMappaInput,
+} from "@/lib/magazzino/menu-mappa";
 
 export const creaMappaBozzaSchema = z.object({
   nome: z.string().trim().min(1).max(120).optional(),

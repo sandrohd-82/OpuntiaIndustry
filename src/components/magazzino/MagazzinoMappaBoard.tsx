@@ -5,14 +5,20 @@ import Link from "next/link";
 import {
   collegaMappaAdAreaAction,
   getMappaByIdAction,
+  getMappaMenuPercorsoAction,
+  rinominaPercorsoMappaAction,
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
+  spostaMappaPercorsoAction,
 } from "@/app/actions/magazzino-mappa";
 import { ImportaRiferimentiVista } from "@/components/magazzino/ImportaRiferimentiVista";
 import { CopiaAreaGuidata } from "@/components/magazzino/CopiaAreaGuidata";
 import { ElencoAreeMappa } from "@/components/magazzino/ElencoAreeMappa";
 import { MAGAZZINO_MAPPE_NAV_EVENT } from "@/lib/areas/magazzino";
-import { MAPPA_MENU_NAV_EVENT } from "@/lib/magazzino/menu-mappa";
+import {
+  MAPPA_MENU_NAV_EVENT,
+  type MappaMenuPercorsoCaricato,
+} from "@/lib/magazzino/menu-mappa";
 import { CollegaMappaPercorsoModal } from "@/components/magazzino/CollegaMappaPercorsoModal";
 import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
@@ -131,6 +137,11 @@ export function MagazzinoMappaBoard({
   const [collegaOpen, setCollegaOpen] = useState(false);
   const [collegaBusy, setCollegaBusy] = useState(false);
   const [collegaError, setCollegaError] = useState<string | null>(null);
+  const [collegaVariant, setCollegaVariant] = useState<"collega" | "modifica">(
+    "collega"
+  );
+  const [percorsoIniziale, setPercorsoIniziale] =
+    useState<MappaMenuPercorsoCaricato | null>(null);
   const [selectedRifId, setSelectedRifId] = useState<string | null>(null);
   const [dragRif, setDragRif] = useState<{
     id: string;
@@ -1104,11 +1115,46 @@ export function MagazzinoMappaBoard({
     await persist();
   }
 
+  async function caricaPercorsoAperto(mappaId: string) {
+    const res = await getMappaMenuPercorsoAction(mappaId);
+    if (!res.success) {
+      setPercorsoIniziale(null);
+      return res;
+    }
+    setPercorsoIniziale(res.percorso);
+    return res;
+  }
+
   async function avviaCollega() {
     if (!mappa) return;
     const okSave = await persist();
     if (!okSave) return;
     setCollegaError(null);
+    setCollegaVariant("collega");
+    if (mappa.menuNodoId) {
+      const res = await caricaPercorsoAperto(mappa.id);
+      if (!res.success) {
+        setCollegaError(res.error);
+      }
+    } else {
+      setPercorsoIniziale(null);
+    }
+    setCollegaOpen(true);
+  }
+
+  async function avviaModificaPercorso() {
+    if (!mappa) return;
+    if (editing) {
+      const okSave = await persist();
+      if (!okSave) return;
+    }
+    setCollegaError(null);
+    const res = await caricaPercorsoAperto(mappa.id);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setCollegaVariant("modifica");
     setCollegaOpen(true);
   }
 
@@ -1138,7 +1184,64 @@ export function MagazzinoMappaBoard({
     setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setCollegaOpen(false);
+    setPercorsoIniziale(null);
     setOk(`Collegata a ${res.mappa.percorsoEtichetta}.`);
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
+    window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
+  }
+
+  async function confermaRinomina(nodi: { nodoId: string; etichetta: string }[]) {
+    if (!mappa) return;
+    setCollegaBusy(true);
+    setError(null);
+    setCollegaError(null);
+    const res = await rinominaPercorsoMappaAction({
+      mappaId: mappa.id,
+      nodi,
+    });
+    setCollegaBusy(false);
+    if (!res.success) {
+      setCollegaError(res.error);
+      setError(res.error);
+      return;
+    }
+    setMappa(res.mappa);
+    setLuogoNome(res.mappa.luogoNome);
+    setCollegaOpen(false);
+    setPercorsoIniziale(null);
+    setOk(`Nomi aggiornati: ${res.mappa.percorsoEtichetta}.`);
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
+    window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
+  }
+
+  async function confermaSposta(payload: {
+    areaSlug: string;
+    rami: { nodoId?: string; etichetta: string; slug?: string }[];
+    posto: { nodoId?: string; etichetta: string };
+  }) {
+    if (!mappa) return;
+    setCollegaBusy(true);
+    setError(null);
+    setCollegaError(null);
+    const res = await spostaMappaPercorsoAction({
+      mappaId: mappa.id,
+      vistaEtichetta: vistaEtichetta.trim() || mappa.vistaEtichetta,
+      areaSlug: payload.areaSlug,
+      rami: payload.rami,
+      posto: payload.posto,
+    });
+    setCollegaBusy(false);
+    if (!res.success) {
+      setCollegaError(res.error);
+      setError(res.error);
+      return;
+    }
+    setMappa(res.mappa);
+    setLuogoNome(res.mappa.luogoNome);
+    setVistaEtichetta(res.mappa.vistaEtichetta);
+    setCollegaOpen(false);
+    setPercorsoIniziale(null);
+    setOk(`Percorso aggiornato: ${res.mappa.percorsoEtichetta}.`);
     window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
     window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
   }
@@ -1296,6 +1399,16 @@ export function MagazzinoMappaBoard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {mode === "editor" && canDesign && mappa.menuNodoId ? (
+            <button
+              type="button"
+              disabled={saving || collegaBusy}
+              onClick={() => void avviaModificaPercorso()}
+              className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
+            >
+              Modifica percorso
+            </button>
+          ) : null}
           {mode === "editor" && canDesign && mappa.documentoStato === "approvato" ? (
             <button
               type="button"
@@ -2430,10 +2543,11 @@ export function MagazzinoMappaBoard({
           onCompleta={(r) => applicaCopiaArea(r)}
         />
       ) : null}
-      {editing ? (
-        <>
+      {mode === "editor" && canDesign ? (
         <CollegaMappaPercorsoModal
           open={collegaOpen}
+          variant={collegaVariant}
+          percorsoIniziale={percorsoIniziale}
           busy={collegaBusy}
           error={collegaError}
           vistaEtichetta={vistaEtichetta.trim()}
@@ -2441,9 +2555,14 @@ export function MagazzinoMappaBoard({
           onClose={() => {
             setCollegaOpen(false);
             setCollegaError(null);
+            setPercorsoIniziale(null);
           }}
           onConferma={(p) => void confermaCollega(p)}
+          onRinomina={(n) => void confermaRinomina(n)}
+          onSposta={(p) => void confermaSposta(p)}
         />
+      ) : null}
+      {editing ? (
         <ImportaRiferimentiVista
           open={importOpen}
           destMappaId={mappa.id}
@@ -2460,7 +2579,6 @@ export function MagazzinoMappaBoard({
             setOk("Riferimenti importati. Trascina il quadrato limite e salva la bozza.");
           }}
         />
-        </>
       ) : null}
     </div>
   );

@@ -19,6 +19,9 @@ import type { AreaSlug } from "@/types/database";
 
 export const MAPPA_MENU_NAV_EVENT = "opuntia-mappa-menu-updated";
 
+/** Seme Magazzino > Mappa Magazzino: non si elimina in soft delete. */
+export const MAPPA_MENU_SEED_MAPPA_ID = "11111111-1111-4111-8111-111111111111";
+
 export const MAPPA_MENU_TIPI = ["ramo", "luogo"] as const;
 export type MappaMenuTipo = (typeof MAPPA_MENU_TIPI)[number];
 
@@ -122,6 +125,35 @@ export const collegaMappaPercorsoSchema = z.object({
 });
 
 export type CollegaMappaPercorsoInput = z.infer<typeof collegaMappaPercorsoSchema>;
+
+export type MappaMenuPercorsoNodo = {
+  id: string;
+  parentId: string | null;
+  etichetta: string;
+  slug: string;
+  tipo: MappaMenuTipo;
+  altreMappe: number;
+};
+
+export type MappaMenuPercorsoCaricato = {
+  areaSlug: string;
+  nodi: MappaMenuPercorsoNodo[];
+};
+
+export const rinominaPercorsoMappaSchema = z.object({
+  mappaId: z.string().uuid(),
+  nodi: z
+    .array(
+      z.object({
+        nodoId: z.string().uuid(),
+        etichetta: z.string().trim().min(1).max(120),
+      })
+    )
+    .min(1)
+    .max(9),
+});
+
+export type RinominaPercorsoMappaInput = z.infer<typeof rinominaPercorsoMappaSchema>;
 
 export function mergeAreaNavWithMappaMenu(
   areaSlug: string,
