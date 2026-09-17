@@ -2,6 +2,8 @@
 
 import { writeAuditLog } from "@/lib/audit";
 import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
+import { AREA_ROUTES } from "@/lib/areas/config";
+import type { AreaSlug } from "@/types/database";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import {
   MAPPA_LINEA_COLORE_DEFAULT,
@@ -34,6 +36,12 @@ import {
   type MappaRiferimentoGruppo,
   type MappaRiferimentoGruppoInput,
 } from "@/lib/magazzino/riferimenti";
+import {
+  slugMenuVoce,
+  type MappaMenuFogliaNav,
+  type MappaMenuNodo,
+  type MappaMenuOpzione,
+} from "@/lib/magazzino/menu-mappa";
 import { createClient } from "@/lib/supabase/server";
 
 function canProgettare(profile: Parameters<typeof isSuperadminProfile>[0]) {
@@ -86,6 +94,7 @@ type HeaderRow = {
   note: string;
   approved_at: string | null;
   collegata_at?: string | null;
+  menu_nodo_id?: string | null;
   updated_at?: string;
 };
 
@@ -103,6 +112,8 @@ function mapHeader(
     documentoStato: parseStato(h.documento_stato),
     areaCodice: h.area_codice || "magazzino",
     luogoNome: h.luogo_nome ?? "",
+    menuNodoId: h.menu_nodo_id ?? null,
+    percorsoEtichetta: "",
     slug: h.slug ?? null,
     vistaEtichetta: h.vista_etichetta ?? "",
     scalaValore: Number(h.scala_valore) > 0 ? Number(h.scala_valore) : 10,
@@ -122,7 +133,7 @@ function mapHeader(
 }
 
 const HEADER_SELECT =
-  "id, nome, versione, documento_stato, area_codice, luogo_nome, slug, vista_etichetta, scala_valore, scala_unita, view_x, view_y, view_zoom, griglia_px, note, approved_at, collegata_at, updated_at";
+  "id, nome, versione, documento_stato, area_codice, luogo_nome, menu_nodo_id, slug, vista_etichetta, scala_valore, scala_unita, view_x, view_y, view_zoom, griglia_px, note, approved_at, collegata_at, updated_at";
 
 async function loadMappa(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -179,13 +190,54 @@ async function loadMappa(
   });
   const ubicazioni = await loadUbicazioniScope(supabase, id, h.luogo_nome ?? "");
   const riferimenti = await loadRiferimentiMappa(supabase, id);
-  return mapHeader(
+  const mapped = mapHeader(
     h,
     ((linee ?? []) as Parameters<typeof mapLinea>[0][]).map(mapLinea),
     aree,
     ubicazioni,
     riferimenti
   );
+  mapped.percorsoEtichetta = await etichettaPercorsoNodo(
+    supabase,
+    h.menu_nodo_id ?? null,
+    h.area_codice ?? "magazzino",
+    h.luogo_nome ?? "",
+    h.vista_etichetta ?? ""
+  );
+  return mapped;
+}
+
+async function etichettaPercorsoNodo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nodoId: string | null,
+  areaSlug: string,
+  luogoNome: string,
+  vista: string
+): Promise<string> {
+  const areaLabel =
+    AREA_ROUTES[areaSlug as AreaSlug]?.label ?? areaSlug;
+  const parts: string[] = [areaLabel];
+  if (nodoId) {
+    const catena: string[] = [];
+    let current: string | null = nodoId;
+    for (let i = 0; i < 10 && current; i += 1) {
+      const { data } = await supabase
+        .from("mappa_menu_nodi")
+        .select("parent_id, etichetta")
+        .eq("id", current)
+        .is("deleted_at", null)
+        .maybeSingle();
+      const row = data as { parent_id: string | null; etichetta: string } | null;
+      if (!row) break;
+      catena.unshift(row.etichetta);
+      current = row.parent_id;
+    }
+    parts.push(...catena);
+  } else if (luogoNome) {
+    parts.push("Mappa Magazzino", luogoNome);
+  }
+  if (vista) parts.push(`[${vista}]`);
+  return parts.join(" > ");
 }
 
 async function loadRiferimentiMappa(
@@ -413,6 +465,109 @@ export async function listMappeCollegateAction(): Promise<
   return { success: true, items };
 }
 
+export async function listMappaMenuNavAction(): Promise<
+  | { success: true; nodi: MappaMenuNodo[]; mappe: MappaMenuFogliaNav[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess([
+    "strumenti",
+    "magazzino",
+    "produzione",
+    "amministrazione",
+    "commerciale",
+    "action",
+    "area-fiscale",
+    "promemorie-e-note",
+    "area-fornitori",
+    "ricerca-sviluppo",
+  ]);
+  const supabase = await createClient();
+  const { data: nodi, error } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, parent_id, area_slug, etichetta, slug, tipo, sort_order")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const { data: mappe } = await supabase
+    .from("magazzino_mappe")
+    .select("slug, luogo_nome, vista_etichetta, menu_nodo_id")
+    .is("deleted_at", null)
+    .eq("documento_stato", "approvato")
+    .not("slug", "is", null)
+    .not("menu_nodo_id", "is", null);
+  return {
+    success: true,
+    nodi: ((nodi ?? []) as {
+      id: string;
+      parent_id: string | null;
+      area_slug: string;
+      etichetta: string;
+      slug: string;
+      tipo: string;
+    }[]).map((n) => ({
+      id: n.id,
+      parentId: n.parent_id,
+      areaSlug: n.area_slug,
+      etichetta: n.etichetta,
+      slug: n.slug,
+      tipo: n.tipo === "luogo" ? "luogo" : "ramo",
+    })),
+    mappe: ((mappe ?? []) as {
+      slug: string | null;
+      luogo_nome: string;
+      vista_etichetta: string;
+      menu_nodo_id: string;
+    }[])
+      .filter((m) => m.slug)
+      .map((m) => ({
+        nodoId: m.menu_nodo_id,
+        slug: m.slug!,
+        luogoNome: m.luogo_nome,
+        vistaEtichetta: m.vista_etichetta,
+      })),
+  };
+}
+
+export async function listMappaMenuFigliAction(
+  areaSlug: string,
+  parentId: string | null
+): Promise<
+  | { success: true; items: MappaMenuOpzione[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess([
+    "strumenti",
+    "magazzino",
+    "produzione",
+    "amministrazione",
+    "commerciale",
+    "action",
+    "area-fiscale",
+    "promemorie-e-note",
+    "area-fornitori",
+    "ricerca-sviluppo",
+  ]);
+  const supabase = await createClient();
+  let q = supabase
+    .from("mappa_menu_nodi")
+    .select("id, etichetta, slug, tipo")
+    .eq("area_slug", areaSlug)
+    .is("deleted_at", null)
+    .order("etichetta", { ascending: true });
+  q = parentId ? q.eq("parent_id", parentId) : q.is("parent_id", null);
+  const { data, error } = await q;
+  if (error) return { success: false, error: error.message };
+  const items: MappaMenuOpzione[] = (
+    (data ?? []) as { id: string; etichetta: string; slug: string; tipo: string }[]
+  ).map((n) => ({
+    id: n.id,
+    etichetta: n.etichetta,
+    slug: n.slug,
+    tipo: n.tipo === "luogo" ? "luogo" : "ramo",
+  }));
+  return { success: true, items };
+}
+
 export async function getMappaByIdAction(
   mappaId: string
 ): Promise<
@@ -432,20 +587,22 @@ export async function getMappaBySlugAction(
   | { success: true; mappa: MappaMagazzino }
   | { success: false; error: string }
 > {
-  await requireAreaAccess("magazzino");
   const clean = slug.trim();
   if (!clean) return { success: false, error: "Percorso pianta non valido." };
   const supabase = await createClient();
   const { data: header } = await supabase
     .from("magazzino_mappe")
-    .select("id")
+    .select("id, area_codice")
     .eq("slug", clean)
     .eq("documento_stato", "approvato")
     .is("deleted_at", null)
     .maybeSingle();
-  const id = (header as { id: string } | null)?.id;
-  if (!id) return { success: false, error: "Pianta non collegata o non trovata." };
-  const mappa = await loadMappa(supabase, id);
+  const row = header as { id: string; area_codice?: string } | null;
+  if (!row) return { success: false, error: "Pianta non collegata o non trovata." };
+  const area = (row.area_codice || "magazzino") as AreaSlug;
+  const allowed: AreaSlug[] = [area, "strumenti"];
+  await requireAnyAreaAccess(allowed.filter((s) => s in AREA_ROUTES) as AreaSlug[]);
+  const mappa = await loadMappa(supabase, row.id);
   if (!mappa) return { success: false, error: "Pianta non trovata." };
   return { success: true, mappa };
 }
@@ -1052,6 +1209,71 @@ export async function salvaMappaMagazzinoAction(
   return { success: true, mappa };
 }
 
+async function ensureMenuNodo(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  areaSlug: string,
+  parentId: string | null,
+  tipo: "ramo" | "luogo",
+  etichetta: string,
+  slugHint: string | undefined,
+  userId: string,
+  existingId?: string
+): Promise<{ id: string } | { error: string }> {
+  if (existingId) {
+    const { data } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, parent_id, area_slug")
+      .eq("id", existingId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const row = data as { id: string; parent_id: string | null; area_slug: string } | null;
+    if (!row || row.area_slug !== areaSlug) {
+      return { error: "Voce di menu non valida per quest'area." };
+    }
+    return { id: row.id };
+  }
+  const nome = etichetta.trim();
+  const slug = slugMenuVoce(slugHint || nome);
+  let find = supabase
+    .from("mappa_menu_nodi")
+    .select("id")
+    .eq("area_slug", areaSlug)
+    .ilike("etichetta", nome)
+    .is("deleted_at", null);
+  find = parentId ? find.eq("parent_id", parentId) : find.is("parent_id", null);
+  const { data: found } = await find.maybeSingle();
+  if (found) return { id: (found as { id: string }).id };
+  const { data: created, error } = await supabase
+    .from("mappa_menu_nodi")
+    .insert({
+      parent_id: parentId,
+      area_slug: areaSlug,
+      etichetta: nome,
+      slug,
+      tipo,
+      documento_stato: "approvato",
+      created_by: userId,
+      updated_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error || !created) {
+    if (error?.message.includes("mag_menu_")) {
+      let again = supabase
+        .from("mappa_menu_nodi")
+        .select("id")
+        .eq("area_slug", areaSlug)
+        .ilike("etichetta", nome)
+        .is("deleted_at", null);
+      again = parentId ? again.eq("parent_id", parentId) : again.is("parent_id", null);
+      const { data: retry } = await again.maybeSingle();
+      if (retry) return { id: (retry as { id: string }).id };
+    }
+    return { error: error?.message ?? "Creazione voce di menu fallita." };
+  }
+  return { id: (created as { id: string }).id };
+}
+
 export async function collegaMappaAdAreaAction(
   raw: CollegaMappaInput
 ): Promise<
@@ -1070,6 +1292,9 @@ export async function collegaMappaAdAreaAction(
     };
   }
   const input = parsed.data;
+  if (!(input.areaSlug in AREA_ROUTES)) {
+    return { success: false, error: "Area di primo livello non valida." };
+  }
   const supabase = await createClient();
   const { data: cur } = await supabase
     .from("magazzino_mappe")
@@ -1086,16 +1311,43 @@ export async function collegaMappaAdAreaAction(
   if (row.documento_stato !== "bozza") {
     return { success: false, error: "Questa pianta è già collegata. Riapri per modificarla." };
   }
+  let parentId: string | null = null;
+  for (const ramo of input.rami) {
+    const got = await ensureMenuNodo(
+      supabase,
+      input.areaSlug,
+      parentId,
+      "ramo",
+      ramo.etichetta,
+      ramo.slug,
+      auth.userId,
+      ramo.nodoId
+    );
+    if ("error" in got) return { success: false, error: got.error };
+    parentId = got.id;
+  }
+  const posto = await ensureMenuNodo(
+    supabase,
+    input.areaSlug,
+    parentId,
+    "luogo",
+    input.posto.etichetta,
+    undefined,
+    auth.userId,
+    input.posto.nodoId
+  );
+  if ("error" in posto) return { success: false, error: posto.error };
   const vista = input.vistaEtichetta.trim();
-  const luogo = input.luogoNome.trim();
+  const luogo = input.posto.etichetta.trim();
   const baseSlug = slugMappaArea(luogo, vista);
   const slug = await slugLibero(supabase, baseSlug, input.mappaId);
   const { error } = await supabase
     .from("magazzino_mappe")
     .update({
       documento_stato: "approvato",
-      area_codice: "magazzino",
+      area_codice: input.areaSlug,
       luogo_nome: luogo,
+      menu_nodo_id: posto.id,
       vista_etichetta: vista,
       slug,
       approved_at: new Date().toISOString(),
@@ -1107,10 +1359,10 @@ export async function collegaMappaAdAreaAction(
     .eq("id", input.mappaId)
     .is("deleted_at", null);
   if (error) {
-    if (error.message.includes("magazzino_mappe_collegata_luogo_vista")) {
+    if (error.message.includes("magazzino_mappe_collegata_nodo_vista")) {
       return {
         success: false,
-        error: `Esiste già una pianta collegata per ${etichettaMappaCollegata(luogo, vista)}.`,
+        error: `Esiste già una pianta con vista «${vista}» su questo posto.`,
       };
     }
     return { success: false, error: error.message };
@@ -1124,15 +1376,21 @@ export async function collegaMappaAdAreaAction(
     })
     .eq("mappa_origine_id", input.mappaId)
     .is("deleted_at", null);
+  const mappa = await loadMappa(supabase, input.mappaId);
   await writeAuditLog({
     entity_type: "magazzino_mappe",
     entity_id: input.mappaId,
     action: "status_change",
     actor_id: auth.userId,
-    summary: `Collegata pianta a Magazzino > Mappa Magazzino > ${etichettaMappaCollegata(luogo, vista)}`,
-    payload: { luogo, vista, slug },
+    summary: `Collegata pianta a ${mappa?.percorsoEtichetta || luogo}`,
+    payload: {
+      area: input.areaSlug,
+      luogo,
+      vista,
+      slug,
+      menu_nodo_id: posto.id,
+    },
   });
-  const mappa = await loadMappa(supabase, input.mappaId);
   if (!mappa) return { success: false, error: "Collegamento ok, pianta non leggibile." };
   return { success: true, mappa };
 }

@@ -85,10 +85,13 @@ export default async function MagazzinoSubPage({ params }: Props) {
     return (
       <>
         <AppHeader
-          title={etichettaMappaCollegata(
-            res.mappa.luogoNome,
-            res.mappa.vistaEtichetta
-          )}
+          title={
+            res.mappa.percorsoEtichetta ||
+            etichettaMappaCollegata(
+              res.mappa.luogoNome,
+              res.mappa.vistaEtichetta
+            )
+          }
           subtitle={`Pianta v${res.mappa.versione} · sola consultazione`}
         />
         <div className="min-w-0 px-4 pb-8 pt-2">

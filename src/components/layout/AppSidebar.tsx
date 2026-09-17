@@ -54,9 +54,14 @@ import { createClient } from "@/lib/supabase/client";
 import {
   MAGAZZINO_MAPPE_NAV_EVENT,
   MAGAZZINO_SECTIONS,
-  mergeMagazzinoNavWithMappe,
 } from "@/lib/areas/magazzino";
-import { listMappeCollegateAction } from "@/app/actions/magazzino-mappa";
+import { listMappaMenuNavAction } from "@/app/actions/magazzino-mappa";
+import {
+  MAPPA_MENU_NAV_EVENT,
+  mergeAreaNavWithMappaMenu,
+  type MappaMenuFogliaNav,
+  type MappaMenuNodo,
+} from "@/lib/magazzino/menu-mappa";
 import {
   mergeProduzioneNavWithAree,
   PRODUZIONE_AREE_NAV_EVENT,
@@ -133,40 +138,55 @@ function sectionsForArea(
   slug: AreaSlug,
   produzioneSections: readonly NavItem[] = PRODUZIONE_SECTIONS,
   archivioSections: readonly NavItem[] | null = null,
-  magazzinoSections: readonly NavItem[] = MAGAZZINO_SECTIONS
+  magazzinoSections: readonly NavItem[] = MAGAZZINO_SECTIONS,
+  menuNodi: MappaMenuNodo[] = [],
+  menuMappe: MappaMenuFogliaNav[] = []
 ): readonly NavItem[] | null {
+  let base: readonly NavItem[] | null = null;
   switch (slug) {
     case "produzione":
-      return produzioneSections;
+      base = produzioneSections;
+      break;
     case "action":
-      return ACTION_SECTIONS;
+      base = ACTION_SECTIONS;
+      break;
     case "archivio":
-      return archivioSections;
+      base = archivioSections;
+      break;
     case "ricerca-sviluppo":
-      return RICERCA_SVILUPPO_SECTIONS;
+      base = RICERCA_SVILUPPO_SECTIONS;
+      break;
     case "wikiopuntia":
-      return null;
-    case "magazzino":
-      return magazzinoSections;
-    case "commerciale":
-      return COMMERCIALE_SECTIONS;
-    case "amministrazione":
-      return AMMINISTRAZIONE_SECTIONS;
-    case "area-fiscale":
-      return AREA_FISCALE_SECTIONS;
-    case "strumenti":
-      return STRUMENTI_SECTIONS;
     case "chat":
-      return null;
     case "webmail":
       return null;
+    case "magazzino":
+      base = magazzinoSections;
+      break;
+    case "commerciale":
+      base = COMMERCIALE_SECTIONS;
+      break;
+    case "amministrazione":
+      base = AMMINISTRAZIONE_SECTIONS;
+      break;
+    case "area-fiscale":
+      base = AREA_FISCALE_SECTIONS;
+      break;
+    case "strumenti":
+      base = STRUMENTI_SECTIONS;
+      break;
     case "promemorie-e-note":
-      return PROMEMORIE_E_NOTE_SECTIONS;
+      base = PROMEMORIE_E_NOTE_SECTIONS;
+      break;
     case "area-fornitori":
-      return AREA_FORNITORI_SECTIONS;
+      base = AREA_FORNITORI_SECTIONS;
+      break;
     default:
       return null;
   }
+  if (!base) return null;
+  if (!menuNodi.length && !menuMappe.length) return base;
+  return mergeAreaNavWithMappaMenu(slug, base, menuNodi, menuMappe);
 }
 
 function AreaIcon({ slug }: { slug: string }) {
@@ -518,8 +538,9 @@ export function AppSidebar({
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
     useState<readonly NavItem[]>(PRODUZIONE_SECTIONS);
-  const [magazzinoNav, setMagazzinoNav] =
-    useState<readonly NavItem[]>(MAGAZZINO_SECTIONS);
+  const [magazzinoNav] = useState<readonly NavItem[]>(MAGAZZINO_SECTIONS);
+  const [mappaMenuNodi, setMappaMenuNodi] = useState<MappaMenuNodo[]>([]);
+  const [mappaMenuMappe, setMappaMenuMappe] = useState<MappaMenuFogliaNav[]>([]);
   const [archivioNav, setArchivioNav] = useState<readonly NavItem[]>(() =>
     filterArchivioNavByAccess(areas)
   );
@@ -632,27 +653,28 @@ export function AppSidebar({
     };
   }, [hasPn, userId]);
 
-  const hasMagazzino = areas.some((a) => a.slug === "magazzino");
   useEffect(() => {
-    if (!hasMagazzino) return;
     let cancelled = false;
     function loadNav() {
-      void listMappeCollegateAction()
+      void listMappaMenuNavAction()
         .then((res) => {
           if (cancelled || !res.success) return;
-          setMagazzinoNav(mergeMagazzinoNavWithMappe(res.items));
+          setMappaMenuNodi(res.nodi);
+          setMappaMenuMappe(res.mappe);
         })
         .catch(() => {
           /* menu statico di fallback */
         });
     }
     loadNav();
+    window.addEventListener(MAPPA_MENU_NAV_EVENT, loadNav);
     window.addEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
     return () => {
       cancelled = true;
+      window.removeEventListener(MAPPA_MENU_NAV_EVENT, loadNav);
       window.removeEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
     };
-  }, [hasMagazzino]);
+  }, []);
 
   const hasProduzione = areas.some((a) => a.slug === "produzione");
   useEffect(() => {
@@ -752,7 +774,9 @@ export function AppSidebar({
           areaSlug,
           produzioneNav,
           archivioNav,
-          magazzinoNav
+          magazzinoNav,
+          mappaMenuNodi,
+          mappaMenuMappe
         );
         if (sections) {
           for (const key of openKeysFromPathname(sections, pathname, [
@@ -764,7 +788,16 @@ export function AppSidebar({
       }
       return next;
     });
-  }, [pathname, webSections, produzioneNav, archivioNav, magazzinoNav, userClosed]);
+  }, [
+    pathname,
+    webSections,
+    produzioneNav,
+    archivioNav,
+    magazzinoNav,
+    mappaMenuNodi,
+    mappaMenuMappe,
+    userClosed,
+  ]);
 
   function toggle(...keys: string[]) {
     const isOpen = keys.some((k) => openKeys.has(k));
@@ -813,7 +846,16 @@ export function AppSidebar({
   function toneChildrenForArea(slug: AreaSlug): readonly NavItem[] {
     if (slug === "chat") return CHAT_SECTIONS;
     if (slug === "webmail") return WEBMAIL_SECTIONS;
-    return sectionsForArea(slug, produzioneNav, archivioNav, magazzinoNav) ?? [];
+    return (
+      sectionsForArea(
+        slug,
+        produzioneNav,
+        archivioNav,
+        magazzinoNav,
+        mappaMenuNodi,
+        mappaMenuMappe
+      ) ?? []
+    );
   }
 
   return (
@@ -953,7 +995,9 @@ export function AppSidebar({
               area.slug,
               produzioneNav,
               archivioNav,
-              magazzinoNav
+              magazzinoNav,
+              mappaMenuNodi,
+              mappaMenuMappe
             );
             const treeSectionsFiltered = treeSectionsRaw
               ? filterNavByAdminOnly(
