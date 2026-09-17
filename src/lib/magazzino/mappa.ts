@@ -207,7 +207,8 @@ export function verticiRettangolo(
 export const MAPPA_ZOOM_MIN = 0.01;
 export const MAPPA_ZOOM_MAX = 8;
 export const MAPPA_QUADRATI_MAX = 20000;
-export const MAPPA_FOGLIO_MARGINE_QUADRATI = 10;
+/** Margine su ogni lato: 5% della linea (o del lato) più lungo. */
+export const MAPPA_FOGLIO_MARGINE_PCT = 0.05;
 export const MAPPA_FOGLIO_MIN_QUADRATI = 40;
 
 export type FoglioMappa = {
@@ -227,8 +228,8 @@ export function lunghezzaLineaPx(
 }
 
 /**
- * Foglio quadrato fisso da (0,0): lato = misura più lunga + 10 quadrati.
- * Lo zoom non cambia questa misura.
+ * Foglio quadrato che racchiude tutto il disegno.
+ * Margine = 5% della lunghezza massima, su ogni lato (laterale, sopra e sotto).
  */
 export function calcolaFoglioMappa(
   linee: { x1: number; y1: number; x2: number; y2: number }[],
@@ -238,22 +239,47 @@ export function calcolaFoglioMappa(
   latoMinimoPx = 0
 ): FoglioMappa {
   const g = griglia > 0 ? griglia : 20;
-  const margine = MAPPA_FOGLIO_MARGINE_QUADRATI * g;
   const minLato = MAPPA_FOGLIO_MIN_QUADRATI * g;
-  let farthest = Math.max(latoMinimoPx, minLato);
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  let longest = Math.max(0, latoMinimoPx);
+  let has = false;
   function addPunto(x: number, y: number) {
-    farthest = Math.max(farthest, Math.abs(x), Math.abs(y));
+    has = true;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   }
   function addSeg(x1: number, y1: number, x2: number, y2: number) {
     addPunto(x1, y1);
     addPunto(x2, y2);
-    farthest = Math.max(farthest, lunghezzaLineaPx(x1, y1, x2, y2));
+    longest = Math.max(longest, lunghezzaLineaPx(x1, y1, x2, y2));
   }
   for (const l of linee) addSeg(l.x1, l.y1, l.x2, l.y2);
   for (const s of extraSegmenti) addSeg(s.x1, s.y1, s.x2, s.y2);
   for (const p of extraPunti) addPunto(p.x, p.y);
-  const lato = farthest + margine;
-  return { x: 0, y: 0, width: lato, height: lato };
+  if (!has) {
+    addPunto(0, 0);
+    const seed = Math.max(latoMinimoPx, minLato);
+    addPunto(seed, seed);
+    longest = Math.max(longest, seed);
+  } else if (latoMinimoPx > 0) {
+    longest = Math.max(longest, latoMinimoPx);
+  }
+  const contentW = Math.max(0, maxX - minX);
+  const contentH = Math.max(0, maxY - minY);
+  const contentSide = Math.max(contentW, contentH, longest, minLato);
+  const margine = Math.max(contentSide * MAPPA_FOGLIO_MARGINE_PCT, g);
+  const lato = contentSide + margine * 2;
+  return {
+    x: minX - margine - (contentSide - contentW) / 2,
+    y: minY - margine - (contentSide - contentH) / 2,
+    width: lato,
+    height: lato,
+  };
 }
 
 export function distanzaPuntoSegmento(

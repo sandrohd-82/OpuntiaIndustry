@@ -14,7 +14,7 @@ import {
   formattaMisuraSegmento,
   formattaQuadrati,
   headingCardinale,
-  MAPPA_FOGLIO_MARGINE_QUADRATI,
+  MAPPA_FOGLIO_MARGINE_PCT,
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_LINEA_COLORI,
   MAPPA_QUADRATI_MAX,
@@ -64,8 +64,14 @@ function headingForma(
   return headingCardinale(from, cursor ?? { x: from.x + 1, y: from.y });
 }
 
+const FOGLIO_PAD_X = 16;
+const FOGLIO_PAD_TOP = 52;
+const FOGLIO_PAD_BOTTOM = 52;
+
 export function MagazzinoMappaBoard() {
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+  const [canvasBox, setCanvasBox] = useState({ w: 0, h: 0 });
   const [mappa, setMappa] = useState<MappaMagazzino | null>(null);
   const [canDesign, setCanDesign] = useState(false);
   const [linee, setLinee] = useState<MappaLinea[]>([]);
@@ -160,17 +166,19 @@ export function MagazzinoMappaBoard() {
   }
 
   function fitToFoglio(target: FoglioMappa) {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const r = svg.getBoundingClientRect();
-    if (r.width < 40 || r.height < 40) return;
-    const zx = (r.width - 96) / Math.max(target.width, 1);
-    const zy = (r.height - 96) / Math.max(target.height, 1);
+    const box = canvasWrapRef.current?.getBoundingClientRect();
+    const width = box?.width || canvasBox.w;
+    const height = box?.height || canvasBox.h;
+    if (width < 80 || height < 80) return;
+    const innerW = Math.max(40, width - FOGLIO_PAD_X * 2);
+    const innerH = Math.max(40, height - FOGLIO_PAD_TOP - FOGLIO_PAD_BOTTOM);
+    const zx = innerW / Math.max(target.width, 1);
+    const zy = innerH / Math.max(target.height, 1);
     const z = Math.min(MAPPA_ZOOM_MAX, Math.max(MAPPA_ZOOM_MIN, Math.min(zx, zy)));
     setZoom(z);
     setPan({
-      x: (r.width - target.width * z) / 2 - target.x * z,
-      y: (r.height - target.height * z) / 2 - target.y * z,
+      x: FOGLIO_PAD_X + (innerW - target.width * z) / 2 - target.x * z,
+      y: FOGLIO_PAD_TOP + (innerH - target.height * z) / 2 - target.y * z,
     });
   }
 
@@ -223,8 +231,11 @@ export function MagazzinoMappaBoard() {
   const extraPunti = useMemo(() => {
     const p: MappaPunto[] = [];
     if (forma) p.push(...forma.vertici);
+    if (previewForma) {
+      p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
+    }
     return p;
-  }, [forma]);
+  }, [forma, previewForma]);
 
   const latoPianificatoPx =
     canDraw && (tool === "rettangolo" || tool === "poligono" || forma)
@@ -470,14 +481,26 @@ export function MagazzinoMappaBoard() {
   }
 
   const gridPatternId = "mappa-grid";
-  const foglioKey = `${Math.round(foglio.width)}x${Math.round(foglio.height)}@${griglia}`;
+  const foglioKey = `${Math.round(foglio.width)}x${Math.round(foglio.height)}@${griglia}|${Math.round(canvasBox.w)}x${Math.round(canvasBox.h)}`;
 
   useEffect(() => {
-    if (!ready) return;
+    const el = canvasWrapRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const cr = entries[0]?.contentRect;
+      if (!cr || cr.width < 8 || cr.height < 8) return;
+      setCanvasBox({ w: cr.width, h: cr.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ready, mappa]);
+
+  useEffect(() => {
+    if (!ready || canvasBox.w < 80 || canvasBox.h < 80) return;
     if (foglioFitKey.current === foglioKey) return;
     foglioFitKey.current = foglioKey;
     requestAnimationFrame(() => fitToFoglio(foglio));
-  }, [ready, foglioKey, foglio]);
+  }, [ready, foglioKey, foglio, canvasBox.w, canvasBox.h]);
 
   const misuraTesto = useMemo(() => {
     if (previewForma) {
@@ -543,8 +566,8 @@ export function MagazzinoMappaBoard() {
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">
             {mappa.nome} · v{mappa.versione} ·{" "}
@@ -564,7 +587,7 @@ export function MagazzinoMappaBoard() {
             1 quadrato = {scalaValore} {scalaUnita}
             {" · "}
             {editing
-              ? "Il foglio è un quadrato fisso (linea più lunga + 10 quadrati). Lo zoom inquadra il foglio intero; ruotando la rotella zoommi dentro, il foglio non cambia misura."
+              ? "Il foglio racchiude il disegno con il 5% di margine su ogni lato. Lo zoom inquadra il foglio nell’area sotto le impostazioni; la rotella zoomma solo il contenuto."
               : canDesign
                 ? "Pianta in sola lettura. Riapri la progettazione per disegnare."
                 : "Pianta in sola lettura. Solo il Super Admin può disegnare gli scaffali."}
@@ -604,7 +627,7 @@ export function MagazzinoMappaBoard() {
       </div>
 
       {editing ? (
-        <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
+        <div className="max-h-[42%] shrink-0 space-y-3 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
           <div>
             <label className="block text-xs font-medium">
               Vista
@@ -726,8 +749,8 @@ export function MagazzinoMappaBoard() {
             </label>
             <span className="text-xs text-[var(--muted)]">
               Linee: {linee.length} · foglio {foglioQuadrati}×{foglioQuadrati}{" "}
-              quadrati (+{MAPPA_FOGLIO_MARGINE_QUADRATI}) · zoom{" "}
-              {Math.round(zoom * 100)}%
+              quadrati (margine {Math.round(MAPPA_FOGLIO_MARGINE_PCT * 100)}%) ·
+              zoom {Math.round(zoom * 100)}%
             </span>
             <button
               type="button"
@@ -828,7 +851,10 @@ export function MagazzinoMappaBoard() {
         </p>
       ) : null}
 
-      <div className="relative overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100">
+      <div
+        ref={canvasWrapRef}
+        className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100"
+      >
         {vistaOk ? (
           <p className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm">
             Vista: {vistaEtichetta.trim()}
@@ -853,7 +879,7 @@ export function MagazzinoMappaBoard() {
         </button>
         <svg
           ref={svgRef}
-          className={`h-[min(72vh,720px)] w-full touch-none bg-slate-50 ${
+          className={`h-full w-full touch-none bg-slate-200 ${
             canDraw ? "cursor-crosshair" : "cursor-default"
           }`}
           onPointerDown={onPointerDown}

@@ -65,7 +65,7 @@ export default async function MagazzinoSectionPage({ params }: Props) {
     return (
       <>
         <AppHeader title={page.label} subtitle={page.description} />
-        <div className="p-6">
+        <div className="flex h-[calc(100dvh-6.75rem)] min-h-[28rem] min-w-0 flex-col px-4 pb-3 pt-2">
           <MagazzinoMappaBoard />
         </div>
       </>

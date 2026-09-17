@@ -216,7 +216,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. Il Super Admin imposta Vista e la scala (quanto vale un quadrato, es. 10 cm o 1 m), poi traccia linee a mano o rettangolo/poligono lato per lato con Avanti. Il foglio è un quadrato fisso: se un lato è 1000 quadrati da 1 cm (10 m), il foglio è almeno 1010 quadrati (10,1 m) e lo zoom lo mostra tutto. Zoommare non cambia la misura del foglio. Qui non si spostano ancora i lotti.",
+      text: "Pianta del magazzino. Il Super Admin imposta Vista e la scala, poi traccia linee o rettangolo/poligono lato per lato. Il foglio racchiude il disegno con il 5% di margine su ogni lato (es. 1000 quadrati → 50 per lato). Lo zoom inquadra il foglio intero sotto il riquadro impostazioni; zoommare non cambia la misura del foglio. Qui non si spostano ancora i lotti.",
     },
   ],
   "/app/magazzino/panoramica": [
