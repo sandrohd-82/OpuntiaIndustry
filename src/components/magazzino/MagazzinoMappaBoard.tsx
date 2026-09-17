@@ -39,6 +39,7 @@ import {
   formattaMisuraSegmento,
   formattaQuadrati,
   headingCardinale,
+  quadratiTraPunti,
   MAPPA_FOGLIO_MARGINE_PCT,
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_QUADRATI_MAX,
@@ -78,7 +79,15 @@ import {
   type MappaRiferimentoGruppo,
 } from "@/lib/magazzino/riferimenti";
 
-type Tool = "linea" | "seleziona" | "rettangolo" | "poligono" | "area";
+type Tool =
+  | "linea"
+  | "seleziona"
+  | "trasforma"
+  | "rettangolo"
+  | "poligono"
+  | "area";
+
+type TrasformaEstremo = 1 | 2;
 
 type FormaStato = {
   tipo: "rettangolo" | "poligono";
@@ -104,6 +113,70 @@ function fontTargaArea(width: number, height: number, testo: string): number {
 
 function newLocalId(): string {
   return crypto.randomUUID();
+}
+
+function etichettaVersoHeading(heading: number): string {
+  if (heading === 180) return "sinistra";
+  if (heading === 90) return "basso";
+  if (heading === 270) return "alto";
+  return "destra";
+}
+
+function etichettaLatoLinea(
+  fisso: MappaPunto,
+  mobile: MappaPunto
+): string {
+  return etichettaVersoHeading(headingCardinale(fisso, mobile));
+}
+
+function proiettaEstremoSuAsse(
+  fisso: MappaPunto,
+  originaleMobile: MappaPunto,
+  cursore: MappaPunto,
+  griglia: number
+): MappaPunto {
+  const dx = originaleMobile.x - fisso.x;
+  const dy = originaleMobile.y - fisso.y;
+  const len = Math.hypot(dx, dy);
+  const g = Math.max(1, griglia);
+  if (len < 0.0001) {
+    const heading = headingCardinale(fisso, cursore);
+    const q = Math.max(
+      1,
+      Math.round(quadratiTraPunti(fisso.x, fisso.y, cursore.x, cursore.y, g))
+    );
+    return puntoDopoQuadrati(fisso, heading, q, g);
+  }
+  const ux = dx / len;
+  const uy = dy / len;
+  const t = (cursore.x - fisso.x) * ux + (cursore.y - fisso.y) * uy;
+  const tSnap = snapToGrid(t, g);
+  const tUse = Math.abs(tSnap) < g ? (tSnap >= 0 ? g : -g) : tSnap;
+  return {
+    x: snapToGrid(fisso.x + ux * tUse, g),
+    y: snapToGrid(fisso.y + uy * tUse, g),
+  };
+}
+
+function puntoALunghezzaQuadrati(
+  fisso: MappaPunto,
+  mobile: MappaPunto,
+  quadrati: number,
+  griglia: number
+): MappaPunto {
+  const q = Math.max(1, Math.min(MAPPA_QUADRATI_MAX, Math.round(quadrati)));
+  const g = Math.max(1, griglia);
+  const dx = mobile.x - fisso.x;
+  const dy = mobile.y - fisso.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.0001) {
+    return puntoDopoQuadrati(fisso, 0, q, g);
+  }
+  const scale = (q * g) / len;
+  return {
+    x: snapToGrid(fisso.x + dx * scale, g),
+    y: snapToGrid(fisso.y + dy * scale, g),
+  };
 }
 
 function headingForma(
@@ -229,6 +302,19 @@ export function MagazzinoMappaBoard({
     ax: number;
     ay: number;
   } | null>(null);
+  const [trasformaEnd, setTrasformaEnd] = useState<TrasformaEstremo | null>(
+    null
+  );
+  const [dragTrasforma, setDragTrasforma] = useState<{
+    id: string;
+    end: TrasformaEstremo;
+    fx: number;
+    fy: number;
+    ox: number;
+    oy: number;
+  } | null>(null);
+  const [lunghezzaDraft, setLunghezzaDraft] = useState("");
+  const [lunghezzaRealeDraft, setLunghezzaRealeDraft] = useState("");
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
@@ -360,6 +446,53 @@ export function MagazzinoMappaBoard({
 
   function hitRif(wx: number, wy: number): string | null {
     return hitGruppoRiferimento(wx, wy, riferimenti, tolleranzaLinea());
+  }
+
+  function hitEstremoLinea(
+    line: MappaLinea,
+    wx: number,
+    wy: number
+  ): TrasformaEstremo | null {
+    const tol = Math.max(tolleranzaLinea(), 14 / zoom);
+    const d1 = Math.hypot(wx - line.x1, wy - line.y1);
+    const d2 = Math.hypot(wx - line.x2, wy - line.y2);
+    if (d1 <= tol && d1 <= d2) return 1;
+    if (d2 <= tol) return 2;
+    return null;
+  }
+
+  function syncLunghezzaDraft(line: MappaLinea) {
+    const q = Math.max(
+      1,
+      Math.round(quadratiTraPunti(line.x1, line.y1, line.x2, line.y2, griglia))
+    );
+    setLunghezzaDraft(String(q));
+    const reale = Math.round(q * scalaValore * 100) / 100;
+    setLunghezzaRealeDraft(String(reale));
+  }
+
+  function applicaEstremoLinea(
+    lineId: string,
+    end: TrasformaEstremo,
+    next: MappaPunto
+  ) {
+    const clamped = clampPuntoNelFoglio(next, foglio, griglia);
+    setLinee((prev) =>
+      prev.map((l) => {
+        if (l.id !== lineId) return l;
+        const fisso =
+          end === 1 ? { x: l.x2, y: l.y2 } : { x: l.x1, y: l.y1 };
+        if (
+          Math.abs(clamped.x - fisso.x) < 0.0001 &&
+          Math.abs(clamped.y - fisso.y) < 0.0001
+        ) {
+          return l;
+        }
+        return end === 1
+          ? { ...l, x1: clamped.x, y1: clamped.y }
+          : { ...l, x2: clamped.x, y2: clamped.y };
+      })
+    );
   }
 
   type HitOggetto = { kind: "linea" | "area" | "rif"; id: string };
@@ -732,6 +865,57 @@ export function MagazzinoMappaBoard({
       setDraftStart(null);
       return;
     }
+    if (!forma && !pendingArea && tool === "trasforma") {
+      const current =
+        selectedId && selectedLineIds.length === 1
+          ? linee.find((l) => l.id === selectedId) ?? null
+          : null;
+      if (current) {
+        const estremo = hitEstremoLinea(current, w.x, w.y);
+        if (estremo) {
+          const fisso =
+            estremo === 1
+              ? { x: current.x2, y: current.y2 }
+              : { x: current.x1, y: current.y1 };
+          const orig =
+            estremo === 1
+              ? { x: current.x1, y: current.y1 }
+              : { x: current.x2, y: current.y2 };
+          setTrasformaEnd(estremo);
+          setDragTrasforma({
+            id: current.id,
+            end: estremo,
+            fx: fisso.x,
+            fy: fisso.y,
+            ox: orig.x,
+            oy: orig.y,
+          });
+          syncLunghezzaDraft(current);
+          setDraftStart(null);
+          return;
+        }
+      }
+      const id = hitLine(w.x, w.y);
+      if (id) {
+        const line = linee.find((l) => l.id === id);
+        scegliSoloLinea(id);
+        scegliSoloArea(null);
+        scegliSoloRif(null);
+        setTrasformaEnd(null);
+        setDragTrasforma(null);
+        if (line) {
+          setSpessore(line.spessore);
+          setColore(line.colore);
+          syncLunghezzaDraft(line);
+        }
+      } else {
+        scegliSoloLinea(null);
+        setTrasformaEnd(null);
+        setDragTrasforma(null);
+      }
+      setDraftStart(null);
+      return;
+    }
     if (!forma && !pendingArea) {
       const aid = hitArea(w.x, w.y);
       if (aid && tool === "area") {
@@ -843,6 +1027,30 @@ export function MagazzinoMappaBoard({
       applicaCarryPunto(w);
       return;
     }
+    if (dragTrasforma && w && canDraw) {
+      const next = proiettaEstremoSuAsse(
+        { x: dragTrasforma.fx, y: dragTrasforma.fy },
+        { x: dragTrasforma.ox, y: dragTrasforma.oy },
+        w,
+        griglia
+      );
+      applicaEstremoLinea(dragTrasforma.id, dragTrasforma.end, next);
+      const q = Math.max(
+        1,
+        Math.round(
+          quadratiTraPunti(
+            dragTrasforma.fx,
+            dragTrasforma.fy,
+            next.x,
+            next.y,
+            griglia
+          )
+        )
+      );
+      setLunghezzaDraft(String(q));
+      setLunghezzaRealeDraft(String(Math.round(q * scalaValore * 100) / 100));
+      return;
+    }
     if (dragArea && w && canDraw) {
       const dx = snapToGrid(w.x - dragArea.sx, griglia);
       const dy = snapToGrid(w.y - dragArea.sy, griglia);
@@ -940,6 +1148,8 @@ export function MagazzinoMappaBoard({
     setDragArea(null);
     setCarry(null);
     carryRef.current = null;
+    setTrasformaEnd(null);
+    setDragTrasforma(null);
   }
 
   useEffect(() => {
@@ -1282,6 +1492,57 @@ export function MagazzinoMappaBoard({
   const selectedRif = selectedRifId
     ? riferimenti.find((g) => g.id === selectedRifId) ?? null
     : null;
+
+  useEffect(() => {
+    if (tool !== "trasforma" || !selectedId) return;
+    const line = linee.find((l) => l.id === selectedId);
+    if (line && selectedLineIds.length === 1) syncLunghezzaDraft(line);
+    // Solo al cambio linea/strumento, non durante il trascinamento.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, selectedId]);
+
+  function puntiTrasforma(line: MappaLinea, end: TrasformaEstremo) {
+    return end === 1
+      ? {
+          fisso: { x: line.x2, y: line.y2 },
+          mobile: { x: line.x1, y: line.y1 },
+        }
+      : {
+          fisso: { x: line.x1, y: line.y1 },
+          mobile: { x: line.x2, y: line.y2 },
+        };
+  }
+
+  function scegliLatoTrasforma(end: TrasformaEstremo) {
+    if (!selectedLine) return;
+    setTrasformaEnd(end);
+    syncLunghezzaDraft(selectedLine);
+  }
+
+  function applicaLunghezzaTrasforma(quadrati: number) {
+    if (!canDraw || !selectedLine || !trasformaEnd) return;
+    const { fisso, mobile } = puntiTrasforma(selectedLine, trasformaEnd);
+    const next = puntoALunghezzaQuadrati(fisso, mobile, quadrati, griglia);
+    applicaEstremoLinea(selectedLine.id, trasformaEnd, next);
+    const q = Math.max(
+      1,
+      Math.round(quadratiTraPunti(fisso.x, fisso.y, next.x, next.y, griglia))
+    );
+    setLunghezzaDraft(String(q));
+    setLunghezzaRealeDraft(String(Math.round(q * scalaValore * 100) / 100));
+  }
+
+  function confermaLunghezzaDaInput() {
+    const qRaw = Number(String(lunghezzaDraft).replace(",", "."));
+    if (Number.isFinite(qRaw) && qRaw > 0) {
+      applicaLunghezzaTrasforma(qRaw);
+      return;
+    }
+    const reale = Number(String(lunghezzaRealeDraft).replace(",", "."));
+    if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
+      applicaLunghezzaTrasforma(reale / scalaValore);
+    }
+  }
 
   function deltaSposta(dir: SpostaDir): { dx: number; dy: number } {
     const g = Math.max(1, griglia);
@@ -2028,6 +2289,8 @@ export function MagazzinoMappaBoard({
                   setForma(null);
                   setCarry(null);
                   carryRef.current = null;
+                  setTrasformaEnd(null);
+                  setDragTrasforma(null);
                 }}
                 className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
               >
@@ -2036,6 +2299,7 @@ export function MagazzinoMappaBoard({
                 <option value="area">Crea area / posto</option>
                 <option value="poligono">Poligono</option>
                 <option value="seleziona">Seleziona e sposta</option>
+                <option value="trasforma">Modifica / trasforma</option>
               </select>
             </label>
             <label className="text-xs">
@@ -2082,6 +2346,14 @@ export function MagazzinoMappaBoard({
               {carry
                 ? "Oggetti attaccati al mouse. Clic sul foglio per posarli."
                 : "Primo click: seleziona (puoi cliccare altri oggetti). Secondo click sullo stesso oggetto: attacca la selezione al mouse."}
+            </p>
+          ) : null}
+
+          {canDraw && tool === "trasforma" ? (
+            <p className="text-xs text-amber-950">
+              Seleziona una linea. Il sistema chiede da quale lato allungarla o
+              accorciarla: poi trascina il pallino o inserisci la lunghezza e
+              premi Invio.
             </p>
           ) : null}
 
@@ -2499,6 +2771,133 @@ export function MagazzinoMappaBoard({
         </div>
       ) : null}
 
+      {canDraw && tool === "trasforma" && selectedLine && selectedLineIds.length === 1 ? (
+        <div className="shrink-0 rounded-xl border border-violet-300 bg-violet-50 px-3 py-2">
+          <p className="text-sm font-semibold text-violet-950">
+            Modifica / trasforma linea
+          </p>
+          <p className="mt-0.5 text-sm text-violet-950">
+            Lunghezza attuale:{" "}
+            <strong>
+              {formattaMisuraSegmento(
+                selectedLine.x1,
+                selectedLine.y1,
+                selectedLine.x2,
+                selectedLine.y2,
+                griglia,
+                scalaValore,
+                scalaUnita
+              ) || "—"}
+            </strong>
+          </p>
+          {!trasformaEnd ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm font-medium text-violet-950">
+                Da quale lato allungare o diminuire?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => scegliLatoTrasforma(1)}
+                  className="rounded-lg border border-violet-500 bg-white px-3 py-1.5 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+                >
+                  Lato{" "}
+                  {etichettaLatoLinea(
+                    { x: selectedLine.x2, y: selectedLine.y2 },
+                    { x: selectedLine.x1, y: selectedLine.y1 }
+                  )}{" "}
+                  (estremo A)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scegliLatoTrasforma(2)}
+                  className="rounded-lg border border-violet-500 bg-white px-3 py-1.5 text-sm font-semibold text-violet-950 hover:bg-violet-100"
+                >
+                  Lato{" "}
+                  {etichettaLatoLinea(
+                    { x: selectedLine.x1, y: selectedLine.y1 },
+                    { x: selectedLine.x2, y: selectedLine.y2 }
+                  )}{" "}
+                  (estremo B)
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm font-medium text-violet-950">
+                Lato scelto:{" "}
+                {etichettaLatoLinea(
+                  puntiTrasforma(selectedLine, trasformaEnd).fisso,
+                  puntiTrasforma(selectedLine, trasformaEnd).mobile
+                )}{" "}
+                (estremo {trasformaEnd === 1 ? "A" : "B"}). Trascina il pallino
+                sul foglio oppure inserisci la lunghezza.
+              </p>
+              <form
+                className="flex flex-wrap items-end gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  confermaLunghezzaDaInput();
+                }}
+              >
+                <label className="text-xs font-medium text-violet-950">
+                  Quadrati
+                  <input
+                    type="number"
+                    min={1}
+                    max={MAPPA_QUADRATI_MAX}
+                    step={1}
+                    value={lunghezzaDraft}
+                    onChange={(e) => {
+                      setLunghezzaDraft(e.target.value);
+                      const q = Number(e.target.value.replace(",", "."));
+                      if (Number.isFinite(q) && q > 0) {
+                        setLunghezzaRealeDraft(
+                          String(Math.round(q * scalaValore * 100) / 100)
+                        );
+                      }
+                    }}
+                    className="ml-1 w-24 rounded border border-violet-400 bg-white px-2 py-1 text-sm"
+                  />
+                </label>
+                <label className="text-xs font-medium text-violet-950">
+                  Lunghezza ({scalaUnita})
+                  <input
+                    type="number"
+                    min={0.01}
+                    step="any"
+                    value={lunghezzaRealeDraft}
+                    onChange={(e) => {
+                      setLunghezzaRealeDraft(e.target.value);
+                      const reale = Number(e.target.value.replace(",", "."));
+                      if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
+                        setLunghezzaDraft(
+                          String(Math.max(1, Math.round(reale / scalaValore)))
+                        );
+                      }
+                    }}
+                    className="ml-1 w-28 rounded border border-violet-400 bg-white px-2 py-1 text-sm"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-800"
+                >
+                  Invio
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTrasformaEnd(null)}
+                  className="rounded-lg px-2 py-1 text-xs text-violet-800 hover:bg-white"
+                >
+                  Cambia lato
+                </button>
+              </form>
+            </div>
+          )}
+        </div>
+      ) : null}
+
       {selectedLine ? (
         <div className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2">
           <p className="text-sm font-semibold text-amber-950">
@@ -2650,7 +3049,11 @@ export function MagazzinoMappaBoard({
         <svg
           ref={svgRef}
           className={`h-full w-full touch-none bg-slate-200 ${
-            canDraw && tool === "seleziona"
+            canDraw && tool === "trasforma"
+              ? dragTrasforma
+                ? "cursor-grabbing"
+                : "cursor-pointer"
+              : canDraw && tool === "seleziona"
               ? carry
                 ? "cursor-grabbing"
                 : "cursor-pointer"
@@ -2663,6 +3066,7 @@ export function MagazzinoMappaBoard({
           onPointerUp={() => {
             setPanning(null);
             setDragArea(null);
+            setDragTrasforma(null);
           }}
           onPointerLeave={() => {
             setPanning(null);
@@ -2954,6 +3358,44 @@ export function MagazzinoMappaBoard({
                 ))}
               </g>
             ))}
+            {canDraw &&
+            tool === "trasforma" &&
+            selectedLine &&
+            selectedLineIds.length === 1
+              ? ([1, 2] as TrasformaEstremo[]).map((end) => {
+                  const p =
+                    end === 1
+                      ? { x: selectedLine.x1, y: selectedLine.y1 }
+                      : { x: selectedLine.x2, y: selectedLine.y2 };
+                  const fisso =
+                    end === 1
+                      ? { x: selectedLine.x2, y: selectedLine.y2 }
+                      : { x: selectedLine.x1, y: selectedLine.y1 };
+                  const attivo = trasformaEnd === end;
+                  const lato = etichettaLatoLinea(fisso, p);
+                  return (
+                    <g key={`trasforma-${selectedLine.id}-${end}`}>
+                      <circle
+                        cx={p.x}
+                        cy={p.y}
+                        r={Math.max(7, 12 / zoom)}
+                        fill={attivo ? "#6d28d1" : "#faf5ff"}
+                        stroke={attivo ? "#4c1d95" : "#7c3aed"}
+                        strokeWidth={Math.max(2, 3 / zoom)}
+                      />
+                      <text
+                        x={p.x + 14 / zoom}
+                        y={p.y - 12 / zoom}
+                        fill="#4c1d95"
+                        fontSize={Math.max(11, 13 / zoom)}
+                        fontWeight={700}
+                      >
+                        {lato} ({end === 1 ? "A" : "B"})
+                      </text>
+                    </g>
+                  );
+                })
+              : null}
             {previewForma && previewForma.ghost.length === 4 ? (
               <polygon
                 points={previewForma.ghost
