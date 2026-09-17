@@ -148,6 +148,24 @@ export function formattaLunghezzaReale(
   return `${formatNumeroMisura(raw)} cm`;
 }
 
+export function formattaMisuraQuadrati(
+  quadrati: number,
+  valore: number,
+  unita: MappaScalaUnita
+): string {
+  const q = Math.max(0, quadrati);
+  const reale =
+    q > 0 ? formattaLunghezzaReale(q, valore, unita) : `0 ${unita}`;
+  return `${formattaQuadrati(q)} q · ${reale}`;
+}
+
+export function passoRighelloQuadrati(griglia: number, zoom: number): number {
+  const pxPerQuad = Math.max(griglia * zoom, 0.001);
+  const raw = 56 / pxPerQuad;
+  const nice = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+  return nice.find((n) => n >= raw) ?? nice[nice.length - 1]!;
+}
+
 export function formattaMisuraSegmento(
   x1: number,
   y1: number,

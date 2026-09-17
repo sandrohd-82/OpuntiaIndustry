@@ -8,6 +8,11 @@ import {
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
 import {
+  MagazzinoMappaRighelli,
+  RIGHELLO_H,
+  RIGHELLO_W,
+} from "@/components/magazzino/MagazzinoMappaRighelli";
+import {
   accavallamentoPuntoSuLinee,
   calcolaFoglioMappa,
   distanzaPuntoSegmento,
@@ -67,8 +72,8 @@ function headingForma(
   return headingCardinale(from, cursor ?? { x: from.x + 1, y: from.y });
 }
 
-const FOGLIO_PAD_X = 16;
-const FOGLIO_PAD_TOP = 52;
+const FOGLIO_PAD_X = RIGHELLO_W + 12;
+const FOGLIO_PAD_TOP = RIGHELLO_H + 12;
 const FOGLIO_PAD_BOTTOM = 52;
 
 export function MagazzinoMappaBoard() {
@@ -955,12 +960,27 @@ export function MagazzinoMappaBoard() {
         ref={canvasWrapRef}
         className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-[var(--border)] bg-slate-100"
       >
+        <MagazzinoMappaRighelli
+          foglio={foglio}
+          pan={pan}
+          zoom={zoom}
+          griglia={griglia}
+          scalaValore={scalaValore}
+          scalaUnita={scalaUnita}
+          cursore={disegnoCursor?.punto ?? snappedCursor}
+        />
         {vistaOk ? (
-          <p className="pointer-events-none absolute left-3 top-3 z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm">
+          <p
+            className="pointer-events-none absolute z-10 rounded bg-white/90 px-2 py-1 text-xs font-semibold text-slate-800 shadow-sm"
+            style={{ left: RIGHELLO_W + 8, top: RIGHELLO_H + 6 }}
+          >
             Vista: {vistaEtichetta.trim()}
           </p>
         ) : editing ? (
-          <p className="pointer-events-none absolute inset-x-3 top-3 z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p
+            className="pointer-events-none absolute z-10 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            style={{ left: RIGHELLO_W + 8, top: RIGHELLO_H + 6, right: 12 }}
+          >
             Imposta prima il testo Vista (es. Dall’alto, Lato fronte, Lato Dx).
             Poi potrai tracciare le linee.
           </p>

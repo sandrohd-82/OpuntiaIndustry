@@ -216,7 +216,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. Ogni linea ha pallini a un quarto, a metà e a tre quarti. Selezionandola vedi lunghezza (quadrati × scala) e spessore numerico. Se un nuovo tratto parte o arriva su un’altra linea, appaiono subito le due misure spezzate da quel punto. Qui non si spostano ancora i lotti.",
+      text: "Pianta del magazzino. In alto e a sinistra del foglio c’è un righello numerato: al movimento del cursore un pallino e le due misure opposte (quadrati × scala). Ogni linea ha pallini a un quarto, a metà e a tre quarti. Qui non si spostano ancora i lotti.",
     },
   ],
   "/app/magazzino/panoramica": [
