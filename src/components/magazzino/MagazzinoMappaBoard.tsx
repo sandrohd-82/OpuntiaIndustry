@@ -9,6 +9,8 @@ import {
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
 import { ImportaRiferimentiVista } from "@/components/magazzino/ImportaRiferimentiVista";
+import { CopiaAreaGuidata } from "@/components/magazzino/CopiaAreaGuidata";
+import { ElencoAreeMappa } from "@/components/magazzino/ElencoAreeMappa";
 import { MAGAZZINO_MAPPE_NAV_EVENT } from "@/lib/areas/magazzino";
 import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
@@ -125,6 +127,9 @@ export function MagazzinoMappaBoard({
     ay: number;
   } | null>(null);
   const [selectedAreaId, setSelectedAreaId] = useState<string | null>(null);
+  const [areaEditOpen, setAreaEditOpen] = useState(false);
+  const [copiaOpen, setCopiaOpen] = useState(false);
+  const [copiaSourceId, setCopiaSourceId] = useState<string | null>(null);
   const [pendingArea, setPendingArea] = useState<{
     x: number;
     y: number;
@@ -423,14 +428,13 @@ export function MagazzinoMappaBoard({
       if (rid) {
         setSelectedRifId(rid);
         setSelectedAreaId(null);
+        setAreaEditOpen(false);
         setSelectedId(null);
         return;
       }
       const aid = hitArea(w.x, w.y);
       if (aid) {
-        setSelectedAreaId(aid);
-        setSelectedId(null);
-        setSelectedRifId(null);
+        selezionaArea(aid);
         return;
       }
       setSelectedAreaId(null);
@@ -444,6 +448,7 @@ export function MagazzinoMappaBoard({
         const g = riferimenti.find((x) => x.id === rid);
         setSelectedRifId(rid);
         setSelectedAreaId(null);
+        setAreaEditOpen(false);
         setSelectedId(null);
         if (g) setDragRif({ id: rid, sx: w.x, sy: w.y, ax: g.destX, ay: g.destY });
         return;
@@ -454,7 +459,9 @@ export function MagazzinoMappaBoard({
       if (aid && (tool === "seleziona" || tool === "area")) {
         const a = aree.find((x) => x.id === aid);
         setSelectedAreaId(aid);
+        setAreaEditOpen(false);
         setSelectedId(null);
+        setSelectedRifId(null);
         if (a) {
           setDragArea({ id: aid, sx: w.x, sy: w.y, ax: a.x, ay: a.y });
         }
@@ -807,6 +814,7 @@ export function MagazzinoMappaBoard({
     if (!canDraw || !selectedAreaId || forma || pendingArea) return;
     setAree((prev) => prev.filter((a) => a.id !== selectedAreaId));
     setSelectedAreaId(null);
+    setAreaEditOpen(false);
   }
 
   function salvaAreaPendente() {
@@ -863,6 +871,63 @@ export function MagazzinoMappaBoard({
     }
     return opts;
   }, [aree, mappa?.ubicazioni]);
+
+  function parentLabelOf(parentId: string | null): string {
+    if (!parentId) return "—";
+    const a = aree.find((x) => x.id === parentId || x.ubicazioneId === parentId);
+    if (a) return `${a.codice} — ${a.nome}`;
+    const u = (mappa?.ubicazioni ?? []).find((x) => x.id === parentId);
+    return u?.etichetta ?? "—";
+  }
+
+  function selezionaArea(id: string | null, edit = false) {
+    setSelectedAreaId(id);
+    setSelectedId(null);
+    setSelectedRifId(null);
+    setAreaEditOpen(edit);
+    if (!id) return;
+    const a = aree.find((x) => x.id === id);
+    const box = svgWrapRef.current?.getBoundingClientRect();
+    if (!a || !box || box.width < 40 || box.height < 40) return;
+    const cx = a.x + a.width / 2;
+    const cy = a.y + a.height / 2;
+    setPan({
+      x: box.width / 2 - cx * zoom,
+      y: box.height / 2 - cy * zoom,
+    });
+  }
+
+  function applicaCopiaArea(r: {
+    codice: string;
+    nome: string;
+    parentId: string | null;
+    width: number;
+    height: number;
+    source: MappaAreaDisegnata;
+  }) {
+    const gap = Math.max(griglia, 1) * 2;
+    const nuova: MappaAreaDisegnata = {
+      id: newLocalId(),
+      ubicazioneId: "",
+      codice: r.codice,
+      nome: r.nome,
+      parentId: r.parentId,
+      x: r.source.x + r.source.width + gap,
+      y: r.source.y,
+      width: r.width,
+      height: r.height,
+    };
+    setAree((prev) => [...prev, nuova]);
+    setSelectedAreaId(nuova.id);
+    setAreaEditOpen(false);
+    setSelectedId(null);
+    setOk("Copia creata accanto all'originale. Trascinala e salva la bozza.");
+  }
+
+  function apriCopia(fromId?: string) {
+    setCopiaSourceId(fromId ?? selectedAreaId);
+    setCopiaOpen(true);
+  }
 
   function figliSenzaForma(parent: MappaAreaDisegnata) {
     const parentKey = parent.ubicazioneId || parent.id;
@@ -1233,6 +1298,14 @@ export function MagazzinoMappaBoard({
                 className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
               >
                 Importa da vista
+              </button>
+              <button
+                type="button"
+                disabled={aree.length === 0}
+                onClick={() => apriCopia()}
+                className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
+              >
+                Copia da area
               </button>
             </>
           ) : null}
@@ -1612,7 +1685,55 @@ export function MagazzinoMappaBoard({
           <p className="text-sm font-semibold text-teal-950">
             Area {selectedArea.codice} — {selectedArea.nome}
           </p>
-          {canDraw ? (
+          <p className="mt-1 text-xs text-teal-900">
+            Madre: {parentLabelOf(selectedArea.parentId)} ·{" "}
+            {formattaQuadrati(selectedArea.width / Math.max(griglia, 1))} ×{" "}
+            {formattaQuadrati(selectedArea.height / Math.max(griglia, 1))} quadrati ·{" "}
+            {formattaLunghezzaReale(
+              selectedArea.width / Math.max(griglia, 1),
+              scalaValore,
+              scalaUnita
+            )}{" "}
+            ×{" "}
+            {formattaLunghezzaReale(
+              selectedArea.height / Math.max(griglia, 1),
+              scalaValore,
+              scalaUnita
+            )}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {canDraw ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAreaEditOpen((v) => !v)}
+                  className="rounded-lg border border-teal-700 bg-white px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-100"
+                >
+                  {areaEditOpen ? "Chiudi modifica" : "Modifica"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => apriCopia(selectedArea.id)}
+                  className="rounded-lg border border-teal-600 bg-white px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-100"
+                >
+                  Copia da quest&apos;area
+                </button>
+                <button
+                  type="button"
+                  onClick={() => eliminaAreaSelezionata()}
+                  className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
+                >
+                  Elimina area
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-teal-900">
+                Posto riponibile. I figli di altre viste compaiono come etichette
+                all&apos;interno.
+              </p>
+            )}
+          </div>
+          {canDraw && areaEditOpen ? (
             <div className="mt-2 flex flex-wrap items-end gap-3">
               <label className="text-xs">
                 Codice
@@ -1669,19 +1790,42 @@ export function MagazzinoMappaBoard({
                     ))}
                 </select>
               </label>
-              <button
-                type="button"
-                onClick={() => eliminaAreaSelezionata()}
-                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
-              >
-                Elimina area
-              </button>
+              <label className="text-xs">
+                Larghezza q
+                <input
+                  type="number"
+                  min={1}
+                  value={Math.max(1, Math.round(selectedArea.width / Math.max(griglia, 1)))}
+                  onChange={(e) => {
+                    const q = Math.max(1, Math.round(Number(e.target.value) || 1));
+                    setAree((prev) =>
+                      prev.map((a) =>
+                        a.id === selectedArea.id ? { ...a, width: q * griglia } : a
+                      )
+                    );
+                  }}
+                  className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs">
+                Altezza q
+                <input
+                  type="number"
+                  min={1}
+                  value={Math.max(1, Math.round(selectedArea.height / Math.max(griglia, 1)))}
+                  onChange={(e) => {
+                    const q = Math.max(1, Math.round(Number(e.target.value) || 1));
+                    setAree((prev) =>
+                      prev.map((a) =>
+                        a.id === selectedArea.id ? { ...a, height: q * griglia } : a
+                      )
+                    );
+                  }}
+                  className="ml-1 w-20 rounded border border-[var(--border)] px-2 py-1 text-sm"
+                />
+              </label>
             </div>
-          ) : (
-            <p className="mt-1 text-xs text-teal-900">
-              Posto riponibile. I figli di altre viste compaiono come etichette all&apos;interno.
-            </p>
-          )}
+          ) : null}
         </div>
       ) : null}
 
@@ -2209,6 +2353,32 @@ export function MagazzinoMappaBoard({
         </div>
         </MagazzinoMappaRighelli>
       </div>
+      <ElencoAreeMappa
+        aree={aree}
+        selectedId={selectedAreaId}
+        griglia={griglia}
+        scalaValore={scalaValore}
+        scalaUnita={scalaUnita}
+        canEdit={canDraw}
+        parentLabel={parentLabelOf}
+        onSelect={(id) => selezionaArea(id)}
+        onModifica={(id) => {
+          if (canDraw) selezionaArea(id, true);
+          else selezionaArea(id);
+        }}
+        onCopia={(id) => apriCopia(id)}
+      />
+      {editing ? (
+        <CopiaAreaGuidata
+          open={copiaOpen}
+          aree={aree}
+          parentOptions={parentOptions}
+          sourceId={copiaSourceId}
+          griglia={griglia}
+          onClose={() => setCopiaOpen(false)}
+          onCompleta={(r) => applicaCopiaArea(r)}
+        />
+      ) : null}
       {editing ? (
         <ImportaRiferimentiVista
           open={importOpen}
