@@ -58,6 +58,8 @@ import {
 } from "@/lib/magazzino/mappa";
 import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
 import {
+  dettaglioAngoliImporto,
+  dettaglioLatiImporto,
   etichettaAsseOrigine,
   xGuidaDest,
   type MappaRiferimentoGruppo,
@@ -2026,6 +2028,14 @@ export function MagazzinoMappaBoard({
             {formattaQuadrati(selectedRif.limiteHeightQ)} quadrati ·{" "}
             {selectedRif.punti.length} punti. Seleziona e trascina il rettangolo.
           </p>
+          <ul className="mt-2 space-y-0.5 text-xs text-amber-950">
+            {dettaglioAngoliImporto(selectedRif).map((a) => (
+              <li key={`ang-${a.n}`}>{a.testo}</li>
+            ))}
+            {dettaglioLatiImporto(selectedRif).map((l) => (
+              <li key={`lato-${l.da}-${l.a}`}>{l.testo}</li>
+            ))}
+          </ul>
           {canDraw ? (
             <div className="mt-2 flex flex-wrap items-end gap-3">
               <label className="text-xs">
@@ -2331,6 +2341,8 @@ export function MagazzinoMappaBoard({
             })}
             {riferimenti.map((g) => {
               const sel = g.id === selectedRifId;
+              const angoli = dettaglioAngoliImporto(g);
+              const lati = dettaglioLatiImporto(g);
               return (
                 <g key={g.id}>
                   <rect
@@ -2352,6 +2364,44 @@ export function MagazzinoMappaBoard({
                   >
                     Limite da {g.mappaOrigineEtichetta}
                   </text>
+                  {angoli.map((a) => (
+                    <g key={`${g.id}-ang-${a.n}`}>
+                      <circle
+                        cx={a.destX}
+                        cy={a.destY}
+                        r={Math.max(3.2, 5 / zoom)}
+                        fill="#b45309"
+                        stroke="#fff7ed"
+                        strokeWidth={Math.max(0.8, 1.2 / zoom)}
+                      />
+                      <text
+                        x={a.destX + (a.n === 2 || a.n === 4 ? -6 : 6) / zoom}
+                        y={a.destY + (a.n === 3 || a.n === 4 ? 14 : -8) / zoom}
+                        textAnchor={a.n === 2 || a.n === 4 ? "end" : "start"}
+                        fill="#78350f"
+                        fontSize={Math.max(8, 9 / zoom)}
+                        fontWeight={600}
+                      >
+                        {a.testo}
+                      </text>
+                    </g>
+                  ))}
+                  {lati.map((l) => {
+                    const p = angoli[l.da - 1]!;
+                    const q = angoli[l.a - 1]!;
+                    return (
+                      <text
+                        key={`${g.id}-lato-${l.da}-${l.a}`}
+                        x={(p.destX + q.destX) / 2}
+                        y={(p.destY + q.destY) / 2}
+                        textAnchor="middle"
+                        fill="#92400e"
+                        fontSize={Math.max(8, 9 / zoom)}
+                      >
+                        {l.testo}
+                      </text>
+                    );
+                  })}
                   {g.punti.map((p) => {
                     const x = xGuidaDest(g, p.offsetQuadrati, griglia);
                     return (

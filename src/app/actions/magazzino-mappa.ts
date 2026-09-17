@@ -32,8 +32,13 @@ import {
   type UbicazioneElenco,
 } from "@/lib/magazzino/ubicazioni";
 import {
+  dettaglioAngoliImporto,
+  dettaglioLatiImporto,
+  etichettaAsseImporto,
   etichettaAsseOrigine,
   importaRiferimentiSchema,
+  puntiDaGeometriaOrigine,
+  unisciPuntiImporto,
   type ImportaRiferimentiInput,
   type MappaAsseOrigine,
   type MappaRiferimentoGruppo,
@@ -1068,7 +1073,7 @@ async function persistRiferimentiMappa(
       mappa_id: mappaId,
       gruppo_id: gruppoId,
       tipo: "asse" as const,
-      etichetta: "Quadrato limite",
+      etichetta: etichettaAsseImporto(g),
       offset_quadrati: 0,
       sort_order: gi * 100,
     };
@@ -1181,6 +1186,22 @@ export async function importaRiferimentiDaVistaAction(
     return { success: false, error: "Importo consentito solo su una bozza." };
   }
   if (!src) return { success: false, error: "Pianta di origine non trovata." };
+  const limiteOrigine = {
+    x: input.origineX,
+    y: input.origineY,
+    width: input.origineW,
+    height: input.origineH,
+  };
+  const punti = unisciPuntiImporto(
+    puntiDaGeometriaOrigine(
+      src.linee ?? [],
+      src.aree ?? [],
+      limiteOrigine,
+      input.asseOrigine as MappaAsseOrigine,
+      src.grigliaPx
+    ),
+    input.punti
+  );
   const gruppo: MappaRiferimentoGruppoInput = {
     mappaOrigineId: input.mappaOrigineId,
     asseOrigine: input.asseOrigine,
@@ -1194,7 +1215,7 @@ export async function importaRiferimentiDaVistaAction(
     origineY: input.origineY,
     origineW: input.origineW,
     origineH: input.origineH,
-    punti: input.punti,
+    punti,
   };
   const err = await persistRiferimentiMappa(
     supabase,
@@ -1203,16 +1224,21 @@ export async function importaRiferimentiDaVistaAction(
     auth.userId
   );
   if (err) return { success: false, error: err };
+  const angoli = dettaglioAngoliImporto(gruppo);
+  const lati = dettaglioLatiImporto(gruppo);
   await writeAuditLog({
     entity_type: "magazzino_mappe",
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Importati riferimenti da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${etichettaAsseOrigine(input.asseOrigine as MappaAsseOrigine)} · ${input.punti.length} punti`,
+    summary: `Importati riferimenti da ${etichettaMappaCollegata(src.luogoNome || src.nome, src.vistaEtichetta || "vista")} · ${etichettaAsseOrigine(input.asseOrigine as MappaAsseOrigine)} · ${punti.length} punti · 4 angoli`,
     payload: {
       mappa_origine_id: input.mappaOrigineId,
       asse: input.asseOrigine,
-      punti: input.punti.length,
+      punti: punti.length,
+      punti_manuali: input.punti.length,
+      angoli: angoli.map((a) => a.testo),
+      lati: lati.map((l) => l.testo),
     },
   });
   const mappa = await loadMappa(supabase, input.mappaId);

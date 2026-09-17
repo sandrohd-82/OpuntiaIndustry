@@ -2,7 +2,7 @@ import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
 } from "@/lib/magazzino/mappa";
-import { xGuidaDest } from "@/lib/magazzino/riferimenti";
+import { dettaglioAngoliImporto, xGuidaDest } from "@/lib/magazzino/riferimenti";
 
 function fontTarga(width: number, height: number, testo: string): number {
   const lato = Math.min(width, height);
@@ -48,6 +48,21 @@ export function PiantaVistaRitaglio({ mappa }: { mappa: MappaMagazzino }) {
                 strokeDasharray="6 4"
                 strokeWidth={1.4}
               />
+              {dettaglioAngoliImporto(rif).map((a) => (
+                <g key={`${rif.id}-ang-${a.n}`}>
+                  <circle cx={a.destX} cy={a.destY} r={3.2} fill="#b45309" />
+                  <text
+                    x={a.destX + (a.n === 2 || a.n === 4 ? -4 : 4)}
+                    y={a.destY + (a.n === 3 || a.n === 4 ? 11 : -4)}
+                    textAnchor={a.n === 2 || a.n === 4 ? "end" : "start"}
+                    fill="#78350f"
+                    fontSize={9}
+                    fontWeight={600}
+                  >
+                    {a.testo}
+                  </text>
+                </g>
+              ))}
               {rif.punti.map((p) => {
                 const x = xGuidaDest(rif, p.offsetQuadrati, g);
                 return (

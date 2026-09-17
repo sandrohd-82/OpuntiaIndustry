@@ -14,10 +14,15 @@ import {
   type MappaPunto,
 } from "@/lib/magazzino/mappa";
 import {
+  dettaglioAngoliImporto,
+  dettaglioLatiImporto,
   etichettaAsseOrigine,
+  etichettaPuntoDaCoordinate,
   misuraAsseQuadrati,
   offsetSuLimite,
+  puntiDaGeometriaOrigine,
   rettangoloLimiteDisegno,
+  unisciPuntiImporto,
   type MappaAsseOrigine,
   type MappaRettangolo,
 } from "@/lib/magazzino/riferimenti";
@@ -236,11 +241,49 @@ export function ImportaRiferimentiVista({
     return () => svg.removeEventListener("wheel", onNativeWheel);
   }, [source]);
 
+  const anteprimaImporto = useMemo(() => {
+    if (!source || !limite) {
+      return { punti: [] as PuntoBozza[], angoli: [], lati: [] };
+    }
+    const hQ = Math.max(1, Math.round(altezzaQ));
+    const g = destGriglia > 0 ? destGriglia : 20;
+    const gruppo = {
+      asseOrigine: asse,
+      origineW: limite.width,
+      origineH: limite.height,
+      limiteWidthQ: larghezzaQ,
+      limiteHeightQ: hQ,
+      destX: 0,
+      destY: 0,
+      destWidth: Math.max(1, larghezzaQ * g),
+      destHeight: hQ * g,
+    };
+    return {
+      punti: unisciPuntiImporto(
+        puntiDaGeometriaOrigine(
+          source.linee ?? [],
+          source.aree ?? [],
+          limite,
+          asse,
+          source.grigliaPx
+        ),
+        punti
+      ),
+      angoli: dettaglioAngoliImporto(gruppo),
+      lati: dettaglioLatiImporto(gruppo),
+    };
+  }, [source, limite, asse, punti, altezzaQ, destGriglia, larghezzaQ]);
+
   function addPunto(p: MappaPunto) {
     if (!source || !limite) return;
     const offset = offsetSuLimite(p, limite, asse, source.grigliaPx);
-    const etichetta =
-      puntoLabel.trim() || `Rif. ${punti.length + 1}`;
+    const nome = puntoLabel.trim() || `Rif. ${punti.length + 1}`;
+    const etichetta = etichettaPuntoDaCoordinate(
+      nome,
+      p,
+      limite,
+      source.grigliaPx
+    );
     setPunti((prev) => [...prev, { etichetta, offsetQuadrati: offset }]);
     setPuntoLabel("");
   }
@@ -393,8 +436,9 @@ export function ImportaRiferimentiVista({
               )}
             </p>
             <p className="mt-1 text-xs text-slate-600">
-              Zoomma (rotella o +/−) per prendere i punti con precisione.
-              Trascina per spostare. Clic per il punto sull&apos;asse copiato.
+              Si importano angoli, lati e estremi del disegno origine (non solo
+              la linea guida). Zoomma per i punti extra. Clic = punto con
+              coordinate da-a.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -592,16 +636,27 @@ export function ImportaRiferimentiVista({
                 </button>
               ) : null}
             </div>
-            {punti.length ? (
-              <ul className="mt-2 text-xs text-slate-700">
-                {punti.map((p, i) => (
-                  <li key={`${p.etichetta}-${i}`}>
-                    {p.etichetta}: {formattaQuadrati(p.offsetQuadrati)} quadrati
-                    dall&apos;inizio dell&apos;asse
-                  </li>
+            <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2 text-xs text-teal-950">
+              <p className="font-semibold">Dati che verranno importati</p>
+              <ul className="mt-1 space-y-0.5">
+                {anteprimaImporto.angoli.map((a) => (
+                  <li key={`ang-${a.n}`}>{a.testo}</li>
+                ))}
+                {anteprimaImporto.lati.map((l) => (
+                  <li key={`lato-${l.da}-${l.a}`}>{l.testo}</li>
                 ))}
               </ul>
-            ) : null}
+              {anteprimaImporto.punti.length ? (
+                <ul className="mt-2 space-y-0.5 border-t border-teal-200 pt-2">
+                  {anteprimaImporto.punti.map((p, i) => (
+                    <li key={`${p.etichetta}-${i}`}>
+                      {p.etichetta}: {formattaQuadrati(p.offsetQuadrati)} q
+                      sull&apos;asse
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </>
         ) : null}
 
