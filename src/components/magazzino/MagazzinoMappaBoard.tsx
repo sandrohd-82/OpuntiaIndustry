@@ -72,6 +72,14 @@ type FormaStato = {
   latoB: number | null;
 };
 
+function fontTargaArea(width: number, height: number, testo: string): number {
+  const lato = Math.min(width, height);
+  const lettere = Math.max(1, testo.trim().length);
+  const daLarghezza = (width * 0.78) / lettere;
+  const daAltezza = lato * 0.48;
+  return Math.max(10, Math.min(daLarghezza, daAltezza));
+}
+
 function newLocalId(): string {
   return crypto.randomUUID();
 }
@@ -2122,6 +2130,10 @@ export function MagazzinoMappaBoard({
             {aree.map((a) => {
               const kids = figliSenzaForma(a);
               const sel = a.id === selectedAreaId;
+              const cx = a.x + a.width / 2;
+              const cy = a.y + a.height / 2;
+              const targa = a.codice.trim() || a.nome.trim();
+              const fontSize = fontTargaArea(a.width, a.height, targa);
               return (
                 <g key={a.id}>
                   <rect
@@ -2133,25 +2145,31 @@ export function MagazzinoMappaBoard({
                     stroke={sel ? "#0f766e" : "#0d9488"}
                     strokeWidth={Math.max(1.2, 2 / zoom)}
                   />
-                  <text
-                    x={a.x + 6}
-                    y={a.y + 16}
-                    fill="#134e4a"
-                    fontSize={Math.max(11, 12 / zoom)}
-                    fontWeight={600}
-                  >
-                    {a.codice}
-                  </text>
-                  {kids.length ? (
+                  <g pointerEvents="none">
                     <text
-                      x={a.x + 6}
-                      y={a.y + 32}
-                      fill="#0f766e"
-                      fontSize={Math.max(9, 10 / zoom)}
+                      x={cx}
+                      y={cy}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="#134e4a"
+                      fontSize={fontSize}
+                      fontWeight={700}
                     >
-                      {kids.map((k) => k.codice).join(" · ")}
+                      {targa}
                     </text>
-                  ) : null}
+                    {kids.length ? (
+                      <text
+                        x={cx}
+                        y={cy + fontSize * 0.7}
+                        textAnchor="middle"
+                        dominantBaseline="hanging"
+                        fill="#0f766e"
+                        fontSize={Math.min(fontSize * 0.35, 14)}
+                      >
+                        {kids.map((k) => k.codice).join(" · ")}
+                      </text>
+                    ) : null}
+                  </g>
                 </g>
               );
             })}
