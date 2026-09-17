@@ -14,6 +14,7 @@ import {
   formattaMisuraSegmento,
   formattaQuadrati,
   headingCardinale,
+  MAPPA_FOGLIO_MARGINE_QUADRATI,
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_LINEA_COLORI,
   MAPPA_QUADRATI_MAX,
@@ -92,7 +93,7 @@ export function MagazzinoMappaBoard() {
   const [ok, setOk] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
-  const didInitialFit = useRef(false);
+  const foglioFitKey = useRef("");
 
   const editing = Boolean(canDesign && mappa?.documentoStato === "bozza");
   const vistaOk = vistaEtichetta.trim().length > 0;
@@ -112,8 +113,6 @@ export function MagazzinoMappaBoard() {
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
-    setPan({ x: res.mappa.viewX, y: res.mappa.viewY });
-    setZoom(res.mappa.viewZoom);
     setGriglia(res.mappa.grigliaPx);
     setError(null);
   }
@@ -175,20 +174,6 @@ export function MagazzinoMappaBoard() {
     });
   }
 
-  function puntoNelViewport(p: MappaPunto): boolean {
-    const svg = svgRef.current;
-    if (!svg) return true;
-    const r = svg.getBoundingClientRect();
-    const sx = p.x * zoom + pan.x;
-    const sy = p.y * zoom + pan.y;
-    const m = 24;
-    return sx >= m && sy >= m && sx <= r.width - m && sy <= r.height - m;
-  }
-
-  function segmentoNelViewport(a: MappaPunto, b: MappaPunto): boolean {
-    return puntoNelViewport(a) && puntoNelViewport(b);
-  }
-
   function addLinea(a: MappaPunto, b: MappaPunto): string {
     const linea: MappaLinea = {
       id: newLocalId(),
@@ -200,16 +185,7 @@ export function MagazzinoMappaBoard() {
       colore,
       sortOrder: linee.length,
     };
-    setLinee((prev) => {
-      const next = [...prev, { ...linea, sortOrder: prev.length }];
-      requestAnimationFrame(() => {
-        const foglioNext = calcolaFoglioMappa(next, [], [], griglia);
-        if (!segmentoNelViewport(a, b)) {
-          fitToFoglio(foglioNext);
-        }
-      });
-      return next;
-    });
+    setLinee((prev) => [...prev, { ...linea, sortOrder: prev.length }]);
     setSelectedId(linea.id);
     return linea.id;
   }
@@ -246,52 +222,25 @@ export function MagazzinoMappaBoard() {
 
   const extraPunti = useMemo(() => {
     const p: MappaPunto[] = [];
-    if (draftStart) p.push(draftStart);
-    if (snappedCursor) p.push(snappedCursor);
     if (forma) p.push(...forma.vertici);
-    if (previewForma) {
-      p.push(previewForma.from, previewForma.to, ...previewForma.ghost);
-    }
     return p;
-  }, [draftStart, snappedCursor, forma, previewForma]);
+  }, [forma]);
 
-  const extraSegmenti = useMemo(() => {
-    const s: { x1: number; y1: number; x2: number; y2: number }[] = [];
-    if (draftStart && snappedCursor) {
-      s.push({
-        x1: draftStart.x,
-        y1: draftStart.y,
-        x2: snappedCursor.x,
-        y2: snappedCursor.y,
-      });
-    }
-    if (previewForma) {
-      s.push({
-        x1: previewForma.from.x,
-        y1: previewForma.from.y,
-        x2: previewForma.to.x,
-        y2: previewForma.to.y,
-      });
-    }
-    return s;
-  }, [draftStart, snappedCursor, previewForma]);
+  const latoPianificatoPx =
+    canDraw && (tool === "rettangolo" || tool === "poligono" || forma)
+      ? quadratiCorrenti * griglia
+      : 0;
 
   const foglio = useMemo(
-    () => calcolaFoglioMappa(linee, extraPunti, extraSegmenti, griglia),
-    [linee, extraPunti, extraSegmenti, griglia]
+    () =>
+      calcolaFoglioMappa(linee, [], extraPunti, griglia, latoPianificatoPx),
+    [linee, extraPunti, griglia, latoPianificatoPx]
   );
 
-  const foglioQuadratiW = Math.max(1, Math.round(foglio.width / Math.max(griglia, 1)));
-  const foglioQuadratiH = Math.max(1, Math.round(foglio.height / Math.max(griglia, 1)));
-
-  useEffect(() => {
-    if (!previewForma) return;
-    if (!segmentoNelViewport(previewForma.from, previewForma.to)) {
-      fitToFoglio(foglio);
-    }
-    // Solo quando cambia la lunghezza del lato, non a ogni movimento del mouse.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quadratiCorrenti, forma?.lati.length]);
+  const foglioQuadrati = Math.max(
+    1,
+    Math.round(foglio.width / Math.max(griglia, 1))
+  );
 
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
     if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey)) {
@@ -521,21 +470,14 @@ export function MagazzinoMappaBoard() {
   }
 
   const gridPatternId = "mappa-grid";
+  const foglioKey = `${Math.round(foglio.width)}x${Math.round(foglio.height)}@${griglia}`;
 
   useEffect(() => {
-    if (!ready || !mappa || didInitialFit.current) return;
-    didInitialFit.current = true;
-    if (linee.length === 0) return;
-    const off = linee.some(
-      (l) =>
-        !segmentoNelViewport({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 })
-    );
-    if (off) {
-      requestAnimationFrame(() => fitToFoglio(foglio));
-    }
-    // Prima adattata al foglio se le linee salvate escono dalla vista.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mappa]);
+    if (!ready) return;
+    if (foglioFitKey.current === foglioKey) return;
+    foglioFitKey.current = foglioKey;
+    requestAnimationFrame(() => fitToFoglio(foglio));
+  }, [ready, foglioKey, foglio]);
 
   const misuraTesto = useMemo(() => {
     if (previewForma) {
@@ -622,7 +564,7 @@ export function MagazzinoMappaBoard() {
             1 quadrato = {scalaValore} {scalaUnita}
             {" · "}
             {editing
-              ? "Traccia a mano, oppure rettangolo/poligono lato per lato con Avanti. Rotella = zoom. Maiusc + trascina = sposta il foglio."
+              ? "Il foglio è un quadrato fisso (linea più lunga + 10 quadrati). Lo zoom inquadra il foglio intero; ruotando la rotella zoommi dentro, il foglio non cambia misura."
               : canDesign
                 ? "Pianta in sola lettura. Riapri la progettazione per disegnare."
                 : "Pianta in sola lettura. Solo il Super Admin può disegnare gli scaffali."}
@@ -783,8 +725,9 @@ export function MagazzinoMappaBoard() {
               />
             </label>
             <span className="text-xs text-[var(--muted)]">
-              Linee: {linee.length} · foglio {foglioQuadratiW}×{foglioQuadratiH}{" "}
-              quadrati · zoom {Math.round(zoom * 100)}%
+              Linee: {linee.length} · foglio {foglioQuadrati}×{foglioQuadrati}{" "}
+              quadrati (+{MAPPA_FOGLIO_MARGINE_QUADRATI}) · zoom{" "}
+              {Math.round(zoom * 100)}%
             </span>
             <button
               type="button"
@@ -944,8 +887,15 @@ export function MagazzinoMappaBoard() {
               y={foglio.y}
               width={foglio.width}
               height={foglio.height}
+              fill="#ffffff"
+            />
+            <rect
+              x={foglio.x}
+              y={foglio.y}
+              width={foglio.width}
+              height={foglio.height}
               fill={`url(#${gridPatternId})`}
-              stroke="#94a3b8"
+              stroke="#334155"
               strokeWidth={Math.max(1, 2 / zoom)}
             />
             {linee.map((l) => (
