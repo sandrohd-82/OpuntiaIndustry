@@ -23,10 +23,22 @@ import {
 } from "@/lib/magazzino/riferimenti";
 
 type PuntoBozza = { etichetta: string; offsetQuadrati: number };
+type VistaBox = { x: number; y: number; w: number; h: number };
 
-const IMPORT_ZOOM_MIN = 0.2;
+const IMPORT_ZOOM_MIN = 1;
 const IMPORT_ZOOM_MAX = 16;
 const IMPORT_ZOOM_STEP = 1.25;
+
+function boxValido(b: VistaBox): boolean {
+  return (
+    Number.isFinite(b.x) &&
+    Number.isFinite(b.y) &&
+    Number.isFinite(b.w) &&
+    Number.isFinite(b.h) &&
+    b.w > 0 &&
+    b.h > 0
+  );
+}
 
 export function ImportaRiferimentiVista({
   open,
@@ -52,8 +64,8 @@ export function ImportaRiferimentiVista({
   const panStart = useRef<{
     sx: number;
     sy: number;
-    px: number;
-    py: number;
+    vx: number;
+    vy: number;
   } | null>(null);
   const [items, setItems] = useState<{ id: string; label: string }[]>([]);
   const [sourceId, setSourceId] = useState("");
@@ -65,13 +77,9 @@ export function ImportaRiferimentiVista({
   const [puntoLabel, setPuntoLabel] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [vista, setVista] = useState<VistaBox | null>(null);
   const [trascinando, setTrascinando] = useState(false);
-  const zoomRef = useRef(1);
-  const panRef = useRef({ x: 0, y: 0 });
-  zoomRef.current = zoom;
-  panRef.current = pan;
+  const vistaRef = useRef<VistaBox | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -109,24 +117,26 @@ export function ImportaRiferimentiVista({
 
   const limite = useMemo((): MappaRettangolo | null => {
     if (!source) return null;
+    const aree = source.aree ?? [];
+    const linee = source.linee ?? [];
     if (limiteKey !== "bbox") {
-      const a = source.aree.find((x) => x.id === limiteKey);
+      const a = aree.find((x) => x.id === limiteKey);
       if (a) return { x: a.x, y: a.y, width: a.width, height: a.height };
     }
-    return rettangoloLimiteDisegno(source.linee, source.aree, source.grigliaPx);
+    return rettangoloLimiteDisegno(linee, aree, source.grigliaPx);
   }, [source, limiteKey]);
 
   const larghezzaQ = limite && source
     ? misuraAsseQuadrati(limite, asse, source.grigliaPx)
     : 0;
 
-  const previewBox = useMemo(() => {
+  const previewBox = useMemo((): VistaBox => {
     if (!source) return { x: 0, y: 0, w: 400, h: 280 };
     const pts: MappaPunto[] = [];
-    for (const l of source.linee) {
+    for (const l of source.linee ?? []) {
       pts.push({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 });
     }
-    for (const a of source.aree) {
+    for (const a of source.aree ?? []) {
       pts.push({ x: a.x, y: a.y }, { x: a.x + a.width, y: a.y + a.height });
     }
     if (limite) {
@@ -135,12 +145,15 @@ export function ImportaRiferimentiVista({
         { x: limite.x + limite.width, y: limite.y + limite.height }
       );
     }
-    if (!pts.length) return { x: 0, y: 0, w: 400, h: 280 };
-    const minX = Math.min(...pts.map((p) => p.x));
-    const minY = Math.min(...pts.map((p) => p.y));
-    const maxX = Math.max(...pts.map((p) => p.x));
-    const maxY = Math.max(...pts.map((p) => p.y));
-    const pad = source.grigliaPx * 2;
+    const validi = pts.filter(
+      (p) => Number.isFinite(p.x) && Number.isFinite(p.y)
+    );
+    if (!validi.length) return { x: 0, y: 0, w: 400, h: 280 };
+    const minX = Math.min(...validi.map((p) => p.x));
+    const minY = Math.min(...validi.map((p) => p.y));
+    const maxX = Math.max(...validi.map((p) => p.x));
+    const maxY = Math.max(...validi.map((p) => p.y));
+    const pad = Math.max(8, (source.grigliaPx || 20) * 2);
     return {
       x: minX - pad,
       y: minY - pad,
@@ -149,63 +162,70 @@ export function ImportaRiferimentiVista({
     };
   }, [source, limite]);
 
-  function clampZoom(value: number): number {
-    return Math.min(IMPORT_ZOOM_MAX, Math.max(IMPORT_ZOOM_MIN, value));
-  }
+  const camera = vista && boxValido(vista) ? vista : previewBox;
+  const zoomAttuale = previewBox.w / camera.w;
 
-  function worldFromEvent(
-    e: React.PointerEvent<SVGSVGElement> | React.WheelEvent<SVGSVGElement>
-  ): MappaPunto | null {
-    const svg = svgRef.current;
-    if (!svg) return null;
-    const r = svg.getBoundingClientRect();
-    return {
-      x: (e.clientX - r.left - panRef.current.x) / zoomRef.current,
-      y: (e.clientY - r.top - panRef.current.y) / zoomRef.current,
-    };
+  function applicaVista(next: VistaBox) {
+    if (!boxValido(next)) return;
+    vistaRef.current = next;
+    setVista(next);
   }
 
   function fitPreview() {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const r = svg.getBoundingClientRect();
-    if (r.width < 8 || r.height < 8) return;
-    const pad = 16;
-    const next = clampZoom(
-      Math.min((r.width - pad * 2) / previewBox.w, (r.height - pad * 2) / previewBox.h)
-    );
-    const nextPan = {
-      x: (r.width - previewBox.w * next) / 2 - previewBox.x * next,
-      y: (r.height - previewBox.h * next) / 2 - previewBox.y * next,
-    };
-    zoomRef.current = next;
-    panRef.current = nextPan;
-    setZoom(next);
-    setPan(nextPan);
+    applicaVista(previewBox);
   }
 
-  function applicaZoom(factor: number, origine?: { x: number; y: number }) {
+  function worldFromEvent(e: { clientX: number; clientY: number }): MappaPunto | null {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg) return null;
+    const cam = vistaRef.current ?? camera;
+    try {
+      const ctm = svg.getScreenCTM();
+      if (ctm) {
+        const pt = svg.createSVGPoint();
+        pt.x = e.clientX;
+        pt.y = e.clientY;
+        const p = pt.matrixTransform(ctm.inverse());
+        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          return { x: p.x, y: p.y };
+        }
+      }
+    } catch {
+      /* fallback sotto */
+    }
     const r = svg.getBoundingClientRect();
-    const ox = origine?.x ?? r.width / 2;
-    const oy = origine?.y ?? r.height / 2;
-    const z = zoomRef.current;
-    const p = panRef.current;
-    const wx = (ox - p.x) / z;
-    const wy = (oy - p.y) / z;
-    const next = clampZoom(z * factor);
-    const nextPan = { x: ox - wx * next, y: oy - wy * next };
-    zoomRef.current = next;
-    panRef.current = nextPan;
-    setZoom(next);
-    setPan(nextPan);
+    if (r.width < 1 || r.height < 1) return null;
+    return {
+      x: cam.x + ((e.clientX - r.left) / r.width) * cam.w,
+      y: cam.y + ((e.clientY - r.top) / r.height) * cam.h,
+    };
+  }
+
+  function applicaZoom(factor: number, schermo?: { x: number; y: number }) {
+    const svg = svgRef.current;
+    const cam = vistaRef.current ?? camera;
+    const r = svg?.getBoundingClientRect();
+    const rx = r && schermo && r.width > 0 ? (schermo.x - r.left) / r.width : 0.5;
+    const ry = r && schermo && r.height > 0 ? (schermo.y - r.top) / r.height : 0.5;
+    const wx = cam.x + rx * cam.w;
+    const wy = cam.y + ry * cam.h;
+    const nextZ = Math.min(
+      IMPORT_ZOOM_MAX,
+      Math.max(IMPORT_ZOOM_MIN, (previewBox.w / cam.w) * factor)
+    );
+    const nextW = previewBox.w / nextZ;
+    const nextH = previewBox.h / nextZ;
+    applicaVista({
+      x: wx - rx * nextW,
+      y: wy - ry * nextH,
+      w: nextW,
+      h: nextH,
+    });
   }
 
   useLayoutEffect(() => {
     if (!open || !source) return;
-    const id = requestAnimationFrame(() => fitPreview());
-    return () => cancelAnimationFrame(id);
+    applicaVista(previewBox);
   }, [open, source?.id, previewBox.x, previewBox.y, previewBox.w, previewBox.h]);
 
   useEffect(() => {
@@ -392,7 +412,7 @@ export function ImportaRiferimentiVista({
                 +
               </button>
               <span className="text-xs text-slate-600">
-                zoom {Math.round(zoom * 100)}%
+                zoom {Math.round(zoomAttuale * 100)}%
               </span>
               <button
                 type="button"
@@ -405,41 +425,48 @@ export function ImportaRiferimentiVista({
             <div className="mt-2 overflow-hidden rounded-lg border border-slate-300 bg-slate-100">
               <svg
                 ref={svgRef}
+                viewBox={`${camera.x} ${camera.y} ${camera.w} ${camera.h}`}
+                preserveAspectRatio="xMidYMid meet"
                 className={`h-96 w-full touch-none bg-white ${
                   trascinando ? "cursor-grabbing" : "cursor-crosshair"
                 }`}
                 onWheel={(e) => {
                   e.preventDefault();
-                  const r = svgRef.current?.getBoundingClientRect();
-                  if (!r) return;
-                  applicaZoom(e.deltaY < 0 ? IMPORT_ZOOM_STEP : 1 / IMPORT_ZOOM_STEP, {
-                    x: e.clientX - r.left,
-                    y: e.clientY - r.top,
-                  });
+                  applicaZoom(
+                    e.deltaY < 0 ? IMPORT_ZOOM_STEP : 1 / IMPORT_ZOOM_STEP,
+                    { x: e.clientX, y: e.clientY }
+                  );
                 }}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
                   dragMoved.current = false;
+                  const cam = vistaRef.current ?? camera;
                   panStart.current = {
                     sx: e.clientX,
                     sy: e.clientY,
-                    px: panRef.current.x,
-                    py: panRef.current.y,
+                    vx: cam.x,
+                    vy: cam.y,
                   };
                   e.currentTarget.setPointerCapture(e.pointerId);
                 }}
                 onPointerMove={(e) => {
                   const start = panStart.current;
-                  if (!start) return;
+                  const svg = svgRef.current;
+                  if (!start || !svg) return;
                   const dx = e.clientX - start.sx;
                   const dy = e.clientY - start.sy;
-                  if (Math.hypot(dx, dy) > 4) {
-                    dragMoved.current = true;
-                    setTrascinando(true);
-                    const nextPan = { x: start.px + dx, y: start.py + dy };
-                    panRef.current = nextPan;
-                    setPan(nextPan);
-                  }
+                  if (Math.hypot(dx, dy) <= 4) return;
+                  dragMoved.current = true;
+                  setTrascinando(true);
+                  const r = svg.getBoundingClientRect();
+                  const cam = vistaRef.current ?? camera;
+                  if (r.width < 1 || r.height < 1) return;
+                  applicaVista({
+                    x: start.vx - (dx / r.width) * cam.w,
+                    y: start.vy - (dy / r.height) * cam.h,
+                    w: cam.w,
+                    h: cam.h,
+                  });
                 }}
                 onPointerUp={(e) => {
                   if (e.button !== 0) return;
@@ -455,89 +482,94 @@ export function ImportaRiferimentiVista({
                   setTrascinando(false);
                 }}
               >
-                <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
+                <rect
+                  x={camera.x}
+                  y={camera.y}
+                  width={camera.w}
+                  height={camera.h}
+                  fill="#ffffff"
+                />
+                <rect
+                  x={limite.x}
+                  y={limite.y}
+                  width={limite.width}
+                  height={limite.height}
+                  fill="rgba(13,148,136,0.08)"
+                  stroke="#0f766e"
+                  strokeWidth={2}
+                  strokeDasharray="8 4"
+                  vectorEffect="non-scaling-stroke"
+                />
+                {(source.aree ?? []).map((a) => (
                   <rect
-                    x={limite.x}
-                    y={limite.y}
-                    width={limite.width}
-                    height={limite.height}
-                    fill="rgba(13,148,136,0.08)"
-                    stroke="#0f766e"
-                    strokeWidth={Math.max(1.2, 2 / zoom)}
-                    strokeDasharray={`${8 / zoom} ${4 / zoom}`}
+                    key={a.id}
+                    x={a.x}
+                    y={a.y}
+                    width={a.width}
+                    height={a.height}
+                    fill="rgba(13,148,136,0.10)"
+                    stroke="#0d9488"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
                   />
-                  {source.aree.map((a) => (
-                    <rect
-                      key={a.id}
-                      x={a.x}
-                      y={a.y}
-                      width={a.width}
-                      height={a.height}
-                      fill="rgba(13,148,136,0.10)"
-                      stroke="#0d9488"
-                      strokeWidth={Math.max(0.8, 1 / zoom)}
-                    />
-                  ))}
-                  {source.linee.map((l) => (
-                    <line
-                      key={l.id}
-                      x1={l.x1}
-                      y1={l.y1}
-                      x2={l.x2}
-                      y2={l.y2}
-                      stroke={l.colore || MAPPA_LINEA_COLORE_DEFAULT}
-                      strokeWidth={l.spessore}
-                    />
-                  ))}
-                  {punti.map((p, i) => {
-                    const x =
-                      asse === "x"
-                        ? limite.x + p.offsetQuadrati * source.grigliaPx
-                        : limite.x + limite.width / 2;
-                    const y =
-                      asse === "y"
-                        ? limite.y + p.offsetQuadrati * source.grigliaPx
-                        : limite.y + limite.height / 2;
-                    return (
-                      <g key={`${p.etichetta}-${i}`}>
-                        {asse === "x" ? (
-                          <line
-                            x1={x}
-                            y1={limite.y}
-                            x2={x}
-                            y2={limite.y + limite.height}
-                            stroke="#d97706"
-                            strokeWidth={Math.max(1.2, 2 / zoom)}
-                          />
-                        ) : (
-                          <line
-                            x1={limite.x}
-                            y1={y}
-                            x2={limite.x + limite.width}
-                            y2={y}
-                            stroke="#d97706"
-                            strokeWidth={Math.max(1.2, 2 / zoom)}
-                          />
-                        )}
-                        <circle
-                          cx={x}
-                          cy={y}
-                          r={Math.max(2.4, 5 / zoom)}
-                          fill="#d97706"
+                ))}
+                {(source.linee ?? []).map((l) => (
+                  <line
+                    key={l.id}
+                    x1={l.x1}
+                    y1={l.y1}
+                    x2={l.x2}
+                    y2={l.y2}
+                    stroke={l.colore || MAPPA_LINEA_COLORE_DEFAULT}
+                    strokeWidth={l.spessore}
+                  />
+                ))}
+                {punti.map((p, i) => {
+                  const g = source.grigliaPx > 0 ? source.grigliaPx : 20;
+                  const x =
+                    asse === "x"
+                      ? limite.x + p.offsetQuadrati * g
+                      : limite.x + limite.width / 2;
+                  const y =
+                    asse === "y"
+                      ? limite.y + p.offsetQuadrati * g
+                      : limite.y + limite.height / 2;
+                  return (
+                    <g key={`${p.etichetta}-${i}`}>
+                      {asse === "x" ? (
+                        <line
+                          x1={x}
+                          y1={limite.y}
+                          x2={x}
+                          y2={limite.y + limite.height}
+                          stroke="#d97706"
+                          strokeWidth={2}
+                          vectorEffect="non-scaling-stroke"
                         />
-                        <text
-                          x={x + 6 / zoom}
-                          y={y - 6 / zoom}
-                          fill="#92400e"
-                          fontSize={Math.max(10, 12 / zoom)}
-                          fontWeight={600}
-                        >
-                          {p.etichetta} · {formattaQuadrati(p.offsetQuadrati)} q
-                        </text>
-                      </g>
-                    );
-                  })}
-                </g>
+                      ) : (
+                        <line
+                          x1={limite.x}
+                          y1={y}
+                          x2={limite.x + limite.width}
+                          y2={y}
+                          stroke="#d97706"
+                          strokeWidth={2}
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      )}
+                      <circle cx={x} cy={y} r={5} fill="#d97706" />
+                      <text
+                        x={x + 6}
+                        y={y - 6}
+                        fill="#92400e"
+                        fontSize={12}
+                        fontWeight={600}
+                      >
+                        {p.etichetta} · {formattaQuadrati(p.offsetQuadrati)} q
+                      </text>
+                    </g>
+                  );
+                })}
               </svg>
             </div>
             <div className="mt-2 flex flex-wrap items-end gap-2">
