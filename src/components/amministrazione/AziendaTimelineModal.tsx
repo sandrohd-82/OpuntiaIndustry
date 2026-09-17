@@ -333,8 +333,10 @@ function TimelineMailHitRow({
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-slate-900">{hit.subject}</p>
           <p className="truncate text-[var(--muted)]">
-            {hit.fromName || hit.fromAddress} · {formatWhen(hit.receivedAt)} ·{" "}
-            {hit.matchReason}
+            {hit.direction === "outbound"
+              ? `Inviata a ${hit.toAddresses[0] || "—"}`
+              : hit.fromName || hit.fromAddress}{" "}
+            · {formatWhen(hit.receivedAt)} · {hit.matchReason}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">

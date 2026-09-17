@@ -432,17 +432,18 @@ export const TUTORIAL_EXTRA_ARTICLES: TutorialArticle[] = [
     id: "webmail-cartelle",
     sectionId: "webmail",
     sectionTitle: "WebMail",
-    title: "Cartelle di una casella (In arrivo, bozze, spam, cestino)",
+    title: "Cartelle di una casella (In arrivo, inviati, bozze, spam, cestino)",
     summary:
       "Ogni casella ha le stesse cartelle. Archiviate non è il cestino.",
     path: "/app/webmail/caselle",
-    tags: ["inbox", "bozze", "spam", "cestino", "archiviate", "AI"],
+    tags: ["inbox", "inviati", "bozze", "spam", "cestino", "archiviate", "AI"],
     blocks: [
       {
         type: "table",
         headers: ["Cartella", "A cosa serve"],
         rows: [
           ["In arrivo", "Posta nuova da leggere e classificare"],
+          ["Inviati", "Mail uscite (IMAP Inviate e invio dal gestionale); vanno in timeline"],
           ["Categorie", "Sotto-cartelle che create voi"],
           ["Bozze", "Mail non spedite, anche bozze scritte con AI da approvare"],
           ["Spam", "Mail indesiderate"],

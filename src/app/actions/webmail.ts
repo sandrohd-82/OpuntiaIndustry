@@ -55,6 +55,7 @@ import {
   sendBozzaSchema,
   setWebmailImportedSeenSchema,
   WEBMAIL_PAGE_SIZE,
+  WEBMAIL_SENT_FOLDER,
   WEBMAIL_SORT_DIRS,
   WEBMAIL_SORT_KEYS,
   translateWebmailSchema,
@@ -71,6 +72,7 @@ import {
   type WebmailProvider,
 } from "@/lib/webmail/types";
 import { translateMailWithGemini } from "@/lib/webmail/translate";
+import { matchWebmailAnagraficaRecipients } from "@/lib/webmail/anagrafica-link";
 import { z } from "zod";
 import { randomUUID } from "crypto";
 
@@ -172,9 +174,11 @@ export async function listWebmailCategorieAction(): Promise<
 export type WebmailUnreadCounts = {
   inbox: number;
   spam: number;
+  sent: number;
   byCategoriaId: Record<string, number>;
   inboxTotal: number;
   spamTotal: number;
+  sentTotal: number;
   byCategoriaTotal: Record<string, number>;
 };
 
@@ -205,6 +209,8 @@ export async function listWebmailUnreadCountsAction(
   let inboxTotal = 0;
   let spam = 0;
   let spamTotal = 0;
+  let sent = 0;
+  let sentTotal = 0;
   const byCategoriaId: Record<string, number> = {};
   const byCategoriaTotal: Record<string, number> = {};
   for (const r of data ?? []) {
@@ -214,6 +220,11 @@ export async function listWebmailUnreadCountsAction(
     if (bucket === "spam") {
       spam += unread;
       spamTotal += total;
+      continue;
+    }
+    if (bucket === "sent") {
+      sent += unread;
+      sentTotal += total;
       continue;
     }
     if (bucket === "inbox") {
@@ -231,9 +242,11 @@ export async function listWebmailUnreadCountsAction(
     counts: {
       inbox,
       spam,
+      sent,
       byCategoriaId,
       inboxTotal,
       spamTotal,
+      sentTotal,
       byCategoriaTotal,
     },
   };
@@ -1108,15 +1121,23 @@ function applyWebmailMessaggiFilters<T>(
       .is("deleted_at", null)
       .is("archived_at", null)
       .not("spam_at", "is", null);
+  } else if (view === "inviati") {
+    next = next
+      .is("deleted_at", null)
+      .is("archived_at", null)
+      .is("spam_at", null)
+      .eq("direction", "outbound")
+      .neq("folder", "TRASH");
   } else {
     next = next
       .is("deleted_at", null)
       .is("archived_at", null)
       .is("spam_at", null)
-      .neq("folder", "JUNK");
+      .neq("folder", "JUNK")
+      .neq("folder", WEBMAIL_SENT_FOLDER);
   }
 
-  if (view !== "bozze") {
+  if (view !== "bozze" && view !== "inviati") {
     if (
       view === "inbox" ||
       view === "categoria" ||
@@ -1125,7 +1146,7 @@ function applyWebmailMessaggiFilters<T>(
     ) {
       next = next.eq("direction", "inbound");
     }
-  } else {
+  } else if (view === "bozze") {
     next = next.eq("has_ai_draft", true);
   }
 
@@ -1748,8 +1769,9 @@ export async function sendWebmailBozzaAction(
     });
   }
 
+  let smtpMessageId: string | null = null;
   try {
-    await sendMailViaAccount({
+    const sent = await sendMailViaAccount({
       account: account as {
         id: string;
         email_address: string;
@@ -1768,6 +1790,7 @@ export async function sendWebmailBozzaAction(
       html: String(bozza.body_html || ""),
       attachments,
     });
+    smtpMessageId = sent.messageId;
   } catch (e) {
     return {
       success: false,
@@ -1786,6 +1809,60 @@ export async function sendWebmailBozzaAction(
       updated_by: auth.userId,
     })
     .eq("id", bozza.id);
+
+  const toList = [String(bozza.to_address ?? "").trim()].filter(Boolean);
+  let anagrafica = await matchWebmailAnagraficaRecipients(
+    service,
+    toList,
+    String(account.email_address)
+  );
+  if (bozza.messaggio_id) {
+    const { data: parent } = await service
+      .from("webmail_messaggi")
+      .select("azienda_tipo, azienda_id, azienda_label, contatto_id, link_stato")
+      .eq("id", bozza.messaggio_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (parent?.azienda_id) {
+      const tipo = String(parent.azienda_tipo ?? "");
+      anagrafica = {
+        aziendaTipo:
+          tipo === "cliente" ||
+          tipo === "fornitore" ||
+          tipo === "cliente_possibile"
+            ? tipo
+            : anagrafica.aziendaTipo,
+        aziendaId: String(parent.azienda_id),
+        aziendaLabel: String(parent.azienda_label ?? ""),
+        contattoId: parent.contatto_id ? String(parent.contatto_id) : null,
+        linkStato: "collegata",
+      };
+    }
+  }
+  await service.from("webmail_messaggi").insert({
+    account_id: bozza.account_id,
+    direction: "outbound",
+    message_uid: `compose-${randomUUID()}`,
+    message_id_header: smtpMessageId,
+    folder: WEBMAIL_SENT_FOLDER,
+    from_address: String(account.email_address),
+    from_name: "",
+    to_addresses: toList,
+    cc_addresses: [],
+    subject: String(bozza.subject ?? ""),
+    body_text: String(bozza.body_text ?? ""),
+    body_html: String(bozza.body_html || bozza.body_text || ""),
+    received_at: sentAt,
+    sent_at: sentAt,
+    is_seen: true,
+    azienda_tipo: anagrafica.aziendaTipo,
+    azienda_id: anagrafica.aziendaId,
+    azienda_label: anagrafica.aziendaLabel,
+    contatto_id: anagrafica.contattoId,
+    link_stato: anagrafica.linkStato,
+    created_by: auth.userId,
+    updated_by: auth.userId,
+  });
 
   await supabase.from("webmail_ai_elaborazioni").insert({
     messaggio_id: bozza.messaggio_id,
@@ -2765,20 +2842,37 @@ async function linkAllMessagesByEmail(input: {
 }): Promise<number> {
   const service = createServiceClient();
   const email = normalizeLookupEmail(input.email);
-  const { data } = await service
+  const patch = {
+    azienda_tipo: input.aziendaTipo,
+    azienda_id: input.aziendaId,
+    azienda_label: input.aziendaLabel,
+    contatto_id: input.contattoId,
+    link_stato: "collegata",
+    updated_by: input.actorId,
+  };
+  const ids = new Set<string>();
+  const { data: fromRows } = await service
     .from("webmail_messaggi")
-    .update({
-      azienda_tipo: input.aziendaTipo,
-      azienda_id: input.aziendaId,
-      azienda_label: input.aziendaLabel,
-      contatto_id: input.contattoId,
-      link_stato: "collegata",
-      updated_by: input.actorId,
-    })
+    .update(patch)
     .ilike("from_address", email)
     .is("deleted_at", null)
     .select("id");
-  return data?.length ?? 0;
+  for (const r of fromRows ?? []) ids.add(String(r.id));
+  const { data: toRows } = await service
+    .from("webmail_messaggi")
+    .update(patch)
+    .contains("to_addresses", [email])
+    .is("deleted_at", null)
+    .select("id");
+  for (const r of toRows ?? []) ids.add(String(r.id));
+  const { data: ccRows } = await service
+    .from("webmail_messaggi")
+    .update(patch)
+    .contains("cc_addresses", [email])
+    .is("deleted_at", null)
+    .select("id");
+  for (const r of ccRows ?? []) ids.add(String(r.id));
+  return ids.size;
 }
 
 export async function confirmWebmailAnagraficaLinkAction(raw: unknown): Promise<
@@ -2802,14 +2896,20 @@ export async function confirmWebmailAnagraficaLinkAction(raw: unknown): Promise<
   const supabase = await createClient();
   const { data: msg, error: msgErr } = await supabase
     .from("webmail_messaggi")
-    .select("id, from_address")
+    .select("id, from_address, to_addresses, direction")
     .eq("id", parsed.data.messaggioId)
     .is("deleted_at", null)
     .maybeSingle();
   if (msgErr || !msg) {
     return { success: false, error: msgErr?.message ?? "Messaggio non trovato." };
   }
-  const email = String(msg.from_address ?? "");
+  const toFirst = Array.isArray(msg.to_addresses)
+    ? String(msg.to_addresses[0] ?? "")
+    : "";
+  const email =
+    String(msg.direction ?? "") === "outbound"
+      ? toFirst || String(msg.from_address ?? "")
+      : String(msg.from_address ?? "");
   const contattoId = parsed.data.contattoId ?? null;
 
   const linked = await linkWebmailMessaggioAnagraficaAction({
@@ -3491,8 +3591,9 @@ export async function sendWebmailNuovaMailAction(
     return { success: false, error: accErr?.message ?? "Casella non trovata." };
   }
 
+  let smtpMessageId: string | null = null;
   try {
-    await sendMailViaAccount({
+    const sent = await sendMailViaAccount({
       account: account as {
         id: string;
         email_address: string;
@@ -3510,6 +3611,7 @@ export async function sendWebmailNuovaMailAction(
       subject: d.subject,
       text: d.bodyText,
     });
+    smtpMessageId = sent.messageId;
   } catch (e) {
     return {
       success: false,
@@ -3519,14 +3621,19 @@ export async function sendWebmailNuovaMailAction(
 
   const sentAt = new Date().toISOString();
   const uid = `compose-${randomUUID()}`;
+  const anagrafica = await matchWebmailAnagraficaRecipients(
+    service,
+    [...toList, ...ccList],
+    String(account.email_address)
+  );
   const { data: inserted, error: insErr } = await service
     .from("webmail_messaggi")
     .insert({
       account_id: d.accountId,
       direction: "outbound",
       message_uid: uid,
-      message_id_header: null,
-      folder: "SENT",
+      message_id_header: smtpMessageId,
+      folder: WEBMAIL_SENT_FOLDER,
       from_address: String(account.email_address),
       from_name: "",
       to_addresses: toList,
@@ -3537,6 +3644,11 @@ export async function sendWebmailNuovaMailAction(
       received_at: sentAt,
       sent_at: sentAt,
       is_seen: true,
+      azienda_tipo: anagrafica.aziendaTipo,
+      azienda_id: anagrafica.aziendaId,
+      azienda_label: anagrafica.aziendaLabel,
+      contatto_id: anagrafica.contattoId,
+      link_stato: anagrafica.linkStato,
       created_by: auth.userId,
       updated_by: auth.userId,
     })

@@ -56,7 +56,7 @@ export function WebmailComposeForm({
       setSubject("");
       setBodyText("");
       setTranslation(null);
-      router.push(`/app/webmail/caselle/${accountId}/in-arrivo`);
+      router.push(`/app/webmail/caselle/${accountId}/inviati`);
       router.refresh();
     });
   }

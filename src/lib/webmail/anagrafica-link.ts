@@ -11,10 +11,14 @@ export type WebmailAnagraficaMatch = {
   linkStato: WebmailLinkStato;
 };
 
-function normalizeEmail(raw: string): string {
+export function normalizeWebmailEmail(raw: string): string {
   const t = raw.trim().toLowerCase();
   const angled = t.match(/<([^>]+@[^>]+)>/);
   return (angled?.[1] ?? t).trim();
+}
+
+function normalizeEmail(raw: string): string {
+  return normalizeWebmailEmail(raw);
 }
 
 /**
@@ -153,6 +157,42 @@ export async function matchWebmailAnagrafica(
   }
 
   return { ...empty, linkStato: "da_salvare" };
+}
+
+/**
+ * Per mail in uscita: primo destinatario (To, poi Cc) che matcha anagrafica.
+ */
+export async function matchWebmailAnagraficaRecipients(
+  supabase: SupabaseClient,
+  addresses: string[],
+  skipEmail?: string | null
+): Promise<WebmailAnagraficaMatch> {
+  const skip = skipEmail ? normalizeEmail(skipEmail) : "";
+  const seen = new Set<string>();
+  let fallback: WebmailAnagraficaMatch | null = null;
+  for (const raw of addresses) {
+    const email = normalizeEmail(raw);
+    if (!email || !email.includes("@") || email === skip || seen.has(email)) {
+      continue;
+    }
+    seen.add(email);
+    const match = await matchWebmailAnagrafica(supabase, email);
+    if (match.linkStato === "collegata" && match.aziendaId) {
+      return match;
+    }
+    if (!fallback && (match.aziendaId || match.contattoId)) {
+      fallback = match;
+    }
+  }
+  return (
+    fallback ?? {
+      aziendaTipo: null,
+      aziendaId: null,
+      aziendaLabel: "",
+      contattoId: null,
+      linkStato: "da_salvare",
+    }
+  );
 }
 
 /** Mappa intent AI → codice categoria UI hub. */

@@ -13,6 +13,7 @@ export type WebmailCasellaFolder =
   | { kind: "categoria"; view: Extract<WebmailMailboxView, "categoria">; categoriaId: string }
   | { kind: "bozze"; view: Extract<WebmailMailboxView, "bozze">; categoriaId: null }
   | { kind: "spam"; view: Extract<WebmailMailboxView, "spam">; categoriaId: null }
+  | { kind: "inviati"; view: Extract<WebmailMailboxView, "inviati">; categoriaId: null }
   | { kind: "cestino"; view: Extract<WebmailMailboxView, "cestino">; categoriaId: null }
   | { kind: "nuova"; view: null; categoriaId: null };
 
@@ -30,6 +31,9 @@ export function parseWebmailCasellaFolder(
   }
   if (raw === `${base}/spam`) {
     return { kind: "spam", view: "spam", categoriaId: null };
+  }
+  if (raw === `${base}/inviati`) {
+    return { kind: "inviati", view: "inviati", categoriaId: null };
   }
   if (raw === `${base}/cestino`) {
     return { kind: "cestino", view: "cestino", categoriaId: null };

@@ -182,7 +182,9 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
   if (!grantedIds || grantedIds.length > 0) {
     let mailQ = service
       .from("webmail_messaggi")
-      .select("id, subject, from_address, from_name, received_at")
+      .select(
+        "id, subject, from_address, from_name, to_addresses, received_at, sent_at, direction"
+      )
       .eq("azienda_tipo", aziendaTipo)
       .eq("azienda_id", aziendaId)
       .is("deleted_at", null)
@@ -191,14 +193,23 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     if (grantedIds) mailQ = mailQ.in("account_id", grantedIds);
     const { data } = await mailQ;
     for (const r of data ?? []) {
-      const when = (r.received_at as string | null) ?? null;
+      const outbound = String(r.direction ?? "") === "outbound";
+      const when =
+        (outbound
+          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
+          : (r.received_at as string | null)) ?? null;
       if (!when) continue;
+      const toFirst = Array.isArray(r.to_addresses)
+        ? String(r.to_addresses[0] ?? "")
+        : "";
       pushSorted(items, {
         id: `webmail:${r.id}`,
         kind: "webmail",
         occurredAt: when,
         title: String(r.subject ?? "(senza oggetto)"),
-        subtitle: `Mail da ${r.from_name || r.from_address || "—"}`,
+        subtitle: outbound
+          ? `Mail inviata a ${toFirst || "—"}`
+          : `Mail da ${r.from_name || r.from_address || "—"}`,
         sourceId: String(r.id),
         href: "/app/webmail/caselle",
       });
@@ -549,6 +560,8 @@ export type AziendaTimelineMailHit = {
   subject: string;
   fromAddress: string;
   fromName: string;
+  toAddresses: string[];
+  direction: "inbound" | "outbound";
   receivedAt: string | null;
   alreadyLinked: boolean;
   matchReason: string;
@@ -601,11 +614,19 @@ export async function searchWebmailForAziendaTimelineAction(
   const manual = normalizeEmail(emailQuery);
 
   const orParts: string[] = [];
+  function pushToContains(addr: string) {
+    const clean = addr.replace(/[{}"]/g, "").trim();
+    if (!clean) return;
+    orParts.push(`to_addresses.cs.{"${clean}"}`);
+    orParts.push(`cc_addresses.cs.{"${clean}"}`);
+  }
   if (manual) {
     orParts.push(`from_address.ilike.%${manual}%`);
+    pushToContains(manual);
   } else {
     for (const e of hints.emails) {
       orParts.push(`from_address.ilike.%${e.email}%`);
+      pushToContains(e.email);
     }
     for (const d of hints.domains) {
       orParts.push(`from_address.ilike.%@${d}%`);
@@ -620,7 +641,7 @@ export async function searchWebmailForAziendaTimelineAction(
   let mailQ = supabase
     .from("webmail_messaggi")
     .select(
-      "id, subject, from_address, from_name, received_at, azienda_tipo, azienda_id"
+      "id, subject, from_address, from_name, to_addresses, direction, received_at, sent_at, azienda_tipo, azienda_id"
     )
     .is("deleted_at", null)
     .or(orParts.join(","))
@@ -636,11 +657,19 @@ export async function searchWebmailForAziendaTimelineAction(
 
   const items: AziendaTimelineMailHit[] = (data ?? []).map((r) => {
     const from = normalizeEmail(String(r.from_address ?? ""));
+    const toList = Array.isArray(r.to_addresses)
+      ? (r.to_addresses as string[]).map((x) => normalizeEmail(String(x)))
+      : [];
+    const outbound = String(r.direction ?? "") === "outbound";
     const dom = domainOf(from);
+    const toDom = toList.map(domainOf).find(Boolean);
     let matchReason = "ricerca";
-    if (manual && from.includes(manual)) matchReason = "indirizzo cercato";
-    else if (emailSet.has(from)) matchReason = "scheda / referente";
-    else if (dom && domainSet.has(dom)) matchReason = `dominio @${dom}`;
+    if (manual && (from.includes(manual) || toList.some((t) => t.includes(manual)))) {
+      matchReason = outbound ? "destinatario cercato" : "indirizzo cercato";
+    } else if (emailSet.has(from) || toList.some((t) => emailSet.has(t))) {
+      matchReason = outbound ? "destinatario scheda" : "scheda / referente";
+    } else if (dom && domainSet.has(dom)) matchReason = `dominio @${dom}`;
+    else if (toDom && domainSet.has(toDom)) matchReason = `dominio @${toDom}`;
 
     const alreadyLinked =
       String(r.azienda_tipo ?? "") === aziendaTipo &&
@@ -651,7 +680,12 @@ export async function searchWebmailForAziendaTimelineAction(
       subject: String(r.subject ?? "(senza oggetto)"),
       fromAddress: String(r.from_address ?? ""),
       fromName: String(r.from_name ?? ""),
-      receivedAt: (r.received_at as string | null) ?? null,
+      toAddresses: toList,
+      direction: outbound ? "outbound" : "inbound",
+      receivedAt:
+        (outbound
+          ? ((r.sent_at as string | null) ?? (r.received_at as string | null))
+          : (r.received_at as string | null)) ?? null,
       alreadyLinked,
       matchReason,
     };

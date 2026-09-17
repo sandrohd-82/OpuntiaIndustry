@@ -13,6 +13,7 @@ import {
   FaTrashCan,
   FaFolderOpen,
   FaBan,
+  FaShare,
 } from "react-icons/fa6";
 import {
   listWebmailCategorieAction,
@@ -116,9 +117,11 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
   const [counts, setCounts] = useState<WebmailUnreadCounts>({
     inbox: 0,
     spam: 0,
+    sent: 0,
     byCategoriaId: {},
     inboxTotal: 0,
     spamTotal: 0,
+    sentTotal: 0,
     byCategoriaTotal: {},
   });
 
@@ -211,6 +214,26 @@ export function WebmailAccountFolderNav({ accountId, accountLabel }: Props) {
             unread={counts.inbox}
             total={counts.inboxTotal}
             color="#10b981"
+          />
+        </Link>
+
+        <Link
+          href={`${base}/inviati`}
+          className={`${navItemClass(pathname === `${base}/inviati`)} justify-between`}
+        >
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <FaShare
+              size={13}
+              className={
+                pathname === `${base}/inviati` ? "text-white" : "text-sky-700"
+              }
+            />
+            <span className="truncate">Inviati</span>
+          </span>
+          <CategoryCountPill
+            unread={counts.sent}
+            total={counts.sentTotal}
+            color="#0369a1"
           />
         </Link>
 

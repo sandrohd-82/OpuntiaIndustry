@@ -883,6 +883,8 @@ export function WebmailBoard({
             ? "Mail eliminate (soft delete). Puoi ripristinarle nel gestionale."
             : view === "spam"
               ? "Mail in Spam (casella e, se presente, cartella Junk IMAP). Puoi ripristinarle in In arrivo."
+              : view === "inviati"
+                ? "Mail inviate da questa casella (gestionale e cartella IMAP Inviate). Comparono in timeline se il destinatario è collegato."
               : view === "inbox"
               ? "In arrivo: messaggi senza categoria. Spostali in una categoria quando li classifichi."
               : view === "bozze"
@@ -1179,7 +1181,9 @@ export function WebmailBoard({
                 >
                   Non è spam
                 </button>
-              ) : view !== "cestino" && view !== "archiviate" ? (
+              ) : view !== "cestino" &&
+                view !== "archiviate" &&
+                view !== "inviati" ? (
                 <button
                   type="button"
                   disabled={pending}
@@ -1304,8 +1308,10 @@ export function WebmailBoard({
                         </div>
                       </div>
                       <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
-                        {m.fromName || m.fromAddress} ·{" "}
-                        {formatWhen(m.receivedAt)}
+                        {view === "inviati" || m.direction === "outbound"
+                          ? `A ${m.toAddresses[0] || "—"}`
+                          : m.fromName || m.fromAddress}{" "}
+                        · {formatWhen(m.sentAt || m.receivedAt)}
                       </p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {cat ? (
@@ -1349,7 +1355,9 @@ export function WebmailBoard({
                 }`}
               >
                 <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Mail ricevuta
+                  {selected.direction === "outbound"
+                    ? "Mail inviata"
+                    : "Mail ricevuta"}
                 </h3>
                 <p className="mt-2 font-semibold text-slate-900">
                   {selected.subject}
@@ -1357,8 +1365,10 @@ export function WebmailBoard({
                 <div className="mt-0.5">
                   <div className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                     <span className="min-w-0 truncate">
-                      Da {selected.fromName || selected.fromAddress} ·{" "}
-                      {formatWhen(selected.receivedAt)}
+                      {selected.direction === "outbound"
+                        ? `A ${selected.toAddresses.join(", ") || "—"}`
+                        : `Da ${selected.fromName || selected.fromAddress}`}{" "}
+                      · {formatWhen(selected.sentAt || selected.receivedAt)}
                     </span>
                     <WithInfoNuvola info={MAIL_INFO.headers}>
                     <button
