@@ -2286,17 +2286,28 @@ export function MagazzinoMappaBoard({
                     y={a.y}
                     width={a.width}
                     height={a.height}
-                    fill={sel ? "rgba(13,148,136,0.22)" : "rgba(13,148,136,0.10)"}
-                    stroke={sel ? "#0f766e" : "#0d9488"}
-                    strokeWidth={Math.max(1.2, 2 / zoom)}
+                    fill={sel ? "rgba(234,88,12,0.42)" : "rgba(13,148,136,0.10)"}
+                    stroke={sel ? "#c2410c" : "#0d9488"}
+                    strokeWidth={sel ? Math.max(3.5, 5 / zoom) : Math.max(1.2, 2 / zoom)}
                   />
+                  {sel ? (
+                    <rect
+                      x={a.x + 3 / zoom}
+                      y={a.y + 3 / zoom}
+                      width={Math.max(0, a.width - 6 / zoom)}
+                      height={Math.max(0, a.height - 6 / zoom)}
+                      fill="none"
+                      stroke="#fff7ed"
+                      strokeWidth={Math.max(1.4, 2.2 / zoom)}
+                    />
+                  ) : null}
                   <g pointerEvents="none">
                     <text
                       x={cx}
                       y={cy}
                       textAnchor="middle"
                       dominantBaseline="central"
-                      fill="#134e4a"
+                      fill={sel ? "#7c2d12" : "#134e4a"}
                       fontSize={fontSize}
                       fontWeight={700}
                     >
@@ -2308,7 +2319,7 @@ export function MagazzinoMappaBoard({
                         y={cy + fontSize * 0.7}
                         textAnchor="middle"
                         dominantBaseline="hanging"
-                        fill="#0f766e"
+                        fill={sel ? "#9a3412" : "#0f766e"}
                         fontSize={Math.min(fontSize * 0.35, 14)}
                       >
                         {kids.map((k) => k.codice).join(" · ")}

@@ -66,7 +66,7 @@ export function ElencoAreeMappa({
                   key={a.id}
                   onClick={() => onSelect(a.id)}
                   className={`cursor-pointer border-t border-[var(--border)] ${
-                    sel ? "bg-teal-100/80" : "hover:bg-slate-50"
+                    sel ? "bg-orange-200" : "hover:bg-slate-50"
                   }`}
                 >
                   <td className="px-3 py-1.5 font-medium">{a.codice}</td>
