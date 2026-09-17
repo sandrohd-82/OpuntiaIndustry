@@ -216,7 +216,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Pianta del magazzino. In alto e a sinistra del foglio c’è un righello numerato. Per il rettangolo: primo click = partenza, secondo click = senso, poi le misure nei campi o con altri click. I colori si scelgono dalla palette o da un colore libero. Ogni linea ha pallini a un quarto, a metà e a tre quarti. Qui non si spostano ancora i lotti.",
+      text: "Elenco delle piante già collegate (Nome magazzino [Vista]). Il disegno si fa in Strumenti → Editor di aree: le bozze salvate non si cancellano; «Collega ad area» le pubblica qui.",
+    },
+  ],
+  "/app/strumenti/editor-aree": [
+    {
+      type: "p",
+      text: "Editor di aree. Ogni salvataggio è una bozza e resta in elenco. Quando è pronta, collegala a Magazzino → Mappa Magazzino → Nome [Vista]. Rettangolo: primo click partenza, secondo click senso, poi le misure. Righelli e palette colori aiutano il tracciato.",
     },
   ],
   "/app/magazzino/panoramica": [

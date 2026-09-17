@@ -39,6 +39,12 @@ export const STRUMENTI_SECTIONS: readonly NavItem[] = [
     description: "Barcode già associati alle schede prodotti fornitore",
     path: "/app/strumenti/barcode-prodotti",
   },
+  {
+    slug: "editor-aree",
+    label: "Editor di aree",
+    description: "Disegna le piante e collegale a Magazzino → Mappa Magazzino",
+    path: "/app/strumenti/editor-aree",
+  },
 ];
 
 export function getFirstStrumentiPath(): string {

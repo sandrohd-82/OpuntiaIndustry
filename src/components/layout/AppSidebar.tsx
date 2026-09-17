@@ -51,7 +51,12 @@ import { ORDINI_DA_PROCESSARE_NAV_EVENT } from "@/lib/amministrazione/ordini-nav
 import { countUnreadNotificheAction } from "@/app/actions/notifiche";
 import { NOTIFICHE_NAV_EVENT } from "@/lib/notifiche/nav-event";
 import { createClient } from "@/lib/supabase/client";
-import { MAGAZZINO_SECTIONS } from "@/lib/areas/magazzino";
+import {
+  MAGAZZINO_MAPPE_NAV_EVENT,
+  MAGAZZINO_SECTIONS,
+  mergeMagazzinoNavWithMappe,
+} from "@/lib/areas/magazzino";
+import { listMappeCollegateAction } from "@/app/actions/magazzino-mappa";
 import {
   mergeProduzioneNavWithAree,
   PRODUZIONE_AREE_NAV_EVENT,
@@ -127,7 +132,8 @@ function sortAreasForSidebar(areas: UserArea[]) {
 function sectionsForArea(
   slug: AreaSlug,
   produzioneSections: readonly NavItem[] = PRODUZIONE_SECTIONS,
-  archivioSections: readonly NavItem[] | null = null
+  archivioSections: readonly NavItem[] | null = null,
+  magazzinoSections: readonly NavItem[] = MAGAZZINO_SECTIONS
 ): readonly NavItem[] | null {
   switch (slug) {
     case "produzione":
@@ -141,7 +147,7 @@ function sectionsForArea(
     case "wikiopuntia":
       return null;
     case "magazzino":
-      return MAGAZZINO_SECTIONS;
+      return magazzinoSections;
     case "commerciale":
       return COMMERCIALE_SECTIONS;
     case "amministrazione":
@@ -512,6 +518,8 @@ export function AppSidebar({
   const pathname = usePathname();
   const [produzioneNav, setProduzioneNav] =
     useState<readonly NavItem[]>(PRODUZIONE_SECTIONS);
+  const [magazzinoNav, setMagazzinoNav] =
+    useState<readonly NavItem[]>(MAGAZZINO_SECTIONS);
   const [archivioNav, setArchivioNav] = useState<readonly NavItem[]>(() =>
     filterArchivioNavByAccess(areas)
   );
@@ -624,6 +632,28 @@ export function AppSidebar({
     };
   }, [hasPn, userId]);
 
+  const hasMagazzino = areas.some((a) => a.slug === "magazzino");
+  useEffect(() => {
+    if (!hasMagazzino) return;
+    let cancelled = false;
+    function loadNav() {
+      void listMappeCollegateAction()
+        .then((res) => {
+          if (cancelled || !res.success) return;
+          setMagazzinoNav(mergeMagazzinoNavWithMappe(res.items));
+        })
+        .catch(() => {
+          /* menu statico di fallback */
+        });
+    }
+    loadNav();
+    window.addEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(MAGAZZINO_MAPPE_NAV_EVENT, loadNav);
+    };
+  }, [hasMagazzino]);
+
   const hasProduzione = areas.some((a) => a.slug === "produzione");
   useEffect(() => {
     if (!hasProduzione) return;
@@ -718,7 +748,12 @@ export function AppSidebar({
       }
       if (areaSlug) {
         addUnlessClosed(areaSlug);
-        const sections = sectionsForArea(areaSlug, produzioneNav, archivioNav);
+        const sections = sectionsForArea(
+          areaSlug,
+          produzioneNav,
+          archivioNav,
+          magazzinoNav
+        );
         if (sections) {
           for (const key of openKeysFromPathname(sections, pathname, [
             areaSlug,
@@ -729,7 +764,7 @@ export function AppSidebar({
       }
       return next;
     });
-  }, [pathname, webSections, produzioneNav, archivioNav, userClosed]);
+  }, [pathname, webSections, produzioneNav, archivioNav, magazzinoNav, userClosed]);
 
   function toggle(...keys: string[]) {
     const isOpen = keys.some((k) => openKeys.has(k));
@@ -778,7 +813,7 @@ export function AppSidebar({
   function toneChildrenForArea(slug: AreaSlug): readonly NavItem[] {
     if (slug === "chat") return CHAT_SECTIONS;
     if (slug === "webmail") return WEBMAIL_SECTIONS;
-    return sectionsForArea(slug, produzioneNav, archivioNav) ?? [];
+    return sectionsForArea(slug, produzioneNav, archivioNav, magazzinoNav) ?? [];
   }
 
   return (
@@ -917,7 +952,8 @@ export function AppSidebar({
             const treeSectionsRaw = sectionsForArea(
               area.slug,
               produzioneNav,
-              archivioNav
+              archivioNav,
+              magazzinoNav
             );
             const treeSectionsFiltered = treeSectionsRaw
               ? filterNavByAdminOnly(

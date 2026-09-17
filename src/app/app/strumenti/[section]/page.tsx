@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratoreBoard";
 import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
+import { EditorAreeBoard } from "@/components/magazzino/EditorAreeBoard";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { LottiEsterniBoard } from "@/components/produzione/LottiEsterniBoard";
 import { LottoEsternoDecoderBoard } from "@/components/produzione/LottoEsternoDecoderBoard";
@@ -30,6 +31,7 @@ export default async function StrumentiSectionPage({ params }: Props) {
         {section === "barcode-prodotti" ? (
           <BarcodeRegistratiBoard catalogKind="prodotto_fornitore" />
         ) : null}
+        {section === "editor-aree" ? <EditorAreeBoard /> : null}
       </div>
     </>
   );

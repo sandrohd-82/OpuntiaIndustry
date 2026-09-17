@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
-  approvaMappaMagazzinoAction,
-  getMappaMagazzinoAction,
+  collegaMappaAdAreaAction,
+  getMappaByIdAction,
   riapriProgettazioneMappaAction,
   salvaMappaMagazzinoAction,
 } from "@/app/actions/magazzino-mappa";
+import { MAGAZZINO_MAPPE_NAV_EVENT } from "@/lib/areas/magazzino";
 import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
 import {
@@ -90,7 +92,13 @@ const FOGLIO_PAD_X = 16;
 const FOGLIO_PAD_TOP = 16;
 const FOGLIO_PAD_BOTTOM = 52;
 
-export function MagazzinoMappaBoard() {
+export function MagazzinoMappaBoard({
+  mappaId,
+  mode = "editor",
+}: {
+  mappaId: string;
+  mode?: "editor" | "lettura";
+}) {
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasWrapRef = useRef<HTMLDivElement>(null);
   const svgWrapRef = useRef<HTMLDivElement>(null);
@@ -101,6 +109,8 @@ export function MagazzinoMappaBoard() {
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
+  const [nomePianta, setNomePianta] = useState("");
+  const [luogoNome, setLuogoNome] = useState("");
   const [vistaEtichetta, setVistaEtichetta] = useState("");
   const [scalaValore, setScalaValore] = useState(10);
   const [scalaUnita, setScalaUnita] = useState<MappaScalaUnita>("cm");
@@ -124,21 +134,25 @@ export function MagazzinoMappaBoard() {
   const [saving, setSaving] = useState(false);
   const foglioFitKey = useRef("");
 
-  const editing = Boolean(canDesign && mappa?.documentoStato === "bozza");
+  const editing = Boolean(
+    mode === "editor" && canDesign && mappa?.documentoStato === "bozza"
+  );
   const vistaOk = vistaEtichetta.trim().length > 0;
   const canDraw = editing && vistaOk;
   const scalaOk = scalaValore > 0;
 
   async function reload() {
-    const res = await getMappaMagazzinoAction();
+    const res = await getMappaByIdAction(mappaId);
     if (!res.success) {
       setError(res.error);
       setMappa(null);
       return;
     }
     setMappa(res.mappa);
-    setCanDesign(res.canDesign);
+    setCanDesign(mode === "editor" && res.canDesign);
     setLinee(res.mappa.linee);
+    setNomePianta(res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
@@ -147,8 +161,9 @@ export function MagazzinoMappaBoard() {
   }
 
   useEffect(() => {
+    setReady(false);
     void reload().finally(() => setReady(true));
-  }, []);
+  }, [mappaId]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -701,6 +716,7 @@ export function MagazzinoMappaBoard() {
     const persisted = new Set(mappa.linee.map((l) => l.id));
     const res = await salvaMappaMagazzinoAction({
       mappaId: mappa.id,
+      nome: nomePianta.trim() || mappa.nome,
       vistaEtichetta: vistaEtichetta.trim(),
       scalaValore,
       scalaUnita,
@@ -726,10 +742,12 @@ export function MagazzinoMappaBoard() {
     }
     setMappa(res.mappa);
     setLinee(res.mappa.linee);
+    setNomePianta(res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome);
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
-    setOk("Pianta salvata.");
+    setOk("Bozza salvata. Le altre bozze restano in elenco.");
     return true;
   }
 
@@ -737,17 +755,26 @@ export function MagazzinoMappaBoard() {
     await persist();
   }
 
-  async function approva() {
+  async function collega() {
     if (!mappa) return;
     const okSave = await persist();
     if (!okSave) return;
-    const res = await approvaMappaMagazzinoAction(mappa.id);
+    const res = await collegaMappaAdAreaAction({
+      mappaId: mappa.id,
+      luogoNome: luogoNome.trim(),
+      vistaEtichetta: vistaEtichetta.trim(),
+    });
     if (!res.success) {
       setError(res.error);
       return;
     }
     setMappa(res.mappa);
-    setOk("Pianta approvata.");
+    setLuogoNome(res.mappa.luogoNome);
+    setVistaEtichetta(res.mappa.vistaEtichetta);
+    setOk(
+      `Collegata a Magazzino > Mappa Magazzino > ${res.mappa.luogoNome} [${res.mappa.vistaEtichetta}].`
+    );
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
   }
 
   async function riapri() {
@@ -758,7 +785,8 @@ export function MagazzinoMappaBoard() {
       return;
     }
     setMappa(res.mappa);
-    setOk(`Progettazione riaperta (v${res.mappa.versione}).`);
+    setOk(`Progettazione riaperta (v${res.mappa.versione}). La pianta esce dal menu Magazzino finché non la colleghi di nuovo.`);
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
   }
 
   const gridPatternId = "mappa-grid";
@@ -865,8 +893,19 @@ export function MagazzinoMappaBoard() {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">
+            {mode === "editor" ? (
+              <Link
+                href="/app/strumenti/editor-aree"
+                className="mr-2 text-teal-800 hover:underline"
+              >
+                Elenco bozze
+              </Link>
+            ) : null}
             {mappa.nome} · v{mappa.versione} ·{" "}
             {MAPPA_STATO_LABEL[mappa.documentoStato]}
+            {mappa.luogoNome && mappa.vistaEtichetta
+              ? ` · ${mappa.luogoNome} [${mappa.vistaEtichetta}]`
+              : ""}
           </p>
           <p className="text-xs text-[var(--muted)]">
             {vistaOk ? (
@@ -889,7 +928,7 @@ export function MagazzinoMappaBoard() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canDesign && mappa.documentoStato === "approvato" ? (
+          {mode === "editor" && canDesign && mappa.documentoStato === "approvato" ? (
             <button
               type="button"
               onClick={() => void riapri()}
@@ -906,15 +945,15 @@ export function MagazzinoMappaBoard() {
                 onClick={() => void salva()}
                 className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
               >
-                {saving ? "Salvataggio…" : "Salva pianta e vista"}
+                {saving ? "Salvataggio…" : "Salva bozza"}
               </button>
               <button
                 type="button"
-                disabled={saving || !vistaOk || !scalaOk}
-                onClick={() => void approva()}
+                disabled={saving || !vistaOk || !scalaOk || !luogoNome.trim()}
+                onClick={() => void collega()}
                 className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
               >
-                Approva pianta
+                Collega ad area
               </button>
             </>
           ) : null}
@@ -923,6 +962,29 @@ export function MagazzinoMappaBoard() {
 
       {editing ? (
         <div className="max-h-[42%] shrink-0 space-y-3 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-xs font-medium">
+              Nome bozza
+              <input
+                type="text"
+                value={nomePianta}
+                onChange={(e) => setNomePianta(e.target.value)}
+                maxLength={120}
+                className="mt-1 w-full rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+            <label className="block text-xs font-medium">
+              Nome magazzino (area)
+              <input
+                type="text"
+                value={luogoNome}
+                onChange={(e) => setLuogoNome(e.target.value)}
+                placeholder="Es. Agrinsicilia"
+                maxLength={120}
+                className="mt-1 w-full rounded border border-[var(--border)] px-2 py-1.5 text-sm"
+              />
+            </label>
+          </div>
           <div>
             <label className="block text-xs font-medium">
               Vista

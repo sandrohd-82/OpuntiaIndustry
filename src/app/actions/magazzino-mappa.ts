@@ -1,17 +1,24 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
-import { requireAreaAccess } from "@/lib/areas/guard";
+import { requireAnyAreaAccess, requireAreaAccess } from "@/lib/areas/guard";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import {
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_STATI,
+  collegaMappaSchema,
+  creaMappaBozzaSchema,
+  etichettaMappaCollegata,
   normalizzaColoreLinea,
   parseScalaUnita,
   salvaMappaSchema,
+  slugMappaArea,
+  type CollegaMappaInput,
   type MappaDocumentoStato,
+  type MappaElencoItem,
   type MappaLinea,
   type MappaMagazzino,
+  type MappaNavItem,
   type SalvaMappaInput,
 } from "@/lib/magazzino/mappa";
 import { createClient } from "@/lib/supabase/server";
@@ -48,15 +55,60 @@ function parseStato(v: string): MappaDocumentoStato {
     : "bozza";
 }
 
+type HeaderRow = {
+  id: string;
+  nome: string;
+  versione: number;
+  documento_stato: string;
+  area_codice?: string | null;
+  luogo_nome?: string | null;
+  slug?: string | null;
+  vista_etichetta: string;
+  scala_valore: number | string;
+  scala_unita: string;
+  view_x: number;
+  view_y: number;
+  view_zoom: number;
+  griglia_px: number;
+  note: string;
+  approved_at: string | null;
+  collegata_at?: string | null;
+  updated_at?: string;
+};
+
+function mapHeader(h: HeaderRow, linee: MappaLinea[]): MappaMagazzino {
+  return {
+    id: h.id,
+    nome: h.nome,
+    versione: h.versione,
+    documentoStato: parseStato(h.documento_stato),
+    areaCodice: h.area_codice || "magazzino",
+    luogoNome: h.luogo_nome ?? "",
+    slug: h.slug ?? null,
+    vistaEtichetta: h.vista_etichetta ?? "",
+    scalaValore: Number(h.scala_valore) > 0 ? Number(h.scala_valore) : 10,
+    scalaUnita: parseScalaUnita(h.scala_unita),
+    viewX: Number(h.view_x),
+    viewY: Number(h.view_y),
+    viewZoom: Number(h.view_zoom),
+    grigliaPx: Number(h.griglia_px),
+    note: h.note ?? "",
+    approvedAt: h.approved_at,
+    collegataAt: h.collegata_at ?? null,
+    linee,
+  };
+}
+
+const HEADER_SELECT =
+  "id, nome, versione, documento_stato, area_codice, luogo_nome, slug, vista_etichetta, scala_valore, scala_unita, view_x, view_y, view_zoom, griglia_px, note, approved_at, collegata_at, updated_at";
+
 async function loadMappa(
   supabase: Awaited<ReturnType<typeof createClient>>,
   id: string
 ): Promise<MappaMagazzino | null> {
   const { data: header } = await supabase
     .from("magazzino_mappe")
-    .select(
-      "id, nome, versione, documento_stato, vista_etichetta, scala_valore, scala_unita, view_x, view_y, view_zoom, griglia_px, note, approved_at"
-    )
+    .select(HEADER_SELECT)
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -67,83 +119,180 @@ async function loadMappa(
     .eq("mappa_id", id)
     .is("deleted_at", null)
     .order("sort_order", { ascending: true });
-  const h = header as {
-    id: string;
-    nome: string;
-    versione: number;
-    documento_stato: string;
-    vista_etichetta: string;
-    scala_valore: number | string;
-    scala_unita: string;
-    view_x: number;
-    view_y: number;
-    view_zoom: number;
-    griglia_px: number;
-    note: string;
-    approved_at: string | null;
-  };
-  return {
-    id: h.id,
-    nome: h.nome,
-    versione: h.versione,
-    documentoStato: parseStato(h.documento_stato),
-    vistaEtichetta: h.vista_etichetta ?? "",
-    scalaValore: Number(h.scala_valore) > 0 ? Number(h.scala_valore) : 10,
-    scalaUnita: parseScalaUnita(h.scala_unita),
-    viewX: Number(h.view_x),
-    viewY: Number(h.view_y),
-    viewZoom: Number(h.view_zoom),
-    grigliaPx: Number(h.griglia_px),
-    note: h.note ?? "",
-    approvedAt: h.approved_at,
-    linee: ((linee ?? []) as Parameters<typeof mapLinea>[0][]).map(mapLinea),
-  };
+  return mapHeader(
+    header as HeaderRow,
+    ((linee ?? []) as Parameters<typeof mapLinea>[0][]).map(mapLinea)
+  );
 }
 
-export async function getMappaMagazzinoAction(): Promise<
+async function slugLibero(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  base: string,
+  excludeId?: string
+): Promise<string> {
+  let slug = base;
+  for (let i = 0; i < 20; i += 1) {
+    let q = supabase
+      .from("magazzino_mappe")
+      .select("id")
+      .eq("slug", slug)
+      .is("deleted_at", null);
+    if (excludeId) q = q.neq("id", excludeId);
+    const { data } = await q.maybeSingle();
+    if (!data) return slug;
+    slug = `${base}-${i + 2}`;
+  }
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+export async function listMappeEditorAction(): Promise<
+  | { success: true; items: MappaElencoItem[]; canDesign: boolean }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAnyAreaAccess(["strumenti", "magazzino"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_mappe")
+    .select(
+      "id, nome, versione, documento_stato, luogo_nome, slug, vista_etichetta, updated_at"
+    )
+    .is("deleted_at", null)
+    .order("updated_at", { ascending: false });
+  if (error) return { success: false, error: error.message };
+  const items: MappaElencoItem[] = (
+    (data ?? []) as {
+      id: string;
+      nome: string;
+      versione: number;
+      documento_stato: string;
+      luogo_nome: string | null;
+      slug: string | null;
+      vista_etichetta: string;
+      updated_at: string;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    nome: r.nome,
+    versione: r.versione,
+    documentoStato: parseStato(r.documento_stato),
+    luogoNome: r.luogo_nome ?? "",
+    slug: r.slug,
+    vistaEtichetta: r.vista_etichetta ?? "",
+    updatedAt: r.updated_at,
+  }));
+  return { success: true, items, canDesign: canProgettare(auth.profile) };
+}
+
+export async function listMappeCollegateAction(): Promise<
+  | { success: true; items: MappaNavItem[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_mappe")
+    .select("slug, luogo_nome, vista_etichetta")
+    .is("deleted_at", null)
+    .eq("documento_stato", "approvato")
+    .neq("luogo_nome", "")
+    .not("slug", "is", null)
+    .order("luogo_nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const items: MappaNavItem[] = (
+    (data ?? []) as {
+      slug: string | null;
+      luogo_nome: string;
+      vista_etichetta: string;
+    }[]
+  )
+    .filter((r) => r.slug)
+    .map((r) => ({
+      slug: r.slug!,
+      luogoNome: r.luogo_nome,
+      vistaEtichetta: r.vista_etichetta,
+    }));
+  return { success: true, items };
+}
+
+export async function getMappaByIdAction(
+  mappaId: string
+): Promise<
   | { success: true; mappa: MappaMagazzino; canDesign: boolean }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("magazzino");
-  const canDesign = canProgettare(auth.profile);
+  const { auth } = await requireAnyAreaAccess(["strumenti", "magazzino"]);
   const supabase = await createClient();
-  const { data: existing, error } = await supabase
+  const mappa = await loadMappa(supabase, mappaId);
+  if (!mappa) return { success: false, error: "Pianta non trovata." };
+  return { success: true, mappa, canDesign: canProgettare(auth.profile) };
+}
+
+export async function getMappaBySlugAction(
+  slug: string
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  await requireAreaAccess("magazzino");
+  const clean = slug.trim();
+  if (!clean) return { success: false, error: "Percorso pianta non valido." };
+  const supabase = await createClient();
+  const { data: header } = await supabase
     .from("magazzino_mappe")
     .select("id")
+    .eq("slug", clean)
+    .eq("documento_stato", "approvato")
     .is("deleted_at", null)
     .maybeSingle();
-  if (error) return { success: false, error: error.message };
-  let id = (existing as { id: string } | null)?.id ?? null;
-  if (!id && canDesign) {
-    const { data: created, error: cErr } = await supabase
-      .from("magazzino_mappe")
-      .insert({
-        nome: "Pianta principale",
-        versione: 1,
-        documento_stato: "bozza",
-        created_by: auth.userId,
-        updated_by: auth.userId,
-      })
-      .select("id")
-      .single();
-    if (cErr || !created) {
-      return { success: false, error: cErr?.message ?? "Creazione pianta fallita." };
-    }
-    id = (created as { id: string }).id;
-    await writeAuditLog({
-      entity_type: "magazzino_mappe",
-      entity_id: id,
-      action: "create",
-      actor_id: auth.userId,
-      summary: "Creata pianta magazzino (bozza v1)",
-    });
-  }
-  if (!id) {
-    return { success: false, error: "Nessuna pianta approvata. Attendi il Super Admin." };
-  }
+  const id = (header as { id: string } | null)?.id;
+  if (!id) return { success: false, error: "Pianta non collegata o non trovata." };
   const mappa = await loadMappa(supabase, id);
   if (!mappa) return { success: false, error: "Pianta non trovata." };
-  return { success: true, mappa, canDesign };
+  return { success: true, mappa };
+}
+
+export async function creaMappaBozzaAction(
+  raw?: { nome?: string }
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può creare una bozza." };
+  }
+  const parsed = creaMappaBozzaSchema.safeParse(raw ?? {});
+  const nome =
+    parsed.success && parsed.data.nome
+      ? parsed.data.nome
+      : `Bozza ${new Date().toLocaleDateString("it-IT")}`;
+  const supabase = await createClient();
+  const { data: created, error } = await supabase
+    .from("magazzino_mappe")
+    .insert({
+      nome,
+      versione: 1,
+      documento_stato: "bozza",
+      area_codice: "magazzino",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .select("id")
+    .single();
+  if (error || !created) {
+    return { success: false, error: error?.message ?? "Creazione bozza fallita." };
+  }
+  const id = (created as { id: string }).id;
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: id,
+    action: "create",
+    actor_id: auth.userId,
+    summary: `Creata bozza editor aree (${nome})`,
+  });
+  const mappa = await loadMappa(supabase, id);
+  if (!mappa) return { success: false, error: "Bozza creata ma non leggibile." };
+  return { success: true, mappa };
 }
 
 export async function salvaMappaMagazzinoAction(
@@ -152,7 +301,7 @@ export async function salvaMappaMagazzinoAction(
   | { success: true; mappa: MappaMagazzino }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("magazzino");
+  const { auth } = await requireAreaAccess("strumenti");
   if (!canProgettare(auth.profile)) {
     return { success: false, error: "Solo il Super Admin può progettare la pianta." };
   }
@@ -180,7 +329,7 @@ export async function salvaMappaMagazzinoAction(
   if (h.documento_stato !== "bozza") {
     return {
       success: false,
-      error: "La pianta è approvata. Riapri la progettazione per modificarla.",
+      error: "La pianta è collegata. Riapri la progettazione per modificarla.",
     };
   }
   if (input.linee.length > 0 && !input.vistaEtichetta) {
@@ -265,13 +414,10 @@ export async function salvaMappaMagazzinoAction(
     entity_id: input.mappaId,
     action: "update",
     actor_id: auth.userId,
-    summary: `Salvata pianta magazzino (${input.linee.length} linee, vista ${input.vistaEtichetta || "—"}, scala ${input.scalaValore} ${input.scalaUnita})`,
+    summary: `Salvata bozza editor aree (${input.linee.length} linee, vista ${input.vistaEtichetta || "—"})`,
     payload: {
       linee: input.linee.length,
-      view_zoom: input.viewZoom,
       vista: input.vistaEtichetta,
-      scala_valore: input.scalaValore,
-      scala_unita: input.scalaUnita,
     },
   });
   const mappa = await loadMappa(supabase, input.mappaId);
@@ -279,50 +425,79 @@ export async function salvaMappaMagazzinoAction(
   return { success: true, mappa };
 }
 
-export async function approvaMappaMagazzinoAction(
-  mappaId: string
+export async function collegaMappaAdAreaAction(
+  raw: CollegaMappaInput
 ): Promise<
   | { success: true; mappa: MappaMagazzino }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("magazzino");
+  const { auth } = await requireAreaAccess("strumenti");
   if (!canProgettare(auth.profile)) {
-    return { success: false, error: "Solo il Super Admin può approvare la pianta." };
+    return { success: false, error: "Solo il Super Admin può collegare la pianta." };
   }
+  const parsed = collegaMappaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Dati collegamento non validi.",
+    };
+  }
+  const input = parsed.data;
   const supabase = await createClient();
   const { data: cur } = await supabase
     .from("magazzino_mappe")
-    .select("vista_etichetta")
-    .eq("id", mappaId)
+    .select("id, documento_stato, vista_etichetta")
+    .eq("id", input.mappaId)
     .is("deleted_at", null)
     .maybeSingle();
-  const vista = ((cur as { vista_etichetta?: string } | null)?.vista_etichetta ?? "").trim();
-  if (!vista) {
-    return {
-      success: false,
-      error: "Imposta e salva il testo Vista prima di approvare.",
-    };
+  const row = cur as {
+    id: string;
+    documento_stato: string;
+    vista_etichetta?: string;
+  } | null;
+  if (!row) return { success: false, error: "Pianta non trovata." };
+  if (row.documento_stato !== "bozza") {
+    return { success: false, error: "Questa pianta è già collegata. Riapri per modificarla." };
   }
+  const vista = input.vistaEtichetta.trim();
+  const luogo = input.luogoNome.trim();
+  const baseSlug = slugMappaArea(luogo, vista);
+  const slug = await slugLibero(supabase, baseSlug, input.mappaId);
   const { error } = await supabase
     .from("magazzino_mappe")
     .update({
       documento_stato: "approvato",
+      area_codice: "magazzino",
+      luogo_nome: luogo,
+      vista_etichetta: vista,
+      slug,
       approved_at: new Date().toISOString(),
       approved_by: auth.userId,
+      collegata_at: new Date().toISOString(),
+      collegata_by: auth.userId,
       updated_by: auth.userId,
     })
-    .eq("id", mappaId)
+    .eq("id", input.mappaId)
     .is("deleted_at", null);
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    if (error.message.includes("magazzino_mappe_collegata_luogo_vista")) {
+      return {
+        success: false,
+        error: `Esiste già una pianta collegata per ${etichettaMappaCollegata(luogo, vista)}.`,
+      };
+    }
+    return { success: false, error: error.message };
+  }
   await writeAuditLog({
     entity_type: "magazzino_mappe",
-    entity_id: mappaId,
+    entity_id: input.mappaId,
     action: "status_change",
     actor_id: auth.userId,
-    summary: "Approvata pianta magazzino",
+    summary: `Collegata pianta a Magazzino > Mappa Magazzino > ${etichettaMappaCollegata(luogo, vista)}`,
+    payload: { luogo, vista, slug },
   });
-  const mappa = await loadMappa(supabase, mappaId);
-  if (!mappa) return { success: false, error: "Approvazione ok, pianta non leggibile." };
+  const mappa = await loadMappa(supabase, input.mappaId);
+  if (!mappa) return { success: false, error: "Collegamento ok, pianta non leggibile." };
   return { success: true, mappa };
 }
 
@@ -332,7 +507,7 @@ export async function riapriProgettazioneMappaAction(
   | { success: true; mappa: MappaMagazzino }
   | { success: false; error: string }
 > {
-  const { auth } = await requireAreaAccess("magazzino");
+  const { auth } = await requireAreaAccess("strumenti");
   if (!canProgettare(auth.profile)) {
     return { success: false, error: "Solo il Super Admin può riaprire la progettazione." };
   }

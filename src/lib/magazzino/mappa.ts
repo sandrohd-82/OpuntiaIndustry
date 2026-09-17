@@ -5,7 +5,7 @@ export type MappaDocumentoStato = (typeof MAPPA_STATI)[number];
 
 export const MAPPA_STATO_LABEL: Record<MappaDocumentoStato, string> = {
   bozza: "Bozza",
-  approvato: "Approvato",
+  approvato: "Collegata",
   chiuso: "Chiuso",
 };
 
@@ -82,6 +82,9 @@ export type MappaMagazzino = {
   nome: string;
   versione: number;
   documentoStato: MappaDocumentoStato;
+  areaCodice: string;
+  luogoNome: string;
+  slug: string | null;
   vistaEtichetta: string;
   scalaValore: number;
   scalaUnita: MappaScalaUnita;
@@ -91,8 +94,41 @@ export type MappaMagazzino = {
   grigliaPx: number;
   note: string;
   approvedAt: string | null;
+  collegataAt: string | null;
   linee: MappaLinea[];
 };
+
+export type MappaElencoItem = {
+  id: string;
+  nome: string;
+  versione: number;
+  documentoStato: MappaDocumentoStato;
+  luogoNome: string;
+  slug: string | null;
+  vistaEtichetta: string;
+  updatedAt: string;
+};
+
+export type MappaNavItem = {
+  slug: string;
+  luogoNome: string;
+  vistaEtichetta: string;
+};
+
+export function slugMappaArea(luogo: string, vista: string): string {
+  const base = `${luogo}-${vista}`
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72);
+  return base || "mappa";
+}
+
+export function etichettaMappaCollegata(luogo: string, vista: string): string {
+  return `${luogo.trim()} [${vista.trim()}]`;
+}
 
 export const MAPPA_VISTA_SUGGERITE = [
   "Dall'alto",
@@ -130,7 +166,19 @@ export const salvaMappaSchema = z.object({
   linee: z.array(mappaLineaInputSchema).max(2000),
 });
 
+export const collegaMappaSchema = z.object({
+  mappaId: z.string().uuid(),
+  luogoNome: z.string().trim().min(1).max(120),
+  vistaEtichetta: z.string().trim().min(1).max(80),
+});
+
+export const creaMappaBozzaSchema = z.object({
+  nome: z.string().trim().min(1).max(120).optional(),
+});
+
 export type SalvaMappaInput = z.infer<typeof salvaMappaSchema>;
+export type CollegaMappaInput = z.infer<typeof collegaMappaSchema>;
+export type CreaMappaBozzaInput = z.infer<typeof creaMappaBozzaSchema>;
 
 export function snapToGrid(value: number, grid: number): number {
   if (grid <= 0) return value;

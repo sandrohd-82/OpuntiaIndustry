@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
-import { MagazzinoMappaBoard } from "@/components/magazzino/MagazzinoMappaBoard";
+import { MagazzinoMappaElencoBoard } from "@/components/magazzino/MagazzinoMappaElencoBoard";
 import { MagazzinoPanoramicaBoard } from "@/components/magazzino/MagazzinoPanoramicaBoard";
 import {
   MAGAZZINO_SECTIONS,
@@ -38,6 +38,20 @@ export default async function MagazzinoSectionPage({ params }: Props) {
     redirect("/app/magazzino/materia-prima/stato");
   }
 
+  if (section === "mappa") {
+    return (
+      <>
+        <AppHeader
+          title="Mappa Magazzino"
+          subtitle="Piante collegate. Il disegno si fa in Strumenti → Editor di aree."
+        />
+        <div className="p-6">
+          <MagazzinoMappaElencoBoard />
+        </div>
+      </>
+    );
+  }
+
   const item = MAGAZZINO_SECTIONS.find((s) => s.slug === section);
   if (!item) notFound();
 
@@ -56,17 +70,6 @@ export default async function MagazzinoSectionPage({ params }: Props) {
         <AppHeader title={page.label} subtitle={page.description} />
         <div className="p-6">
           <MagazzinoPanoramicaBoard />
-        </div>
-      </>
-    );
-  }
-
-  if (section === "mappa") {
-    return (
-      <>
-        <AppHeader title={page.label} subtitle={page.description} />
-        <div className="flex h-[calc(100dvh-6.75rem)] min-h-[28rem] min-w-0 flex-col px-4 pb-3 pt-2">
-          <MagazzinoMappaBoard />
         </div>
       </>
     );

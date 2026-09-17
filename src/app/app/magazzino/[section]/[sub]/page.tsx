@@ -11,6 +11,9 @@ import { BarcodeGeneratoreBoard } from "@/components/magazzino/BarcodeGeneratore
 import { BarcodeRegistratiBoard } from "@/components/magazzino/BarcodeRegistratiBoard";
 import { AreaPlaceholder } from "@/components/areas/AreaPlaceholder";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { MagazzinoMappaBoard } from "@/components/magazzino/MagazzinoMappaBoard";
+import { getMappaBySlugAction } from "@/app/actions/magazzino-mappa";
+import { etichettaMappaCollegata } from "@/lib/magazzino/mappa";
 import { resolveMagazzinoPage } from "@/lib/areas/magazzino";
 import { requireAreaAccess } from "@/lib/areas/guard";
 
@@ -74,6 +77,25 @@ export default async function MagazzinoSubPage({ params }: Props) {
   }
   if (section === "note-di-acquisto" && sub === "storico") {
     redirect("/app/archivio/magazzino/note-di-acquisto/storico");
+  }
+
+  if (section === "mappa") {
+    const res = await getMappaBySlugAction(decodeURIComponent(sub));
+    if (!res.success) notFound();
+    return (
+      <>
+        <AppHeader
+          title={etichettaMappaCollegata(
+            res.mappa.luogoNome,
+            res.mappa.vistaEtichetta
+          )}
+          subtitle={`Pianta v${res.mappa.versione} · sola consultazione`}
+        />
+        <div className="flex h-[calc(100dvh-6.75rem)] min-h-[28rem] min-w-0 flex-col px-4 pb-3 pt-2">
+          <MagazzinoMappaBoard mappaId={res.mappa.id} mode="lettura" />
+        </div>
+      </>
+    );
   }
 
   const page = resolveMagazzinoPage([section, sub]);

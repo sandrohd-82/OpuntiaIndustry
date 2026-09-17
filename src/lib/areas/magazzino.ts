@@ -112,8 +112,9 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
   {
     slug: "mappa",
     label: "Mappa Magazzino",
-    description: "Pianta e scaffalatura disegnata",
+    description: "Piante collegate (nome magazzino e vista)",
     path: "/app/magazzino/mappa",
+    children: [],
   },
   {
     slug: "note-di-acquisto",
@@ -137,6 +138,34 @@ export const MAGAZZINO_SECTIONS: readonly NavItem[] = [
     ],
   },
 ] as const;
+
+export const MAGAZZINO_MAPPE_NAV_EVENT = "opuntia-magazzino-mappe-updated";
+
+export type MagazzinoMappaNavItem = {
+  slug: string;
+  luogoNome: string;
+  vistaEtichetta: string;
+};
+
+export function mergeMagazzinoNavWithMappe(
+  mappe: MagazzinoMappaNavItem[]
+): NavItem[] {
+  return MAGAZZINO_SECTIONS.map((section) => {
+    if (section.slug !== "mappa") return section as NavItem;
+    return {
+      slug: "mappa",
+      label: "Mappa Magazzino",
+      description: "Piante collegate (nome magazzino e vista)",
+      path: "/app/magazzino/mappa",
+      children: mappe.map((m) => ({
+        slug: m.slug,
+        label: `${m.luogoNome} [${m.vistaEtichetta}]`,
+        description: `Vista ${m.vistaEtichetta}`,
+        path: `/app/magazzino/mappa/${m.slug}`,
+      })),
+    };
+  });
+}
 
 export function getFirstMagazzinoPath(): string {
   return firstNavLeafPath(MAGAZZINO_SECTIONS);
