@@ -89,9 +89,8 @@ function formatImapSyncError(
   }
   if (/unexpected response/i.test(`${base} ${responseText}`)) {
     return [
-      `Il server IMAP ha chiuso la richiesta in modo incompleto (${account.email_address}).`,
-      "Succede spesso se si prova una cartella Inviate o Spam assente.",
-      "Riprova: ora si usano solo le cartelle elencate dal server.",
+      `Il server IMAP o la richiesta di sync si è interrotta (${account.email_address}).`,
+      "Le mail già importate restano. Riprova: la sync continua dalle successive, a piccoli lotti.",
       responseText ? `Dettaglio: ${responseText}` : "",
     ]
       .filter(Boolean)
@@ -142,6 +141,11 @@ export type WebmailSyncMode = "recent" | "older";
 
 /** Massimo mail per singola richiesta IMAP (sicurezza timeout / provider). */
 export const WEBMAIL_SYNC_SAFE_BATCH = 40;
+/** Inviate: MIME + allegati; lotti piccoli per non far cadere la Server Action. */
+export const WEBMAIL_SYNC_SENT_BATCH = 6;
+const WEBMAIL_SYNC_TIME_BUDGET_MS = 8_000;
+const WEBMAIL_DOWNLOAD_TIMEOUT_MS = 8_000;
+const WEBMAIL_IMPORT_MAX_BYTES = 2_000_000;
 
 /** Finestra UID recenti + attesa IDLE per «Mantieni sincronizzato». */
 export const WEBMAIL_LIVE_UID_WINDOW = 40;
@@ -439,32 +443,200 @@ async function waitForImapNewMail(
   });
 }
 
+function isAbortiveImapError(e: unknown): boolean {
+  const text = [
+    e instanceof Error ? e.message : String(e ?? ""),
+    e && typeof e === "object" && "responseText" in e
+      ? String((e as { responseText?: unknown }).responseText ?? "")
+      : "",
+  ].join(" ");
+  return /unexpected response|timeout|socket|closed|disconnected|econnreset|econnaborted|not available|connection/i.test(
+    text
+  );
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`Timeout ${label} (${ms}ms)`)),
+          ms
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function insertPartialImport(
+  supabase: Service,
+  account: AccountRow,
+  input: {
+    uidStr: string;
+    folder: string;
+    asSent: boolean;
+    asSpam: boolean;
+    subject: string;
+    fromAddr: string;
+    fromName: string;
+    toAddresses: string[];
+    sentAt: string;
+    reason: string;
+  }
+): Promise<string | null> {
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("webmail_messaggi")
+    .insert({
+      account_id: account.id,
+      direction: input.asSent ? "outbound" : "inbound",
+      message_uid: input.uidStr,
+      folder: input.folder,
+      spam_at: input.asSpam ? nowIso : null,
+      from_address: input.fromAddr || account.email_address,
+      from_name: input.fromName,
+      to_addresses: input.toAddresses,
+      cc_addresses: [],
+      subject: input.subject || "(import parziale)",
+      body_text: `Import parziale: ${input.reason}`,
+      body_html: "",
+      received_at: input.sentAt,
+      sent_at: input.sentAt,
+      is_seen: Boolean(input.asSent),
+    })
+    .select("id")
+    .single();
+  if (error) {
+    console.error("[webmail sync stub]", error.message);
+    return null;
+  }
+  return data?.id ? String(data.id) : null;
+}
+
 async function importInboxUidList(
   supabase: Service,
   account: AccountRow,
   client: ImapFlow,
   list: string[],
   blacklist: Set<string>,
-  options?: { folder?: string; asSpam?: boolean; asSent?: boolean }
-): Promise<{ imported: number; importedIds: string[] }> {
+  options?: {
+    folder?: string;
+    asSpam?: boolean;
+    asSent?: boolean;
+    timeBudgetMs?: number;
+    startedAt?: number;
+  }
+): Promise<{ imported: number; importedIds: string[]; remaining: number }> {
   let imported = 0;
   const importedIds: string[] = [];
+  const startedAt = options?.startedAt ?? Date.now();
+  const budgetMs = options?.timeBudgetMs ?? WEBMAIL_SYNC_TIME_BUDGET_MS;
+  let processed = 0;
 
   for (const uidStr of list) {
+    if (Date.now() - startedAt > budgetMs) break;
     const uid = Number(uidStr);
     let downloaded;
     try {
-      downloaded = await client.download(uid, undefined, { uid: true });
+      let size = 0;
+      let envelopeSubject = "";
+      let envelopeFrom = "";
+      let envelopeFromName = "";
+      let envelopeTo: string[] = [];
+      let envelopeDate = new Date().toISOString();
+      try {
+        const meta = await withTimeout(
+          client.fetchOne(
+            uid,
+            { envelope: true, size: true },
+            { uid: true }
+          ),
+          4_000,
+          `meta UID ${uidStr}`
+        );
+        size = Number(
+          meta && typeof meta === "object" && "size" in meta
+            ? (meta as { size?: number }).size ?? 0
+            : 0
+        );
+        const env =
+          meta && typeof meta === "object" && "envelope" in meta
+            ? (
+                meta as {
+                  envelope?: {
+                    subject?: string;
+                    date?: Date | string;
+                    from?: { address?: string; name?: string }[];
+                    to?: { address?: string }[];
+                  };
+                }
+              ).envelope
+            : undefined;
+        envelopeSubject = String(env?.subject ?? "").trim();
+        envelopeFrom = String(env?.from?.[0]?.address ?? "").trim();
+        envelopeFromName = String(env?.from?.[0]?.name ?? "").trim();
+        envelopeTo = (env?.to ?? [])
+          .map((v) => String(v.address ?? "").trim())
+          .filter(Boolean);
+        if (env?.date) {
+          const d = new Date(env.date);
+          if (Number.isFinite(d.getTime())) envelopeDate = d.toISOString();
+        }
+      } catch {
+        /* meta non disponibile: si tenta il download */
+      }
+
+      if (size > WEBMAIL_IMPORT_MAX_BYTES) {
+        const stubId = await insertPartialImport(supabase, account, {
+          uidStr,
+          folder: options?.folder || "INBOX",
+          asSent: Boolean(options?.asSent),
+          asSpam: Boolean(options?.asSpam),
+          subject: envelopeSubject,
+          fromAddr: envelopeFrom,
+          fromName: envelopeFromName,
+          toAddresses: envelopeTo,
+          sentAt: envelopeDate,
+          reason: `messaggio da ${Math.round(size / 1024)} KB non scaricato per intero (limite sync).`,
+        });
+        if (stubId) {
+          imported += 1;
+          importedIds.push(stubId);
+        }
+        processed += 1;
+        continue;
+      }
+
+      downloaded = await withTimeout(
+        client.download(uid, undefined, { uid: true }),
+        WEBMAIL_DOWNLOAD_TIMEOUT_MS,
+        `download UID ${uidStr}`
+      );
     } catch (dlErr) {
       console.error(
         "[webmail sync download]",
         uidStr,
         dlErr instanceof Error ? dlErr.message : dlErr
       );
+      if (isAbortiveImapError(dlErr)) break;
+      processed += 1;
       continue;
     }
 
-    const parsed = await simpleParser(downloaded.content);
+    try {
+    const parsed = await withTimeout(
+      simpleParser(downloaded.content),
+      WEBMAIL_DOWNLOAD_TIMEOUT_MS,
+      `parse UID ${uidStr}`
+    );
     const fromObj = Array.isArray(parsed.from)
       ? parsed.from[0]
       : parsed.from;
@@ -473,6 +645,7 @@ async function importInboxUidList(
       fromObj?.value?.[0]?.address?.trim() || fromObj?.text || "";
     const fromNorm = normalizeBlacklistEmail(fromAddr);
     if (!options?.asSent && fromNorm && blacklist.has(fromNorm)) {
+      processed += 1;
       continue;
     }
     const fromName = fromObj?.value?.[0]?.name?.trim() || "";
@@ -531,6 +704,7 @@ async function importInboxUidList(
           sentAt: receivedAt,
         })
       ) {
+        processed += 1;
         continue;
       }
     } else if (options?.asSpam) {
@@ -541,11 +715,13 @@ async function importInboxUidList(
           messageIdHeader
         )
       ) {
+        processed += 1;
         continue;
       }
     } else if (
       await messageIdAlreadyImported(supabase, account.id, messageIdHeader)
     ) {
+      processed += 1;
       continue;
     }
 
@@ -589,22 +765,33 @@ async function importInboxUidList(
       .single();
     if (error) {
       console.error("[webmail sync insert]", error.message);
+      processed += 1;
       continue;
     }
     imported += 1;
     importedIds.push(String(inserted.id));
 
-    const attRes = await persistMessaggioAttachments({
-      supabase,
-      messaggioId: String(inserted.id),
-      accountId: account.id,
-      attachments: parsed.attachments,
-    });
-    if (attRes.errors.length) {
+    let attSaved = 0;
+    try {
+      const attRes = await persistMessaggioAttachments({
+        supabase,
+        messaggioId: String(inserted.id),
+        accountId: account.id,
+        attachments: parsed.attachments,
+      });
+      attSaved = attRes.saved;
+      if (attRes.errors.length) {
+        console.error(
+          "[webmail sync allegati]",
+          inserted.id,
+          attRes.errors.slice(0, 3).join("; ")
+        );
+      }
+    } catch (attErr) {
       console.error(
         "[webmail sync allegati]",
         inserted.id,
-        attRes.errors.slice(0, 3).join("; ")
+        attErr instanceof Error ? attErr.message : attErr
       );
     }
 
@@ -621,12 +808,26 @@ async function importInboxUidList(
       payload: {
         learnedMode: learned.categoriaSuggestMode,
         categoriaId: learned.categoriaId,
-        allegati: attRes.saved,
+        allegati: attSaved,
       },
     });
+    processed += 1;
+    } catch (parseErr) {
+      console.error(
+        "[webmail sync parse/insert]",
+        uidStr,
+        parseErr instanceof Error ? parseErr.message : parseErr
+      );
+      if (isAbortiveImapError(parseErr)) break;
+      processed += 1;
+    }
   }
 
-  return { imported, importedIds };
+  return {
+    imported,
+    importedIds,
+    remaining: Math.max(0, list.length - processed),
+  };
 }
 
 export const IMAP_SPAM_CANDIDATES = [
@@ -806,7 +1007,7 @@ async function importSpamMailbox(
         imported: importedRes.imported,
         importedIds: importedRes.importedIds,
         skipped: all.length - missing.length,
-        pending: picked.pending,
+        pending: picked.pending + importedRes.remaining,
       };
     } finally {
       try {
@@ -901,6 +1102,8 @@ async function importSentMailbox(
     batchLimit: number;
     mode: WebmailSyncMode;
     newMailOnly: boolean;
+    timeBudgetMs?: number;
+    startedAt?: number;
   }
 ): Promise<{
   imported: number;
@@ -945,7 +1148,7 @@ async function importSentMailbox(
         missing,
         existingSet,
         options.mode,
-        options.batchLimit
+        Math.min(options.batchLimit, WEBMAIL_SYNC_SENT_BATCH)
       );
       const importedRes = await importInboxUidList(
         supabase,
@@ -953,13 +1156,18 @@ async function importSentMailbox(
         client,
         picked.list,
         blacklist,
-        { folder: WEBMAIL_SENT_FOLDER, asSent: true }
+        {
+          folder: WEBMAIL_SENT_FOLDER,
+          asSent: true,
+          timeBudgetMs: options.timeBudgetMs,
+          startedAt: options.startedAt,
+        }
       );
       return {
         imported: importedRes.imported,
         importedIds: importedRes.importedIds,
         skipped: all.length - missing.length,
-        pending: picked.pending,
+        pending: picked.pending + importedRes.remaining,
       };
     } finally {
       try {
@@ -1026,12 +1234,15 @@ export async function syncWebmailAccount(
     secure: account.imap_secure,
     auth: { user: account.username, pass: password },
     logger: false,
+    socketTimeout: 20_000,
+    greetingTimeout: 15_000,
   });
 
   try {
     await client.connect();
     const since = resolveWebmailSyncSince(account.sync_since);
     const blacklist = await loadAccountBlacklist(supabase, account.id);
+    const startedAt = Date.now();
     let all: string[] = [];
     let pending = 0;
 
@@ -1060,12 +1271,18 @@ export async function syncWebmailAccount(
           account,
           client,
           list,
-          blacklist
+          blacklist,
+          { timeBudgetMs: WEBMAIL_SYNC_TIME_BUDGET_MS, startedAt }
         );
         imported = importedRes.imported;
         importedIds.push(...importedRes.importedIds);
+        pending += importedRes.remaining;
       } finally {
-        lock.release();
+        try {
+          lock.release();
+        } catch {
+          /* sessione IMAP già chiusa */
+        }
       }
     }
 
@@ -1084,12 +1301,15 @@ export async function syncWebmailAccount(
     imported += spamRes.imported;
     importedIds.push(...spamRes.importedIds);
     skipped += spamRes.skipped;
+    pending += spamRes.pending;
 
     const sentRes = folders.sent
       ? await importSentMailbox(supabase, account, client, blacklist, {
-          batchLimit,
+          batchLimit: WEBMAIL_SYNC_SENT_BATCH,
           mode,
           newMailOnly,
+          timeBudgetMs: WEBMAIL_SYNC_TIME_BUDGET_MS,
+          startedAt,
         })
       : {
           imported: 0,
@@ -1100,6 +1320,7 @@ export async function syncWebmailAccount(
     imported += sentRes.imported;
     importedIds.push(...sentRes.importedIds);
     skipped += sentRes.skipped;
+    pending += sentRes.pending;
 
     await supabase
       .from("webmail_accounts")
@@ -1117,7 +1338,7 @@ export async function syncWebmailAccount(
         imported,
         drafted,
         skipped,
-        pending: pending + spamRes.pending + sentRes.pending,
+        pending,
         since: since.toISOString().slice(0, 10),
         totalMatched: all.length,
         spamImported: spamRes.imported,
@@ -1129,7 +1350,7 @@ export async function syncWebmailAccount(
       imported,
       drafted,
       skipped,
-      pending: pending + spamRes.pending + sentRes.pending,
+      pending,
       importedIds,
     };
   } catch (e) {

@@ -691,72 +691,59 @@ export function WebmailBoard({
     const gapMs = 2000;
     startTransition(async () => {
       try {
-        if (choice.mode === "all") {
-          let imported = 0;
-          const importedIds: string[] = [];
-          let round = 0;
-          while (round < 200) {
-            setSyncProgress(
-              `Richiesta ${round + 1}: importazione di massimo 40 mail…`
-            );
-            const res = await runWebmailSyncAction(
-              accountId,
-              "recent",
-              folders
-            );
-            if (!res.success) {
-              setError(res.error);
-              if (importedIds.length > 0) {
-                finishSyncImport(importedIds, null);
-                await reload();
-              } else {
-                setSyncProgress(null);
-              }
-              return;
-            }
-            imported += res.imported;
-            importedIds.push(...(res.importedIds ?? []));
-            const errs = res.errors ?? [];
-            if (errs.length) {
-              setError(errs.join("; "));
-            }
-            if (res.pending <= 0) {
-              finishSyncImport(importedIds, null);
-              await reload();
-              return;
-            }
-            setSyncProgress(
-              `Importate ${imported}. Attesa prima della prossima richiesta (${res.pending} ancora)…`
-            );
-            await new Promise((r) => setTimeout(r, gapMs));
-            round += 1;
-          }
-          finishSyncImport(
-            importedIds,
-            "Sync parziale. Riprova per continuare."
+        let imported = 0;
+        const importedIds: string[] = [];
+        let round = 0;
+        while (round < 200) {
+          setSyncProgress(
+            `Richiesta ${round + 1}: importazione a piccoli lotti (inviate max 6)…`
           );
-          await reload();
-          return;
+          const res = await runWebmailSyncAction(
+            accountId,
+            choice.mode === "older" ? "older" : "recent",
+            folders
+          );
+          if (!res.success) {
+            setError(res.error);
+            if (importedIds.length > 0) {
+              finishSyncImport(
+                importedIds,
+                "Sync interrotta. Riprova per continuare dalle successive."
+              );
+              await reload();
+            } else {
+              setSyncProgress(null);
+            }
+            return;
+          }
+          imported += res.imported;
+          importedIds.push(...(res.importedIds ?? []));
+          const errs = res.errors ?? [];
+          if (errs.length) {
+            setError(errs.join("; "));
+          }
+          if (res.pending <= 0) {
+            finishSyncImport(importedIds, null);
+            await reload();
+            return;
+          }
+          setSyncProgress(
+            `Importate ${imported}. Pausa breve, poi le successive (${res.pending} ancora)…`
+          );
+          await new Promise((r) => setTimeout(r, gapMs));
+          if (choice.mode !== "all" && choice.mode !== "recent") {
+            finishSyncImport(
+              importedIds,
+              `Ancora ${res.pending} da importare.`
+            );
+            await reload();
+            return;
+          }
+          round += 1;
         }
-
-        const res = await runWebmailSyncAction(
-          accountId,
-          choice.mode === "older" ? "older" : "recent",
-          folders
-        );
-        if (!res.success) {
-          setError(res.error);
-          return;
-        }
-        const errs = res.errors ?? [];
         finishSyncImport(
-          res.importedIds ?? [],
-          [
-            res.pending > 0 ? `Ancora ${res.pending} da importare.` : "",
-            errs.length ? errs.join("; ") : "",
-          ]
-            .filter(Boolean)
-            .join(" ") || null
+          importedIds,
+          "Sync parziale. Riprova per continuare."
         );
         await reload();
       } catch (e) {
