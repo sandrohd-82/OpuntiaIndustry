@@ -270,11 +270,15 @@ const rigaSchema = z.object({
 
 export const ordineInputSchema = z
   .object({
-    clienteId: z.string().uuid("Cliente non valido"),
+    clienteId: z.string().uuid().optional().or(z.literal("")),
+    possibileClienteId: z.string().uuid().optional().nullable(),
     cliente: z.string().trim().min(1),
     codiceTargaCliente: z
       .string()
-      .regex(/^C[0-9A-F]{3}$/, "Targa cliente non valida"),
+      .refine(
+        (v) => /^C[0-9A-F]{3}$/.test(v.trim()) || v.trim().toUpperCase() === "PC",
+        "Targa cliente non valida"
+      ),
     dataOrdine: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     dataConsegna: z
       .string()
@@ -316,6 +320,13 @@ export const ordineInputSchema = z
     righe: z.array(rigaSchema).min(1, "Aggiungi almeno una riga prodotto"),
   })
   .superRefine((val, ctx) => {
+    if (!val.clienteId && !val.possibileClienteId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona un cliente o un possibile cliente.",
+        path: ["clienteId"],
+      });
+    }
     if (val.pagato && !val.dataPagamento) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

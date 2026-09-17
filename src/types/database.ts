@@ -938,6 +938,7 @@ export interface OrdineRow {
   numero_interno: string;
   numero_cliente: string;
   cliente_id: string | null;
+  cliente_possibile_id?: string | null;
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_ordine: string;
@@ -999,6 +1000,7 @@ export interface OrdineInsert {
   numero_interno: string;
   numero_cliente?: string;
   cliente_id?: string | null;
+  cliente_possibile_id?: string | null;
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_ordine: string;
@@ -1328,6 +1330,7 @@ export interface CampionaturaRow {
   id: string;
   numero_interno: string;
   cliente_id: string | null;
+  cliente_possibile_id?: string | null;
   cliente_ragione_sociale: string;
   cliente_codice_targa: string;
   data_invio: string;

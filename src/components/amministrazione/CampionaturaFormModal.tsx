@@ -122,14 +122,17 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     };
   }, [onClose, saving, timelinePick, origineOpen, altroPostoOpen]);
 
+  const targaDocumento =
+    anagraficaFonte === "possibile" ? "Pc" : (cliente?.codiceTarga ?? "");
+
   useEffect(() => {
-    if (!cliente?.codiceTarga || !dataInvio) {
+    if (!targaDocumento || !dataInvio) {
       setNumeroPreview(null);
       return;
     }
     let cancelled = false;
     void previewNumeroCampionaturaAction({
-      codiceTargaCliente: cliente.codiceTarga,
+      codiceTargaCliente: targaDocumento,
       dataInvio,
     }).then((r) => {
       if (cancelled) return;
@@ -138,7 +141,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [cliente?.codiceTarga, dataInvio]);
+  }, [targaDocumento, dataInvio]);
 
   function applyCliente(next: Cliente | null) {
     setCliente(next);
@@ -240,7 +243,7 @@ export function CampionaturaFormModal({ onClose, onSaved }: Props) {
         possibileClienteId: possibileClienteId || null,
         clienteId: cliente.id || undefined,
         cliente: cliente.ragioneSociale,
-        codiceTargaCliente: cliente.codiceTarga || "C000",
+        codiceTargaCliente: targaDocumento || "Pc",
         origine,
         dataInvio,
         mezzo,

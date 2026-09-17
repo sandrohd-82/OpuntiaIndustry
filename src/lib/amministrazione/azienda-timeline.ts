@@ -11,6 +11,7 @@ export type AziendaTimelineKind =
   | "campionatura"
   | "fattura_emessa"
   | "fattura_ricevuta"
+  | "promozione_cliente"
   | "copia_nota"
   | "copia_attivita"
   | "copia_promemoria";
@@ -73,7 +74,13 @@ export function emptyTimelineKindFiltersOn(): TimelineKindFilters {
 export function timelineFilterKeyForKind(
   kind: AziendaTimelineKind
 ): TimelineFilterKey {
-  if (kind === "fattura_emessa" || kind === "fattura_ricevuta") return "fattura";
+  if (
+    kind === "fattura_emessa" ||
+    kind === "fattura_ricevuta" ||
+    kind === "promozione_cliente"
+  ) {
+    return "fattura";
+  }
   if (
     kind === "copia_nota" ||
     kind === "copia_attivita" ||

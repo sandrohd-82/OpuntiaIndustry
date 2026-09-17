@@ -20,7 +20,6 @@ import {
 import { listPreventiviAccettatiAction } from "@/app/actions/preventivi";
 import { calcolaConsegnaOrdineAction } from "@/app/actions/produzione-capacita";
 import { linkEntityReferenteAction } from "@/app/actions/rubrica";
-import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
 import { AziendaOrdineSelect } from "@/components/amministrazione/AziendaOrdineSelect";
 import { ConsegnaCalendarioModal } from "@/components/amministrazione/ConsegnaCalendarioModal";
@@ -36,7 +35,6 @@ import {
   type AttivitaOrdineDraft,
 } from "@/lib/amministrazione/attivita";
 import {
-  buildNumeroInternoOrdine,
   defaultUnitaCampionatura,
   opzioniUnitaCampionatura,
   quantitaInUnitaBase,
@@ -273,17 +271,13 @@ export function OrdineNuovoWizardModal({
     if (anagraficaFonte === "possibile" && possibileClienteId) {
       let cancelled = false;
       void (async () => {
-        const result = await previewNextCodiceTargaClienteAction();
+        const result = await previewNumeroInternoOrdineAction({
+          clienteId: "",
+          codiceTargaCliente: "Pc",
+          dataOrdine,
+        });
         if (cancelled) return;
-        if (result.success) {
-          setNumeroInterno(
-            buildNumeroInternoOrdine({
-              dataOrdine,
-              codiceTargaCliente: result.codiceTarga,
-              seq: 1,
-            })
-          );
-        }
+        if (result.success) setNumeroInterno(result.numeroInterno);
       })();
       return () => {
         cancelled = true;
@@ -615,7 +609,8 @@ export function OrdineNuovoWizardModal({
         possibileClienteId: possibileClienteId || null,
         clienteId: clienteId || undefined,
         cliente: clienteNome,
-        codiceTargaCliente: clienteTarga || "C000",
+        codiceTargaCliente:
+          anagraficaFonte === "possibile" ? "Pc" : clienteTarga || "C000",
         dataOrdine,
         prodottoId: prodotto.id,
         prodottoCodice: prodotto.codice,

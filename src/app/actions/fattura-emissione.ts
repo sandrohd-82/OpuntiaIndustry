@@ -1,6 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   aliquoteIvaOptions,
@@ -493,6 +494,8 @@ export async function createAndSendInvoiceAction(
       dryRunSdi: parsed.dryRunSdi,
     },
   });
+
+  void scanPromozioniDaFattureAction();
 
   return {
     success: true,

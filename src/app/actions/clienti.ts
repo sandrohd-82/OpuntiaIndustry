@@ -1,5 +1,6 @@
 "use server";
 
+import { LEAD_TARGA_PLACEHOLDER } from "@/lib/amministrazione/lead-promozione";
 import { createClient } from "@/lib/supabase/server";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
@@ -696,7 +697,7 @@ export async function convertClientePossibileAdClienteAction(
   if (stato === "scartato") {
     return {
       success: false,
-      error: "Il possibile cliente è scartato: non si può usare per un ordine.",
+      error: "Il possibile cliente è scartato: non si può promuovere a cliente.",
     };
   }
 
@@ -777,7 +778,7 @@ export async function convertClientePossibileAdClienteAction(
   if (fiscalErr) {
     return {
       success: false,
-      error: `${fiscalErr} Completa il possibile cliente prima di creare l’ordine.`,
+      error: `${fiscalErr} Completa il possibile cliente prima di promuoverlo.`,
     };
   }
 
@@ -813,18 +814,23 @@ export async function convertClientePossibileAdClienteAction(
   return created;
 }
 
+export type AnagraficaDocumentoResolved = {
+  success: true;
+  mode: "cliente" | "possibile";
+  cliente: Cliente | null;
+  clienteId: string | null;
+  possibileClienteId: string | null;
+  ragioneSociale: string;
+  codiceTarga: string;
+  commercialeId: string | null;
+  createdBy: string | null;
+};
+
 export async function resolveClientePerOrdineAction(input: {
   fonte?: AnagraficaOrdineFonte | string | null;
   clienteId?: string | null;
   possibileClienteId?: string | null;
-}): Promise<
-  | {
-      success: true;
-      cliente: Cliente;
-      possibileClienteId: string | null;
-    }
-  | { success: false; error: string }
-> {
+}): Promise<AnagraficaDocumentoResolved | { success: false; error: string }> {
   await requireAnyAreaAccess([
     "amministrazione",
     "commerciale",
@@ -840,14 +846,54 @@ export async function resolveClientePerOrdineAction(input: {
     if (!parsed.possibileClienteId) {
       return { success: false, error: "Seleziona un possibile cliente." };
     }
-    const converted = await convertClientePossibileAdClienteAction(
-      parsed.possibileClienteId
-    );
-    if (!converted.success) return converted;
+    const supabase = await createClient();
+    const { data: leadRow, error: leadErr } = await supabase
+      .from("clienti_possibili")
+      .select("id, ragione_sociale, stato, cliente_id, commerciale_id, created_by")
+      .eq("id", parsed.possibileClienteId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (leadErr || !leadRow) {
+      return {
+        success: false,
+        error: leadErr?.message ?? "Possibile cliente non trovato.",
+      };
+    }
+    if (String(leadRow.stato) === "scartato") {
+      return {
+        success: false,
+        error: "Il possibile cliente è scartato.",
+      };
+    }
+    const linkedId = leadRow.cliente_id ? String(leadRow.cliente_id) : "";
+    if (linkedId && String(leadRow.stato) === "convertito") {
+      const cliente = await loadClienteById(supabase, linkedId);
+      if (cliente) {
+        return {
+          success: true,
+          mode: "cliente",
+          cliente,
+          clienteId: cliente.id,
+          possibileClienteId: String(leadRow.id),
+          ragioneSociale: cliente.ragioneSociale,
+          codiceTarga: cliente.codiceTarga,
+          commercialeId: cliente.commercialeId,
+          createdBy: cliente.createdBy,
+        };
+      }
+    }
     return {
       success: true,
-      cliente: converted.cliente,
-      possibileClienteId: parsed.possibileClienteId,
+      mode: "possibile",
+      cliente: null,
+      clienteId: null,
+      possibileClienteId: String(leadRow.id),
+      ragioneSociale: String(leadRow.ragione_sociale ?? ""),
+      codiceTarga: LEAD_TARGA_PLACEHOLDER,
+      commercialeId: leadRow.commerciale_id
+        ? String(leadRow.commerciale_id)
+        : null,
+      createdBy: leadRow.created_by ? String(leadRow.created_by) : null,
     };
   }
 
@@ -861,21 +907,20 @@ export async function resolveClientePerOrdineAction(input: {
   }
   return {
     success: true,
+    mode: "cliente",
     cliente,
+    clienteId: cliente.id,
     possibileClienteId: null,
+    ragioneSociale: cliente.ragioneSociale,
+    codiceTarga: cliente.codiceTarga,
+    commercialeId: cliente.commercialeId,
+    createdBy: cliente.createdBy,
   };
 }
 
 export async function resolveClientePerOrdineFromRawAction(
   raw: unknown
-): Promise<
-  | {
-      success: true;
-      cliente: Cliente;
-      possibileClienteId: string | null;
-    }
-  | { success: false; error: string }
-> {
+): Promise<AnagraficaDocumentoResolved | { success: false; error: string }> {
   const parsed = parseAnagraficaOrdineFromRaw(raw);
   return resolveClientePerOrdineAction(parsed);
 }

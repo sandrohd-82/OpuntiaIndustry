@@ -1,6 +1,7 @@
 "use server";
 
 import { writeAuditLog } from "@/lib/audit";
+import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import {
   bilancioDilazioni,
   buildNumeroInternoFattura,
@@ -1125,6 +1126,9 @@ export async function createFatturaAction(
         };
       }
       const row = data as FatturaEmessaRow;
+      if (kind === "emessa") {
+        void scanPromozioniDaFattureAction();
+      }
 
       const ricevutaFile = formData.get("ricevuta");
       if (ricevutaFile instanceof File && ricevutaFile.size > 0) {

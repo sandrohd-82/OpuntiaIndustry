@@ -94,9 +94,9 @@ export function AziendaOrdineSelect({
 
       {fonte === "possibile" ? (
         <p className="text-xs text-[var(--muted)]">
-          Alla conferma l’anagrafica diventa cliente (targa e numero ordine) e
-          resta tracciata in audit. Se è già convertita, si usa il cliente
-          esistente.
+          Resta possibile cliente: ordine e campionatura non assegnano la targa
+          C…. Diventa cliente solo quando arriva una fattura e l’operatore in
+          carico completa la promozione.
         </p>
       ) : null}
     </div>

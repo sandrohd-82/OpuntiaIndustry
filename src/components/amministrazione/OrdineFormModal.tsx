@@ -102,15 +102,22 @@ export function OrdineFormModal({
 
   useEffect(() => {
     if (mode === "edit") return;
-    if (!clienteId || !clienteTarga || !dataOrdine) {
+    const targaDoc =
+      anagraficaFonte === "possibile" ? "Pc" : clienteTarga;
+    const idDoc = anagraficaFonte === "possibile" ? "" : clienteId;
+    if (
+      (anagraficaFonte === "possibile" ? !possibileClienteId : !idDoc) ||
+      !targaDoc ||
+      !dataOrdine
+    ) {
       dettaglio.setNumeroInterno("");
       return;
     }
     let cancelled = false;
     void (async () => {
       const result = await previewNumeroInternoOrdineAction({
-        clienteId,
-        codiceTargaCliente: clienteTarga,
+        clienteId: idDoc,
+        codiceTargaCliente: targaDoc,
         dataOrdine,
       });
       if (cancelled) return;
@@ -120,7 +127,7 @@ export function OrdineFormModal({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, clienteId, clienteTarga, dataOrdine]);
+  }, [mode, anagraficaFonte, possibileClienteId, clienteId, clienteTarga, dataOrdine]);
 
   useEffect(() => {
     // Escape / click fuori non chiudono (evita perdita dati): solo Annulla / Salva.
@@ -174,7 +181,8 @@ export function OrdineFormModal({
       possibileClienteId: possibileClienteId || null,
       clienteId: clienteId || undefined,
       cliente: clienteNome.trim(),
-      codiceTargaCliente: clienteTarga || "C000",
+      codiceTargaCliente:
+        anagraficaFonte === "possibile" ? "Pc" : clienteTarga || "C000",
       dataOrdine,
       dataConsegna: requireConsegna ? dataConsegna : null,
       numeroInterno:

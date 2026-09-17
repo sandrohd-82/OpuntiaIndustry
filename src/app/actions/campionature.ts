@@ -23,6 +23,9 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 import { resolveAnagraficaOwnerUserIds } from "@/lib/auth/anagrafica-visibility";
 import { loadOwnedAziendaIds } from "@/lib/auth/data-scope-enforce";
+import { loadCommercialLineageUserIds } from "@/lib/auth/commerciale-lineage";
+import { isCommercialOwnRecord } from "@/lib/auth/commerciale";
+import { anagraficaListOrClause } from "@/lib/auth/anagrafica-visibility";
 import { isSuperadminProfile } from "@/lib/auth/roles";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import type { CampionaturaRigaRow, CampionaturaRow } from "@/types/database";
@@ -72,6 +75,7 @@ function mapCampionatura(
     id: row.id,
     numeroInterno: row.numero_interno,
     clienteId: row.cliente_id ?? "",
+    possibileClienteId: row.cliente_possibile_id ?? null,
     cliente: row.cliente_ragione_sociale,
     clienteCodiceTarga: row.cliente_codice_targa,
     dataInvio: row.data_invio,
@@ -141,13 +145,22 @@ export async function listCampionatureAction(): Promise<
   const supabase = await createClient();
   const ownerIds = await resolveAnagraficaOwnerUserIds();
   let ownedClienteIds: string[] | null = null;
+  let ownedLeadIds: string[] | null = null;
   if (ownerIds) {
     ownedClienteIds = await loadOwnedAziendaIds(
       supabase,
       gate.auth.userId,
       "clienti"
     );
-    if (ownedClienteIds.length === 0) {
+    const leadClause = await anagraficaListOrClause();
+    let leadQ = supabase
+      .from("clienti_possibili")
+      .select("id")
+      .is("deleted_at", null);
+    if (leadClause) leadQ = leadQ.or(leadClause);
+    const { data: ownLeads } = await leadQ;
+    ownedLeadIds = (ownLeads ?? []).map((r) => String(r.id));
+    if (ownedClienteIds.length === 0 && ownedLeadIds.length === 0) {
       return { success: true, items: [] };
     }
   }
@@ -158,7 +171,14 @@ export async function listCampionatureAction(): Promise<
     .order("data_invio", { ascending: false })
     .limit(200);
   if (ownedClienteIds) {
-    q = q.in("cliente_id", ownedClienteIds);
+    const parts: string[] = [];
+    if (ownedClienteIds.length) {
+      parts.push(`cliente_id.in.(${ownedClienteIds.join(",")})`);
+    }
+    if (ownedLeadIds?.length) {
+      parts.push(`cliente_possibile_id.in.(${ownedLeadIds.join(",")})`);
+    }
+    if (parts.length) q = q.or(parts.join(","));
   }
   const { data, error } = await q;
   if (error) return { success: false, error: error.message };
@@ -258,23 +278,40 @@ async function createCampionaturaActionInner(
   const supabase = await createClient();
   const ownerIds = await resolveAnagraficaOwnerUserIds();
   if (ownerIds) {
-    const owned = await loadOwnedAziendaIds(
-      supabase,
-      gate.auth.userId,
-      "clienti"
-    );
-    if (!owned.includes(resolved.cliente.id)) {
-      return {
-        success: false,
-        error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
-      };
+    if (resolved.mode === "cliente" && resolved.clienteId) {
+      const owned = await loadOwnedAziendaIds(
+        supabase,
+        gate.auth.userId,
+        "clienti"
+      );
+      if (!owned.includes(resolved.clienteId)) {
+        return {
+          success: false,
+          error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
+        };
+      }
+    } else {
+      const lineage = await loadCommercialLineageUserIds(gate.auth.userId);
+      const own = isCommercialOwnRecord({
+        userId: gate.auth.userId,
+        createdBy: resolved.createdBy,
+        commercialeId: resolved.commercialeId,
+        lineageIds: lineage,
+      });
+      if (!own && !isSuperadminProfile(gate.auth.profile)) {
+        return {
+          success: false,
+          error: "Puoi inviare campionature solo alle aziende del tuo perimetro.",
+        };
+      }
     }
   }
   const parsed = createCampionaturaSchema.safeParse({
     ...(raw && typeof raw === "object" ? raw : {}),
-    clienteId: resolved.cliente.id,
-    cliente: resolved.cliente.ragioneSociale,
-    codiceTargaCliente: resolved.cliente.codiceTarga,
+    clienteId: resolved.clienteId || undefined,
+    possibileClienteId: resolved.possibileClienteId,
+    cliente: resolved.ragioneSociale,
+    codiceTargaCliente: resolved.codiceTarga,
   });
   if (!parsed.success) {
     return {
@@ -321,12 +358,12 @@ async function createCampionaturaActionInner(
         error: "La nota deve appartenere all’azienda selezionata",
       };
     }
-    if (notaSuLead) {
+    if (notaSuLead && resolved.mode === "cliente" && resolved.clienteId) {
       await supabase
         .from("pn_note")
         .update({
           entity_type: "cliente",
-          entity_id: input.clienteId,
+          entity_id: resolved.clienteId,
           entity_label: input.cliente,
           updated_by: gate.auth.userId,
         })
@@ -340,7 +377,8 @@ async function createCampionaturaActionInner(
     .from("campionature")
     .insert({
       numero_interno: numero,
-      cliente_id: input.clienteId,
+      cliente_id: resolved.clienteId,
+      cliente_possibile_id: resolved.possibileClienteId,
       cliente_ragione_sociale: input.cliente,
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_invio: input.dataInvio,

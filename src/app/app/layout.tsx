@@ -9,6 +9,7 @@ import {
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageAccessToggle } from "@/components/layout/PageAccessToggle";
 import { WelcomeModal } from "@/components/layout/WelcomeModal";
+import { LeadPromozioneGate } from "@/components/amministrazione/LeadPromozioneGate";
 import {
   NotificationConsentBanner,
   PushNotificationsProvider,
@@ -237,6 +238,7 @@ export default async function AppLayout({
         </ActionAccessProvider>
       </div>
       {auth.welcomePending ? <WelcomeModal name={welcomeName} /> : null}
+      <LeadPromozioneGate />
     </div>
     </PushNotificationsProvider>
     </SensitiveAuthProvider>

@@ -60,7 +60,7 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
       items: [
         "Registra o prendi in carico un contatto.",
         "Lavora la timeline (chiamate, mail).",
-        "Quando è maturo, promuovilo a cliente: riceve la targa C….",
+        "Diventa cliente solo con una fattura: l’operatore in carico completa la promozione e arriva la targa C….",
       ],
     },
   ],

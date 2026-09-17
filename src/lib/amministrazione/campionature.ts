@@ -88,6 +88,7 @@ export type Campionatura = {
   id: string;
   numeroInterno: string;
   clienteId: string;
+  possibileClienteId?: string | null;
   cliente: string;
   clienteCodiceTarga: string;
   dataInvio: string;
@@ -127,7 +128,8 @@ export const campionaturaRigaSchema = z.object({
 
 export const createCampionaturaSchema = z.object({
   origine: z.enum(CAMPIONATURA_ORIGINI).optional().default("da_inviare"),
-  clienteId: z.string().uuid("Seleziona un’azienda"),
+  clienteId: z.string().uuid().optional().or(z.literal("")),
+  possibileClienteId: z.string().uuid().optional().nullable(),
   cliente: z.string().trim().min(1),
   codiceTargaCliente: z.string().trim().min(1),
   dataInvio: z
@@ -149,6 +151,13 @@ export const createCampionaturaSchema = z.object({
   righe: z.array(campionaturaRigaSchema).min(1, "Aggiungi almeno un prodotto"),
 })
   .superRefine((val, ctx) => {
+    if (!val.clienteId && !val.possibileClienteId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Seleziona un’azienda.",
+        path: ["clienteId"],
+      });
+    }
     if (val.trackingUrl) {
       try {
         const u = new URL(val.trackingUrl);

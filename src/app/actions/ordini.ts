@@ -125,7 +125,7 @@ async function loadOrdineWithRighe(id: string): Promise<Ordine | null> {
 }
 
 async function nextSeqForCliente(
-  clienteId: string,
+  clienteId: string | null | undefined,
   codiceTarga: string
 ): Promise<number> {
   const supabase = await createClient();
@@ -144,7 +144,7 @@ async function nextSeqForCliente(
   let countById = 0;
   let maxParsed = 0;
   for (const row of data ?? []) {
-    if (row.cliente_id === clienteId) countById += 1;
+    if (clienteId && row.cliente_id === clienteId) countById += 1;
     const m = String(row.numero_interno).match(re);
     if (m) maxParsed = Math.max(maxParsed, Number(m[1]));
   }
@@ -416,9 +416,10 @@ export async function createOrdineAction(
   if (!resolved.success) return resolved;
   const parsed = ordineInputSchema.safeParse({
     ...(payload && typeof payload === "object" ? payload : {}),
-    clienteId: resolved.cliente.id,
-    cliente: resolved.cliente.ragioneSociale,
-    codiceTargaCliente: resolved.cliente.codiceTarga,
+    clienteId: resolved.clienteId || undefined,
+    possibileClienteId: resolved.possibileClienteId,
+    cliente: resolved.ragioneSociale,
+    codiceTargaCliente: resolved.codiceTarga,
   });
   if (!parsed.success) {
     return {
@@ -463,7 +464,7 @@ export async function createOrdineAction(
 
   try {
     const seq = await nextSeqForCliente(
-      input.clienteId,
+      resolved.clienteId,
       input.codiceTargaCliente
     );
     const numeroInterno =
@@ -489,7 +490,8 @@ export async function createOrdineAction(
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
       numero_cliente: input.numeroCliente?.trim() ?? "",
-      cliente_id: input.clienteId,
+      cliente_id: resolved.clienteId,
+      cliente_possibile_id: resolved.possibileClienteId,
       cliente_ragione_sociale: input.cliente.trim(),
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_ordine: input.dataOrdine,
@@ -930,9 +932,10 @@ async function createOrdineWizardActionInner(
   if (!resolved.success) return resolved;
   const parsed = ordineWizardInputSchema.safeParse({
     ...(raw && typeof raw === "object" ? raw : {}),
-    clienteId: resolved.cliente.id,
-    cliente: resolved.cliente.ragioneSociale,
-    codiceTargaCliente: resolved.cliente.codiceTarga,
+    clienteId: resolved.clienteId || undefined,
+    possibileClienteId: resolved.possibileClienteId,
+    cliente: resolved.ragioneSociale,
+    codiceTargaCliente: resolved.codiceTarga,
   });
   if (!parsed.success) {
     return {
@@ -1012,7 +1015,7 @@ async function createOrdineWizardActionInner(
           error: "Puoi collegare solo un preventivo accettato.",
         };
       }
-      if (pv.cliente_id && pv.cliente_id !== input.clienteId) {
+      if (pv.cliente_id && input.clienteId && pv.cliente_id !== input.clienteId) {
         return {
           success: false,
           error: "Il preventivo appartiene a un altro cliente.",
@@ -1020,7 +1023,7 @@ async function createOrdineWizardActionInner(
       }
     }
     const seq = await nextSeqForCliente(
-      input.clienteId,
+      resolved.clienteId,
       input.codiceTargaCliente
     );
     const numeroInterno = buildNumeroInternoOrdine({
@@ -1032,7 +1035,8 @@ async function createOrdineWizardActionInner(
     const insert: OrdineInsert = {
       numero_interno: numeroInterno,
       numero_cliente: "",
-      cliente_id: input.clienteId,
+      cliente_id: resolved.clienteId,
+      cliente_possibile_id: resolved.possibileClienteId,
       cliente_ragione_sociale: input.cliente.trim(),
       cliente_codice_targa: input.codiceTargaCliente.trim().toUpperCase(),
       data_ordine: input.dataOrdine,

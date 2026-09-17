@@ -18,6 +18,7 @@ import { companyNamesMatch } from "@/lib/amministrazione/fic-anagrafiche";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import { getUsedFornitoriCodiciTarga } from "@/app/actions/fornitori";
 import { writeAuditLog } from "@/lib/audit";
+import { scanPromozioniDaFattureAction } from "@/app/actions/lead-promozione";
 import { requireAreaAccess } from "@/lib/areas/guard";
 import {
   isFiscaleDocAllowed,
@@ -441,6 +442,16 @@ export async function startFattureEmesseSyncAction(): Promise<FattureSyncStartRe
       })
     );
   }
+
+  void scanPromozioniDaFattureAction({
+    ficDocs: pendingInvoices.map((d) => ({
+      ficId: d.ficId,
+      number: d.number,
+      date: d.date || null,
+      amountGross: d.amountGross,
+      entityVat: d.entityVat,
+    })),
+  });
 
   return {
     success: true,

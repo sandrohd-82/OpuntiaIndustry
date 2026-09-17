@@ -292,11 +292,14 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
     }
   }
 
-  if (aziendaTipo === "cliente") {
+  if (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile") {
     const { data } = await service
       .from("ordini")
       .select("id, numero_interno, data_ordine, stato, importo_euro")
-      .eq("cliente_id", aziendaId)
+      .eq(
+        aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id",
+        aziendaId
+      )
       .is("deleted_at", null)
       .order("data_ordine", { ascending: true })
       .limit(200);
@@ -319,7 +322,10 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
       .select(
         "id, numero_interno, data_invio, stato, mezzo, origine, tracking_url, pn_nota_id"
       )
-      .eq("cliente_id", aziendaId)
+      .eq(
+        aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id",
+        aziendaId
+      )
       .is("deleted_at", null)
       .order("data_invio", { ascending: true })
       .limit(200);
@@ -370,6 +376,48 @@ export async function listAziendaTimelineAction(raw: unknown): Promise<
         subtitle: `Pagamento: ${r.stato_pagamento ?? "—"} · Totale: ${r.totale ?? "—"}`,
         sourceId: String(r.id),
         href: "/app/amministrazione/fatture",
+      });
+    }
+  }
+
+  {
+    let promoQ = service
+      .from("clienti_possibili_promozioni")
+      .select(
+        "id, stato, numero_fattura, data_fattura, totale, completed_at, created_at, cliente_id, cliente_possibile_id"
+      )
+      .is("deleted_at", null)
+      .limit(80);
+    promoQ =
+      aziendaTipo === "cliente"
+        ? promoQ.eq("cliente_id", aziendaId)
+        : aziendaTipo === "cliente_possibile"
+          ? promoQ.eq("cliente_possibile_id", aziendaId)
+          : promoQ.eq("id", "00000000-0000-0000-0000-000000000000");
+    const { data: promozioni } = await promoQ;
+    for (const r of promozioni ?? []) {
+      const when =
+        (r.completed_at as string | null) ||
+        (r.created_at as string | null) ||
+        "";
+      if (!when) continue;
+      const fat = String(r.numero_fattura ?? "").trim();
+      const aperta = String(r.stato) === "aperta";
+      pushSorted(items, {
+        id: `promo:${r.id}`,
+        kind: "promozione_cliente",
+        occurredAt: when,
+        title: aperta
+          ? "Fattura rilevata — attende promozione a cliente"
+          : "Promosso da possibile cliente a cliente",
+        subtitle: [
+          fat ? `Fattura ${fat}` : null,
+          r.totale != null ? `Totale: ${r.totale}` : null,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        sourceId: String(r.id),
+        href: "/app/amministrazione/schede/possibili-clienti",
       });
     }
   }
