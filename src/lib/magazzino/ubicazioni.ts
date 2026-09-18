@@ -113,3 +113,11 @@ export function previewPosizioneOperativa(
 ): string {
   return codicePostoFiglio(parentCodice, codiceInserito);
 }
+
+/** Dal posto A1 e madre A torna il codice locale (1) per il campo editor. */
+export function codiceLocaleDi(operativo: string, parentCodice: string): string {
+  const p = parentCodice.trim().toUpperCase();
+  const o = operativo.trim().toUpperCase();
+  if (p && o.startsWith(p) && o.length > p.length) return o.slice(p.length);
+  return o;
+}

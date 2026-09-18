@@ -11,6 +11,7 @@ export function ElencoAreeMappa({
   scalaUnita,
   canEdit,
   parentLabel,
+  posizione,
   onSelect,
   onModifica,
   onCopia,
@@ -22,6 +23,7 @@ export function ElencoAreeMappa({
   scalaUnita: MappaScalaUnita;
   canEdit: boolean;
   parentLabel: (parentId: string | null) => string;
+  posizione: (a: MappaAreaDisegnata) => string;
   onSelect: (id: string) => void;
   onModifica: (id: string) => void;
   onCopia: (id: string) => void;
@@ -49,9 +51,10 @@ export function ElencoAreeMappa({
         <table className="min-w-full text-left text-sm">
           <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
+              <th className="px-3 py-1.5 font-medium">Posizione</th>
               <th className="px-3 py-1.5 font-medium">Codice</th>
               <th className="px-3 py-1.5 font-medium">Nome</th>
-              <th className="px-3 py-1.5 font-medium">Madre</th>
+              <th className="px-3 py-1.5 font-medium">Riferimento</th>
               <th className="px-3 py-1.5 font-medium">Misure</th>
               <th className="px-3 py-1.5 font-medium" />
             </tr>
@@ -69,7 +72,10 @@ export function ElencoAreeMappa({
                     sel ? "bg-orange-200" : "hover:bg-slate-50"
                   }`}
                 >
-                  <td className="px-3 py-1.5 font-medium">{a.codice}</td>
+                  <td className="px-3 py-1.5 font-mono font-semibold">
+                    {posizione(a)}
+                  </td>
+                  <td className="px-3 py-1.5">{a.codice}</td>
                   <td className="px-3 py-1.5">{a.nome}</td>
                   <td className="px-3 py-1.5 text-[var(--muted)]">
                     {parentLabel(a.parentId)}

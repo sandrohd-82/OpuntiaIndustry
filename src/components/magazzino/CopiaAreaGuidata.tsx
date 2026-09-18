@@ -11,7 +11,7 @@ const PASSO_LABEL: Record<Passo, string> = {
   sorgente: "Area di origine",
   codice: "Codice",
   nome: "Nome",
-  parent: "Area madre",
+  parent: "Dentro (altra vista collegata)",
   larghezza: "Larghezza (quadrati)",
   altezza: "Altezza (quadrati)",
 };

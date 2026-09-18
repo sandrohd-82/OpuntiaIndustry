@@ -27,6 +27,7 @@ import {
   type SalvaNomeAreaMappaInput,
 } from "@/lib/magazzino/mappa";
 import {
+  codicePostoFiglio,
   etichettaUbicazione,
   type MappaAreaDisegnata,
   type UbicazioneElenco,
@@ -1165,8 +1166,23 @@ async function persistAreeMappa(
           ? resolvedUbi.get(parentToken) ?? null
           : parentToken)
       : null;
-    const codice = area.codice.trim();
     const nome = area.nome.trim();
+    let parentCodice = "";
+    if (parentId) {
+      const { data: parentRow } = await supabase
+        .from("magazzino_ubicazioni")
+        .select("codice")
+        .eq("id", parentId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      parentCodice = String(
+        (parentRow as { codice?: string } | null)?.codice ?? ""
+      ).trim();
+    }
+    const locale = area.codice.trim().toUpperCase();
+    const codice = parentCodice
+      ? codicePostoFiglio(parentCodice, locale)
+      : locale;
     const existing = await findUbicazioneOperativa(supabase, {
       id: area.ubicazioneId ?? null,
       codice,
@@ -1183,6 +1199,7 @@ async function persistAreeMappa(
         const { error } = await supabase
           .from("magazzino_ubicazioni")
           .update({
+            codice,
             nome,
             parent_id: parentId,
             luogo_nome: existing.luogo_nome.trim() || luogo,
