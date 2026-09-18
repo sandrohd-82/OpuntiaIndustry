@@ -31,13 +31,19 @@ import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPale
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
 import {
   accavallamentoPuntoSuLinee,
+  aggiornaLineeRettangolo,
+  boxDaCursoreLato,
   calcolaFoglioMappa,
+  clampBoxNelFoglio,
   clampPuntoNelFoglio,
   distanzaPuntoSegmento,
   formattaLunghezzaReale,
   formattaMisuraSegmento,
   formattaQuadrati,
+  handlePuntiRettangolo,
   headingCardinale,
+  hitRettangoloLinee,
+  LATO_RETTANGOLO_LABEL,
   quadratiTraPunti,
   MAPPA_FOGLIO_MARGINE_PCT,
   MAPPA_LINEA_COLORE_DEFAULT,
@@ -51,16 +57,21 @@ import {
   puntoDopoQuadrati,
   etichettaSensoRettangolo,
   puntoOppostoRettangolo,
+  rettangoloDaLinea,
   rettangoloHaArea,
+  ridimensionaBoxDaLato,
   ruotaHeading,
   segniRettangolo,
   snapToGrid,
   verticiRettangoloDaAngoli,
   type AccavallamentoLinea,
   type FoglioMappa,
+  type LatoRettangolo,
+  type MappaBox,
   type MappaLinea,
   type MappaMagazzino,
   type MappaPunto,
+  type MappaRettangoloAsse,
   type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
 import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
@@ -446,8 +457,26 @@ export function MagazzinoMappaBoard({
     ox: number;
     oy: number;
   } | null>(null);
+  const [trasformaRett, setTrasformaRett] = useState<
+    | ({ kind: "linee" } & MappaRettangoloAsse)
+    | ({ kind: "area"; areaId: string } & MappaBox)
+    | null
+  >(null);
+  const [trasformaLatoRett, setTrasformaLatoRett] =
+    useState<LatoRettangolo | null>(null);
+  const [dragTrasformaRett, setDragTrasformaRett] = useState<{
+    lato: LatoRettangolo;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [lunghezzaDraft, setLunghezzaDraft] = useState("");
   const [lunghezzaRealeDraft, setLunghezzaRealeDraft] = useState("");
+  const [larghezzaDraft, setLarghezzaDraft] = useState("");
+  const [altezzaDraft, setAltezzaDraft] = useState("");
+  const [larghezzaRealeDraft, setLarghezzaRealeDraft] = useState("");
+  const [altezzaRealeDraft, setAltezzaRealeDraft] = useState("");
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [zoom, setZoom] = useState(1);
   const [griglia, setGriglia] = useState(20);
@@ -560,6 +589,9 @@ export function MagazzinoMappaBoard({
     carryRef.current = null;
     setDragArea(null);
     setDragTrasforma(null);
+    setDragTrasformaRett(null);
+    setTrasformaRett(null);
+    setTrasformaLatoRett(null);
     setDraftStart(null);
     setForma(null);
   }
@@ -591,6 +623,119 @@ export function MagazzinoMappaBoard({
     setSelectedRifIds([]);
     setAreaEditOpen(false);
     setCarry(null);
+    resetTrasformaRett();
+  }
+
+  function resetTrasformaRett() {
+    setTrasformaRett(null);
+    setTrasformaLatoRett(null);
+    setDragTrasformaRett(null);
+  }
+
+  function epsRettangolo(): number {
+    return Math.max(1, griglia * 0.35);
+  }
+
+  function syncMisureRett(box: MappaBox) {
+    const wq = Math.max(1, Math.round(box.width / Math.max(1, griglia)));
+    const hq = Math.max(1, Math.round(box.height / Math.max(1, griglia)));
+    setLarghezzaDraft(String(wq));
+    setAltezzaDraft(String(hq));
+    setLarghezzaRealeDraft(String(Math.round(wq * scalaValore * 100) / 100));
+    setAltezzaRealeDraft(String(Math.round(hq * scalaValore * 100) / 100));
+  }
+
+  function avviaTrasformaRettLinee(rect: MappaRettangoloAsse) {
+    setTrasformaRett({ kind: "linee", ...rect });
+    setTrasformaLatoRett(null);
+    setDragTrasformaRett(null);
+    setTrasformaEnd(null);
+    setDragTrasforma(null);
+    setSelectedLineIds(rect.lineIds);
+    scegliSoloArea(null);
+    scegliSoloRif(null);
+    syncMisureRett(rect);
+  }
+
+  function avviaTrasformaRettArea(area: {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) {
+    const box = {
+      x: area.x,
+      y: area.y,
+      width: area.width,
+      height: area.height,
+    };
+    setTrasformaRett({ kind: "area", areaId: area.id, ...box });
+    setTrasformaLatoRett(null);
+    setDragTrasformaRett(null);
+    setTrasformaEnd(null);
+    setDragTrasforma(null);
+    scegliSoloLinea(null);
+    scegliSoloArea(area.id);
+    scegliSoloRif(null);
+    syncMisureRett(box);
+  }
+
+  function applicaBoxRettangolo(box: MappaBox) {
+    if (!trasformaRett) return;
+    const clamped = clampBoxNelFoglio(box, foglio, griglia);
+    if (trasformaRett.kind === "linee") {
+      setLinee((prev) => aggiornaLineeRettangolo(prev, trasformaRett, clamped));
+      setTrasformaRett({ ...trasformaRett, ...clamped });
+    } else {
+      setAree((prev) =>
+        prev.map((a) =>
+          a.id === trasformaRett.areaId
+            ? { ...a, x: clamped.x, y: clamped.y, width: clamped.width, height: clamped.height }
+            : a
+        )
+      );
+      setTrasformaRett({ ...trasformaRett, ...clamped });
+    }
+    syncMisureRett(clamped);
+  }
+
+  function hitLatoRettangolo(
+    box: MappaBox,
+    wx: number,
+    wy: number
+  ): LatoRettangolo | null {
+    const tol = Math.max(tolleranzaLinea(), 14 / zoom);
+    let best: { lato: LatoRettangolo; d: number } | null = null;
+    for (const h of handlePuntiRettangolo(box)) {
+      const d = Math.hypot(wx - h.x, wy - h.y);
+      if (d <= tol && (!best || d < best.d)) best = { lato: h.lato, d };
+    }
+    if (best) return best.lato;
+    const lati: { lato: LatoRettangolo; x1: number; y1: number; x2: number; y2: number }[] =
+      [
+        { lato: "up", x1: box.x, y1: box.y, x2: box.x + box.width, y2: box.y },
+        {
+          lato: "down",
+          x1: box.x,
+          y1: box.y + box.height,
+          x2: box.x + box.width,
+          y2: box.y + box.height,
+        },
+        { lato: "left", x1: box.x, y1: box.y, x2: box.x, y2: box.y + box.height },
+        {
+          lato: "right",
+          x1: box.x + box.width,
+          y1: box.y,
+          x2: box.x + box.width,
+          y2: box.y + box.height,
+        },
+      ];
+    for (const lato of lati) {
+      const d = distanzaPuntoSegmento(wx, wy, lato.x1, lato.y1, lato.x2, lato.y2);
+      if (d <= tol && (!best || d < best.d)) best = { lato: lato.lato, d };
+    }
+    return best?.lato ?? null;
   }
 
   async function reload() {
@@ -1107,8 +1252,24 @@ export function MagazzinoMappaBoard({
       return;
     }
     if (!forma && !pendingArea && tool === "trasforma") {
+      if (trasformaRett) {
+        const latoHit = hitLatoRettangolo(trasformaRett, w.x, w.y);
+        if (latoHit) {
+          setTrasformaLatoRett(latoHit);
+          pushHistory("trasforma");
+          setDragTrasformaRett({
+            lato: latoHit,
+            x: trasformaRett.x,
+            y: trasformaRett.y,
+            width: trasformaRett.width,
+            height: trasformaRett.height,
+          });
+          setDraftStart(null);
+          return;
+        }
+      }
       const current =
-        selectedId && selectedLineIds.length === 1
+        selectedId && selectedLineIds.length === 1 && !trasformaRett
           ? linee.find((l) => l.id === selectedId) ?? null
           : null;
       if (current) {
@@ -1139,10 +1300,22 @@ export function MagazzinoMappaBoard({
       }
       const id = hitLine(w.x, w.y);
       if (id) {
+        const rect = rettangoloDaLinea(linee, id, epsRettangolo());
+        if (rect) {
+          avviaTrasformaRettLinee(rect);
+          const line = linee.find((l) => l.id === id);
+          if (line) {
+            setSpessore(line.spessore);
+            setColore(line.colore);
+          }
+          setDraftStart(null);
+          return;
+        }
         const line = linee.find((l) => l.id === id);
         scegliSoloLinea(id);
         scegliSoloArea(null);
         scegliSoloRif(null);
+        resetTrasformaRett();
         setTrasformaEnd(null);
         setDragTrasforma(null);
         if (line) {
@@ -1150,11 +1323,35 @@ export function MagazzinoMappaBoard({
           setColore(line.colore);
           syncLunghezzaDraft(line);
         }
-      } else {
-        scegliSoloLinea(null);
-        setTrasformaEnd(null);
-        setDragTrasforma(null);
+        setDraftStart(null);
+        return;
       }
+      const aid = hitArea(w.x, w.y);
+      if (aid) {
+        const area = aree.find((a) => a.id === aid);
+        if (area) {
+          avviaTrasformaRettArea(area);
+          setDraftStart(null);
+          return;
+        }
+      }
+      const rectIn = hitRettangoloLinee(
+        w.x,
+        w.y,
+        linee,
+        epsRettangolo(),
+        tolleranzaLinea()
+      );
+      if (rectIn) {
+        avviaTrasformaRettLinee(rectIn);
+        setDraftStart(null);
+        return;
+      }
+      scegliSoloLinea(null);
+      scegliSoloArea(null);
+      resetTrasformaRett();
+      setTrasformaEnd(null);
+      setDragTrasforma(null);
       setDraftStart(null);
       return;
     }
@@ -1268,6 +1465,12 @@ export function MagazzinoMappaBoard({
     setCursor(w);
     if (carry && w && canDraw) {
       applicaCarryPunto(w);
+      return;
+    }
+    if (dragTrasformaRett && w && canDraw) {
+      applicaBoxRettangolo(
+        boxDaCursoreLato(dragTrasformaRett, dragTrasformaRett.lato, w, griglia)
+      );
       return;
     }
     if (dragTrasforma && w && canDraw) {
@@ -1814,6 +2017,43 @@ export function MagazzinoMappaBoard({
     if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
       applicaLunghezzaTrasforma(reale / scalaValore);
     }
+  }
+
+  function parseMisuraDraft(draft: string, realeDraft: string, fallbackQ: number) {
+    const qRaw = Number(String(draft).replace(",", "."));
+    if (Number.isFinite(qRaw) && qRaw > 0) return qRaw;
+    const reale = Number(String(realeDraft).replace(",", "."));
+    if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
+      return reale / scalaValore;
+    }
+    return fallbackQ;
+  }
+
+  function scegliLatoRettangolo(lato: LatoRettangolo) {
+    if (!trasformaRett) return;
+    setTrasformaLatoRett(lato);
+  }
+
+  function confermaMisureRettangolo() {
+    if (!canDraw || !trasformaRett) return;
+    if (!trasformaLatoRett) {
+      setOk("Scegli in quale direzione allungare o accorciare.");
+      return;
+    }
+    const curWq = Math.max(1, trasformaRett.width / Math.max(1, griglia));
+    const curHq = Math.max(1, trasformaRett.height / Math.max(1, griglia));
+    const wq = parseMisuraDraft(larghezzaDraft, larghezzaRealeDraft, curWq);
+    const hq = parseMisuraDraft(altezzaDraft, altezzaRealeDraft, curHq);
+    const misuraQ =
+      trasformaLatoRett === "left" || trasformaLatoRett === "right" ? wq : hq;
+    pushHistory("trasforma");
+    applicaBoxRettangolo(
+      ridimensionaBoxDaLato(
+        trasformaRett,
+        trasformaLatoRett,
+        misuraQ * Math.max(1, griglia)
+      )
+    );
   }
 
   function misuraRealeToPx(reale: number): number | null {
@@ -2709,6 +2949,7 @@ export function MagazzinoMappaBoard({
                   carryRef.current = null;
                   setTrasformaEnd(null);
                   setDragTrasforma(null);
+                  resetTrasformaRett();
                 }}
                 className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
               >
@@ -2771,9 +3012,9 @@ export function MagazzinoMappaBoard({
 
           {canDraw && tool === "trasforma" ? (
             <p className="text-xs text-amber-950">
-              Seleziona una linea. Il sistema chiede da quale lato allungarla o
-              accorciarla: poi trascina il pallino o inserisci la lunghezza e
-              premi Invio.
+              Seleziona una linea, un quadrato o un rettangolo. Per il
+              rettangolo si aprono le misure; poi scegli in quale direzione
+              allungarlo o accorciarlo. Trascina il lato o conferma con Invio.
             </p>
           ) : null}
 
@@ -3289,7 +3530,164 @@ export function MagazzinoMappaBoard({
         />
       ) : null}
 
-      {canDraw && tool === "trasforma" && selectedLine && selectedLineIds.length === 1 ? (
+      {canDraw && tool === "trasforma" && trasformaRett ? (
+        <div className="shrink-0 rounded-xl border border-teal-300 bg-teal-50 px-3 py-2">
+          <p className="text-sm font-semibold text-teal-950">
+            Modifica / trasforma{" "}
+            {Math.abs(trasformaRett.width - trasformaRett.height) < griglia * 0.5
+              ? "quadrato"
+              : "rettangolo"}
+          </p>
+          <p className="mt-0.5 text-sm text-teal-950">
+            Misure attuali:{" "}
+            <strong>
+              {formattaQuadrati(trasformaRett.width / Math.max(1, griglia))} ×{" "}
+              {formattaQuadrati(trasformaRett.height / Math.max(1, griglia))}{" "}
+              quadrati ·{" "}
+              {formattaLunghezzaReale(
+                trasformaRett.width / Math.max(1, griglia),
+                scalaValore,
+                scalaUnita
+              )}{" "}
+              ×{" "}
+              {formattaLunghezzaReale(
+                trasformaRett.height / Math.max(1, griglia),
+                scalaValore,
+                scalaUnita
+              )}
+            </strong>
+          </p>
+          <form
+            className="mt-2 flex flex-wrap items-end gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              confermaMisureRettangolo();
+            }}
+          >
+            <label className="text-xs font-medium text-teal-950">
+              Larghezza quadrati
+              <input
+                type="number"
+                min={1}
+                max={MAPPA_QUADRATI_MAX}
+                step={1}
+                value={larghezzaDraft}
+                onChange={(e) => {
+                  setLarghezzaDraft(e.target.value);
+                  const q = Number(e.target.value.replace(",", "."));
+                  if (Number.isFinite(q) && q > 0) {
+                    setLarghezzaRealeDraft(
+                      String(Math.round(q * scalaValore * 100) / 100)
+                    );
+                  }
+                }}
+                className="ml-1 w-24 rounded border border-teal-400 bg-white px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs font-medium text-teal-950">
+              Larghezza ({scalaUnita})
+              <input
+                type="number"
+                min={0.01}
+                step="any"
+                value={larghezzaRealeDraft}
+                onChange={(e) => {
+                  setLarghezzaRealeDraft(e.target.value);
+                  const reale = Number(e.target.value.replace(",", "."));
+                  if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
+                    setLarghezzaDraft(
+                      String(Math.max(1, Math.round(reale / scalaValore)))
+                    );
+                  }
+                }}
+                className="ml-1 w-28 rounded border border-teal-400 bg-white px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs font-medium text-teal-950">
+              Altezza quadrati
+              <input
+                type="number"
+                min={1}
+                max={MAPPA_QUADRATI_MAX}
+                step={1}
+                value={altezzaDraft}
+                onChange={(e) => {
+                  setAltezzaDraft(e.target.value);
+                  const q = Number(e.target.value.replace(",", "."));
+                  if (Number.isFinite(q) && q > 0) {
+                    setAltezzaRealeDraft(
+                      String(Math.round(q * scalaValore * 100) / 100)
+                    );
+                  }
+                }}
+                className="ml-1 w-24 rounded border border-teal-400 bg-white px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="text-xs font-medium text-teal-950">
+              Altezza ({scalaUnita})
+              <input
+                type="number"
+                min={0.01}
+                step="any"
+                value={altezzaRealeDraft}
+                onChange={(e) => {
+                  setAltezzaRealeDraft(e.target.value);
+                  const reale = Number(e.target.value.replace(",", "."));
+                  if (Number.isFinite(reale) && reale > 0 && scalaValore > 0) {
+                    setAltezzaDraft(
+                      String(Math.max(1, Math.round(reale / scalaValore)))
+                    );
+                  }
+                }}
+                className="ml-1 w-28 rounded border border-teal-400 bg-white px-2 py-1 text-sm"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg bg-teal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+            >
+              Invio
+            </button>
+          </form>
+          {!trasformaLatoRett ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm font-medium text-teal-950">
+                In quale direzione vuoi allungarlo o accorciarlo?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(["up", "down", "left", "right"] as LatoRettangolo[]).map(
+                  (lato) => (
+                    <button
+                      key={lato}
+                      type="button"
+                      onClick={() => scegliLatoRettangolo(lato)}
+                      className="rounded-lg border border-teal-600 bg-white px-3 py-1.5 text-sm font-semibold text-teal-950 hover:bg-teal-100"
+                    >
+                      {LATO_RETTANGOLO_LABEL[lato]}
+                    </button>
+                  )
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 space-y-2">
+              <p className="text-sm font-medium text-teal-950">
+                Direzione: {LATO_RETTANGOLO_LABEL[trasformaLatoRett]}. Trascina
+                il pallino su quel lato oppure conferma la misura con Invio.
+              </p>
+              <button
+                type="button"
+                onClick={() => setTrasformaLatoRett(null)}
+                className="rounded-lg px-2 py-1 text-xs text-teal-800 hover:bg-white"
+              >
+                Cambia direzione
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {canDraw && tool === "trasforma" && selectedLine && selectedLineIds.length === 1 && !trasformaRett ? (
         <div className="shrink-0 rounded-xl border border-violet-300 bg-violet-50 px-3 py-2">
           <p className="text-sm font-semibold text-violet-950">
             Modifica / trasforma linea
@@ -3537,7 +3935,7 @@ export function MagazzinoMappaBoard({
           ref={svgRef}
           className={`h-full w-full touch-none bg-slate-200 ${
             canDraw && tool === "trasforma"
-              ? dragTrasforma
+              ? dragTrasforma || dragTrasformaRett
                 ? "cursor-grabbing"
                 : "cursor-pointer"
               : canDraw && tool === "seleziona"
@@ -3554,6 +3952,7 @@ export function MagazzinoMappaBoard({
             setPanning(null);
             setDragArea(null);
             setDragTrasforma(null);
+            setDragTrasformaRett(null);
           }}
           onPointerLeave={() => {
             setPanning(null);
@@ -3896,10 +4295,49 @@ export function MagazzinoMappaBoard({
                   : null}
               </g>
             ) : null}
+            {canDraw && tool === "trasforma" && trasformaRett ? (
+              <g>
+                <rect
+                  x={trasformaRett.x}
+                  y={trasformaRett.y}
+                  width={trasformaRett.width}
+                  height={trasformaRett.height}
+                  fill="rgba(13,148,136,0.08)"
+                  stroke="#0f766e"
+                  strokeWidth={Math.max(1.6, 2.4 / zoom)}
+                  strokeDasharray={`${8 / zoom} ${6 / zoom}`}
+                />
+                {handlePuntiRettangolo(trasformaRett).map((h) => {
+                  const attivo = trasformaLatoRett === h.lato;
+                  return (
+                    <g key={`trasforma-rett-${h.lato}`}>
+                      <circle
+                        cx={h.x}
+                        cy={h.y}
+                        r={Math.max(7, 12 / zoom)}
+                        fill={attivo ? "#0f766e" : "#f0fdfa"}
+                        stroke={attivo ? "#115e59" : "#0d9488"}
+                        strokeWidth={Math.max(2, 3 / zoom)}
+                      />
+                      <text
+                        x={h.x + 14 / zoom}
+                        y={h.y - 12 / zoom}
+                        fill="#115e59"
+                        fontSize={Math.max(11, 13 / zoom)}
+                        fontWeight={700}
+                      >
+                        {LATO_RETTANGOLO_LABEL[h.lato]}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+            ) : null}
             {canDraw &&
             tool === "trasforma" &&
             selectedLine &&
-            selectedLineIds.length === 1
+            selectedLineIds.length === 1 &&
+            !trasformaRett
               ? ([1, 2] as TrasformaEstremo[]).map((end) => {
                   const p =
                     end === 1

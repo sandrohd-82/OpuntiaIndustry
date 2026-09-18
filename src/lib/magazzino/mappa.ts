@@ -389,6 +389,273 @@ export function rettangoloHaArea(a: MappaPunto, b: MappaPunto, griglia: number):
   );
 }
 
+export type LatoRettangolo = "left" | "right" | "up" | "down";
+
+export const LATO_RETTANGOLO_LABEL: Record<LatoRettangolo, string> = {
+  left: "Sinistra",
+  right: "Destra",
+  up: "Alto",
+  down: "Basso",
+};
+
+export type MappaBox = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type MappaRettangoloAsse = MappaBox & {
+  lineIds: string[];
+};
+
+function sameN(a: number, b: number, eps: number): boolean {
+  return Math.abs(a - b) <= eps;
+}
+
+export function asseLineaOrtogonale(
+  l: Pick<MappaLinea, "x1" | "y1" | "x2" | "y2">,
+  eps: number
+): "h" | "v" | null {
+  if (sameN(l.y1, l.y2, eps) && !sameN(l.x1, l.x2, eps)) return "h";
+  if (sameN(l.x1, l.x2, eps) && !sameN(l.y1, l.y2, eps)) return "v";
+  return null;
+}
+
+export function elencoRettangoliDaLinee(
+  linee: MappaLinea[],
+  eps: number
+): MappaRettangoloAsse[] {
+  const hv = linee
+    .map((l) => ({ l, asse: asseLineaOrtogonale(l, eps) }))
+    .filter((x): x is { l: MappaLinea; asse: "h" | "v" } => Boolean(x.asse));
+  const horiz = hv.filter((x) => x.asse === "h").map((x) => x.l);
+  const vert = hv.filter((x) => x.asse === "v").map((x) => x.l);
+  const seen = new Set<string>();
+  const out: MappaRettangoloAsse[] = [];
+
+  for (let i = 0; i < horiz.length; i += 1) {
+    const a = horiz[i]!;
+    const ax1 = Math.min(a.x1, a.x2);
+    const ax2 = Math.max(a.x1, a.x2);
+    const ay = (a.y1 + a.y2) / 2;
+    for (let j = i + 1; j < horiz.length; j += 1) {
+      const b = horiz[j]!;
+      const bx1 = Math.min(b.x1, b.x2);
+      const bx2 = Math.max(b.x1, b.x2);
+      const by = (b.y1 + b.y2) / 2;
+      if (sameN(ay, by, eps)) continue;
+      if (!sameN(ax1, bx1, eps) || !sameN(ax2, bx2, eps)) continue;
+      const x1 = (ax1 + bx1) / 2;
+      const x2 = (ax2 + bx2) / 2;
+      const y1 = Math.min(ay, by);
+      const y2 = Math.max(ay, by);
+      if (x2 - x1 < eps || y2 - y1 < eps) continue;
+      const left = vert.find(
+        (v) =>
+          sameN((v.x1 + v.x2) / 2, x1, eps) &&
+          sameN(Math.min(v.y1, v.y2), y1, eps) &&
+          sameN(Math.max(v.y1, v.y2), y2, eps)
+      );
+      const right = vert.find(
+        (v) =>
+          sameN((v.x1 + v.x2) / 2, x2, eps) &&
+          sameN(Math.min(v.y1, v.y2), y1, eps) &&
+          sameN(Math.max(v.y1, v.y2), y2, eps)
+      );
+      if (!left || !right || left.id === right.id) continue;
+      const lineIds = [a.id, b.id, left.id, right.id];
+      const key = [...lineIds].sort().join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        lineIds,
+        x: x1,
+        y: y1,
+        width: x2 - x1,
+        height: y2 - y1,
+      });
+    }
+  }
+  return out;
+}
+
+export function rettangoloDaLinea(
+  linee: MappaLinea[],
+  seedId: string,
+  eps: number
+): MappaRettangoloAsse | null {
+  return (
+    elencoRettangoliDaLinee(linee, eps).find((r) => r.lineIds.includes(seedId)) ??
+    null
+  );
+}
+
+export function hitRettangoloLinee(
+  wx: number,
+  wy: number,
+  linee: MappaLinea[],
+  eps: number,
+  bordoTol: number
+): MappaRettangoloAsse | null {
+  let best: { r: MappaRettangoloAsse; area: number } | null = null;
+  for (const r of elencoRettangoliDaLinee(linee, eps)) {
+    const inside =
+      wx >= r.x - bordoTol &&
+      wx <= r.x + r.width + bordoTol &&
+      wy >= r.y - bordoTol &&
+      wy <= r.y + r.height + bordoTol;
+    if (!inside) continue;
+    const area = r.width * r.height;
+    if (!best || area < best.area) best = { r, area };
+  }
+  return best?.r ?? null;
+}
+
+export function classificaLatoRettangolo(
+  l: Pick<MappaLinea, "x1" | "y1" | "x2" | "y2">,
+  box: MappaBox
+): LatoRettangolo {
+  const midX = (l.x1 + l.x2) / 2;
+  const midY = (l.y1 + l.y2) / 2;
+  const horiz = Math.abs(l.y1 - l.y2) <= Math.abs(l.x1 - l.x2);
+  if (horiz) {
+    return Math.abs(midY - box.y) <= Math.abs(midY - (box.y + box.height))
+      ? "up"
+      : "down";
+  }
+  return Math.abs(midX - box.x) <= Math.abs(midX - (box.x + box.width))
+    ? "left"
+    : "right";
+}
+
+export function coordsLatoRettangolo(
+  box: MappaBox,
+  lato: LatoRettangolo
+): { x1: number; y1: number; x2: number; y2: number } {
+  const { x, y, width, height } = box;
+  if (lato === "up") return { x1: x, y1: y, x2: x + width, y2: y };
+  if (lato === "down") {
+    return { x1: x + width, y1: y + height, x2: x, y2: y + height };
+  }
+  if (lato === "right") {
+    return { x1: x + width, y1: y, x2: x + width, y2: y + height };
+  }
+  return { x1: x, y1: y + height, x2: x, y2: y };
+}
+
+export function aggiornaLineeRettangolo(
+  linee: MappaLinea[],
+  rect: MappaRettangoloAsse,
+  box: MappaBox
+): MappaLinea[] {
+  const ids = new Set(rect.lineIds);
+  const oldBox: MappaBox = {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+  };
+  return linee.map((l) => {
+    if (!ids.has(l.id)) return l;
+    return { ...l, ...coordsLatoRettangolo(box, classificaLatoRettangolo(l, oldBox)) };
+  });
+}
+
+export function handlePuntiRettangolo(
+  box: MappaBox
+): { lato: LatoRettangolo; x: number; y: number }[] {
+  return [
+    { lato: "up", x: box.x + box.width / 2, y: box.y },
+    { lato: "down", x: box.x + box.width / 2, y: box.y + box.height },
+    { lato: "left", x: box.x, y: box.y + box.height / 2 },
+    { lato: "right", x: box.x + box.width, y: box.y + box.height / 2 },
+  ];
+}
+
+export function boxDaCursoreLato(
+  orig: MappaBox,
+  lato: LatoRettangolo,
+  cursor: MappaPunto,
+  griglia: number
+): MappaBox {
+  const g = Math.max(1, griglia);
+  if (lato === "right") {
+    const x2 = snapToGrid(cursor.x, g);
+    return { ...orig, width: Math.max(g, x2 - orig.x) };
+  }
+  if (lato === "left") {
+    const right = orig.x + orig.width;
+    const x1 = snapToGrid(cursor.x, g);
+    const width = Math.max(g, right - x1);
+    return { x: right - width, y: orig.y, width, height: orig.height };
+  }
+  if (lato === "down") {
+    const y2 = snapToGrid(cursor.y, g);
+    return { ...orig, height: Math.max(g, y2 - orig.y) };
+  }
+  const bottom = orig.y + orig.height;
+  const y1 = snapToGrid(cursor.y, g);
+  const height = Math.max(g, bottom - y1);
+  return { x: orig.x, y: bottom - height, width: orig.width, height };
+}
+
+export function ridimensionaBoxDaLato(
+  box: MappaBox,
+  lato: LatoRettangolo,
+  misuraPx: number
+): MappaBox {
+  const misura = Math.max(1, misuraPx);
+  if (lato === "right") return { ...box, width: misura };
+  if (lato === "left") {
+    return {
+      x: box.x + box.width - misura,
+      y: box.y,
+      width: misura,
+      height: box.height,
+    };
+  }
+  if (lato === "down") return { ...box, height: misura };
+  return {
+    x: box.x,
+    y: box.y + box.height - misura,
+    width: box.width,
+    height: misura,
+  };
+}
+
+export function clampBoxNelFoglio(
+  box: MappaBox,
+  foglio: FoglioMappa,
+  griglia: number
+): MappaBox {
+  const g = Math.max(1, griglia);
+  let { x, y, width, height } = box;
+  width = Math.max(g, width);
+  height = Math.max(g, height);
+  const maxX = foglio.x + foglio.width;
+  const maxY = foglio.y + foglio.height;
+  if (x < foglio.x) {
+    width -= foglio.x - x;
+    x = foglio.x;
+  }
+  if (y < foglio.y) {
+    height -= foglio.y - y;
+    y = foglio.y;
+  }
+  if (x + width > maxX) width = maxX - x;
+  if (y + height > maxY) height = maxY - y;
+  width = Math.max(g, snapToGrid(width, g));
+  height = Math.max(g, snapToGrid(height, g));
+  x = snapToGrid(x, g);
+  y = snapToGrid(y, g);
+  if (x + width > maxX) x = snapToGrid(maxX - width, g);
+  if (y + height > maxY) y = snapToGrid(maxY - height, g);
+  if (x < foglio.x) x = foglio.x;
+  if (y < foglio.y) y = foglio.y;
+  return { x, y, width: Math.max(g, width), height: Math.max(g, height) };
+}
+
 export function clampPuntoNelFoglio(
   p: MappaPunto,
   foglio: FoglioMappa,
