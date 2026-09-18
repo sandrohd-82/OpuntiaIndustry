@@ -55,7 +55,7 @@ import {
 import { NotaRichBody, NotaAllegatoPreview } from "@/components/promemorie-e-note/NotaRichBody";
 import { getWebmailMessaggioTextAction } from "@/app/actions/webmail";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
-import { TimelineSincronizzaModal } from "@/components/amministrazione/TimelineSincronizzaModal";
+import { AnagraficaTimelineSyncBar } from "@/components/amministrazione/AnagraficaTimelineSyncBar";
 import { FaChevronDown, FaPen } from "react-icons/fa6";
 
 function pad2(n: number): string {
@@ -441,7 +441,6 @@ export function AziendaTimelineModal({
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [syncOpen, setSyncOpen] = useState(false);
   const [panel, setPanel] = useState<"none" | "nota" | "mail" | "pn">(
     pickMode?.purpose === "campionatura-mail" ||
     pickMode?.purpose === "ordine-accettazione-mail"
@@ -995,19 +994,20 @@ export function AziendaTimelineModal({
             </button>
             <button
               type="button"
-              onClick={() => setSyncOpen(true)}
-              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-950 hover:bg-emerald-100"
-            >
-              Sincronizza
-            </button>
-            <button
-              type="button"
               onClick={onClose}
               className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
             >
               Chiudi
             </button>
           </div>
+        </div>
+        <div className="shrink-0 border-b border-[var(--border)] px-5 py-2 sm:px-8">
+          <AnagraficaTimelineSyncBar
+            aziendaTipo={aziendaTipo}
+            aziendaId={aziendaId}
+            aziendaLabel={aziendaLabel}
+            onSynced={() => void reload()}
+          />
         </div>
 
         {panel === "nota" ? (
@@ -1517,16 +1517,6 @@ export function AziendaTimelineModal({
         />
       ) : null}
 
-      <TimelineSincronizzaModal
-        open={syncOpen}
-        aziendaTipo={aziendaTipo}
-        aziendaId={aziendaId}
-        onClose={() => setSyncOpen(false)}
-        onDone={(msg) => {
-          setInfo(msg);
-          void reload();
-        }}
-      />
     </div>
   );
 

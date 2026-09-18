@@ -2904,6 +2904,35 @@ async function persistEmailAutoLink(input: {
   return { success: true };
 }
 
+export async function persistAziendaEmailAutoLinks(input: {
+  emails: string[];
+  aziendaTipo: "cliente" | "cliente_possibile";
+  aziendaId: string;
+  aziendaLabel: string;
+  actorId: string;
+}): Promise<number> {
+  const unique = [
+    ...new Set(
+      input.emails
+        .map((e) => normalizeLookupEmail(e))
+        .filter((e) => e.includes("@"))
+    ),
+  ].slice(0, 40);
+  let persisted = 0;
+  for (const email of unique) {
+    const res = await persistEmailAutoLink({
+      email,
+      aziendaTipo: input.aziendaTipo,
+      aziendaId: input.aziendaId,
+      aziendaLabel: input.aziendaLabel,
+      contattoId: null,
+      actorId: input.actorId,
+    });
+    if (res.success) persisted += 1;
+  }
+  return persisted;
+}
+
 async function linkAllMessagesByEmail(input: {
   email: string;
   aziendaTipo: "cliente" | "cliente_possibile";
@@ -2956,28 +2985,38 @@ export type TimelineMailSyncHit = {
   linkedElsewhere: boolean;
 };
 
-function orPartsForEmails(emails: string[]): string[] {
+function orPartsForEmails(emails: string[], domains: string[] = []): string[] {
   const parts: string[] = [];
   const seen = new Set<string>();
   for (const raw of emails) {
     const e = normalizeLookupEmail(raw).replace(/[{}",()]/g, "");
     if (!e.includes("@") || seen.has(e)) continue;
     seen.add(e);
-    parts.push(`from_address.ilike.${e}`);
+    parts.push(`from_address.ilike.%${e}%`);
     parts.push(`to_addresses.cs.{"${e}"}`);
     parts.push(`cc_addresses.cs.{"${e}"}`);
+  }
+  for (const raw of domains) {
+    const d = raw
+      .trim()
+      .toLowerCase()
+      .replace(/[{}",()%_\\]/g, "");
+    if (!d.includes(".") || seen.has(`@${d}`)) continue;
+    seen.add(`@${d}`);
+    parts.push(`from_address.ilike.%@${d}%`);
   }
   return parts;
 }
 
 export async function findWebmailMatchesForAziendaEmails(input: {
   emails: string[];
+  domains?: string[];
   aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
   aziendaId: string;
   accountIds?: string[] | null;
 }): Promise<TimelineMailSyncHit[]> {
   const service = createServiceClient();
-  const parts = orPartsForEmails(input.emails.slice(0, 40));
+  const parts = orPartsForEmails(input.emails.slice(0, 40), input.domains ?? []);
   if (parts.length === 0) return [];
   const byId = new Map<string, TimelineMailSyncHit>();
   const chunk = 24;
@@ -3013,6 +3052,7 @@ export async function findWebmailMatchesForAziendaEmails(input: {
 
 export async function linkUnlinkedWebmailByEmails(input: {
   emails: string[];
+  domains?: string[];
   aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
   aziendaId: string;
   aziendaLabel: string;
@@ -3022,6 +3062,7 @@ export async function linkUnlinkedWebmailByEmails(input: {
 }): Promise<{ linked: number; persisted: number }> {
   const hits = await findWebmailMatchesForAziendaEmails({
     emails: input.emails,
+    domains: input.domains,
     aziendaTipo: input.aziendaTipo,
     aziendaId: input.aziendaId,
     accountIds: input.accountIds,

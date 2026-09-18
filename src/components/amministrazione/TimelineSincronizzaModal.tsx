@@ -50,8 +50,8 @@ export function TimelineSincronizzaModal({
         return;
       }
       setPreview(res.preview);
-      setMail(res.preview.mailNuove > 0);
-      setPn(res.preview.pnNuove > 0);
+      setMail(true);
+      setPn(true);
       setDocumenti(true);
     });
   }, [open, aziendaTipo, aziendaId]);
@@ -73,14 +73,16 @@ export function TimelineSincronizzaModal({
       <div
         role="dialog"
         aria-modal
-        aria-label="Sincronizza timeline"
+        aria-label="Forza nuova sincronizzazione"
         className="w-full max-w-lg rounded-t-2xl border border-[var(--border)] bg-white p-5 shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-sm font-semibold">Sincronizza timeline</h2>
+        <h2 className="text-sm font-semibold">Forza nuova sincronizzazione</h2>
         <p className="mt-1 text-xs text-[var(--muted)]">
-          Scegli cosa collegare a questa scheda. Le mail già assegnate ad
-          un’altra anagrafica non vengono spostate.
+          Collega alla scheda mail, promemoria, attività e documenti. Le mail
+          già assegnate ad un’altra anagrafica non vengono spostate. Se in
+          archivio non ci sono messaggi, vengono cercati anche in inbox e
+          posta inviata di tutte le caselle IMAP.
         </p>
 
         {loading ? (
@@ -107,7 +109,7 @@ export function TimelineSincronizzaModal({
               <span>
                 <span className="block text-sm font-medium">Mail</span>
                 <span className="text-xs text-[var(--muted)]">
-                  {preview.mailNuove} da collegare
+                  {preview.mailNuove} già in archivio da collegare
                   {preview.mailGiaCollegate
                     ? ` · ${preview.mailGiaCollegate} già in timeline`
                     : ""}
@@ -116,6 +118,9 @@ export function TimelineSincronizzaModal({
                     : ""}
                   {preview.emailsUsate
                     ? ` · ${preview.emailsUsate} indirizzi scheda`
+                    : ""}
+                  {preview.mailNuove === 0
+                    ? " · nessuna in archivio: la sync cercherà anche IMAP (senza limite 30 giorni)"
                     : ""}
                 </span>
                 {preview.mailEsempi.length > 0 ? (
@@ -183,6 +188,7 @@ export function TimelineSincronizzaModal({
                 mail,
                 pn,
                 documenti,
+                cercaImap: mail,
               }).then((res) => {
                 setRunning(false);
                 if (!res.success) {
@@ -190,11 +196,27 @@ export function TimelineSincronizzaModal({
                   return;
                 }
                 const bits = [
-                  mail ? `${res.linkedMail} mail` : null,
+                  mail ? `${res.linkedMail} mail collegate` : null,
+                  mail && res.importedImap
+                    ? `${res.importedImap} importate da IMAP`
+                    : null,
                   pn ? `${res.copiedPn} note/PN` : null,
                   documenti ? `${res.documenti} documenti` : null,
                 ].filter(Boolean);
-                onDone(`Sincronizzazione completata: ${bits.join(", ")}.`);
+                const extra =
+                  mail &&
+                  res.linkedMail === 0 &&
+                  res.importedImap === 0 &&
+                  res.emailsUsate > 0
+                    ? ` Nessun messaggio trovato nelle caselle per i ${res.emailsUsate} indirizzi della scheda.`
+                    : "";
+                const imapWarn =
+                  res.imapErrors.length > 0
+                    ? ` Avvisi IMAP: ${res.imapErrors[0]}`
+                    : "";
+                onDone(
+                  `Sincronizzazione completata: ${bits.join(", ")}.${extra}${imapWarn}`
+                );
                 onClose();
               });
             }}

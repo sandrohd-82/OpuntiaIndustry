@@ -8,8 +8,10 @@ import {
   assertAnagraficaPrivilege,
   kindFromAziendaTipo,
 } from "@/lib/auth/anagrafica-privileges-server";
+import { isUnrestrictedSuperadmin } from "@/lib/auth/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import type { AziendaTimelineItem } from "@/lib/amministrazione/azienda-timeline";
+import { fraseConfermaPausaTimelineSync } from "@/lib/amministrazione/timeline-sync";
 import {
   upsertTimelinePnCopia,
   type TimelinePnOrigine,
@@ -18,7 +20,9 @@ import {
   findWebmailMatchesForAziendaEmails,
   linkUnlinkedWebmailByEmails,
   linkWebmailMessaggioAnagraficaAction,
+  persistAziendaEmailAutoLinks,
 } from "@/app/actions/webmail";
+import { importImapMessagesByEmails } from "@/lib/webmail/sync";
 
 const inputSchema = z.object({
   aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
@@ -68,6 +72,10 @@ const CONSUMER_DOMAINS = new Set([
   "libero.it",
   "virgilio.it",
   "alice.it",
+  "startpec.it",
+  "legalmail.it",
+  "pec.it",
+  "register.it",
 ]);
 
 async function collectAziendaEmailHints(
@@ -1243,6 +1251,7 @@ export async function previewAziendaTimelineSyncAction(
   const [mails, pn, documenti] = await Promise.all([
     findWebmailMatchesForAziendaEmails({
       emails: hints.emails.map((e) => e.email),
+      domains: hints.domains,
       aziendaTipo,
       aziendaId,
       accountIds: grantedIds,
@@ -1271,6 +1280,7 @@ const runSyncSchema = inputSchema.extend({
   mail: z.boolean(),
   pn: z.boolean(),
   documenti: z.boolean(),
+  cercaImap: z.boolean().optional(),
 });
 
 export async function runAziendaTimelineSyncAction(
@@ -1281,6 +1291,10 @@ export async function runAziendaTimelineSyncAction(
       linkedMail: number;
       copiedPn: number;
       documenti: number;
+      importedImap: number;
+      emailsUsate: number;
+      imapAccountsTried: number;
+      imapErrors: string[];
     }
   | { success: false; error: string }
 > {
@@ -1292,14 +1306,56 @@ export async function runAziendaTimelineSyncAction(
   const vis = await resolveWebmailAccountVisibility(auth);
   const grantedIds = vis.mode === "granted" ? vis.ids : null;
   const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+  const label = aziendaLabel || hints.ragioneSociale;
+  const canMail = parsed.data.mail && (!grantedIds || grantedIds.length > 0);
 
-  let linkedMail = 0;
-  if (parsed.data.mail && (!grantedIds || grantedIds.length > 0)) {
-    const res = await linkUnlinkedWebmailByEmails({
+  if (
+    canMail &&
+    (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile")
+  ) {
+    await persistAziendaEmailAutoLinks({
       emails: hints.emails.map((e) => e.email),
       aziendaTipo,
       aziendaId,
-      aziendaLabel: aziendaLabel || hints.ragioneSociale,
+      aziendaLabel: label,
+      actorId: auth.userId,
+    });
+  }
+
+  let importedImap = 0;
+  let imapAccountsTried = 0;
+  let imapErrors: string[] = [];
+  if (canMail && parsed.data.cercaImap) {
+    const service = createServiceClient();
+    let accQ = service
+      .from("webmail_accounts")
+      .select(
+        "id, email_address, provider, imap_host, imap_port, imap_secure, smtp_host, smtp_port, smtp_secure, username, password_encrypted, sync_since"
+      )
+      .eq("sync_enabled", true)
+      .is("deleted_at", null);
+    if (grantedIds && grantedIds.length > 0) {
+      accQ = accQ.in("id", grantedIds);
+    }
+    const { data: accounts } = await accQ;
+    const imap = await importImapMessagesByEmails(
+      service,
+      (accounts ?? []) as Parameters<typeof importImapMessagesByEmails>[1],
+      hints.emails.map((e) => e.email)
+    );
+    importedImap = imap.imported;
+    imapAccountsTried = imap.accountsTried;
+    imapErrors = imap.errors.slice(0, 6);
+  }
+
+  let linkedMail = 0;
+  if (canMail) {
+    const res = await linkUnlinkedWebmailByEmails({
+      emails: hints.emails.map((e) => e.email),
+      domains: hints.domains,
+      aziendaTipo,
+      aziendaId,
+      aziendaLabel: label,
       actorId: auth.userId,
       accountIds: grantedIds,
       persistAutoLink:
@@ -1339,16 +1395,181 @@ export async function runAziendaTimelineSyncAction(
     entity_id: aziendaId,
     action: "timeline_sync",
     actor_id: auth.userId,
-    summary: `Sincronizza timeline ${aziendaTipo}: ${linkedMail} mail, ${copiedPn} PN`,
+    summary: `Sincronizza timeline ${aziendaTipo}: ${linkedMail} mail, ${importedImap} IMAP, ${copiedPn} PN`,
     payload: {
       aziendaTipo,
       mail: parsed.data.mail,
       pn: parsed.data.pn,
       documenti: parsed.data.documenti,
+      cercaImap: Boolean(parsed.data.cercaImap),
       linkedMail,
+      importedImap,
+      imapAccountsTried,
       copiedPn,
     },
   });
 
-  return { success: true, linkedMail, copiedPn, documenti };
+  return {
+    success: true,
+    linkedMail,
+    copiedPn,
+    documenti,
+    importedImap,
+    emailsUsate: hints.emails.length,
+    imapAccountsTried,
+    imapErrors,
+  };
+}
+
+export type AziendaTimelineSyncState = {
+  attiva: boolean;
+  pausedAt: string | null;
+  frasePausa: string;
+};
+
+export async function getAziendaTimelineSyncStateAction(
+  raw: unknown
+): Promise<
+  | { success: true; state: AziendaTimelineSyncState }
+  | { success: false; error: string }
+> {
+  const gate = await assertTimelineSyncAccess(raw);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const service = createServiceClient();
+  const { data, error } = await service
+    .from("anagrafica_timeline_sync")
+    .select("attiva, paused_at")
+    .eq("azienda_tipo", gate.aziendaTipo)
+    .eq("azienda_id", gate.aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) {
+    return {
+      success: true,
+      state: {
+        attiva: true,
+        pausedAt: null,
+        frasePausa: fraseConfermaPausaTimelineSync(gate.aziendaLabel),
+      },
+    };
+  }
+  const attiva = data ? Boolean(data.attiva) : true;
+  return {
+    success: true,
+    state: {
+      attiva,
+      pausedAt: (data?.paused_at as string | null) ?? null,
+      frasePausa: fraseConfermaPausaTimelineSync(gate.aziendaLabel),
+    },
+  };
+}
+
+const pauseSchema = inputSchema.extend({
+  conferma1: z.literal(true),
+  frase: z.string().trim().min(3).max(200),
+});
+
+export async function pauseAziendaTimelineSyncAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const parsed = pauseSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Conferme non valide." };
+  const gate = await assertTimelineSyncAccess(parsed.data);
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!isUnrestrictedSuperadmin({ profile: gate.auth.profile, impersonating: gate.auth.impersonating })) {
+    return {
+      success: false,
+      error: "Solo un Super Admin (senza switch operatore) può disattivare la sincronizzazione continua.",
+    };
+  }
+  const expected = fraseConfermaPausaTimelineSync(gate.aziendaLabel);
+  if (parsed.data.frase.trim().toUpperCase() !== expected.toUpperCase()) {
+    return { success: false, error: `Scrivi esattamente: ${expected}` };
+  }
+  const service = createServiceClient();
+  const now = new Date().toISOString();
+  const { data: existing } = await service
+    .from("anagrafica_timeline_sync")
+    .select("id")
+    .eq("azienda_tipo", gate.aziendaTipo)
+    .eq("azienda_id", gate.aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing?.id) {
+    const { error } = await service
+      .from("anagrafica_timeline_sync")
+      .update({
+        attiva: false,
+        paused_at: now,
+        paused_by: gate.auth.userId,
+        pause_motivo: expected,
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  } else {
+    const { error } = await service.from("anagrafica_timeline_sync").insert({
+      azienda_tipo: gate.aziendaTipo,
+      azienda_id: gate.aziendaId,
+      attiva: false,
+      paused_at: now,
+      paused_by: gate.auth.userId,
+      pause_motivo: expected,
+      created_by: gate.auth.userId,
+      updated_by: gate.auth.userId,
+    });
+    if (error) return { success: false, error: error.message };
+  }
+  await writeAuditLog({
+    entity_type: aziendaTable(gate.aziendaTipo),
+    entity_id: gate.aziendaId,
+    action: "timeline_sync_pause",
+    actor_id: gate.auth.userId,
+    summary: `Disattivata sincronizzazione continua ${gate.aziendaTipo}`,
+    payload: { aziendaTipo: gate.aziendaTipo },
+  });
+  return { success: true };
+}
+
+export async function resumeAziendaTimelineSyncAction(
+  raw: unknown
+): Promise<{ success: true } | { success: false; error: string }> {
+  const gate = await assertTimelineSyncAccess(raw);
+  if (!gate.ok) return { success: false, error: gate.error };
+  if (!isUnrestrictedSuperadmin({ profile: gate.auth.profile, impersonating: gate.auth.impersonating })) {
+    return {
+      success: false,
+      error: "Solo un Super Admin può riattivare la sincronizzazione continua.",
+    };
+  }
+  const service = createServiceClient();
+  const { data: existing } = await service
+    .from("anagrafica_timeline_sync")
+    .select("id")
+    .eq("azienda_tipo", gate.aziendaTipo)
+    .eq("azienda_id", gate.aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing?.id) {
+    const { error } = await service
+      .from("anagrafica_timeline_sync")
+      .update({
+        attiva: true,
+        paused_at: null,
+        paused_by: null,
+        pause_motivo: "",
+        updated_by: gate.auth.userId,
+      })
+      .eq("id", existing.id);
+    if (error) return { success: false, error: error.message };
+  }
+  await writeAuditLog({
+    entity_type: aziendaTable(gate.aziendaTipo),
+    entity_id: gate.aziendaId,
+    action: "timeline_sync_resume",
+    actor_id: gate.auth.userId,
+    summary: `Riattivata sincronizzazione continua ${gate.aziendaTipo}`,
+    payload: { aziendaTipo: gate.aziendaTipo },
+  });
+  return { success: true };
 }

@@ -15,6 +15,7 @@ import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/cl
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import { displayContattoName, type RubricaContatto } from "@/lib/rubrica/types";
+import { AnagraficaTimelineSyncBar } from "@/components/amministrazione/AnagraficaTimelineSyncBar";
 
 export type AnagraficaSchedaDetailModel = {
   id: string;
@@ -112,6 +113,11 @@ export function AnagraficaSchedaDetail({
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
+      <AnagraficaTimelineSyncBar
+        aziendaTipo={model.kind}
+        aziendaId={model.id}
+        aziendaLabel={model.ragioneSociale}
+      />
       {model.cancellazionePrenotata ? (
         <p className="sm:col-span-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           Cancellazione prenotata: in attesa di conferma Super Admin.

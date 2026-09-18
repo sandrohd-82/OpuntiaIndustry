@@ -2028,6 +2028,216 @@ export async function syncAllWebmailAccounts(
   };
 }
 
+const TIMELINE_IMAP_BUDGET_MS = 20_000;
+const TIMELINE_IMAP_MAX_UIDS = 28;
+const TIMELINE_IMAP_MAX_EMAILS = 12;
+
+type TimelineImapSearch = {
+  from?: string;
+  to?: string;
+  or?: TimelineImapSearch[];
+};
+
+function nestImapOr(parts: TimelineImapSearch[]): TimelineImapSearch | null {
+  if (parts.length === 0) return null;
+  return parts.reduce((acc, cur) => ({ or: [acc, cur] }));
+}
+
+function newestImapUids(uids: string[], max: number): string[] {
+  return [...uids]
+    .filter((u) => Number.isFinite(Number(u)) && Number(u) > 0)
+    .sort((a, b) => Number(a) - Number(b))
+    .slice(-max);
+}
+
+async function searchImapUidsByEmails(
+  client: ImapFlow,
+  emails: string[]
+): Promise<string[]> {
+  const parts: TimelineImapSearch[] = [];
+  for (const email of emails) {
+    parts.push({ from: email }, { to: email });
+  }
+  const combined = nestImapOr(parts);
+  if (combined) {
+    try {
+      const uids = await client.search(
+        combined as Parameters<ImapFlow["search"]>[0],
+        { uid: true }
+      );
+      return newestImapUids((uids || []).map(String), TIMELINE_IMAP_MAX_UIDS);
+    } catch {
+      /* alcuni provider non accettano OR annidato */
+    }
+  }
+  const found = new Set<string>();
+  for (const email of emails) {
+    for (const crit of [{ from: email }, { to: email }] as const) {
+      try {
+        const uids = await client.search({ ...crit }, { uid: true });
+        for (const u of uids || []) found.add(String(u));
+      } catch {
+        /* criterio non supportato */
+      }
+    }
+  }
+  return newestImapUids([...found], TIMELINE_IMAP_MAX_UIDS);
+}
+
+/**
+ * Cerca in INBOX e Posta inviata i messaggi da/verso gli indirizzi anagrafica
+ * e li importa (senza limite sync_since). Usato da «Forza nuova sincronizzazione».
+ */
+export async function importImapMessagesByEmails(
+  supabase: Service,
+  accounts: AccountRow[],
+  emails: string[],
+  options?: { timeBudgetMs?: number }
+): Promise<{
+  imported: number;
+  importedIds: string[];
+  accountsTried: number;
+  errors: string[];
+}> {
+  const unique = [
+    ...new Set(
+      emails
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes("@"))
+    ),
+  ].slice(0, TIMELINE_IMAP_MAX_EMAILS);
+  const empty = {
+    imported: 0,
+    importedIds: [] as string[],
+    accountsTried: 0,
+    errors: [] as string[],
+  };
+  if (unique.length === 0 || accounts.length === 0) return empty;
+
+  const budgetMs = options?.timeBudgetMs ?? TIMELINE_IMAP_BUDGET_MS;
+  const startedAt = Date.now();
+  let imported = 0;
+  const importedIds: string[] = [];
+  const errors: string[] = [];
+  let accountsTried = 0;
+
+  for (const account of accounts) {
+    if (Date.now() - startedAt > budgetMs) break;
+    accountsTried += 1;
+    let password: string;
+    try {
+      password = decryptWebmailSecret(account.password_encrypted);
+    } catch (e) {
+      errors.push(
+        `${account.email_address}: ${
+          e instanceof Error ? e.message : "password non decifrabile"
+        }`
+      );
+      continue;
+    }
+
+    const client = new ImapFlow({
+      host: account.imap_host,
+      port: account.imap_port,
+      secure: account.imap_secure,
+      auth: { user: account.username, pass: password },
+      logger: false,
+      socketTimeout: 18_000,
+      greetingTimeout: 12_000,
+    });
+
+    try {
+      await client.connect();
+      const blacklist = await loadAccountBlacklist(supabase, account.id);
+      const remaining = () => Math.max(1_500, budgetMs - (Date.now() - startedAt));
+
+      const inboxLock = await client.getMailboxLock("INBOX");
+      try {
+        const inboxUids = await searchImapUidsByEmails(client, unique);
+        const existingInbox = await loadExistingUids(
+          supabase,
+          account.id,
+          inboxUids,
+          "INBOX"
+        );
+        const missingInbox = inboxUids.filter((u) => !existingInbox.has(u));
+        if (missingInbox.length > 0) {
+          const res = await importInboxUidList(
+            supabase,
+            account,
+            client,
+            missingInbox,
+            blacklist,
+            { folder: "INBOX", timeBudgetMs: remaining(), startedAt }
+          );
+          imported += res.imported;
+          importedIds.push(...res.importedIds);
+        }
+      } finally {
+        try {
+          inboxLock.release();
+        } catch {
+          /* sessione IMAP già chiusa */
+        }
+      }
+
+      if (Date.now() - startedAt > budgetMs) {
+        continue;
+      }
+
+      const sentBox = await resolveImapSentMailbox(client);
+      if (sentBox) {
+        const sentLock = await client.getMailboxLock(sentBox);
+        try {
+          const sentUids = await searchImapUidsByEmails(client, unique);
+          const existingSent = await loadExistingUids(
+            supabase,
+            account.id,
+            sentUids,
+            WEBMAIL_SENT_FOLDER
+          );
+          const missingSent = sentUids.filter((u) => !existingSent.has(u));
+          if (missingSent.length > 0) {
+            const res = await importInboxUidList(
+              supabase,
+              account,
+              client,
+              missingSent,
+              blacklist,
+              {
+                folder: WEBMAIL_SENT_FOLDER,
+                asSent: true,
+                timeBudgetMs: remaining(),
+                startedAt,
+              }
+            );
+            imported += res.imported;
+            importedIds.push(...res.importedIds);
+          }
+        } finally {
+          try {
+            sentLock.release();
+          } catch {
+            /* sessione IMAP già chiusa */
+          }
+        }
+      }
+    } catch (e) {
+      errors.push(
+        `${account.email_address}: ${formatImapSyncError(e, account)}`
+      );
+    } finally {
+      try {
+        await client.logout();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  return { imported, importedIds, accountsTried, errors };
+}
+
 export async function sendMailViaAccount(input: {
   account: AccountRow;
   to: string;

@@ -29,6 +29,7 @@ import {
 } from "@/components/layout/ActionAccessProvider";
 import { AZ } from "@/lib/auth/action-access";
 import { AziendaTimelineModal } from "@/components/amministrazione/AziendaTimelineModal";
+import { TimelineSincronizzaModal } from "@/components/amministrazione/TimelineSincronizzaModal";
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import { AnagraficaSchedaDetail } from "@/components/amministrazione/AnagraficaSchedaDetail";
 import { ClienteFormModal } from "@/components/amministrazione/ClienteFormModal";
@@ -74,6 +75,7 @@ function PossibileClienteRow({
   lineageIds: string[];
 }) {
   const [open, setOpen] = useState(false);
+  const [forceSync, setForceSync] = useState(false);
   const priv = useAnagraficaPrivileges("cliente_possibile");
   const treatAsOwn = isCommercialOwnRecord({
     userId: priv.userId,
@@ -138,6 +140,16 @@ function PossibileClienteRow({
                 Timeline
               </button>
             ) : null}
+            {canTimeline ? (
+              <button
+                type="button"
+                onClick={() => setForceSync(true)}
+                className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
+                title="Forza nuova sincronizzazione"
+              >
+                Sincronizza
+              </button>
+            ) : null}
             {canEdit ? (
               <button
                 type="button"
@@ -170,6 +182,13 @@ function PossibileClienteRow({
           </div>
         </td>
       </tr>
+      <TimelineSincronizzaModal
+        open={forceSync}
+        aziendaTipo="cliente_possibile"
+        aziendaId={lead.id}
+        onClose={() => setForceSync(false)}
+        onDone={() => undefined}
+      />
       {open ? (
         <tr className="border-t border-[var(--border)] bg-slate-50/70">
           <td colSpan={9} className="px-4 py-4">

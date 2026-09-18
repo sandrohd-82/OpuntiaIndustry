@@ -156,7 +156,73 @@ export async function matchWebmailAnagrafica(
     };
   }
 
+  const extraLead = await matchByEmailGeneriche(
+    supabase,
+    "clienti_possibili",
+    "cliente_possibile",
+    email
+  );
+  if (extraLead) return extraLead;
+  const extraCli = await matchByEmailGeneriche(
+    supabase,
+    "clienti",
+    "cliente",
+    email
+  );
+  if (extraCli) return extraCli;
+
+  const { data: brand } = await supabase
+    .from("anagrafica_brand")
+    .select("owner_kind, owner_id, nome, email")
+    .ilike("email", email)
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (
+    brand &&
+    (brand.owner_kind === "cliente" || brand.owner_kind === "cliente_possibile")
+  ) {
+    const labelTable =
+      brand.owner_kind === "cliente" ? "clienti" : "clienti_possibili";
+    const { data: owner } = await supabase
+      .from(labelTable)
+      .select("ragione_sociale")
+      .eq("id", brand.owner_id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return {
+      aziendaTipo: brand.owner_kind,
+      aziendaId: String(brand.owner_id),
+      aziendaLabel: String(owner?.ragione_sociale ?? brand.nome ?? ""),
+      contattoId: null,
+      linkStato: "collegata",
+    };
+  }
+
   return { ...empty, linkStato: "da_salvare" };
+}
+
+async function matchByEmailGeneriche(
+  supabase: SupabaseClient,
+  table: "clienti" | "clienti_possibili",
+  tipo: "cliente" | "cliente_possibile",
+  email: string
+): Promise<WebmailAnagraficaMatch | null> {
+  const { data } = await supabase
+    .from(table)
+    .select("id, ragione_sociale, email_generiche")
+    .contains("email_generiche", [email])
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    aziendaTipo: tipo,
+    aziendaId: String(data.id),
+    aziendaLabel: String(data.ragione_sociale ?? ""),
+    contattoId: null,
+    linkStato: "collegata",
+  };
 }
 
 /**
