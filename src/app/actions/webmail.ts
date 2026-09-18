@@ -2947,7 +2947,7 @@ async function linkAllMessagesByEmail(input: {
   return ids.size;
 }
 
-export const TIMELINE_MAIL_SYNC_MAX = 400;
+const TIMELINE_MAIL_SYNC_MAX = 400;
 
 export type TimelineMailSyncHit = {
   id: string;
