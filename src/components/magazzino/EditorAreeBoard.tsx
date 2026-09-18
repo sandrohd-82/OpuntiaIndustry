@@ -56,8 +56,8 @@ export function EditorAreeBoard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-[var(--muted)]">
-          Le bozze salvate restano in questo elenco. Collegale a Magazzino → Mappa
-          Magazzino → Nome [Vista].
+          Le bozze restano in elenco. Collega ad area, poi Approva per renderle
+          definitive in Magazzino → Mappa Magazzino.
         </p>
         {canDesign ? (
           <button

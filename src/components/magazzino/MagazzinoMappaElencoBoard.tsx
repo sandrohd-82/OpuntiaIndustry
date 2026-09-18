@@ -36,8 +36,8 @@ export function MagazzinoMappaElencoBoard() {
   if (items.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-[var(--border)] px-4 py-8 text-center text-sm text-[var(--muted)]">
-        Nessuna pianta collegata. Il Super Admin le disegna in Strumenti → Editor di
-        aree, «Collega ad area» e poi «Crea percorso» per pubblicarle nel menu.
+        Nessuna pianta approvata. Il Super Admin le disegna in Strumenti → Editor
+        di aree, le collega all&apos;area e le approva per renderle definitive.
       </p>
     );
   }

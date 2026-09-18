@@ -2679,8 +2679,8 @@ export async function collegaMappaAdAreaAction(
     vista_etichetta?: string;
   } | null;
   if (!row) return { success: false, error: "Pianta non trovata." };
-  if (row.documento_stato !== "bozza") {
-    return { success: false, error: "Questa pianta è già collegata. Riapri per modificarla." };
+  if (row.documento_stato === "chiuso") {
+    return { success: false, error: "Questa pianta è chiusa." };
   }
   const resolved = await risolviPercorsoMenu(supabase, input, auth.userId);
   if ("error" in resolved) return { success: false, error: resolved.error };
@@ -2691,15 +2691,12 @@ export async function collegaMappaAdAreaAction(
   const { error } = await supabase
     .from("magazzino_mappe")
     .update({
-      documento_stato: "approvato",
       area_codice: input.areaSlug,
       nome: luogo,
       luogo_nome: luogo,
       menu_nodo_id: resolved.postoId,
       vista_etichetta: vista,
       slug,
-      approved_at: new Date().toISOString(),
-      approved_by: auth.userId,
       collegata_at: new Date().toISOString(),
       collegata_by: auth.userId,
       updated_by: auth.userId,
@@ -2719,7 +2716,6 @@ export async function collegaMappaAdAreaAction(
     .from("magazzino_ubicazioni")
     .update({
       luogo_nome: luogo,
-      documento_stato: "approvato",
       updated_by: auth.userId,
     })
     .eq("mappa_origine_id", input.mappaId)
@@ -2728,9 +2724,9 @@ export async function collegaMappaAdAreaAction(
   await writeAuditLog({
     entity_type: "magazzino_mappe",
     entity_id: input.mappaId,
-    action: "status_change",
+    action: "update",
     actor_id: auth.userId,
-    summary: `Collegata pianta a ${mappa?.percorsoEtichetta || luogo}`,
+    summary: `Percorso URL impostato: ${mappa?.percorsoEtichetta || luogo}`,
     payload: {
       area: input.areaSlug,
       luogo,
@@ -2739,7 +2735,109 @@ export async function collegaMappaAdAreaAction(
       menu_nodo_id: resolved.postoId,
     },
   });
-  if (!mappa) return { success: false, error: "Collegamento ok, pianta non leggibile." };
+  if (!mappa) return { success: false, error: "Percorso ok, pianta non leggibile." };
+  return { success: true, mappa };
+}
+
+export async function approvaMappaMagazzinoAction(
+  mappaId: string
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può approvare la pianta." };
+  }
+  if (!/^[0-9a-f-]{36}$/i.test(mappaId)) {
+    return { success: false, error: "Pianta non valida." };
+  }
+  const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select(
+      "id, documento_stato, vista_etichetta, luogo_nome, menu_nodo_id, slug, versione"
+    )
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const row = cur as {
+    id: string;
+    documento_stato: string;
+    vista_etichetta?: string | null;
+    luogo_nome?: string | null;
+    menu_nodo_id?: string | null;
+    slug?: string | null;
+    versione?: number;
+  } | null;
+  if (!row) return { success: false, error: "Pianta non trovata." };
+  if (row.documento_stato === "approvato") {
+    return { success: false, error: "Questa pianta è già approvata." };
+  }
+  if (row.documento_stato !== "bozza") {
+    return { success: false, error: "Solo una bozza può essere approvata." };
+  }
+  const vista = String(row.vista_etichetta ?? "").trim();
+  if (!vista) {
+    return { success: false, error: "Imposta la Vista prima di approvare." };
+  }
+  const luogo = String(row.luogo_nome ?? "").trim();
+  if (!luogo || !row.menu_nodo_id) {
+    return {
+      success: false,
+      error: "Collega prima il foglio a un'area con «Collega ad area».",
+    };
+  }
+  const slug =
+    String(row.slug ?? "").trim() ||
+    (await slugLibero(supabase, slugMappaArea(luogo, vista), row.id));
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("magazzino_mappe")
+    .update({
+      documento_stato: "approvato",
+      slug,
+      approved_at: now,
+      approved_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("id", row.id)
+    .is("deleted_at", null);
+  if (error) {
+    if (error.message.includes("magazzino_mappe_collegata_nodo_vista")) {
+      return {
+        success: false,
+        error: `Esiste già una pianta approvata con vista «${vista}» su quest'area.`,
+      };
+    }
+    return { success: false, error: error.message };
+  }
+  await supabase
+    .from("magazzino_ubicazioni")
+    .update({
+      documento_stato: "approvato",
+      updated_by: auth.userId,
+    })
+    .eq("mappa_origine_id", row.id)
+    .is("deleted_at", null);
+  const mappa = await loadMappa(supabase, row.id);
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: row.id,
+    action: "status_change",
+    actor_id: auth.userId,
+    summary: `Approvata pianta «${luogo}» [${vista}] v${row.versione ?? 1}`,
+    payload: {
+      da: "bozza",
+      a: "approvato",
+      versione: row.versione ?? 1,
+      slug,
+      approved_at: now,
+    },
+  });
+  if (!mappa) {
+    return { success: false, error: "Approvazione ok, pianta non leggibile." };
+  }
   return { success: true, mappa };
 }
 

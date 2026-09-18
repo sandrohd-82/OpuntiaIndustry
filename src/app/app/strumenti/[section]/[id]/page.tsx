@@ -20,7 +20,7 @@ export default async function StrumentiEditorAreePage({ params }: Props) {
     <>
       <AppHeader
         title="Editor di aree"
-        subtitle="Bozza: salva senza cancellare le altre. Collega ad area per pubblicarla in Magazzino."
+        subtitle="Bozza: salva e collega all'area. Approva per renderla definitiva in Magazzino."
       />
       <div className="min-w-0 px-4 pb-8 pt-2">
         <MagazzinoMappaBoard mappaId={id} mode="editor" />

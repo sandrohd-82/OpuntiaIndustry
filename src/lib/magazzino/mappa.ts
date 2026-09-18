@@ -14,7 +14,7 @@ export type MappaDocumentoStato = (typeof MAPPA_STATI)[number];
 
 export const MAPPA_STATO_LABEL: Record<MappaDocumentoStato, string> = {
   bozza: "Bozza",
-  approvato: "Collegata",
+  approvato: "Approvata",
   chiuso: "Chiuso",
 };
 

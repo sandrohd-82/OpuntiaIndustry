@@ -216,13 +216,13 @@ export const PAGE_EXTRAS: Record<string, TutorialBlock[]> = {
   "/app/magazzino/mappa": [
     {
       type: "p",
-      text: "Elenco delle piante già collegate (Nome magazzino [Vista]). Il disegno si fa in Strumenti → Editor di aree: le bozze salvate non si cancellano; «Collega ad area» le pubblica qui.",
+      text: "Elenco delle piante già approvate (Nome magazzino [Vista]). Il disegno si fa in Strumenti → Editor di aree: le bozze salvate non si cancellano; «Collega ad area» e poi «Approva» le rendono definitive qui.",
     },
   ],
   "/app/strumenti/editor-aree": [
     {
       type: "p",
-      text: "Editor di aree. Ogni salvataggio è una bozza e resta in elenco. Quando è pronta, collegala a Magazzino → Mappa Magazzino → Nome [Vista]. Rettangolo: primo click partenza, secondo click senso, poi le misure. Righelli e palette colori aiutano il tracciato.",
+      text: "Editor di aree. Ogni salvataggio è una bozza e resta in elenco. Quando è pronta: Collega ad area, poi Approva (diventa definitiva e in sola lettura). Rettangolo: primo click partenza, secondo click senso, poi le misure. Righelli e palette colori aiutano il tracciato.",
     },
   ],
   "/app/magazzino/panoramica": [

@@ -8,6 +8,7 @@ import {
 } from "react";
 import Link from "next/link";
 import {
+  approvaMappaMagazzinoAction,
   collegaMappaAdAreaAction,
   collegaMappaAdAreaOperativaAction,
   getMappaByIdAction,
@@ -431,6 +432,7 @@ export function MagazzinoMappaBoard({
   const [collegaVariant, setCollegaVariant] = useState<"collega" | "modifica">(
     "collega"
   );
+  const [approvaOpen, setApprovaOpen] = useState(false);
   const [percorsoIniziale, setPercorsoIniziale] =
     useState<MappaMenuPercorsoCaricato | null>(null);
   const [selectedRifIds, setSelectedRifIds] = useState<string[]>([]);
@@ -2669,7 +2671,7 @@ export function MagazzinoMappaBoard({
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setCollegaOpen(false);
     setPercorsoIniziale(null);
-    setOk(`Collegata a ${res.mappa.percorsoEtichetta}.`);
+    setOk(`Percorso URL: ${res.mappa.percorsoEtichetta}. Approva per renderla definitiva.`);
     window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
     window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
   }
@@ -2740,8 +2742,44 @@ export function MagazzinoMappaBoard({
       return;
     }
     setMappa(res.mappa);
-    setOk(`Progettazione riaperta (v${res.mappa.versione}). La pianta esce dal menu Magazzino finché non la colleghi di nuovo.`);
+    setOk(
+      `Progettazione riaperta (v${res.mappa.versione}). La pianta esce dal menu Magazzino finché non la approvi di nuovo.`
+    );
     window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
+  }
+
+  async function avviaApprova() {
+    if (!mappa) return;
+    if (!vistaOk || !scalaOk) {
+      setError("Imposta Vista e scala prima di approvare.");
+      return;
+    }
+    if (!(luogoNome.trim() || mappa.luogoNome) || !mappa.menuNodoId) {
+      setError("Collega prima il foglio a un'area con «Collega ad area».");
+      return;
+    }
+    setApprovaOpen(true);
+  }
+
+  async function confermaApprova() {
+    if (!mappa) return;
+    const okSave = await persist();
+    if (!okSave) return;
+    setSaving(true);
+    setError(null);
+    const res = await approvaMappaMagazzinoAction(mappa.id);
+    setSaving(false);
+    if (!res.success) {
+      setError(res.error);
+      return;
+    }
+    setMappa(res.mappa);
+    setApprovaOpen(false);
+    setOk(
+      `Pianta approvata (v${res.mappa.versione}): è definitiva e in sola lettura. Per modificarla usa «Riapri progettazione».`
+    );
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
+    window.dispatchEvent(new Event(MAPPA_MENU_NAV_EVENT));
   }
 
   const gridPatternId = "mappa-grid";
@@ -2858,6 +2896,9 @@ export function MagazzinoMappaBoard({
             ) : null}
             {mappa.luogoNome || mappa.nome} · v{mappa.versione} ·{" "}
             {MAPPA_STATO_LABEL[mappa.documentoStato]}
+            {mappa.documentoStato === "approvato" && mappa.approvedAt
+              ? ` · ${new Date(mappa.approvedAt).toLocaleString("it-IT")}`
+              : ""}
             {mappa.percorsoEtichetta
               ? ` · ${mappa.percorsoEtichetta}`
               : mappa.luogoNome && mappa.vistaEtichetta
@@ -2927,10 +2968,20 @@ export function MagazzinoMappaBoard({
                 type="button"
                 disabled={saving || collegaBusy || !vistaOk || !scalaOk}
                 onClick={() => void avviaCollega()}
-                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+                className="rounded-lg border border-teal-600 px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-50 disabled:opacity-50"
               >
                 Collega ad area
               </button>
+              {mappa.documentoStato === "bozza" ? (
+              <button
+                type="button"
+                disabled={saving || collegaBusy || !vistaOk || !scalaOk}
+                onClick={() => void avviaApprova()}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                Approva
+              </button>
+              ) : null}
               {mappa.documentoStato === "bozza" ? (
               <button
                 type="button"
@@ -4750,6 +4801,48 @@ export function MagazzinoMappaBoard({
           onClose={() => setCopiaOpen(false)}
           onCompleta={(r) => applicaCopiaArea(r)}
         />
+      ) : null}
+      {approvaOpen ? (
+        <div
+          className="fixed inset-0 z-[10050] flex items-center justify-center bg-slate-950/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="approva-mappa-title"
+        >
+          <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-white p-4 shadow-xl">
+            <h2 id="approva-mappa-title" className="text-sm font-semibold">
+              Approva e rendi definitiva
+            </h2>
+            <p className="mt-2 text-sm text-slate-700">
+              La versione v{mappa.versione}
+              {mappa.luogoNome || mappa.nome
+                ? ` «${mappa.luogoNome || mappa.nome}»`
+                : ""}
+              {mappa.vistaEtichetta ? ` [${mappa.vistaEtichetta}]` : ""} passa da
+              Bozza a Approvata. Il disegno diventa in sola lettura e compare in
+              Magazzino. Per modificarla servirà «Riapri progettazione» (nuova
+              versione). Restano registrati chi e quando approva.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setApprovaOpen(false)}
+                className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void confermaApprova()}
+                className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {saving ? "Approvazione…" : "Approva"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
       {mode === "editor" && canDesign ? (
         <CollegaAdAreaModal
