@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
 } from "react";
 import Link from "next/link";
 import {
@@ -208,6 +207,17 @@ const FOGLIO_PAD_BOTTOM = 52;
 
 type SpostaDir = "up" | "down" | "left" | "right";
 
+function clampFreccePos(x: number, y: number) {
+  const maxX = Math.max(8, window.innerWidth - 88);
+  const maxY = Math.max(8, window.innerHeight - 88);
+  return {
+    x: Math.min(maxX, Math.max(8, x)),
+    y: Math.min(maxY, Math.max(8, y)),
+  };
+}
+
+let freccePadPosMem: { x: number; y: number } | null = null;
+
 function MappaSpostaFreccePad({
   onNudge,
   passoEtichetta,
@@ -216,33 +226,104 @@ function MappaSpostaFreccePad({
   passoEtichetta?: string | null;
 }) {
   const extra = passoEtichetta ? ` ${passoEtichetta}` : "";
+  const [pos, setPos] = useState(
+    () => freccePadPosMem ?? { x: 24, y: 160 }
+  );
+  const dragRef = useRef<{
+    ox: number;
+    oy: number;
+    px: number;
+    py: number;
+  } | null>(null);
+
+  function spostaPad(x: number, y: number) {
+    const next = clampFreccePos(x, y);
+    freccePadPosMem = next;
+    setPos(next);
+  }
+
+  useEffect(() => {
+    if (!freccePadPosMem) {
+      freccePadPosMem = clampFreccePos(window.innerWidth - 268, 160);
+    }
+    setPos(clampFreccePos(freccePadPosMem.x, freccePadPosMem.y));
+  }, []);
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const d = dragRef.current;
+      if (!d) return;
+      e.preventDefault();
+      spostaPad(d.px + (e.clientX - d.ox), d.py + (e.clientY - d.oy));
+    }
+    function onUp() {
+      dragRef.current = null;
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
+
   const btn =
     "min-w-[5.5rem] rounded-lg border border-indigo-400 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50 active:bg-indigo-100";
   return (
     <div
-      className="inline-grid grid-cols-3 gap-1"
-      role="group"
-      aria-label="Sposta selezione"
+      className="fixed z-[10050] w-[15.5rem] rounded-xl border border-indigo-400 bg-indigo-50/95 p-2 shadow-2xl backdrop-blur-sm"
+      style={{ left: pos.x, top: pos.y }}
+      role="dialog"
+      aria-label="Comandi sposta"
     >
-      <span />
-      <button type="button" className={btn} onClick={() => onNudge("up")}>
-        ▲ Sopra{extra}
-      </button>
-      <span />
-      <button type="button" className={btn} onClick={() => onNudge("left")}>
-        ◀ Sinistra{extra}
-      </button>
-      <span className="self-center text-center text-[10px] font-medium uppercase tracking-wide text-indigo-700">
-        {passoEtichetta ? "Sposta di" : "Sposta"}
-      </span>
-      <button type="button" className={btn} onClick={() => onNudge("right")}>
-        Destra{extra} ▶
-      </button>
-      <span />
-      <button type="button" className={btn} onClick={() => onNudge("down")}>
-        ▼ Sotto{extra}
-      </button>
-      <span />
+      <div
+        className="mb-1.5 flex cursor-grab select-none items-center justify-between gap-2 rounded-lg bg-indigo-700 px-2 py-1 text-white active:cursor-grabbing"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.stopPropagation();
+          dragRef.current = {
+            ox: e.clientX,
+            oy: e.clientY,
+            px: pos.x,
+            py: pos.y,
+          };
+        }}
+      >
+        <span className="text-[11px] font-semibold tracking-wide">
+          ⋮⋮ Sposta · trascina
+        </span>
+        <span className="text-[10px] font-medium opacity-90">
+          {passoEtichetta ? passoEtichetta : "1 q"}
+        </span>
+      </div>
+      <div
+        className="inline-grid w-full grid-cols-3 gap-1"
+        role="group"
+        aria-label="Sposta selezione"
+      >
+        <span />
+        <button type="button" className={btn} onClick={() => onNudge("up")}>
+          ▲ Sopra{extra}
+        </button>
+        <span />
+        <button type="button" className={btn} onClick={() => onNudge("left")}>
+          ◀ Sinistra{extra}
+        </button>
+        <span className="self-center text-center text-[10px] font-medium uppercase tracking-wide text-indigo-700">
+          {passoEtichetta ? "Sposta di" : "Sposta"}
+        </span>
+        <button type="button" className={btn} onClick={() => onNudge("right")}>
+          Destra{extra} ▶
+        </button>
+        <span />
+        <button type="button" className={btn} onClick={() => onNudge("down")}>
+          ▼ Sotto{extra}
+        </button>
+        <span />
+      </div>
     </div>
   );
 }
@@ -3036,21 +3117,25 @@ export function MagazzinoMappaBoard({
               · {formattaQuadrati(spostaDiPx / Math.max(griglia, 1))} quadrati
             </p>
           ) : null}
-          <div className="mt-2">
-            <MappaSpostaFreccePad
-              onNudge={nudgeSelected}
-              passoEtichetta={
-                spostaDiPx
-                  ? formattaLunghezzaReale(
-                      spostaDiPx / Math.max(griglia, 1),
-                      scalaValore,
-                      scalaUnita
-                    )
-                  : null
-              }
-            />
-          </div>
+          <p className="mt-2 text-xs text-indigo-900">
+            Le frecce sono nel riquadro fluttuante: prendilo dalla barra blu e
+            spostalo dove non copre il disegno.
+          </p>
         </div>
+      ) : null}
+      {showSpostaFrecce ? (
+        <MappaSpostaFreccePad
+          onNudge={nudgeSelected}
+          passoEtichetta={
+            spostaDiPx
+              ? formattaLunghezzaReale(
+                  spostaDiPx / Math.max(griglia, 1),
+                  scalaValore,
+                  scalaUnita
+                )
+              : null
+          }
+        />
       ) : null}
 
       {canDraw && tool === "trasforma" && selectedLine && selectedLineIds.length === 1 ? (
@@ -3281,53 +3366,6 @@ export function MagazzinoMappaBoard({
         >
           Adatta al foglio
         </button>
-        {showSpostaFrecce && selezioneBounds ? (
-          <div className="pointer-events-none absolute inset-0 z-20">
-            {(["up", "down", "left", "right"] as const).map((dir) => {
-              const left = selezioneBounds.x * zoom + pan.x;
-              const top = selezioneBounds.y * zoom + pan.y;
-              const w = selezioneBounds.w * zoom;
-              const h = selezioneBounds.h * zoom;
-              const cx = left + w / 2;
-              const cy = top + h / 2;
-              const gap = 10;
-              const style: CSSProperties =
-                dir === "up"
-                  ? { left: cx, top: top - gap, transform: "translate(-50%, -100%)" }
-                  : dir === "down"
-                    ? { left: cx, top: top + h + gap, transform: "translate(-50%, 0)" }
-                    : dir === "left"
-                      ? { left: left - gap, top: cy, transform: "translate(-100%, -50%)" }
-                      : { left: left + w + gap, top: cy, transform: "translate(0, -50%)" };
-              const misura = spostaDiPx
-                ? ` ${formattaLunghezzaReale(
-                    spostaDiPx / Math.max(griglia, 1),
-                    scalaValore,
-                    scalaUnita
-                  )}`
-                : "";
-              const label =
-                dir === "up"
-                  ? `▲ Sopra${misura}`
-                  : dir === "down"
-                    ? `▼ Sotto${misura}`
-                    : dir === "left"
-                      ? `◀ Sinistra${misura}`
-                      : `Destra${misura} ▶`;
-              return (
-                <button
-                  key={dir}
-                  type="button"
-                  style={style}
-                  onClick={() => nudgeSelected(dir)}
-                  className="pointer-events-auto absolute rounded-md border border-indigo-500 bg-white/95 px-2 py-1 text-[11px] font-semibold text-indigo-950 shadow-md hover:bg-indigo-50"
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
         {disegnoCursor?.punto ?? snappedCursor ? (
           <>
             <div
