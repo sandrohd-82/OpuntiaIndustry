@@ -523,16 +523,41 @@ async function loadUbicazioniScope(
     mappa_origine_id: string | null;
   }[];
   const byId = new Map(rows.map((r) => [r.id, r]));
+  const mappePerUbi = new Map<string, string[]>();
+  const vistePerUbi = new Map<string, string[]>();
+  const mapIdList = [...ctx.mapIds];
+  if (mapIdList.length) {
+    const { data: forme } = await supabase
+      .from("magazzino_mappa_aree")
+      .select("ubicazione_id, mappa_id")
+      .is("deleted_at", null)
+      .in("mappa_id", mapIdList);
+    for (const f of forme ?? []) {
+      const uid = String((f as { ubicazione_id?: string }).ubicazione_id ?? "");
+      const mid = String((f as { mappa_id?: string }).mappa_id ?? "");
+      if (!uid || !mid) continue;
+      const maps = mappePerUbi.get(uid) ?? [];
+      if (!maps.includes(mid)) maps.push(mid);
+      mappePerUbi.set(uid, maps);
+      const vista = (ctx.vistaByMap.get(mid) ?? "").trim() || "Foglio collegato";
+      const viste = vistePerUbi.get(uid) ?? [];
+      if (!viste.includes(vista)) viste.push(vista);
+      vistePerUbi.set(uid, viste);
+    }
+  }
   const scoped = rows.filter((r) => {
+    if (mappePerUbi.has(r.id)) return true;
     if (r.mappa_origine_id && ctx.mapIds.has(r.mappa_origine_id)) return true;
     const ln = r.luogo_nome.trim().toLowerCase();
     return Boolean(ln && ctx.luoghi.has(ln));
   });
   return scoped.map((r) => {
     const parent = r.parent_id ? byId.get(r.parent_id) : null;
-    const vista = r.mappa_origine_id
-      ? ctx.vistaByMap.get(r.mappa_origine_id) ?? ""
-      : "";
+    const viste = vistePerUbi.get(r.id) ?? [];
+    const maps = mappePerUbi.get(r.id) ?? [];
+    const vistaOrigine =
+      viste[0] ||
+      (r.mappa_origine_id ? ctx.vistaByMap.get(r.mappa_origine_id) ?? "" : "");
     return {
       id: r.id,
       codice: r.codice,
@@ -541,7 +566,9 @@ async function loadUbicazioniScope(
       parentCodice: parent?.codice ?? null,
       luogoNome: r.luogo_nome,
       mappaOrigineId: r.mappa_origine_id,
-      vistaOrigine: vista,
+      vistaOrigine,
+      visteDisegno: viste,
+      mappeDisegno: maps,
       etichetta: etichettaUbicazione(
         r.codice,
         r.nome,
@@ -1276,6 +1303,19 @@ async function persistAreeMappa(
     luogo = await inheritLuogoMappaIfEmpty(supabase, mappaId, luogo, userId);
   }
   const mapIds = [...ctx.mapIds];
+  const altriFogli = mapIds.filter((id) => id !== mappaId);
+  const postiAltroFoglio = new Set<string>();
+  if (altriFogli.length) {
+    const { data: formeAltri } = await supabase
+      .from("magazzino_mappa_aree")
+      .select("ubicazione_id")
+      .is("deleted_at", null)
+      .in("mappa_id", altriFogli);
+    for (const f of formeAltri ?? []) {
+      const uid = String((f as { ubicazione_id?: string }).ubicazione_id ?? "");
+      if (uid) postiAltroFoglio.add(uid);
+    }
+  }
   const { data: existingForme } = await supabase
     .from("magazzino_mappa_aree")
     .select("id")
@@ -1356,6 +1396,7 @@ async function persistAreeMappa(
     if (existing) {
       const locked =
         existing.mappa_origine_id !== mappaId ||
+        postiAltroFoglio.has(existing.id) ||
         existing.documento_stato === "approvato" ||
         (await ubicazioneHaMovimenti(supabase, existing.id));
       if (!locked) {

@@ -1843,22 +1843,39 @@ export function MagazzinoMappaBoard({
     const collegate: { id: string; label: string; codice: string }[] = [];
     const seen = new Set<string>();
     const currentMapId = mappa?.id ?? "";
+    const vistaNow = (vistaEtichetta || mappa?.vistaEtichetta || "")
+      .trim()
+      .toLowerCase();
     const luogo = (luogoNome || mappa?.luogoNome || "").trim().toLowerCase();
     for (const u of mappa?.ubicazioni ?? []) {
       if (!u.id || seen.has(u.id)) continue;
-      if (u.mappaOrigineId && u.mappaOrigineId === currentMapId) continue;
       const ul = (u.luogoNome || "").trim().toLowerCase();
       if (luogo && ul && ul !== luogo) continue;
+      const suAltroFoglio = (u.mappeDisegno ?? []).some(
+        (id) => id && id !== currentMapId
+      );
+      const altreViste = (u.visteDisegno ?? []).filter(
+        (v) => v.trim().toLowerCase() !== vistaNow
+      );
+      if (!suAltroFoglio && altreViste.length === 0) continue;
       seen.add(u.id);
-      const vista = (u.vistaOrigine || "").trim();
+      const vista = altreViste.join(" · ");
       collegate.push({
         id: u.id,
         codice: u.codice,
         label: `${u.nome} — ${u.codice}${vista ? ` · ${vista}` : ""}`,
       });
     }
+    collegate.sort((a, b) => a.codice.localeCompare(b.codice, "it"));
     return { collegate };
-  }, [luogoNome, mappa?.id, mappa?.luogoNome, mappa?.ubicazioni]);
+  }, [
+    luogoNome,
+    mappa?.id,
+    mappa?.luogoNome,
+    mappa?.ubicazioni,
+    mappa?.vistaEtichetta,
+    vistaEtichetta,
+  ]);
 
   function parentRecord(parentId: string | null) {
     if (!parentId) return null;
@@ -3326,7 +3343,7 @@ export function MagazzinoMappaBoard({
               />
             </label>
             <label className="text-xs">
-              Dentro (solo aree di altre viste collegate)
+              Dentro (aree del foglio collegato)
               <select
                 value={areaParentId}
                 onChange={(e) => setAreaParentId(e.target.value)}
@@ -3341,8 +3358,9 @@ export function MagazzinoMappaBoard({
               </select>
               {parentOptions.collegate.length === 0 ? (
                 <span className="mt-1 block text-[11px] text-amber-800">
-                  Nessun posto da altri fogli. Collega questo foglio alla stessa
-                  area (cartella) con «Collega ad area».
+                  Nessuna colonna sul foglio collegato. Serve almeno un altro
+                  foglio della stessa area (es. Magazzino 1 → Vista sopra) con
+                  le colonne disegnate.
                 </span>
               ) : null}
             </label>
@@ -3471,7 +3489,7 @@ export function MagazzinoMappaBoard({
                 />
               </label>
               <label className="text-xs">
-                Dentro (solo altre viste collegate)
+                Dentro (aree del foglio collegato)
                 <select
                   value={selectedArea.parentId ?? ""}
                   onChange={(e) => {

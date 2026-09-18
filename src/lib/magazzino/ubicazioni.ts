@@ -25,6 +25,10 @@ export type UbicazioneElenco = {
   etichetta: string;
   mappaOrigineId?: string | null;
   vistaOrigine?: string;
+  /** Viste (fogli) dove questo posto è disegnato. */
+  visteDisegno?: string[];
+  /** Id fogli dove questo posto è disegnato (Dentro usa gli altri fogli). */
+  mappeDisegno?: string[];
 };
 
 export function etichettaUbicazione(
