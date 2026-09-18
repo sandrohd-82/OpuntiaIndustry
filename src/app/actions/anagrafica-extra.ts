@@ -14,7 +14,7 @@ import {
   type AnagraficaSedeInput,
 } from "@/lib/amministrazione/anagrafica-extra";
 import { requireAnyAreaAccess } from "@/lib/areas/guard";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { z } from "zod";
 
 type ExtraRowSede = {
@@ -68,13 +68,10 @@ function mapBrand(r: ExtraRowBrand, logoUrl: string | null = null): AnagraficaBr
   };
 }
 
-async function signedLogoUrl(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  path: string
-): Promise<string | null> {
+async function signedLogoUrl(path: string): Promise<string | null> {
   if (!path.trim()) return null;
-  const { data } = await supabase.storage
-    .from(ANAGRAFICA_BRAND_LOGO_BUCKET)
+  const { data } = await createServiceClient()
+    .storage.from(ANAGRAFICA_BRAND_LOGO_BUCKET)
     .createSignedUrl(path, 60 * 60);
   return data?.signedUrl ?? null;
 }
@@ -116,7 +113,7 @@ export async function loadAnagraficaExtraAction(input: {
   const brandRows = (brandRes.data ?? []) as ExtraRowBrand[];
   const brand: AnagraficaBrand[] = [];
   for (const r of brandRows) {
-    brand.push(mapBrand(r, await signedLogoUrl(supabase, r.logo_path)));
+    brand.push(mapBrand(r, await signedLogoUrl(r.logo_path)));
   }
   return {
     success: true,
@@ -375,11 +372,12 @@ export async function uploadAnagraficaBrandLogoAction(
   }
   const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
   const path = `${ownerKind}/${ownerId}/${brandId}.${ext}`;
-  const supabase = await createClient();
-  const { error: upErr } = await supabase.storage
+  const storage = createServiceClient();
+  const { error: upErr } = await storage.storage
     .from(ANAGRAFICA_BRAND_LOGO_BUCKET)
     .upload(path, file, { contentType: mime, upsert: true });
   if (upErr) return { success: false, error: upErr.message };
+  const supabase = await createClient();
   const { error } = await supabase
     .from("anagrafica_brand")
     .update({ logo_path: path, updated_at: new Date().toISOString() })
@@ -389,6 +387,6 @@ export async function uploadAnagraficaBrandLogoAction(
   return {
     success: true,
     path,
-    url: await signedLogoUrl(supabase, path),
+    url: await signedLogoUrl(path),
   };
 }

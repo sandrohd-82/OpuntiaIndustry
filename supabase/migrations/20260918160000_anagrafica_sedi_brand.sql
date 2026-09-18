@@ -1,5 +1,7 @@
 -- ISO 9001 8.5.2 / 7.5: sedi tipizzate e brand per cliente / possibile cliente.
 -- Soft delete + audit. Le colonne sede_amm_* / sede_mag_* restano per compatibilità.
+-- Nessun DROP/CREATE policy su storage.objects/buckets: AccessExclusiveLock su
+-- storage.buckets + lock su anagrafica_sedi → deadlock 40P01 con PostgREST.
 
 do $$
 begin
@@ -64,155 +66,132 @@ create index if not exists anagrafica_brand_owner_idx
   on public.anagrafica_brand (owner_kind, owner_id)
   where deleted_at is null;
 
-alter table public.anagrafica_sedi enable row level security;
-alter table public.anagrafica_brand enable row level security;
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'anagrafica_sedi'
+      and c.relrowsecurity
+  ) then
+    alter table public.anagrafica_sedi enable row level security;
+  end if;
+  if not exists (
+    select 1
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname = 'anagrafica_brand'
+      and c.relrowsecurity
+  ) then
+    alter table public.anagrafica_brand enable row level security;
+  end if;
+end $$;
 
-drop policy if exists "anagrafica_sedi_select" on public.anagrafica_sedi;
-create policy "anagrafica_sedi_select" on public.anagrafica_sedi
-  for select to authenticated
-  using (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
-
-drop policy if exists "anagrafica_sedi_insert" on public.anagrafica_sedi;
-create policy "anagrafica_sedi_insert" on public.anagrafica_sedi
-  for insert to authenticated
-  with check (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
-
-drop policy if exists "anagrafica_sedi_update" on public.anagrafica_sedi;
-create policy "anagrafica_sedi_update" on public.anagrafica_sedi
-  for update to authenticated
-  using (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  )
-  with check (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
-
-drop policy if exists "anagrafica_brand_select" on public.anagrafica_brand;
-create policy "anagrafica_brand_select" on public.anagrafica_brand
-  for select to authenticated
-  using (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
-
-drop policy if exists "anagrafica_brand_insert" on public.anagrafica_brand;
-create policy "anagrafica_brand_insert" on public.anagrafica_brand
-  for insert to authenticated
-  with check (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
-
-drop policy if exists "anagrafica_brand_update" on public.anagrafica_brand;
-create policy "anagrafica_brand_update" on public.anagrafica_brand
-  for update to authenticated
-  using (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  )
-  with check (
-    public.is_superadmin()
-    or public.has_area_access('amministrazione')
-    or public.has_area_access('commerciale')
-    or public.has_area_access('webmail')
-  );
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_sedi'
+      and policyname = 'anagrafica_sedi_select'
+  ) then
+    create policy "anagrafica_sedi_select" on public.anagrafica_sedi
+      for select to authenticated
+      using (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_sedi'
+      and policyname = 'anagrafica_sedi_insert'
+  ) then
+    create policy "anagrafica_sedi_insert" on public.anagrafica_sedi
+      for insert to authenticated
+      with check (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_sedi'
+      and policyname = 'anagrafica_sedi_update'
+  ) then
+    create policy "anagrafica_sedi_update" on public.anagrafica_sedi
+      for update to authenticated
+      using (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      )
+      with check (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_brand'
+      and policyname = 'anagrafica_brand_select'
+  ) then
+    create policy "anagrafica_brand_select" on public.anagrafica_brand
+      for select to authenticated
+      using (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_brand'
+      and policyname = 'anagrafica_brand_insert'
+  ) then
+    create policy "anagrafica_brand_insert" on public.anagrafica_brand
+      for insert to authenticated
+      with check (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+  if not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'anagrafica_brand'
+      and policyname = 'anagrafica_brand_update'
+  ) then
+    create policy "anagrafica_brand_update" on public.anagrafica_brand
+      for update to authenticated
+      using (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      )
+      with check (
+        public.is_superadmin()
+        or public.has_area_access('amministrazione')
+        or public.has_area_access('commerciale')
+        or public.has_area_access('webmail')
+      );
+  end if;
+end $$;
 
 grant select, insert, update on public.anagrafica_sedi to authenticated;
 grant select, insert, update on public.anagrafica_brand to authenticated;
-
-insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values (
-  'anagrafica-brand-loghi',
-  'anagrafica-brand-loghi',
-  false,
-  5242880,
-  array['image/jpeg', 'image/png', 'image/webp']::text[]
-)
-on conflict (id) do update set
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
-
-drop policy if exists "anagrafica_brand_loghi_select" on storage.objects;
-create policy "anagrafica_brand_loghi_select"
-  on storage.objects for select
-  to authenticated
-  using (
-    bucket_id = 'anagrafica-brand-loghi'
-    and (
-      public.is_superadmin()
-      or public.has_area_access('amministrazione')
-      or public.has_area_access('commerciale')
-    )
-  );
-
-drop policy if exists "anagrafica_brand_loghi_insert" on storage.objects;
-create policy "anagrafica_brand_loghi_insert"
-  on storage.objects for insert
-  to authenticated
-  with check (
-    bucket_id = 'anagrafica-brand-loghi'
-    and (
-      public.is_superadmin()
-      or public.has_area_access('amministrazione')
-      or public.has_area_access('commerciale')
-    )
-  );
-
-drop policy if exists "anagrafica_brand_loghi_update" on storage.objects;
-create policy "anagrafica_brand_loghi_update"
-  on storage.objects for update
-  to authenticated
-  using (
-    bucket_id = 'anagrafica-brand-loghi'
-    and (
-      public.is_superadmin()
-      or public.has_area_access('amministrazione')
-      or public.has_area_access('commerciale')
-    )
-  )
-  with check (
-    bucket_id = 'anagrafica-brand-loghi'
-    and (
-      public.is_superadmin()
-      or public.has_area_access('amministrazione')
-      or public.has_area_access('commerciale')
-    )
-  );
-
-drop policy if exists "anagrafica_brand_loghi_delete" on storage.objects;
-create policy "anagrafica_brand_loghi_delete"
-  on storage.objects for delete
-  to authenticated
-  using (
-    bucket_id = 'anagrafica-brand-loghi'
-    and (
-      public.is_superadmin()
-      or public.has_area_access('amministrazione')
-      or public.has_area_access('commerciale')
-    )
-  );
 
 insert into public.anagrafica_sedi (
   owner_kind, owner_id, tipo, nazione, provincia, citta, cap, indirizzo, sort_order, created_by, updated_by
