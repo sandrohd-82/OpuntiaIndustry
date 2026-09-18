@@ -1101,19 +1101,43 @@ async function resolveMessaggiAccountScope(
   return { ok: true, empty: false, accountIds: vis.ids };
 }
 
+function sanitizeWebmailSearch(raw: string | null | undefined): string {
+  return (raw ?? "")
+    .trim()
+    .replace(/[,()]/g, " ")
+    .replace(/[%_\\]/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+}
+
 function applyWebmailMessaggiFilters<T>(
   q: T,
   input?: WebmailListFilter
 ): T {
   const view = input?.view ?? "all";
+  const aziendaSearch = Boolean(input?.aziendaId && input?.aziendaTipo);
+  const textSearch = Boolean(
+    sanitizeWebmailSearch(input?.q) || sanitizeWebmailSearch(input?.subject)
+  );
   let next = q as {
     eq: (c: string, v: unknown) => typeof next;
     is: (c: string, v: null) => typeof next;
     not: (c: string, op: string, v: null) => typeof next;
     neq: (c: string, v: unknown) => typeof next;
+    gte: (c: string, v: unknown) => typeof next;
+    lte: (c: string, v: unknown) => typeof next;
+    ilike: (c: string, v: string) => typeof next;
+    or: (v: string) => typeof next;
+    contains: (c: string, v: unknown) => typeof next;
   };
 
-  if (view === "cestino") {
+  if (aziendaSearch) {
+    next = next
+      .is("deleted_at", null)
+      .is("purged_at", null)
+      .eq("azienda_tipo", input!.aziendaTipo)
+      .eq("azienda_id", input!.aziendaId);
+  } else if (view === "cestino") {
     next = next.not("deleted_at", "is", null).is("purged_at", null);
   } else if (view === "archiviate") {
     next = next.is("deleted_at", null).not("archived_at", "is", null);
@@ -1129,6 +1153,8 @@ function applyWebmailMessaggiFilters<T>(
       .is("spam_at", null)
       .eq("direction", "outbound")
       .neq("folder", "TRASH");
+  } else if (textSearch) {
+    next = next.is("deleted_at", null).is("purged_at", null);
   } else {
     next = next
       .is("deleted_at", null)
@@ -1138,30 +1164,57 @@ function applyWebmailMessaggiFilters<T>(
       .neq("folder", WEBMAIL_SENT_FOLDER);
   }
 
-  if (view !== "bozze" && view !== "inviati") {
-    if (
-      view === "inbox" ||
-      view === "categoria" ||
-      view === "all" ||
-      view === "spam"
-    ) {
-      next = next.eq("direction", "inbound");
+  if (!aziendaSearch && !textSearch) {
+    if (view !== "bozze" && view !== "inviati") {
+      if (
+        view === "inbox" ||
+        view === "categoria" ||
+        view === "all" ||
+        view === "spam"
+      ) {
+        next = next.eq("direction", "inbound");
+      }
+    } else if (view === "bozze") {
+      next = next.eq("has_ai_draft", true);
     }
-  } else if (view === "bozze") {
-    next = next.eq("has_ai_draft", true);
-  }
 
-  if (view === "inbox") {
-    next = next.is("categoria_id", null);
-  } else if (view === "categoria" && input?.categoriaId) {
-    next = next.eq("categoria_id", input.categoriaId);
-  } else if (input?.categoriaId) {
-    next = next.eq("categoria_id", input.categoriaId);
+    if (view === "inbox") {
+      next = next.is("categoria_id", null);
+    } else if (view === "categoria" && input?.categoriaId) {
+      next = next.eq("categoria_id", input.categoriaId);
+    } else if (input?.categoriaId) {
+      next = next.eq("categoria_id", input.categoriaId);
+    }
   }
 
   if (input?.accountId) next = next.eq("account_id", input.accountId);
-  if (input?.onlyAiDraft && view !== "bozze") {
+  if (input?.onlyAiDraft && view !== "bozze" && !aziendaSearch) {
     next = next.eq("has_ai_draft", true);
+  }
+
+  const subject = sanitizeWebmailSearch(input?.subject);
+  if (subject) next = next.ilike("subject", `%${subject}%`);
+
+  const qText = sanitizeWebmailSearch(input?.q);
+  if (qText) {
+    const parts = [
+      `subject.ilike.%${qText}%`,
+      `from_address.ilike.%${qText}%`,
+      `from_name.ilike.%${qText}%`,
+      `body_text.ilike.%${qText}%`,
+    ];
+    if (qText.includes("@")) {
+      parts.push(`to_addresses.cs.{"${qText}"}`);
+      parts.push(`cc_addresses.cs.{"${qText}"}`);
+    }
+    next = next.or(parts.join(","));
+  }
+
+  if (input?.dateFrom && /^\d{4}-\d{2}-\d{2}$/.test(input.dateFrom)) {
+    next = next.gte("received_at", `${input.dateFrom}T00:00:00.000Z`);
+  }
+  if (input?.dateTo && /^\d{4}-\d{2}-\d{2}$/.test(input.dateTo)) {
+    next = next.lte("received_at", `${input.dateTo}T23:59:59.999Z`);
   }
 
   return next as T;
@@ -1185,14 +1238,20 @@ function applyWebmailMessaggiSort<T>(
   q: T,
   input?: WebmailListFilter
 ): T {
-  const { key, dir } = parseWebmailSort(input);
-  const ascending = dir === "asc";
   let next = q as {
     order: (
       col: string,
       opts?: { ascending?: boolean; nullsFirst?: boolean }
     ) => typeof next;
   };
+  if (input?.aziendaId) {
+    next = next.order("account_id", { ascending: true, nullsFirst: false });
+    next = next.order("received_at", { ascending: false, nullsFirst: false });
+    next = next.order("id", { ascending: false });
+    return next as T;
+  }
+  const { key, dir } = parseWebmailSort(input);
+  const ascending = dir === "asc";
   next = next.order(key, { ascending, nullsFirst: false });
   if (key !== "received_at") {
     next = next.order("received_at", { ascending: false, nullsFirst: false });
@@ -2886,6 +2945,134 @@ async function linkAllMessagesByEmail(input: {
     .select("id");
   for (const r of ccRows ?? []) ids.add(String(r.id));
   return ids.size;
+}
+
+export const TIMELINE_MAIL_SYNC_MAX = 400;
+
+export type TimelineMailSyncHit = {
+  id: string;
+  subject: string;
+  alreadyLinked: boolean;
+  linkedElsewhere: boolean;
+};
+
+function orPartsForEmails(emails: string[]): string[] {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of emails) {
+    const e = normalizeLookupEmail(raw).replace(/[{}",()]/g, "");
+    if (!e.includes("@") || seen.has(e)) continue;
+    seen.add(e);
+    parts.push(`from_address.ilike.${e}`);
+    parts.push(`to_addresses.cs.{"${e}"}`);
+    parts.push(`cc_addresses.cs.{"${e}"}`);
+  }
+  return parts;
+}
+
+export async function findWebmailMatchesForAziendaEmails(input: {
+  emails: string[];
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
+  aziendaId: string;
+  accountIds?: string[] | null;
+}): Promise<TimelineMailSyncHit[]> {
+  const service = createServiceClient();
+  const parts = orPartsForEmails(input.emails.slice(0, 40));
+  if (parts.length === 0) return [];
+  const byId = new Map<string, TimelineMailSyncHit>();
+  const chunk = 24;
+  for (let i = 0; i < parts.length; i += chunk) {
+    let q = service
+      .from("webmail_messaggi")
+      .select("id, subject, azienda_tipo, azienda_id")
+      .is("deleted_at", null)
+      .is("purged_at", null)
+      .or(parts.slice(i, i + chunk).join(","))
+      .limit(TIMELINE_MAIL_SYNC_MAX);
+    if (input.accountIds && input.accountIds.length > 0) {
+      q = q.in("account_id", input.accountIds);
+    }
+    const { data } = await q;
+    for (const r of data ?? []) {
+      const id = String(r.id);
+      if (byId.has(id)) continue;
+      const tipo = String(r.azienda_tipo ?? "");
+      const azId = String(r.azienda_id ?? "");
+      const alreadyLinked = tipo === input.aziendaTipo && azId === input.aziendaId;
+      const linkedElsewhere = Boolean(azId) && !alreadyLinked;
+      byId.set(id, {
+        id,
+        subject: String(r.subject ?? "(senza oggetto)"),
+        alreadyLinked,
+        linkedElsewhere,
+      });
+    }
+  }
+  return [...byId.values()];
+}
+
+export async function linkUnlinkedWebmailByEmails(input: {
+  emails: string[];
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
+  aziendaId: string;
+  aziendaLabel: string;
+  actorId: string;
+  accountIds?: string[] | null;
+  persistAutoLink: boolean;
+}): Promise<{ linked: number; persisted: number }> {
+  const hits = await findWebmailMatchesForAziendaEmails({
+    emails: input.emails,
+    aziendaTipo: input.aziendaTipo,
+    aziendaId: input.aziendaId,
+    accountIds: input.accountIds,
+  });
+  const ids = hits
+    .filter((h) => !h.alreadyLinked && !h.linkedElsewhere)
+    .slice(0, TIMELINE_MAIL_SYNC_MAX)
+    .map((h) => h.id);
+  const service = createServiceClient();
+  let linked = 0;
+  const patch = {
+    azienda_tipo: input.aziendaTipo,
+    azienda_id: input.aziendaId,
+    azienda_label: input.aziendaLabel,
+    link_stato: "collegata",
+    updated_by: input.actorId,
+  };
+  for (let i = 0; i < ids.length; i += 80) {
+    const batch = ids.slice(i, i + 80);
+    const { data, error } = await service
+      .from("webmail_messaggi")
+      .update(patch)
+      .in("id", batch)
+      .is("deleted_at", null)
+      .is("azienda_id", null)
+      .select("id");
+    if (error) break;
+    linked += (data ?? []).length;
+  }
+
+  let persisted = 0;
+  if (
+    input.persistAutoLink &&
+    (input.aziendaTipo === "cliente" || input.aziendaTipo === "cliente_possibile")
+  ) {
+    const unique = [
+      ...new Set(input.emails.map((e) => normalizeLookupEmail(e)).filter((e) => e.includes("@"))),
+    ].slice(0, 40);
+    for (const email of unique) {
+      const res = await persistEmailAutoLink({
+        email,
+        aziendaTipo: input.aziendaTipo,
+        aziendaId: input.aziendaId,
+        aziendaLabel: input.aziendaLabel,
+        contattoId: null,
+        actorId: input.actorId,
+      });
+      if (res.success) persisted += 1;
+    }
+  }
+  return { linked, persisted };
 }
 
 export async function confirmWebmailAnagraficaLinkAction(raw: unknown): Promise<

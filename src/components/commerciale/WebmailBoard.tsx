@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -57,6 +58,10 @@ import { CanaleAttenzioneBanners } from "@/components/amministrazione/CanaleAtte
 import { BusyBanner, BusySpinner } from "@/components/ui/BusyIndicator";
 import { WithInfoNuvola } from "@/components/ui/InfoNuvola";
 import { WebmailHtmlBody } from "@/components/webmail/WebmailHtmlBody";
+import {
+  WebmailRicercaBar,
+  type WebmailRicercaAzienda,
+} from "@/components/webmail/WebmailRicercaBar";
 import {
   WEBMAIL_PAGE_SIZE,
   WEBMAIL_SORT_LABELS,
@@ -162,6 +167,18 @@ export function WebmailBoard({
   const [categoriaFilter, setCategoriaFilter] = useState<string>(
     categoriaId ?? ""
   );
+  const [ricercaAzienda, setRicercaAzienda] =
+    useState<WebmailRicercaAzienda>(null);
+  const [ricercaQ, setRicercaQ] = useState("");
+  const [ricercaSubject, setRicercaSubject] = useState("");
+  const [ricercaDateFrom, setRicercaDateFrom] = useState("");
+  const [ricercaDateTo, setRicercaDateTo] = useState("");
+  const [appliedAzienda, setAppliedAzienda] =
+    useState<WebmailRicercaAzienda>(null);
+  const [appliedQ, setAppliedQ] = useState("");
+  const [appliedSubject, setAppliedSubject] = useState("");
+  const [appliedDateFrom, setAppliedDateFrom] = useState("");
+  const [appliedDateTo, setAppliedDateTo] = useState("");
   const [onlyDraft, setOnlyDraft] = useState(view === "bozze");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [bozza, setBozza] = useState<WebmailBozzaAi | null>(null);
@@ -260,7 +277,45 @@ export function WebmailBoard({
     categoriaId ?? "",
     categoriaFilter,
     onlyDraft ? "1" : "0",
+    appliedAzienda ? `${appliedAzienda.tipo}:${appliedAzienda.id}` : "",
+    appliedQ,
+    appliedSubject,
+    appliedDateFrom,
+    appliedDateTo,
   ].join("|");
+
+  const accountLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of accounts) {
+      m.set(a.id, `${a.label} (${a.emailAddress})`);
+    }
+    return m;
+  }, [accounts]);
+
+  function applyRicerca() {
+    setAppliedAzienda(ricercaAzienda);
+    setAppliedQ(ricercaQ.trim());
+    setAppliedSubject(ricercaSubject.trim());
+    setAppliedDateFrom(ricercaDateFrom);
+    setAppliedDateTo(ricercaDateTo);
+    setPage(0);
+    resetSelection();
+  }
+
+  function clearRicerca() {
+    setRicercaAzienda(null);
+    setRicercaQ("");
+    setRicercaSubject("");
+    setRicercaDateFrom("");
+    setRicercaDateTo("");
+    setAppliedAzienda(null);
+    setAppliedQ("");
+    setAppliedSubject("");
+    setAppliedDateFrom("");
+    setAppliedDateTo("");
+    setPage(0);
+    resetSelection();
+  }
 
   const reloadMeta = useCallback(async () => {
     const [a, c] = await Promise.all([
@@ -294,6 +349,12 @@ export function WebmailBoard({
         sortKey,
         sortDir,
         skipCount,
+        aziendaTipo: appliedAzienda?.tipo ?? null,
+        aziendaId: appliedAzienda?.id ?? null,
+        q: appliedQ || null,
+        subject: appliedSubject || null,
+        dateFrom: appliedDateFrom || null,
+        dateTo: appliedDateTo || null,
       });
       if (!m.success) {
         if (reloadGenRef.current === gen) setError(m.error);
@@ -325,6 +386,11 @@ export function WebmailBoard({
     sortKey,
     sortDir,
     listFilterKey,
+    appliedAzienda,
+    appliedQ,
+    appliedSubject,
+    appliedDateFrom,
+    appliedDateTo,
   ]);
 
   const reloadRef = useRef(reload);
@@ -929,6 +995,26 @@ export function WebmailBoard({
         </p>
       ) : null}
 
+      <WebmailRicercaBar
+        azienda={ricercaAzienda}
+        onAziendaChange={(next) => {
+          setRicercaAzienda(next);
+          setAppliedAzienda(next);
+          setPage(0);
+          resetSelection();
+        }}
+        q={ricercaQ}
+        onQChange={setRicercaQ}
+        subject={ricercaSubject}
+        onSubjectChange={setRicercaSubject}
+        dateFrom={ricercaDateFrom}
+        onDateFromChange={setRicercaDateFrom}
+        dateTo={ricercaDateTo}
+        onDateToChange={setRicercaDateTo}
+        onSubmit={applyRicerca}
+        onClear={clearRicerca}
+      />
+
       {hideTopFilters ? null : (
       <div className="flex flex-wrap gap-2">
         {initialAccountId ? null : (
@@ -1229,19 +1315,30 @@ export function WebmailBoard({
           ) : null}
           {messaggi.length === 0 && !listLoading ? (
             <li className="p-8 text-center text-sm text-[var(--muted)]">
-              Nessun messaggio in questa vista. Sincronizza o cambia cartella.
+              {appliedAzienda || appliedQ || appliedSubject || appliedDateFrom || appliedDateTo
+                ? "Nessun messaggio con questi filtri."
+                : "Nessun messaggio in questa vista. Sincronizza o cambia cartella."}
             </li>
           ) : messaggi.length === 0 && listLoading ? (
             <li className="p-10 text-center">
               <BusyBanner label={busyLabel} />
             </li>
           ) : (
-            messaggi.map((m) => {
+            messaggi.map((m, idx) => {
               const cat = m.categoriaId ? catById.get(m.categoriaId) : null;
               const expanded = selectedId === m.id;
+              const showCasellaHeader =
+                Boolean(appliedAzienda) &&
+                (idx === 0 || messaggi[idx - 1].accountId !== m.accountId);
               return (
+                <Fragment key={m.id}>
+                {showCasellaHeader ? (
+                  <li className="sticky top-0 z-[5] border-b border-sky-100 bg-sky-50/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-900">
+                    Casella{" "}
+                    {accountLabelById.get(m.accountId) ?? m.accountId}
+                  </li>
+                ) : null}
                 <li
-                  key={m.id}
                   className={
                     !m.isSeen
                       ? expanded
@@ -2304,6 +2401,7 @@ export function WebmailBoard({
             </div>
                   ) : null}
                 </li>
+                </Fragment>
               );
             })
           )}

@@ -316,7 +316,25 @@ export type WebmailListFilter = {
   sortDir?: WebmailSortDir;
   /** Se true, non ricalcola il totale (ordinamento/pagina: il filtro non cambia). */
   skipCount?: boolean;
+  aziendaTipo?: "cliente" | "fornitore" | "cliente_possibile" | null;
+  aziendaId?: string | null;
+  /** Testo libero: oggetto, mittente, destinatario, anteprima corpo. */
+  q?: string | null;
+  subject?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
 };
+
+export function hasWebmailSearch(input?: WebmailListFilter | null): boolean {
+  if (!input) return false;
+  return Boolean(
+    input.aziendaId ||
+      (input.q && input.q.trim()) ||
+      (input.subject && input.subject.trim()) ||
+      input.dateFrom ||
+      input.dateTo
+  );
+}
 
 export const bulkWebmailMessaggiSchema = z.object({
   messaggioIds: z.array(z.string().uuid()).min(1).max(8000),

@@ -14,7 +14,11 @@ import {
   upsertTimelinePnCopia,
   type TimelinePnOrigine,
 } from "@/lib/amministrazione/timeline-pn-copie";
-import { linkWebmailMessaggioAnagraficaAction } from "@/app/actions/webmail";
+import {
+  findWebmailMatchesForAziendaEmails,
+  linkUnlinkedWebmailByEmails,
+  linkWebmailMessaggioAnagraficaAction,
+} from "@/app/actions/webmail";
 
 const inputSchema = z.object({
   aziendaTipo: z.enum(["cliente", "fornitore", "cliente_possibile"]),
@@ -72,6 +76,7 @@ async function collectAziendaEmailHints(
 ): Promise<{
   emails: Array<{ email: string; source: string }>;
   domains: string[];
+  ragioneSociale: string;
 }> {
   const service = createServiceClient();
   const emails: Array<{ email: string; source: string }> = [];
@@ -86,13 +91,30 @@ async function collectAziendaEmailHints(
 
   const { data: az } = await service
     .from(table)
-    .select("email, pec")
+    .select("email, pec, ragione_sociale")
     .eq("id", aziendaId)
     .is("deleted_at", null)
     .maybeSingle();
+  const ragioneSociale = String(az?.ragione_sociale ?? "").trim();
   if (az) {
     pushUniqueEmail(emailSet, emails, String(az.email ?? ""), "scheda");
     pushUniqueEmail(emailSet, emails, String(az.pec ?? ""), "scheda PEC");
+  }
+  if (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile") {
+    const extraTable =
+      aziendaTipo === "cliente" ? "clienti" : "clienti_possibili";
+    const { data: extraRow } = await service
+      .from(extraTable)
+      .select("email_generiche")
+      .eq("id", aziendaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    const extra = extraRow?.email_generiche;
+    if (Array.isArray(extra)) {
+      for (const raw of extra) {
+        pushUniqueEmail(emailSet, emails, String(raw ?? ""), "email generica");
+      }
+    }
   }
 
   const { data: contatti } = await service
@@ -112,6 +134,25 @@ async function collectAziendaEmailHints(
     );
   }
 
+  if (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile") {
+    const { data: brand } = await service
+      .from("anagrafica_brand")
+      .select("email, nome")
+      .eq("owner_kind", aziendaTipo)
+      .eq("owner_id", aziendaId)
+      .is("deleted_at", null)
+      .limit(80);
+    for (const b of brand ?? []) {
+      const nome = String(b.nome ?? "").trim();
+      pushUniqueEmail(
+        emailSet,
+        emails,
+        String(b.email ?? ""),
+        nome ? `brand ${nome}` : "brand"
+      );
+    }
+  }
+
   const domains = [
     ...new Set(
       emails
@@ -120,7 +161,7 @@ async function collectAziendaEmailHints(
     ),
   ];
 
-  return { emails, domains };
+  return { emails, domains, ragioneSociale };
 }
 
 /**
@@ -887,4 +928,427 @@ export async function collegaPnATimelineAction(
     payload: { aziendaId, origineTipo, origineId },
   });
   return { success: true };
+}
+
+function aziendaTable(
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile"
+) {
+  return aziendaTipo === "cliente"
+    ? "clienti"
+    : aziendaTipo === "fornitore"
+      ? "fornitori"
+      : "clienti_possibili";
+}
+
+function sanitizeIlikeToken(raw: string): string {
+  return raw
+    .trim()
+    .replace(/[,()%_\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, 80);
+}
+
+async function assertTimelineSyncAccess(raw: unknown): Promise<
+  | {
+      ok: true;
+      auth: Awaited<ReturnType<typeof requireAreaAccess>>["auth"];
+      aziendaTipo: "cliente" | "fornitore" | "cliente_possibile";
+      aziendaId: string;
+      aziendaLabel: string;
+    }
+  | { ok: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("amministrazione");
+  const parsed = inputSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Azienda non valida." };
+  const { aziendaTipo, aziendaId } = parsed.data;
+  const service = createServiceClient();
+  const { data: azRow } = await service
+    .from(aziendaTable(aziendaTipo))
+    .select("created_by, ragione_sociale")
+    .eq("id", aziendaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!azRow) return { ok: false, error: "Azienda non trovata." };
+  let commercialeId: string | null = null;
+  if (aziendaTipo === "cliente") {
+    const { data: comm } = await service
+      .from("clienti")
+      .select("commerciale_id")
+      .eq("id", aziendaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
+  } else if (aziendaTipo === "cliente_possibile") {
+    const { data: comm } = await service
+      .from("clienti_possibili")
+      .select("commerciale_id")
+      .eq("id", aziendaId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    commercialeId = comm?.commerciale_id ? String(comm.commerciale_id) : null;
+  }
+  const timelineKind = kindFromAziendaTipo(aziendaTipo);
+  if (timelineKind) {
+    const tlGate = await assertAnagraficaPrivilege({
+      kind: timelineKind,
+      op: "timeline",
+      createdBy: azRow.created_by ? String(azRow.created_by) : null,
+      commercialeId,
+    });
+    if (!tlGate.ok) return { ok: false, error: tlGate.error };
+  }
+  return {
+    ok: true,
+    auth,
+    aziendaTipo,
+    aziendaId,
+    aziendaLabel: String(
+      (azRow as { ragione_sociale?: string }).ragione_sociale ?? ""
+    ).trim(),
+  };
+}
+
+type PnSyncCandidate = {
+  origineTipo: TimelinePnOrigine;
+  origineId: string;
+  titolo: string;
+  testo: string;
+  occurredAt: string;
+  already: boolean;
+};
+
+async function collectPnSyncCandidates(
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile",
+  aziendaId: string,
+  ragioneSociale: string
+): Promise<PnSyncCandidate[]> {
+  const service = createServiceClient();
+  const { data: copie } = await service
+    .from("azienda_timeline_pn_copie")
+    .select("origine_tipo, origine_id")
+    .eq("azienda_tipo", aziendaTipo)
+    .eq("azienda_id", aziendaId)
+    .is("deleted_at", null)
+    .limit(400);
+  const have = new Set(
+    (copie ?? []).map((r) => `${r.origine_tipo}:${r.origine_id}`)
+  );
+  const out: PnSyncCandidate[] = [];
+  const seen = new Set<string>();
+
+  function push(
+    origineTipo: TimelinePnOrigine,
+    origineId: string,
+    titolo: string,
+    testo: string,
+    occurredAt: string
+  ) {
+    if (!origineId || !occurredAt) return;
+    const key = `${origineTipo}:${origineId}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      origineTipo,
+      origineId,
+      titolo: titolo.trim() || etichettaPnOrigine(origineTipo),
+      testo,
+      occurredAt,
+      already: have.has(key),
+    });
+  }
+
+  const mentionKind =
+    aziendaTipo === "cliente"
+      ? "cliente"
+      : aziendaTipo === "cliente_possibile"
+        ? "cliente_possibile"
+        : "fornitore";
+  const { data: cols } = await service
+    .from("pn_attivita_collegamenti")
+    .select("attivita_id")
+    .eq("kind", mentionKind)
+    .eq("entity_id", aziendaId)
+    .is("deleted_at", null)
+    .limit(200);
+  const attivitaIds = [
+    ...new Set((cols ?? []).map((r) => String(r.attivita_id)).filter(Boolean)),
+  ];
+  if (attivitaIds.length) {
+    const { data: att } = await service
+      .from("pn_attivita")
+      .select("id, titolo, descrizione, due_at, created_at")
+      .in("id", attivitaIds)
+      .is("deleted_at", null);
+    for (const r of att ?? []) {
+      push(
+        "attivita",
+        String(r.id),
+        String(r.titolo ?? ""),
+        String(r.descrizione ?? ""),
+        String(r.due_at || r.created_at || "")
+      );
+    }
+  }
+
+  const token = sanitizeIlikeToken(ragioneSociale);
+  if (token.length >= 5) {
+    const like = `%${token}%`;
+    const [noteRes, attRes, proRes] = await Promise.all([
+      service
+        .from("pn_note")
+        .select("id, titolo, body, due_at, created_at, entity_type, entity_id")
+        .is("deleted_at", null)
+        .or(`titolo.ilike.${like},body.ilike.${like}`)
+        .limit(80),
+      service
+        .from("pn_attivita")
+        .select("id, titolo, descrizione, due_at, created_at")
+        .is("deleted_at", null)
+        .or(`titolo.ilike.${like},descrizione.ilike.${like}`)
+        .limit(80),
+      service
+        .from("pn_promemoria")
+        .select("id, titolo, descrizione, due_at, created_at")
+        .is("deleted_at", null)
+        .or(`titolo.ilike.${like},descrizione.ilike.${like}`)
+        .limit(80),
+    ]);
+    for (const r of noteRes.data ?? []) {
+      if (
+        String(r.entity_type ?? "") === aziendaTipo &&
+        String(r.entity_id ?? "") === aziendaId
+      ) {
+        continue;
+      }
+      push(
+        "nota",
+        String(r.id),
+        String(r.titolo ?? ""),
+        String(r.body ?? ""),
+        String(r.due_at || r.created_at || "")
+      );
+    }
+    for (const r of attRes.data ?? []) {
+      push(
+        "attivita",
+        String(r.id),
+        String(r.titolo ?? ""),
+        String(r.descrizione ?? ""),
+        String(r.due_at || r.created_at || "")
+      );
+    }
+    for (const r of proRes.data ?? []) {
+      push(
+        "promemoria",
+        String(r.id),
+        String(r.titolo ?? ""),
+        String(r.descrizione ?? ""),
+        String(r.due_at || r.created_at || "")
+      );
+    }
+  }
+
+  return out;
+}
+
+async function countDocumentiAzienda(
+  aziendaTipo: "cliente" | "fornitore" | "cliente_possibile",
+  aziendaId: string
+): Promise<number> {
+  const service = createServiceClient();
+  let n = 0;
+  if (aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile") {
+    const col =
+      aziendaTipo === "cliente" ? "cliente_id" : "cliente_possibile_id";
+    const [ord, camp] = await Promise.all([
+      service
+        .from("ordini")
+        .select("id", { count: "exact", head: true })
+        .eq(col, aziendaId)
+        .is("deleted_at", null),
+      service
+        .from("campionature")
+        .select("id", { count: "exact", head: true })
+        .eq(col, aziendaId)
+        .is("deleted_at", null),
+    ]);
+    n += ord.count ?? 0;
+    n += camp.count ?? 0;
+  }
+  if (aziendaTipo === "cliente") {
+    const { count } = await service
+      .from("fatture_emesse")
+      .select("id", { count: "exact", head: true })
+      .eq("cliente_id", aziendaId)
+      .is("deleted_at", null);
+    n += count ?? 0;
+  }
+  if (aziendaTipo === "fornitore") {
+    const { count } = await service
+      .from("fatture_ricevute")
+      .select("id", { count: "exact", head: true })
+      .eq("fornitore_id", aziendaId)
+      .is("deleted_at", null);
+    n += count ?? 0;
+  }
+  return n;
+}
+
+export type AziendaTimelineSyncPreview = {
+  mailNuove: number;
+  mailGiaCollegate: number;
+  mailAltroProfilo: number;
+  mailEsempi: string[];
+  pnNuove: number;
+  pnGia: number;
+  documenti: number;
+  emailsUsate: number;
+};
+
+export async function previewAziendaTimelineSyncAction(
+  raw: unknown
+): Promise<
+  | { success: true; preview: AziendaTimelineSyncPreview }
+  | { success: false; error: string }
+> {
+  const gate = await assertTimelineSyncAccess(raw);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { auth, aziendaTipo, aziendaId } = gate;
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const grantedIds = vis.mode === "granted" ? vis.ids : null;
+  if (grantedIds && grantedIds.length === 0) {
+    const hintsEmpty = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+    const pn = await collectPnSyncCandidates(
+      aziendaTipo,
+      aziendaId,
+      hintsEmpty.ragioneSociale
+    );
+    return {
+      success: true,
+      preview: {
+        mailNuove: 0,
+        mailGiaCollegate: 0,
+        mailAltroProfilo: 0,
+        mailEsempi: [],
+        pnNuove: pn.filter((p) => !p.already).length,
+        pnGia: pn.filter((p) => p.already).length,
+        documenti: await countDocumentiAzienda(aziendaTipo, aziendaId),
+        emailsUsate: hintsEmpty.emails.length,
+      },
+    };
+  }
+
+  const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+  const [mails, pn, documenti] = await Promise.all([
+    findWebmailMatchesForAziendaEmails({
+      emails: hints.emails.map((e) => e.email),
+      aziendaTipo,
+      aziendaId,
+      accountIds: grantedIds,
+    }),
+    collectPnSyncCandidates(aziendaTipo, aziendaId, hints.ragioneSociale),
+    countDocumentiAzienda(aziendaTipo, aziendaId),
+  ]);
+
+  const nuove = mails.filter((m) => !m.alreadyLinked && !m.linkedElsewhere);
+  return {
+    success: true,
+    preview: {
+      mailNuove: nuove.length,
+      mailGiaCollegate: mails.filter((m) => m.alreadyLinked).length,
+      mailAltroProfilo: mails.filter((m) => m.linkedElsewhere).length,
+      mailEsempi: nuove.slice(0, 5).map((m) => m.subject),
+      pnNuove: pn.filter((p) => !p.already).length,
+      pnGia: pn.filter((p) => p.already).length,
+      documenti,
+      emailsUsate: hints.emails.length,
+    },
+  };
+}
+
+const runSyncSchema = inputSchema.extend({
+  mail: z.boolean(),
+  pn: z.boolean(),
+  documenti: z.boolean(),
+});
+
+export async function runAziendaTimelineSyncAction(
+  raw: unknown
+): Promise<
+  | {
+      success: true;
+      linkedMail: number;
+      copiedPn: number;
+      documenti: number;
+    }
+  | { success: false; error: string }
+> {
+  const parsed = runSyncSchema.safeParse(raw);
+  if (!parsed.success) return { success: false, error: "Dati non validi." };
+  const gate = await assertTimelineSyncAccess(parsed.data);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { auth, aziendaTipo, aziendaId, aziendaLabel } = gate;
+  const vis = await resolveWebmailAccountVisibility(auth);
+  const grantedIds = vis.mode === "granted" ? vis.ids : null;
+  const hints = await collectAziendaEmailHints(aziendaTipo, aziendaId);
+
+  let linkedMail = 0;
+  if (parsed.data.mail && (!grantedIds || grantedIds.length > 0)) {
+    const res = await linkUnlinkedWebmailByEmails({
+      emails: hints.emails.map((e) => e.email),
+      aziendaTipo,
+      aziendaId,
+      aziendaLabel: aziendaLabel || hints.ragioneSociale,
+      actorId: auth.userId,
+      accountIds: grantedIds,
+      persistAutoLink:
+        aziendaTipo === "cliente" || aziendaTipo === "cliente_possibile",
+    });
+    linkedMail = res.linked;
+  }
+
+  let copiedPn = 0;
+  if (parsed.data.pn) {
+    const service = createServiceClient();
+    const candidates = await collectPnSyncCandidates(
+      aziendaTipo,
+      aziendaId,
+      hints.ragioneSociale
+    );
+    for (const c of candidates.filter((x) => !x.already).slice(0, 200)) {
+      const id = await upsertTimelinePnCopia(service, auth.userId, {
+        aziendaTipo,
+        aziendaId,
+        origineTipo: c.origineTipo,
+        origineId: c.origineId,
+        occurredAt: c.occurredAt,
+        titolo: c.titolo,
+        testo: c.testo,
+      });
+      if (id) copiedPn += 1;
+    }
+  }
+
+  const documenti = parsed.data.documenti
+    ? await countDocumentiAzienda(aziendaTipo, aziendaId)
+    : 0;
+
+  await writeAuditLog({
+    entity_type: aziendaTable(aziendaTipo),
+    entity_id: aziendaId,
+    action: "timeline_sync",
+    actor_id: auth.userId,
+    summary: `Sincronizza timeline ${aziendaTipo}: ${linkedMail} mail, ${copiedPn} PN`,
+    payload: {
+      aziendaTipo,
+      mail: parsed.data.mail,
+      pn: parsed.data.pn,
+      documenti: parsed.data.documenti,
+      linkedMail,
+      copiedPn,
+    },
+  });
+
+  return { success: true, linkedMail, copiedPn, documenti };
 }
