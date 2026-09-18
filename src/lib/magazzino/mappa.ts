@@ -211,6 +211,28 @@ export const salvaNomeAreaMappaSchema = z.object({
   nomeArea: z.string().trim().min(1).max(120),
 });
 
+export const collegaAdAreaOperativaSchema = z.object({
+  mappaId: z.string().uuid(),
+  vistaEtichetta: z.string().trim().min(1).max(80),
+  modo: z.enum(["esistente", "nuova"]),
+  nodoId: z.string().uuid().optional(),
+  nomeNuova: z.string().trim().min(1).max(120).optional(),
+});
+
+export type CollegaAdAreaOperativaInput = z.infer<
+  typeof collegaAdAreaOperativaSchema
+>;
+
+export type AreaOperativaMappa = {
+  nodoId: string;
+  nome: string;
+  fogli: Array<{
+    mappaId: string;
+    vista: string;
+    stato: string;
+  }>;
+};
+
 export type SalvaNomeAreaMappaInput = z.infer<typeof salvaNomeAreaMappaSchema>;
 
 export type SalvaMappaInput = z.infer<typeof salvaMappaSchema>;

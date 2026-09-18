@@ -282,7 +282,7 @@ export function CollegaMappaPercorsoModal({
     ...livelli.map((l) => l.etichetta || (l.mode === "crea" ? "(nuova voce)" : "…")),
     postoMode === "select"
       ? opzioniPosto().find((o) => o.id === postoNodoId)?.etichetta ?? "…"
-      : postoNome.trim() || "[Nome area]",
+      : postoNome.trim() || "[voce URL]",
     vistaEtichetta ? `[${vistaEtichetta}]` : "",
   ]
     .filter(Boolean)
@@ -305,13 +305,13 @@ export function CollegaMappaPercorsoModal({
           <div>
             <h2 className="text-base font-semibold text-teal-950">
               {variant === "modifica"
-                ? "Modifica percorso di menu"
-                : "Collega al percorso di menu"}
+                ? "Modifica percorso URL di menu"
+                : "Crea percorso URL di menu"}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {variant === "modifica"
-                ? "Correggi i nomi, aggiungi sotto-livelli e scegli un’area già creata o una nuova. Il disegno non si riapre."
-                : "Scegli o crea ogni livello. L’ultimo è il posto: se esiste già, questa pianta diventa un’altra vista."}
+                ? "Questo è solo il percorso di navigazione (URL). L’area operativa (cartella dei fogli) si sceglie con «Collega ad area»."
+                : "Costruisci l’indirizzo nel menu. L’ultimo livello è il nome della voce URL, non l’area operativa. Per unire i fogli alla stessa cartella usa «Collega ad area»."}
             </p>
           </div>
           <button
@@ -516,13 +516,13 @@ export function CollegaMappaPercorsoModal({
               ) : null}
             </div>
             <p className="text-xs text-slate-600">
-              Puoi accodare più sotto-livelli. In fondo scegli un&apos;area già creata
-              oppure un nome nuovo.
+              Puoi accodare più sotto-livelli. In fondo il nome della voce URL
+              (slug), non la cartella operativa dei fogli.
             </p>
 
-            <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-3 py-2">
-              <p className="text-xs font-medium text-teal-900">
-                Ultimo livello — Nome area
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-xs font-medium text-slate-800">
+                Ultimo livello — Nome voce URL
               </p>
               <div className="mt-2 flex flex-wrap gap-3 text-sm">
                 <label className="flex items-center gap-1">
@@ -532,7 +532,7 @@ export function CollegaMappaPercorsoModal({
                     onChange={() => setPostoMode("select")}
                     disabled={opzioniPosto().length === 0}
                   />
-                  Nome area creata
+                  Voce URL già creata
                 </label>
                 <label className="flex items-center gap-1">
                   <input
@@ -540,7 +540,7 @@ export function CollegaMappaPercorsoModal({
                     checked={postoMode === "crea"}
                     onChange={() => setPostoMode("crea")}
                   />
-                  Nuova area
+                  Nuova voce URL
                 </label>
               </div>
               {postoMode === "select" &&
@@ -566,7 +566,7 @@ export function CollegaMappaPercorsoModal({
                 <input
                   value={postoNome}
                   onChange={(e) => setPostoNome(e.target.value)}
-                  placeholder="Es. Magazzino 1"
+                  placeholder="Es. magazzino-1 (voce URL)"
                   className="mt-2 w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm"
                 />
               )}
@@ -608,8 +608,8 @@ export function CollegaMappaPercorsoModal({
                   ? "Spostamento…"
                   : "Collegamento…"
                 : variant === "modifica"
-                  ? "Sposta su questo percorso"
-                  : "Collega a questo percorso"}
+                  ? "Sposta su questo URL"
+                  : "Pubblica su questo URL"}
             </button>
           )}
         </div>

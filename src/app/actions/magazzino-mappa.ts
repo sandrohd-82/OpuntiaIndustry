@@ -8,6 +8,7 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import {
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_STATI,
+  collegaAdAreaOperativaSchema,
   collegaMappaSchema,
   creaMappaBozzaSchema,
   etichettaMappaCollegata,
@@ -16,6 +17,8 @@ import {
   salvaMappaSchema,
   salvaNomeAreaMappaSchema,
   slugMappaArea,
+  type AreaOperativaMappa,
+  type CollegaAdAreaOperativaInput,
   type CollegaMappaInput,
   type MappaDocumentoStato,
   type MappaElencoItem,
@@ -813,6 +816,166 @@ export async function listMappaMenuLuoghiAction(
     tipo: "luogo",
   }));
   return { success: true, items };
+}
+
+export async function listAreeOperativeMappaAction(): Promise<
+  | { success: true; items: AreaOperativaMappa[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["strumenti", "magazzino"]);
+  const supabase = await createClient();
+  const { data: nodi, error: nodiErr } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, etichetta")
+    .eq("tipo", "luogo")
+    .is("deleted_at", null)
+    .order("etichetta", { ascending: true });
+  if (nodiErr) return { success: false, error: nodiErr.message };
+  const { data: mappe, error: mapErr } = await supabase
+    .from("magazzino_mappe")
+    .select("id, luogo_nome, vista_etichetta, menu_nodo_id, documento_stato")
+    .is("deleted_at", null);
+  if (mapErr) return { success: false, error: mapErr.message };
+  const fogli = (mappe ?? []) as {
+    id: string;
+    luogo_nome: string | null;
+    vista_etichetta: string | null;
+    menu_nodo_id: string | null;
+    documento_stato: string;
+  }[];
+  const items: AreaOperativaMappa[] = (
+    (nodi ?? []) as { id: string; etichetta: string }[]
+  ).map((n) => ({
+    nodoId: n.id,
+    nome: n.etichetta,
+    fogli: fogli
+      .filter((m) => m.menu_nodo_id === n.id)
+      .map((m) => ({
+        mappaId: m.id,
+        vista: String(m.vista_etichetta ?? "").trim() || "(senza vista)",
+        stato: String(m.documento_stato ?? ""),
+      })),
+  }));
+  const orfani = new Map<string, AreaOperativaMappa>();
+  for (const m of fogli) {
+    if (m.menu_nodo_id) continue;
+    const nome = String(m.luogo_nome ?? "").trim();
+    if (!nome) continue;
+    const key = nome.toLowerCase();
+    const prev = orfani.get(key);
+    const foglio = {
+      mappaId: m.id,
+      vista: String(m.vista_etichetta ?? "").trim() || "(senza vista)",
+      stato: String(m.documento_stato ?? ""),
+    };
+    if (prev) prev.fogli.push(foglio);
+    else {
+      const existing = items.find((i) => i.nome.trim().toLowerCase() === key);
+      if (existing) existing.fogli.push(foglio);
+      else orfani.set(key, { nodoId: "", nome, fogli: [foglio] });
+    }
+  }
+  return { success: true, items: [...items, ...[...orfani.values()]] };
+}
+
+export async function collegaMappaAdAreaOperativaAction(
+  raw: unknown
+): Promise<
+  | { success: true; mappa: MappaMagazzino }
+  | { success: false; error: string }
+> {
+  const { auth } = await requireAreaAccess("strumenti");
+  if (!canProgettare(auth.profile)) {
+    return { success: false, error: "Solo il Super Admin può collegare l'area." };
+  }
+  const parsed = collegaAdAreaOperativaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: "Dati area non validi." };
+  }
+  const input: CollegaAdAreaOperativaInput = parsed.data;
+  const supabase = await createClient();
+  const { data: cur } = await supabase
+    .from("magazzino_mappe")
+    .select("id, documento_stato")
+    .eq("id", input.mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (!cur) return { success: false, error: "Pianta non trovata." };
+
+  let nodoId = "";
+  let luogo = "";
+  if (input.modo === "esistente") {
+    if (!input.nodoId) {
+      return { success: false, error: "Scegli l'area a cui collegare il foglio." };
+    }
+    const { data: nodo } = await supabase
+      .from("mappa_menu_nodi")
+      .select("id, etichetta, tipo")
+      .eq("id", input.nodoId)
+      .eq("tipo", "luogo")
+      .is("deleted_at", null)
+      .maybeSingle();
+    const row = nodo as { id: string; etichetta: string } | null;
+    if (!row) return { success: false, error: "Area non trovata." };
+    nodoId = row.id;
+    luogo = row.etichetta.trim();
+  } else {
+    luogo = (input.nomeNuova ?? "").trim();
+    if (!luogo) return { success: false, error: "Scrivi il nome della nuova area." };
+    const creato = await ensureMenuNodo(
+      supabase,
+      "magazzino",
+      MAPPA_MENU_SEED_MAPPA_ID,
+      "luogo",
+      luogo,
+      undefined,
+      auth.userId
+    );
+    if ("error" in creato) return { success: false, error: creato.error };
+    nodoId = creato.id;
+  }
+
+  const { error } = await supabase
+    .from("magazzino_mappe")
+    .update({
+      luogo_nome: luogo,
+      nome: luogo,
+      menu_nodo_id: nodoId,
+      vista_etichetta: input.vistaEtichetta.trim(),
+      area_codice: "magazzino",
+      updated_by: auth.userId,
+    })
+    .eq("id", input.mappaId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  await supabase
+    .from("magazzino_ubicazioni")
+    .update({
+      luogo_nome: luogo,
+      updated_by: auth.userId,
+    })
+    .eq("mappa_origine_id", input.mappaId)
+    .is("deleted_at", null);
+
+  const mappa = await loadMappa(supabase, input.mappaId);
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: input.mappaId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Foglio collegato all'area operativa «${luogo}»`,
+    payload: {
+      menu_nodo_id: nodoId,
+      luogo,
+      vista: input.vistaEtichetta.trim(),
+      modo: input.modo,
+    },
+  });
+  if (!mappa) {
+    return { success: false, error: "Collegamento ok, pianta non leggibile." };
+  }
+  return { success: true, mappa };
 }
 
 export async function getMappaByIdAction(

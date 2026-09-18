@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import {
   collegaMappaAdAreaAction,
+  collegaMappaAdAreaOperativaAction,
   getMappaByIdAction,
   getMappaMenuPercorsoAction,
   rinominaPercorsoMappaAction,
@@ -26,6 +27,7 @@ import {
   MAPPA_MENU_NAV_EVENT,
   type MappaMenuPercorsoCaricato,
 } from "@/lib/magazzino/menu-mappa";
+import { CollegaAdAreaModal } from "@/components/magazzino/CollegaAdAreaModal";
 import { CollegaMappaPercorsoModal } from "@/components/magazzino/CollegaMappaPercorsoModal";
 import { MagazzinoMappaPalette } from "@/components/magazzino/MagazzinoMappaPalette";
 import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRighelli";
@@ -422,6 +424,7 @@ export function MagazzinoMappaBoard({
   const [aree, setAree] = useState<MappaAreaDisegnata[]>([]);
   const [riferimenti, setRiferimenti] = useState<MappaRiferimentoGruppo[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [areaOpen, setAreaOpen] = useState(false);
   const [collegaOpen, setCollegaOpen] = useState(false);
   const [collegaBusy, setCollegaBusy] = useState(false);
   const [collegaError, setCollegaError] = useState<string | null>(null);
@@ -1840,14 +1843,12 @@ export function MagazzinoMappaBoard({
     const collegate: { id: string; label: string; codice: string }[] = [];
     const seen = new Set<string>();
     const currentMapId = mappa?.id ?? "";
-    const vistaNow = (vistaEtichetta || mappa?.vistaEtichetta || "")
-      .trim()
-      .toLowerCase();
+    const luogo = (luogoNome || mappa?.luogoNome || "").trim().toLowerCase();
     for (const u of mappa?.ubicazioni ?? []) {
       if (!u.id || seen.has(u.id)) continue;
       if (u.mappaOrigineId && u.mappaOrigineId === currentMapId) continue;
-      const vu = (u.vistaOrigine || "").trim().toLowerCase();
-      if (vu && vistaNow && vu === vistaNow) continue;
+      const ul = (u.luogoNome || "").trim().toLowerCase();
+      if (luogo && ul && ul !== luogo) continue;
       seen.add(u.id);
       const vista = (u.vistaOrigine || "").trim();
       collegate.push({
@@ -1857,7 +1858,7 @@ export function MagazzinoMappaBoard({
       });
     }
     return { collegate };
-  }, [mappa?.id, mappa?.ubicazioni, mappa?.vistaEtichetta, vistaEtichetta]);
+  }, [luogoNome, mappa?.id, mappa?.luogoNome, mappa?.ubicazioni]);
 
   function parentRecord(parentId: string | null) {
     if (!parentId) return null;
@@ -2553,6 +2554,14 @@ export function MagazzinoMappaBoard({
     const okSave = await persist();
     if (!okSave) return;
     setCollegaError(null);
+    setAreaOpen(true);
+  }
+
+  async function avviaCreaPercorso() {
+    if (!mappa) return;
+    const okSave = await persist();
+    if (!okSave) return;
+    setCollegaError(null);
     setCollegaVariant("collega");
     if (mappa.menuNodoId) {
       const res = await caricaPercorsoAperto(mappa.id);
@@ -2563,6 +2572,40 @@ export function MagazzinoMappaBoard({
       setPercorsoIniziale(null);
     }
     setCollegaOpen(true);
+  }
+
+  async function confermaAreaOperativa(input: {
+    modo: "esistente" | "nuova";
+    nodoId?: string;
+    nomeNuova?: string;
+  }) {
+    if (!mappa) return;
+    setCollegaBusy(true);
+    setError(null);
+    setCollegaError(null);
+    const res = await collegaMappaAdAreaOperativaAction({
+      mappaId: mappa.id,
+      vistaEtichetta: vistaEtichetta.trim() || mappa.vistaEtichetta,
+      modo: input.modo,
+      nodoId: input.nodoId,
+      nomeNuova: input.nomeNuova,
+    });
+    setCollegaBusy(false);
+    if (!res.success) {
+      setCollegaError(res.error);
+      setError(res.error);
+      return;
+    }
+    setMappa(res.mappa);
+    setAree(areeConCodiceLocale(res.mappa.aree ?? [], res.mappa.ubicazioni ?? []));
+    setNomePianta(res.mappa.luogoNome || res.mappa.nome);
+    setLuogoNome(res.mappa.luogoNome || res.mappa.nome);
+    setVistaEtichetta(res.mappa.vistaEtichetta);
+    setAreaOpen(false);
+    setOk(
+      `Foglio collegato all'area «${res.mappa.luogoNome}». I posti degli altri fogli sono in Dentro.`
+    );
+    window.dispatchEvent(new Event(MAGAZZINO_MAPPE_NAV_EVENT));
   }
 
   async function avviaModificaPercorso() {
@@ -2871,6 +2914,16 @@ export function MagazzinoMappaBoard({
               >
                 Collega ad area
               </button>
+              {mappa.documentoStato === "bozza" ? (
+              <button
+                type="button"
+                disabled={saving || collegaBusy || !vistaOk || !scalaOk}
+                onClick={() => void avviaCreaPercorso()}
+                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Crea percorso
+              </button>
+              ) : null}
               <button
                 type="button"
                 disabled={!luogoNome.trim() && !mappa.luogoNome}
@@ -2927,7 +2980,8 @@ export function MagazzinoMappaBoard({
               </div>
             ) : (
               <p className="self-end text-xs text-[var(--muted)]">
-                Questo è il nome dell&apos;area nel menu. Si conferma con Collega.
+                Nome cartella operativa. Si conferma con «Collega ad area». Il
+                percorso URL si crea con «Crea percorso».
               </p>
             )}
           </div>
@@ -3285,6 +3339,12 @@ export function MagazzinoMappaBoard({
                   </option>
                 ))}
               </select>
+              {parentOptions.collegate.length === 0 ? (
+                <span className="mt-1 block text-[11px] text-amber-800">
+                  Nessun posto da altri fogli. Collega questo foglio alla stessa
+                  area (cartella) con «Collega ad area».
+                </span>
+              ) : null}
             </label>
             {posizionePreview ? (
               <p className="w-full text-xs font-medium text-teal-950">
@@ -3432,8 +3492,9 @@ export function MagazzinoMappaBoard({
                     (o) => o.id === selectedArea.parentId
                   ) ? (
                     <option value={selectedArea.parentId}>
-                      {parentLabelOf(selectedArea.parentId)} — non è una vista
-                      collegata, scegline una altra
+                      {parentLabelOf(selectedArea.parentId)} — posto di questo
+                      foglio; scegli un posto di un altro foglio della stessa
+                      area
                     </option>
                   ) : null}
                   {parentOptions.collegate
@@ -4670,6 +4731,20 @@ export function MagazzinoMappaBoard({
           griglia={griglia}
           onClose={() => setCopiaOpen(false)}
           onCompleta={(r) => applicaCopiaArea(r)}
+        />
+      ) : null}
+      {mode === "editor" && canDesign ? (
+        <CollegaAdAreaModal
+          open={areaOpen}
+          busy={collegaBusy}
+          error={collegaError}
+          vistaEtichetta={vistaEtichetta.trim() || mappa.vistaEtichetta}
+          nomeProposto={luogoNome.trim() || mappa.luogoNome || nomePianta}
+          onClose={() => {
+            setAreaOpen(false);
+            setCollegaError(null);
+          }}
+          onConferma={(p) => void confermaAreaOperativa(p)}
         />
       ) : null}
       {mode === "editor" && canDesign ? (
