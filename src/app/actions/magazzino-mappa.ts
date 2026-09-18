@@ -359,11 +359,152 @@ async function loadRiferimentiMappa(
   return [...groups.values()];
 }
 
+type CatalogContext = {
+  mapIds: Set<string>;
+  luoghi: Set<string>;
+  vistaByMap: Map<string, string>;
+  luogoCanonico: string;
+};
+
+async function loadCatalogContext(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string,
+  luogoNome: string
+): Promise<CatalogContext> {
+  const mapIds = new Set<string>([mappaId]);
+  const luoghi = new Set<string>();
+  const vistaByMap = new Map<string, string>();
+  let luogoCanonico = luogoNome.trim();
+  const addLuogo = (raw: string | null | undefined) => {
+    const t = (raw ?? "").trim();
+    if (!t) return;
+    luoghi.add(t.toLowerCase());
+    if (!luogoCanonico) luogoCanonico = t;
+  };
+  addLuogo(luogoNome);
+
+  const { data: self } = await supabase
+    .from("magazzino_mappe")
+    .select("id, luogo_nome, menu_nodo_id, vista_etichetta")
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const me = self as {
+    luogo_nome?: string | null;
+    menu_nodo_id?: string | null;
+    vista_etichetta?: string | null;
+  } | null;
+  addLuogo(me?.luogo_nome ?? null);
+  if (me?.vista_etichetta) vistaByMap.set(mappaId, String(me.vista_etichetta));
+
+  const { data: rif } = await supabase
+    .from("magazzino_mappa_riferimenti")
+    .select("mappa_origine_id")
+    .eq("mappa_id", mappaId)
+    .is("deleted_at", null);
+  for (const r of rif ?? []) {
+    const oid = String((r as { mappa_origine_id?: string }).mappa_origine_id ?? "");
+    if (oid) mapIds.add(oid);
+  }
+
+  const extraIds = [...mapIds].filter((id) => id !== mappaId);
+  if (extraIds.length) {
+    const { data: origini } = await supabase
+      .from("magazzino_mappe")
+      .select("id, luogo_nome, vista_etichetta, menu_nodo_id")
+      .in("id", extraIds)
+      .is("deleted_at", null);
+    for (const o of origini ?? []) {
+      const row = o as {
+        id: string;
+        luogo_nome?: string | null;
+        vista_etichetta?: string | null;
+      };
+      mapIds.add(String(row.id));
+      addLuogo(row.luogo_nome ?? null);
+      if (row.vista_etichetta) {
+        vistaByMap.set(String(row.id), String(row.vista_etichetta));
+      }
+    }
+  }
+
+  if (me?.menu_nodo_id) {
+    const { data: siblings } = await supabase
+      .from("magazzino_mappe")
+      .select("id, luogo_nome, vista_etichetta")
+      .eq("menu_nodo_id", me.menu_nodo_id)
+      .is("deleted_at", null);
+    for (const s of siblings ?? []) {
+      const row = s as {
+        id: string;
+        luogo_nome?: string | null;
+        vista_etichetta?: string | null;
+      };
+      mapIds.add(String(row.id));
+      addLuogo(row.luogo_nome ?? null);
+      if (row.vista_etichetta) {
+        vistaByMap.set(String(row.id), String(row.vista_etichetta));
+      }
+    }
+  }
+
+  if (luoghi.size > 0) {
+    const { data: sameLuogo } = await supabase
+      .from("magazzino_mappe")
+      .select("id, luogo_nome, vista_etichetta")
+      .is("deleted_at", null);
+    for (const s of sameLuogo ?? []) {
+      const row = s as {
+        id: string;
+        luogo_nome?: string | null;
+        vista_etichetta?: string | null;
+      };
+      const ln = String(row.luogo_nome ?? "")
+        .trim()
+        .toLowerCase();
+      if (!ln || !luoghi.has(ln)) continue;
+      mapIds.add(String(row.id));
+      if (row.vista_etichetta) {
+        vistaByMap.set(String(row.id), String(row.vista_etichetta));
+      }
+    }
+  }
+
+  return { mapIds, luoghi, vistaByMap, luogoCanonico };
+}
+
+async function inheritLuogoMappaIfEmpty(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  mappaId: string,
+  luogo: string,
+  userId: string
+): Promise<string> {
+  const t = luogo.trim();
+  if (!t) return "";
+  const { data } = await supabase
+    .from("magazzino_mappe")
+    .select("luogo_nome")
+    .eq("id", mappaId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const attuale = String(
+    (data as { luogo_nome?: string | null } | null)?.luogo_nome ?? ""
+  ).trim();
+  if (attuale) return attuale;
+  await supabase
+    .from("magazzino_mappe")
+    .update({ luogo_nome: t, updated_by: userId })
+    .eq("id", mappaId)
+    .is("deleted_at", null);
+  return t;
+}
+
 async function loadUbicazioniScope(
   supabase: Awaited<ReturnType<typeof createClient>>,
   mappaId: string,
   luogoNome: string
 ): Promise<UbicazioneElenco[]> {
+  const ctx = await loadCatalogContext(supabase, mappaId, luogoNome);
   const { data } = await supabase
     .from("magazzino_ubicazioni")
     .select("id, codice, nome, parent_id, luogo_nome, mappa_origine_id")
@@ -378,14 +519,16 @@ async function loadUbicazioniScope(
     mappa_origine_id: string | null;
   }[];
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const luogo = luogoNome.trim().toLowerCase();
-  const scoped = rows.filter(
-    (r) =>
-      r.mappa_origine_id === mappaId ||
-      (luogo && r.luogo_nome.trim().toLowerCase() === luogo)
-  );
+  const scoped = rows.filter((r) => {
+    if (r.mappa_origine_id && ctx.mapIds.has(r.mappa_origine_id)) return true;
+    const ln = r.luogo_nome.trim().toLowerCase();
+    return Boolean(ln && ctx.luoghi.has(ln));
+  });
   return scoped.map((r) => {
     const parent = r.parent_id ? byId.get(r.parent_id) : null;
+    const vista = r.mappa_origine_id
+      ? ctx.vistaByMap.get(r.mappa_origine_id) ?? ""
+      : "";
     return {
       id: r.id,
       codice: r.codice,
@@ -393,6 +536,8 @@ async function loadUbicazioniScope(
       parentId: r.parent_id,
       parentCodice: parent?.codice ?? null,
       luogoNome: r.luogo_nome,
+      mappaOrigineId: r.mappa_origine_id,
+      vistaOrigine: vista,
       etichetta: etichettaUbicazione(
         r.codice,
         r.nome,
@@ -855,6 +1000,81 @@ export async function creaMappaBozzaAction(
   return { success: true, mappa };
 }
 
+type UbicazioneRow = {
+  id: string;
+  codice: string;
+  nome: string;
+  parent_id: string | null;
+  luogo_nome: string;
+  mappa_origine_id: string | null;
+  documento_stato: string;
+};
+
+async function findUbicazioneOperativa(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: {
+    id?: string | null;
+    codice: string;
+    luogo: string;
+    mapIds: string[];
+  }
+): Promise<UbicazioneRow | null> {
+  const select =
+    "id, codice, nome, parent_id, luogo_nome, mappa_origine_id, documento_stato";
+  if (input.id) {
+    const { data } = await supabase
+      .from("magazzino_ubicazioni")
+      .select(select)
+      .eq("id", input.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (data) return data as UbicazioneRow;
+  }
+  const codice = input.codice.trim();
+  if (!codice) return null;
+  if (input.luogo) {
+    const { data } = await supabase
+      .from("magazzino_ubicazioni")
+      .select(select)
+      .is("deleted_at", null)
+      .ilike("codice", codice)
+      .ilike("luogo_nome", input.luogo);
+    const rows = (data ?? []) as UbicazioneRow[];
+    const exact = rows.filter(
+      (r) =>
+        r.codice.trim().toLowerCase() === codice.toLowerCase() &&
+        r.luogo_nome.trim().toLowerCase() === input.luogo.trim().toLowerCase()
+    );
+    if (exact[0]) return exact[0];
+  }
+  if (input.mapIds.length) {
+    const { data } = await supabase
+      .from("magazzino_ubicazioni")
+      .select(select)
+      .is("deleted_at", null)
+      .ilike("codice", codice)
+      .in("mappa_origine_id", input.mapIds);
+    const rows = (data ?? []) as UbicazioneRow[];
+    const exact = rows.filter(
+      (r) => r.codice.trim().toLowerCase() === codice.toLowerCase()
+    );
+    if (exact[0]) return exact[0];
+  }
+  return null;
+}
+
+async function ubicazioneHaMovimenti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  ubicazioneId: string
+): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("magazzino_movimenti")
+    .select("id", { count: "exact", head: true })
+    .eq("ubicazione_id", ubicazioneId);
+  if (error) return false;
+  return (count ?? 0) > 0;
+}
+
 async function persistAreeMappa(
   supabase: Awaited<ReturnType<typeof createClient>>,
   mappaId: string,
@@ -866,7 +1086,32 @@ async function persistAreeMappa(
     .select("luogo_nome")
     .eq("id", mappaId)
     .maybeSingle();
-  const luogo = ((header as { luogo_nome?: string } | null)?.luogo_nome ?? "").trim();
+  const ctx = await loadCatalogContext(
+    supabase,
+    mappaId,
+    ((header as { luogo_nome?: string } | null)?.luogo_nome ?? "").trim()
+  );
+  let luogo = ctx.luogoCanonico.trim();
+  if (!luogo) {
+    for (const a of aree) {
+      const parentToken = a.parentId ?? null;
+      if (!parentToken) continue;
+      const parent = await findUbicazioneOperativa(supabase, {
+        id: parentToken,
+        codice: "",
+        luogo: "",
+        mapIds: [],
+      });
+      if (parent?.luogo_nome?.trim()) {
+        luogo = parent.luogo_nome.trim();
+        break;
+      }
+    }
+  }
+  if (luogo) {
+    luogo = await inheritLuogoMappaIfEmpty(supabase, mappaId, luogo, userId);
+  }
+  const mapIds = [...ctx.mapIds];
   const { data: existingForme } = await supabase
     .from("magazzino_mappa_aree")
     .select("id")
@@ -913,7 +1158,6 @@ async function persistAreeMappa(
     ordered.push(next);
   }
   for (const [i, area] of ordered.entries()) {
-    let ubicazioneId = area.ubicazioneId;
     const parentToken = area.parentId ?? null;
     const parentId = parentToken
       ? resolvedUbi.get(parentToken) ??
@@ -921,42 +1165,56 @@ async function persistAreeMappa(
           ? resolvedUbi.get(parentToken) ?? null
           : parentToken)
       : null;
-    const ubPayload = {
-      codice: area.codice.trim(),
-      nome: area.nome.trim(),
-      parent_id: parentId,
-      tipo: "riponibile" as const,
-      luogo_nome: luogo,
-      mappa_origine_id: mappaId,
-      updated_by: userId,
-    };
-    if (!ubicazioneId) {
-      let q = supabase
-        .from("magazzino_ubicazioni")
-        .select("id")
-        .is("deleted_at", null)
-        .ilike("codice", area.codice.trim())
-        .eq("luogo_nome", luogo);
-      if (!luogo) q = q.eq("mappa_origine_id", mappaId);
-      const { data: existingUb } = await q.maybeSingle();
-      const found = existingUb as { id: string } | null;
-      if (found?.id) ubicazioneId = found.id;
-    }
-    if (ubicazioneId) {
-      const { error } = await supabase
-        .from("magazzino_ubicazioni")
-        .update(ubPayload)
-        .eq("id", ubicazioneId);
-      if (error) return error.message;
+    const codice = area.codice.trim();
+    const nome = area.nome.trim();
+    let existing = await findUbicazioneOperativa(supabase, {
+      id: area.ubicazioneId ?? null,
+      codice,
+      luogo,
+      mapIds,
+    });
+    let ubicazioneId = existing?.id ?? null;
+    if (existing) {
+      const locked =
+        existing.mappa_origine_id !== mappaId ||
+        existing.documento_stato === "approvato" ||
+        (await ubicazioneHaMovimenti(supabase, existing.id));
+      if (!locked) {
+        const { error } = await supabase
+          .from("magazzino_ubicazioni")
+          .update({
+            nome,
+            parent_id: parentId,
+            luogo_nome: existing.luogo_nome.trim() || luogo,
+            updated_by: userId,
+          })
+          .eq("id", existing.id);
+        if (error) return error.message;
+      }
     } else {
       const { data: created, error } = await supabase
         .from("magazzino_ubicazioni")
-        .insert({ ...ubPayload, created_by: userId })
+        .insert({
+          codice,
+          nome,
+          parent_id: parentId,
+          tipo: "riponibile",
+          luogo_nome: luogo,
+          mappa_origine_id: mappaId,
+          created_by: userId,
+          updated_by: userId,
+        })
         .select("id")
         .single();
-      if (error || !created) return error?.message ?? "Creazione posto fallita.";
+      if (error || !created) {
+        return (
+          error?.message ??
+          "Creazione posto fallita. Il codice posizione (es. A1) è univoco nel luogo."
+        );
+      }
       ubicazioneId = (created as { id: string }).id;
     }
+    if (!ubicazioneId) return "Posto operativo non risolto.";
     resolvedUbi.set(area.id ?? ubicazioneId, ubicazioneId);
     if (area.ubicazioneId) resolvedUbi.set(area.ubicazioneId, ubicazioneId);
     const formaPayload = {
@@ -1020,6 +1278,8 @@ export async function listUbicazioniRiponibiliAction(): Promise<
         parentId: r.parent_id,
         parentCodice: parent?.codice ?? null,
         luogoNome: r.luogo_nome,
+        mappaOrigineId: null,
+        vistaOrigine: "",
         etichetta: etichettaUbicazione(
           r.codice,
           r.nome,
@@ -1213,6 +1473,14 @@ export async function importaRiferimentiDaVistaAction(
     return { success: false, error: "Importo consentito solo su una bozza." };
   }
   if (!src) return { success: false, error: "Pianta di origine non trovata." };
+  if (!dest.luogoNome.trim() && src.luogoNome.trim()) {
+    await inheritLuogoMappaIfEmpty(
+      supabase,
+      input.mappaId,
+      src.luogoNome.trim(),
+      auth.userId
+    );
+  }
 
   const risolti = risolviElementiOrigine(
     input.elementi ?? [],
@@ -1279,6 +1547,7 @@ export async function importaRiferimentiDaVistaAction(
       codice: string;
       nome: string;
       parentId: string | null;
+      ubicazioneId?: string;
       x: number;
       y: number;
       width: number;
@@ -1308,6 +1577,7 @@ export async function importaRiferimentiDaVistaAction(
           codice: e.codice,
           nome: e.nome,
           parentId: e.parentId,
+          ubicazioneId: e.ubicazioneId || undefined,
           x: Math.min(a.x, b.x),
           y: Math.min(a.y, b.y),
           width: Math.max(destG, Math.abs(b.x - a.x)),

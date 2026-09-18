@@ -74,7 +74,11 @@ import {
   type MappaRettangoloAsse,
   type MappaScalaUnita,
 } from "@/lib/magazzino/mappa";
-import { codicePostoFiglio, type MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
+import {
+  codicePostoFiglio,
+  previewPosizioneOperativa,
+  type MappaAreaDisegnata,
+} from "@/lib/magazzino/ubicazioni";
 import {
   dettaglioAngoliImporto,
   dettaglioLatiImporto,
@@ -1821,19 +1825,38 @@ export function MagazzinoMappaBoard({
     : null;
 
   const parentOptions = useMemo(() => {
-    const opts: { id: string; label: string }[] = [];
+    const questa: { id: string; label: string }[] = [];
+    const collegate: { id: string; label: string }[] = [];
+    const seen = new Set<string>();
     for (const a of aree) {
-      opts.push({
-        id: a.ubicazioneId || a.id,
+      const id = a.ubicazioneId || a.id;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      questa.push({
+        id,
         label: `${a.codice} — ${a.nome}`,
       });
     }
     for (const u of mappa?.ubicazioni ?? []) {
-      if (opts.some((o) => o.id === u.id)) continue;
-      opts.push({ id: u.id, label: u.etichetta });
+      if (seen.has(u.id)) continue;
+      seen.add(u.id);
+      const vista = u.vistaOrigine ? ` · ${u.vistaOrigine}` : "";
+      collegate.push({
+        id: u.id,
+        label: `${u.codice} — ${u.nome}${vista}`,
+      });
     }
-    return opts;
+    return { questa, collegate };
   }, [aree, mappa?.ubicazioni]);
+
+  const posizionePreview = useMemo(() => {
+    if (!areaCodice.trim()) return "";
+    const parent =
+      aree.find((a) => a.id === areaParentId || a.ubicazioneId === areaParentId) ??
+      (mappa?.ubicazioni ?? []).find((u) => u.id === areaParentId);
+    const parentCodice = parent && "codice" in parent ? parent.codice : "";
+    return previewPosizioneOperativa(parentCodice, areaCodice);
+  }, [areaCodice, areaParentId, aree, mappa?.ubicazioni]);
 
   function parentLabelOf(parentId: string | null): string {
     if (!parentId) return "—";
@@ -3201,7 +3224,7 @@ export function MagazzinoMappaBoard({
           </p>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <label className="text-xs">
-              Codice (es. A, A1, 1)
+              Codice (colonna o ripiano, es. A oppure 1)
               <input
                 value={areaCodice}
                 onChange={(e) => setAreaCodice(e.target.value.toUpperCase())}
@@ -3213,6 +3236,7 @@ export function MagazzinoMappaBoard({
               <input
                 value={areaNome}
                 onChange={(e) => setAreaNome(e.target.value)}
+                placeholder="es. Nome Ripiano 1"
                 className="ml-1 w-48 rounded border border-[var(--border)] px-2 py-1 text-sm"
               />
             </label>
@@ -3224,13 +3248,37 @@ export function MagazzinoMappaBoard({
                 className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
               >
                 <option value="">Nessuna (area principale)</option>
-                {parentOptions.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
+                {parentOptions.questa.length ? (
+                  <optgroup label="Questa vista">
+                    {parentOptions.questa.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {parentOptions.collegate.length ? (
+                  <optgroup label="Altre viste collegate">
+                    {parentOptions.collegate.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </label>
+            {posizionePreview ? (
+              <p className="w-full text-xs font-medium text-teal-950">
+                Posizione operativa:{" "}
+                <span className="rounded bg-white px-1.5 py-0.5 font-mono">
+                  {posizionePreview}
+                </span>
+                {areaNome.trim() ? ` — ${areaNome.trim()}` : ""}
+                . Qui si riporranno pallet e sacchetti (es. 1 pallet, Sacchetto A
+                24 kg).
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={() => salvaAreaPendente()}
@@ -3360,13 +3408,40 @@ export function MagazzinoMappaBoard({
                   className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
                 >
                   <option value="">Nessuna</option>
-                  {parentOptions
-                    .filter((o) => o.id !== selectedArea.id && o.id !== selectedArea.ubicazioneId)
-                    .map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.label}
-                      </option>
-                    ))}
+                  {parentOptions.questa.filter(
+                    (o) => o.id !== selectedArea.id && o.id !== selectedArea.ubicazioneId
+                  ).length ? (
+                    <optgroup label="Questa vista">
+                      {parentOptions.questa
+                        .filter(
+                          (o) =>
+                            o.id !== selectedArea.id &&
+                            o.id !== selectedArea.ubicazioneId
+                        )
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.label}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
+                  {parentOptions.collegate.filter(
+                    (o) => o.id !== selectedArea.id && o.id !== selectedArea.ubicazioneId
+                  ).length ? (
+                    <optgroup label="Altre viste collegate">
+                      {parentOptions.collegate
+                        .filter(
+                          (o) =>
+                            o.id !== selectedArea.id &&
+                            o.id !== selectedArea.ubicazioneId
+                        )
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.label}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ) : null}
                 </select>
               </label>
               <label className="text-xs">
@@ -4575,7 +4650,7 @@ export function MagazzinoMappaBoard({
         <CopiaAreaGuidata
           open={copiaOpen}
           aree={aree}
-          parentOptions={parentOptions}
+          parentOptions={[...parentOptions.questa, ...parentOptions.collegate]}
           sourceId={copiaSourceId}
           griglia={griglia}
           onClose={() => setCopiaOpen(false)}

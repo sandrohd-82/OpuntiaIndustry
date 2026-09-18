@@ -581,6 +581,7 @@ export type ImportaElementoRisolto =
       codice: string;
       nome: string;
       parentId: string | null;
+      ubicazioneId: string;
     };
 
 export function parseCalcoGeometria(raw: unknown): MappaCalcoGeometria {
@@ -958,7 +959,15 @@ export function risolviElementiOrigine(
   >[],
   aree: Pick<
     MappaAreaDisegnata,
-    "id" | "x" | "y" | "width" | "height" | "codice" | "nome" | "parentId"
+    | "id"
+    | "x"
+    | "y"
+    | "width"
+    | "height"
+    | "codice"
+    | "nome"
+    | "parentId"
+    | "ubicazioneId"
   >[]
 ): ImportaElementoRisolto[] {
   const out: ImportaElementoRisolto[] = [];
@@ -1003,6 +1012,7 @@ export function risolviElementiOrigine(
       codice: a.codice,
       nome: a.nome,
       parentId: a.parentId,
+      ubicazioneId: a.ubicazioneId,
     });
   }
   return out;

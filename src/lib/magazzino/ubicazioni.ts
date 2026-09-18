@@ -23,6 +23,8 @@ export type UbicazioneElenco = {
   parentCodice: string | null;
   luogoNome: string;
   etichetta: string;
+  mappaOrigineId?: string | null;
+  vistaOrigine?: string;
 };
 
 export function etichettaUbicazione(
@@ -102,4 +104,12 @@ export function codicePostoFiglio(parentCodice: string, figlio: string): string 
   if (!p) return f;
   if (f.startsWith(p)) return f;
   return `${p}${f}`;
+}
+
+/** Anteprima posizione operativa (colonna + ripiano), es. A + 1 → A1. */
+export function previewPosizioneOperativa(
+  parentCodice: string,
+  codiceInserito: string
+): string {
+  return codicePostoFiglio(parentCodice, codiceInserito);
 }
