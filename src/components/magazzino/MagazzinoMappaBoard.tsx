@@ -220,9 +220,13 @@ let freccePadPosMem: { x: number; y: number } | null = null;
 
 function MappaSpostaFreccePad({
   onNudge,
+  onAnnulla,
+  canAnnulla,
   passoEtichetta,
 }: {
   onNudge: (dir: SpostaDir) => void;
+  onAnnulla?: () => void;
+  canAnnulla?: boolean;
   passoEtichetta?: string | null;
 }) {
   const extra = passoEtichetta ? ` ${passoEtichetta}` : "";
@@ -324,6 +328,16 @@ function MappaSpostaFreccePad({
         </button>
         <span />
       </div>
+      {onAnnulla ? (
+        <button
+          type="button"
+          disabled={!canAnnulla}
+          onClick={() => onAnnulla()}
+          className="mt-1.5 w-full rounded-lg border border-amber-500 bg-amber-50 px-2 py-1.5 text-xs font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-40"
+        >
+          Annulla
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -468,6 +482,100 @@ export function MagazzinoMappaBoard({
   const canDraw = editing && vistaOk;
   const scalaOk = scalaValore > 0;
 
+  type MappaSnapshot = {
+    linee: MappaLinea[];
+    aree: MappaAreaDisegnata[];
+    riferimenti: MappaRiferimentoGruppo[];
+    pendingArea: { x: number; y: number; width: number; height: number } | null;
+    selectedLineIds: string[];
+    selectedAreaIds: string[];
+    selectedRifIds: string[];
+  };
+
+  const disegnoRef = useRef({
+    linee,
+    aree,
+    riferimenti,
+    pendingArea,
+    selectedLineIds,
+    selectedAreaIds,
+    selectedRifIds,
+  });
+  disegnoRef.current = {
+    linee,
+    aree,
+    riferimenti,
+    pendingArea,
+    selectedLineIds,
+    selectedAreaIds,
+    selectedRifIds,
+  };
+  const historyRef = useRef<MappaSnapshot[]>([]);
+  const historyKindRef = useRef<string | null>(null);
+  const [historyLen, setHistoryLen] = useState(0);
+
+  function cloneDisegno<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  function takeSnapshot(): MappaSnapshot {
+    const d = disegnoRef.current;
+    return {
+      linee: cloneDisegno(d.linee),
+      aree: cloneDisegno(d.aree),
+      riferimenti: cloneDisegno(d.riferimenti),
+      pendingArea: d.pendingArea ? { ...d.pendingArea } : null,
+      selectedLineIds: [...d.selectedLineIds],
+      selectedAreaIds: [...d.selectedAreaIds],
+      selectedRifIds: [...d.selectedRifIds],
+    };
+  }
+
+  function clearHistory() {
+    historyRef.current = [];
+    historyKindRef.current = null;
+    setHistoryLen(0);
+  }
+
+  function pushHistory(kind = "edit") {
+    if (!canDraw) return;
+    const coalesce =
+      kind === historyKindRef.current &&
+      (kind === "area-edit" || kind === "spessore" || kind === "colore");
+    if (coalesce) return;
+    historyRef.current = [...historyRef.current, takeSnapshot()].slice(-80);
+    historyKindRef.current = kind;
+    setHistoryLen(historyRef.current.length);
+  }
+
+  function applicaSnapshot(snap: MappaSnapshot) {
+    setLinee(snap.linee);
+    setAree(snap.aree);
+    setRiferimenti(snap.riferimenti);
+    setPendingArea(snap.pendingArea);
+    setSelectedLineIds(snap.selectedLineIds);
+    setSelectedAreaIds(snap.selectedAreaIds);
+    setSelectedRifIds(snap.selectedRifIds);
+    setCarry(null);
+    carryRef.current = null;
+    setDragArea(null);
+    setDragTrasforma(null);
+    setDraftStart(null);
+    setForma(null);
+  }
+
+  function annullaUltimaModifica() {
+    if (!canDraw || historyRef.current.length === 0) return;
+    const snap = historyRef.current[historyRef.current.length - 1];
+    if (!snap) return;
+    historyRef.current = historyRef.current.slice(0, -1);
+    historyKindRef.current = null;
+    setHistoryLen(historyRef.current.length);
+    applicaSnapshot(snap);
+    setError(null);
+    setOk("Modifica annullata.");
+  }
+
   function scegliSoloLinea(id: string | null) {
     setSelectedLineIds(id ? [id] : []);
   }
@@ -503,6 +611,7 @@ export function MagazzinoMappaBoard({
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
     setGriglia(res.mappa.grigliaPx);
+    clearHistory();
     setError(null);
   }
 
@@ -657,6 +766,7 @@ export function MagazzinoMappaBoard({
   }
 
   function avviaCarry(w: MappaPunto, vincoloPx: number | null = null) {
+    pushHistory("sposta");
     const next = {
       sx: w.x,
       sy: w.y,
@@ -826,6 +936,7 @@ export function MagazzinoMappaBoard({
   }
 
   function addLinea(a: MappaPunto, b: MappaPunto): string {
+    pushHistory("disegno");
     const linea: MappaLinea = {
       id: newLocalId(),
       x1: a.x,
@@ -1012,6 +1123,7 @@ export function MagazzinoMappaBoard({
               ? { x: current.x1, y: current.y1 }
               : { x: current.x2, y: current.y2 };
           setTrasformaEnd(estremo);
+          pushHistory("trasforma");
           setDragTrasforma({
             id: current.id,
             end: estremo,
@@ -1055,6 +1167,7 @@ export function MagazzinoMappaBoard({
         scegliSoloLinea(null);
         scegliSoloRif(null);
         if (a) {
+          pushHistory("sposta");
           setDragArea({ id: aid, sx: w.x, sy: w.y, ax: a.x, ay: a.y });
         }
         return;
@@ -1297,11 +1410,21 @@ export function MagazzinoMappaBoard({
         }
         return;
       }
+      if (
+        canDraw &&
+        (ev.key === "z" || ev.key === "Z") &&
+        (ev.ctrlKey || ev.metaKey) &&
+        !ev.altKey &&
+        !ev.shiftKey
+      ) {
+        ev.preventDefault();
+        annullaUltimaModifica();
+        return;
+      }
       if (ev.key === "Escape") {
         if (carry) {
           ev.preventDefault();
-          setCarry(null);
-          carryRef.current = null;
+          annullaUltimaModifica();
           return;
         }
         resetDisegno();
@@ -1344,6 +1467,7 @@ export function MagazzinoMappaBoard({
 
   function confermaRettangolo(a: MappaPunto, b: MappaPunto) {
     if (!canDraw || !rettangoloHaArea(a, b, griglia)) return;
+    pushHistory("disegno");
     const v = verticiRettangoloDaAngoli(a, b, griglia);
     if (tool === "area") {
       const xs = v.map((p) => p.x);
@@ -1437,6 +1561,7 @@ export function MagazzinoMappaBoard({
 
   function eliminaLineaSelezionata() {
     if (!canDraw || selectedLineIds.length === 0 || forma) return;
+    pushHistory("elimina");
     const ids = new Set(selectedLineIds);
     setLinee((prev) => prev.filter((l) => !ids.has(l.id)));
     setSelectedLineIds([]);
@@ -1446,6 +1571,7 @@ export function MagazzinoMappaBoard({
 
   function eliminaAreaSelezionata() {
     if (!canDraw || selectedAreaIds.length === 0 || forma || pendingArea) return;
+    pushHistory("elimina");
     const ids = new Set(selectedAreaIds);
     setAree((prev) => prev.filter((a) => !ids.has(a.id)));
     setSelectedAreaIds([]);
@@ -1468,6 +1594,7 @@ export function MagazzinoMappaBoard({
     const parentUb = (mappa?.ubicazioni ?? []).find((u) => u.id === areaParentId);
     const parentCodice = parentArea?.codice ?? parentUb?.codice ?? "";
     const codiceFinale = parentCodice ? codicePostoFiglio(parentCodice, codice) : codice;
+    pushHistory("disegno");
     const nuova: MappaAreaDisegnata = {
       id: newLocalId(),
       ubicazioneId: "",
@@ -1551,6 +1678,7 @@ export function MagazzinoMappaBoard({
     id: string,
     patch: { xQ?: number; yQ?: number; wQ?: number; hQ?: number }
   ) {
+    pushHistory("sposta");
     const cell = Math.max(griglia, 1);
     setRiferimenti((prev) =>
       prev.map((g) => {
@@ -1580,6 +1708,7 @@ export function MagazzinoMappaBoard({
     height: number;
     source: MappaAreaDisegnata;
   }) {
+    pushHistory("copia");
     const gap = Math.max(griglia, 1) * 2;
     const nuova: MappaAreaDisegnata = {
       id: newLocalId(),
@@ -1620,6 +1749,7 @@ export function MagazzinoMappaBoard({
     const next = Number.isFinite(v) && v > 0 ? v : 0.01;
     setSpessore(next);
     if (selectedLineIds.length && canDraw) {
+      pushHistory("spessore");
       const ids = new Set(selectedLineIds);
       setLinee((prev) =>
         prev.map((l) => (ids.has(l.id) ? { ...l, spessore: next } : l))
@@ -1662,6 +1792,7 @@ export function MagazzinoMappaBoard({
 
   function applicaLunghezzaTrasforma(quadrati: number) {
     if (!canDraw || !selectedLine || !trasformaEnd) return;
+    pushHistory("trasforma");
     const { fisso, mobile } = puntiTrasforma(selectedLine, trasformaEnd);
     const next = puntoALunghezzaQuadrati(fisso, mobile, quadrati, griglia);
     applicaEstremoLinea(selectedLine.id, trasformaEnd, next);
@@ -1755,6 +1886,7 @@ export function MagazzinoMappaBoard({
       dy
     );
     if (safe.dx === 0 && safe.dy === 0) return;
+    pushHistory("sposta");
     const lineIds = new Set(selectedLineIds);
     const areaIds = new Set(selectedAreaIds);
     const rifIds = new Set(selectedRifIds);
@@ -1795,6 +1927,7 @@ export function MagazzinoMappaBoard({
 
   function copiaSelezione() {
     if (!canDraw || selezioneCount === 0 || carry) return;
+    pushHistory("copia");
     const offset = Math.max(1, griglia);
     const box = selezioneBounds;
     const safe = box
@@ -1991,6 +2124,7 @@ export function MagazzinoMappaBoard({
     const next = normalizzaColoreLinea(v);
     setColore(next);
     if (selectedLineIds.length && canDraw) {
+      pushHistory("colore");
       const ids = new Set(selectedLineIds);
       setLinee((prev) =>
         prev.map((l) => (ids.has(l.id) ? { ...l, colore: next } : l))
@@ -2075,6 +2209,7 @@ export function MagazzinoMappaBoard({
     setVistaEtichetta(res.mappa.vistaEtichetta);
     setScalaValore(res.mappa.scalaValore);
     setScalaUnita(res.mappa.scalaUnita);
+    clearHistory();
     setOk("Bozza salvata. Le altre bozze restano in elenco.");
     return true;
   }
@@ -2417,6 +2552,15 @@ export function MagazzinoMappaBoard({
           ) : null}
           {editing ? (
             <>
+              <button
+                type="button"
+                disabled={saving || historyLen === 0}
+                onClick={() => annullaUltimaModifica()}
+                title="Annulla l'ultima modifica (Ctrl+Z)"
+                className="rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-sm font-semibold text-amber-950 hover:bg-amber-100 disabled:opacity-40"
+              >
+                Annulla
+              </button>
               <button
                 type="button"
                 disabled={saving}
@@ -2930,15 +3074,16 @@ export function MagazzinoMappaBoard({
                 Codice
                 <input
                   value={selectedArea.codice}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id
                           ? { ...a, codice: e.target.value.toUpperCase() }
                           : a
                       )
-                    )
-                  }
+                    );
+                  }}
                   className="ml-1 w-24 rounded border border-[var(--border)] px-2 py-1 text-sm uppercase"
                 />
               </label>
@@ -2946,13 +3091,14 @@ export function MagazzinoMappaBoard({
                 Nome
                 <input
                   value={selectedArea.nome}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id ? { ...a, nome: e.target.value } : a
                       )
-                    )
-                  }
+                    );
+                  }}
                   className="ml-1 w-48 rounded border border-[var(--border)] px-2 py-1 text-sm"
                 />
               </label>
@@ -2960,15 +3106,16 @@ export function MagazzinoMappaBoard({
                 Dentro
                 <select
                   value={selectedArea.parentId ?? ""}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id
                           ? { ...a, parentId: e.target.value || null }
                           : a
                       )
-                    )
-                  }
+                    );
+                  }}
                   className="ml-1 rounded border border-[var(--border)] px-2 py-1 text-sm"
                 >
                   <option value="">Nessuna</option>
@@ -2989,6 +3136,7 @@ export function MagazzinoMappaBoard({
                   value={Math.max(1, Math.round(selectedArea.width / Math.max(griglia, 1)))}
                   onChange={(e) => {
                     const q = Math.max(1, Math.round(Number(e.target.value) || 1));
+                    pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id ? { ...a, width: q * griglia } : a
@@ -3006,6 +3154,7 @@ export function MagazzinoMappaBoard({
                   value={Math.max(1, Math.round(selectedArea.height / Math.max(griglia, 1)))}
                   onChange={(e) => {
                     const q = Math.max(1, Math.round(Number(e.target.value) || 1));
+                    pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id ? { ...a, height: q * griglia } : a
@@ -3126,6 +3275,8 @@ export function MagazzinoMappaBoard({
       {showSpostaFrecce ? (
         <MappaSpostaFreccePad
           onNudge={nudgeSelected}
+          onAnnulla={annullaUltimaModifica}
+          canAnnulla={historyLen > 0}
           passoEtichetta={
             spostaDiPx
               ? formattaLunghezzaReale(
@@ -3926,6 +4077,7 @@ export function MagazzinoMappaBoard({
           else selezionaImporto(id);
         }}
         onElimina={(id) => {
+          pushHistory("elimina");
           const next = riferimenti.filter((g) => g.id !== id);
           setRiferimenti(next);
           if (selectedRifId === id) scegliSoloRif(null);
@@ -3933,6 +4085,7 @@ export function MagazzinoMappaBoard({
         }}
         onCambiaDest={(id, patch) => cambiaDestImporto(id, patch)}
         onCambiaPunto={(gruppoId, puntoId, patch) => {
+          pushHistory("area-edit");
           setRiferimenti((prev) =>
             prev.map((g) =>
               g.id === gruppoId
@@ -3954,6 +4107,7 @@ export function MagazzinoMappaBoard({
           );
         }}
         onEliminaPunto={(gruppoId, puntoId) => {
+          pushHistory("elimina");
           const next = riferimenti.map((g) =>
             g.id === gruppoId
               ? { ...g, punti: g.punti.filter((p) => p.id !== puntoId) }
@@ -4019,6 +4173,7 @@ export function MagazzinoMappaBoard({
           destScalaUnita={scalaUnita}
           onClose={() => setImportOpen(false)}
           onApplied={(next, esito: ImportaEsito) => {
+            pushHistory("importa");
             setMappa(next);
             setLinee(next.linee);
             setAree(next.aree ?? []);
