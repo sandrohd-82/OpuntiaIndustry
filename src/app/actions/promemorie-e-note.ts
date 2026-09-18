@@ -1616,7 +1616,8 @@ export async function softDeleteClientePossibileAction(input: {
   }
 
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const service = createServiceClient();
+  const { error } = await service
     .from("clienti_possibili")
     .update({
       deleted_at: now,
