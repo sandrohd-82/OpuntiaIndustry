@@ -1167,7 +1167,7 @@ async function persistAreeMappa(
       : null;
     const codice = area.codice.trim();
     const nome = area.nome.trim();
-    let existing = await findUbicazioneOperativa(supabase, {
+    const existing = await findUbicazioneOperativa(supabase, {
       id: area.ubicazioneId ?? null,
       codice,
       luogo,
