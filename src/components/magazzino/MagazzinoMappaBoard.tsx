@@ -210,9 +210,12 @@ type SpostaDir = "up" | "down" | "left" | "right";
 
 function MappaSpostaFreccePad({
   onNudge,
+  passoEtichetta,
 }: {
   onNudge: (dir: SpostaDir) => void;
+  passoEtichetta?: string | null;
 }) {
+  const extra = passoEtichetta ? ` ${passoEtichetta}` : "";
   const btn =
     "min-w-[5.5rem] rounded-lg border border-indigo-400 bg-white px-2.5 py-1.5 text-xs font-semibold text-indigo-950 shadow-sm hover:bg-indigo-50 active:bg-indigo-100";
   return (
@@ -223,25 +226,57 @@ function MappaSpostaFreccePad({
     >
       <span />
       <button type="button" className={btn} onClick={() => onNudge("up")}>
-        ▲ Sopra
+        ▲ Sopra{extra}
       </button>
       <span />
       <button type="button" className={btn} onClick={() => onNudge("left")}>
-        ◀ Sinistra
+        ◀ Sinistra{extra}
       </button>
       <span className="self-center text-center text-[10px] font-medium uppercase tracking-wide text-indigo-700">
-        Sposta
+        {passoEtichetta ? "Sposta di" : "Sposta"}
       </span>
       <button type="button" className={btn} onClick={() => onNudge("right")}>
-        Destra ▶
+        Destra{extra} ▶
       </button>
       <span />
       <button type="button" className={btn} onClick={() => onNudge("down")}>
-        ▼ Sotto
+        ▼ Sotto{extra}
       </button>
       <span />
     </div>
   );
+}
+
+function codiceCopiaUnico(base: string, usati: Set<string>): string {
+  const root = (base.trim().toUpperCase() || "COPIA").slice(0, 36);
+  let n = 1;
+  let candidate = `${root}-C`.slice(0, 40);
+  while (usati.has(candidate)) {
+    n += 1;
+    const suffix = `-C${n}`;
+    candidate = `${root.slice(0, Math.max(1, 40 - suffix.length))}${suffix}`;
+  }
+  usati.add(candidate);
+  return candidate;
+}
+
+function nomeCopiaOggetto(nome: string): string {
+  const t = nome.trim();
+  if (!t) return "Copia";
+  if (/\(copia\)$/i.test(t)) return t.slice(0, 120);
+  return `${t} (copia)`.slice(0, 120);
+}
+
+function deltaVincolato(
+  origine: MappaPunto,
+  cursore: MappaPunto,
+  raggio: number
+): { dx: number; dy: number } {
+  const vx = cursore.x - origine.x;
+  const vy = cursore.y - origine.y;
+  const len = Math.hypot(vx, vy);
+  if (len < 3) return { dx: 0, dy: 0 };
+  return { dx: (vx / len) * raggio, dy: (vy / len) * raggio };
 }
 
 export function MagazzinoMappaBoard({
@@ -278,10 +313,13 @@ export function MagazzinoMappaBoard({
   const [carry, setCarry] = useState<{
     sx: number;
     sy: number;
+    vincoloPx: number | null;
     linee: { id: string; x1: number; y1: number; x2: number; y2: number }[];
     aree: { id: string; x: number; y: number; width: number; height: number }[];
     rif: { id: string; destX: number; destY: number }[];
   } | null>(null);
+  const [spostaDiDraft, setSpostaDiDraft] = useState("");
+  const [spostaDiPx, setSpostaDiPx] = useState<number | null>(null);
   const carryRef = useRef<typeof carry>(null);
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [copiaOpen, setCopiaOpen] = useState(false);
@@ -537,10 +575,11 @@ export function MagazzinoMappaBoard({
     );
   }
 
-  function avviaCarry(w: MappaPunto) {
+  function avviaCarry(w: MappaPunto, vincoloPx: number | null = null) {
     const next = {
       sx: w.x,
       sy: w.y,
+      vincoloPx: vincoloPx && vincoloPx > 0 ? vincoloPx : null,
       linee: linee
         .filter((l) => selectedLineIds.includes(l.id))
         .map((l) => ({
@@ -608,8 +647,16 @@ export function MagazzinoMappaBoard({
   function applicaCarryPunto(w: MappaPunto) {
     const c = carryRef.current;
     if (!c) return;
-    const rawDx = snapToGrid(w.x - c.sx, griglia);
-    const rawDy = snapToGrid(w.y - c.sy, griglia);
+    const vincolato =
+      c.vincoloPx && c.vincoloPx > 0
+        ? deltaVincolato({ x: c.sx, y: c.sy }, w, c.vincoloPx)
+        : null;
+    const rawDx = vincolato
+      ? vincolato.dx
+      : snapToGrid(w.x - c.sx, griglia);
+    const rawDy = vincolato
+      ? vincolato.dy
+      : snapToGrid(w.y - c.sy, griglia);
     const box = boundsDiCarry(c);
     const safe = box
       ? clampDeltaNelFoglio(box.minX, box.minY, box.maxX, box.maxY, rawDx, rawDy)
@@ -806,10 +853,12 @@ export function MagazzinoMappaBoard({
       const svg = svgRef.current;
       if (!svg) return;
       const r = svg.getBoundingClientRect();
-      applicaCarryPunto({
+      const w = {
         x: (e.clientX - r.left - pan.x) / zoom,
         y: (e.clientY - r.top - pan.y) / zoom,
-      });
+      };
+      setCursor(w);
+      applicaCarryPunto(w);
     }
     window.addEventListener("pointermove", onMove);
     return () => window.removeEventListener("pointermove", onMove);
@@ -857,7 +906,7 @@ export function MagazzinoMappaBoard({
         return;
       }
       if (oggettoGiaSelezionato(hit)) {
-        avviaCarry(w);
+        avviaCarry(w, spostaDiPx);
         setDraftStart(null);
         return;
       }
@@ -1181,7 +1230,18 @@ export function MagazzinoMappaBoard({
         eliminaLineaSelezionata();
         eliminaAreaSelezionata();
       }
-      if (tool === "seleziona" && canDraw) {
+      if (
+        canDraw &&
+        (ev.key === "c" || ev.key === "C" || ev.key === "d" || ev.key === "D") &&
+        (ev.ctrlKey || ev.metaKey) &&
+        !ev.altKey &&
+        !ev.shiftKey
+      ) {
+        ev.preventDefault();
+        copiaSelezione();
+        return;
+      }
+      if (canDraw && selezioneCount > 0 && !carry) {
         if (ev.key === "ArrowUp") {
           ev.preventDefault();
           nudgeSelected("up");
@@ -1544,12 +1604,41 @@ export function MagazzinoMappaBoard({
     }
   }
 
+  function misuraRealeToPx(reale: number): number | null {
+    if (!Number.isFinite(reale) || reale <= 0 || !(scalaValore > 0)) return null;
+    return (reale / scalaValore) * Math.max(1, griglia);
+  }
+
+  function armaSpostaDi(raw = spostaDiDraft) {
+    const n = Number(String(raw).replace(",", "."));
+    const px = misuraRealeToPx(n);
+    if (px == null) {
+      setSpostaDiPx(null);
+      return false;
+    }
+    setSpostaDiPx(px);
+    setTool("seleziona");
+    setCarry(null);
+    carryRef.current = null;
+    return true;
+  }
+
+  function disarmaSpostaDi() {
+    setSpostaDiPx(null);
+    setSpostaDiDraft("");
+    if (carry?.vincoloPx) {
+      setCarry(null);
+      carryRef.current = null;
+    }
+  }
+
   function deltaSposta(dir: SpostaDir): { dx: number; dy: number } {
-    const g = Math.max(1, griglia);
-    if (dir === "up") return { dx: 0, dy: -g };
-    if (dir === "down") return { dx: 0, dy: g };
-    if (dir === "left") return { dx: -g, dy: 0 };
-    return { dx: g, dy: 0 };
+    const step =
+      spostaDiPx && spostaDiPx > 0 ? spostaDiPx : Math.max(1, griglia);
+    if (dir === "up") return { dx: 0, dy: -step };
+    if (dir === "down") return { dx: 0, dy: step };
+    if (dir === "left") return { dx: -step, dy: 0 };
+    return { dx: step, dy: 0 };
   }
 
   function clampDeltaNelFoglio(
@@ -1570,7 +1659,8 @@ export function MagazzinoMappaBoard({
   }
 
   function nudgeSelected(dir: SpostaDir) {
-    if (!canDraw || tool !== "seleziona" || carry) return;
+    if (!canDraw || carry) return;
+    if (tool !== "seleziona") setTool("seleziona");
     const { dx, dy } = deltaSposta(dir);
     if (dx === 0 && dy === 0) return;
     const box = selezioneBounds;
@@ -1620,6 +1710,101 @@ export function MagazzinoMappaBoard({
         )
       );
     }
+  }
+
+  function copiaSelezione() {
+    if (!canDraw || selezioneCount === 0 || carry) return;
+    const offset = Math.max(1, griglia);
+    const box = selezioneBounds;
+    const safe = box
+      ? clampDeltaNelFoglio(
+          box.x,
+          box.y,
+          box.x + box.w,
+          box.y + box.h,
+          offset,
+          offset
+        )
+      : { dx: offset, dy: offset };
+    const dx = safe.dx === 0 && safe.dy === 0 ? 0 : safe.dx;
+    const dy = safe.dx === 0 && safe.dy === 0 ? 0 : safe.dy;
+    const usati = new Set(aree.map((a) => a.codice.trim().toUpperCase()));
+    const newLineIds: string[] = [];
+    const newAreaIds: string[] = [];
+    const newRifIds: string[] = [];
+    const copieLinee = linee
+      .filter((l) => selectedLineIds.includes(l.id))
+      .map((l) => {
+        const id = newLocalId();
+        newLineIds.push(id);
+        return {
+          ...l,
+          id,
+          x1: l.x1 + dx,
+          y1: l.y1 + dy,
+          x2: l.x2 + dx,
+          y2: l.y2 + dy,
+        };
+      });
+    const copieAree = aree
+      .filter((a) => selectedAreaIds.includes(a.id))
+      .map((a) => {
+        const id = newLocalId();
+        newAreaIds.push(id);
+        return {
+          ...a,
+          id,
+          ubicazioneId: "",
+          codice: codiceCopiaUnico(a.codice, usati),
+          nome: nomeCopiaOggetto(a.nome),
+          x: a.x + dx,
+          y: a.y + dy,
+        };
+      });
+    const copieRif = riferimenti
+      .filter((g) => selectedRifIds.includes(g.id))
+      .map((g) => {
+        const id = newLocalId();
+        newRifIds.push(id);
+        return {
+          ...g,
+          id,
+          asseId: newLocalId(),
+          destX: g.destX + dx,
+          destY: g.destY + dy,
+          punti: g.punti.map((p) => ({ ...p, id: newLocalId() })),
+          calchi: (g.calchi ?? []).map((c) => ({
+            ...c,
+            id: newLocalId(),
+          })),
+        };
+      });
+    if (!copieLinee.length && !copieAree.length && !copieRif.length) return;
+    if (copieLinee.length) {
+      setLinee((prev) => [
+        ...prev,
+        ...copieLinee.map((l, i) => ({ ...l, sortOrder: prev.length + i })),
+      ]);
+    }
+    if (copieAree.length) {
+      setAree((prev) => [...prev, ...copieAree]);
+    }
+    if (copieRif.length) {
+      setRiferimenti((prev) => [...prev, ...copieRif]);
+    }
+    setSelectedLineIds(newLineIds);
+    setSelectedAreaIds(newAreaIds);
+    setSelectedRifIds(newRifIds);
+    setTool("seleziona");
+    setDraftStart(null);
+    setForma(null);
+    setCarry(null);
+    carryRef.current = null;
+    setOk(
+      `Copia di ${newLineIds.length + newAreaIds.length + newRifIds.length} oggett${
+        newLineIds.length + newAreaIds.length + newRifIds.length === 1 ? "o" : "i"
+      } accanto all'originale. Salva la bozza per confermare.`
+    );
   }
 
   const selezioneCount =
@@ -2183,6 +2368,14 @@ export function MagazzinoMappaBoard({
               >
                 Copia da area
               </button>
+              <button
+                type="button"
+                disabled={selezioneCount === 0 || Boolean(carry)}
+                onClick={() => copiaSelezione()}
+                className="rounded-lg border border-indigo-600 px-3 py-1.5 text-sm font-medium text-indigo-950 hover:bg-indigo-50 disabled:opacity-50"
+              >
+                Copia selezione
+              </button>
             </>
           ) : null}
         </div>
@@ -2343,9 +2536,11 @@ export function MagazzinoMappaBoard({
 
           {canDraw && tool === "seleziona" ? (
             <p className="text-xs text-indigo-900">
-              {carry
+              {carry?.vincoloPx
+                ? "Spostamento vincolato: muovi il mouse per la direzione (orizzontale/verticale o libera). Clic per posare."
+                : carry
                 ? "Oggetti attaccati al mouse. Clic sul foglio per posarli."
-                : "Primo click: seleziona (puoi cliccare altri oggetti). Secondo click sullo stesso oggetto: attacca la selezione al mouse."}
+                : "Primo click: seleziona. Copia crea un duplicato. Sposta di + Invio, poi frecce (solo verticale/orizzontale) oppure secondo click sull'oggetto per la direzione libera a misura fissa."}
             </p>
           ) : null}
 
@@ -2621,6 +2816,13 @@ export function MagazzinoMappaBoard({
                 </button>
                 <button
                   type="button"
+                  onClick={() => copiaSelezione()}
+                  className="rounded-lg border border-indigo-500 bg-white px-3 py-1.5 text-sm font-medium text-indigo-950 hover:bg-indigo-50"
+                >
+                  Copia oggetto
+                </button>
+                <button
+                  type="button"
                   onClick={() => apriCopia(selectedArea.id)}
                   className="rounded-lg border border-teal-600 bg-white px-3 py-1.5 text-sm font-medium text-teal-900 hover:bg-teal-100"
                 >
@@ -2743,9 +2945,18 @@ export function MagazzinoMappaBoard({
             {selezioneCount}{" "}
             {selezioneCount === 1 ? "oggetto attaccato" : "oggetti attaccati"} al
             mouse
+            {carry.vincoloPx
+              ? ` · misura ${formattaLunghezzaReale(
+                  carry.vincoloPx / Math.max(griglia, 1),
+                  scalaValore,
+                  scalaUnita
+                )}`
+              : ""}
           </p>
           <p className="mt-0.5 text-xs text-indigo-900">
-            Clic sul foglio per posare. Esc annulla l&apos;aggancio.
+            {carry.vincoloPx
+              ? "La distanza è bloccata. Scegli la direzione col mouse, poi clic per posare. Esc annulla."
+              : "Clic sul foglio per posare. Esc annulla l'aggancio."}
           </p>
         </div>
       ) : null}
@@ -2755,18 +2966,89 @@ export function MagazzinoMappaBoard({
           <p className="text-sm font-semibold text-indigo-950">
             {selezioneCount === 1
               ? selectedLine
-                ? "Sposta linea"
+                ? "Sposta / copia linea"
                 : selectedArea
-                  ? `Sposta area ${selectedArea.codice}`
-                  : "Sposta elemento"
-              : `Sposta ${selezioneCount} oggetti`}
+                  ? `Sposta / copia area ${selectedArea.codice}`
+                  : "Sposta / copia elemento"
+              : `Sposta / copia ${selezioneCount} oggetti`}
           </p>
           <p className="mt-0.5 text-xs text-indigo-900">
-            Secondo click su un oggetto già selezionato per attaccarlo al mouse.
-            Frecce: un quadrato.
+            {spostaDiPx
+              ? "Misura armata. Frecce = solo verticale o orizzontale. Click sull'oggetto = direzione libera alla stessa misura."
+              : "Copia duplica la selezione. Inserisci Sposta di (es. 200 cm) e Invio, poi scegli la direzione."}
           </p>
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <button
+              type="button"
+              onClick={() => copiaSelezione()}
+              className="rounded-lg border border-indigo-600 bg-white px-3 py-1.5 text-sm font-semibold text-indigo-950 hover:bg-indigo-100"
+            >
+              Copia
+            </button>
+            <form
+              className="flex flex-wrap items-end gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!armaSpostaDi()) {
+                  setError(`Inserisci una misura maggiore di 0 in ${scalaUnita}.`);
+                } else {
+                  setError(null);
+                }
+              }}
+            >
+              <label className="text-xs font-medium text-indigo-950">
+                Sposta di ({scalaUnita})
+                <input
+                  type="number"
+                  min={0.01}
+                  step="any"
+                  value={spostaDiDraft}
+                  onChange={(e) => setSpostaDiDraft(e.target.value)}
+                  placeholder="200"
+                  className="ml-1 w-24 rounded border border-indigo-400 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+              <button
+                type="submit"
+                className="rounded-lg bg-indigo-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-800"
+              >
+                Invio
+              </button>
+              {spostaDiPx ? (
+                <button
+                  type="button"
+                  onClick={() => disarmaSpostaDi()}
+                  className="rounded-lg px-2 py-1 text-xs text-indigo-800 hover:bg-white"
+                >
+                  Annulla misura
+                </button>
+              ) : null}
+            </form>
+          </div>
+          {spostaDiPx ? (
+            <p className="mt-1 text-xs font-medium text-indigo-950">
+              Misura pronta:{" "}
+              {formattaLunghezzaReale(
+                spostaDiPx / Math.max(griglia, 1),
+                scalaValore,
+                scalaUnita
+              )}{" "}
+              · {formattaQuadrati(spostaDiPx / Math.max(griglia, 1))} quadrati
+            </p>
+          ) : null}
           <div className="mt-2">
-            <MappaSpostaFreccePad onNudge={nudgeSelected} />
+            <MappaSpostaFreccePad
+              onNudge={nudgeSelected}
+              passoEtichetta={
+                spostaDiPx
+                  ? formattaLunghezzaReale(
+                      spostaDiPx / Math.max(griglia, 1),
+                      scalaValore,
+                      scalaUnita
+                    )
+                  : null
+              }
+            />
           </div>
         </div>
       ) : null}
@@ -2931,13 +3213,22 @@ export function MagazzinoMappaBoard({
               />
             </label>
             {canDraw ? (
-              <button
-                type="button"
-                onClick={() => eliminaLineaSelezionata()}
-                className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
-              >
-                Elimina linea
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => copiaSelezione()}
+                  className="rounded-lg border border-indigo-500 bg-white px-3 py-1.5 text-sm font-medium text-indigo-950 hover:bg-indigo-50"
+                >
+                  Copia
+                </button>
+                <button
+                  type="button"
+                  onClick={() => eliminaLineaSelezionata()}
+                  className="rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-medium text-rose-800 hover:bg-rose-50"
+                >
+                  Elimina linea
+                </button>
+              </>
             ) : null}
           </div>
         </div>
@@ -3008,14 +3299,21 @@ export function MagazzinoMappaBoard({
                     : dir === "left"
                       ? { left: left - gap, top: cy, transform: "translate(-100%, -50%)" }
                       : { left: left + w + gap, top: cy, transform: "translate(0, -50%)" };
+              const misura = spostaDiPx
+                ? ` ${formattaLunghezzaReale(
+                    spostaDiPx / Math.max(griglia, 1),
+                    scalaValore,
+                    scalaUnita
+                  )}`
+                : "";
               const label =
                 dir === "up"
-                  ? "▲ Sopra"
+                  ? `▲ Sopra${misura}`
                   : dir === "down"
-                    ? "▼ Sotto"
+                    ? `▼ Sotto${misura}`
                     : dir === "left"
-                      ? "◀ Sinistra"
-                      : "Destra ▶";
+                      ? `◀ Sinistra${misura}`
+                      : `Destra${misura} ▶`;
               return (
                 <button
                   key={dir}
@@ -3358,6 +3656,57 @@ export function MagazzinoMappaBoard({
                 ))}
               </g>
             ))}
+            {carry?.vincoloPx ? (
+              <g pointerEvents="none">
+                <circle
+                  cx={carry.sx}
+                  cy={carry.sy}
+                  r={carry.vincoloPx}
+                  fill="none"
+                  stroke="#4f46e5"
+                  strokeDasharray={`${8 / zoom} ${5 / zoom}`}
+                  strokeWidth={Math.max(1, 1.6 / zoom)}
+                />
+                <line
+                  x1={carry.sx}
+                  y1={carry.sy - carry.vincoloPx}
+                  x2={carry.sx}
+                  y2={carry.sy + carry.vincoloPx}
+                  stroke="#6366f1"
+                  strokeDasharray={`${5 / zoom} ${4 / zoom}`}
+                  strokeWidth={Math.max(0.8, 1.2 / zoom)}
+                />
+                <line
+                  x1={carry.sx - carry.vincoloPx}
+                  y1={carry.sy}
+                  x2={carry.sx + carry.vincoloPx}
+                  y2={carry.sy}
+                  stroke="#6366f1"
+                  strokeDasharray={`${5 / zoom} ${4 / zoom}`}
+                  strokeWidth={Math.max(0.8, 1.2 / zoom)}
+                />
+                {cursor
+                  ? (() => {
+                      const d = deltaVincolato(
+                        { x: carry.sx, y: carry.sy },
+                        cursor,
+                        carry.vincoloPx
+                      );
+                      if (d.dx === 0 && d.dy === 0) return null;
+                      return (
+                        <line
+                          x1={carry.sx}
+                          y1={carry.sy}
+                          x2={carry.sx + d.dx}
+                          y2={carry.sy + d.dy}
+                          stroke="#312e81"
+                          strokeWidth={Math.max(1.4, 2.2 / zoom)}
+                        />
+                      );
+                    })()
+                  : null}
+              </g>
+            ) : null}
             {canDraw &&
             tool === "trasforma" &&
             selectedLine &&

@@ -1063,6 +1063,9 @@ async function persistRiferimentiMappa(
     .select("id")
     .eq("mappa_id", mappaId)
     .is("deleted_at", null);
+  const existingIds = new Set(
+    ((existing ?? []) as { id: string }[]).map((r) => r.id)
+  );
   const keep = new Set<string>();
   for (const g of gruppi) {
     if (g.asseId) keep.add(g.asseId);
@@ -1099,7 +1102,7 @@ async function persistRiferimentiMappa(
         g.calchi ?? []
       ),
     };
-    if (g.asseId && keep.has(g.asseId)) {
+    if (g.asseId && existingIds.has(g.asseId)) {
       const { error } = await supabase
         .from("magazzino_mappa_riferimenti")
         .update(assePayload)
@@ -1108,6 +1111,7 @@ async function persistRiferimentiMappa(
       if (error) return error.message;
     } else {
       const { error } = await supabase.from("magazzino_mappa_riferimenti").insert({
+        ...(g.asseId ? { id: g.asseId } : {}),
         ...assePayload,
         created_by: userId,
       });
@@ -1123,7 +1127,7 @@ async function persistRiferimentiMappa(
         offset_quadrati: p.offsetQuadrati,
         sort_order: gi * 100 + pi + 1,
       };
-      if (p.id && keep.has(p.id)) {
+      if (p.id && existingIds.has(p.id)) {
         const { error } = await supabase
           .from("magazzino_mappa_riferimenti")
           .update(puntoPayload)
@@ -1132,6 +1136,7 @@ async function persistRiferimentiMappa(
         if (error) return error.message;
       } else {
         const { error } = await supabase.from("magazzino_mappa_riferimenti").insert({
+          ...(p.id ? { id: p.id } : {}),
           ...puntoPayload,
           created_by: userId,
         });
