@@ -3,13 +3,31 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { FaChevronDown, FaPlus, FaTrash } from "react-icons/fa6";
+import { FaPlus, FaTrash } from "react-icons/fa6";
 import { checkAnagraficaDuplicatiAction } from "@/app/actions/anagrafica-duplicati";
 import { findAnagraficaArchivioByVatAction } from "@/app/actions/anagrafiche-archivio";
 import { AnagraficaDuplicatiBlockModal } from "@/components/amministrazione/AnagraficaDuplicatiBlockModal";
 import type { AnagraficaDuplicatoHit } from "@/lib/amministrazione/anagrafica-duplicati";
 import { previewNextCodiceTargaClienteAction } from "@/app/actions/clienti";
 import { AddressSedeFields } from "@/components/amministrazione/AddressSedeFields";
+import {
+  AnagraficaBrandEditor,
+  brandsToInput,
+  uploadPendingBrandLogos,
+  validateBrandDrafts,
+  type AnagraficaBrandDraft,
+} from "@/components/amministrazione/AnagraficaBrandEditor";
+import {
+  AnagraficaSediEditor,
+  applyLegacySedeToDrafts,
+  draftsFromLegacy,
+  draftsFromSedi,
+  sediToInput,
+  validateSediDrafts,
+  type AnagraficaSedeDraft,
+} from "@/components/amministrazione/AnagraficaSediEditor";
+import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
+import { firstSedeOfTipo } from "@/lib/amministrazione/anagrafica-extra";
 import { ApriFatturaFicActions } from "@/components/amministrazione/ApriFatturaFicButton";
 import { CodiceTargaBadge } from "@/components/amministrazione/CodiceTargaBadge";
 import { ProdottiAcquistatiTags } from "@/components/amministrazione/ProdottiAcquistatiTags";
@@ -21,7 +39,6 @@ import { CONTATTI_GENERICI_MAX_ITEMS } from "@/lib/amministrazione/contatti-gene
 import type { FatturaKind } from "@/lib/amministrazione/fatture";
 import {
   emptyConsegnaAltraAzienda,
-  emptySede,
   type Cliente,
   type ClienteInput,
   type ConsegnaAltraAzienda,
@@ -63,16 +80,6 @@ type Props = {
   variant?: "cliente" | "possibile";
 };
 
-function sameSede(a: SedeCliente, b: SedeCliente) {
-  return (
-    a.nazione === b.nazione &&
-    a.provincia === b.provincia &&
-    a.citta === b.citta &&
-    a.cap === b.cap &&
-    a.indirizzo === b.indirizzo
-  );
-}
-
 function isSedeFilled(sede: SedeCliente): boolean {
   return Boolean(
     sede.nazione.trim() &&
@@ -80,16 +87,6 @@ function isSedeFilled(sede: SedeCliente): boolean {
       sede.citta.trim() &&
       sede.cap.trim() &&
       sede.indirizzo.trim()
-  );
-}
-
-function isSedeEmpty(sede: SedeCliente): boolean {
-  return !(
-    sede.nazione.trim() ||
-    sede.provincia.trim() ||
-    sede.citta.trim() ||
-    sede.cap.trim() ||
-    sede.indirizzo.trim()
   );
 }
 
@@ -131,25 +128,17 @@ export function ClienteFormModal({
   );
   const [sitoExtra, setSitoExtra] = useState(initial?.sitiWebGenerici ?? []);
   const [reminderTick, setReminderTick] = useState(0);
-  const [sedeAmministrativa, setSedeAmministrativa] = useState(
-    initial?.sedeAmministrativa ?? emptySede()
-  );
-  const [sedeMagazzino, setSedeMagazzino] = useState(
-    initial?.sedeMagazzino ?? emptySede()
-  );
-  const initialStessaSede = Boolean(
-    initial &&
-      !isSedeEmpty(initial.sedeMagazzino) &&
-      sameSede(initial.sedeAmministrativa, initial.sedeMagazzino)
-  );
-  const [stessaSede, setStessaSede] = useState(initialStessaSede);
-  const [magazzinoOpen, setMagazzinoOpen] = useState(
-    Boolean(
-      initial &&
-        (!isSedeEmpty(initial.sedeMagazzino) ||
-          sameSede(initial.sedeAmministrativa, initial.sedeMagazzino))
+  const [sedi, setSedi] = useState<AnagraficaSedeDraft[]>(() =>
+    draftsFromLegacy(
+      {
+        sedeAmministrativa: initial?.sedeAmministrativa,
+        sedeMagazzino: initial?.sedeMagazzino,
+      },
+      { openAmm: !isPossibile || Boolean(initial) }
     )
   );
+  const [brand, setBrand] = useState<AnagraficaBrandDraft[]>([]);
+  const [extraReady, setExtraReady] = useState(!initial?.id);
   const [consegneEnabled, setConsegneEnabled] = useState(
     Boolean(initial?.consegneAltraAzienda?.length)
   );
@@ -183,6 +172,17 @@ export function ClienteFormModal({
     }).then((res) => {
       if (res.success) setReferenti(res.items);
     });
+    void loadAnagraficaExtraAction({
+      ownerKind: isPossibile ? "cliente_possibile" : "cliente",
+      ownerId: initial.id,
+    })
+      .then((res) => {
+        if (res.success) {
+          if (res.sedi.length) setSedi(draftsFromSedi(res.sedi));
+          setBrand(res.brand);
+        }
+      })
+      .finally(() => setExtraReady(true));
   }, [isPossibile, initial?.id]);
 
   function updateConsegna(index: number, next: ConsegnaAltraAzienda) {
@@ -216,19 +216,16 @@ export function ClienteFormModal({
       setFormError("Il codice fiscale è obbligatorio per i clienti azienda.");
       return null;
     }
-    if (!isSedeFilled(sedeAmministrativa)) {
-      setFormError("Completa la sede amministrativa prima di continuare.");
+    const sediErr = validateSediDrafts(sedi, {
+      requireAmministrativa: !isPossibile,
+    });
+    if (sediErr) {
+      setFormError(sediErr);
       return null;
     }
-    if (
-      magazzinoOpen &&
-      !stessaSede &&
-      !isSedeEmpty(sedeMagazzino) &&
-      !isSedeFilled(sedeMagazzino)
-    ) {
-      setFormError(
-        "Completa tutti i campi della sede magazzino, oppure chiudila / azzerala."
-      );
+    const brandErr = validateBrandDrafts(brand);
+    if (brandErr) {
+      setFormError(brandErr);
       return null;
     }
     if (consegneEnabled) {
@@ -279,15 +276,13 @@ export function ClienteFormModal({
       emailGeneriche: emailExtra,
       telefoniGenerici: telefonoExtra,
       sitiWebGenerici: sitoExtra,
-      sedeAmministrativa,
-      sedeMagazzino: !magazzinoOpen
-        ? emptySede()
-        : stessaSede
-          ? sedeAmministrativa
-          : sedeMagazzino,
+      sedeAmministrativa: firstSedeOfTipo(sedi, "amministrativa"),
+      sedeMagazzino: firstSedeOfTipo(sedi, "magazzino"),
       consegneAltraAzienda: consegneEnabled ? consegne : [],
       prodottiAcquistati: prodotti,
       archivioId: isPossibile ? null : archivioId,
+      sedi: sediToInput(sedi),
+      brand: brandsToInput(brand),
       ...(isEdit && canAssignCommerciale ? { commercialeId } : {}),
       ...(isPossibile ? { trattativa } : {}),
     };
@@ -320,14 +315,21 @@ export function ClienteFormModal({
     setSdiCode(hit.draft.sdiCode);
     setTelefono(hit.draft.telefono);
     setSitoWeb(hit.draft.sitoWeb);
-    setSedeAmministrativa(hit.draft.sedeAmministrativa);
-    if (
-      hit.draft.sedeMagazzino.indirizzo ||
-      hit.draft.sedeMagazzino.citta
-    ) {
-      setMagazzinoOpen(true);
-      setSedeMagazzino(hit.draft.sedeMagazzino);
-    }
+    setSedi((prev) => {
+      let next = applyLegacySedeToDrafts(
+        prev,
+        "amministrativa",
+        hit.draft.sedeAmministrativa
+      );
+      if (hit.draft.sedeMagazzino.indirizzo || hit.draft.sedeMagazzino.citta) {
+        next = applyLegacySedeToDrafts(
+          next,
+          "magazzino",
+          hit.draft.sedeMagazzino
+        );
+      }
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -404,6 +406,15 @@ export function ClienteFormModal({
           entityLabel: values.ragioneSociale,
           contattoIds: referenti.map((r) => r.id),
         });
+        const logoErr = await uploadPendingBrandLogos({
+          ownerKind: isPossibile ? "cliente_possibile" : "cliente",
+          ownerId: entityId,
+          brands: brand,
+        });
+        if (logoErr) {
+          setFormError(logoErr);
+          return false;
+        }
       }
       return true;
     } finally {
@@ -414,7 +425,7 @@ export function ClienteFormModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     e.stopPropagation();
-    if (saving || (!isPossibile && codiceLoading)) return;
+    if (saving || !extraReady || (!isPossibile && codiceLoading)) return;
     const values = buildValues();
     if (!values) return;
     const ok = await persist(values);
@@ -424,7 +435,7 @@ export function ClienteFormModal({
   }
 
   async function saveAndOpenNuovoProdotto() {
-    if (saving || (!isPossibile && codiceLoading)) return;
+    if (saving || !extraReady || (!isPossibile && codiceLoading)) return;
     const values = buildValues();
     if (!values) return;
     const ok = await persist(values);
@@ -675,73 +686,17 @@ export function ClienteFormModal({
             />
           </div>
 
-          <AddressSedeFields
-            title="Sede Amministrativa"
-            value={sedeAmministrativa}
-            onChange={(next) => {
-              setSedeAmministrativa(next);
-              if (magazzinoOpen && stessaSede) setSedeMagazzino(next);
-            }}
+          <AnagraficaSediEditor
+            value={sedi}
+            onChange={setSedi}
+            requireAmministrativa={!isPossibile}
           />
 
-          <div className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">Sede Magazzino</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setMagazzinoOpen((open) => {
-                    const next = !open;
-                    if (!next) {
-                      setStessaSede(false);
-                      setSedeMagazzino(emptySede());
-                    }
-                    return next;
-                  });
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                aria-expanded={magazzinoOpen}
-              >
-                {magazzinoOpen ? "Chiudi" : "Apri"}
-                <FaChevronDown
-                  size={11}
-                  className={`text-[var(--muted)] transition-transform ${
-                    magazzinoOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-            </div>
-            <p className="text-xs text-[var(--muted)]">
-              Opzionale: puoi lasciarla chiusa se non serve.
-            </p>
-
-            {magazzinoOpen && (
-              <div className="space-y-3">
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={stessaSede}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setStessaSede(checked);
-                      if (checked) setSedeMagazzino(sedeAmministrativa);
-                    }}
-                    className="rounded border-[var(--border)]"
-                  />
-                  Uguale alla sede amministrativa
-                </label>
-
-                {!stessaSede && (
-                  <AddressSedeFields
-                    title="Indirizzo magazzino"
-                    value={sedeMagazzino}
-                    onChange={setSedeMagazzino}
-                    requiredFields={false}
-                  />
-                )}
-              </div>
-            )}
-          </div>
+          <AnagraficaBrandEditor
+            value={brand}
+            onChange={setBrand}
+            referenti={referenti}
+          />
 
           <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-semibold">
@@ -872,6 +827,7 @@ export function ClienteFormModal({
               type="submit"
               disabled={
                 saving ||
+                !extraReady ||
                 (!isPossibile && (codiceLoading || codiceTarga.length !== 4))
               }
               className="flex-1 rounded-lg bg-[var(--primary)] py-2.5 text-sm font-medium text-white hover:bg-[var(--primary-hover)] disabled:opacity-60"

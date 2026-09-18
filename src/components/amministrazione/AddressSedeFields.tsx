@@ -18,6 +18,8 @@ type Props = {
   onChange: (next: SedeFornitore) => void;
   /** Se false, i campi non sono obbligatori (es. sede magazzino opzionale). */
   requiredFields?: boolean;
+  /** Senza bordo/legend, da usare dentro un accordion sede. */
+  embedded?: boolean;
 };
 
 function SuggestionList<T extends { id: string; label: string }>({
@@ -65,6 +67,7 @@ export function AddressSedeFields({
   value,
   onChange,
   requiredFields = true,
+  embedded = false,
 }: Props) {
   const cittaInputId = useId();
   const viaInputId = useId();
@@ -232,9 +235,8 @@ export function AddressSedeFields({
     setStreetLoading(false);
   }
 
-  return (
-    <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
-      <legend className="px-1 text-sm font-semibold">{title}</legend>
+  const fields = (
+    <>
       <p className="text-xs text-[var(--muted)]">
         Parti dal paese o dalla frazione: i suggerimenti compilano gli altri
         campi, ma tutto resta modificabile.
@@ -431,6 +433,16 @@ export function AddressSedeFields({
             )}
         </div>
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-3">{fields}</div>;
+  }
+  return (
+    <fieldset className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+      <legend className="px-1 text-sm font-semibold">{title}</legend>
+      {fields}
     </fieldset>
   );
 }

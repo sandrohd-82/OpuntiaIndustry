@@ -288,7 +288,7 @@ export function PossibileClienteSelectField({
               setSaveError(null);
               pick(created);
               setCreating(false);
-              return true;
+              return { id: created.id };
             } catch {
               setSaveError(
                 "Salvataggio possibile cliente non riuscito. Riprova."

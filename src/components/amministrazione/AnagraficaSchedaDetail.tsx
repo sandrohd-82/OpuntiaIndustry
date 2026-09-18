@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { loadAnagraficaExtraAction } from "@/app/actions/anagrafica-extra";
 import { listEntityReferentiAction } from "@/app/actions/rubrica";
 import { CanaleReadonlyActions } from "@/components/amministrazione/CanaleAttenzioneControls";
 import { ProdottoProprioProductTag } from "@/components/amministrazione/ProdottoProprioProductTag";
 import { TrattativaBadge } from "@/components/amministrazione/TrattativaSelectField";
+import {
+  ANAGRAFICA_SEDE_LABEL,
+  type AnagraficaBrand,
+  type AnagraficaSede,
+} from "@/lib/amministrazione/anagrafica-extra";
 import type { ConsegnaAltraAzienda, SedeCliente } from "@/lib/amministrazione/clienti";
 import type { ProdottoProprio } from "@/lib/amministrazione/prodotti-propri";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
@@ -84,6 +90,8 @@ export function AnagraficaSchedaDetail({
   prodottiByCode: Map<string, ProdottoProprio>;
 }) {
   const [referenti, setReferenti] = useState<RubricaContatto[]>([]);
+  const [sediExtra, setSediExtra] = useState<AnagraficaSede[]>([]);
+  const [brandExtra, setBrandExtra] = useState<AnagraficaBrand[]>([]);
 
   useEffect(() => {
     void listEntityReferentiAction({
@@ -91,6 +99,14 @@ export function AnagraficaSchedaDetail({
       entityId: model.id,
     }).then((res) => {
       if (res.success) setReferenti(res.items);
+    });
+    void loadAnagraficaExtraAction({
+      ownerKind: model.kind === "cliente" ? "cliente" : "cliente_possibile",
+      ownerId: model.id,
+    }).then((res) => {
+      if (!res.success) return;
+      setSediExtra(res.sedi);
+      setBrandExtra(res.brand);
     });
   }, [model.id, model.kind]);
 
@@ -185,8 +201,74 @@ export function AnagraficaSchedaDetail({
         <Field label="Referente (testo)" value={model.referente} />
       ) : null}
 
-      <SedeBlock title="Sede Amministrativa" sede={model.sedeAmministrativa} />
-      <SedeBlock title="Sede Magazzino" sede={model.sedeMagazzino} />
+      {sediExtra.length > 0 ? (
+        sediExtra.map((sede) => (
+          <SedeBlock
+            key={sede.id}
+            title={ANAGRAFICA_SEDE_LABEL[sede.tipo]}
+            sede={sede}
+          />
+        ))
+      ) : (
+        <>
+          <SedeBlock title="Sede Amministrativa" sede={model.sedeAmministrativa} />
+          <SedeBlock title="Sede Magazzino" sede={model.sedeMagazzino} />
+        </>
+      )}
+
+      <div className="sm:col-span-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Brand
+        </p>
+        {brandExtra.length === 0 ? (
+          <p className="mt-1 text-sm text-[var(--muted)]">Nessun brand</p>
+        ) : (
+          <ul className="mt-2 grid gap-3 sm:grid-cols-2">
+            {brandExtra.map((b) => (
+              <li
+                key={b.id}
+                className="flex gap-3 rounded-lg border border-[var(--border)] bg-white px-3 py-2.5"
+              >
+                {b.logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={b.logoUrl}
+                    alt={`Logo ${b.nome}`}
+                    className="h-14 w-14 shrink-0 rounded-md border border-[var(--border)] object-contain"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-md border border-dashed border-[var(--border)] text-[10px] text-[var(--muted)]">
+                    Logo
+                  </div>
+                )}
+                <div className="min-w-0 text-sm">
+                  <p className="font-semibold">{b.nome}</p>
+                  {b.sitoWeb ? (
+                    <p className="text-[var(--muted)]">{b.sitoWeb}</p>
+                  ) : null}
+                  {b.email ? (
+                    <p className="mt-1 flex flex-wrap items-center gap-2">
+                      {b.email}
+                      <CanaleReadonlyActions email={b.email} />
+                    </p>
+                  ) : null}
+                  {b.telefono ? (
+                    <p className="flex flex-wrap items-center gap-2">
+                      {b.telefono}
+                      <CanaleReadonlyActions telefono={b.telefono} />
+                    </p>
+                  ) : null}
+                  {b.referenteNome ? (
+                    <p className="mt-1 text-[var(--muted)]">
+                      Referente: {b.referenteNome}
+                    </p>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="sm:col-span-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">

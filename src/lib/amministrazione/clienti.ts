@@ -20,6 +20,11 @@ import {
   sameProvincia,
 } from "@/lib/address/province-regioni";
 import type { ClientePossibileTrattativa } from "@/lib/promemorie-e-note/trattativa";
+import type {
+  AnagraficaBrandInput,
+  AnagraficaSedeInput,
+} from "@/lib/amministrazione/anagrafica-extra";
+import { firstSedeOfTipo } from "@/lib/amministrazione/anagrafica-extra";
 
 export type SedeCliente = SedeFornitore;
 
@@ -82,6 +87,8 @@ export type ClienteInput = {
   commercialeId?: string | null;
   /** Solo possibile cliente. */
   trattativa?: ClientePossibileTrattativa;
+  sedi?: AnagraficaSedeInput[];
+  brand?: AnagraficaBrandInput[];
 };
 
 export { emptySede, formatSedeBreve };
@@ -143,6 +150,42 @@ export function normalizeClienteInput(input: ClienteInput): ClienteInput {
       .filter(Boolean),
     archivioId: input.archivioId,
     commercialeId: input.commercialeId,
+    trattativa: input.trattativa,
+    sedi: input.sedi,
+    brand: input.brand,
+  };
+}
+
+export function applySediToLegacy(input: ClienteInput): ClienteInput {
+  if (!input.sedi?.length) return input;
+  return {
+    ...input,
+    sedeAmministrativa: firstSedeOfTipo(
+      input.sedi.map((s, i) => ({
+        id: s.id ?? `tmp-${i}`,
+        tipo: s.tipo,
+        nazione: s.nazione ?? "",
+        provincia: s.provincia ?? "",
+        citta: s.citta ?? "",
+        cap: s.cap ?? "",
+        indirizzo: s.indirizzo ?? "",
+        sortOrder: s.sortOrder ?? i,
+      })),
+      "amministrativa"
+    ),
+    sedeMagazzino: firstSedeOfTipo(
+      input.sedi.map((s, i) => ({
+        id: s.id ?? `tmp-m-${i}`,
+        tipo: s.tipo,
+        nazione: s.nazione ?? "",
+        provincia: s.provincia ?? "",
+        citta: s.citta ?? "",
+        cap: s.cap ?? "",
+        indirizzo: s.indirizzo ?? "",
+        sortOrder: s.sortOrder ?? i,
+      })),
+      "magazzino"
+    ),
   };
 }
 

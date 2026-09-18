@@ -372,7 +372,7 @@ export function PreventivoDestinatarioModal({
               onChange(fromCliente(created));
               setCreating(null);
               onClose();
-              return true;
+              return { id: created.id };
             } catch {
               setSaveError("Salvataggio cliente non riuscito. Riprova.");
               return false;
@@ -399,7 +399,7 @@ export function PreventivoDestinatarioModal({
               onChange(fromPossibile(created));
               setCreating(null);
               onClose();
-              return true;
+              return { id: created.id };
             } catch {
               setSaveError(
                 "Salvataggio possibile cliente non riuscito. Riprova."

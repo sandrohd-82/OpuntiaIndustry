@@ -4,6 +4,7 @@ import { LEAD_TARGA_PLACEHOLDER } from "@/lib/amministrazione/lead-promozione";
 import { createClient } from "@/lib/supabase/server";
 import { nextSequentialCodiceTarga } from "@/lib/amministrazione/codice-targa";
 import {
+  applySediToLegacy,
   consegneToDb,
   mapClienteRow,
   normalizeClienteInput,
@@ -11,6 +12,10 @@ import {
   type Cliente,
   type ClienteInput,
 } from "@/lib/amministrazione/clienti";
+import {
+  loadAnagraficaExtraAction,
+  persistAnagraficaExtra,
+} from "@/app/actions/anagrafica-extra";
 import { markAnagraficaArchivioRipescatoAction } from "@/app/actions/anagrafiche-archivio";
 import { writeAuditLog } from "@/lib/audit";
 import { normalizeVatKey } from "@/lib/amministrazione/fic-anagrafiche";
@@ -228,7 +233,7 @@ export async function createClienteAction(
   ]);
   const supabase = await createClient();
 
-  const normalized = normalizeClienteInput(input);
+  const normalized = applySediToLegacy(normalizeClienteInput(input));
   const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) {
     return { success: false, error: fiscalErr };
@@ -346,6 +351,17 @@ export async function createClienteAction(
     });
   }
 
+  if (normalized.sedi !== undefined || normalized.brand !== undefined) {
+    const extraErr = await persistAnagraficaExtra({
+      ownerKind: "cliente",
+      ownerId: row.id,
+      sedi: normalized.sedi ?? [],
+      brand: normalized.brand ?? [],
+      userId: auth.userId,
+    });
+    if (extraErr) return { success: false, error: extraErr };
+  }
+
   return {
     success: true,
     cliente: mapClienteRow(row, { nome: "", grado: null }),
@@ -376,7 +392,7 @@ export async function updateClienteAction(
   });
   if (!editGate.ok) return { success: false, error: editGate.error };
 
-  const normalized = normalizeClienteInput(input);
+  const normalized = applySediToLegacy(normalizeClienteInput(input));
   const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) {
     return { success: false, error: fiscalErr };
@@ -467,6 +483,17 @@ export async function updateClienteAction(
       ragione_sociale: row.ragione_sociale,
     },
   });
+
+  if (normalized.sedi !== undefined || normalized.brand !== undefined) {
+    const extraErr = await persistAnagraficaExtra({
+      ownerKind: "cliente",
+      ownerId: id,
+      sedi: normalized.sedi ?? [],
+      brand: normalized.brand ?? [],
+      userId: auth.userId,
+    });
+    if (extraErr) return { success: false, error: extraErr };
+  }
 
   const labels = row.commerciale_id
     ? await loadCommercialeLabels([String(row.commerciale_id)])
@@ -1004,6 +1031,32 @@ export async function convertClientePossibileAdClienteAction(
       ? String(leadRow.commerciale_id)
       : null,
   };
+
+  const extraLead = await loadAnagraficaExtraAction({
+    ownerKind: "cliente_possibile",
+    ownerId: String(leadRow.id),
+  });
+  if (extraLead.success) {
+    input.sedi = extraLead.sedi.map((s, i) => ({
+      tipo: s.tipo,
+      nazione: s.nazione,
+      provincia: s.provincia,
+      citta: s.citta,
+      cap: s.cap,
+      indirizzo: s.indirizzo,
+      sortOrder: i,
+    }));
+    input.brand = extraLead.brand.map((b, i) => ({
+      nome: b.nome,
+      sitoWeb: b.sitoWeb,
+      email: b.email,
+      telefono: b.telefono,
+      referenteNome: b.referenteNome,
+      referenteContattoId: b.referenteContattoId,
+      logoPath: b.logoPath,
+      sortOrder: i,
+    }));
+  }
 
   const fiscalErr = validateClienteFiscali(input);
   if (fiscalErr) {

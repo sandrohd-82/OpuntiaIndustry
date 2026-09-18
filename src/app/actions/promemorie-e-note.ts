@@ -19,6 +19,7 @@ import { syncCommercialeOnSchedaUpdate } from "@/app/actions/commerciale-anagraf
 import { fraseConfermaSoftDelete } from "@/lib/soft-delete";
 import { getAuthContext, userCanAccessArea } from "@/lib/auth/session";
 import {
+  applySediToLegacy,
   consegneToDb,
   emptySede,
   normalizeClienteInput,
@@ -26,6 +27,7 @@ import {
   type ClienteInput,
   type ConsegnaAltraAzienda,
 } from "@/lib/amministrazione/clienti";
+import { persistAnagraficaExtra } from "@/app/actions/anagrafica-extra";
 import { richToPlain } from "@/lib/promemorie-e-note/bozze";
 import { parseTrattativa } from "@/lib/promemorie-e-note/trattativa";
 import {
@@ -1250,27 +1252,31 @@ export async function createClientePossibileAction(
       error: parsed.error.issues[0]?.message ?? "Dati non validi",
     };
   }
-  const normalized = normalizeClienteInput({
-    ragioneSociale: parsed.data.ragioneSociale,
-    partitaIva: parsed.data.partitaIva ?? "",
-    codiceFiscale: parsed.data.codiceFiscale ?? "",
-    isPrivato: parsed.data.isPrivato ?? false,
-    email: parsed.data.email,
-    pec: parsed.data.pec,
-    sdiCode: parsed.data.sdiCode,
-    telefono: parsed.data.telefono,
-    sitoWeb: parsed.data.sitoWeb,
-    emailGeneriche: parsed.data.emailGeneriche,
-    telefoniGenerici: parsed.data.telefoniGenerici,
-    sitiWebGenerici: parsed.data.sitiWebGenerici,
-    sedeAmministrativa: parsed.data.sedeAmministrativa,
-    sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
-    consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
-    prodottiAcquistati:
-      parsed.data.prodottiAcquistati ??
-      parsed.data.prodottiInteressati ??
-      [],
-  });
+  const normalized = applySediToLegacy(
+    normalizeClienteInput({
+      ragioneSociale: parsed.data.ragioneSociale,
+      partitaIva: parsed.data.partitaIva ?? "",
+      codiceFiscale: parsed.data.codiceFiscale ?? "",
+      isPrivato: parsed.data.isPrivato ?? false,
+      email: parsed.data.email,
+      pec: parsed.data.pec,
+      sdiCode: parsed.data.sdiCode,
+      telefono: parsed.data.telefono,
+      sitoWeb: parsed.data.sitoWeb,
+      emailGeneriche: parsed.data.emailGeneriche,
+      telefoniGenerici: parsed.data.telefoniGenerici,
+      sitiWebGenerici: parsed.data.sitiWebGenerici,
+      sedeAmministrativa: parsed.data.sedeAmministrativa,
+      sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
+      consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
+      prodottiAcquistati:
+        parsed.data.prodottiAcquistati ??
+        parsed.data.prodottiInteressati ??
+        [],
+      sedi: asCliente.sedi,
+      brand: asCliente.brand,
+    })
+  );
   const fiscalErr = validateClienteFiscali(normalized);
   if (fiscalErr) return { success: false, error: fiscalErr };
 
@@ -1381,6 +1387,17 @@ export async function createClientePossibileAction(
       .is("deleted_at", null);
   }
 
+  if (normalized.sedi !== undefined || normalized.brand !== undefined) {
+    const extraErr = await persistAnagraficaExtra({
+      ownerKind: "cliente_possibile",
+      ownerId: item.id,
+      sedi: normalized.sedi ?? [],
+      brand: normalized.brand ?? [],
+      userId: auth.userId,
+    });
+    if (extraErr) return { success: false, error: extraErr };
+  }
+
   await writeAuditLog({
     entity_type: "clienti_possibili",
     entity_id: item.id,
@@ -1431,25 +1448,29 @@ export async function updateClientePossibileAction(
       error: parsed.error.issues[0]?.message ?? "Dati non validi",
     };
   }
-  const normalized = normalizeClienteInput({
-    ragioneSociale: parsed.data.ragioneSociale,
-    partitaIva: parsed.data.partitaIva ?? "",
-    codiceFiscale: parsed.data.codiceFiscale ?? "",
-    isPrivato: false,
-    email: parsed.data.email,
-    pec: parsed.data.pec,
-    sdiCode: parsed.data.sdiCode,
-    telefono: parsed.data.telefono,
-    sitoWeb: parsed.data.sitoWeb,
-    emailGeneriche: parsed.data.emailGeneriche,
-    telefoniGenerici: parsed.data.telefoniGenerici,
-    sitiWebGenerici: parsed.data.sitiWebGenerici,
-    sedeAmministrativa: parsed.data.sedeAmministrativa,
-    sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
-    consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
-    prodottiAcquistati:
-      parsed.data.prodottiAcquistati ?? parsed.data.prodottiInteressati ?? [],
-  });
+  const normalized = applySediToLegacy(
+    normalizeClienteInput({
+      ragioneSociale: parsed.data.ragioneSociale,
+      partitaIva: parsed.data.partitaIva ?? "",
+      codiceFiscale: parsed.data.codiceFiscale ?? "",
+      isPrivato: false,
+      email: parsed.data.email,
+      pec: parsed.data.pec,
+      sdiCode: parsed.data.sdiCode,
+      telefono: parsed.data.telefono,
+      sitoWeb: parsed.data.sitoWeb,
+      emailGeneriche: parsed.data.emailGeneriche,
+      telefoniGenerici: parsed.data.telefoniGenerici,
+      sitiWebGenerici: parsed.data.sitiWebGenerici,
+      sedeAmministrativa: parsed.data.sedeAmministrativa,
+      sedeMagazzino: parsed.data.sedeMagazzino ?? emptySede(),
+      consegneAltraAzienda: parsed.data.consegneAltraAzienda ?? [],
+      prodottiAcquistati:
+        parsed.data.prodottiAcquistati ?? parsed.data.prodottiInteressati ?? [],
+      sedi: asCliente.sedi,
+      brand: asCliente.brand,
+    })
+  );
   const fiscalErr = validateClienteFiscali({ ...normalized, isPrivato: false });
   if (fiscalErr) return { success: false, error: fiscalErr };
 
@@ -1559,6 +1580,17 @@ export async function updateClientePossibileAction(
     item.commercialeId = resolved.commercialeId;
     item.commercialeNome = resolved.commercialeNome;
     item.commercialeGrado = resolved.commercialeGrado;
+  }
+
+  if (normalized.sedi !== undefined || normalized.brand !== undefined) {
+    const extraErr = await persistAnagraficaExtra({
+      ownerKind: "cliente_possibile",
+      ownerId: item.id,
+      sedi: normalized.sedi ?? [],
+      brand: normalized.brand ?? [],
+      userId: auth.userId,
+    });
+    if (extraErr) return { success: false, error: extraErr };
   }
 
   const trattativaPrima = parseTrattativa(existingLead?.trattativa);
