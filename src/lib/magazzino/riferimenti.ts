@@ -823,6 +823,33 @@ export function segmentiCalcoDest(
   return out;
 }
 
+export function specchiaCalcoElemento(
+  el: MappaCalcoElemento,
+  kind: "x" | "y"
+): MappaCalcoElemento {
+  const flip = (v: number) => 1 - v;
+  if (kind === "x") {
+    if (el.tipo === "rettangolo") {
+      const w = el.width ?? 0;
+      return { ...el, x: flip(el.x + w) };
+    }
+    return {
+      ...el,
+      x: flip(el.x),
+      x2: el.x2 == null ? el.x2 : flip(el.x2),
+    };
+  }
+  if (el.tipo === "rettangolo") {
+    const h = el.height ?? 0;
+    return { ...el, y: flip(el.y + h) };
+  }
+  return {
+    ...el,
+    y: flip(el.y),
+    y2: el.y2 == null ? el.y2 : flip(el.y2),
+  };
+}
+
 export function puntiCalcoDest(
   g: Pick<
     MappaRiferimentoGruppo,

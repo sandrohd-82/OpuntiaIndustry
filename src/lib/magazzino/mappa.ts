@@ -937,3 +937,107 @@ export function distanzaPuntoSegmento(
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
+
+export type MappaSpecchioModo = "copia" | "stesso";
+
+export type MappaAsseSpecchio = { kind: "x" | "y"; axis: number };
+
+/** Copia: asse = lato scelto. Stesso posto: asse = mediana parallela a quel lato. */
+export function asseSpecchioSelezione(
+  box: { x: number; y: number; w: number; h: number },
+  lato: LatoRettangolo,
+  modo: MappaSpecchioModo
+): MappaAsseSpecchio {
+  if (lato === "left" || lato === "right") {
+    if (modo === "stesso") return { kind: "x", axis: box.x + box.w / 2 };
+    return { kind: "x", axis: lato === "left" ? box.x : box.x + box.w };
+  }
+  if (modo === "stesso") return { kind: "y", axis: box.y + box.h / 2 };
+  return { kind: "y", axis: lato === "up" ? box.y : box.y + box.h };
+}
+
+export function specchiaCoord(v: number, axis: number): number {
+  return 2 * axis - v;
+}
+
+export function specchiaPunto(
+  p: MappaPunto,
+  asse: MappaAsseSpecchio
+): MappaPunto {
+  return asse.kind === "x"
+    ? { x: specchiaCoord(p.x, asse.axis), y: p.y }
+    : { x: p.x, y: specchiaCoord(p.y, asse.axis) };
+}
+
+export function specchiaBox(box: MappaBox, asse: MappaAsseSpecchio): MappaBox {
+  if (asse.kind === "x") {
+    return {
+      x: specchiaCoord(box.x + box.width, asse.axis),
+      y: box.y,
+      width: box.width,
+      height: box.height,
+    };
+  }
+  return {
+    x: box.x,
+    y: specchiaCoord(box.y + box.height, asse.axis),
+    width: box.width,
+    height: box.height,
+  };
+}
+
+export function specchiaLineaCoords(
+  l: Pick<MappaLinea, "x1" | "y1" | "x2" | "y2">,
+  asse: MappaAsseSpecchio
+): Pick<MappaLinea, "x1" | "y1" | "x2" | "y2"> {
+  const a = specchiaPunto({ x: l.x1, y: l.y1 }, asse);
+  const b = specchiaPunto({ x: l.x2, y: l.y2 }, asse);
+  return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+}
+
+export function boxSpecchioRisultato(
+  box: { x: number; y: number; w: number; h: number },
+  lato: LatoRettangolo,
+  modo: MappaSpecchioModo
+): { x: number; y: number; w: number; h: number } {
+  const r = specchiaBox(
+    { x: box.x, y: box.y, width: box.w, height: box.h },
+    asseSpecchioSelezione(box, lato, modo)
+  );
+  return { x: r.x, y: r.y, w: r.width, h: r.height };
+}
+
+export function boxDentroFoglio(
+  box: { x: number; y: number; w: number; h: number },
+  foglio: FoglioMappa,
+  eps = 0.02
+): boolean {
+  return (
+    box.x >= foglio.x - eps &&
+    box.y >= foglio.y - eps &&
+    box.x + box.w <= foglio.x + foglio.width + eps &&
+    box.y + box.h <= foglio.y + foglio.height + eps
+  );
+}
+
+export function segmentoAsseSpecchio(
+  box: { x: number; y: number; w: number; h: number },
+  lato: LatoRettangolo,
+  modo: MappaSpecchioModo
+): { x1: number; y1: number; x2: number; y2: number } {
+  const asse = asseSpecchioSelezione(box, lato, modo);
+  if (asse.kind === "x") {
+    return {
+      x1: asse.axis,
+      y1: box.y,
+      x2: asse.axis,
+      y2: box.y + box.h,
+    };
+  }
+  return {
+    x1: box.x,
+    y1: asse.axis,
+    x2: box.x + box.w,
+    y2: asse.axis,
+  };
+}

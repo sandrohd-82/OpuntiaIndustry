@@ -35,7 +35,10 @@ import { MagazzinoMappaRighelli } from "@/components/magazzino/MagazzinoMappaRig
 import {
   accavallamentoPuntoSuLinee,
   aggiornaLineeRettangolo,
+  asseSpecchioSelezione,
   boxDaCursoreLato,
+  boxDentroFoglio,
+  boxSpecchioRisultato,
   calcolaFoglioMappa,
   clampBoxNelFoglio,
   clampPuntoNelFoglio,
@@ -64,8 +67,11 @@ import {
   rettangoloHaArea,
   ridimensionaBoxDaLato,
   ruotaHeading,
+  segmentoAsseSpecchio,
   segniRettangolo,
   snapToGrid,
+  specchiaBox,
+  specchiaLineaCoords,
   verticiRettangoloDaAngoli,
   type AccavallamentoLinea,
   type FoglioMappa,
@@ -76,6 +82,7 @@ import {
   type MappaPunto,
   type MappaRettangoloAsse,
   type MappaScalaUnita,
+  type MappaSpecchioModo,
 } from "@/lib/magazzino/mappa";
 import {
   codiceLocaleDi,
@@ -93,6 +100,7 @@ import {
   segmentoGuidaDest,
   segmentiCalcoDest,
   snapPuntoSuCalco,
+  specchiaCalcoElemento,
   type ImportaEsito,
   type MappaRiferimentoGruppo,
 } from "@/lib/magazzino/riferimenti";
@@ -451,6 +459,8 @@ export function MagazzinoMappaBoard({
   } | null>(null);
   const [spostaDiDraft, setSpostaDiDraft] = useState("");
   const [spostaDiPx, setSpostaDiPx] = useState<number | null>(null);
+  const [specchioLato, setSpecchioLato] = useState<LatoRettangolo>("right");
+  const [specchioModo, setSpecchioModo] = useState<MappaSpecchioModo>("copia");
   const carryRef = useRef<typeof carry>(null);
   const [areaEditOpen, setAreaEditOpen] = useState(false);
   const [copiaOpen, setCopiaOpen] = useState(false);
@@ -1262,6 +1272,22 @@ export function MagazzinoMappaBoard({
         setCarry(null);
         carryRef.current = null;
         return;
+      }
+      if (selezioneBounds) {
+        const tol = Math.max(10, 14 / zoom);
+        const handles = handlePuntiRettangolo({
+          x: selezioneBounds.x,
+          y: selezioneBounds.y,
+          width: selezioneBounds.w,
+          height: selezioneBounds.h,
+        });
+        const latoHit = handles.find(
+          (h) => Math.hypot(w.x - h.x, w.y - h.y) <= tol
+        );
+        if (latoHit) {
+          setSpecchioLato(latoHit.lato);
+          return;
+        }
       }
       const hit = hitOggetto(w.x, w.y);
       if (!hit) {
@@ -2333,6 +2359,170 @@ export function MagazzinoMappaBoard({
     );
   }
 
+  function specchiaRif(
+    g: MappaRiferimentoGruppo,
+    asse: ReturnType<typeof asseSpecchioSelezione>
+  ): MappaRiferimentoGruppo {
+    const box = specchiaBox(
+      { x: g.destX, y: g.destY, width: g.destWidth, height: g.destHeight },
+      asse
+    );
+    const calchi = (g.calchi ?? []).map((c) =>
+      specchiaCalcoElemento(c, asse.kind)
+    );
+    const along =
+      (asse.kind === "x" && g.asseOrigine === "x") ||
+      (asse.kind === "y" && g.asseOrigine === "y");
+    const cell = Math.max(1, griglia);
+    const maxQ = asse.kind === "x" ? box.width / cell : box.height / cell;
+    const punti = along
+      ? g.punti.map((p) => ({
+          ...p,
+          offsetQuadrati: Math.max(0, maxQ - p.offsetQuadrati),
+        }))
+      : g.punti;
+    return {
+      ...g,
+      destX: box.x,
+      destY: box.y,
+      destWidth: box.width,
+      destHeight: box.height,
+      calchi,
+      punti,
+    };
+  }
+
+  function specchiaSelezione() {
+    if (!canDraw || selezioneCount === 0 || carry) return;
+    const box = selezioneBounds;
+    if (!box) return;
+    if (specchioModo === "copia") {
+      const dest = boxSpecchioRisultato(box, specchioLato, "copia");
+      if (!boxDentroFoglio(dest, foglio)) {
+        setError(
+          "Lo specchio esce dal foglio. Scegli l'altro lato o sposta prima la selezione."
+        );
+        return;
+      }
+    }
+    const asse = asseSpecchioSelezione(box, specchioLato, specchioModo);
+    pushHistory("specchia");
+    setError(null);
+    if (specchioModo === "stesso") {
+      const lineIds = new Set(selectedLineIds);
+      const areaIds = new Set(selectedAreaIds);
+      const rifIds = new Set(selectedRifIds);
+      if (lineIds.size) {
+        setLinee((prev) =>
+          prev.map((l) =>
+            lineIds.has(l.id) ? { ...l, ...specchiaLineaCoords(l, asse) } : l
+          )
+        );
+      }
+      if (areaIds.size) {
+        setAree((prev) =>
+          prev.map((a) => {
+            if (!areaIds.has(a.id)) return a;
+            const next = specchiaBox(
+              { x: a.x, y: a.y, width: a.width, height: a.height },
+              asse
+            );
+            return { ...a, x: next.x, y: next.y };
+          })
+        );
+      }
+      if (rifIds.size) {
+        setRiferimenti((prev) =>
+          prev.map((g) => (rifIds.has(g.id) ? specchiaRif(g, asse) : g))
+        );
+      }
+      setOk(
+        `Specchiati ${selezioneCount} oggett${
+          selezioneCount === 1 ? "o" : "i"
+        } nello stesso posto verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}. Salva la bozza.`
+      );
+      return;
+    }
+    const usati = new Set(aree.map((a) => a.codice.trim().toUpperCase()));
+    const newLineIds: string[] = [];
+    const newAreaIds: string[] = [];
+    const newRifIds: string[] = [];
+    const copieLinee = linee
+      .filter((l) => selectedLineIds.includes(l.id))
+      .map((l) => {
+        const id = newLocalId();
+        newLineIds.push(id);
+        return { ...l, id, ...specchiaLineaCoords(l, asse) };
+      });
+    const idMap = new Map<string, string>();
+    const fontiAree = aree.filter((a) => selectedAreaIds.includes(a.id));
+    for (const a of fontiAree) {
+      const id = newLocalId();
+      idMap.set(a.id, id);
+      if (a.ubicazioneId) idMap.set(a.ubicazioneId, id);
+    }
+    const copieAree = fontiAree.map((a) => {
+      const id = idMap.get(a.id) ?? newLocalId();
+      newAreaIds.push(id);
+      const next = specchiaBox(
+        { x: a.x, y: a.y, width: a.width, height: a.height },
+        asse
+      );
+      const parentRemap =
+        (a.parentId && idMap.get(a.parentId)) || a.parentId || null;
+      return {
+        ...a,
+        id,
+        ubicazioneId: "",
+        codice: codiceCopiaUnico(a.codice, usati),
+        nome: nomeCopiaOggetto(a.nome),
+        parentId: parentRemap,
+        x: next.x,
+        y: next.y,
+      };
+    });
+    const copieRif = riferimenti
+      .filter((g) => selectedRifIds.includes(g.id))
+      .map((g) => {
+        const id = newLocalId();
+        newRifIds.push(id);
+        const spec = specchiaRif(g, asse);
+        return {
+          ...spec,
+          id,
+          asseId: newLocalId(),
+          punti: spec.punti.map((p) => ({ ...p, id: newLocalId() })),
+          calchi: (spec.calchi ?? []).map((c) => ({
+            ...c,
+            id: newLocalId(),
+          })),
+        };
+      });
+    if (!copieLinee.length && !copieAree.length && !copieRif.length) return;
+    if (copieLinee.length) {
+      setLinee((prev) => [
+        ...prev,
+        ...copieLinee.map((l, i) => ({ ...l, sortOrder: prev.length + i })),
+      ]);
+    }
+    if (copieAree.length) setAree((prev) => [...prev, ...copieAree]);
+    if (copieRif.length) setRiferimenti((prev) => [...prev, ...copieRif]);
+    setSelectedLineIds(newLineIds);
+    setSelectedAreaIds(newAreaIds);
+    setSelectedRifIds(newRifIds);
+    setTool("seleziona");
+    setDraftStart(null);
+    setForma(null);
+    setCarry(null);
+    carryRef.current = null;
+    const n = newLineIds.length + newAreaIds.length + newRifIds.length;
+    setOk(
+      `Copia specchiata di ${n} oggett${n === 1 ? "o" : "i"} verso ${LATO_RETTANGOLO_LABEL[
+        specchioLato
+      ].toLowerCase()}, affianco alle madri. Salva la bozza.`
+    );
+  }
+
   const selezioneCount =
     selectedLineIds.length + selectedAreaIds.length + selectedRifIds.length;
 
@@ -3016,6 +3206,14 @@ export function MagazzinoMappaBoard({
               >
                 Copia selezione
               </button>
+              <button
+                type="button"
+                disabled={selezioneCount === 0 || Boolean(carry)}
+                onClick={() => setTool("seleziona")}
+                className="rounded-lg border border-violet-600 px-3 py-1.5 text-sm font-medium text-violet-950 hover:bg-violet-50 disabled:opacity-50"
+              >
+                Speculare
+              </button>
             </>
           ) : null}
         </div>
@@ -3182,7 +3380,7 @@ export function MagazzinoMappaBoard({
                 ? "Spostamento vincolato: muovi il mouse per la direzione (orizzontale/verticale o libera). Clic per posare."
                 : carry
                 ? "Oggetti attaccati al mouse. Clic sul foglio per posarli."
-                : "Primo click: seleziona. Copia crea un duplicato. Sposta di + Invio, poi frecce (solo verticale/orizzontale) oppure secondo click sull'oggetto per la direzione libera a misura fissa."}
+                : "Primo click: seleziona uno o più oggetti. Copia duplica. Speculare: scegli il lato e se creare una copia affianco o ribaltare gli stessi oggetti."}
             </p>
           ) : null}
 
@@ -3665,7 +3863,7 @@ export function MagazzinoMappaBoard({
           <p className="mt-0.5 text-xs text-indigo-900">
             {spostaDiPx
               ? "Misura armata. Frecce = solo verticale o orizzontale. Click sull'oggetto = direzione libera alla stessa misura."
-              : "Copia duplica la selezione. Inserisci Sposta di (es. 200 cm) e Invio, poi scegli la direzione."}
+              : "Copia duplica. Speculare mantiene proporzioni e distanze, ribaltate sul lato scelto."}
           </p>
           <div className="mt-2 flex flex-wrap items-end gap-3">
             <button
@@ -3714,6 +3912,60 @@ export function MagazzinoMappaBoard({
                 </button>
               ) : null}
             </form>
+          </div>
+          <div className="mt-3 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2">
+            <p className="text-xs font-semibold text-violet-950">Speculare</p>
+            <p className="mt-0.5 text-[11px] text-violet-900">
+              Scegli il lato dello specchio. Copia = nuovi oggetti affianco alle
+              madri. Stessi oggetti = ribaltamento nello stesso posto.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(["up", "down", "left", "right"] as LatoRettangolo[]).map(
+                (lato) => (
+                  <button
+                    key={lato}
+                    type="button"
+                    onClick={() => setSpecchioLato(lato)}
+                    className={`rounded-lg border px-2.5 py-1 text-xs font-semibold ${
+                      specchioLato === lato
+                        ? "border-violet-700 bg-violet-700 text-white"
+                        : "border-violet-400 bg-white text-violet-950 hover:bg-violet-100"
+                    }`}
+                  >
+                    {LATO_RETTANGOLO_LABEL[lato]}
+                  </button>
+                )
+              )}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-3 text-xs text-violet-950">
+              <label className="inline-flex items-center gap-1.5 font-medium">
+                <input
+                  type="radio"
+                  name="specchio-modo"
+                  checked={specchioModo === "copia"}
+                  onChange={() => setSpecchioModo("copia")}
+                />
+                Crea copia (affianco)
+              </label>
+              <label className="inline-flex items-center gap-1.5 font-medium">
+                <input
+                  type="radio"
+                  name="specchio-modo"
+                  checked={specchioModo === "stesso"}
+                  onChange={() => setSpecchioModo("stesso")}
+                />
+                Stessi oggetti (stesso posto)
+              </label>
+            </div>
+            <button
+              type="button"
+              onClick={() => specchiaSelezione()}
+              className="mt-2 rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-violet-800"
+            >
+              {specchioModo === "copia"
+                ? `Specchia e copia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`
+                : `Specchia verso ${LATO_RETTANGOLO_LABEL[specchioLato].toLowerCase()}`}
+            </button>
           </div>
           {spostaDiPx ? (
             <p className="mt-1 text-xs font-medium text-indigo-950">
@@ -4550,6 +4802,87 @@ export function MagazzinoMappaBoard({
                     </g>
                   );
                 })}
+              </g>
+            ) : null}
+            {canDraw &&
+            tool === "seleziona" &&
+            !carry &&
+            selezioneBounds ? (
+              <g pointerEvents="none">
+                <rect
+                  x={selezioneBounds.x}
+                  y={selezioneBounds.y}
+                  width={selezioneBounds.w}
+                  height={selezioneBounds.h}
+                  fill="rgba(109,40,217,0.04)"
+                  stroke="#7c3aed"
+                  strokeWidth={Math.max(1, 1.6 / zoom)}
+                  strokeDasharray={`${7 / zoom} ${5 / zoom}`}
+                />
+                {(() => {
+                  const ax = segmentoAsseSpecchio(
+                    selezioneBounds,
+                    specchioLato,
+                    specchioModo
+                  );
+                  return (
+                    <line
+                      x1={ax.x1}
+                      y1={ax.y1}
+                      x2={ax.x2}
+                      y2={ax.y2}
+                      stroke="#6d28d1"
+                      strokeWidth={Math.max(2, 3 / zoom)}
+                    />
+                  );
+                })()}
+                {specchioModo === "copia"
+                  ? (() => {
+                      const dest = boxSpecchioRisultato(
+                        selezioneBounds,
+                        specchioLato,
+                        "copia"
+                      );
+                      return (
+                        <rect
+                          x={dest.x}
+                          y={dest.y}
+                          width={dest.w}
+                          height={dest.h}
+                          fill="rgba(124,58,237,0.08)"
+                          stroke="#a78bfa"
+                          strokeWidth={Math.max(1, 1.4 / zoom)}
+                          strokeDasharray={`${5 / zoom} ${4 / zoom}`}
+                        />
+                      );
+                    })()
+                  : null}
+                {handlePuntiRettangolo({
+                  x: selezioneBounds.x,
+                  y: selezioneBounds.y,
+                  width: selezioneBounds.w,
+                  height: selezioneBounds.h,
+                }).map((h) => (
+                  <g key={`specchio-${h.lato}`}>
+                    <circle
+                      cx={h.x}
+                      cy={h.y}
+                      r={Math.max(5, 9 / zoom)}
+                      fill={specchioLato === h.lato ? "#6d28d1" : "#f5f3ff"}
+                      stroke={specchioLato === h.lato ? "#4c1d95" : "#7c3aed"}
+                      strokeWidth={Math.max(1.4, 2 / zoom)}
+                    />
+                    <text
+                      x={h.x + 10 / zoom}
+                      y={h.y - 10 / zoom}
+                      fill="#5b21b6"
+                      fontSize={Math.max(10, 12 / zoom)}
+                      fontWeight={700}
+                    >
+                      {LATO_RETTANGOLO_LABEL[h.lato]}
+                    </text>
+                  </g>
+                ))}
               </g>
             ) : null}
             {canDraw &&
