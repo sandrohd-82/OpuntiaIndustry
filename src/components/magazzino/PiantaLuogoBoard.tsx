@@ -13,7 +13,6 @@ import {
   areeElencoConsultazione,
   capienzaDi,
   idsUbicazioniCollegate,
-  postoHaSettaggi,
   unisciAreePiante,
   type FonteSettaggioPosto,
   type UbicazioneCapienza,
@@ -74,23 +73,22 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const haLivelli = tutteAree.some((a) => a.parentId);
   const posto = tutteAree.find((a) => a.ubicazioneId === selezionata) ?? null;
   const fontiSettaggio = useMemo((): FonteSettaggioPosto[] => {
-    const seen = new Set<string>();
+    const byId = new Map(areeUnite.map((a) => [a.ubicazioneId, a]));
     const out: FonteSettaggioPosto[] = [];
-    for (const a of areeUnite) {
-      if (!a.ubicazioneId || a.ubicazioneId === posto?.ubicazioneId) continue;
-      if (!postoHaSettaggi(a)) continue;
-      if (seen.has(a.ubicazioneId)) continue;
-      const nome = a.nome.trim();
-      if (!nome) continue;
-      seen.add(a.ubicazioneId);
+    for (const r of aree) {
+      if (!r.haSettaggi || r.id === posto?.ubicazioneId) continue;
+      const src = byId.get(r.id);
+      if (!src) continue;
+      const codice = r.codice.trim();
+      if (!codice) continue;
       out.push({
-        ubicazioneId: a.ubicazioneId,
-        nome,
-        capienza: capienzaDi(a),
+        ubicazioneId: r.id,
+        nome: codice,
+        capienza: capienzaDi(src),
       });
     }
     return out.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
-  }, [areeUnite, posto?.ubicazioneId]);
+  }, [aree, areeUnite, posto?.ubicazioneId]);
   const vistePosto = posto
     ? mappe
         .filter((m) =>

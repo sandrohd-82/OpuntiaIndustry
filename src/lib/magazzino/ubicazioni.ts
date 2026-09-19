@@ -158,6 +158,7 @@ export function postoHaSettaggi(
 
 export type FonteSettaggioPosto = {
   ubicazioneId: string;
+  /** Codice posto in elenco (A1, D2, C3), non il nome descrittivo. */
   nome: string;
   capienza: UbicazioneCapienza;
 };
