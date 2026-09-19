@@ -1235,6 +1235,15 @@ type UbicazioneRow = {
   documento_stato: string;
 };
 
+function ubicazioneDelFoglio(
+  row: UbicazioneRow | null,
+  mappaId: string
+): UbicazioneRow | null {
+  if (!row) return null;
+  if (row.mappa_origine_id !== mappaId) return null;
+  return row;
+}
+
 async function findUbicazioneOperativa(
   supabase: Awaited<ReturnType<typeof createClient>>,
   input: {
@@ -1242,10 +1251,12 @@ async function findUbicazioneOperativa(
     codice: string;
     luogo: string;
     mapIds: string[];
+    soloMappaId?: string | null;
   }
 ): Promise<UbicazioneRow | null> {
   const select =
     "id, codice, nome, parent_id, luogo_nome, mappa_origine_id, documento_stato";
+  const foglio = input.soloMappaId ?? null;
   if (input.id) {
     const { data } = await supabase
       .from("magazzino_ubicazioni")
@@ -1253,10 +1264,26 @@ async function findUbicazioneOperativa(
       .eq("id", input.id)
       .is("deleted_at", null)
       .maybeSingle();
-    if (data) return data as UbicazioneRow;
+    const row = data as UbicazioneRow | null;
+    if (foglio) return ubicazioneDelFoglio(row, foglio);
+    return row;
   }
   const codice = input.codice.trim();
   if (!codice) return null;
+  if (foglio) {
+    const { data } = await supabase
+      .from("magazzino_ubicazioni")
+      .select(select)
+      .eq("mappa_origine_id", foglio)
+      .is("deleted_at", null)
+      .ilike("codice", codice);
+    const rows = (data ?? []) as UbicazioneRow[];
+    return (
+      rows.find(
+        (r) => r.codice.trim().toLowerCase() === codice.toLowerCase()
+      ) ?? null
+    );
+  }
   if (input.luogo) {
     const { data } = await supabase
       .from("magazzino_ubicazioni")
@@ -1358,8 +1385,10 @@ async function persistAreeMappa(
       const p = a.parentId ?? null;
       if (!p) return true;
       if (resolvedUbi.has(p)) return true;
-      if (aree.some((x) => x.ubicazioneId === p || x.id === p)) {
-        return !pending.some((x, j) => j !== idx && (x.id === p || x.ubicazioneId === p));
+      const isBatchParent = (x: (typeof aree)[number]) =>
+        x.id === p || x.ubicazioneId === p || x.copiaDaUbicazioneId === p;
+      if (aree.some(isBatchParent)) {
+        return !pending.some((x, j) => j !== idx && isBatchParent(x));
       }
       return true;
     });
@@ -1372,12 +1401,39 @@ async function persistAreeMappa(
   }
   for (const [i, area] of ordered.entries()) {
     const parentToken = area.parentId ?? null;
-    const parentId = parentToken
+    let parentId = parentToken
       ? resolvedUbi.get(parentToken) ??
-        (aree.some((x) => x.id === parentToken || x.ubicazioneId === parentToken)
+        (aree.some(
+          (x) =>
+            x.id === parentToken ||
+            x.ubicazioneId === parentToken ||
+            x.copiaDaUbicazioneId === parentToken
+        )
           ? resolvedUbi.get(parentToken) ?? null
           : parentToken)
       : null;
+    let existing = area.ubicazioneId
+      ? await findUbicazioneOperativa(supabase, {
+          id: area.ubicazioneId,
+          codice: "",
+          luogo,
+          mapIds,
+          soloMappaId: mappaId,
+        })
+      : null;
+    const svincolaDaMadre =
+      Boolean(area.copiaDaUbicazioneId) ||
+      Boolean(area.ubicazioneId && !existing);
+    if (parentId && svincolaDaMadre) {
+      const parentOwned = await findUbicazioneOperativa(supabase, {
+        id: parentId,
+        codice: "",
+        luogo,
+        mapIds,
+        soloMappaId: mappaId,
+      });
+      if (!parentOwned) parentId = null;
+    }
     const nome = area.nome.trim();
     let parentCodice = "";
     if (parentId) {
@@ -1391,14 +1447,6 @@ async function persistAreeMappa(
         (parentRow as { codice?: string } | null)?.codice ?? ""
       ).trim();
     }
-    let existing = area.ubicazioneId
-      ? await findUbicazioneOperativa(supabase, {
-          id: area.ubicazioneId,
-          codice: "",
-          luogo,
-          mapIds,
-        })
-      : null;
     let existingParentCodice = "";
     if (existing?.parent_id) {
       const { data: oldParent } = await supabase
@@ -1425,7 +1473,11 @@ async function persistAreeMappa(
         codice,
         luogo,
         mapIds,
+        soloMappaId: mappaId,
       });
+    }
+    if (existing && existing.mappa_origine_id !== mappaId) {
+      existing = null;
     }
     let ubicazioneId = existing?.id ?? null;
     if (existing) {
@@ -1445,14 +1497,16 @@ async function persistAreeMappa(
             updated_by: userId,
           })
           .eq("id", existing.id)
+          .eq("mappa_origine_id", mappaId)
           .is("deleted_at", null);
         if (error) {
           const dup =
             error.code === "23505" ||
             error.message.includes("mag_ubic_luogo_codice") ||
+            error.message.includes("mag_ubic_origine_codice") ||
             error.message.toLowerCase().includes("duplicate");
           return dup
-            ? `Esiste già un posto «${codice}» in questo luogo. Cambia il codice locale oppure scegli un'altra colonna.`
+            ? `Esiste già un posto «${codice}» su questo foglio. Cambia il codice locale oppure scegli un'altra colonna.`
             : error.message;
         }
         if (parentCambiato || codiceCambiato) {
@@ -1492,7 +1546,7 @@ async function persistAreeMappa(
       if (error || !created) {
         return (
           error?.message ??
-          "Creazione posto fallita. Il codice posizione (es. A1) è univoco nel luogo."
+          "Creazione posto fallita. Il codice posizione (es. A1) è univoco su questo foglio."
         );
       }
       ubicazioneId = (created as { id: string }).id;
@@ -1500,6 +1554,9 @@ async function persistAreeMappa(
     if (!ubicazioneId) return "Posto operativo non risolto.";
     resolvedUbi.set(area.id ?? ubicazioneId, ubicazioneId);
     if (area.ubicazioneId) resolvedUbi.set(area.ubicazioneId, ubicazioneId);
+    if (area.copiaDaUbicazioneId) {
+      resolvedUbi.set(area.copiaDaUbicazioneId, ubicazioneId);
+    }
     const formaPayload = {
       mappa_id: mappaId,
       ubicazione_id: ubicazioneId,
@@ -1834,12 +1891,23 @@ export async function importaRiferimentiDaVistaAction(
       codice: string;
       nome: string;
       parentId: string | null;
-      ubicazioneId?: string;
+      copiaDaUbicazioneId?: string;
       x: number;
       y: number;
       width: number;
       height: number;
     }> = [];
+    const importatiUbi = new Set(
+      ruotati
+        .filter(
+          (el): el is Extract<(typeof ruotati)[number], { tipo: "rettangolo" }> =>
+            el.tipo === "rettangolo" && Boolean(el.ubicazioneId)
+        )
+        .map((el) => el.ubicazioneId)
+    );
+    const destUbi = new Set(
+      (dest.aree ?? []).map((a) => a.ubicazioneId).filter(Boolean)
+    );
     const tick = destG * 0.35;
     for (const e of ruotati) {
       if (e.tipo === "linea") {
@@ -1860,11 +1928,16 @@ export async function importaRiferimentiDaVistaAction(
           origine,
           destRect
         );
+        const parentId =
+          e.parentId &&
+          (importatiUbi.has(e.parentId) || destUbi.has(e.parentId))
+            ? e.parentId
+            : null;
         nuoveAree.push({
           codice: e.codice,
           nome: e.nome,
-          parentId: e.parentId,
-          ubicazioneId: e.ubicazioneId || undefined,
+          parentId,
+          copiaDaUbicazioneId: e.ubicazioneId || undefined,
           x: Math.min(a.x, b.x),
           y: Math.min(a.y, b.y),
           width: Math.max(destG, Math.abs(b.x - a.x)),

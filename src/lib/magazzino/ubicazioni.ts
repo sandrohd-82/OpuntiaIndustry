@@ -232,6 +232,8 @@ export type AggiornaUbicazioneCapienzaInput = z.infer<
 export const mappaAreaInputSchema = z.object({
   id: z.string().uuid().optional(),
   ubicazioneId: z.string().uuid().optional(),
+  /** Solo remap parent in importo: non è l'identità da aggiornare. */
+  copiaDaUbicazioneId: z.string().uuid().optional(),
   codice: z.string().trim().min(1).max(40),
   nome: z.string().trim().min(1).max(120),
   parentId: z.string().uuid().nullable().optional(),
