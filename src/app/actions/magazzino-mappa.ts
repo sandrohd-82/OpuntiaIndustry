@@ -36,6 +36,7 @@ import {
   capienzaDaRiga,
   codicePostoFiglio,
   etichettaUbicazione,
+  localePerNuovoParent,
   type AggiornaUbicazioneCapienzaInput,
   type MappaAreaDisegnata,
   type UbicazioneElenco,
@@ -1287,18 +1288,6 @@ async function findUbicazioneOperativa(
   return null;
 }
 
-async function ubicazioneHaMovimenti(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  ubicazioneId: string
-): Promise<boolean> {
-  const { count, error } = await supabase
-    .from("magazzino_movimenti")
-    .select("id", { count: "exact", head: true })
-    .eq("ubicazione_id", ubicazioneId);
-  if (error) return false;
-  return (count ?? 0) > 0;
-}
-
 async function persistAreeMappa(
   supabase: Awaited<ReturnType<typeof createClient>>,
   mappaId: string,
@@ -1336,19 +1325,6 @@ async function persistAreeMappa(
     luogo = await inheritLuogoMappaIfEmpty(supabase, mappaId, luogo, userId);
   }
   const mapIds = [...ctx.mapIds];
-  const altriFogli = mapIds.filter((id) => id !== mappaId);
-  const postiAltroFoglio = new Set<string>();
-  if (altriFogli.length) {
-    const { data: formeAltri } = await supabase
-      .from("magazzino_mappa_aree")
-      .select("ubicazione_id")
-      .is("deleted_at", null)
-      .in("mappa_id", altriFogli);
-    for (const f of formeAltri ?? []) {
-      const uid = String((f as { ubicazione_id?: string }).ubicazione_id ?? "");
-      if (uid) postiAltroFoglio.add(uid);
-    }
-  }
   const { data: existingForme } = await supabase
     .from("magazzino_mappa_aree")
     .select("id")
@@ -1415,24 +1391,50 @@ async function persistAreeMappa(
         (parentRow as { codice?: string } | null)?.codice ?? ""
       ).trim();
     }
-    const locale = area.codice.trim().toUpperCase();
+    let existing = area.ubicazioneId
+      ? await findUbicazioneOperativa(supabase, {
+          id: area.ubicazioneId,
+          codice: "",
+          luogo,
+          mapIds,
+        })
+      : null;
+    let existingParentCodice = "";
+    if (existing?.parent_id) {
+      const { data: oldParent } = await supabase
+        .from("magazzino_ubicazioni")
+        .select("codice")
+        .eq("id", existing.parent_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      existingParentCodice = String(
+        (oldParent as { codice?: string } | null)?.codice ?? ""
+      ).trim();
+    }
+    const locale = localePerNuovoParent(
+      area.codice,
+      existingParentCodice,
+      parentCodice
+    );
     const codice = parentCodice
       ? codicePostoFiglio(parentCodice, locale)
       : locale;
-    const existing = await findUbicazioneOperativa(supabase, {
-      id: area.ubicazioneId ?? null,
-      codice,
-      luogo,
-      mapIds,
-    });
+    if (!existing) {
+      existing = await findUbicazioneOperativa(supabase, {
+        id: null,
+        codice,
+        luogo,
+        mapIds,
+      });
+    }
     let ubicazioneId = existing?.id ?? null;
     if (existing) {
-      const locked =
-        existing.mappa_origine_id !== mappaId ||
-        postiAltroFoglio.has(existing.id) ||
-        existing.documento_stato === "approvato" ||
-        (await ubicazioneHaMovimenti(supabase, existing.id));
-      if (!locked) {
+      const parentCambiato =
+        (existing.parent_id ?? null) !== (parentId ?? null);
+      const codiceCambiato =
+        existing.codice.trim().toUpperCase() !== codice.toUpperCase();
+      const nomeCambiato = existing.nome.trim() !== nome;
+      if (parentCambiato || codiceCambiato || nomeCambiato) {
         const { error } = await supabase
           .from("magazzino_ubicazioni")
           .update({
@@ -1442,8 +1444,35 @@ async function persistAreeMappa(
             luogo_nome: existing.luogo_nome.trim() || luogo,
             updated_by: userId,
           })
-          .eq("id", existing.id);
-        if (error) return error.message;
+          .eq("id", existing.id)
+          .is("deleted_at", null);
+        if (error) {
+          const dup =
+            error.code === "23505" ||
+            error.message.includes("mag_ubic_luogo_codice") ||
+            error.message.toLowerCase().includes("duplicate");
+          return dup
+            ? `Esiste già un posto «${codice}» in questo luogo. Cambia il codice locale oppure scegli un'altra colonna.`
+            : error.message;
+        }
+        if (parentCambiato || codiceCambiato) {
+          await writeAuditLog({
+            entity_type: "magazzino_ubicazioni",
+            entity_id: existing.id,
+            action: "update",
+            actor_id: userId,
+            summary: parentCambiato
+              ? `Collegamento posto ${existing.codice} → ${codice}`
+              : `Codice posto ${existing.codice} → ${codice}`,
+            payload: {
+              da_codice: existing.codice,
+              a_codice: codice,
+              da_parent_id: existing.parent_id,
+              a_parent_id: parentId,
+              mappa_id: mappaId,
+            },
+          });
+        }
       }
     } else {
       const { data: created, error } = await supabase

@@ -315,3 +315,24 @@ export function codiceLocaleDi(operativo: string, parentCodice: string): string 
   if (p && o.startsWith(p) && o.length > p.length) return o.slice(p.length);
   return o;
 }
+
+/**
+ * Codice locale quando si cambia colonna (D1 + padre D → 1, poi E → E1).
+ * Evita di produrre ED1 se il campo ha ancora il codice operativo vecchio.
+ */
+export function localePerNuovoParent(
+  codiceInserito: string,
+  parentVecchioCodice: string | null | undefined,
+  parentNuovoCodice: string | null | undefined
+): string {
+  const c = codiceInserito.trim().toUpperCase();
+  const nuovo = (parentNuovoCodice ?? "").trim().toUpperCase();
+  const vecchio = (parentVecchioCodice ?? "").trim().toUpperCase();
+  if (nuovo && c.startsWith(nuovo) && c.length > nuovo.length) {
+    return c.slice(nuovo.length);
+  }
+  if (vecchio && c.startsWith(vecchio) && c.length > vecchio.length) {
+    return c.slice(vecchio.length);
+  }
+  return c;
+}

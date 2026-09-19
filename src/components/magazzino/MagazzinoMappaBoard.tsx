@@ -90,6 +90,7 @@ import {
 import {
   capienzaDi,
   codiceLocaleDi,
+  localePerNuovoParent,
   previewPosizioneOperativa,
   stileAreaPosto,
   type MappaAreaDisegnata,
@@ -3866,11 +3867,27 @@ export function MagazzinoMappaBoard({
                 <select
                   value={selectedArea.parentId ?? ""}
                   onChange={(e) => {
+                    const nextParent = e.target.value || null;
+                    const vecchio = parentRecord(selectedArea.parentId);
+                    const nuovo = parentRecord(nextParent);
+                    const pcVecchio =
+                      vecchio && "codice" in vecchio ? vecchio.codice : "";
+                    const pcNuovo =
+                      nuovo && "codice" in nuovo ? nuovo.codice : "";
+                    const locale = localePerNuovoParent(
+                      selectedArea.codice,
+                      pcVecchio,
+                      pcNuovo
+                    );
                     pushHistory("area-edit");
                     setAree((prev) =>
                       prev.map((a) =>
                         a.id === selectedArea.id
-                          ? { ...a, parentId: e.target.value || null }
+                          ? {
+                              ...a,
+                              parentId: nextParent,
+                              codice: locale,
+                            }
                           : a
                       )
                     );
