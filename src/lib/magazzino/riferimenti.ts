@@ -1,5 +1,9 @@
 import { z } from "zod";
-import type { MappaLinea, MappaPunto } from "@/lib/magazzino/mappa";
+import type {
+  MappaImportRotazione,
+  MappaLinea,
+  MappaPunto,
+} from "@/lib/magazzino/mappa";
 import type { MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
 
 export const MAPPA_ASSI_ORIGINE = ["x", "y"] as const;
@@ -135,6 +139,7 @@ export const importaRiferimentiSchema = z
     destY: z.number().finite().optional(),
     destWidth: z.number().positive().optional(),
     destHeight: z.number().positive().optional(),
+    rotazione: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).optional(),
     elementi: z.array(importaElementoOrigineSchema).max(500).optional(),
     punti: z
       .array(
@@ -583,6 +588,51 @@ export type ImportaElementoRisolto =
       parentId: string | null;
       ubicazioneId: string;
     };
+
+export function ruotaElementiImporto(
+  elementi: ImportaElementoRisolto[],
+  foglio: { x: number; y: number; width: number; height: number },
+  gradi: MappaImportRotazione
+): ImportaElementoRisolto[] {
+  if (gradi === 0) return elementi;
+  const ruota = (p: MappaPunto): MappaPunto => {
+    const cx = foglio.x + foglio.width / 2;
+    const cy = foglio.y + foglio.height / 2;
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    if (gradi === 90) return { x: cx + dy, y: cy - dx };
+    if (gradi === 180) return { x: cx - dx, y: cy - dy };
+    return { x: cx - dy, y: cy + dx };
+  };
+  return elementi.map((e) => {
+    if (e.tipo === "punto") {
+      const p = ruota(e);
+      return { ...e, x: p.x, y: p.y };
+    }
+    if (e.tipo === "linea") {
+      const a = ruota({ x: e.x1, y: e.y1 });
+      const b = ruota({ x: e.x2, y: e.y2 });
+      return { ...e, x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+    }
+    const pts = [
+      ruota({ x: e.x, y: e.y }),
+      ruota({ x: e.x + e.width, y: e.y }),
+      ruota({ x: e.x + e.width, y: e.y + e.height }),
+      ruota({ x: e.x, y: e.y + e.height }),
+    ];
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return {
+      ...e,
+      x,
+      y,
+      width: Math.max(1, Math.max(...xs) - x),
+      height: Math.max(1, Math.max(...ys) - y),
+    };
+  });
+}
 
 export function parseCalcoGeometria(raw: unknown): MappaCalcoGeometria {
   if (raw == null) return { haLimite: true, elementi: [] };

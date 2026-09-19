@@ -8,6 +8,8 @@ import { isSuperadminProfile } from "@/lib/auth/roles";
 import {
   MAPPA_LINEA_COLORE_DEFAULT,
   MAPPA_STATI,
+  calcolaFoglioMappa,
+  parseImportRotazione,
   collegaAdAreaOperativaSchema,
   collegaMappaSchema,
   creaMappaBozzaSchema,
@@ -38,6 +40,7 @@ import {
 import {
   calchiDaElementi,
   dettaglioAngoliImporto,
+  ruotaElementiImporto,
   dettaglioLatiImporto,
   etichettaAsseImporto,
   etichettaAsseOrigine,
@@ -45,8 +48,6 @@ import {
   misuraDestDaOrigine,
   parseCalcoGeometria,
   puntoOrigineSuDest,
-  rettangoloDaPunti,
-  rettangoloLimiteDisegno,
   risolviElementiOrigine,
   serializzaCalcoGeometria,
   type ImportaEsito,
@@ -1711,41 +1712,45 @@ export async function importaRiferimentiDaVistaAction(
   const usaLimite = Boolean(input.usaLimite);
   const srcG = src.grigliaPx > 0 ? src.grigliaPx : 20;
   const destG = dest.grigliaPx > 0 ? dest.grigliaPx : 20;
-  const bboxSel = rettangoloDaPunti(puntiDiSelezione(risolti), srcG);
-  const limiteUtente: MappaRettangolo | null =
-    usaLimite &&
-    input.origineW &&
-    input.origineH &&
-    Number.isFinite(input.origineX) &&
-    Number.isFinite(input.origineY)
-      ? {
-          x: input.origineX ?? 0,
-          y: input.origineY ?? 0,
-          width: input.origineW,
-          height: input.origineH,
-        }
-      : null;
-  const origine =
-    limiteUtente ??
-    bboxSel ??
-    rettangoloLimiteDisegno(src.linee ?? [], src.aree ?? [], srcG);
-  if (!origine) {
+  const rotazione = parseImportRotazione(input.rotazione);
+  const extraSrc = (src.aree ?? []).flatMap((a) => [
+    { x: a.x, y: a.y },
+    { x: a.x + a.width, y: a.y + a.height },
+  ]);
+  const srcFoglio = calcolaFoglioMappa(src.linee ?? [], [], extraSrc, srcG);
+  const origine: MappaRettangolo = {
+    x: srcFoglio.x,
+    y: srcFoglio.y,
+    width: srcFoglio.width,
+    height: srcFoglio.height,
+  };
+  const ruotati = ruotaElementiImporto(risolti, origine, rotazione);
+  if (!ruotati.length && !usaLimite) {
     return {
       success: false,
       error: "Seleziona almeno un punto, una linea o un quadrato sulla pianta origine.",
     };
   }
   const misuraSel = misuraDestDaOrigine(origine, destG, srcG);
+  const extraDest = (dest.aree ?? []).flatMap((a) => [
+    { x: a.x, y: a.y },
+    { x: a.x + a.width, y: a.y + a.height },
+  ]);
+  const destHaDisegno =
+    (dest.linee ?? []).length > 0 || (dest.aree ?? []).length > 0;
+  const destFoglio = destHaDisegno
+    ? calcolaFoglioMappa(dest.linee ?? [], [], extraDest, destG)
+    : { x: 0, y: 0, width: misuraSel.destWidth, height: misuraSel.destHeight };
   const asse = (input.asseOrigine ?? "x") as MappaAsseOrigine;
   const destRect: MappaRettangolo = {
-    x: input.destX ?? 0,
-    y: input.destY ?? 0,
-    width: input.destWidth ?? misuraSel.destWidth,
-    height: input.destHeight ?? misuraSel.destHeight,
+    x: destFoglio.x,
+    y: destFoglio.y,
+    width: misuraSel.destWidth,
+    height: misuraSel.destHeight,
   };
   const limiteWidthQ = input.limiteWidthQ ?? misuraSel.wQ;
   const limiteHeightQ = input.limiteHeightQ ?? misuraSel.hQ;
-  const calchi = calchiDaElementi(risolti, origine);
+  const calchi = calchiDaElementi(ruotati, origine);
   const puntiAsse = usaLimite ? (input.punti ?? []) : [];
 
   const esito: ImportaEsito = {
@@ -1775,7 +1780,7 @@ export async function importaRiferimentiDaVistaAction(
       height: number;
     }> = [];
     const tick = destG * 0.35;
-    for (const e of risolti) {
+    for (const e of ruotati) {
       if (e.tipo === "linea") {
         const a = puntoOrigineSuDest({ x: e.x1, y: e.y1 }, origine, destRect);
         const b = puntoOrigineSuDest({ x: e.x2, y: e.y2 }, origine, destRect);
@@ -1920,6 +1925,7 @@ export async function importaRiferimentiDaVistaAction(
       mappa_origine_id: input.mappaOrigineId,
       modalita: input.modalita,
       usa_limite: usaLimite,
+      rotazione,
       asse,
       calchi: esito.calchi,
       linee: esito.linee,
@@ -1932,21 +1938,6 @@ export async function importaRiferimentiDaVistaAction(
   const mappa = await loadMappa(supabase, input.mappaId);
   if (!mappa) return { success: false, error: "Importo ok, pianta non leggibile." };
   return { success: true, mappa, esito };
-}
-
-function puntiDiSelezione(
-  risolti: ReturnType<typeof risolviElementiOrigine>
-): { x: number; y: number }[] {
-  const pts: { x: number; y: number }[] = [];
-  for (const e of risolti) {
-    if (e.tipo === "punto") pts.push({ x: e.x, y: e.y });
-    else if (e.tipo === "linea") {
-      pts.push({ x: e.x1, y: e.y1 }, { x: e.x2, y: e.y2 });
-    } else {
-      pts.push({ x: e.x, y: e.y }, { x: e.x + e.width, y: e.y + e.height });
-    }
-  }
-  return pts;
 }
 
 async function appendLineeMappa(

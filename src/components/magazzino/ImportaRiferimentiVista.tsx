@@ -10,7 +10,10 @@ import {
   distanzaPuntoSegmento,
   formattaQuadrati,
   formattaLunghezzaReale,
+  MAPPA_IMPORT_ROTAZIONE_LABEL,
+  MAPPA_IMPORT_ROTAZIONI,
   MAPPA_LINEA_COLORE_DEFAULT,
+  type MappaImportRotazione,
   type MappaMagazzino,
   type MappaPunto,
 } from "@/lib/magazzino/mappa";
@@ -82,6 +85,7 @@ export function ImportaRiferimentiVista({
   const [usaLimite, setUsaLimite] = useState(false);
   const [limiteKey, setLimiteKey] = useState("bbox");
   const [asse, setAsse] = useState<MappaAsseOrigine>("x");
+  const [rotazione, setRotazione] = useState<MappaImportRotazione>(0);
   const [altezzaQ, setAltezzaQ] = useState(20);
   const [puntiAsse, setPuntiAsse] = useState<PuntoBozza[]>([]);
   const [puntoLabel, setPuntoLabel] = useState("");
@@ -107,6 +111,7 @@ export function ImportaRiferimentiVista({
     setAreeSel([]);
     setLimiteKey("bbox");
     setAsse("x");
+    setRotazione(0);
     void listMappeStessoLuogoAction(luogoNome, destMappaId).then((res) => {
       if (!res.success) {
         setError(res.error);
@@ -387,6 +392,7 @@ export function ImportaRiferimentiVista({
       destY: 0,
       destWidth: destMisure?.destWidth,
       destHeight: destMisure?.destHeight,
+      rotazione,
       elementi: [
         ...lineeSel.map((id) => ({ tipo: "linea" as const, origineId: id })),
         ...areeSel.map((id) => ({ tipo: "rettangolo" as const, origineId: id })),
@@ -419,9 +425,11 @@ export function ImportaRiferimentiVista({
               Importa da vista
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Clicca punti, linee o quadrati sulla pianta origine. Il quadrato
-              limite è facoltativo. Poi scegli se restano un calco (riferimento)
-              o diventano oggetti veri.
+              Clicca punti, linee o quadrati sulla pianta origine. Restano
+              allineati al quadrato-margine del foglio. Scegli l&apos;angolazione
+              (es. 90° antiorario: il lato destro della vista dall&apos;alto
+              diventa il fronte della vista destra). Poi riferimento o oggetto
+              reale.
             </p>
           </div>
           <button
@@ -792,6 +800,34 @@ export function ImportaRiferimentiVista({
               </div>
             ) : null}
 
+            <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2">
+              <p className="text-xs font-semibold text-violet-950">
+                Angolazione sul foglio destinazione
+              </p>
+              <p className="mt-0.5 text-[11px] text-violet-900">
+                Gli oggetti restano nella stessa posizione rispetto ai margini
+                laterali del quadrato-foglio. 90° antiorario: ciò che sta sul
+                lato destro della vista dall&apos;alto si vede di fronte nella
+                vista destra.
+              </p>
+              <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {MAPPA_IMPORT_ROTAZIONI.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setRotazione(r)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-left text-xs font-medium ${
+                      rotazione === r
+                        ? "border-violet-700 bg-violet-700 text-white"
+                        : "border-violet-300 bg-white text-violet-950 hover:bg-violet-100"
+                    }`}
+                  >
+                    {MAPPA_IMPORT_ROTAZIONE_LABEL[r]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50/70 px-3 py-2 text-xs text-teal-950">
               <p className="font-semibold">Verrà importato</p>
               <p className="mt-1">
@@ -803,7 +839,8 @@ export function ImportaRiferimentiVista({
                 {lineeSel.length} line{lineeSel.length === 1 ? "a" : "e"},{" "}
                 {areeSel.length} quadrat{areeSel.length === 1 ? "o" : "i"},{" "}
                 {puntiSel.length} punt{puntiSel.length === 1 ? "o" : "i"}
-                {usaLimite ? " · più il quadrato limite" : ""}.
+                {usaLimite ? " · più il quadrato limite" : ""}
+                {` · ${MAPPA_IMPORT_ROTAZIONE_LABEL[rotazione]}`}.
               </p>
             </div>
           </>

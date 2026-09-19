@@ -1041,3 +1041,73 @@ export function segmentoAsseSpecchio(
     y2: asse.axis,
   };
 }
+
+/** 90 = antiorario (schermo y verso il basso). 270 = orario. */
+export const MAPPA_IMPORT_ROTAZIONI = [0, 90, 180, 270] as const;
+export type MappaImportRotazione = (typeof MAPPA_IMPORT_ROTAZIONI)[number];
+
+export const MAPPA_IMPORT_ROTAZIONE_LABEL: Record<
+  MappaImportRotazione,
+  string
+> = {
+  0: "Come in origine (0°)",
+  90: "90° antiorario — Dall'alto lato destro → vista destra frontale",
+  180: "180°",
+  270: "90° orario",
+};
+
+export function parseImportRotazione(v: unknown): MappaImportRotazione {
+  const n = Number(v);
+  if (n === 90 || n === 180 || n === 270) return n;
+  return 0;
+}
+
+/** Ruota un punto attorno al centro del foglio-margine (y verso il basso). */
+export function ruotaPuntoNelFoglio(
+  p: MappaPunto,
+  foglio: MappaBox,
+  gradi: MappaImportRotazione
+): MappaPunto {
+  if (gradi === 0) return { x: p.x, y: p.y };
+  const cx = foglio.x + foglio.width / 2;
+  const cy = foglio.y + foglio.height / 2;
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  let rx = dx;
+  let ry = dy;
+  if (gradi === 90) {
+    rx = dy;
+    ry = -dx;
+  } else if (gradi === 180) {
+    rx = -dx;
+    ry = -dy;
+  } else {
+    rx = -dy;
+    ry = dx;
+  }
+  return { x: cx + rx, y: cy + ry };
+}
+
+export function ruotaBoxNelFoglio(
+  box: MappaBox,
+  foglio: MappaBox,
+  gradi: MappaImportRotazione
+): MappaBox {
+  if (gradi === 0) return { ...box };
+  const pts = [
+    { x: box.x, y: box.y },
+    { x: box.x + box.width, y: box.y },
+    { x: box.x + box.width, y: box.y + box.height },
+    { x: box.x, y: box.y + box.height },
+  ].map((p) => ruotaPuntoNelFoglio(p, foglio, gradi));
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.max(...xs) - x),
+    height: Math.max(1, Math.max(...ys) - y),
+  };
+}
