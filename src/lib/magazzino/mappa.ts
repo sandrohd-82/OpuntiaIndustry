@@ -219,6 +219,13 @@ export const collegaAdAreaOperativaSchema = z.object({
   nomeNuova: z.string().trim().min(1).max(120).optional(),
 });
 
+export const riordinaVisteLuogoSchema = z.object({
+  nodoId: z.string().uuid(),
+  mappaIds: z.array(z.string().uuid()).min(1).max(40),
+});
+
+export type RiordinaVisteLuogoInput = z.infer<typeof riordinaVisteLuogoSchema>;
+
 export type CollegaAdAreaOperativaInput = z.infer<
   typeof collegaAdAreaOperativaSchema
 >;

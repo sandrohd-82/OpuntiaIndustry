@@ -13,6 +13,7 @@ import {
   collegaAdAreaOperativaSchema,
   collegaMappaSchema,
   creaMappaBozzaSchema,
+  riordinaVisteLuogoSchema,
   etichettaMappaCollegata,
   normalizzaColoreLinea,
   parseScalaUnita,
@@ -76,6 +77,22 @@ import { createClient } from "@/lib/supabase/server";
 
 function canProgettare(profile: Parameters<typeof isSuperadminProfile>[0]) {
   return isSuperadminProfile(profile);
+}
+
+async function nextVistaSortOrder(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  nodoId: string
+): Promise<number> {
+  const { data } = await supabase
+    .from("magazzino_mappe")
+    .select("sort_order")
+    .eq("menu_nodo_id", nodoId)
+    .is("deleted_at", null);
+  const max = ((data ?? []) as { sort_order?: number }[]).reduce(
+    (m, r) => Math.max(m, Number(r.sort_order) || 0),
+    -1
+  );
+  return max + 1;
 }
 
 function mapLinea(r: {
@@ -957,11 +974,14 @@ export async function collegaMappaAdAreaOperativaAction(
   const supabase = await createClient();
   const { data: cur } = await supabase
     .from("magazzino_mappe")
-    .select("id, documento_stato")
+    .select("id, documento_stato, menu_nodo_id")
     .eq("id", input.mappaId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!cur) return { success: false, error: "Pianta non trovata." };
+  const nodoAttuale = String(
+    (cur as { menu_nodo_id?: string | null }).menu_nodo_id ?? ""
+  );
 
   let nodoId = "";
   let luogo = "";
@@ -1004,6 +1024,9 @@ export async function collegaMappaAdAreaOperativaAction(
       menu_nodo_id: nodoId,
       vista_etichetta: input.vistaEtichetta.trim(),
       area_codice: "magazzino",
+      ...(nodoAttuale === nodoId
+        ? {}
+        : { sort_order: await nextVistaSortOrder(supabase, nodoId) }),
       updated_by: auth.userId,
     })
     .eq("id", input.mappaId)
@@ -1147,6 +1170,7 @@ export async function getPiantaLuogoBySlugAction(
     .eq("menu_nodo_id", nodo.id)
     .eq("documento_stato", "approvato")
     .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
     .order("vista_etichetta", { ascending: true });
 
   const ids = ((headers ?? []) as { id: string }[]).map((h) => h.id);
@@ -1179,6 +1203,86 @@ export async function getPiantaLuogoBySlugAction(
       mappe,
     },
   };
+}
+
+export async function riordinaVisteLuogoAction(
+  raw: { nodoId: string; mappaIds: string[] }
+): Promise<{ success: true } | { success: false; error: string }> {
+  const parsed = riordinaVisteLuogoSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Sequenza non valida.",
+    };
+  }
+  const input = parsed.data;
+  const unique = new Set(input.mappaIds);
+  if (unique.size !== input.mappaIds.length) {
+    return { success: false, error: "La sequenza contiene viste duplicate." };
+  }
+  const supabase = await createClient();
+  const { data: nodo } = await supabase
+    .from("mappa_menu_nodi")
+    .select("id, etichetta, area_slug")
+    .eq("id", input.nodoId)
+    .eq("tipo", "luogo")
+    .is("deleted_at", null)
+    .maybeSingle();
+  const luogo = nodo as {
+    id: string;
+    etichetta: string;
+    area_slug: string;
+  } | null;
+  if (!luogo) return { success: false, error: "Area di menu non trovata." };
+  const area = (luogo.area_slug || "magazzino") as AreaSlug;
+  const { auth } = await requireAnyAreaAccess(
+    [area, "strumenti"].filter((s) => s in AREA_ROUTES) as AreaSlug[]
+  );
+
+  const { data: headers } = await supabase
+    .from("magazzino_mappe")
+    .select("id")
+    .eq("menu_nodo_id", input.nodoId)
+    .eq("documento_stato", "approvato")
+    .is("deleted_at", null);
+  const attese = new Set(
+    ((headers ?? []) as { id: string }[]).map((h) => h.id)
+  );
+  if (!attese.size) {
+    return { success: false, error: "Nessuna vista da riordinare." };
+  }
+  if (
+    input.mappaIds.length !== attese.size ||
+    input.mappaIds.some((id) => !attese.has(id))
+  ) {
+    return {
+      success: false,
+      error: "La sequenza deve contenere tutte le viste di quest'area.",
+    };
+  }
+
+  for (const [i, id] of input.mappaIds.entries()) {
+    const { error } = await supabase
+      .from("magazzino_mappe")
+      .update({
+        sort_order: i,
+        updated_by: auth.userId,
+      })
+      .eq("id", id)
+      .eq("menu_nodo_id", input.nodoId)
+      .is("deleted_at", null);
+    if (error) return { success: false, error: error.message };
+  }
+
+  await writeAuditLog({
+    entity_type: "magazzino_mappe",
+    entity_id: input.nodoId,
+    action: "update",
+    actor_id: auth.userId,
+    summary: `Sequenza viste «${luogo.etichetta}»`,
+    payload: { mappa_ids: input.mappaIds },
+  });
+  return { success: true };
 }
 
 export async function creaMappaBozzaAction(
@@ -2794,7 +2898,7 @@ export async function collegaMappaAdAreaAction(
   const supabase = await createClient();
   const { data: cur } = await supabase
     .from("magazzino_mappe")
-    .select("id, documento_stato, vista_etichetta")
+    .select("id, documento_stato, vista_etichetta, menu_nodo_id")
     .eq("id", input.mappaId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -2802,6 +2906,7 @@ export async function collegaMappaAdAreaAction(
     id: string;
     documento_stato: string;
     vista_etichetta?: string;
+    menu_nodo_id?: string | null;
   } | null;
   if (!row) return { success: false, error: "Pianta non trovata." };
   if (row.documento_stato === "chiuso") {
@@ -2822,6 +2927,9 @@ export async function collegaMappaAdAreaAction(
       menu_nodo_id: resolved.postoId,
       vista_etichetta: vista,
       slug,
+      ...(row.menu_nodo_id === resolved.postoId
+        ? {}
+        : { sort_order: await nextVistaSortOrder(supabase, resolved.postoId) }),
       collegata_at: new Date().toISOString(),
       collegata_by: auth.userId,
       updated_by: auth.userId,
@@ -3152,6 +3260,9 @@ export async function spostaMappaPercorsoAction(
       nome: resolved.luogo,
       luogo_nome: resolved.luogo,
       menu_nodo_id: resolved.postoId,
+      ...(row.menu_nodo_id === resolved.postoId
+        ? {}
+        : { sort_order: await nextVistaSortOrder(supabase, resolved.postoId) }),
       updated_by: auth.userId,
     })
     .eq("id", input.mappaId)

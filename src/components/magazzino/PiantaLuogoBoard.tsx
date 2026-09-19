@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { classiGrigliaViste, type PiantaLuogoPagina } from "@/lib/magazzino/mappa";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { riordinaVisteLuogoAction } from "@/app/actions/magazzino-mappa";
+import {
+  classiGrigliaViste,
+  type MappaMagazzino,
+  type PiantaLuogoPagina,
+} from "@/lib/magazzino/mappa";
 import {
   applicaCapienza,
   areeElencoConsultazione,
@@ -13,12 +18,32 @@ import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio"
 import { PiantaPostoPannello } from "@/components/magazzino/PiantaPostoPannello";
 import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupazione";
 
+function muoviVista(
+  list: MappaMagazzino[],
+  fromId: string,
+  toId: string
+): MappaMagazzino[] {
+  if (!fromId || !toId || fromId === toId) return list;
+  const from = list.findIndex((m) => m.id === fromId);
+  const to = list.findIndex((m) => m.id === toId);
+  if (from < 0 || to < 0) return list;
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
+
 export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const [mappe, setMappe] = useState(luogo.mappe);
   const [selezionata, setSelezionata] = useState<string | null>(null);
   const [pannello, setPannello] = useState<"settaggio" | "occupazione" | null>(
     null
   );
+  const [modificaSequenza, setModificaSequenza] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
+  const [seqBusy, setSeqBusy] = useState(false);
+  const [seqError, setSeqError] = useState<string | null>(null);
 
   useEffect(() => {
     setMappe(luogo.mappe);
@@ -75,22 +100,149 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     setPannello(null);
   }
 
+  async function applicaSequenza(next: MappaMagazzino[]) {
+    const prev = mappe;
+    setMappe(next);
+    setSeqBusy(true);
+    setSeqError(null);
+    const res = await riordinaVisteLuogoAction({
+      nodoId: luogo.nodoId,
+      mappaIds: next.map((m) => m.id),
+    });
+    setSeqBusy(false);
+    if (!res.success) {
+      setMappe(prev);
+      setSeqError(res.error);
+    }
+  }
+
+  function onDragStart(e: DragEvent, id: string) {
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+    setDragId(id);
+    setSeqError(null);
+  }
+
+  function onDragOver(e: DragEvent, id: string) {
+    if (!modificaSequenza) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (overId !== id) setOverId(id);
+  }
+
+  function onDrop(e: DragEvent, id: string) {
+    e.preventDefault();
+    const from = e.dataTransfer.getData("text/plain") || dragId;
+    setDragId(null);
+    setOverId(null);
+    if (!from || seqBusy) return;
+    const next = muoviVista(mappe, from, id);
+    if (next === mappe) return;
+    void applicaSequenza(next);
+  }
+
+  function onDragEnd() {
+    setDragId(null);
+    setOverId(null);
+  }
+
   return (
     <div className="space-y-4">
+      {n > 1 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-[var(--muted)]">
+            {modificaSequenza
+              ? "Trascina le viste per cambiare la sequenza."
+              : `${n} viste su quest'area.`}
+          </p>
+          <button
+            type="button"
+            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
+              modificaSequenza
+                ? "border-teal-700 bg-teal-700 text-white"
+                : "border-[var(--border)] bg-white text-slate-800 hover:bg-slate-50"
+            }`}
+            onClick={() => {
+              setModificaSequenza((v) => !v);
+              setSeqError(null);
+              setDragId(null);
+              setOverId(null);
+            }}
+          >
+            {modificaSequenza ? "Fine sequenza" : "Modifica sequenza"}
+          </button>
+        </div>
+      ) : null}
+
+      {modificaSequenza && n > 1 ? (
+        <ul className="space-y-2 rounded-xl border border-dashed border-teal-400 bg-teal-50/40 p-3">
+          {mappe.map((m, i) => {
+            const dragging = dragId === m.id;
+            const over = overId === m.id && dragId && dragId !== m.id;
+            return (
+              <li
+                key={`seq-${m.id}`}
+                draggable={!seqBusy}
+                onDragStart={(e) => onDragStart(e, m.id)}
+                onDragOver={(e) => onDragOver(e, m.id)}
+                onDrop={(e) => onDrop(e, m.id)}
+                onDragEnd={onDragEnd}
+                className={`flex cursor-grab items-center gap-3 rounded-lg border bg-white px-3 py-2 text-sm active:cursor-grabbing ${
+                  dragging
+                    ? "border-teal-600 opacity-60"
+                    : over
+                      ? "border-teal-600 ring-2 ring-teal-300"
+                      : "border-[var(--border)]"
+                }`}
+              >
+                <span className="w-6 text-xs font-semibold text-slate-500">
+                  {i + 1}
+                </span>
+                <span className="select-none font-medium">
+                  {m.vistaEtichetta || "Vista"}
+                </span>
+                <span className="ml-auto text-xs text-slate-400">⋮⋮</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+
+      {seqError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {seqError}
+        </p>
+      ) : null}
+
       <div
         className={griglia.contenitore}
         style={n >= 3 ? { minHeight: n === 4 ? "36rem" : "20rem" } : undefined}
       >
-        {mappe.map((m) => (
-          <div key={m.id} className={griglia.cella}>
-            <PiantaVistaRitaglio
-              mappa={m}
-              accese={accese}
-              primariaId={selezionata}
-              onSeleziona={selezionaSolo}
-            />
-          </div>
-        ))}
+        {mappe.map((m) => {
+          const dragging = modificaSequenza && dragId === m.id;
+          const over =
+            modificaSequenza && overId === m.id && dragId && dragId !== m.id;
+          return (
+            <div
+              key={m.id}
+              className={`${griglia.cella} ${
+                over ? "ring-2 ring-teal-400 ring-offset-2" : ""
+              } ${dragging ? "opacity-50" : ""}`}
+              draggable={modificaSequenza && !seqBusy}
+              onDragStart={(e) => onDragStart(e, m.id)}
+              onDragOver={(e) => onDragOver(e, m.id)}
+              onDrop={(e) => onDrop(e, m.id)}
+              onDragEnd={onDragEnd}
+            >
+              <PiantaVistaRitaglio
+                mappa={m}
+                accese={accese}
+                primariaId={selezionata}
+                onSeleziona={modificaSequenza ? undefined : selezionaSolo}
+              />
+            </div>
+          );
+        })}
       </div>
 
       {posto && pannello === "settaggio" ? (
