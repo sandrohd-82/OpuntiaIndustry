@@ -397,6 +397,9 @@ export type LottoAgrinsiciliaElencoRiga = {
   isolamentoNome: string | null;
   daCompletareCi: boolean;
   confezionamentoRiepilogo: string | null;
+  kgSistemati: number;
+  kgDaSistemare: number;
+  postiEtichette: string[];
 };
 
 export type LottoTimelineEvento = {

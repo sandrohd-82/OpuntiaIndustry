@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { aggiornaUbicazioneCapienzaAction } from "@/app/actions/magazzino-mappa";
 import {
+  listImballaggiPostoAction,
+  listMovimentazioniPostoAction,
+} from "@/app/actions/magazzino-posto-occupazione";
+import type { ImballaggioPostoOpt } from "@/lib/magazzino/posto-occupazione";
+import {
   capienzaDi,
   type MappaAreaDisegnata,
   type UbicazioneCapienza,
@@ -29,7 +34,11 @@ export function PiantaPostoPannello({
 }: {
   posto: MappaAreaDisegnata;
   viste: string[];
-  onSalvato: (ubicazioneId: string, capienza: UbicazioneCapienza) => void;
+  onSalvato: (
+    ubicazioneId: string,
+    capienza: UbicazioneCapienza,
+    movimentazioneVoceIds: string[]
+  ) => void;
   onChiudi: () => void;
 }) {
   const [peso, setPeso] = useState("");
@@ -43,6 +52,8 @@ export function PiantaPostoPannello({
   const [busy, setBusy] = useState(false);
   const [errore, setErrore] = useState("");
   const [ok, setOk] = useState("");
+  const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
+  const [movIds, setMovIds] = useState<string[]>([]);
 
   useEffect(() => {
     const c = capienzaDi(posto);
@@ -56,6 +67,15 @@ export function PiantaPostoPannello({
     setMinH(campo(c.minAltezza));
     setErrore("");
     setOk("");
+    const saved = posto.movimentazioneVoceIds ?? [];
+    setMovIds(saved);
+    void Promise.all([
+      listImballaggiPostoAction(),
+      listMovimentazioniPostoAction(posto.ubicazioneId),
+    ]).then(([cat, cur]) => {
+      if (cat.success) setCatalogoMov(cat.movimentazioni);
+      if (cur.success) setMovIds(cur.ids);
+    });
   }, [posto.ubicazioneId, posto.pesoMaxKg]);
 
   async function salva() {
@@ -73,6 +93,7 @@ export function PiantaPostoPannello({
       minLarghezza: leggi(minL),
       minProfondita: leggi(minP),
       minAltezza: leggi(minH),
+      movimentazioneVoceIds: movIds,
     });
     setBusy(false);
     if (!res.success) {
@@ -80,7 +101,7 @@ export function PiantaPostoPannello({
       return;
     }
     setOk("Settaggi salvati.");
-    onSalvato(posto.ubicazioneId, res.capienza);
+    onSalvato(posto.ubicazioneId, res.capienza, movIds);
   }
 
   return (
@@ -217,6 +238,51 @@ export function PiantaPostoPannello({
           </div>
         </fieldset>
       </div>
+
+      <fieldset className="mt-3 rounded-lg border border-slate-200 bg-white px-2 py-2">
+        <legend className="px-1 text-xs font-semibold text-slate-900">
+          Movimentazioni possibili
+        </legend>
+        <p className="mb-2 text-xs text-slate-600">
+          Solo queste compariranno in occupazione (es. certi pallet sui ripiani
+          2–3, pallet e bins sul ripiano 1).
+        </p>
+        {catalogoMov.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            Nessuna movimentazione in catalogo. Aggiungile in Amministrazione →
+            Imballaggi e spedizioni.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {catalogoMov.map((v) => {
+              const on = movIds.includes(v.id);
+              return (
+                <label
+                  key={v.id}
+                  className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs ${
+                    on
+                      ? "border-slate-800 bg-slate-800 text-white"
+                      : "border-slate-200 bg-slate-50 text-slate-800"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={on}
+                    onChange={() =>
+                      setMovIds((prev) =>
+                        on ? prev.filter((id) => id !== v.id) : [...prev, v.id]
+                      )
+                    }
+                  />
+                  {v.nome}
+                  <span className="opacity-70">({v.codice})</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </fieldset>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button

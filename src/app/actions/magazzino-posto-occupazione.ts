@@ -7,10 +7,15 @@ import { createClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
+  type ImballaggioPostoOpt,
+  type LottoDaSistemare,
   type OccupaPostoInput,
   type PostoElementoTipo,
   type PostoOccupazione,
+  type PostoPesoModo,
 } from "@/lib/magazzino/posto-occupazione";
+
+const CATALOG_PROPRIO = "prodotto_proprio";
 
 async function codiceLibero(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -54,10 +59,17 @@ function mapOccupazione(
     id: string;
     ubicazione_id: string;
     tipo_elemento: string;
+    movimentazione_voce_id?: string | null;
+    movimentazione_nome?: string | null;
     imballaggio_voce_id: string | null;
     imballaggio_nome: string;
     quantita_elementi: number | null;
     codice_pallet: string;
+    peso_modo?: string | null;
+    peso_complessivo_kg?: number | string | null;
+    peso_motivazione?: string | null;
+    prodotto_id?: string | null;
+    kg_allocati?: number | string | null;
     lotto_interno_codice: string | null;
     lotto_esterno_id: string | null;
     lotto_esterno_codice: string | null;
@@ -70,14 +82,24 @@ function mapOccupazione(
     scan_token: string;
   }>
 ): PostoOccupazione {
+  const modo: PostoPesoModo =
+    row.peso_modo === "complessivo" ? "complessivo" : "per_elemento";
   return {
     id: row.id,
     ubicazioneId: row.ubicazione_id,
     tipoElemento: row.tipo_elemento as PostoElementoTipo,
+    movimentazioneVoceId: row.movimentazione_voce_id ?? null,
+    movimentazioneNome: row.movimentazione_nome ?? "",
     imballaggioVoceId: row.imballaggio_voce_id,
     imballaggioNome: row.imballaggio_nome,
     quantitaElementi: row.quantita_elementi,
     codicePallet: row.codice_pallet,
+    pesoModo: modo,
+    pesoComplessivoKg:
+      row.peso_complessivo_kg != null ? Number(row.peso_complessivo_kg) : null,
+    pesoMotivazione: row.peso_motivazione ?? "",
+    prodottoId: row.prodotto_id ?? null,
+    kgAllocati: row.kg_allocati != null ? Number(row.kg_allocati) : null,
     lottoInternoCodice: row.lotto_interno_codice,
     lottoEsternoId: row.lotto_esterno_id,
     lottoEsternoCodice: row.lotto_esterno_codice,
@@ -91,6 +113,179 @@ function mapOccupazione(
   };
 }
 
+const OCC_SELECT =
+  "id, ubicazione_id, tipo_elemento, movimentazione_voce_id, movimentazione_nome, imballaggio_voce_id, imballaggio_nome, quantita_elementi, codice_pallet, peso_modo, peso_complessivo_kg, peso_motivazione, prodotto_id, kg_allocati, lotto_interno_codice, lotto_esterno_id, lotto_esterno_codice, note";
+
+export async function listImballaggiPostoAction(): Promise<
+  | {
+      success: true;
+      movimentazioni: ImballaggioPostoOpt[];
+      elementi: ImballaggioPostoOpt[];
+    }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("imballaggi_voci")
+    .select("id, codice, nome, stadio")
+    .is("deleted_at", null)
+    .order("sort_order", { ascending: true })
+    .order("nome", { ascending: true });
+  if (error) return { success: false, error: error.message };
+  const rows = (data ?? []) as ImballaggioPostoOpt[];
+  return {
+    success: true,
+    movimentazioni: rows.filter((v) => v.stadio === "movimentazione"),
+    elementi: rows.filter(
+      (v) => v.stadio === "confezione" || v.stadio === "isolamento"
+    ),
+  };
+}
+
+export async function listMovimentazioniPostoAction(
+  ubicazioneId: string
+): Promise<
+  | { success: true; ids: string[]; voci: ImballaggioPostoOpt[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  if (!ubicazioneId) return { success: true, ids: [], voci: [] };
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_ubicazione_movimentazioni")
+    .select(
+      "imballaggio_voce_id, voce:imballaggi_voci(id, codice, nome, stadio)"
+    )
+    .eq("ubicazione_id", ubicazioneId)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  const voci: ImballaggioPostoOpt[] = [];
+  const ids: string[] = [];
+  for (const r of (data ?? []) as Array<{
+    imballaggio_voce_id: string;
+    voce:
+      | { id: string; codice: string; nome: string; stadio: string }
+      | { id: string; codice: string; nome: string; stadio: string }[]
+      | null;
+  }>) {
+    const v = Array.isArray(r.voce) ? r.voce[0] : r.voce;
+    ids.push(r.imballaggio_voce_id);
+    if (v) {
+      voci.push({
+        id: v.id,
+        codice: v.codice,
+        nome: v.nome,
+        stadio: "movimentazione",
+      });
+    }
+  }
+  return { success: true, ids, voci };
+}
+
+async function kgSistematiPerLotti(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  chiavi: Array<{ prodottoId: string; lottoInterno: string }>
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (!chiavi.length) return out;
+  const { data } = await supabase
+    .from("magazzino_posto_allocazioni")
+    .select("prodotto_id, lotto_interno_codice, kg")
+    .eq("stato", "attivo")
+    .is("deleted_at", null)
+    .in(
+      "prodotto_id",
+      [...new Set(chiavi.map((c) => c.prodottoId))]
+    );
+  for (const r of (data ?? []) as Array<{
+    prodotto_id: string;
+    lotto_interno_codice: string;
+    kg: number;
+  }>) {
+    const key = `${r.prodotto_id}|${r.lotto_interno_codice}`;
+    out.set(key, Math.round(((out.get(key) ?? 0) + Number(r.kg)) * 1000) / 1000);
+  }
+  return out;
+}
+
+export async function listLottiDaSistemareAction(): Promise<
+  | { success: true; lotti: LottoDaSistemare[] }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("magazzino_movimenti")
+    .select(
+      "prodotto_id, prodotto_codice, quantita_kg, tipo, lotto_codice, lotto_esterno_id, lotto_esterno:lotti_esterni!lotto_esterno_id(id, codice), prodotto:prodotti_propri!prodotto_id(nome)"
+    )
+    .eq("catalog_kind", CATALOG_PROPRIO)
+    .is("deleted_at", null)
+    .not("lotto_codice", "is", null);
+  if (error) return { success: false, error: error.message };
+
+  type Acc = LottoDaSistemare;
+  const by = new Map<string, Acc>();
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    const lotto = String(r.lotto_codice ?? "").trim();
+    const prodottoId = String(r.prodotto_id ?? "");
+    if (!lotto || !prodottoId) continue;
+    const key = `${prodottoId}|${lotto}`;
+    const esterno = Array.isArray(r.lotto_esterno)
+      ? r.lotto_esterno[0]
+      : r.lotto_esterno;
+    const prod = Array.isArray(r.prodotto) ? r.prodotto[0] : r.prodotto;
+    const qty = Number(r.quantita_kg) || 0;
+    const signed = String(r.tipo ?? "") === "prelievo" ? -Math.abs(qty) : qty;
+    const prev = by.get(key);
+    if (!prev) {
+      by.set(key, {
+        prodottoId,
+        prodottoCodice: String(r.prodotto_codice ?? ""),
+        prodottoNome: (prod as { nome?: string } | null)?.nome ?? "",
+        lottoInterno: lotto,
+        lottoEsternoId:
+          (esterno as { id?: string } | null)?.id ??
+          (r.lotto_esterno_id as string | null) ??
+          null,
+        lottoEsternoCodice:
+          (esterno as { codice?: string } | null)?.codice ?? null,
+        kgCaricati: signed,
+        kgSistemati: 0,
+        kgDaSistemare: 0,
+      });
+    } else {
+      prev.kgCaricati = Math.round((prev.kgCaricati + signed) * 1000) / 1000;
+      if (!prev.lottoEsternoId) {
+        prev.lottoEsternoId =
+          (esterno as { id?: string } | null)?.id ??
+          (r.lotto_esterno_id as string | null) ??
+          null;
+        prev.lottoEsternoCodice =
+          (esterno as { codice?: string } | null)?.codice ?? null;
+      }
+    }
+  }
+  const sistemati = await kgSistematiPerLotti(
+    supabase,
+    [...by.values()].map((l) => ({
+      prodottoId: l.prodottoId,
+      lottoInterno: l.lottoInterno,
+    }))
+  );
+  const lotti = [...by.values()]
+    .map((l) => {
+      const kgSistemati = sistemati.get(`${l.prodottoId}|${l.lottoInterno}`) ?? 0;
+      const kgDaSistemare =
+        Math.round((l.kgCaricati - kgSistemati) * 1000) / 1000;
+      return { ...l, kgSistemati, kgDaSistemare };
+    })
+    .filter((l) => l.kgDaSistemare > 0.0005)
+    .sort((a, b) => a.prodottoCodice.localeCompare(b.prodottoCodice, "it"));
+  return { success: true, lotti };
+}
+
 export async function getOccupazionePostoAction(
   ubicazioneId: string
 ): Promise<
@@ -102,9 +297,7 @@ export async function getOccupazionePostoAction(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("magazzino_posto_occupazioni")
-    .select(
-      "id, ubicazione_id, tipo_elemento, imballaggio_voce_id, imballaggio_nome, quantita_elementi, codice_pallet, lotto_interno_codice, lotto_esterno_id, lotto_esterno_codice, note"
-    )
+    .select(OCC_SELECT)
     .eq("ubicazione_id", ubicazioneId)
     .eq("stato", "attivo")
     .is("deleted_at", null)
@@ -149,11 +342,34 @@ export async function occupaPostoAction(
 
   const { data: ubi } = await supabase
     .from("magazzino_ubicazioni")
-    .select("id, codice")
+    .select("id, codice, peso_max_kg")
     .eq("id", input.ubicazioneId)
     .is("deleted_at", null)
     .maybeSingle();
   if (!ubi) return { success: false, error: "Posto non trovato." };
+
+  const { data: ammesse } = await supabase
+    .from("magazzino_ubicazione_movimentazioni")
+    .select("imballaggio_voce_id")
+    .eq("ubicazione_id", input.ubicazioneId)
+    .is("deleted_at", null);
+  const okMov = new Set(
+    ((ammesse ?? []) as { imballaggio_voce_id: string }[]).map(
+      (r) => r.imballaggio_voce_id
+    )
+  );
+  if (!okMov.size) {
+    return {
+      success: false,
+      error: "Nel settaggio del posto indica almeno una movimentazione possibile.",
+    };
+  }
+  if (!okMov.has(input.movimentazioneVoceId)) {
+    return {
+      success: false,
+      error: "Questa movimentazione non è ammessa su questo posto.",
+    };
+  }
 
   const { data: attiva } = await supabase
     .from("magazzino_posto_occupazioni")
@@ -162,29 +378,71 @@ export async function occupaPostoAction(
     .eq("stato", "attivo")
     .is("deleted_at", null)
     .maybeSingle();
-  if (attiva) {
-    return { success: false, error: "Questo posto è già occupato." };
-  }
+  if (attiva) return { success: false, error: "Questo posto è già occupato." };
 
-  const { data: voce } = await supabase
+  const { data: voci } = await supabase
     .from("imballaggi_voci")
     .select("id, nome, stadio")
-    .eq("id", input.imballaggioVoceId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  const v = voce as { id: string; nome: string; stadio?: string } | null;
-  if (!v) return { success: false, error: "Voce di movimentazione non trovata." };
+    .in("id", [input.movimentazioneVoceId, input.elementoVoceId])
+    .is("deleted_at", null);
+  const byId = new Map(
+    ((voci ?? []) as { id: string; nome: string; stadio: string }[]).map((v) => [
+      v.id,
+      v,
+    ])
+  );
+  const mov = byId.get(input.movimentazioneVoceId);
+  const el = byId.get(input.elementoVoceId);
+  if (!mov || mov.stadio !== "movimentazione") {
+    return { success: false, error: "Tipo movimentazione non valido." };
+  }
+  if (!el || (el.stadio !== "confezione" && el.stadio !== "isolamento")) {
+    return {
+      success: false,
+      error: "Tipo elemento: scegli un cartone o un sacchetto, non una movimentazione.",
+    };
+  }
+  const tipoElemento = el.stadio as PostoElementoTipo;
 
-  let lottoEsternoId: string | null = null;
-  const lottoEsternoCodice = input.lottoEsternoCodice?.trim() || null;
-  if (lottoEsternoCodice) {
-    const { data: le } = await supabase
-      .from("lotti_esterni")
-      .select("id, codice")
-      .ilike("codice", lottoEsternoCodice)
-      .is("deleted_at", null)
-      .maybeSingle();
-    lottoEsternoId = (le as { id?: string } | null)?.id ?? null;
+  const lottiRes = await listLottiDaSistemareAction();
+  if (!lottiRes.success) return lottiRes;
+  const interno = input.lottoInternoCodice?.trim() || "";
+  const esternoId = input.lottoEsternoId?.trim() || "";
+  const lotto = lottiRes.lotti.find((l) => {
+    if (input.prodottoId && l.prodottoId !== input.prodottoId) return false;
+    if (interno && esternoId) {
+      return l.lottoInterno === interno && l.lottoEsternoId === esternoId;
+    }
+    if (interno) return l.lottoInterno === interno;
+    return Boolean(esternoId && l.lottoEsternoId === esternoId);
+  });
+  if (!lotto) {
+    return {
+      success: false,
+      error: "Lotto non disponibile: restano solo lotti con quantità ancora da sistemare.",
+    };
+  }
+
+  const kg =
+    input.pesoModo === "complessivo"
+      ? Number(input.pesoComplessivoKg)
+      : (input.pesiElementiKg ?? []).reduce((s, n) => s + n, 0);
+  const kgRound = Math.round(kg * 1000) / 1000;
+  if (!(kgRound > 0)) {
+    return { success: false, error: "Il peso da sistemare deve essere maggiore di zero." };
+  }
+  if (kgRound - lotto.kgDaSistemare > 0.0005) {
+    return {
+      success: false,
+      error: `Su questo lotto restano ${lotto.kgDaSistemare.toLocaleString("it-IT")} kg da sistemare.`,
+    };
+  }
+  const pesoMax = Number((ubi as { peso_max_kg?: number | null }).peso_max_kg);
+  if (Number.isFinite(pesoMax) && pesoMax > 0 && kgRound > pesoMax) {
+    return {
+      success: false,
+      error: `Il peso supera il massimo del posto (${pesoMax} kg).`,
+    };
   }
 
   const codicePallet = await codiceLibero(
@@ -193,20 +451,30 @@ export async function occupaPostoAction(
     "codice_pallet",
     6
   );
-  const qty = input.quantitaElementi ?? null;
-
+  const qty = input.quantitaElementi;
   const { data: created, error } = await supabase
     .from("magazzino_posto_occupazioni")
     .insert({
       ubicazione_id: input.ubicazioneId,
-      tipo_elemento: input.tipoElemento,
-      imballaggio_voce_id: v.id,
-      imballaggio_nome: v.nome,
+      tipo_elemento: tipoElemento,
+      movimentazione_voce_id: mov.id,
+      movimentazione_nome: mov.nome,
+      imballaggio_voce_id: el.id,
+      imballaggio_nome: el.nome,
       quantita_elementi: qty,
       codice_pallet: codicePallet,
-      lotto_interno_codice: input.lottoInternoCodice?.trim() || null,
-      lotto_esterno_id: lottoEsternoId,
-      lotto_esterno_codice: lottoEsternoCodice,
+      peso_modo: input.pesoModo,
+      peso_complessivo_kg:
+        input.pesoModo === "complessivo" ? kgRound : null,
+      peso_motivazione:
+        input.pesoModo === "complessivo"
+          ? (input.pesoMotivazione ?? "").trim()
+          : "",
+      prodotto_id: lotto.prodottoId,
+      kg_allocati: kgRound,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
       stato: "attivo",
       documento_stato: "bozza",
       note: input.note?.trim() || "",
@@ -226,7 +494,8 @@ export async function occupaPostoAction(
     peso_kg: number | string | null;
     scan_token: string;
   }> = [];
-  if (qty && qty > 0) {
+  if (input.pesoModo === "per_elemento") {
+    const pesi = input.pesiElementiKg ?? [];
     for (let i = 0; i < qty; i += 1) {
       const numero = await codiceLibero(
         supabase,
@@ -234,12 +503,12 @@ export async function occupaPostoAction(
         "numero",
         5
       );
-      const { data: el, error: elErr } = await supabase
+      const { data: elRow, error: elErr } = await supabase
         .from("magazzino_posto_elementi")
         .insert({
           occupazione_id: occId,
           numero,
-          peso_kg: input.pesoKg ?? null,
+          peso_kg: pesi[i] ?? null,
           scan_token: randomUUID(),
           sort_order: i,
           created_by: auth.userId,
@@ -247,29 +516,57 @@ export async function occupaPostoAction(
         })
         .select("id, numero, peso_kg, scan_token")
         .single();
-      if (elErr || !el) {
+      if (elErr || !elRow) {
         return {
           success: false,
           error: elErr?.message ?? "Creazione elemento fallita.",
         };
       }
-      elementi.push(el as (typeof elementi)[number]);
+      elementi.push(elRow as (typeof elementi)[number]);
     }
   }
+
+  const { error: allErr } = await supabase
+    .from("magazzino_posto_allocazioni")
+    .insert({
+      occupazione_id: occId,
+      ubicazione_id: input.ubicazioneId,
+      prodotto_id: lotto.prodottoId,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
+      kg: kgRound,
+      stato: "attivo",
+      documento_stato: "bozza",
+      created_by: auth.userId,
+      updated_by: auth.userId,
+    });
+  if (allErr) return { success: false, error: allErr.message };
 
   await syncStatoUbicazione(supabase, input.ubicazioneId, "occupato", auth.userId);
   const occupazione = mapOccupazione(
     {
       id: occId,
       ubicazione_id: input.ubicazioneId,
-      tipo_elemento: input.tipoElemento,
-      imballaggio_voce_id: v.id,
-      imballaggio_nome: v.nome,
+      tipo_elemento: tipoElemento,
+      movimentazione_voce_id: mov.id,
+      movimentazione_nome: mov.nome,
+      imballaggio_voce_id: el.id,
+      imballaggio_nome: el.nome,
       quantita_elementi: qty,
       codice_pallet: codicePallet,
-      lotto_interno_codice: input.lottoInternoCodice?.trim() || null,
-      lotto_esterno_id: lottoEsternoId,
-      lotto_esterno_codice: lottoEsternoCodice,
+      peso_modo: input.pesoModo,
+      peso_complessivo_kg:
+        input.pesoModo === "complessivo" ? kgRound : null,
+      peso_motivazione:
+        input.pesoModo === "complessivo"
+          ? (input.pesoMotivazione ?? "").trim()
+          : "",
+      prodotto_id: lotto.prodottoId,
+      kg_allocati: kgRound,
+      lotto_interno_codice: lotto.lottoInterno,
+      lotto_esterno_id: lotto.lottoEsternoId,
+      lotto_esterno_codice: lotto.lottoEsternoCodice,
       note: input.note?.trim() || "",
     },
     elementi
@@ -279,15 +576,19 @@ export async function occupaPostoAction(
     entity_id: occId,
     action: "create",
     actor_id: auth.userId,
-    summary: `Occupato posto ${(ubi as { codice?: string }).codice ?? ""} con pallet ${codicePallet}`,
+    summary: `Occupato posto ${(ubi as { codice?: string }).codice ?? ""} · ${mov.nome} · lotto ${lotto.lottoInterno}`,
     payload: {
       ubicazione_id: input.ubicazioneId,
-      tipo: input.tipoElemento,
-      imballaggio: v.nome,
+      movimentazione: mov.nome,
+      tipo_elemento: tipoElemento,
+      elemento: el.nome,
       quantita: qty,
+      peso_modo: input.pesoModo,
+      kg: kgRound,
       codice_pallet: codicePallet,
-      lotto_interno: occupazione.lottoInternoCodice,
-      lotto_esterno: occupazione.lottoEsternoCodice,
+      lotto_interno: lotto.lottoInterno,
+      lotto_esterno: lotto.lottoEsternoCodice,
+      prodotto_id: lotto.prodottoId,
     },
   });
   return { success: true, occupazione };
@@ -314,6 +615,16 @@ export async function liberaPostoAction(
   await supabase
     .from("magazzino_posto_elementi")
     .update({
+      deleted_at: now,
+      deleted_by: auth.userId,
+      updated_by: auth.userId,
+    })
+    .eq("occupazione_id", row.id)
+    .is("deleted_at", null);
+  await supabase
+    .from("magazzino_posto_allocazioni")
+    .update({
+      stato: "liberato",
       deleted_at: now,
       deleted_by: auth.userId,
       updated_by: auth.userId,

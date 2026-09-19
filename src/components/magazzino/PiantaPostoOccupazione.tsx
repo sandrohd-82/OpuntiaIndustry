@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { listImballaggiCiMagazzinoAction } from "@/app/actions/magazzino-lotti";
 import {
   getOccupazionePostoAction,
   liberaPostoAction,
+  listImballaggiPostoAction,
+  listLottiDaSistemareAction,
+  listMovimentazioniPostoAction,
   occupaPostoAction,
   rimuoviElementoPostoAction,
 } from "@/app/actions/magazzino-posto-occupazione";
@@ -13,26 +15,35 @@ import {
   POSTO_ELEMENTO_TIPO_LABEL,
   etichettaPayloadElemento,
   etichettaPayloadPallet,
-  type PostoElementoTipo,
+  type ImballaggioPostoOpt,
+  type LottoDaSistemare,
   type PostoOccupazione,
+  type PostoPesoModo,
 } from "@/lib/magazzino/posto-occupazione";
-import type { ImballaggioMagazzinoOpt } from "@/lib/magazzino/types";
 import type { MappaAreaDisegnata } from "@/lib/magazzino/ubicazioni";
 
 function stampaEtichette(occ: PostoOccupazione) {
   const w = window.open("", "_blank", "width=720,height=900");
   if (!w) return;
+  const mov = occ.movimentazioneNome || "movimentazione";
   const righe = [
-    `<h1>Pallet ${occ.codicePallet}</h1><p>${occ.imballaggioNome} · ${POSTO_ELEMENTO_TIPO_LABEL[occ.tipoElemento]}</p>`,
+    `<h1>${mov} ${occ.codicePallet}</h1><p>${occ.imballaggioNome} · ${POSTO_ELEMENTO_TIPO_LABEL[occ.tipoElemento]}</p>`,
     occ.lottoInternoCodice
       ? `<p>Lotto interno: ${occ.lottoInternoCodice}</p>`
       : "",
     occ.lottoEsternoCodice
       ? `<p>Lotto esterno: ${occ.lottoEsternoCodice}</p>`
       : "",
+    occ.kgAllocati != null
+      ? `<p>Peso: ${occ.kgAllocati} kg${
+          occ.pesoModo === "complessivo" && occ.pesoMotivazione
+            ? ` · ${occ.pesoMotivazione}`
+            : ""
+        }</p>`
+      : "",
     ...occ.elementi.map(
       (e) =>
-        `<div class="etichetta"><h2>N. ${e.numero}</h2><p>Pallet ${occ.codicePallet}${
+        `<div class="etichetta"><h2>N. ${e.numero}</h2><p>${mov} ${occ.codicePallet}${
           e.pesoKg != null ? ` · ${e.pesoKg} kg` : ""
         }</p><p class="mono">${etichettaPayloadElemento(occ.codicePallet, e.numero)}</p></div>`
     ),
@@ -44,7 +55,7 @@ body{font-family:sans-serif;padding:16px}
 h1,h2{margin:0 0 8px} .mono{font-family:monospace;font-size:12px}
 @media print { button{display:none} }
 </style></head><body>
-<p>Stampa etichette: numero + codice per QR/barre. Chiudi dopo la stampa.</p>
+<p>Stampa etichette: QR/barre. Chiudi dopo la stampa.</p>
 ${righe}
 <button onclick="window.print()">Stampa</button>
 </body></html>`);
@@ -64,33 +75,49 @@ export function PiantaPostoOccupazione({
   const [loading, setLoading] = useState(true);
   const [errore, setErrore] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tipo, setTipo] = useState<PostoElementoTipo>("confezione");
-  const [voceId, setVoceId] = useState("");
-  const [qty, setQty] = useState("");
-  const [peso, setPeso] = useState("");
-  const [lottoIn, setLottoIn] = useState("");
-  const [lottoEx, setLottoEx] = useState("");
-  const [confezioni, setConfezioni] = useState<ImballaggioMagazzinoOpt[]>([]);
-  const [isolamenti, setIsolamenti] = useState<ImballaggioMagazzinoOpt[]>([]);
+  const [movimenti, setMovimenti] = useState<ImballaggioPostoOpt[]>([]);
+  const [elementiCat, setElementiCat] = useState<ImballaggioPostoOpt[]>([]);
+  const [lotti, setLotti] = useState<LottoDaSistemare[]>([]);
+  const [movId, setMovId] = useState("");
+  const [elId, setElId] = useState("");
+  const [qty, setQty] = useState("1");
+  const [pesoModo, setPesoModo] = useState<PostoPesoModo>("per_elemento");
+  const [pesi, setPesi] = useState<string[]>([""]);
+  const [pesoTot, setPesoTot] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [lottoKey, setLottoKey] = useState("");
   const [stampaId, setStampaId] = useState<string | null>(null);
 
-  const voci = tipo === "isolamento" ? isolamenti : confezioni;
+  const qtyN = Math.max(1, Math.min(200, Math.round(Number(qty) || 1)));
+  const movSel = movimenti.find((m) => m.id === movId) ?? null;
+
+  useEffect(() => {
+    setPesi((prev) => {
+      const next = [...prev];
+      while (next.length < qtyN) next.push("");
+      return next.slice(0, qtyN);
+    });
+  }, [qtyN]);
 
   useEffect(() => {
     let live = true;
     void (async () => {
       setLoading(true);
-      const [o, cat] = await Promise.all([
+      const [o, cat, amm, lot] = await Promise.all([
         getOccupazionePostoAction(posto.ubicazioneId),
-        listImballaggiCiMagazzinoAction(),
+        listImballaggiPostoAction(),
+        listMovimentazioniPostoAction(posto.ubicazioneId),
+        listLottiDaSistemareAction(),
       ]);
       if (!live) return;
       if (o.success) setOcc(o.occupazione);
       else setErrore(o.error);
-      if (cat.success) {
-        setConfezioni(cat.confezioni);
-        setIsolamenti(cat.isolamenti);
+      if (cat.success) setElementiCat(cat.elementi);
+      if (amm.success) {
+        setMovimenti(amm.voci);
+        if (amm.voci[0] && !movId) setMovId(amm.voci[0].id);
       }
+      if (lot.success) setLotti(lot.lotti);
       setLoading(false);
     })();
     return () => {
@@ -103,20 +130,38 @@ export function PiantaPostoOccupazione({
     [occ]
   );
 
+  function scegliLotto(value: string) {
+    setLottoKey(value);
+  }
+
+  const lottoAttivo =
+    lotti.find((l) => `${l.prodottoId}|${l.lottoInterno}` === lottoKey) ??
+    lotti.find((l) => l.lottoEsternoId === lottoKey) ??
+    null;
+
   async function occupa() {
     setBusy(true);
     setErrore("");
-    const q = qty.trim() ? Number(qty.replace(",", ".")) : null;
-    const p = peso.trim() ? Number(peso.replace(",", ".")) : null;
+    const pesiKg = pesi.map((p) => Number(String(p).replace(",", ".")));
+    const tot = Number(pesoTot.replace(",", "."));
     const res = await occupaPostoAction({
       ubicazioneId: posto.ubicazioneId,
-      tipoElemento: tipo,
-      imballaggioVoceId: voceId,
-      quantitaElementi:
-        q != null && Number.isFinite(q) && q > 0 ? Math.round(q) : null,
-      pesoKg: p != null && Number.isFinite(p) && p > 0 ? p : null,
-      lottoInternoCodice: lottoIn.trim() || null,
-      lottoEsternoCodice: lottoEx.trim() || null,
+      movimentazioneVoceId: movId,
+      elementoVoceId: elId,
+      quantitaElementi: qtyN,
+      pesoModo,
+      pesiElementiKg:
+        pesoModo === "per_elemento"
+          ? pesiKg.filter((n) => Number.isFinite(n) && n > 0)
+          : undefined,
+      pesoComplessivoKg:
+        pesoModo === "complessivo" && Number.isFinite(tot) && tot > 0
+          ? tot
+          : null,
+      pesoMotivazione: motivo,
+      prodottoId: lottoAttivo?.prodottoId,
+      lottoInternoCodice: lottoAttivo?.lottoInterno ?? null,
+      lottoEsternoId: lottoAttivo?.lottoEsternoId ?? null,
     });
     setBusy(false);
     if (!res.success) {
@@ -165,9 +210,9 @@ export function PiantaPostoOccupazione({
             {posto.nome.trim() ? ` — ${posto.nome.trim()}` : ""}
           </p>
           <p className="mt-0.5 text-xs text-green-900">
-            Lo stato libero/occupato dipende dal pallet sul posto, non dai
-            settaggi. Quantità e pesi sono opzionali ora; diventeranno
-            obbligatori a gestionale operativo.
+            Solo le movimentazioni del settaggio. Un tipo elemento (cartone o
+            sacchetto). Lotto obbligatorio: interno ed esterno si compilano
+            insieme.
           </p>
         </div>
         <button
@@ -184,29 +229,29 @@ export function PiantaPostoOccupazione({
       ) : occ ? (
         <div className="mt-3 space-y-3">
           <p className="text-sm text-green-950">
-            <span className="font-semibold">Pallet {occ.codicePallet}</span>
+            <span className="font-semibold">
+              {occ.movimentazioneNome || "Pallet"} {occ.codicePallet}
+            </span>
             {" · "}
-            {POSTO_ELEMENTO_TIPO_LABEL[occ.tipoElemento]} {occ.imballaggioNome}
+            {occ.imballaggioNome}
             {occ.quantitaElementi != null
               ? ` · ${occ.quantitaElementi} elementi`
               : ""}
+            {occ.kgAllocati != null ? ` · ${occ.kgAllocati} kg` : ""}
           </p>
           <p className="text-xs text-green-900">
             Lotto interno: {occ.lottoInternoCodice || "—"} · Lotto esterno:{" "}
             {occ.lottoEsternoCodice || "—"}
-            {occ.lottoEsternoId
-              ? " (collegato allo storico lotto)"
-              : occ.lottoEsternoCodice
-                ? " (codice annotato; storico quando il lotto è in anagrafica)"
-                : ""}
           </p>
           <div className="flex flex-wrap gap-4">
             <div>
-              <p className="mb-1 text-xs font-medium">QR pallet</p>
+              <p className="mb-1 text-xs font-medium">
+                QR {occ.movimentazioneNome || "pallet"}
+              </p>
               <BarcodePreview value={palletPayload} format="qrcode" scale={3} />
             </div>
             <div>
-              <p className="mb-1 text-xs font-medium">Barre pallet</p>
+              <p className="mb-1 text-xs font-medium">Barre complessivo</p>
               <BarcodePreview value={occ.codicePallet} format="code128" />
             </div>
           </div>
@@ -274,9 +319,8 @@ export function PiantaPostoOccupazione({
             </table>
           ) : (
             <p className="text-xs text-green-900">
-              Nessun elemento numerato: solo pallet. Puoi liberare il posto o
-              aggiungere elementi in un secondo momento quando il conteggio
-              sarà obbligatorio.
+              Peso complessivo: un solo codice sulla movimentazione.
+              {occ.pesoMotivazione ? ` Motivazione: ${occ.pesoMotivazione}` : ""}
             </p>
           )}
           <div className="flex flex-wrap gap-2">
@@ -299,83 +343,185 @@ export function PiantaPostoOccupazione({
         </div>
       ) : (
         <div className="mt-3 space-y-3">
-          <div className="flex flex-wrap gap-2">
-            {(["isolamento", "confezione"] as PostoElementoTipo[]).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => {
-                  setTipo(t);
-                  setVoceId("");
-                }}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                  tipo === t
-                    ? "border-green-900 bg-green-800 text-white"
-                    : "border-slate-300 bg-white text-slate-700"
-                }`}
-              >
-                Aggiungi {POSTO_ELEMENTO_TIPO_LABEL[t]}
-              </button>
-            ))}
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <label className="text-xs font-medium">
-              Tipo movimentazione
-              <select
-                value={voceId}
-                onChange={(e) => setVoceId(e.target.value)}
-                className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
-              >
-                <option value="">Scegli…</option>
-                {voci.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.nome} ({v.codice})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-medium">
-              Elementi sul pallet (opz.)
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="text-xs font-medium">
-              Peso per elemento kg (opz.)
-              <input
-                type="number"
-                min={0.001}
-                step="any"
-                value={peso}
-                onChange={(e) => setPeso(e.target.value)}
-                className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="text-xs font-medium">
-              Lotto interno (opz.)
-              <input
-                value={lottoIn}
-                onChange={(e) => setLottoIn(e.target.value)}
-                className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="text-xs font-medium">
-              Lotto esterno (opz.)
-              <input
-                value={lottoEx}
-                onChange={(e) => setLottoEx(e.target.value)}
-                className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
-              />
-            </label>
-          </div>
+          {movimenti.length === 0 ? (
+            <p className="text-sm text-amber-900">
+              Prima imposta le movimentazioni possibili nel settaggio di questo
+              posto.
+            </p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-medium">
+                1) Tipo movimentazione
+                <select
+                  value={movId}
+                  onChange={(e) => setMovId(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                >
+                  <option value="">Scegli…</option>
+                  {movimenti.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.nome} ({v.codice})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium">
+                2) Numero elementi su {movSel?.nome || "…"}
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs font-medium sm:col-span-2">
+                3) Tipo elemento (cartone o sacchetto, non movimentazione)
+                <select
+                  value={elId}
+                  onChange={(e) => setElId(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                >
+                  <option value="">Scegli uno…</option>
+                  {elementiCat.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.stadio === "confezione" ? "Cartone" : "Sacchetto"} ·{" "}
+                      {v.nome} ({v.codice})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="sm:col-span-2">
+                <p className="text-xs font-medium">4) Peso</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPesoModo("per_elemento")}
+                    className={`rounded-lg border px-2 py-1 text-xs font-semibold ${
+                      pesoModo === "per_elemento"
+                        ? "border-green-900 bg-green-800 text-white"
+                        : "border-slate-300 bg-white"
+                    }`}
+                  >
+                    Peso per elemento
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPesoModo("complessivo")}
+                    className={`rounded-lg border px-2 py-1 text-xs font-semibold ${
+                      pesoModo === "complessivo"
+                        ? "border-green-900 bg-green-800 text-white"
+                        : "border-slate-300 bg-white"
+                    }`}
+                  >
+                    Peso complessivo {movSel?.nome || ""}
+                  </button>
+                </div>
+                {pesoModo === "per_elemento" ? (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {pesi.map((p, i) => (
+                      <label key={i} className="text-xs">
+                        Peso elemento {i + 1} (kg)
+                        <input
+                          type="number"
+                          min={0.001}
+                          step="any"
+                          value={p}
+                          onChange={(e) =>
+                            setPesi((prev) => {
+                              const next = [...prev];
+                              next[i] = e.target.value;
+                              return next;
+                            })
+                          }
+                          className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs">
+                      Peso complessivo {movSel?.nome || ""} (kg)
+                      <input
+                        type="number"
+                        min={0.001}
+                        step="any"
+                        value={pesoTot}
+                        onChange={(e) => setPesoTot(e.target.value)}
+                        className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <label className="text-xs">
+                      Motivazione (obbligatoria)
+                      <input
+                        value={motivo}
+                        onChange={(e) => setMotivo(e.target.value)}
+                        className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+              <label className="text-xs font-medium">
+                5) Lotto interno
+                <select
+                  value={lottoAttivo ? `${lottoAttivo.prodottoId}|${lottoAttivo.lottoInterno}` : ""}
+                  onChange={(e) => scegliLotto(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                >
+                  <option value="">Scegli lotto…</option>
+                  {lotti.map((l) => (
+                    <option
+                      key={`${l.prodottoId}|${l.lottoInterno}`}
+                      value={`${l.prodottoId}|${l.lottoInterno}`}
+                    >
+                      {l.lottoInterno} · {l.prodottoCodice} ·{" "}
+                      {l.kgDaSistemare.toLocaleString("it-IT")} kg da sistemare
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs font-medium">
+                5) Lotto esterno
+                <select
+                  value={lottoAttivo?.lottoEsternoId ?? ""}
+                  onChange={(e) => scegliLotto(e.target.value)}
+                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                >
+                  <option value="">Scegli lotto…</option>
+                  {lotti
+                    .filter((l) => l.lottoEsternoId)
+                    .map((l) => (
+                      <option key={l.lottoEsternoId!} value={l.lottoEsternoId!}>
+                        {l.lottoEsternoCodice} · {l.prodottoCodice} ·{" "}
+                        {l.kgDaSistemare.toLocaleString("it-IT")} kg da
+                        sistemare
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {lottoAttivo ? (
+                <p className="sm:col-span-2 text-xs text-green-900">
+                  Collegati: interno <strong>{lottoAttivo.lottoInterno}</strong>
+                  {lottoAttivo.lottoEsternoCodice
+                    ? ` · esterno ${lottoAttivo.lottoEsternoCodice}`
+                    : " · esterno non ancora associato"}
+                  . Residuo {lottoAttivo.kgDaSistemare.toLocaleString("it-IT")} kg
+                  su {lottoAttivo.kgCaricati.toLocaleString("it-IT")} kg caricati.
+                </p>
+              ) : lotti.length === 0 ? (
+                <p className="sm:col-span-2 text-xs text-amber-900">
+                  Nessun lotto da sistemare. Carica quantità da Magazzino →
+                  Prodotti Agrinsicilia → Inserisci Quantità.
+                </p>
+              ) : null}
+            </div>
+          )}
           <button
             type="button"
-            disabled={busy || !voceId}
+            disabled={busy || !movId || !elId || !lottoAttivo}
             onClick={() => void occupa()}
             className="rounded-lg bg-green-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
           >

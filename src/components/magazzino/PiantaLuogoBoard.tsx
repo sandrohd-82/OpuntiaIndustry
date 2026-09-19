@@ -70,12 +70,21 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         .map((m) => m.vistaEtichetta || "Vista")
     : [];
 
-  function applica(ubicazioneId: string, capienza: UbicazioneCapienza) {
+  function applica(
+    ubicazioneId: string,
+    capienza: UbicazioneCapienza,
+    movIds?: string[]
+  ) {
     setMappe((prev) =>
       prev.map((m) => ({
         ...m,
         aree: (m.aree ?? []).map((a) =>
-          a.ubicazioneId === ubicazioneId ? applicaCapienza(a, capienza) : a
+          a.ubicazioneId === ubicazioneId
+            ? {
+                ...applicaCapienza(a, capienza),
+                movimentazioneVoceIds: movIds ?? a.movimentazioneVoceIds,
+              }
+            : a
         ),
       }))
     );

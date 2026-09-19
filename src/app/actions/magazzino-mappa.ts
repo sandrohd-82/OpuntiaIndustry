@@ -3402,6 +3402,65 @@ export async function aggiornaUbicazioneCapienzaAction(
     .eq("id", input.ubicazioneId)
     .is("deleted_at", null);
   if (error) return { success: false, error: error.message };
+
+  if (input.movimentazioneVoceIds) {
+    const wanted = [...new Set(input.movimentazioneVoceIds)];
+    if (wanted.length) {
+      const { data: voci } = await supabase
+        .from("imballaggi_voci")
+        .select("id, stadio")
+        .in("id", wanted)
+        .is("deleted_at", null);
+      const ok = ((voci ?? []) as { id: string; stadio: string }[]).filter(
+        (v) => v.stadio === "movimentazione"
+      );
+      if (ok.length !== wanted.length) {
+        return {
+          success: false,
+          error: "In settaggio si possono scegliere solo movimentazioni (pallet, bins, …).",
+        };
+      }
+    }
+    const now = new Date().toISOString();
+    const { data: existing } = await supabase
+      .from("magazzino_ubicazione_movimentazioni")
+      .select("id, imballaggio_voce_id")
+      .eq("ubicazione_id", input.ubicazioneId)
+      .is("deleted_at", null);
+    const have = new Map(
+      ((existing ?? []) as { id: string; imballaggio_voce_id: string }[]).map(
+        (r) => [r.imballaggio_voce_id, r.id]
+      )
+    );
+    const keep = new Set(wanted);
+    const toSoft = [...have.entries()].filter(([vid]) => !keep.has(vid));
+    if (toSoft.length) {
+      await supabase
+        .from("magazzino_ubicazione_movimentazioni")
+        .update({
+          deleted_at: now,
+          deleted_by: auth.userId,
+          updated_by: auth.userId,
+        })
+        .in(
+          "id",
+          toSoft.map(([, id]) => id)
+        );
+    }
+    for (const vid of wanted) {
+      if (have.has(vid)) continue;
+      const { error: insErr } = await supabase
+        .from("magazzino_ubicazione_movimentazioni")
+        .insert({
+          ubicazione_id: input.ubicazioneId,
+          imballaggio_voce_id: vid,
+          created_by: auth.userId,
+          updated_by: auth.userId,
+        });
+      if (insErr) return { success: false, error: insErr.message };
+    }
+  }
+
   const capienza = capienzaDaRiga({
     peso_max_kg: input.pesoMaxKg ?? null,
     misura_unita: input.misuraUnita,
@@ -3436,6 +3495,7 @@ export async function aggiornaUbicazioneCapienzaAction(
         profondita: input.minProfondita ?? null,
         altezza: input.minAltezza ?? null,
       },
+      movimentazione_voce_ids: input.movimentazioneVoceIds ?? [],
     },
   });
   return { success: true, capienza };

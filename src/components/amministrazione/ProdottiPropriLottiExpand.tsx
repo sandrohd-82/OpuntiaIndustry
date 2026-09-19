@@ -57,6 +57,8 @@ export function ProdottiPropriLottiExpand({
               <tr className="text-[10px] uppercase tracking-wide text-[var(--muted)]">
                 <th className="pb-2 pr-3 font-medium">Lotto interno</th>
                 <th className="pb-2 pr-3 font-medium">Quantità</th>
+                <th className="pb-2 pr-3 font-medium">Da sistemare</th>
+                <th className="pb-2 pr-3 font-medium">Posti</th>
                 <th className="pb-2 pr-3 font-medium">Fogli / lotto esterno</th>
                 <th className="pb-2 pr-3 font-medium">Confezione / isolamento</th>
                 <th className="pb-2 font-medium" />
@@ -70,6 +72,14 @@ export function ProdottiPropriLottiExpand({
                   </td>
                   <td className="py-2 pr-3 tabular-nums">
                     {l.quantitaKg.toLocaleString("it-IT")} kg
+                  </td>
+                  <td className="py-2 pr-3 tabular-nums">
+                    {l.kgDaSistemare.toLocaleString("it-IT")} kg
+                  </td>
+                  <td className="py-2 pr-3 text-slate-700">
+                    {l.postiEtichette.length
+                      ? l.postiEtichette.join(" · ")
+                      : "—"}
                   </td>
                   <td className="py-2 pr-3 text-slate-700">
                     {l.foglioCodice ? `Lav. ${l.foglioCodice}` : "—"}

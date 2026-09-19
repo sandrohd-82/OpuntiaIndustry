@@ -337,6 +337,9 @@ export async function listLottiAgrinsiciliaProdottoAction(
         isolamentoNome: (iso as { nome?: string } | null)?.nome ?? null,
         daCompletareCi: daCompletare,
         confezionamentoRiepilogo: null,
+        kgSistemati: 0,
+        kgDaSistemare: qty,
+        postiEtichette: [],
       });
     } else {
       prev.quantitaKg = Math.round((prev.quantitaKg + qty) * 1000) / 1000;
@@ -383,6 +386,46 @@ export async function listLottiAgrinsiciliaProdottoAction(
       } else {
         row.daCompletareCi = false;
       }
+    }
+  }
+
+  if (lotti.length) {
+    const { data: alls } = await supabase
+      .from("magazzino_posto_allocazioni")
+      .select(
+        "prodotto_id, lotto_interno_codice, kg, ubicazione:magazzino_ubicazioni(codice, nome)"
+      )
+      .eq("prodotto_id", prodottoId)
+      .eq("stato", "attivo")
+      .is("deleted_at", null)
+      .in(
+        "lotto_interno_codice",
+        lotti.map((l) => l.lottoCodice)
+      );
+    for (const a of (alls ?? []) as Array<{
+      prodotto_id: string;
+      lotto_interno_codice: string;
+      kg: number;
+      ubicazione:
+        | { codice?: string; nome?: string }
+        | { codice?: string; nome?: string }[]
+        | null;
+    }>) {
+      const row = byLotto.get(a.lotto_interno_codice);
+      if (!row) continue;
+      const kg = Number(a.kg) || 0;
+      row.kgSistemati = Math.round((row.kgSistemati + kg) * 1000) / 1000;
+      const u = Array.isArray(a.ubicazione) ? a.ubicazione[0] : a.ubicazione;
+      const etichetta = [u?.codice, u?.nome].filter(Boolean).join(" — ");
+      if (etichetta) {
+        row.postiEtichette.push(
+          `${etichetta} (${kg.toLocaleString("it-IT")} kg)`
+        );
+      }
+    }
+    for (const row of lotti) {
+      row.kgDaSistemare =
+        Math.round((row.quantitaKg - row.kgSistemati) * 1000) / 1000;
     }
   }
 
