@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   listImballaggiPostoAction,
   listMovimentazioniPostoAction,
@@ -37,7 +37,11 @@ export function PiantaPostoPannello({
   posto: MappaAreaDisegnata;
   viste: string[];
   fontiSettaggio?: FonteSettaggioPosto[];
-  onSalvato: (ubicazioneId: string, capienza: UbicazioneCapienza) => void;
+  onSalvato: (
+    ubicazioneId: string,
+    capienza: UbicazioneCapienza,
+    movimentazioneVoceIds?: string[]
+  ) => void;
   onChiudi: () => void;
 }) {
   const [peso, setPeso] = useState("");
@@ -54,6 +58,7 @@ export function PiantaPostoPannello({
   const [copiaDa, setCopiaDa] = useState("");
   const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
   const [movIds, setMovIds] = useState<string[]>([]);
+  const ignoraCaricoMov = useRef(false);
 
   function applicaFonte(c: UbicazioneCapienza) {
     setPeso(campo(c.pesoMaxKg));
@@ -71,6 +76,7 @@ export function PiantaPostoPannello({
     setErrore("");
     setOk("");
     setCopiaDa("");
+    ignoraCaricoMov.current = false;
     let live = true;
     void (async () => {
       const [cat, amm] = await Promise.all([
@@ -86,7 +92,9 @@ export function PiantaPostoPannello({
       ]);
       if (!live) return;
       if (cat.success) setCatalogoMov(cat.movimentazioni);
-      if (amm.success) setMovIds(amm.ristretto ? amm.ids : []);
+      if (amm.success && !ignoraCaricoMov.current) {
+        setMovIds(amm.ristretto ? amm.ids : []);
+      }
     })();
     return () => {
       live = false;
@@ -116,7 +124,7 @@ export function PiantaPostoPannello({
       return;
     }
     setOk("Settaggi salvati.");
-    onSalvato(posto.ubicazioneId, res.capienza);
+    onSalvato(posto.ubicazioneId, res.capienza, movIds);
   }
 
   return (
@@ -156,7 +164,11 @@ export function PiantaPostoPannello({
             const fonte = fontiSettaggio.find((f) => f.ubicazioneId === id);
             if (!fonte) return;
             applicaFonte(fonte.capienza);
-            setOk(`Copiati i settaggi da «${fonte.nome}». Salva per applicarli.`);
+            ignoraCaricoMov.current = true;
+            setMovIds([...(fonte.movimentazioneVoceIds ?? [])]);
+            setOk(
+              `Copiati i settaggi da «${fonte.nome}» (misure e movimentazioni). Salva per applicarli.`
+            );
             setErrore("");
             void listMovimentazioniPostoAction(id).then((res) => {
               if (!res.success) return;

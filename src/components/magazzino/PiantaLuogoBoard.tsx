@@ -17,7 +17,10 @@ import {
   type FonteSettaggioPosto,
   type UbicazioneCapienza,
 } from "@/lib/magazzino/ubicazioni";
-import { getOccupazionePostoAction } from "@/app/actions/magazzino-posto-occupazione";
+import {
+  getOccupazionePostoAction,
+  listMovimentazioniPostiAction,
+} from "@/app/actions/magazzino-posto-occupazione";
 import { riepilogoOccupazionePosto } from "@/lib/magazzino/posto-occupazione";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
 import {
@@ -63,6 +66,9 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const [seqBusy, setSeqBusy] = useState(false);
   const [seqError, setSeqError] = useState<string | null>(null);
   const [seqOk, setSeqOk] = useState<string | null>(null);
+  const [movPerPosto, setMovPerPosto] = useState<Record<string, string[]>>(
+    {}
+  );
   const serverOrdine = luogo.mappe.map((m) => m.id).join(",");
 
   useEffect(() => {
@@ -86,11 +92,42 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const aree = areeElencoConsultazione(areeUnite);
   const haLivelli = tutteAree.some((a) => a.parentId);
   const posto = tutteAree.find((a) => a.ubicazioneId === selezionata) ?? null;
+
+  const postiIdsKey = useMemo(
+    () =>
+      [...new Set(areeUnite.map((a) => a.ubicazioneId).filter(Boolean))]
+        .sort()
+        .join(","),
+    [areeUnite]
+  );
+
+  useEffect(() => {
+    const ids = postiIdsKey ? postiIdsKey.split(",") : [];
+    if (!ids.length) {
+      setMovPerPosto({});
+      return;
+    }
+    let live = true;
+    void listMovimentazioniPostiAction(ids).then((res) => {
+      if (!live || !res.success) return;
+      setMovPerPosto(res.perPosto);
+    });
+    return () => {
+      live = false;
+    };
+  }, [postiIdsKey]);
+
   const fontiSettaggio = useMemo((): FonteSettaggioPosto[] => {
     const byId = new Map(areeUnite.map((a) => [a.ubicazioneId, a]));
     const out: FonteSettaggioPosto[] = [];
     for (const r of aree) {
-      if (!r.haSettaggi || r.id === posto?.ubicazioneId) continue;
+      const movIds = movPerPosto[r.id] ?? [];
+      if (
+        (!r.haSettaggi && !movIds.length) ||
+        r.id === posto?.ubicazioneId
+      ) {
+        continue;
+      }
       const src = byId.get(r.id);
       if (!src) continue;
       const codice = r.codice.trim();
@@ -99,10 +136,11 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         ubicazioneId: r.id,
         nome: codice,
         capienza: capienzaDi(src),
+        movimentazioneVoceIds: movIds,
       });
     }
     return out.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
-  }, [aree, areeUnite, posto?.ubicazioneId]);
+  }, [aree, areeUnite, movPerPosto, posto?.ubicazioneId]);
 
   const occupazioneSel = posto
     ? capienzaDi(posto).occupazione
@@ -138,7 +176,11 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         .map((m) => m.vistaEtichetta || "Vista")
     : [];
 
-  function applica(ubicazioneId: string, capienza: UbicazioneCapienza) {
+  function applica(
+    ubicazioneId: string,
+    capienza: UbicazioneCapienza,
+    movimentazioneVoceIds?: string[]
+  ) {
     setMappe((prev) =>
       prev.map((m) => ({
         ...m,
@@ -147,6 +189,12 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
         ),
       }))
     );
+    if (movimentazioneVoceIds) {
+      setMovPerPosto((prev) => ({
+        ...prev,
+        [ubicazioneId]: movimentazioneVoceIds,
+      }));
+    }
   }
 
   function setStato(

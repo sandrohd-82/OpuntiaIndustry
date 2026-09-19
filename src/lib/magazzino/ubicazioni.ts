@@ -161,6 +161,8 @@ export type FonteSettaggioPosto = {
   /** Codice posto in elenco (A1, D2, C3), non il nome descrittivo. */
   nome: string;
   capienza: UbicazioneCapienza;
+  /** Vuoto = nessuna restrizione (tutte le movimentazioni del catalogo). */
+  movimentazioneVoceIds: string[];
 };
 
 export function applicaCapienza(

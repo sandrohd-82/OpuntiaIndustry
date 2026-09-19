@@ -196,6 +196,37 @@ export async function listMovimentazioniPostoAction(
   };
 }
 
+export async function listMovimentazioniPostiAction(
+  ubicazioneIds: string[]
+): Promise<
+  | { success: true; perPosto: Record<string, string[]> }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  const ids = [...new Set(ubicazioneIds.filter(Boolean))];
+  const perPosto: Record<string, string[]> = {};
+  for (const id of ids) perPosto[id] = [];
+  if (!ids.length) return { success: true, perPosto };
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("magazzino_ubicazione_movimentazioni")
+    .select("ubicazione_id, imballaggio_voce_id")
+    .in("ubicazione_id", ids)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+  for (const r of (data ?? []) as Array<{
+    ubicazione_id: string;
+    imballaggio_voce_id: string;
+  }>) {
+    const list = perPosto[r.ubicazione_id] ?? [];
+    if (!list.includes(r.imballaggio_voce_id)) {
+      list.push(r.imballaggio_voce_id);
+    }
+    perPosto[r.ubicazione_id] = list;
+  }
+  return { success: true, perPosto };
+}
+
 const TIPI_USCITA = new Set([
   "prelievo",
   "scarico",
