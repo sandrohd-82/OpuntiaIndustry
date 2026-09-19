@@ -1,12 +1,21 @@
 "use client";
 
-import type { MouseEvent } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type RefObject,
+} from "react";
+import { FaGear } from "react-icons/fa6";
 import {
   ritaglioDisegnoMappa,
   type MappaMagazzino,
 } from "@/lib/magazzino/mappa";
 import {
   capienzaDi,
+  postoHaSettaggi,
   stileAreaPosto,
   type MappaAreaDisegnata,
 } from "@/lib/magazzino/ubicazioni";
@@ -52,21 +61,87 @@ function hitArea(
   return null;
 }
 
+function areaCssBox(
+  svg: SVGSVGElement,
+  area: Pick<MappaAreaDisegnata, "x" | "y" | "width" | "height">
+) {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const toScreen = (x: number, y: number) => {
+    const pt = svg.createSVGPoint();
+    pt.x = x;
+    pt.y = y;
+    return pt.matrixTransform(ctm);
+  };
+  const a = toScreen(area.x, area.y);
+  const b = toScreen(area.x + area.width, area.y + area.height);
+  const host = svg.getBoundingClientRect();
+  return {
+    left: a.x - host.left,
+    top: a.y - host.top,
+    width: Math.max(0, b.x - a.x),
+    height: Math.max(0, b.y - a.y),
+  };
+}
+
 export function PiantaVistaRitaglio({
   mappa,
   accese,
   primariaId,
   onSeleziona,
+  occupazioneTesto,
+  occupazioneLoading,
+  onSettaggio,
+  onOccupa,
+  onSettaggioAnchor,
 }: {
   mappa: MappaMagazzino;
   accese?: Set<string>;
   primariaId?: string | null;
   onSeleziona?: (ubicazioneId: string | null) => void;
+  occupazioneTesto?: string | null;
+  occupazioneLoading?: boolean;
+  onSettaggio?: (ubicazioneId: string) => void;
+  onOccupa?: (ubicazioneId: string) => void;
+  onSettaggioAnchor?: (rect: DOMRect | null) => void;
 }) {
   const extra = (mappa.riferimenti ?? []).flatMap((g) => estremiCalcoDest(g));
   const box = ritaglioDisegnoMappa(mappa.linee, mappa.aree ?? [], extra);
   const g = Math.max(mappa.grigliaPx, 1);
   const glowId = `posto-glow-${mappa.id}`;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const gearRef = useRef<HTMLButtonElement>(null);
+  const primaria = (mappa.aree ?? []).find(
+    (a) => a.ubicazioneId && a.ubicazioneId === primariaId
+  );
+  const [overlay, setOverlay] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  const syncOverlay = useCallback(() => {
+    const svg = svgRef.current;
+    if (!svg || !primaria) {
+      setOverlay(null);
+      return;
+    }
+    setOverlay(areaCssBox(svg, primaria));
+  }, [primaria]);
+
+  useLayoutEffect(() => {
+    syncOverlay();
+    const svg = svgRef.current;
+    if (!svg) return;
+    const ro = new ResizeObserver(() => syncOverlay());
+    ro.observe(svg);
+    window.addEventListener("resize", syncOverlay);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", syncOverlay);
+    };
+  }, [syncOverlay]);
 
   function onClick(e: MouseEvent<SVGSVGElement>) {
     if (!onSeleziona) return;
@@ -81,8 +156,9 @@ export function PiantaVistaRitaglio({
       <p className="shrink-0 border-b border-[var(--border)] px-3 py-1.5 text-sm font-medium text-slate-800">
         {mappa.vistaEtichetta || "Vista"}
       </p>
-      <div className="min-h-0 flex-1 p-2">
+      <div className="relative min-h-0 flex-1 p-2">
         <svg
+          ref={svgRef}
           viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
           className={`h-full w-full ${onSeleziona ? "cursor-pointer" : ""}`}
           preserveAspectRatio="xMidYMid meet"
@@ -190,18 +266,20 @@ export function PiantaVistaRitaglio({
                   stroke={stile.stroke}
                   strokeWidth={stile.strokeWidth}
                 />
-                <text
-                  x={a.x + a.width / 2}
-                  y={a.y + a.height / 2}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill={stile.text}
-                  fontSize={fontTarga(a.width, a.height, targa)}
-                  fontWeight={700}
-                  pointerEvents="none"
-                >
-                  {targa}
-                </text>
+                {primaria ? null : (
+                  <text
+                    x={a.x + a.width / 2}
+                    y={a.y + a.height / 2}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill={stile.text}
+                    fontSize={fontTarga(a.width, a.height, targa)}
+                    fontWeight={700}
+                    pointerEvents="none"
+                  >
+                    {targa}
+                  </text>
+                )}
               </g>
             );
           })}
@@ -219,6 +297,131 @@ export function PiantaVistaRitaglio({
             />
           ))}
         </svg>
+        {primaria && overlay && overlay.width > 4 && overlay.height > 4 ? (
+          <PostoOverlay
+            area={primaria}
+            box={overlay}
+            occupato={capienzaDi(primaria).occupazione === "occupato"}
+            haSettaggi={postoHaSettaggi(primaria)}
+            testo={occupazioneTesto ?? null}
+            loading={Boolean(occupazioneLoading)}
+            gearRef={gearRef}
+            onSettaggio={
+              onSettaggio
+                ? () => {
+                    onSettaggio(primaria.ubicazioneId);
+                    const el = gearRef.current;
+                    onSettaggioAnchor?.(el ? el.getBoundingClientRect() : null);
+                  }
+                : undefined
+            }
+            onOccupa={
+              onOccupa ? () => onOccupa(primaria.ubicazioneId) : undefined
+            }
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PostoOverlay({
+  area,
+  box,
+  occupato,
+  haSettaggi,
+  testo,
+  loading,
+  gearRef,
+  onSettaggio,
+  onOccupa,
+}: {
+  area: MappaAreaDisegnata;
+  box: { left: number; top: number; width: number; height: number };
+  occupato: boolean;
+  haSettaggi: boolean;
+  testo: string | null;
+  loading: boolean;
+  gearRef: RefObject<HTMLButtonElement | null>;
+  onSettaggio?: () => void;
+  onOccupa?: () => void;
+}) {
+  const targa = area.codice.trim() || area.nome.trim() || "Posto";
+  const chiaro = occupato;
+  return (
+    <div
+      className="pointer-events-none absolute overflow-hidden"
+      style={{
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        height: box.height,
+      }}
+    >
+      <div
+        className={`flex h-full min-h-0 flex-col p-[4%] ${
+          chiaro ? "text-emerald-50" : "text-teal-950"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-1">
+          <p
+            className="min-w-0 truncate text-[10px] font-bold leading-tight sm:text-[11px]"
+            title={targa}
+          >
+            {targa}
+          </p>
+          {onSettaggio ? (
+            <button
+              ref={gearRef}
+              type="button"
+              title="Settaggio"
+              aria-label={`Settaggio ${targa}`}
+              className={`pointer-events-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border shadow-sm sm:h-6 sm:w-6 ${
+                haSettaggi
+                  ? "border-green-950 bg-green-800 text-white hover:bg-green-900"
+                  : "border-slate-500 bg-white text-slate-800 hover:bg-slate-100"
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSettaggio();
+              }}
+            >
+              <FaGear className="h-3 w-3" />
+            </button>
+          ) : null}
+        </div>
+        <div className="mt-0.5 min-h-0 flex-1 overflow-auto text-[9px] font-semibold leading-snug sm:text-[10px]">
+          {occupato ? (
+            <button
+              type="button"
+              className={`pointer-events-auto text-left ${
+                onOccupa ? "hover:underline" : ""
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOccupa?.();
+              }}
+            >
+              {loading ? "Occupato…" : testo?.trim() || "Occupato"}
+            </button>
+          ) : (
+            <div className="flex flex-col items-start gap-1">
+              <p>Libero</p>
+              {onOccupa ? (
+                <button
+                  type="button"
+                  className="pointer-events-auto rounded border border-green-800 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-green-950 shadow-sm hover:bg-green-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOccupa();
+                  }}
+                >
+                  Occupa
+                </button>
+              ) : null}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

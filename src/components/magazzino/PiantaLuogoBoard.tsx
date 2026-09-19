@@ -17,9 +17,12 @@ import {
   type FonteSettaggioPosto,
   type UbicazioneCapienza,
 } from "@/lib/magazzino/ubicazioni";
+import { getOccupazionePostoAction } from "@/app/actions/magazzino-posto-occupazione";
+import { riepilogoOccupazionePosto } from "@/lib/magazzino/posto-occupazione";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
 import { PiantaPostoPannello } from "@/components/magazzino/PiantaPostoPannello";
 import { PiantaPostoOccupazione } from "@/components/magazzino/PiantaPostoOccupazione";
+import { PiantaPostoNuvola } from "@/components/magazzino/PiantaPostoNuvola";
 
 function muoviVista(
   list: MappaMagazzino[],
@@ -43,6 +46,14 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const [pannello, setPannello] = useState<"settaggio" | "occupazione" | null>(
     null
   );
+  const [settaggioAnchor, setSettaggioAnchor] = useState<{
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+  } | null>(null);
+  const [occTesto, setOccTesto] = useState<string | null>(null);
+  const [occLoad, setOccLoad] = useState(false);
   const [modificaSequenza, setModificaSequenza] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -89,6 +100,33 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     }
     return out.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
   }, [aree, areeUnite, posto?.ubicazioneId]);
+
+  const occupazioneSel = posto
+    ? capienzaDi(posto).occupazione
+    : "libero";
+
+  useEffect(() => {
+    if (!selezionata || occupazioneSel !== "occupato") {
+      setOccTesto(null);
+      setOccLoad(false);
+      return;
+    }
+    let live = true;
+    setOccLoad(true);
+    void getOccupazionePostoAction(selezionata).then((res) => {
+      if (!live) return;
+      setOccLoad(false);
+      if (res.success && res.occupazione) {
+        setOccTesto(riepilogoOccupazionePosto(res.occupazione));
+        return;
+      }
+      setOccTesto(null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [selezionata, occupazioneSel]);
+
   const vistePosto = posto
     ? mappe
         .filter((m) =>
@@ -296,6 +334,36 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 accese={accese}
                 primariaId={selezionata}
                 onSeleziona={modificaSequenza ? undefined : selezionaSolo}
+                occupazioneTesto={occTesto}
+                occupazioneLoading={occLoad}
+                onSettaggio={
+                  modificaSequenza
+                    ? undefined
+                    : (id) => {
+                        setSelezionata(id);
+                        setPannello("settaggio");
+                      }
+                }
+                onOccupa={
+                  modificaSequenza
+                    ? undefined
+                    : (id) => {
+                        setSelezionata(id);
+                        setPannello("occupazione");
+                      }
+                }
+                onSettaggioAnchor={(rect) => {
+                  if (!rect) {
+                    setSettaggioAnchor(null);
+                    return;
+                  }
+                  setSettaggioAnchor({
+                    left: rect.left,
+                    top: rect.top,
+                    right: rect.right,
+                    bottom: rect.bottom,
+                  });
+                }}
               />
             </div>
           );
@@ -303,26 +371,42 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
       </div>
 
       {posto && pannello === "settaggio" ? (
-        <PiantaPostoPannello
-          key={`set-${posto.ubicazioneId}`}
-          posto={posto}
-          viste={vistePosto}
-          fontiSettaggio={fontiSettaggio}
-          onSalvato={applica}
-          onChiudi={() => setPannello(null)}
-        />
+        <PiantaPostoNuvola
+          anchor={settaggioAnchor}
+          onClose={() => {
+            setPannello(null);
+            setSettaggioAnchor(null);
+          }}
+        >
+          <PiantaPostoPannello
+            key={`set-${posto.ubicazioneId}`}
+            posto={posto}
+            viste={vistePosto}
+            fontiSettaggio={fontiSettaggio}
+            onSalvato={applica}
+            onChiudi={() => {
+              setPannello(null);
+              setSettaggioAnchor(null);
+            }}
+          />
+        </PiantaPostoNuvola>
       ) : posto && pannello === "occupazione" ? (
-        <PiantaPostoOccupazione
-          key={`occ-${posto.ubicazioneId}`}
-          posto={posto}
-          onCambioStato={(st) => setStato(posto.ubicazioneId, st)}
-          onChiudi={() => setPannello(null)}
-        />
+        <PiantaPostoNuvola
+          anchor={null}
+          onClose={() => setPannello(null)}
+        >
+          <PiantaPostoOccupazione
+            key={`occ-${posto.ubicazioneId}`}
+            posto={posto}
+            onCambioStato={(st) => setStato(posto.ubicazioneId, st)}
+            onChiudi={() => setPannello(null)}
+          />
+        </PiantaPostoNuvola>
       ) : (
         <p className="text-xs text-[var(--muted)]">
-          Clicca un posto per accenderlo sulle viste collegate. Il settaggio e
-          l&apos;occupazione si aprono solo dai pulsanti in tabella: sono due
-          cose diverse.
+          Clicca un posto sul disegno: il codice va in alto a sinistra, i
+          dettagli al centro e l&apos;ingranaggio in alto a destra apre i
+          settaggi.
         </p>
       )}
 
@@ -408,6 +492,7 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                         }`}
                         onClick={() => {
                           setSelezionata(a.id);
+                          setSettaggioAnchor(null);
                           setPannello("settaggio");
                         }}
                       >
