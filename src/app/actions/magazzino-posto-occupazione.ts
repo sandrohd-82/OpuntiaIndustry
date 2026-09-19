@@ -7,12 +7,14 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
   generaCodiceRandom,
   occupaPostoSchema,
+  type DettaglioElencoPosto,
   type ImballaggioPostoOpt,
   type LottoDaSistemare,
   type OccupaPostoInput,
   type PostoElementoTipo,
   type PostoOccupazione,
   type PostoPesoModo,
+  type ProdottoLottoElenco,
 } from "@/lib/magazzino/posto-occupazione";
 
 const CATALOG_PROPRIO = "prodotto_proprio";
@@ -424,6 +426,65 @@ export async function getOccupazionePostoAction(
       (els ?? []) as Parameters<typeof mapOccupazione>[1]
     ),
   };
+}
+
+export async function dettaglioElencoPostoAction(
+  ubicazioneId: string
+): Promise<
+  | { success: true; dettaglio: DettaglioElencoPosto }
+  | { success: false; error: string }
+> {
+  await requireAnyAreaAccess(["magazzino", "strumenti", "amministrazione"]);
+  if (!ubicazioneId) {
+    return { success: true, dettaglio: { occupazione: null, prodotto: null } };
+  }
+  const occRes = await getOccupazionePostoAction(ubicazioneId);
+  if (!occRes.success) return occRes;
+  const occ = occRes.occupazione;
+  if (!occ) {
+    return { success: true, dettaglio: { occupazione: null, prodotto: null } };
+  }
+  const db = createServiceClient();
+  let prodotto: ProdottoLottoElenco | null = null;
+  if (occ.prodottoId) {
+    const { data } = await db
+      .from("prodotti_propri")
+      .select("id, codice, nome")
+      .eq("id", occ.prodottoId)
+      .maybeSingle();
+    if (data) {
+      const p = data as { id: string; codice: string; nome: string };
+      prodotto = { id: p.id, codice: p.codice, nome: p.nome };
+    }
+  }
+  if (!prodotto && occ.lottoInternoCodice) {
+    const { data: mov } = await db
+      .from("magazzino_movimenti")
+      .select("prodotto_id, prodotto_codice")
+      .eq("catalog_kind", CATALOG_PROPRIO)
+      .eq("lotto_codice", occ.lottoInternoCodice)
+      .is("deleted_at", null)
+      .limit(1)
+      .maybeSingle();
+    const mid = (mov as { prodotto_id?: string } | null)?.prodotto_id;
+    const codiceMov = String(
+      (mov as { prodotto_codice?: string } | null)?.prodotto_codice ?? ""
+    ).trim();
+    if (mid) {
+      const { data } = await db
+        .from("prodotti_propri")
+        .select("id, codice, nome")
+        .eq("id", mid)
+        .maybeSingle();
+      if (data) {
+        const p = data as { id: string; codice: string; nome: string };
+        prodotto = { id: p.id, codice: p.codice || codiceMov, nome: p.nome };
+      } else if (codiceMov) {
+        prodotto = { id: mid, codice: codiceMov, nome: "" };
+      }
+    }
+  }
+  return { success: true, dettaglio: { occupazione: occ, prodotto } };
 }
 
 export async function occupaPostoAction(

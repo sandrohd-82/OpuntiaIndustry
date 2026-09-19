@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import { FaChevronDown, FaChevronUp } from "react-icons/fa";
 import { riordinaVisteLuogoAction } from "@/app/actions/magazzino-mappa";
 import {
   classiGrigliaViste,
@@ -19,9 +20,14 @@ import {
 } from "@/lib/magazzino/ubicazioni";
 import {
   getOccupazionePostoAction,
+  listImballaggiPostoAction,
   listMovimentazioniPostiAction,
 } from "@/app/actions/magazzino-posto-occupazione";
-import { riepilogoOccupazionePosto } from "@/lib/magazzino/posto-occupazione";
+import {
+  riepilogoOccupazionePosto,
+  type ImballaggioPostoOpt,
+} from "@/lib/magazzino/posto-occupazione";
+import { PiantaElencoPostoDettaglio } from "@/components/magazzino/PiantaElencoPostoDettaglio";
 import { PiantaVistaRitaglio } from "@/components/magazzino/PiantaVistaRitaglio";
 import {
   PiantaPostoPannello,
@@ -69,6 +75,8 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
   const [movPerPosto, setMovPerPosto] = useState<Record<string, string[]>>(
     {}
   );
+  const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
+  const [apertoElenco, setApertoElenco] = useState<string | null>(null);
   const serverOrdine = luogo.mappe.map((m) => m.id).join(",");
 
   useEffect(() => {
@@ -117,6 +125,17 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     };
   }, [postiIdsKey]);
 
+  useEffect(() => {
+    let live = true;
+    void listImballaggiPostoAction().then((res) => {
+      if (!live || !res.success) return;
+      setCatalogoMov(res.movimentazioni);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const fontiSettaggio = useMemo((): FonteSettaggioPosto[] => {
     const byId = new Map(areeUnite.map((a) => [a.ubicazioneId, a]));
     const out: FonteSettaggioPosto[] = [];
@@ -141,6 +160,15 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
     }
     return out.sort((x, y) => x.nome.localeCompare(y.nome, "it"));
   }, [aree, areeUnite, movPerPosto, posto?.ubicazioneId]);
+
+  const movNomiPerPosto = useMemo(() => {
+    const nomi = new Map(catalogoMov.map((v) => [v.id, v.nome]));
+    const out: Record<string, string[]> = {};
+    for (const [id, ids] of Object.entries(movPerPosto)) {
+      out[id] = ids.map((vid) => nomi.get(vid) ?? vid);
+    }
+    return out;
+  }, [catalogoMov, movPerPosto]);
 
   const occupazioneSel = posto
     ? capienzaDi(posto).occupazione
@@ -502,15 +530,22 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                 <th className="px-3 py-1.5 font-medium">Stato</th>
                 <th className="px-3 py-1.5 font-medium">Settaggio</th>
                 <th className="px-3 py-1.5 font-medium">Occupazione</th>
+                <th className="px-3 py-1.5 font-medium">Azioni</th>
+                <th className="px-3 py-1.5 font-medium">
+                  <span className="sr-only">Dettagli</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {aree.map((a) => {
                 const accesa = accese.has(a.id);
                 const occupato = a.occupazione === "occupato";
+                const aperto = apertoElenco === a.id;
+                const src = areeUnite.find((x) => x.ubicazioneId === a.id);
+                const capienza = capienzaDi(src);
                 return (
+                  <Fragment key={a.id}>
                   <tr
-                    key={a.id}
                     className={`border-t border-[var(--border)] ${
                       accesa
                         ? occupato
@@ -580,7 +615,61 @@ export function PiantaLuogoBoard({ luogo }: { luogo: PiantaLuogoPagina }) {
                         {occupato ? "Pallet / libera" : "Occupare"}
                       </button>
                     </td>
+                    <td className="px-3 py-1.5">
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                        >
+                          Modifica
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                        >
+                          Preleva
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-400 bg-white px-2 py-1 text-xs font-medium text-slate-800"
+                        >
+                          Metti
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <button
+                        type="button"
+                        aria-expanded={aperto}
+                        aria-label={
+                          aperto ? "Chiudi dettagli posto" : "Apri dettagli posto"
+                        }
+                        onClick={() =>
+                          setApertoElenco((id) => (id === a.id ? null : a.id))
+                        }
+                        className="rounded-lg p-1.5 text-slate-700 hover:bg-slate-100"
+                      >
+                        {aperto ? (
+                          <FaChevronUp size={14} />
+                        ) : (
+                          <FaChevronDown size={14} />
+                        )}
+                      </button>
+                    </td>
                   </tr>
+                  {aperto ? (
+                    <tr className="border-t border-[var(--border)] bg-slate-50/80">
+                      <td colSpan={7} className="px-3 py-2">
+                        <PiantaElencoPostoDettaglio
+                          ubicazioneId={a.id}
+                          occupato={occupato}
+                          capienza={capienza}
+                          movNomi={movNomiPerPosto[a.id] ?? []}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>

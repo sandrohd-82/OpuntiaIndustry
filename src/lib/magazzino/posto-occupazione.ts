@@ -126,6 +126,17 @@ export type ImballaggioPostoOpt = {
   stadio: "movimentazione" | "confezione" | "isolamento";
 };
 
+export type ProdottoLottoElenco = {
+  id: string;
+  codice: string;
+  nome: string;
+};
+
+export type DettaglioElencoPosto = {
+  occupazione: PostoOccupazione | null;
+  prodotto: ProdottoLottoElenco | null;
+};
+
 function formatKgRiepilogo(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return "";
   const t = Number(n.toFixed(2));
