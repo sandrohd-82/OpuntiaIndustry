@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const TICKET_BUCKET = "ticket-gestionale";
-export const TICKET_MAX_FILE_BYTES = 15 * 1024 * 1024;
-export const TICKET_MAX_FILE_PER_MSG = 8;
+export const TICKET_MAX_FILE_BYTES = 500 * 1024 * 1024;
+export const TICKET_MAX_FILE_PER_MSG = 20;
 
 export const TICKET_CATEGORIE = ["bug", "funzioni", "miglioramenti"] as const;
 export type TicketCategoria = (typeof TICKET_CATEGORIE)[number];
@@ -199,21 +199,8 @@ export function isPdfFile(mime: string, name = ""): boolean {
   return mimeDaFile(name, mime) === "application/pdf" || /\.pdf$/i.test(name);
 }
 
-export function mimeAmmesso(mime: string, name = ""): boolean {
-  const m = mimeDaFile(name, mime);
-  if (m.startsWith("image/") || m.startsWith("audio/")) return true;
-  return (
-    m === "application/pdf" ||
-    m === "text/plain" ||
-    m === "application/zip" ||
-    m === "application/msword" ||
-    m === "application/vnd.ms-excel" ||
-    m ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    m ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    Boolean(MIME_DA_EXT[extDaNome(name)])
-  );
+export function mimeAmmesso(_mime: string, _name = ""): boolean {
+  return true;
 }
 
 export function formatBytesTicket(n: number): string {

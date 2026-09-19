@@ -1,20 +1,47 @@
 import {
   preparaTicketUploadAction,
   registraTicketFileAction,
-  uploadTicketFileBase64Action,
 } from "@/app/actions/strumenti-ticket";
 import { TICKET_BUCKET } from "@/lib/strumenti/ticket";
 import { createClient } from "@/lib/supabase/client";
 
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(bin);
+async function registra(input: {
+  ticketId: string;
+  messaggioId: string;
+  path: string;
+  file: File;
+}) {
+  return registraTicketFileAction({
+    ticketId: input.ticketId,
+    messaggioId: input.messaggioId,
+    path: input.path,
+    fileName: input.file.name || "allegato.bin",
+    mime: input.file.type || "application/octet-stream",
+    size: input.file.size,
+  });
+}
+
+async function viaApi(input: {
+  ticketId: string;
+  messaggioId: string;
+  file: File;
+}): Promise<{ success: boolean; error?: string }> {
+  const fd = new FormData();
+  fd.set("ticketId", input.ticketId);
+  fd.set("messaggioId", input.messaggioId);
+  fd.set("file", input.file, input.file.name || "allegato.bin");
+  const res = await fetch("/api/strumenti/ticket/allegato", {
+    method: "POST",
+    body: fd,
+    credentials: "include",
+  });
+  const data = (await res.json().catch(() => null)) as
+    | { success: true }
+    | { success: false; error: string }
+    | null;
+  if (!data) return { success: false, error: "Risposta vuota dal server." };
+  if (!data.success) return { success: false, error: data.error };
+  return { success: true };
 }
 
 export async function caricaFileTicketLatoClient(input: {
@@ -28,37 +55,58 @@ export async function caricaFileTicketLatoClient(input: {
     const prep = await preparaTicketUploadAction({
       ticketId: input.ticketId,
       messaggioId: input.messaggioId,
-      fileName: file.name,
-      mime: file.type,
+      fileName: file.name || "allegato.bin",
+      mime: file.type || "application/octet-stream",
     });
+    let ok = false;
     if (prep.success) {
-      const { error } = await sb.storage
-        .from(TICKET_BUCKET)
-        .uploadToSignedUrl(prep.path, prep.token, file, {
-          contentType: file.type || "application/octet-stream",
+      try {
+        const put = await fetch(prep.signedUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${prep.token}`,
+            "Content-Type": file.type || "application/octet-stream",
+            "x-upsert": "true",
+          },
+          body: file,
         });
-      if (!error) {
-        const reg = await registraTicketFileAction({
-          ticketId: input.ticketId,
-          messaggioId: input.messaggioId,
-          path: prep.path,
-          fileName: file.name,
-          mime: file.type,
-          size: file.size,
-        });
-        if (!reg.success) return { error: reg.error };
-        continue;
+        if (put.ok) {
+          const reg = await registra({
+            ticketId: input.ticketId,
+            messaggioId: input.messaggioId,
+            path: prep.path,
+            file,
+          });
+          if (reg.success) ok = true;
+        }
+      } catch {
+        ok = false;
+      }
+      if (!ok) {
+        const { error } = await sb.storage
+          .from(TICKET_BUCKET)
+          .uploadToSignedUrl(prep.path, prep.token, file);
+        if (!error) {
+          const reg = await registra({
+            ticketId: input.ticketId,
+            messaggioId: input.messaggioId,
+            path: prep.path,
+            file,
+          });
+          if (reg.success) ok = true;
+        }
       }
     }
-    const base64 = await fileToBase64(file);
-    const fb = await uploadTicketFileBase64Action({
-      ticketId: input.ticketId,
-      messaggioId: input.messaggioId,
-      fileName: file.name,
-      mime: file.type,
-      base64,
-    });
-    if (!fb.success) return { error: fb.error };
+    if (!ok) {
+      const api = await viaApi({
+        ticketId: input.ticketId,
+        messaggioId: input.messaggioId,
+        file,
+      });
+      if (!api.success) {
+        return { error: api.error ?? `Impossibile caricare «${file.name}».` };
+      }
+    }
   }
   return {};
 }

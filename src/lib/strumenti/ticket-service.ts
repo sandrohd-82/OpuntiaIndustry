@@ -55,25 +55,29 @@ async function uploadAllegati(
   messaggioId: string,
   files: TicketAllegatoBytes[]
 ): Promise<{ error?: string }> {
-  if (files.length > TICKET_MAX_FILE_PER_MSG) {
-    return { error: `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.` };
-  }
   const bucket = await ensureTicketBucket(db);
   if (bucket.error) return bucket;
   for (const file of files) {
-    if (!file.bytes.length) continue;
     if (file.bytes.length > TICKET_MAX_FILE_BYTES) {
-      return { error: `«${file.name}» supera 15 MB.` };
+      return { error: `«${file.name}» supera 500 MB.` };
     }
     const mime = mimeDaFile(file.name, file.mime) || "application/octet-stream";
     const ext = extDaNomeOMime(file.name, mime);
     const path = `${ticketId}/${messaggioId}/${crypto.randomUUID()}.${ext}`;
-    const { error: upErr } = await db.storage
-      .from(TICKET_BUCKET)
-      .upload(path, file.bytes, {
+    let upErr = (
+      await db.storage.from(TICKET_BUCKET).upload(path, file.bytes, {
         contentType: mime,
-        upsert: false,
-      });
+        upsert: true,
+      })
+    ).error;
+    if (upErr) {
+      upErr = (
+        await db.storage.from(TICKET_BUCKET).upload(path, file.bytes, {
+          contentType: "application/octet-stream",
+          upsert: true,
+        })
+      ).error;
+    }
     if (upErr) {
       return { error: `Caricamento «${file.name}»: ${upErr.message}` };
     }
@@ -122,14 +126,15 @@ export async function creaTicketConAllegati(input: {
     };
   }
   const { auth, db } = await gate();
-  if (!parsed.data.descrizione.trim() && !input.audio) {
+  if (!parsed.data.descrizione.trim() && !input.audio && !input.files.length) {
     return {
       success: false,
-      error: "Scrivi il problema oppure registra un vocale.",
+      error: "Scrivi il problema, registra un vocale oppure allega un file.",
     };
   }
   const descrizione =
-    parsed.data.descrizione.trim() || (input.audio ? "Nota vocale" : "");
+    parsed.data.descrizione.trim() ||
+    (input.audio ? "Nota vocale" : input.files.length ? "Vedi allegato" : "");
   const titolo = titoloDaDescrizione(descrizione);
   const { data: created, error } = await db
     .from("strumenti_ticket")
@@ -391,6 +396,30 @@ export async function uploadTicketFileBytes(input: {
   if (!bytes.length) return { success: false, error: "File vuoto." };
   const up = await uploadAllegati(db, auth.userId, input.ticketId, input.messaggioId, [
     { name: input.fileName, mime: input.mime, bytes },
+  ]);
+  if (up.error) return { success: false, error: up.error };
+  return { success: true };
+}
+
+export async function salvaUnAllegato(input: {
+  ticketId: string;
+  messaggioId: string;
+  file: TicketAllegatoBytes;
+}): Promise<{ success: true } | { success: false; error: string }> {
+  const { auth, admin, db } = await gate();
+  const { data, error } = await db
+    .from("strumenti_ticket")
+    .select("id, created_by, archiviato_at")
+    .eq("id", input.ticketId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error || !data) return { success: false, error: "Ticket non trovato." };
+  const row = data as { created_by?: string | null; archiviato_at?: string | null };
+  if (!admin && row.created_by !== auth.userId) {
+    return { success: false, error: "Non puoi caricare file su questo ticket." };
+  }
+  const up = await uploadAllegati(db, auth.userId, input.ticketId, input.messaggioId, [
+    input.file,
   ]);
   if (up.error) return { success: false, error: up.error };
   return { success: true };

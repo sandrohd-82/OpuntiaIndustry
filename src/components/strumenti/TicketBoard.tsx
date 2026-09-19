@@ -82,7 +82,6 @@ function accodaAllegati(
   if (!incoming?.length) return correnti;
   const next = [...correnti];
   for (const file of Array.from(incoming)) {
-    if (!file.size) continue;
     if (next.length >= TICKET_MAX_FILE_PER_MSG) {
       onTroppi();
       break;
@@ -227,7 +226,13 @@ export function TicketBoard({ mode }: Props) {
     setBusy(true);
     setError(null);
     const testo =
-      descrizione.trim() || (audioBlob ? "Nota vocale" : "");
+      descrizione.trim() ||
+      (audioBlob ? "Nota vocale" : allegatiNuovo.length ? "Vedi allegato" : "");
+    if (!testo) {
+      setBusy(false);
+      setError("Scrivi qualcosa oppure allega un file.");
+      return;
+    }
     const created = await creaTicketTestoAction({
       categoria,
       urgenza,
@@ -540,26 +545,29 @@ export function TicketBoard({ mode }: Props) {
                         {audioBlob && !recording && audioUrl ? (
                           <audio controls src={audioUrl} className="max-w-[14rem]" />
                         ) : null}
-                        <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs">
-                          <FaPaperclip /> File
-                          <input
-                            ref={chatFileRef}
-                            type="file"
-                            multiple
-                            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,audio/*"
-                            className="hidden"
-                            onChange={(e) => {
-                              setAllegatiChat((cur) =>
-                                accodaAllegati(cur, e.target.files, () =>
-                                  setError(
-                                    `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
-                                  )
+                        <button
+                          type="button"
+                          onClick={() => chatFileRef.current?.click()}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs"
+                        >
+                          <FaPaperclip /> Allega
+                        </button>
+                        <input
+                          ref={chatFileRef}
+                          type="file"
+                          multiple
+                          className="sr-only"
+                          onChange={(e) => {
+                            setAllegatiChat((cur) =>
+                              accodaAllegati(cur, e.target.files, () =>
+                                setError(
+                                  `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
                                 )
-                              );
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
+                              )
+                            );
+                            e.target.value = "";
+                          }}
+                        />
                         <button
                           type="button"
                           disabled={busy}
@@ -676,27 +684,30 @@ export function TicketBoard({ mode }: Props) {
             {audioBlob && !recording && audioUrl ? (
               <audio controls src={audioUrl} className="max-w-full" />
             ) : null}
-            <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm"
+            >
               <FaPaperclip />
-              Allegati
-              <input
-                ref={fileRef}
-                type="file"
-                multiple
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,audio/*"
-                className="hidden"
-                onChange={(e) => {
-                  setAllegatiNuovo((cur) =>
-                    accodaAllegati(cur, e.target.files, () =>
-                      setError(
-                        `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
-                      )
+              Allega
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                setAllegatiNuovo((cur) =>
+                  accodaAllegati(cur, e.target.files, () =>
+                    setError(
+                      `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
                     )
-                  );
-                  e.target.value = "";
-                }}
-              />
-            </label>
+                  )
+                );
+                e.target.value = "";
+              }}
+            />
             <button
               type="button"
               disabled={busy}
@@ -706,6 +717,12 @@ export function TicketBoard({ mode }: Props) {
               {busy ? "Invio…" : "Apri ticket"}
             </button>
           </div>
+          {allegatiNuovo.length ? (
+            <p className="mt-2 text-xs text-slate-700">
+              {allegatiNuovo.length} file pronti:{" "}
+              {allegatiNuovo.map((a) => a.file.name).join(", ")}
+            </p>
+          ) : null}
           <TicketAllegatiAnteprima
             compact
             items={anteprimeNuovo}
