@@ -992,6 +992,12 @@ export function AziendaTimelineModal({
             >
               + Promemoria e note
             </button>
+            <AnagraficaTimelineSyncBar
+              aziendaTipo={aziendaTipo}
+              aziendaId={aziendaId}
+              aziendaLabel={aziendaLabel}
+              onSynced={() => void reload()}
+            />
             <button
               type="button"
               onClick={onClose}
@@ -1000,14 +1006,6 @@ export function AziendaTimelineModal({
               Chiudi
             </button>
           </div>
-        </div>
-        <div className="shrink-0 border-b border-[var(--border)] px-5 py-2 sm:px-8">
-          <AnagraficaTimelineSyncBar
-            aziendaTipo={aziendaTipo}
-            aziendaId={aziendaId}
-            aziendaLabel={aziendaLabel}
-            onSynced={() => void reload()}
-          />
         </div>
 
         {panel === "nota" ? (
