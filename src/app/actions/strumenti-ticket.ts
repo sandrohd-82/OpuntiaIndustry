@@ -281,7 +281,7 @@ export async function listTicketAction(input: {
   q?: string;
   sort?: "recenti" | "urgenza" | "categoria";
 }): Promise<
-  | { success: true; items: TicketRiga[]; canGestire: boolean }
+  | { success: true; items: TicketRiga[]; canGestire: boolean; meId: string }
   | { success: false; error: string }
 > {
   const { auth, admin, db } = await gateTicket();
@@ -343,7 +343,7 @@ export async function listTicketAction(input: {
         b.createdAt.localeCompare(a.createdAt)
     );
   }
-  return { success: true, items, canGestire: admin };
+  return { success: true, items, canGestire: admin, meId: auth.userId };
 }
 
 export async function getTicketAction(
@@ -648,4 +648,92 @@ export async function risolviArchiviaTicketAction(
   });
   revalidateTicket();
   return getTicketAction(ticketId);
+}
+
+export async function creaTicketTestoAction(input: {
+  categoria: string;
+  urgenza: string;
+  descrizione: string;
+}): Promise<
+  | { success: true; ticketId: string; messaggioId: string }
+  | { success: false; error: string }
+> {
+  const { creaTicketConAllegati } = await import(
+    "@/lib/strumenti/ticket-service"
+  );
+  return creaTicketConAllegati({
+    categoria: input.categoria,
+    urgenza: input.urgenza,
+    descrizione: input.descrizione,
+    files: [],
+    audio: null,
+    attesi: 0,
+  });
+}
+
+export async function inviaTicketTestoAction(input: {
+  ticketId: string;
+  contenuto: string;
+}): Promise<
+  | { success: true; ticketId: string; messaggioId: string }
+  | { success: false; error: string }
+> {
+  const { inviaMessaggioConAllegati } = await import(
+    "@/lib/strumenti/ticket-service"
+  );
+  return inviaMessaggioConAllegati({
+    ticketId: input.ticketId,
+    contenuto: input.contenuto,
+    files: [],
+    audio: null,
+    attesi: 0,
+  });
+}
+
+export async function preparaTicketUploadAction(input: {
+  ticketId: string;
+  messaggioId: string;
+  fileName: string;
+  mime: string;
+}) {
+  const { preparaUploadTicketFile } = await import(
+    "@/lib/strumenti/ticket-service"
+  );
+  return preparaUploadTicketFile(input);
+}
+
+export async function registraTicketFileAction(input: {
+  ticketId: string;
+  messaggioId: string;
+  path: string;
+  fileName: string;
+  mime: string;
+  size: number;
+}) {
+  const { registraTicketFile } = await import("@/lib/strumenti/ticket-service");
+  return registraTicketFile(input);
+}
+
+export async function uploadTicketFileBase64Action(input: {
+  ticketId: string;
+  messaggioId: string;
+  fileName: string;
+  mime: string;
+  base64: string;
+}) {
+  const { uploadTicketFileBytes } = await import(
+    "@/lib/strumenti/ticket-service"
+  );
+  return uploadTicketFileBytes(input);
+}
+
+export async function eliminaTicketAction(
+  ticketId: string
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { eliminaTicketProprio } = await import(
+    "@/lib/strumenti/ticket-service"
+  );
+  const res = await eliminaTicketProprio(ticketId);
+  if (res.success) revalidateTicket();
+  return res;
 }

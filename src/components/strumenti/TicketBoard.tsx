@@ -11,19 +11,22 @@ import {
   FaPaperPlane,
   FaStop,
   FaTimes,
+  FaTrash,
 } from "react-icons/fa";
 import {
+  creaTicketTestoAction,
+  eliminaTicketAction,
   getTicketAction,
+  inviaTicketTestoAction,
   listTicketAction,
   prendiInCaricoTicketAction,
   risolviArchiviaTicketAction,
 } from "@/app/actions/strumenti-ticket";
 import {
   TicketAllegatiAnteprima,
-  fileToAnteprima,
   ticketFileToAnteprima,
-  useObjectUrls,
 } from "@/components/strumenti/TicketAllegatiAnteprima";
+import { caricaFileTicketLatoClient } from "@/lib/strumenti/ticket-upload-client";
 import {
   TICKET_CATEGORIA_META,
   TICKET_CATEGORIE,
@@ -31,6 +34,7 @@ import {
   TICKET_STATO_LABEL,
   TICKET_URGENZA_META,
   TICKET_URGENZE,
+  kindDaMime,
   type TicketCategoria,
   type TicketRiga,
   type TicketScheda,
@@ -39,9 +43,11 @@ import {
 
 type Props = { mode: "viva" | "archivio" };
 
-type TicketApiRes =
-  | { success: true; ticket: TicketScheda; canGestire: boolean }
-  | { success: false; error: string };
+type AllegatoLocale = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
 
 function IconaCategoria({
   cat,
@@ -68,31 +74,37 @@ function fmtQuando(iso: string) {
   });
 }
 
-function appendAllegati(fd: FormData, files: File[]) {
-  fd.set("fileCount", String(files.length));
-  files.forEach((f, i) => {
-    fd.append("files", f, f.name);
-    fd.append(`file_${i}`, f, f.name);
-  });
+function accodaAllegati(
+  correnti: AllegatoLocale[],
+  incoming: FileList | null,
+  onTroppi: () => void
+): AllegatoLocale[] {
+  if (!incoming?.length) return correnti;
+  const next = [...correnti];
+  for (const file of Array.from(incoming)) {
+    if (!file.size) continue;
+    if (next.length >= TICKET_MAX_FILE_PER_MSG) {
+      onTroppi();
+      break;
+    }
+    next.push({
+      id: crypto.randomUUID(),
+      file,
+      previewUrl: URL.createObjectURL(file),
+    });
+  }
+  return next;
 }
 
-async function postTicketApi(url: string, fd: FormData): Promise<TicketApiRes> {
-  const res = await fetch(url, {
-    method: "POST",
-    body: fd,
-    credentials: "include",
-  });
-  const data = (await res.json().catch(() => null)) as TicketApiRes | null;
-  if (!data) {
-    return { success: false, error: "Risposta non valida dal server." };
-  }
-  return data;
+function revocaAnteprime(items: AllegatoLocale[]) {
+  for (const a of items) URL.revokeObjectURL(a.previewUrl);
 }
 
 export function TicketBoard({ mode }: Props) {
   const archivio = mode === "archivio";
   const [items, setItems] = useState<TicketRiga[]>([]);
   const [canGestire, setCanGestire] = useState(false);
+  const [meId, setMeId] = useState<string | null>(null);
   const [sel, setSel] = useState<TicketScheda | null>(null);
   const [categoria, setCategoria] = useState<TicketCategoria>("bug");
   const [urgenza, setUrgenza] = useState<TicketUrgenza>("non_urgente");
@@ -108,15 +120,13 @@ export function TicketBoard({ mode }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [allegatiNuovo, setAllegatiNuovo] = useState<File[]>([]);
-  const [allegatiChat, setAllegatiChat] = useState<File[]>([]);
+  const [allegatiNuovo, setAllegatiNuovo] = useState<AllegatoLocale[]>([]);
+  const [allegatiChat, setAllegatiChat] = useState<AllegatoLocale[]>([]);
   const [mounted, setMounted] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatFileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const urlsNuovo = useObjectUrls(allegatiNuovo);
-  const urlsChat = useObjectUrls(allegatiChat);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -133,21 +143,6 @@ export function TicketBoard({ mode }: Props) {
     return () => URL.revokeObjectURL(url);
   }, [audioBlob]);
 
-  function accodaFile(correnti: File[], incoming: FileList | null): File[] {
-    if (!incoming?.length) return correnti;
-    const next = [...correnti];
-    for (const f of Array.from(incoming)) {
-      if (!f.size) continue;
-      if (next.length >= TICKET_MAX_FILE_PER_MSG) {
-        setError(`Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`);
-        break;
-      }
-      if (next.some((x) => x.name === f.name && x.size === f.size)) continue;
-      next.push(f);
-    }
-    return next;
-  }
-
   async function caricaElenco() {
     const res = await listTicketAction({
       archivio,
@@ -162,6 +157,7 @@ export function TicketBoard({ mode }: Props) {
     }
     setItems(res.items);
     setCanGestire(res.canGestire);
+    setMeId(res.meId);
     setError(null);
   }
 
@@ -230,32 +226,54 @@ export function TicketBoard({ mode }: Props) {
   async function crea() {
     setBusy(true);
     setError(null);
-    const fd = new FormData();
-    fd.set("categoria", categoria);
-    fd.set("urgenza", urgenza);
-    fd.set("descrizione", descrizione);
-    appendAllegati(fd, allegatiNuovo);
-    if (audioBlob) {
-      fd.set(
-        "audio",
-        new File([audioBlob], "vocale.webm", {
-          type: audioBlob.type || "audio/webm",
-        }),
-        "vocale.webm"
-      );
-    }
-    const res = await postTicketApi("/api/strumenti/ticket", fd);
-    setBusy(false);
-    if (!res.success) {
-      setError(res.error);
+    const testo =
+      descrizione.trim() || (audioBlob ? "Nota vocale" : "");
+    const created = await creaTicketTestoAction({
+      categoria,
+      urgenza,
+      descrizione: testo,
+    });
+    if (!created.success) {
+      setBusy(false);
+      setError(created.error);
       return;
     }
+    const daCaricare = allegatiNuovo.map((a) => a.file);
+    if (audioBlob) {
+      daCaricare.push(
+        new File([audioBlob], "vocale.webm", {
+          type: audioBlob.type || "audio/webm",
+        })
+      );
+    }
+    const up = await caricaFileTicketLatoClient({
+      ticketId: created.ticketId,
+      messaggioId: created.messaggioId,
+      files: daCaricare,
+    });
+    if (up.error) {
+      setBusy(false);
+      setError(up.error);
+      const loaded = await getTicketAction(created.ticketId);
+      if (loaded.success) {
+        setSel(loaded.ticket);
+        setCanGestire(loaded.canGestire);
+      }
+      return;
+    }
+    const loaded = await getTicketAction(created.ticketId);
+    setBusy(false);
+    if (!loaded.success) {
+      setError(loaded.error);
+      return;
+    }
+    revocaAnteprime(allegatiNuovo);
     setDescrizione("");
     setAudioBlob(null);
     setAllegatiNuovo([]);
     if (fileRef.current) fileRef.current.value = "";
-    setSel(res.ticket);
-    setCanGestire(res.canGestire);
+    setSel(loaded.ticket);
+    setCanGestire(loaded.canGestire);
     await caricaElenco();
   }
 
@@ -263,30 +281,67 @@ export function TicketBoard({ mode }: Props) {
     if (!sel) return;
     setBusy(true);
     setError(null);
-    const fd = new FormData();
-    fd.set("ticketId", sel.id);
-    fd.set("contenuto", chatText);
-    appendAllegati(fd, allegatiChat);
+    const contenuto =
+      chatText.trim() ||
+      (allegatiChat.length || audioBlob ? "Allegato" : "");
+    const sent = await inviaTicketTestoAction({
+      ticketId: sel.id,
+      contenuto,
+    });
+    if (!sent.success) {
+      setBusy(false);
+      setError(sent.error);
+      return;
+    }
+    const daCaricare = allegatiChat.map((a) => a.file);
     if (audioBlob) {
-      fd.set(
-        "audio",
+      daCaricare.push(
         new File([audioBlob], "vocale.webm", {
           type: audioBlob.type || "audio/webm",
-        }),
-        "vocale.webm"
+        })
       );
     }
-    const res = await postTicketApi("/api/strumenti/ticket/messaggio", fd);
+    const up = await caricaFileTicketLatoClient({
+      ticketId: sent.ticketId,
+      messaggioId: sent.messaggioId,
+      files: daCaricare,
+    });
+    if (up.error) {
+      setBusy(false);
+      setError(up.error);
+    }
+    const loaded = await getTicketAction(sent.ticketId);
+    setBusy(false);
+    if (!loaded.success) {
+      setError(loaded.error);
+      return;
+    }
+    revocaAnteprime(allegatiChat);
+    setChatText("");
+    setAudioBlob(null);
+    setAllegatiChat([]);
+    if (chatFileRef.current) chatFileRef.current.value = "";
+    setSel(loaded.ticket);
+    await caricaElenco();
+  }
+
+  async function eliminaMio() {
+    if (!sel) return;
+    if (
+      !window.confirm(
+        `Eliminare il ticket ${sel.codice}? Resta tracciato (non si cancella dal database).`
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const res = await eliminaTicketAction(sel.id);
     setBusy(false);
     if (!res.success) {
       setError(res.error);
       return;
     }
-    setChatText("");
-    setAudioBlob(null);
-    setAllegatiChat([]);
-    if (chatFileRef.current) chatFileRef.current.value = "";
-    setSel(res.ticket);
+    setSel(null);
     await caricaElenco();
   }
 
@@ -318,9 +373,23 @@ export function TicketBoard({ mode }: Props) {
 
   const primo = sel?.messaggi[0] ?? null;
   const chatMsg = sel?.messaggi.slice(1) ?? [];
-  const anteprimeNuovo = allegatiNuovo.map((f, i) =>
-    fileToAnteprima(f, urlsNuovo[i] ?? null)
-  );
+  const anteprimeNuovo = allegatiNuovo.map((a) => ({
+    id: a.id,
+    fileName: a.file.name,
+    mime: a.file.type,
+    fileSize: a.file.size,
+    url: a.previewUrl,
+    kind: kindDaMime(a.file.type, a.file.name),
+  }));
+  const anteprimeChat = allegatiChat.map((a) => ({
+    id: a.id,
+    fileName: a.file.name,
+    mime: a.file.type,
+    fileSize: a.file.size,
+    url: a.previewUrl,
+    kind: kindDaMime(a.file.type, a.file.name),
+  }));
+  const possoEliminare = Boolean(sel && meId && sel.createdBy === meId);
 
   const modal =
     sel && mounted
@@ -344,6 +413,16 @@ export function TicketBoard({ mode }: Props) {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {possoEliminare ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void eliminaMio()}
+                      className="inline-flex items-center gap-1 rounded-lg border border-red-300 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-800"
+                    >
+                      <FaTrash /> Elimina
+                    </button>
+                  ) : null}
                   {canGestire && !archivio ? (
                     <>
                       {sel.documentoStato === "bozza" ? (
@@ -471,7 +550,11 @@ export function TicketBoard({ mode }: Props) {
                             className="hidden"
                             onChange={(e) => {
                               setAllegatiChat((cur) =>
-                                accodaFile(cur, e.target.files)
+                                accodaAllegati(cur, e.target.files, () =>
+                                  setError(
+                                    `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
+                                  )
+                                )
                               );
                               e.target.value = "";
                             }}
@@ -488,14 +571,14 @@ export function TicketBoard({ mode }: Props) {
                       </div>
                       <TicketAllegatiAnteprima
                         compact
-                        items={allegatiChat.map((f, i) =>
-                          fileToAnteprima(f, urlsChat[i] ?? null)
-                        )}
+                        items={anteprimeChat}
                         uploading={busy}
                         onRemove={(id) =>
-                          setAllegatiChat((cur) =>
-                            cur.filter((f) => fileToAnteprima(f, null).id !== id)
-                          )
+                          setAllegatiChat((cur) => {
+                            const hit = cur.find((a) => a.id === id);
+                            if (hit) URL.revokeObjectURL(hit.previewUrl);
+                            return cur.filter((a) => a.id !== id);
+                          })
                         }
                       />
                     </div>
@@ -603,7 +686,13 @@ export function TicketBoard({ mode }: Props) {
                 accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,audio/*"
                 className="hidden"
                 onChange={(e) => {
-                  setAllegatiNuovo((cur) => accodaFile(cur, e.target.files));
+                  setAllegatiNuovo((cur) =>
+                    accodaAllegati(cur, e.target.files, () =>
+                      setError(
+                        `Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`
+                      )
+                    )
+                  );
                   e.target.value = "";
                 }}
               />
@@ -622,9 +711,11 @@ export function TicketBoard({ mode }: Props) {
             items={anteprimeNuovo}
             uploading={busy}
             onRemove={(id) =>
-              setAllegatiNuovo((cur) =>
-                cur.filter((f) => fileToAnteprima(f, null).id !== id)
-              )
+              setAllegatiNuovo((cur) => {
+                const hit = cur.find((a) => a.id === id);
+                if (hit) URL.revokeObjectURL(hit.previewUrl);
+                return cur.filter((a) => a.id !== id);
+              })
             }
           />
         </section>
