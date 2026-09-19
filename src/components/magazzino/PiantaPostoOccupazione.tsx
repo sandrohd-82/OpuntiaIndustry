@@ -220,7 +220,7 @@ export function PiantaPostoOccupazione({
 
   return (
     <div className="rounded-xl border border-green-700 bg-green-50 px-3 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-2 bg-green-50 pb-2">
         <div>
           <p className="text-sm font-semibold text-green-950">
             Occupazione {posto.codice}
@@ -265,7 +265,7 @@ export function PiantaPostoOccupazione({
               <p className="mb-1 text-xs font-medium">
                 QR {occ.movimentazioneNome || "pallet"}
               </p>
-              <BarcodePreview value={palletPayload} format="qrcode" scale={3} />
+              <BarcodePreview value={palletPayload} format="qrcode" scale={2} />
             </div>
             <div>
               <p className="mb-1 text-xs font-medium">Barre complessivo</p>

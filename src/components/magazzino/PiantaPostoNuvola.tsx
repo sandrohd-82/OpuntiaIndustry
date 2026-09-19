@@ -10,6 +10,31 @@ import { createPortal } from "react-dom";
 
 type Anchor = { left: number; top: number; right: number; bottom: number };
 
+function posiziona(el: HTMLDivElement, anchor: Anchor | null) {
+  const pad = 16;
+  const vw = window.innerWidth;
+  const vh = window.visualViewport?.height ?? window.innerHeight;
+  const maxH = Math.max(200, vh - pad * 2);
+  el.style.maxHeight = `${maxH}px`;
+  el.style.overflowY = "auto";
+  const w = el.offsetWidth;
+  const h = Math.min(el.offsetHeight, maxH);
+  let left = (vw - w) / 2;
+  // Parte alta dello schermo: la card lunga (etichette) resta leggibile.
+  let top = pad + Math.min(28, Math.round(vh * 0.04));
+  if (anchor) {
+    left = anchor.right - w;
+    top = anchor.bottom + 8;
+    if (top + h > vh - pad) top = Math.max(pad, anchor.top - 8 - h);
+  }
+  if (left < pad) left = pad;
+  if (left + w > vw - pad) left = Math.max(pad, vw - pad - w);
+  if (top < pad) top = pad;
+  if (top + h > vh - pad) top = Math.max(pad, vh - pad - h);
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
+}
+
 export function PiantaPostoNuvola({
   anchor,
   onClose,
@@ -32,26 +57,17 @@ export function PiantaPostoNuvola({
   useLayoutEffect(() => {
     const el = cardRef.current;
     if (!el) return;
-    const pad = 12;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    let left = vw / 2 - w / 2;
-    let top = vh / 2 - h / 2;
-    if (anchor) {
-      left = anchor.right - w;
-      top = anchor.bottom + 8;
-      if (left < pad) left = pad;
-      if (left + w > vw - pad) left = Math.max(pad, vw - pad - w);
-      if (top + h > vh - pad) top = Math.max(pad, anchor.top - 8 - h);
-      if (top < pad) top = pad;
-    } else {
-      left = Math.max(pad, Math.min(left, vw - pad - w));
-      top = Math.max(pad, Math.min(top, vh - pad - h));
-    }
-    el.style.left = `${left}px`;
-    el.style.top = `${top}px`;
+    const applica = () => posiziona(el, anchor);
+    applica();
+    const ro = new ResizeObserver(applica);
+    ro.observe(el);
+    window.addEventListener("resize", applica);
+    window.visualViewport?.addEventListener("resize", applica);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", applica);
+      window.visualViewport?.removeEventListener("resize", applica);
+    };
   }, [anchor, children]);
 
   if (typeof document === "undefined") return null;
@@ -68,13 +84,9 @@ export function PiantaPostoNuvola({
         ref={cardRef}
         role="dialog"
         aria-modal="true"
-        className="absolute z-[250] w-[min(36rem,calc(100vw-1.5rem))] max-h-[min(82vh,44rem)] overflow-y-auto rounded-2xl border border-slate-300 bg-white p-1 shadow-[0_18px_50px_rgba(15,23,42,0.35)]"
+        className="absolute z-[250] w-[min(36rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-300 bg-white p-1 shadow-[0_18px_50px_rgba(15,23,42,0.35)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div
-          className="pointer-events-none absolute -top-2 right-6 h-4 w-4 rotate-45 border-l border-t border-slate-300 bg-white"
-          aria-hidden
-        />
         {children}
       </div>
     </div>,
