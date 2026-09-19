@@ -59,24 +59,53 @@ export function PiantaPostoPannello({
   const [catalogoMov, setCatalogoMov] = useState<ImballaggioPostoOpt[]>([]);
   const [movIds, setMovIds] = useState<string[]>([]);
   const ignoraCaricoMov = useRef(false);
+  const bozzaRef = useRef({
+    peso: "",
+    unita: "cm" as UbicazioneMisuraUnita,
+    maxL: "",
+    maxP: "",
+    maxH: "",
+    minL: "",
+    minP: "",
+    minH: "",
+    movIds: [] as string[],
+  });
 
-  function applicaFonte(c: UbicazioneCapienza) {
-    setPeso(campo(c.pesoMaxKg));
-    setUnita(c.misuraUnita);
-    setMaxL(campo(c.maxLarghezza));
-    setMaxP(campo(c.maxProfondita));
-    setMaxH(campo(c.maxAltezza));
-    setMinL(campo(c.minLarghezza));
-    setMinP(campo(c.minProfondita));
-    setMinH(campo(c.minAltezza));
+  function applicaFonte(c: UbicazioneCapienza, mov?: string[]) {
+    const next = {
+      peso: campo(c.pesoMaxKg),
+      unita: c.misuraUnita,
+      maxL: campo(c.maxLarghezza),
+      maxP: campo(c.maxProfondita),
+      maxH: campo(c.maxAltezza),
+      minL: campo(c.minLarghezza),
+      minP: campo(c.minProfondita),
+      minH: campo(c.minAltezza),
+      movIds: mov ?? bozzaRef.current.movIds,
+    };
+    bozzaRef.current = next;
+    setPeso(next.peso);
+    setUnita(next.unita);
+    setMaxL(next.maxL);
+    setMaxP(next.maxP);
+    setMaxH(next.maxH);
+    setMinL(next.minL);
+    setMinP(next.minP);
+    setMinH(next.minH);
+    if (mov) setMovIds(mov);
+  }
+
+  function setMovBozza(ids: string[]) {
+    bozzaRef.current = { ...bozzaRef.current, movIds: ids };
+    setMovIds(ids);
   }
 
   useEffect(() => {
-    applicaFonte(capienzaDi(posto));
+    ignoraCaricoMov.current = false;
+    applicaFonte(capienzaDi(posto), []);
     setErrore("");
     setOk("");
     setCopiaDa("");
-    ignoraCaricoMov.current = false;
     let live = true;
     void (async () => {
       const [cat, amm] = await Promise.all([
@@ -93,30 +122,33 @@ export function PiantaPostoPannello({
       if (!live) return;
       if (cat.success) setCatalogoMov(cat.movimentazioni);
       if (amm.success && !ignoraCaricoMov.current) {
-        setMovIds(amm.ristretto ? amm.ids : []);
+        setMovBozza(amm.ristretto ? amm.ids : []);
       }
     })();
     return () => {
       live = false;
     };
-  }, [posto.ubicazioneId, posto.pesoMaxKg]);
+    // Solo al cambio posto: dopo Salva il parent aggiorna pesoMaxKg e
+    // non deve azzerare la bozza copiata né nascondere «Settaggi salvati».
+  }, [posto.ubicazioneId]);
 
   async function salva() {
     if (!posto.ubicazioneId) return;
+    const b = bozzaRef.current;
     setBusy(true);
     setErrore("");
     setOk("");
     const res = await aggiornaUbicazioneCapienzaAction({
       ubicazioneId: posto.ubicazioneId,
-      pesoMaxKg: leggi(peso),
-      misuraUnita: unita,
-      maxLarghezza: leggi(maxL),
-      maxProfondita: leggi(maxP),
-      maxAltezza: leggi(maxH),
-      minLarghezza: leggi(minL),
-      minProfondita: leggi(minP),
-      minAltezza: leggi(minH),
-      movimentazioneVoceIds: movIds,
+      pesoMaxKg: leggi(b.peso),
+      misuraUnita: b.unita,
+      maxLarghezza: leggi(b.maxL),
+      maxProfondita: leggi(b.maxP),
+      maxAltezza: leggi(b.maxH),
+      minLarghezza: leggi(b.minL),
+      minProfondita: leggi(b.minP),
+      minAltezza: leggi(b.minH),
+      movimentazioneVoceIds: b.movIds,
     });
     setBusy(false);
     if (!res.success) {
@@ -124,7 +156,7 @@ export function PiantaPostoPannello({
       return;
     }
     setOk("Settaggi salvati.");
-    onSalvato(posto.ubicazioneId, res.capienza, movIds);
+    onSalvato(posto.ubicazioneId, res.capienza, b.movIds);
   }
 
   return (
@@ -154,16 +186,17 @@ export function PiantaPostoPannello({
             setCopiaDa(id);
             const fonte = fontiSettaggio.find((f) => f.ubicazioneId === id);
             if (!fonte) return;
-            applicaFonte(fonte.capienza);
             ignoraCaricoMov.current = true;
-            setMovIds([...(fonte.movimentazioneVoceIds ?? [])]);
+            applicaFonte(fonte.capienza, [
+              ...(fonte.movimentazioneVoceIds ?? []),
+            ]);
             setOk(
               `Copiati i settaggi da «${fonte.nome}» (misure e movimentazioni). Salva per applicarli.`
             );
             setErrore("");
             void listMovimentazioniPostoAction(id).then((res) => {
               if (!res.success) return;
-              setMovIds(res.ristretto ? res.ids : []);
+              setMovBozza(res.ristretto ? res.ids : []);
             });
           }}
           className="mt-0.5 w-full max-w-md rounded border border-slate-200 bg-white px-2 py-1 text-sm"
@@ -189,7 +222,11 @@ export function PiantaPostoPannello({
             min={0.001}
             step="any"
             value={peso}
-            onChange={(e) => setPeso(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              bozzaRef.current.peso = v;
+              setPeso(v);
+            }}
             className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1 text-sm"
           />
         </label>
@@ -197,7 +234,11 @@ export function PiantaPostoPannello({
           Unità misure
           <select
             value={unita}
-            onChange={(e) => setUnita(e.target.value as UbicazioneMisuraUnita)}
+            onChange={(e) => {
+              const v = e.target.value as UbicazioneMisuraUnita;
+              bozzaRef.current.unita = v;
+              setUnita(v);
+            }}
             className="mt-0.5 w-full rounded border border-slate-200 bg-white px-2 py-1 text-sm"
           >
             <option value="cm">cm</option>
@@ -219,7 +260,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={maxL}
-                onChange={(e) => setMaxL(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.maxL = v;
+                  setMaxL(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -230,7 +275,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={maxP}
-                onChange={(e) => setMaxP(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.maxP = v;
+                  setMaxP(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -241,7 +290,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={maxH}
-                onChange={(e) => setMaxH(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.maxH = v;
+                  setMaxH(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -263,7 +316,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={minL}
-                onChange={(e) => setMinL(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.minL = v;
+                  setMinL(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -274,7 +331,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={minP}
-                onChange={(e) => setMinP(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.minP = v;
+                  setMinP(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -285,7 +346,11 @@ export function PiantaPostoPannello({
                 min={0.001}
                 step="any"
                 value={minH}
-                onChange={(e) => setMinH(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  bozzaRef.current.minH = v;
+                  setMinH(v);
+                }}
                 className="mt-0.5 w-full rounded border border-slate-200 px-2 py-1 text-sm"
               />
             </label>
@@ -316,10 +381,10 @@ export function PiantaPostoPannello({
                       type="checkbox"
                       checked={on}
                       onChange={() =>
-                        setMovIds((prev) =>
+                        setMovBozza(
                           on
-                            ? prev.filter((id) => id !== v.id)
-                            : [...prev, v.id]
+                            ? bozzaRef.current.movIds.filter((id) => id !== v.id)
+                            : [...bozzaRef.current.movIds, v.id]
                         )
                       }
                     />
