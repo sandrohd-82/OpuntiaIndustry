@@ -90,6 +90,22 @@ export function PiantaPostoOccupazione({
 
   const qtyN = Math.max(1, Math.min(200, Math.round(Number(qty) || 1)));
   const movSel = movimenti.find((m) => m.id === movId) ?? null;
+  const confezioniCat = useMemo(
+    () =>
+      elementiCat
+        .filter((v) => v.stadio === "confezione")
+        .slice()
+        .sort((a, b) => a.nome.localeCompare(b.nome, "it")),
+    [elementiCat]
+  );
+  const isolamentiCat = useMemo(
+    () =>
+      elementiCat
+        .filter((v) => v.stadio === "isolamento")
+        .slice()
+        .sort((a, b) => a.nome.localeCompare(b.nome, "it")),
+    [elementiCat]
+  );
 
   useEffect(() => {
     setPesi((prev) => {
@@ -350,12 +366,14 @@ export function PiantaPostoOccupazione({
             </p>
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
-              <label className="text-xs font-medium">
-                1) Tipo movimentazione
+              <label className="flex min-h-0 flex-col gap-1 text-xs font-medium">
+                <span>
+                  1) Tipo movimentazione
+                </span>
                 <select
                   value={movId}
                   onChange={(e) => setMovId(e.target.value)}
-                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                  className="mt-auto w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
                 >
                   <option value="">Scegli…</option>
                   {movimenti.map((v) => (
@@ -365,15 +383,17 @@ export function PiantaPostoOccupazione({
                   ))}
                 </select>
               </label>
-              <label className="text-xs font-medium">
-                2) Numero elementi su {movSel?.nome || "…"}
+              <label className="flex min-h-0 flex-col gap-1 text-xs font-medium">
+                <span>
+                  2) Numero elementi su {movSel?.nome || "…"}
+                </span>
                 <input
                   type="number"
                   min={1}
                   max={200}
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
-                  className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
+                  className="mt-auto w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
                 />
               </label>
               <label className="text-xs font-medium sm:col-span-2">
@@ -384,12 +404,24 @@ export function PiantaPostoOccupazione({
                   className="mt-0.5 w-full rounded border border-green-200 bg-white px-2 py-1 text-sm"
                 >
                   <option value="">Scegli uno…</option>
-                  {elementiCat.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.stadio === "confezione" ? "Cartone" : "Sacchetto"} ·{" "}
-                      {v.nome} ({v.codice})
-                    </option>
-                  ))}
+                  {confezioniCat.length ? (
+                    <optgroup label="Confezioni">
+                      {confezioniCat.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.nome} ({v.codice})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {isolamentiCat.length ? (
+                    <optgroup label="Isolamenti">
+                      {isolamentiCat.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.nome} ({v.codice})
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                 </select>
               </label>
               <div className="sm:col-span-2">
