@@ -19,8 +19,15 @@ import {
   sendTicketMessaggioAction,
 } from "@/app/actions/strumenti-ticket";
 import {
+  TicketAllegatiAnteprima,
+  fileToAnteprima,
+  ticketFileToAnteprima,
+  useObjectUrls,
+} from "@/components/strumenti/TicketAllegatiAnteprima";
+import {
   TICKET_CATEGORIA_META,
   TICKET_CATEGORIE,
+  TICKET_MAX_FILE_PER_MSG,
   TICKET_STATO_LABEL,
   TICKET_URGENZA_META,
   TICKET_URGENZE,
@@ -77,10 +84,40 @@ export function TicketBoard({ mode }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [allegatiNuovo, setAllegatiNuovo] = useState<File[]>([]);
+  const [allegatiChat, setAllegatiChat] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatFileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const urlsNuovo = useObjectUrls(allegatiNuovo);
+  const urlsChat = useObjectUrls(allegatiChat);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!audioBlob) {
+      setAudioUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(audioBlob);
+    setAudioUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [audioBlob]);
+
+  function accodaFile(correnti: File[], incoming: FileList | null): File[] {
+    if (!incoming?.length) return correnti;
+    const next = [...correnti];
+    for (const f of Array.from(incoming)) {
+      if (!f.size) continue;
+      if (next.length >= TICKET_MAX_FILE_PER_MSG) {
+        setError(`Massimo ${TICKET_MAX_FILE_PER_MSG} file per messaggio.`);
+        break;
+      }
+      if (next.some((x) => x.name === f.name && x.size === f.size)) continue;
+      next.push(f);
+    }
+    return next;
+  }
 
   async function caricaElenco() {
     const res = await listTicketAction({
@@ -156,10 +193,7 @@ export function TicketBoard({ mode }: Props) {
     fd.set("categoria", categoria);
     fd.set("urgenza", urgenza);
     fd.set("descrizione", descrizione);
-    const files = fileRef.current?.files;
-    if (files) {
-      for (const f of Array.from(files)) fd.append("files", f);
-    }
+    for (const f of allegatiNuovo) fd.append("files", f);
     if (audioBlob) {
       fd.set("audio", new File([audioBlob], "vocale.webm", { type: audioBlob.type || "audio/webm" }));
     }
@@ -171,6 +205,7 @@ export function TicketBoard({ mode }: Props) {
     }
     setDescrizione("");
     setAudioBlob(null);
+    setAllegatiNuovo([]);
     if (fileRef.current) fileRef.current.value = "";
     setNuovo(false);
     setSel(res.ticket);
@@ -184,10 +219,7 @@ export function TicketBoard({ mode }: Props) {
     const fd = new FormData();
     fd.set("ticketId", sel.id);
     fd.set("contenuto", chatText);
-    const files = chatFileRef.current?.files;
-    if (files) {
-      for (const f of Array.from(files)) fd.append("files", f);
-    }
+    for (const f of allegatiChat) fd.append("files", f);
     if (audioBlob) {
       fd.set(
         "audio",
@@ -204,6 +236,7 @@ export function TicketBoard({ mode }: Props) {
     }
     setChatText("");
     setAudioBlob(null);
+    setAllegatiChat([]);
     if (chatFileRef.current) chatFileRef.current.value = "";
     setSel(res.ticket);
     await caricaElenco();
@@ -249,6 +282,8 @@ export function TicketBoard({ mode }: Props) {
                 setNuovo(true);
                 setSel(null);
                 setAudioBlob(null);
+                setAllegatiNuovo([]);
+                setAllegatiChat([]);
               }}
               className="rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-medium text-white"
             >
@@ -423,8 +458,8 @@ export function TicketBoard({ mode }: Props) {
                 {recording ? <FaStop /> : <FaMicrophone />}
                 {recording ? "Stop vocale" : "Vocale"}
               </button>
-              {audioBlob && !recording ? (
-                <span className="text-xs text-emerald-800">Vocale pronto</span>
+              {audioBlob && !recording && audioUrl ? (
+                <audio controls src={audioUrl} className="max-w-full" />
               ) : null}
               <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
                 <FaPaperclip />
@@ -433,10 +468,28 @@ export function TicketBoard({ mode }: Props) {
                   ref={fileRef}
                   type="file"
                   multiple
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,audio/*"
                   className="hidden"
+                  onChange={(e) => {
+                    setAllegatiNuovo((cur) => accodaFile(cur, e.target.files));
+                    e.target.value = "";
+                  }}
                 />
               </label>
             </div>
+            <TicketAllegatiAnteprima
+              items={allegatiNuovo.map((f, i) =>
+                fileToAnteprima(f, urlsNuovo[i] ?? null)
+              )}
+              uploading={busy}
+              onRemove={(id) =>
+                setAllegatiNuovo((cur) =>
+                  cur.filter(
+                    (f) => fileToAnteprima(f, null).id !== id
+                  )
+                )
+              }
+            />
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -512,33 +565,9 @@ export function TicketBoard({ mode }: Props) {
                     </p>
                   ) : null}
                   {m.files.length ? (
-                    <ul className="mt-2 space-y-1">
-                      {m.files.map((f) => (
-                        <li key={f.id} className="text-sm">
-                          {f.kind === "vocale" && f.url ? (
-                            <audio controls src={f.url} className="max-w-full" />
-                          ) : f.kind === "immagine" && f.url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={f.url}
-                              alt={f.fileName}
-                              className="max-h-48 rounded border"
-                            />
-                          ) : f.url ? (
-                            <a
-                              href={f.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[var(--primary)] underline"
-                            >
-                              {f.fileName}
-                            </a>
-                          ) : (
-                            f.fileName
-                          )}
-                        </li>
-                      ))}
-                    </ul>
+                    <TicketAllegatiAnteprima
+                      items={m.files.map(ticketFileToAnteprima)}
+                    />
                   ) : null}
                 </article>
               ))}
@@ -565,8 +594,8 @@ export function TicketBoard({ mode }: Props) {
                     {recording ? <FaStop /> : <FaMicrophone />}
                     Vocale
                   </button>
-                  {audioBlob && !recording ? (
-                    <span className="text-xs text-emerald-800">Vocale pronto</span>
+                  {audioBlob && !recording && audioUrl ? (
+                    <audio controls src={audioUrl} className="max-w-[16rem]" />
                   ) : null}
                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs">
                     <FaPaperclip /> File
@@ -574,7 +603,12 @@ export function TicketBoard({ mode }: Props) {
                       ref={chatFileRef}
                       type="file"
                       multiple
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt,audio/*"
                       className="hidden"
+                      onChange={(e) => {
+                        setAllegatiChat((cur) => accodaFile(cur, e.target.files));
+                        e.target.value = "";
+                      }}
                     />
                   </label>
                   <button
@@ -586,6 +620,17 @@ export function TicketBoard({ mode }: Props) {
                     <FaPaperPlane /> Invia
                   </button>
                 </div>
+                <TicketAllegatiAnteprima
+                  items={allegatiChat.map((f, i) =>
+                    fileToAnteprima(f, urlsChat[i] ?? null)
+                  )}
+                  uploading={busy}
+                  onRemove={(id) =>
+                    setAllegatiChat((cur) =>
+                      cur.filter((f) => fileToAnteprima(f, null).id !== id)
+                    )
+                  }
+                />
               </div>
             ) : (
               <p className="border-t border-[var(--border)] pt-2 text-xs text-[var(--muted)]">

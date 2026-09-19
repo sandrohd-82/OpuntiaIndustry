@@ -131,35 +131,94 @@ export function titoloDaDescrizione(testo: string): string {
   return t.length > 80 ? `${t.slice(0, 77)}…` : t;
 }
 
-export function kindDaMime(mime: string): "allegato" | "vocale" | "immagine" {
-  if (mime.startsWith("audio/")) return "vocale";
-  if (mime.startsWith("image/")) return "immagine";
+const MIME_DA_EXT: Record<string, string> = {
+  pdf: "application/pdf",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  bmp: "image/bmp",
+  heic: "image/heic",
+  heif: "image/heif",
+  webm: "audio/webm",
+  ogg: "audio/ogg",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  zip: "application/zip",
+  txt: "text/plain",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+export function extDaNome(name: string): string {
+  return name.split(".").pop()?.toLowerCase() ?? "";
+}
+
+export function mimeDaFile(name: string, mime: string): string {
+  const raw = (mime || "").split(";")[0].trim().toLowerCase();
+  if (raw && raw !== "application/octet-stream") {
+    if (raw === "image/jpg" || raw === "image/pjpeg") return "image/jpeg";
+    if (raw === "image/x-png") return "image/png";
+    return raw;
+  }
+  return MIME_DA_EXT[extDaNome(name)] ?? raw;
+}
+
+export function kindDaMime(
+  mime: string,
+  name = ""
+): "allegato" | "vocale" | "immagine" {
+  const m = mimeDaFile(name, mime);
+  if (m.startsWith("audio/") || /\.(webm|ogg|mp3|wav|m4a)$/i.test(name)) {
+    return "vocale";
+  }
+  if (m.startsWith("image/") || /\.(jpe?g|png|gif|webp|bmp|heic|heif)$/i.test(name)) {
+    return "immagine";
+  }
   return "allegato";
 }
 
 export function extDaNomeOMime(name: string, mime: string): string {
-  const fromName = name.split(".").pop()?.toLowerCase() ?? "";
+  const fromName = extDaNome(name);
   if (fromName && fromName.length <= 8 && /^[a-z0-9]+$/.test(fromName)) {
     return fromName;
   }
-  if (mime === "audio/webm") return "webm";
-  if (mime === "image/jpeg") return "jpg";
-  if (mime === "image/png") return "png";
-  if (mime === "application/pdf") return "pdf";
+  const m = mimeDaFile(name, mime);
+  if (m === "audio/webm") return "webm";
+  if (m === "image/jpeg") return "jpg";
+  if (m === "image/png") return "png";
+  if (m === "application/pdf") return "pdf";
   return "bin";
 }
 
-export function mimeAmmesso(mime: string): boolean {
-  if (!mime) return false;
-  if (mime.startsWith("image/")) return true;
-  if (mime.startsWith("audio/")) return true;
+export function isPdfFile(mime: string, name = ""): boolean {
+  return mimeDaFile(name, mime) === "application/pdf" || /\.pdf$/i.test(name);
+}
+
+export function mimeAmmesso(mime: string, name = ""): boolean {
+  const m = mimeDaFile(name, mime);
+  if (m.startsWith("image/") || m.startsWith("audio/")) return true;
   return (
-    mime === "application/pdf" ||
-    mime === "text/plain" ||
-    mime === "application/zip" ||
-    mime ===
+    m === "application/pdf" ||
+    m === "text/plain" ||
+    m === "application/zip" ||
+    m === "application/msword" ||
+    m === "application/vnd.ms-excel" ||
+    m ===
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    mime ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    m ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    Boolean(MIME_DA_EXT[extDaNome(name)])
   );
+}
+
+export function formatBytesTicket(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
